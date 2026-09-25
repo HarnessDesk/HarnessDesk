@@ -292,8 +292,8 @@ test('the collector reads titles and alts, not only the body text (#296)', () =>
   const seen = new Function('document', `return ${COLLECT}`)(document)
   assert.deepEqual(
     asked,
-    ['[title], [alt], [placeholder], [aria-label]', 'input:not([type=hidden]), textarea', 'select', 'webview, iframe'],
-    'the four attributes are asked for in one pass, then fields, then selects, then guest panes',
+    ['[title], [alt], [placeholder]', 'input:not([type=hidden]), textarea', 'select', 'webview, iframe'],
+    'the three drawn-or-hoverable attributes are asked for in one pass, then fields, then selects, then guest panes',
   )
   assert.equal(seen.text, 'the body')
   assert.equal(seen.documentTitle, 'HarnessDesk')
@@ -304,31 +304,46 @@ test('the collector reads titles and alts, not only the body text (#296)', () =>
   assert.deepEqual(seen.guests, [])
 })
 
-test('the collector reads placeholder and aria-label, which surface a real path exactly like a title does (#922)', () => {
+test('the collector reads placeholder, which surfaces a real path exactly like a title does (#922)', () => {
   const leaking = {
     tagName: 'INPUT',
     className: 'search',
     getAttribute: (name) => ({ placeholder: '/home/jroe/private-repo' }[name] ?? null), // hd-secrets-ok
   }
-  const clean = {
-    tagName: 'BUTTON',
-    className: 'toggle',
-    getAttribute: (name) => ({ 'aria-label': 'Toggle the sidebar' }[name] ?? null),
-  }
   const document = {
     title: 'HarnessDesk',
     body: { innerText: '' },
-    querySelectorAll: (selector) => (selector === '[title], [alt], [placeholder], [aria-label]' ? [leaking, clean] : []),
+    querySelectorAll: (selector) => (selector === '[title], [alt], [placeholder]' ? [leaking] : []),
   }
   const seen = new Function('document', `return ${COLLECT}`)(document)
   assert.deepEqual(seen.attributes, [
     ['placeholder', '/home/jroe/private-repo', 'input', 'search'], // hd-secrets-ok
-    ['aria-label', 'Toggle the sidebar', 'button', 'toggle'],
   ])
   const reasons = textReasons(seen, { user: USER })
-  assert.equal(reasons.length, 1, 'the clean aria-label must not be refused')
+  assert.equal(reasons.length, 1)
   assert.ok(reasons[0].startsWith('a placeholder attribute on input.search'))
 })
+
+test(
+  'the collector never asks for aria-label at all: nothing it holds can appear in a screenshot\'s pixels, and ' +
+    'refusing a frame for it took the whole native UI-system suite down on .cm-content\'s own internal file path (#932 review)',
+  () => {
+    // FilePane.tsx gives .cm-content an aria-label equal to the file's
+    // absolute, real path — an internal identifier a screen reader
+    // announces, never a string any browser draws. No query below may name
+    // it, or that exact real path is a refusal again the moment CodeMirror's
+    // own DOM is on screen (as it always is, for the editor scene).
+    assert.doesNotMatch(COLLECT, /aria-label/, 'aria-label must not be named in any collector query')
+    // The control: a document with nothing else to find still collects
+    // cleanly, so this is a claim about the query, not about an empty page.
+    const seen = new Function('document', `return ${COLLECT}`)({
+      title: 'HarnessDesk',
+      body: { innerText: '' },
+      querySelectorAll: () => [],
+    })
+    assert.deepEqual(seen.attributes, [])
+  },
+)
 
 test('a select\'s chosen option is read directly, not trusted to reach innerText (#922)', () => {
   const clean = { tagName: 'SELECT', className: 'runtime', selectedOptions: [{ text: 'Codex' }] }
@@ -475,7 +490,7 @@ test('the collector never throws when a webview\'s getURL() is not ready yet, an
   assert.match(reasons[0], /not ready to be audited yet/)
 })
 
-test('TILDIFY shortens placeholder and aria-label along with title (#922)', () => {
+test('TILDIFY shortens placeholder along with title, but never rewrites aria-label (#922, #932 review)', () => {
   const home = '/home/someone'
   const written = {}
   const element = {
@@ -487,11 +502,40 @@ test('TILDIFY shortens placeholder and aria-label along with title (#922)', () =
   const document = {
     body: {},
     createTreeWalker: () => ({ nextNode: () => null }),
-    querySelectorAll: (selector) => (selector === '[title], [placeholder], [aria-label]' ? [element] : []),
+    querySelectorAll: (selector) => (selector === '[title], [placeholder]' ? [element] : []),
   }
   new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4 })
-  assert.deepEqual(written, { placeholder: '~/work/storefront', 'aria-label': '~/work' })
+  assert.deepEqual(written, { placeholder: '~/work/storefront' })
 })
+
+test(
+  'TILDIFY leaves a real path standing in aria-label, because the editor keys .cm-content\'s own identity ' +
+    'off the exact path FilePane.tsx gave it — rewriting it there broke editor-dark\'s own lookup once (#932 review)',
+  () => {
+    const home = '/home/someone'
+    const path = `${home}/work/storefront/package.json`
+    const cmContent = {
+      className: 'cm-content',
+      getAttribute: (name) => (name === 'aria-label' ? path : null),
+      setAttribute: () => {
+        throw new Error('aria-label must never be written by TILDIFY')
+      },
+    }
+    const document = {
+      body: {},
+      createTreeWalker: () => ({ nextNode: () => null }),
+      // TILDIFY's own query no longer asks for [aria-label] at all — this
+      // fixture still exercises the case where an aria-label-only element
+      // shows up in a broader query, in case that selector is ever widened
+      // again for another attribute.
+      querySelectorAll: (selector) => (selector === '[title], [placeholder]' ? [] : [cmContent]),
+    }
+    // Must not throw: an element with only an unrecognised attribute name is
+    // simply not looked at, not merely one whose write is skipped by chance.
+    new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4 })
+    assert.equal(cmContent.getAttribute('aria-label'), path, 'the exact path .cm-content was given must survive untouched')
+  },
+)
 
 test('the collector reads what a field holds, which is neither text nor an attribute', () => {
   /* The browser pane's address bar is an `<input>`: its URL lives in the
@@ -684,7 +728,7 @@ test('the substitution both drivers run covers attributes, not only text (#296)'
   new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4 })
   assert.equal(text[0].nodeValue, 'Opened ~/work/storefront')
   assert.equal(text[1].nodeValue, 'nothing to change')
-  assert.deepEqual(asked, ['[title], [placeholder], [aria-label]', 'input:not([type=hidden]), textarea'])
+  assert.deepEqual(asked, ['[title], [placeholder]', 'input:not([type=hidden]), textarea'])
   assert.equal(titled.value, '~/work/storefront', 'the tooltip the recording used to leave standing')
   assert.equal(field.value, 'file://~/work/browse/index.html', 'the address bar, which is a field and not text')
 })

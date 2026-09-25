@@ -144,11 +144,18 @@ export const TILDIFY = (home, replacement = '~') => {
       const shortened = shorten(node.nodeValue)
       if (shortened !== node.nodeValue) node.nodeValue = shortened
     }
-    // \`placeholder\` is drawn on screen exactly like a title is on hover, and
-    // \`aria-label\` costs nothing to walk even though it is never drawn — both
-    // gaps a real path could sit in unshortened (#922).
-    for (const element of document.querySelectorAll('[title], [placeholder], [aria-label]')) {
-      for (const name of ['title', 'placeholder', 'aria-label']) {
+    // \`placeholder\` is drawn on screen exactly like a title is on hover, so
+    // both are rewritten before the capture (#922). \`aria-label\` is read for
+    // the audit (COLLECT, below) but never rewritten here: nothing paints it —
+    // \`Page.captureScreenshot\` cannot show what no browser ever draws — and
+    // the editor keys its own file identity off the exact, un-shortened path
+    // in \`.cm-content\`'s own aria-label (\`FilePane.tsx\`'s \`ariaLabel={path}\`).
+    // Mutating it here left that element unfindable by the very path a second
+    // theme's capture went looking for, which is not a hypothetical: it took
+    // the whole native suite down between \`editor-light\` and \`editor-dark\`
+    // the one time it ran (#932 review).
+    for (const element of document.querySelectorAll('[title], [placeholder]')) {
+      for (const name of ['title', 'placeholder']) {
         const value = element.getAttribute(name)
         if (value === null) continue
         const shortened = shorten(value)
@@ -171,13 +178,23 @@ export const TILDIFY = (home, replacement = '~') => {
  * Evaluated over there and handed back as data, so the deciding happens in
  * Node where it can be tested. `innerText` is what a reader sees; `title` and
  * `alt` are what a reader sees on hover, or would see if an image failed to
- * load; `placeholder` is drawn on screen precisely like a title is, and
- * `aria-label` is read on the same pass because it costs nothing (#922).
+ * load; `placeholder` is drawn on screen precisely like a title is.
+ *
+ * `aria-label` is deliberately not read here. A first version of this file
+ * read it on the theory that it "costs nothing" to check — but `aria-label`
+ * is never painted by any browser under any circumstance, so nothing it holds
+ * can ever appear in `Page.captureScreenshot`'s pixels, and this file's whole
+ * question is whether a *picture* may be published. Reading it anyway cost
+ * something real: `.cm-content`'s own `aria-label` is the file's exact,
+ * absolute path (`FilePane.tsx`'s `ariaLabel={path}`, an internal identifier
+ * a screen reader announces, never a string drawn on screen), and refusing a
+ * frame for it took the whole native UI-system suite down on a machine path
+ * nobody could ever have seen (#932 review).
  */
 export const COLLECT = `(() => {
   const attributes = []
-  for (const element of document.querySelectorAll('[title], [alt], [placeholder], [aria-label]')) {
-    for (const name of ['title', 'alt', 'placeholder', 'aria-label']) {
+  for (const element of document.querySelectorAll('[title], [alt], [placeholder]')) {
+    for (const name of ['title', 'alt', 'placeholder']) {
       const value = element.getAttribute(name)
       if (value) attributes.push([
         name,
