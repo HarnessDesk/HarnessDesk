@@ -809,10 +809,11 @@
   border-radius: 0;
   border: none;
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+  /* The row's ink is this sheet's to say, once: the Button's `pattern` size
+     brings no colour. Its alignment and cursor are the Button's (`text-left`,
+     `cursor-pointer`), so they are not said here a second time. */
   color: inherit;
   font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
 
 /* Column, not row: the title and its description are two lines, and a flex

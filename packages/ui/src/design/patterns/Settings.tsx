@@ -965,7 +965,7 @@ export const RowChoice = ({
     aria-checked={selected}
     tabIndex={selected || tabStop ? 0 : -1}
     disabled={disabled}
-    className={cx('w-full min-w-0', styles.row, styles.rowButton, styles.rowChoice)}
+    className={cx(styles.row, styles.rowButton, styles.rowChoice)}
     onClick={onClick}
     onKeyDown={(event) => {
       if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return

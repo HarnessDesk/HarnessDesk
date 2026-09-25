@@ -16,11 +16,59 @@ import { Row, RowButton, RowChoice, Rows } from './Settings'
  * classes; `e2e/ui-system/row-box.spec.ts` measures the box in a real engine.
  */
 
-/* Any utility that would answer a question `.row`/`.rowButton` already answer. */
-const BOX_UTILITY = /^(?:p[trblxy]?|gap|rounded|border|text|leading|font|whitespace|inline-flex|flex|items|justify)(?:-|$)/
-/* The row variant's own alignment and ink, which say what `.rowButton` says. */
-const VARIANT_SAYS = new Set(['justify-start', 'text-left', 'text-(--hd-foreground)'])
-const boxUtilities = (classes: readonly string[]) => classes.filter((one) => BOX_UTILITY.test(one) && !VARIANT_SAYS.has(one))
+/*
+ * The properties the row's own sheet says, read from `.row`, `.rowButton` and
+ * `.rowChoice` themselves. A shorthand counts as each longhand it sets, and
+ * `border-bottom` as the border.
+ */
+const SHORTHAND: Record<string, readonly string[]> = {
+  font: ['font-size', 'line-height', 'font-weight', 'font-family'],
+  'border-bottom': ['border'],
+}
+const sheetSays = (): Set<string> => {
+  const said = new Set<string>()
+  for (const selector of ['.row', '.rowButton', '.rowChoice']) {
+    const body = new RegExp(`(?:^|\\n)\\${selector} \\{([^}]*)\\}`).exec(css)?.[1]?.replace(/\/\*[\s\S]*?\*\//g, '') ?? ''
+    for (const [, property] of body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)) {
+      for (const one of SHORTHAND[property!] ?? [property!]) said.add(one)
+    }
+  }
+  return said
+}
+
+/* The one property each utility the Button can put on a row sets, whatever
+   state modifier it is written under: a state is still a tie while it holds. */
+const PROPERTY: readonly [RegExp, string][] = [
+  [/^p[trblxy]?-/, 'padding'],
+  [/^gap-/, 'gap'],
+  [/^rounded/, 'border-radius'],
+  [/^border/, 'border'],
+  [/^text-(?:left|right|center|start|end)$/, 'text-align'],
+  [/^text-(?:\(length:|xs|sm|base|lg|xl)/, 'font-size'],
+  [/^text-/, 'color'],
+  [/^leading-/, 'line-height'],
+  [/^font-/, 'font-weight'],
+  [/^whitespace-/, 'white-space'],
+  [/^(?:inline-flex|flex|grid|block|inline-block)$/, 'display'],
+  [/^flex-wrap|^flex-nowrap/, 'flex-wrap'],
+  [/^items-/, 'align-items'],
+  [/^justify-/, 'justify-content'],
+  [/^w-/, 'width'],
+  [/^bg-/, 'background'],
+  [/^cursor-/, 'cursor'],
+]
+const propertyOf = (utility: string): string | undefined => {
+  const bare = utility.split(/:(?![^[(]*[\])])/).at(-1) ?? utility
+  return PROPERTY.find(([pattern]) => pattern.test(bare))?.[1]
+}
+/* Every utility on the element that sets a property the row's sheet also sets. */
+const ties = (classes: readonly string[]): string[] => {
+  const said = sheetSays()
+  return classes.filter((one) => {
+    const property = propertyOf(one)
+    return property !== undefined && said.has(property)
+  })
+}
 
 const classesOf = (markup: string, selector: RegExp): string[] => {
   const match = selector.exec(markup)
@@ -43,13 +91,16 @@ it('a row button and a row choice carry no utility that ties with the row box', 
   for (const [name, classes] of [['RowButton', button], ['RowChoice', choice]] as const) {
     // The guard on the guard: the row's own box class is there to do the job.
     expect(classes.some((one) => one.startsWith('_row_') || one === 'row' || /(^|_)row(_|$)/.test(one)), `${name} lost .row`).toBe(true)
-    expect(boxUtilities(classes), `${name} carries a box utility`).toEqual([])
+    expect(ties(classes), `${name} carries a utility that ties with the row's sheet`).toEqual([])
   }
 })
 
 it('the pattern size brings the behaviour and the variant, and none of the box', () => {
+  // The guard on the guard: the sheet says the box and the ink, so a tie on
+  // any of them would be found.
+  expect([...sheetSays()]).toEqual(expect.arrayContaining(['padding', 'gap', 'border', 'border-radius', 'color', 'display', 'width']))
   const pattern = buttonVariants({ variant: 'row', size: 'pattern' }).split(/\s+/)
-  expect(boxUtilities(pattern)).toEqual([])
+  expect(ties(pattern)).toEqual([])
   // The variant's states and the behaviour stay.
   expect(pattern).toContain('hover:bg-(--hd-hover)')
   expect(pattern).toContain('aria-checked:bg-(--hd-active)')

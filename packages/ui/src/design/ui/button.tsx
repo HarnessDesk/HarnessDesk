@@ -51,7 +51,6 @@ const BEHAVIOUR = [
      here would draw a second mark around the same button under Desk. */
   'active:not-aria-[haspopup]:translate-y-px',
   'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[dragging]:opacity-40',
-  'aria-invalid:border-(--hd-destructive)',
   // Icons carry their own dimensions through the app's icon facade. A
   // descendant-wide size override also shrank avatar marks and nested art.
   '[&_svg]:pointer-events-none [&_svg]:shrink-0',
@@ -62,7 +61,7 @@ const BEHAVIOUR = [
    but `pattern` wears it. */
 const BOX = [
   'inline-flex items-center justify-center gap-1.5 whitespace-nowrap',
-  'rounded-(--hd-btn-radius) border border-transparent bg-clip-padding',
+  'rounded-(--hd-btn-radius) border border-transparent bg-clip-padding aria-invalid:border-(--hd-destructive)',
   /* `leading-none` because the height token owns the box: Tailwind's
      `text-sm` used to bring a line-height with it, and swapping in the
      token spelling silently left the body's 21px line box inside a 26px
@@ -96,7 +95,7 @@ const VARIANTS = {
      answer in a list of answers — is the same fill; none of them
      changes the weight. */
   row:
-    'justify-start text-left bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:bg-(--hd-active) aria-checked:bg-(--hd-active) data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through',
+    'justify-start text-left bg-transparent hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:bg-(--hd-active) aria-checked:bg-(--hd-active) data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through',
   navigation:
     'justify-start text-left bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[current]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[open]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[selected]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[insert=before]:shadow-[inset_0_2px_0_0_var(--hd-primary)] data-[insert=after]:shadow-[inset_0_-2px_0_0_var(--hd-primary)]',
   /* A chosen option is filled whichever way its caller says so:
@@ -179,7 +178,7 @@ const boxedVariants = cva(
            its inset as `px-2`. The vertical padding stays, because unlike a
            rail row this one regularly carries a name over a description and
            the floor alone would crowd it. */
-        row: 'h-auto min-h-(--hd-nav-h) gap-(--hd-nav-gap) rounded-(--hd-nav-radius) px-(--hd-nav-inset) py-1 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
+        row: 'h-auto min-h-(--hd-nav-h) gap-(--hd-nav-gap) rounded-(--hd-nav-radius) px-(--hd-nav-inset) data-[indent]:pl-6 py-1 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal whitespace-normal in-data-[register=light]:min-h-(--hd-control-h) in-data-[register=light]:py-0.5 in-data-[register=light]:pl-0.5 in-data-[register=light]:pr-1.5 in-data-[register=light]:rounded-(--hd-radius-sm)',
         /* A destination row owns its height, so inherited window-rail density
            cannot make one destination taller than its neighbours. A list the
            person asked to be comfortable is the exception: its rows carry a
@@ -189,6 +188,12 @@ const boxedVariants = cva(
         'icon-circle': 'size-(--hd-btn-h) rounded-full p-0',
       },
     },
+    /* The row's ink, said here rather than in the variant: a row that draws
+       its own box sets foreground ink, and a `pattern` row takes the ink its
+       pattern's sheet gives it. In the variant it tied with that sheet, and
+       which one won depended on load order. The indent moved to the `row`
+       size for the same reason — it is the box's inset, not a state. */
+    compoundVariants: [{ variant: 'row', class: 'text-(--hd-foreground)' }],
     defaultVariants: { variant: 'default', size: 'default' },
   },
 )
