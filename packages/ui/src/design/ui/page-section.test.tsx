@@ -4,12 +4,13 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { Button } from './button'
 import { GroupLabel } from './group-label'
+import { KeyValueRow, SummaryItem, SummaryList } from './key-value'
 import { Section } from './section'
 
 /*
  * The page grammar: a `Section` that owns its spacing, a `GroupLabel` that is
  * the one group heading, and a `SummaryList` that holds several facts about
- * one thing in one card (its tests arrive with it). jsdom lays nothing out, so these hold the contract
+ * one thing in one card. jsdom lays nothing out, so these hold the contract
  * the markup and the classes make; `e2e/ui-system/page-grammar.spec.ts`
  * measures the result in the real engine.
  */
@@ -96,4 +97,73 @@ it('GroupLabel is 13px, secondary ink and sentence case, and never uppercases', 
   expect(own).toContain('text-(--hd-secondary-foreground)')
   expect(own.some((one) => /uppercase|tracking/.test(one))).toBe(false)
   expect(label.tagName).toBe('SPAN')
+})
+
+it('SummaryList is one card whose items share a key, a value and an action column', () => {
+  const wrap = draw(
+    <SummaryList aria-label="Facts">
+      <SummaryItem label="Ceiling" note="May change files and commit in its own checkout." action={<Button size="sm" variant="outline">Update…</Button>}>
+        Edit
+      </SummaryItem>
+      <SummaryItem label="File" kind="path">~/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md</SummaryItem>
+      <SummaryItem label="Seats" numeric>3</SummaryItem>
+    </SummaryList>,
+  )
+  expect(wrap.dataset['slot']).toBe('summary-list')
+  const list = wrap.querySelector('dl')
+  expect(list?.getAttribute('aria-label')).toBe('Facts')
+  // One card, drawn from the same tokens a `Rows` card reads.
+  expect(list?.className).toContain('bg-[var(--hd-card-fill,var(--hd-card))]')
+  expect(list?.className).toContain('rounded-[var(--hd-card-radius,var(--hd-radius-lg))]')
+  expect(list?.className).toContain('grid-cols-[auto_minmax(0,1fr)_auto]')
+  const items = [...(list?.querySelectorAll('[data-slot="summary-item"]') ?? [])]
+  expect(items).toHaveLength(3)
+  for (const item of items) expect(item.className).toContain('grid-cols-subgrid')
+
+  const [ceiling, file, seats] = items
+  // The key column: muted, at least 5rem, the same classes KeyValue's keys wear.
+  expect(ceiling?.querySelector('dt')?.className).toContain('text-(--hd-muted-foreground)')
+  expect(ceiling?.querySelector('dt')?.className).toContain('min-w-20')
+  expect(ceiling?.querySelector('[data-slot="summary-value"]')?.textContent).toContain('Edit')
+  expect(ceiling?.querySelector('[data-slot="summary-note"]')?.textContent).toBe('May change files and commit in its own checkout.')
+  expect(ceiling?.querySelector('[data-slot="summary-action"] button')?.textContent).toBe('Update…')
+  // A path gives up its middle; a number is right-aligned on tabular figures.
+  expect(file?.querySelector('[data-slot="middle-truncate"]')).not.toBeNull()
+  expect(file?.getAttribute('data-kind')).toBe('path')
+  expect(seats?.hasAttribute('data-numeric')).toBe(true)
+  expect(seats?.querySelector('[data-slot="summary-value"]')?.className).toContain('text-right')
+  expect(seats?.querySelector('[data-slot="summary-value"]')?.className).toContain('tabular-nums')
+  expect(file?.querySelector('[data-slot="summary-value"]')?.className).toContain('text-left')
+  expect(seats?.querySelector('[data-slot="summary-action"]')).toBeNull()
+  // With no action of its own, the value takes the action's column too.
+  expect(seats?.querySelector('[data-slot="summary-value"]')?.className).toContain('col-span-2')
+  expect(ceiling?.querySelector('[data-slot="summary-value"]')?.className).not.toContain('col-span-2')
+})
+
+it('SummaryList keys match KeyValue keys, so the two lists are one vocabulary', () => {
+  const inspector = draw(
+    <dl>
+      <KeyValueRow label="Key">Value</KeyValueRow>
+    </dl>,
+  )
+  const keyValueKey = classes(inspector.querySelector('dt'))
+  act(() => root.render(<SummaryList><SummaryItem label="Key">Value</SummaryItem></SummaryList>))
+  const summaryKey = classes(container.querySelector('dt'))
+  for (const one of ['text-start', 'text-(--hd-muted-foreground)', 'min-w-20']) {
+    expect(keyValueKey).toContain(one)
+    expect(summaryKey).toContain(one)
+  }
+})
+
+it('a SummaryList composes inside a Section with no margin of its own', () => {
+  const section = draw(
+    <Section title="Agent">
+      <SummaryList>
+        <SummaryItem label="File">AGENT.md</SummaryItem>
+      </SummaryList>
+    </Section>,
+  )
+  const wrap = section.querySelector('[data-slot="summary-list"]')
+  expect(wrap?.parentElement).toBe(section)
+  expect(classes(wrap).some((one) => /^-?m[tbyxlr]?-/.test(one))).toBe(false)
 })

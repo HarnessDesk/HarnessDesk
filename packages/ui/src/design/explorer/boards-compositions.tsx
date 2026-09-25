@@ -134,6 +134,8 @@ import {
   Toolbar,
   ToolbarGap,
   toast,
+  SummaryItem,
+  SummaryList,
 } from '../ui'
 import {
   Counts,
@@ -215,7 +217,7 @@ const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as cons
 const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel', 'page'] as const
 const SECTION_CATALOG_SIZES = ['default'] as const
 const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
-const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel'] as const
+const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel', 'summary'] as const
 const KEY_VALUE_CATALOG_SIZES = ['default'] as const
 const KEY_VALUE_CATALOG_STATES = ['default', 'empty', 'populated'] as const
 const TOOL_PANE_CATALOG_VARIANTS = ['default', 'integrated'] as const
@@ -608,6 +610,15 @@ const KeyValueBoard = () => (
             $212.40
           </KeyValueRow>
         </KeyValue>
+      </Case>
+      <Case label="summary: facts about one object, as a card">
+        <SummaryList className="w-full" data-catalog-variant="summary">
+          <SummaryItem label="File" kind="path" action={<Button size="sm" variant="secondary">Open file</Button>}>
+            ~/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md
+          </SummaryItem>
+          <SummaryItem label="Ceiling" note="May change files and commit in its own checkout, and never push.">Edit</SummaryItem>
+          <SummaryItem label="Seats" numeric>3</SummaryItem>
+        </SummaryList>
       </Case>
       <Case label="compact panel facts">
         <KeyValue variant="panel" className="w-full" data-catalog-variant="panel">

@@ -271,6 +271,14 @@ export const ELEMENTS: readonly UsageRule[] = [
   },
   {
     family: 'key-value',
+    variant: 'summary',
+    when: 'Several facts about one object on a page — a file, a ceiling, what it loads — as `SummaryList` inside one `Section`: a key, a value, an optional note under it and an optional small action at the row\'s end.',
+    never: 'A stack of one-row cards, each under its own label. Five facts about one Agent are one card of five rows.',
+    because:
+      'Eight label-plus-one-row-card sections made the Agent page a column of floating grey words. One card of facts is read top to bottom like an inspector, with the actions in one column at the end.',
+  },
+  {
+    family: 'key-value',
     variant: 'default',
     when: 'Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.',
     never: 'Right-aligning a sentence. A ragged left edge cannot be scanned, and a three-line "Declares" set flush right was the worst line in its dialog.',
