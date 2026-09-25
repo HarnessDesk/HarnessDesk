@@ -386,6 +386,12 @@ it('authoring composes the frontmatter and refuses a name that cannot be a direc
       (one) => one.getAttribute('aria-label') === 'Install for Second Agent',
     ),
   )
+  // The agents are one group, announced by its legend.
+  const group = [...document.body.querySelectorAll('[role="group"]')].find(
+    (one) => document.getElementById(one.getAttribute('aria-labelledby') ?? '')?.textContent === 'Install for',
+  )
+  expect(group, 'Install for should be a fieldset named by its legend').toBeTruthy()
+  expect(group?.querySelectorAll('[data-slot="checkbox"]').length).toBe(columns.length)
   await click(buttonNamed('Preview the install'))
 
   expect(onPlan).toHaveBeenCalledOnce()

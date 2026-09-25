@@ -108,9 +108,10 @@
 
 /* The body's stack spaces its paragraphs, so a screen never reaches for a
    `.blurb` class to say "the sentence under the title" — that is just the
-   body. A flush body is a list, and a paragraph in one keeps its own step. */
-.body > p {
-  margin: 0; /* desk: 0 0 12 → 0, the body's stack spaces its paragraphs */
+   body. A flush body is a list, and a paragraph in one keeps its own step;
+   so is a reading body, which is a document and not a stack. */
+.body[data-layout='form'] > p {
+  margin: 0; /* desk: .body > p → .body[data-layout='form'] > p, only a form body's stack spaces its paragraphs */
 }
 
 .flush > p {

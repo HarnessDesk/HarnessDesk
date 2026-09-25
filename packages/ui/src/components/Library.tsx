@@ -220,10 +220,17 @@ const Count = ({
     >
       {/* Amber on the number, never the whole control: a filter row wearing
           five warning colours is five warnings, and the count is the only
-          part that is news. */}
-      <Text role="meta" numeric {...(tone === 'warn' && value > 0 ? { tone: 'warning' as const } : { ink: 'primary' as const })}>
-        {value}
-      </Text>
+          part that is news. Pressed, the number takes the pill's own lit ink
+          with its words, so the chip that is on reads as one thing. */}
+      {active ? (
+        /* Its own box, so the pill's gap still stands between it and the
+           words; a bare number would run into them. */
+        <span>{value}</span>
+      ) : (
+        <Text role="meta" numeric {...(tone === 'warn' && value > 0 ? { tone: 'warning' as const } : { ink: 'primary' as const })}>
+          {value}
+        </Text>
+      )}
       {label}
     </PanelPill>
   )

@@ -196,7 +196,7 @@ const TaskCard = ({
       />
       {hasBlock && (
         <CodeBlock
-          {...(task.command ? { command: task.command } : {})}
+          {...(task.command ? { command: task.command, copyLabel: `Copy the command for ${task.label}` } : {})}
           {...(task.output !== undefined ? { output: task.output.length > 0 ? task.output : '(no output)' } : {})}
         >
           {task.output === undefined && (

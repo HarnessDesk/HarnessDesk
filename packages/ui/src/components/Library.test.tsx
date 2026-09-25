@@ -1325,6 +1325,9 @@ it('a count counts what pressing it will show, search included', async () => {
   await typeSearch('gamma')
   expect(chipNamed('reach none')?.textContent).toContain('0')
   expect(chipNamed('reach none')?.hasAttribute('data-on')).toBe(true)
+  // Pressed, the number takes the pill's lit ink with its words: nothing
+  // inside the chip paints an ink of its own.
+  expect(chipNamed('reach none')?.querySelector('[data-slot="text"]')).toBeNull()
 
   // Released, a search that leaves nothing in that state withdraws the chip
   // rather than offering a press that would empty the list.

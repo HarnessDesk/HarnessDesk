@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   isReachProblem,
@@ -183,6 +183,7 @@ export const SkillSheet = ({
   onClose: () => void
 }) => {
   const store = useStore()
+  const surface = useRef<HTMLDivElement>(null)
   const [definition, setDefinition] = useState<LibraryDefinition | null>(null)
   const [reading, setReading] = useState(true)
   const [view, setView] = useState<'rendered' | 'source'>('rendered')
@@ -408,8 +409,13 @@ export const SkillSheet = ({
   return (
     <DialogRoot open onOpenChange={(next) => !next && onClose()}>
       <DialogContent
+        ref={surface}
         data-slot="skill-sheet"
         bleed
+        /* Nothing here is typed into, so the surface takes the focus, as a
+           Dialog without a field does: Escape reaches it, a reader lands
+           inside, and no ring is drawn on Close for a keyboard opening. */
+        initialFocus={() => surface.current}
         showCloseButton={false}
         className="flex h-[min(84vh,760px)] w-[min(1080px,94vw)] flex-col overflow-hidden"
       >

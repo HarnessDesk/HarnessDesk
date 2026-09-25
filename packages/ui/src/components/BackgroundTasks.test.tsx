@@ -147,6 +147,26 @@ describe('BackgroundTasksView', () => {
     expect(container.textContent).toContain('No conversation')
   })
 
+  it('turns the system spinner while a task runs, and only then', () => {
+    mount([running('t1', 'Watch the tests'), done('t2', 'Ran the build')])
+    const [live, over] = cards()
+    const spinner = live?.querySelector('[data-slot="spinner"]')
+    expect(spinner?.getAttribute('data-size')).toBe('sm')
+    expect(spinner?.getAttribute('data-tone')).toBe('success')
+    expect(over?.querySelector('[data-slot="spinner"]')).toBeNull()
+  })
+
+  it('names each plate’s copy button for its own task', () => {
+    mount([
+      running('t1', 'Watch the tests', { command: 'pnpm test --watch' }),
+      running('t2', 'Serve the site', { command: 'pnpm dev' }),
+    ])
+    const names = [...container.querySelectorAll('[data-slot="code-block-command"] button')].map((one) =>
+      one.getAttribute('aria-label'),
+    )
+    expect(names).toEqual(['Copy the command for Watch the tests', 'Copy the command for Serve the site'])
+  })
+
   it('draws every task as a card, running work first', () => {
     mount([done('t2', 'Ran the build'), running('t1', 'Watch the tests')])
     expect(cards().map((card) => card.dataset['state'])).toEqual(['running', 'completed'])

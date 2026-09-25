@@ -53,6 +53,11 @@ it('draws a Dialog from the same head, subhead and body parts a sheet composes',
   )
   const head = document.body.querySelector('[data-slot="dialog-head"]')
   expect(head?.querySelector('h2')?.textContent).toBe('Import between agents')
+  // The name is the subject step: 14/21, medium — said as utilities so they
+  // replace the title primitive's `text-base leading-none` rather than tie.
+  const name = head?.querySelector('h2')?.className.split(/\s+/) ?? []
+  expect(name).toEqual(expect.arrayContaining(['text-(length:--hd-text)', 'leading-(--hd-line)', 'font-medium']))
+  expect(name).not.toContain('leading-none')
   expect(head?.querySelector('button[aria-label="Close"]')).not.toBeNull()
   // A head with nothing under its name keeps the one-line shape.
   expect(head?.hasAttribute('data-lines')).toBe(false)
