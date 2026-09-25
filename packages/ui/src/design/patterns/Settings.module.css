@@ -908,6 +908,20 @@
   padding-inline-end: var(--hd-space-6); /* desk: var(--hd-card-padding) → var(--hd-space-6), the gap a row keeps between its control and its chevron */
 }
 
+/* Under the pointer the pair reads as one row: the hover ground is the
+   pair's, edge to edge, so it takes the card's corners at both ends. Lit
+   alone, the opener's ground stopped square a fold's width before the card's
+   edge while its other end kept the card's round corner. The fold keeps its
+   own hover on top of the row's, a step deeper, so the second target still
+   shows where it is. */
+.rowFolding:hover {
+  background: var(--hd-hover); /* desk: none → --hd-hover, the pair is one row under the pointer */
+}
+
+.rowFolding > .rowButton:hover {
+  background: transparent; /* desk: --hd-hover → transparent, the pair draws the row's hover */
+}
+
 .rowFoldEnd {
   flex: none;
   display: flex;

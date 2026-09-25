@@ -93,3 +93,40 @@ test('a labelled checkbox is named by its words and ticked by them', async ({ pa
   await page.getByText('Install for Codex', { exact: true }).click()
   await expect(box).toHaveAttribute('aria-checked', 'true')
 })
+
+test('hovering a folding row lights the whole row to the card edge, and the fold a step deeper', async ({ page }) => {
+  await page.goto('/design.html?view=row')
+  const card = page.locator('[data-catalog-case="row-fold"]')
+  const pair = card.locator('[data-slot="row-folding"]')
+  const opener = pair.locator('button:not([aria-expanded])')
+  const fold = pair.locator('button[aria-expanded]')
+
+  const read = () => pair.evaluate((node) => {
+    const card = node.closest('[data-catalog-case="row-fold"]') as HTMLElement
+    const opener = node.querySelector('button:not([aria-expanded])') as HTMLElement
+    const fold = node.querySelector('button[aria-expanded]') as HTMLElement
+    return {
+      pair: getComputedStyle(node).backgroundColor,
+      opener: getComputedStyle(opener).backgroundColor,
+      fold: getComputedStyle(fold).backgroundColor,
+      // The lit box is the pair's, so its ends are the card's.
+      reachesEdge: Math.abs(node.getBoundingClientRect().right - card.getBoundingClientRect().right) <= 1,
+    }
+  })
+
+  await page.mouse.move(0, 0)
+  const rest = await read()
+  expect(rest.pair).toBe('rgba(0, 0, 0, 0)')
+
+  await opener.hover()
+  const onName = await read()
+  expect(onName.pair).not.toBe(rest.pair)
+  // Not the opener's own ground: that one stopped a fold's width short.
+  expect(onName.opener).toBe('rgba(0, 0, 0, 0)')
+  expect(onName.reachesEdge).toBe(true)
+
+  await fold.hover()
+  const onFold = await read()
+  expect(onFold.pair).toBe(onName.pair)
+  expect(onFold.fold).not.toBe('rgba(0, 0, 0, 0)')
+})
