@@ -1,5 +1,5 @@
 import { mkdirSync, realpathSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -27,8 +27,26 @@ const canonical = (path) => {
   return realpathSync(path)
 }
 
-export const HOME = canonical(process.env['HD_SHOTS_HOME'] ?? join(homedir(), '.harnessdesk-shots'))
-export const WORK = canonical(process.env['HD_SHOTS_WORK'] ?? join(homedir(), 'work'))
+/**
+ * Off the real machine's home entirely — a fixed folder under the OS temp
+ * directory, not `~/.harnessdesk-shots`. The staged desk, the fake Codex home
+ * and every repository this rig builds live under here, so nothing it writes
+ * or photographs can carry this machine's actual home path.
+ */
+export const HOME = canonical(process.env['HD_SHOTS_HOME'] ?? join(tmpdir(), 'harnessdesk-shots'))
+
+/**
+ * A "person" folder inside the staged home, one level above where the
+ * repositories actually sit.
+ *
+ * The project path is on camera — the board header prints it and so does the
+ * approval dialog — and the app writes it with a tilde where it can. Nesting
+ * `work` a level under a folder the drivers shorten to `~` (`shoot.mjs` and
+ * `gif.mjs` both tildify `dirname(WORK)`, not `WORK` itself) means a frame
+ * still reads `~/work/storefront`, the way a real checkout would, without the
+ * repositories ever sitting under this machine's actual home.
+ */
+export const WORK = canonical(process.env['HD_SHOTS_WORK'] ?? join(HOME, 'person', 'work'))
 
 // The built-in adapter is constructed even when a camera ACP row replaces it.
 // Capture and seed both use this inert configuration; importing it never stages

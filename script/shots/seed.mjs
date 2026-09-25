@@ -16,7 +16,7 @@
  * to draw, and the workspace list that ties them together. It is idempotent —
  * run it before every take, because a take leaves its own turns behind.
  *
- *   node script/shots/seed.mjs            # stage ~/.harnessdesk-shots
+ *   node script/shots/seed.mjs            # stage the rig's own temp-dir home
  *   node script/shots/seed.mjs --clean    # tear it down and stage it again
  */
 import { execFileSync } from 'node:child_process'
@@ -40,13 +40,16 @@ const REGISTERED_CAST = process.env['HD_SHOTS_NATIVE_CODEX'] === '1'
   : CAST
 
 /**
- * The repositories live under the real `$HOME`, not under the staged home.
+ * The repositories live under `WORK`, a "person" folder nested one level
+ * inside the staged home — never under this machine's real `$HOME`.
  *
  * The project path is on camera — the board header prints it and so does the
- * approval dialog — and the app writes it with a tilde where it can. A folder
- * under `~/work` photographs as `~/work/storefront`, which reads like
- * somebody's checkout. A folder under `~/.harnessdesk-shots/work` photographs
- * as a rig.
+ * approval dialog — and the app writes it with a tilde where it can. The
+ * drivers (`shoot.mjs`, `gif.mjs`) shorten `WORK`'s parent folder to `~`
+ * rather than `WORK` itself, so a folder that physically sits under
+ * `HOME/person/work` still photographs as `~/work/storefront`, which reads
+ * like somebody's checkout, without ever putting a real repository under this
+ * machine's actual home (`config.mjs`).
  */
 const say = (line) => process.stdout.write(`  ${line}\n`)
 
@@ -147,7 +150,7 @@ const rigOwnsHome = usingDefaultHome || existsSync(MARKER)
 if (!rigOwnsHome && !empty) {
   process.stderr.write(
     `\n  HD_SHOTS_HOME (${HOME}) is not empty and carries no ${MARKER_NAME} from an earlier seed, so this rig cannot tell it apart from a real desk's home. Refusing to write anything here.\n` +
-      `  Point HD_SHOTS_HOME at an empty folder, the default (~/.harnessdesk-shots), or one seed.mjs has already staged.\n\n`,
+      `  Point HD_SHOTS_HOME at an empty folder, the default (a fixed folder under the OS temp directory), or one seed.mjs has already staged.\n\n`,
   )
   process.exit(1)
 }
@@ -311,6 +314,21 @@ writeFileSync(
   )}\n`,
 )
 
+/**
+ * `preferences` starts empty on every seed, deliberately — it is not merged
+ * with whatever a previous take's app process wrote here while it ran.
+ *
+ * `preferences.layouts` is where the renderer persists each workspace's pane
+ * arrangement (`packages/ui/src/state/store.ts`'s `#keepWorkbench`), and a
+ * layout can hold a docked browser pane — its tabs, and each tab's URL. An
+ * earlier `browser` take leaves exactly that behind: run it, then shoot a
+ * later scene against the same un-reseeded home, and that scene's window
+ * restores with the previous take's browser panel still docked, address bar
+ * and all. Writing `{}` here rather than reading and merging the file this
+ * would otherwise overwrite is what clears it — RESIDUE already deletes this
+ * file outright, so a hand-merge would have nothing of the rig's own to lose,
+ * only ever a previous take's panel and dock state.
+ */
 writeFileSync(
   join(HOME, 'state.json'),
   `${JSON.stringify(

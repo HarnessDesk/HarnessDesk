@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -398,4 +398,101 @@ test('seed.mjs marks an empty custom home on its first run, and seeds it normall
   writeFileSync(join(home, 'goals', 'stale.json'), '{}\n')
   seed()
   assert.equal(existsSync(join(home, 'goals', 'stale.json')), false)
+})
+
+test('the default rig home and its work folder live under the OS temp directory, never this machine\'s real home', () => {
+  // Spawned rather than imported directly: `config.mjs` resolves its defaults
+  // at import time, and this repository's own test run always has
+  // `HD_SHOTS_HOME`/`HD_SHOTS_WORK` set by whichever suite ran before this
+  // one shares the module cache. A fresh process with neither set is the only
+  // way to see what a person who has never heard of either variable gets.
+  const { HOME, WORK } = JSON.parse(
+    execFileSync(
+      process.execPath,
+      ['--input-type=module', '-e', "import { HOME, WORK } from './script/shots/config.mjs'; process.stdout.write(JSON.stringify({ HOME, WORK }))"],
+      { cwd: root, env: { ...process.env, HD_SHOTS_HOME: undefined, HD_SHOTS_WORK: undefined }, stdio: 'pipe', encoding: 'utf8' },
+    ),
+  )
+  const home = homedir()
+  assert.ok(HOME.startsWith(realpathSync(tmpdir())), `HOME (${HOME}) is not under the OS temp directory`)
+  assert.ok(WORK.startsWith(realpathSync(tmpdir())), `WORK (${WORK}) is not under the OS temp directory`)
+  assert.equal(HOME.startsWith(home), false, `HOME (${HOME}) is under this machine's real home`)
+  assert.equal(WORK.startsWith(home), false, `WORK (${WORK}) is under this machine's real home`)
+  // `WORK` is nested one level inside `HOME`, under a "person" folder — the
+  // folder `shoot.mjs`/`gif.mjs` shorten to `~` so a frame still reads
+  // `~/work/storefront` (`config.mjs`'s own doc comment).
+  assert.ok(WORK.startsWith(`${HOME}/`), `WORK (${WORK}) is not nested inside HOME (${HOME})`)
+  assert.equal(dirname(WORK), join(HOME, 'person'))
+})
+
+test('the capture drivers shorten the work folder\'s parent, never `WORK` itself, so a frame still reads ~/work/…', () => {
+  for (const file of ['script/shots/shoot.mjs', 'script/shots/gif.mjs']) {
+    const source = readFileSync(join(root, file), 'utf8')
+    assert.match(source, /TILDIFY\(dirname\(WORK\)\)/, `${file} does not shorten WORK's parent folder`)
+    assert.doesNotMatch(source, /TILDIFY\(WORK\)/, `${file} still shortens WORK itself, which would drop the "work" segment`)
+  }
+})
+
+test('the browser scene opens its fixture under WORK, never under this machine\'s real home', () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const body = shoot.slice(shoot.indexOf("browser: { leaveOverlay: true"), shoot.indexOf('// The review sweep'))
+  assert.match(body, /const fixture = join\(WORK, 'browser-fixture\.html'\)/)
+  assert.doesNotMatch(body, /homedir\(\)/, 'the browser scene must never build its page from the real home')
+})
+
+test('reseeding clears a leftover browser-pane layout, closing the leak an earlier browser take left in state.json', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-layout-leak-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home')
+  const work = join(directory, 'work')
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+  seed()
+
+  // What a running app persists after a `browser` scene docks its pane
+  // (`packages/ui/src/state/store.ts`'s `#keepWorkbench`, into
+  // `preferences.layouts` — `packages/server/src/state.ts`): the tab's own
+  // URL, carrying a path this rig must never publish.
+  writeFileSync(
+    join(home, 'state.json'),
+    JSON.stringify({
+      version: 1,
+      installId: 'shots',
+      workspaces: [],
+      preferences: {
+        layouts: {
+          [join(work, 'storefront')]: {
+            main: { root: { kind: 'pane', id: 'p1', view: { kind: 'conversation', session: null } }, focused: 'p1', expanded: null },
+            right: {
+              root: {
+                kind: 'stack',
+                id: 's1',
+                views: [{
+                  id: 'm1',
+                  view: {
+                    kind: 'browser',
+                    tabs: [{ id: 't1', url: 'file:///Users/realuser/work/browse', title: 'browse' }],
+                    active: 't1',
+                    driven: 't1',
+                  },
+                }],
+              },
+              collapsed: false,
+            },
+          },
+        },
+      },
+    }),
+  )
+
+  // The next take reseeds, exactly as seed.mjs's own doc comment says to do
+  // before every one.
+  seed()
+
+  const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.deepEqual(state.preferences, {}, 'a leftover panel/dock layout survived reseeding')
+  assert.doesNotMatch(readFileSync(join(home, 'state.json'), 'utf8'), /realuser/)
 })

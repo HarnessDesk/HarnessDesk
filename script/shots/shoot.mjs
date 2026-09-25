@@ -202,10 +202,13 @@ try {
   /** Hide this machine's home, the one substitution a frame is allowed. */
   const tildify = async () => {
     await cdp.eval(TILDIFY(homedir()))
-    // Native verification repositories may live in a unique temporary root.
-    // Normalize that synthetic path too so concurrency-safe random suffixes
-    // never become public screenshot content.
-    await cdp.eval(TILDIFY(WORK))
+    // `WORK` itself is never shortened: it is a "person" folder nested one
+    // level inside the staged home (`config.mjs`), and shortening `WORK`
+    // outright would collapse `~/work/storefront` down to `~/storefront`.
+    // Its *parent* — the "person" folder, or a native-verification run's own
+    // temporary root — is what the drivers give a home's worth of meaning, so
+    // that is what is hidden, leaving `work/<repo>` standing underneath it.
+    await cdp.eval(TILDIFY(dirname(WORK)))
     await sleep(150)
   }
 
