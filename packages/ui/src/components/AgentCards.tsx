@@ -681,7 +681,7 @@ export const AgentHoverCard = ({
           ref={setCard}
           side={placed}
           {...(align ? { align } : {})}
-          className="p-0"
+          bleed
           /* A verb dismisses the card that offered it. Every action here opens,
              renames or addresses something *behind* this card, and review found
              it left floating over the destination until the pointer happened to

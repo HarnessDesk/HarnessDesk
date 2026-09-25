@@ -72,14 +72,23 @@ const HoverCardTrigger = ({
   />
 )
 
+/**
+ * `bleed` is for a card whose body is a composed card of its own — a crest and
+ * bands whose rules run edge to edge (`AgentCard`) — the way a tool pane's
+ * body bleeds for content that brings its own ground: an inset around it would
+ * stop every band's rule short of the card's edge.
+ */
 const HoverCardContent = ({
   className,
   align = 'start',
   side = 'right',
   sideOffset = HOVER_CARD_SIDE_OFFSET,
+  bleed = false,
   ...props
 }: React.ComponentProps<typeof HoverCardPrimitive.Popup> &
-  Pick<React.ComponentProps<typeof HoverCardPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'>) => (
+  Pick<React.ComponentProps<typeof HoverCardPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'> & {
+    bleed?: boolean
+  }) => (
   <HoverCardPrimitive.Portal>
     <HoverCardPrimitive.Positioner
       data-slot="hover-card-positioner"
@@ -91,13 +100,13 @@ const HoverCardContent = ({
     >
       <HoverCardPrimitive.Popup
         data-slot="hover-card-content"
+        {...(bleed ? { 'data-bleed': '' } : {})}
         className={cn(
           /* `p-3`, so a card of plain facts — a sentence, a key/value list —
              is never the first thing that has to hand-roll its own inset;
-             `AgentHoverCard`'s own fully custom body already cancels it with
-             `p-0`, which was written defensively before this default existed
-             and still means the same thing now that it does. */
-          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-72 origin-(--transform-origin) overflow-hidden rounded-lg border p-3 shadow-md outline-hidden',
+             a card whose body is a composed card of its own says `bleed`. */
+          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-72 origin-(--transform-origin) overflow-hidden rounded-lg border shadow-md outline-hidden',
+          bleed ? 'p-0' : 'p-3',
           className,
         )}
         {...props}

@@ -231,7 +231,7 @@ const SessionRow = ({
                 That is the card's whole case here. */}
             <SessionHoverCard
               session={summary}
-              className={`${styles.statusTarget} px-(--rail)`}
+              className={styles.statusTarget}
               actions={[
                 ...(snapshot.activeSessionKey === key
                   ? []

@@ -307,6 +307,20 @@ it('lists its own seats, muted, where this Mac’s replace them', () => {
   expect(text).toContain('Not used on this Mac')
   expect(text).toContain('Free here')
   expect(text).toContain('Comes first over the one that ships')
+  // Muted, never withdrawn: each seat of the replaced list names itself in
+  // the muted ink, while this Mac's own list keeps the primary one.
+  const seats = container.querySelector('section[aria-label="Seats"]')
+  const names = [...(seats?.querySelectorAll('[data-slot="text"][data-role="row"]') ?? [])]
+  expect(names.length).toBeGreaterThan(0)
+  for (const name of names) expect(name.getAttribute('data-ink')).toBe('muted')
+})
+
+it('names its seats in the primary ink where they are the ones this Mac uses', () => {
+  mount({ focus: 'judge' })
+  const seats = container.querySelector('section[aria-label="Seats"]')
+  const names = [...(seats?.querySelectorAll('[data-slot="text"][data-role="row"]') ?? [])]
+  expect(names.length).toBeGreaterThan(0)
+  for (const name of names) expect(name.getAttribute('data-ink')).toBe('primary')
 })
 
 it('shows what it answers and produces, and reads its editable Skills/Servers section from the host, never "None"', async () => {

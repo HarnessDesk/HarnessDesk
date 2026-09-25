@@ -487,6 +487,15 @@ export const RoomComposer = ({
     ).find((one): one is { readonly tone: 'warn' | 'muted'; readonly text: string } => one !== false) ?? null
 
   return (
+    <>
+    {/* What sending will do, said over the box rather than inside it — on
+        the reading column's edge, as the room's own live line above it is,
+        so the box itself holds only the words and the ways to send them. */}
+    {notice && (
+      <Note {...(notice.tone === 'warn' ? { tone: 'warn' as const } : { ink: 'muted' as const })}>
+        {notice.text}
+      </Note>
+    )}
     <ComposerShell className="relative">
       {mention && (
         <TriggerMenu
@@ -542,12 +551,6 @@ export const RoomComposer = ({
         onChange={(event) => change(event.target.value)}
         onKeyDown={onKeyDown}
       />
-
-      {notice && (
-        <Note className="px-3.5" {...(notice.tone === 'warn' ? { tone: 'warn' as const } : { ink: 'muted' as const })}>
-          {notice.text}
-        </Note>
-      )}
 
       <ComposerTools>
         <Popover
@@ -650,5 +653,6 @@ export const RoomComposer = ({
         </ComposerSend>
       </ComposerTools>
     </ComposerShell>
+    </>
   )
 }
