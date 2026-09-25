@@ -109,7 +109,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
 
   it('shows no sessions empty state rather than connect runtime when active runtime is ready', () => {
     mount()
-    const empty = container.querySelector('p[class*="empty"]')
+    const empty = container.querySelector('[data-slot="empty-state"]')
     expect(empty).not.toBeNull()
     expect(empty?.textContent).not.toContain('Connect a runtime to see your sessions.')
     expect(empty?.textContent).toContain('No sessions yet.')
@@ -134,7 +134,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(reasonId).not.toBeNull()
     expect(document.getElementById(reasonId!)?.textContent).toContain('Connect an agent')
 
-    const empty = container.querySelector('p[class*="empty"]')
+    const empty = container.querySelector('[data-slot="empty-state"]')
     expect(empty).not.toBeNull()
     expect(empty?.textContent).toContain('Connect a runtime to see your sessions.')
   })

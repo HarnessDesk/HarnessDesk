@@ -538,6 +538,110 @@ having written the judgement down.
 
 **Why** — A hover card that wore a dialog's shadow would claim the window's attention for something the pointer merely passed over.
 
+### `warning`
+
+**Use** — The person must act now — sign in, approve, free a limit — and the thing cannot go on without them. Chip, Badge, Note and Banner all read it this way.
+
+**Not** — For a default or a normal state: a permission that is "asked" by default, an open finding, a shadowed copy, a limit working as designed. Those are neutral or carry no chip.
+
+**Why** — The Permissions page once drew 48 identical amber chips for the default. Amber on every row is how the one row that does need someone stops being found.
+
+### `danger`
+
+**Use** — Something is broken, or will be lost: a failed check, a missing executable, an action that deletes.
+
+**Not** — For a stop the person asked for. "The agent was stopped." after pressing Stop is neutral — it is the outcome they chose.
+
+**Why** — Red is the loudest thing a screen can say. Spent on an outcome the reader chose, it teaches them to look past the red that matters.
+
+### `neutral`
+
+**Use** — Every default, every normal state and every fact that asks nothing of the reader — or no chip at all.
+
+**Not** — Promoted to a colour to make a row look busier. A tone is a claim about what the reader should do.
+
+**Why** — Most of what a desk reports is fine. Neutral is what lets the exceptions be seen.
+
+### `one line`
+
+**Use** — Always. A chip never wraps: it stops at its box (at most 240px), ellipsises, and names itself whole in `title` while it is cut. The Chip enforces this.
+
+**Not** — Forced into two lines by a caller. A fact that needs a second line is a row's description or a dialog's, not a chip.
+
+**Why** — A pill with two lines in it is a card pretending to be a mark — the board's wrapped evidence chips were the loudest thing on every card that carried one.
+
+### `stale`
+
+**Use** — A fact recorded before what is there now. Pass `stale`: the Chip leads with the history glyph and says "stale" to a screen reader; a stale pass drops to neutral and muted ink, while a stale failure keeps its danger ink.
+
+**Not** — A strikethrough. Struck text reads as "wrong", and a stale fact was right when it was recorded.
+
+**Why** — Muted with a glyph keeps the fact legible for what it was, and still says it is no longer current.
+
+### `count`
+
+**Use** — A chip that counts something takes `count`, and a zero draws nothing. `showZero` is for the rare set where zero is itself the finding.
+
+**Not** — A row of zero-count chips, or "+0 −0 in 0 files" on every card: a chip that counts none has nothing to say.
+
+**Why** — A zero draws the eye exactly as much as a seven, and it asks nothing.
+
+### `earned`
+
+**Use** — A chip says something the row does not already say. A chip that is identical on every row of a group belongs in the group's heading, once.
+
+**Not** — Repeating the row's own title ("Healthy" beside a row titled Healthy), or the state a control beside it already shows ("Off" beside a switch that is off).
+
+**Why** — Every chip costs the row some of its name. One that repeats the title or the control is paid for twice and says nothing.
+
+### `panel`
+
+**Use** — Nothing yet on a page, a pane or a dialog body that exists to hold it: centred icon, title, sentence and the ways to fill it. `tight` inside a card.
+
+**Not** — With its own ink action when the header above already has the primary. The empty state's action is then secondary — two ink buttons is two primaries, which is none.
+
+**Why** — The empty Goal board once had "New job" in its header and "Add the first job" under it, both black.
+
+### `inline`
+
+**Use** — Nothing in a list, a column or a pane that already says what it is: one muted line, no icon, no heading.
+
+**Not** — Under a node of a navigation tree. An empty node has no children and at most a count; only a whole list with nothing in it at all may carry one inline line.
+
+**Why** — A sentence under every empty Goal in the sidebar made the tree twice as tall and said the same thing four times.
+
+### `row`
+
+**Use** — Nothing in a `Rows` card: a row with the Row's own padding and hairline, its title a step quieter so it is never read as an item.
+
+**Not** — A hand-drawn `Row` titled "No … yet", or a bold title in a card of its own. Both were how the app came to have five empty layouts.
+
+**Why** — The card keeps its shape whether it holds nothing or twelve things, so the page does not jump when the first one arrives.
+
+### `default`
+
+**Use** — Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.
+
+**Not** — Right-aligning a sentence. A ragged left edge cannot be scanned, and a three-line "Declares" set flush right was the worst line in its dialog.
+
+**Why** — The eye runs down the keys and across to the value; a value that starts at the same x every time is the thing it lands on.
+
+### `numeric`
+
+**Use** — A count, a total, money — a value a reader compares by place. The row says `numeric`, and only then is it right-aligned on tabular figures.
+
+**Not** — On a row that holds words, or as the list's default. Right alignment is a claim that the digits line up.
+
+**Why** — A totals column that lines up by place is read in one glance; the same alignment on a sentence is read in none.
+
+### `path`
+
+**Use** — A file or folder path as a value: `kind="path"` (or `MiddleTruncate` elsewhere) gives up the middle, keeps the last segment, and names the whole in its title while cut.
+
+**Not** — A bare path in a value: it has no break opportunities, so it either runs past the container or loses the file name at the end.
+
+**Why** — A path's informative ends are whose it is and what it names. The middle is what every path in the list shares.
+
 ### The slots a gate holds
 
 `pnpm design:audit` fails on a variant that cannot appear in one of these, on one
@@ -1008,6 +1112,32 @@ a judged fact takes a semantic `tone`, while an identity takes a `tint`.
 The emphatic brand tone marks the current fact in a set. Stale and unknown
 facts keep those meanings distinct in both ink and their accessible names.
 
+**Grammar.** A chip is a mark, not a sentence:
+
+- **One line, always.** It never wraps: it stops at its box (at most 240px,
+  less when its container is narrower), ellipsises, and says itself whole
+  in `title` while it is cut. A fact that needs two lines is a row's
+  description, not a chip.
+- **Stale is marked, never struck.** A stale fact leads with a history
+  glyph, and the word "stale" is there for a screen reader. A stale *pass*
+  drops to the neutral fill and muted ink — it no longer vouches for what
+  is there now. A stale failure or warning keeps its tone: it is still the
+  last word, and hiding it would make a broken branch read as fine. A
+  strikethrough reads as "wrong", and a stale fact was right when it was
+  recorded.
+- **Zero draws nothing.** Give counts as `count`; zero renders no chip
+  unless `showZero` says zero is itself the finding.
+- **A chip earns its place.** It never repeats the row's own title, nor the
+  state a control beside it already shows (an "Off" chip by an off switch).
+  A chip that is identical on every row of a group says something about the
+  group: it belongs in the group's heading, once.
+
+**Tone.** `warning` means the person must act now; `danger` means
+something is broken or will be lost. A default or normal state is
+`neutral` or has no chip at all, and a stop the person asked for is
+neutral. Colour on every row is noise that hides the one row that needs
+someone. See `design/usage.ts`, family `tone`.
+
 ### `Search`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1063,6 +1193,11 @@ Fields, stacked — the body of a dialog that asks for more than one thing.
 `packages/ui/src/design/patterns/Settings.tsx`
 
 The short paragraph that belongs to a group of rows rather than to one of them.
+
+Tone follows the one contract (`design/usage.ts`, family `tone`): `warn`
+only when the person must act now, `bad` only when something is broken or
+will be lost. Ordinary information — including a stop the person asked for,
+or a limit that is simply how the thing works — is an untoned note.
 
 ### `NoteList`
 
@@ -1196,7 +1331,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 895 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
+| `screenAppearance` | 892 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |

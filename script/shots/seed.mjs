@@ -20,7 +20,7 @@
  *   node script/shots/seed.mjs --clean    # tear it down and stage it again
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -63,18 +63,104 @@ const say = (line) => process.stdout.write(`  ${line}\n`)
  * and a ledger that ever ran unstubbed has this machine's real spend in it.
  * Deleting it every take means a stale one can never be photographed.
  *
- * The Chromium profile under `electron/` is left alone — it is a browser
- * profile, not app state, and rebuilding it costs seconds of cold start for
- * nothing.
+ * `goals/` is the one that bites hardest. Every Goal — the room the board and
+ * room scenes build, and the one the flow and flow-board scenes create fresh
+ * — lives there as its own document. Left unswept, a Goal from take one is
+ * still on disk for take two, and `GoalPlane` re-installs it as a Team
+ * projection on every boot: its sentence is a permanent, agent-less row in
+ * the sidebar — "Working"/"Needs you" with "No agents in here yet", because
+ * the room and its agents are gone but the Goal document is not. The memory
+ * citation archive lives under `goals/memory-archive`, so clearing the one
+ * directory clears both.
+ *
+ * A Goal document carries no Seat of its own — the schema forbids a
+ * `members` field — so this is not what made `--scene room` refuse "This
+ * conversation already holds a Seat." A Seat is `evidence/`'s to keep, and
+ * `evidence/` was already cleared here before this fix. That refusal comes
+ * from running takes without a reseed between them: a Seat this desk opened
+ * stays open — by design, the same way it would across a real restart —
+ * until something closes it, so a `shoot.mjs` invocation that follows another
+ * one on the same un-reseeded home can still find its first session already
+ * seated. Reseeding before every take, which this file's own header has
+ * always said to do, already prevents that; nothing here changes it.
+ *
+ * The rest of this list is every other place a later phase taught the host to
+ * write beside `goals/`: the Flows engine's own run records (`flows/`,
+ * `flows-v2/`, and the change-notice snapshot in `flow-updates/`), a Seat's
+ * attachment receipts and staged/frozen copies (`attachments/` and
+ * `attachment-trust.json`), a trigger's consent, cursor and post bookkeeping
+ * (`intake.json` and the `triggers-*` files), the session archive and its
+ * names (`archive.json`, `names.json`), stored credentials nothing here
+ * should ever populate (`credentials.json`), the worktree-lane allocator
+ * (`lanes/`, `worktrees/`), the library's own writes (`library/`), and the
+ * desk's own write lease, which a killed take can leave mid-recovery
+ * (`desk-writer.lock`, `desk-writer-recovery`).
+ *
+ * `browser-profile/` is cleared too — it is the in-app browser tool's own
+ * webview partition, and no scene relies on anything a previous take left in
+ * it (the browser scene always opens its own fresh local fixture). The
+ * Chromium profile under `electron/` is left alone, because that one *is*
+ * relied on: it is the Electron shell's own profile, not app state, and
+ * rebuilding it costs seconds of cold start for nothing.
  */
-const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'agents', 'seating.json', 'window.json', 'codex-version', 'evidence', 'provenance', 'provenance-preferences.json', 'provenance-shots.json', 'commands-seen.json', 'commands-seen.key', 'seat-record-scene.json']
-for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
+const RESIDUE = [
+  'team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json',
+  'agents.json', 'agents', 'seating.json', 'window.json', 'codex-version', 'evidence',
+  'provenance', 'provenance-preferences.json', 'provenance-shots.json', 'commands-seen.json',
+  'commands-seen.key', 'seat-record-scene.json',
+  'goals', 'flows', 'flows-v2', 'flow-updates', 'attachments', 'attachment-trust.json',
+  'intake.json', 'triggers-machine.json', 'triggers-key.bin', 'triggers-preferences.json',
+  'triggers-desk-posts.json', 'triggers-cursors.json', 'archive.json', 'names.json',
+  'credentials.json', 'lanes', 'worktrees', 'desk-writer.lock', 'desk-writer-recovery',
+  'browser-profile', 'library',
+]
 
+/**
+ * A folder this rig has actually staged before, the one it stages by
+ * default, or one with nothing in it yet. Anything else is refused outright,
+ * before a single byte is written.
+ *
+ * Widening `RESIDUE` — and `--clean` has always removed the whole folder —
+ * raises what a mistaken `HD_SHOTS_HOME` costs: pointed at a real desk's
+ * `~/.harnessdesk`, or at `$HOME` itself, either one would now delete real
+ * credentials, real Goals and real git worktrees rather than a rig's own
+ * (#909 review, P3-3). The default path is trusted outright, the same way it
+ * always implicitly was. Anything else has to prove it is this rig's own
+ * folder, which it does by carrying the marker an earlier seed wrote.
+ *
+ * A first version of this guard skipped the deletions on an unmarked folder
+ * but still wrote the marker and then went on to overwrite `agents.json`,
+ * `state.json` and the rest of a fresh seed over whatever was there — so a
+ * mistaken `HD_SHOTS_HOME` lost its registry and state on the first run and
+ * its credentials, Goals and worktrees on the very next one, once that first
+ * run had marked it (#909 review, P2-2). "Leave it alone" only holds if nothing
+ * is written at all: the marker is earned by being empty, not merely unmarked,
+ * and an unmarked folder that already holds something refuses the whole run,
+ * this line included, rather than seeding around the question.
+ */
+const MARKER_NAME = '.rig-home.json'
+const MARKER = join(HOME, MARKER_NAME)
+const usingDefaultHome = !process.env['HD_SHOTS_HOME']
+const empty = !existsSync(HOME) || readdirSync(HOME).length === 0
+const rigOwnsHome = usingDefaultHome || existsSync(MARKER)
+
+if (!rigOwnsHome && !empty) {
+  process.stderr.write(
+    `\n  HD_SHOTS_HOME (${HOME}) is not empty and carries no ${MARKER_NAME} from an earlier seed, so this rig cannot tell it apart from a real desk's home. Refusing to write anything here.\n` +
+      `  Point HD_SHOTS_HOME at an empty folder, the default (~/.harnessdesk-shots), or one seed.mjs has already staged.\n\n`,
+  )
+  process.exit(1)
+}
+
+for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
 if (process.argv.includes('--clean')) {
   rmSync(HOME, { recursive: true, force: true })
   for (const repo of REPOS) rmSync(join(WORK, repo.dir), { recursive: true, force: true })
   say(`cleaned ${HOME} and ${REPOS.length} repositories`)
 }
+
+mkdirSync(HOME, { recursive: true })
+writeFileSync(MARKER, `${JSON.stringify({ version: 1, rig: 'harnessdesk-shots' })}\n`)
 
 mkdirSync(join(HOME, 'stores'), { recursive: true })
 mkdirSync(SHOT_ENV.CODEX_HOME, { recursive: true })
