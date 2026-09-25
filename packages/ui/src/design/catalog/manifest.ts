@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
@@ -168,7 +168,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   rail: ['default'],
   'resize-handle': ['default', 'line'],
   'scroll-area': ['default'],
-  section: ['card', 'plain', 'quiet', 'panel'],
+  section: ['card', 'plain', 'quiet', 'panel', 'page'],
   select: ['default'],
   separator: ['horizontal', 'vertical'],
   spark: ['default'],
@@ -433,7 +433,7 @@ export const CANONICAL_UI_MODULES = [
   ['radio-group', 'control', 'Single-choice radio behavior'],
   ['resize-handle', 'panels', 'Keyboard-accessible resize seam'],
   ['scroll-area', 'adopted', 'Themed scroll container'],
-  ['section', 'section', 'Titled content region'],
+  ['section', 'section', 'Titled content region, and the page section that owns its spacing'],
   ['select', 'adopted', 'Custom Base UI select'],
   ['separator', 'adopted', 'Semantic divider'],
   ['spark', 'spark', 'Inline quantitative marks'],

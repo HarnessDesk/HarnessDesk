@@ -647,6 +647,14 @@
     "pad": "0 0 0 0",
     "radius": 10
   },
+  "section/section/variant/page": {
+    "h": 173,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "section/section/variant/panel": {
     "h": 111,
     "text": 14,

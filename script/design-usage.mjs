@@ -306,7 +306,7 @@ export const buttonsIn = (region) =>
  */
 const SITES = [
   { slot: 'pageAction', tag: /^PageHead$/, props: ['actions'], where: "a page head's action" },
-  { slot: 'sectionAction', tag: /^SectionHead$/, props: ['action'], where: "a section head's action" },
+  { slot: 'sectionAction', tag: /^(?:SectionHead|Section)$/, props: ['action'], where: "a section head's action" },
   { slot: 'dialogFooter', tag: /^Dialog$/, props: ['footer'], where: "a dialog's footer" },
 ]
 

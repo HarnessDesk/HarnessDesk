@@ -155,7 +155,7 @@ import {
   WorkbenchRail,
   WorkbenchScrim,
 } from '../patterns/DockPanel'
-import { CodeText, Rows, Text } from '../patterns/Settings'
+import { CodeText, Row, Rows, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
@@ -212,7 +212,7 @@ const INPUT_GROUP_CATALOG_ALIGN = ['inline-start', 'inline-end', 'block-start', 
 const MARKER_CATALOG_VARIANTS = ['default', 'border', 'separator'] as const
 const MARKER_CATALOG_SIZES = ['default'] as const
 const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
-const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel'] as const
+const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel', 'page'] as const
 const SECTION_CATALOG_SIZES = ['default'] as const
 const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
 const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel'] as const
@@ -359,12 +359,30 @@ const SectionBoard = () => (
       data-catalog-sizes={SECTION_CATALOG_SIZES.join(' ')}
       data-catalog-states={SECTION_CATALOG_STATES.join(' ')}
     >
-      {SECTION_CATALOG_VARIANTS.map((variant) => (
-        <Section key={variant} variant={variant} data-catalog-variant={variant}>
-          <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
-          <SectionBody>Canonical section variant.</SectionBody>
-        </Section>
-      ))}
+      {SECTION_CATALOG_VARIANTS.map((variant) =>
+        variant === 'page' ? (
+          /* The page form: a title makes it a section of a page — the label
+             over its card, and the spacing owned. */
+          <div key={variant}>
+            <Section
+              title="Rules"
+              description="A rule answers a request before it reaches you."
+              action={<Button variant="outline" size="sm"><PlusIcon /> Add rule</Button>}
+              data-catalog-variant={variant}
+            >
+              <Rows>
+                <Row title="Allow the test runner" desc="Approves commands containing “pnpm test”." />
+                <Row title="Never push" desc="Denies commands containing “git push”." />
+              </Rows>
+            </Section>
+          </div>
+        ) : (
+          <Section key={variant} variant={variant} data-catalog-variant={variant}>
+            <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
+            <SectionBody>Canonical section variant.</SectionBody>
+          </Section>
+        ),
+      )}
       <Section>
         <SectionHeader>
           <SectionTitle>Approvals</SectionTitle>

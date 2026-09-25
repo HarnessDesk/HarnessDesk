@@ -630,6 +630,22 @@ having written the judgement down.
 
 **Why** — The app had three group-label styles and a column of six 12px tracked capitals read as shouted — the one group that needed finding stopped standing out. A key is the exception because it is a physical thing with printing on it.
 
+### `page`
+
+**Use** — Any part of a page: `<Section title description action>` around its card. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children's own margins.
+
+**Not** — A `SectionHead`, a free `Note` and a `Rows` stacked by hand, or a screen margin between sections. The label then belongs to neither card and every page spaces itself.
+
+**Why** — On the Agent page the label "Ceiling" sat 18px under the card above it and 20px over its own, so it named neither. A section that owns its spacing cannot drift that way, and a page composing sections writes no margin at all.
+
+### `description`
+
+**Use** — One muted sentence under the label saying what the section is, when the label alone cannot.
+
+**Not** — A paragraph of how it works. Two or three lines under every label is a page that explains itself before it shows anything; the explanation belongs on the row it explains, or nowhere.
+
+**Why** — Project, Permissions and Triggers each opened every section with a 2–3 line paragraph under the page's own blurb. The one warning that mattered read like the four around it.
+
 ### `default`
 
 **Use** — Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.
@@ -664,7 +680,7 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 | slot | what it is | may be | rung | ink actions | why |
 | --- | --- | --- | --- | --- | --- |
 | `pageAction` | the `actions` of a `PageHead` | `outline`, `default`, `primary`, `destructive`, `danger` | `--hd-btn-h` | one | It sits on the page's own ground with nothing enclosing it, so it needs an edge or a fill. The unqualified grey and `ghost` both vanish there — which is exactly how one settings window came to carry four different treatments of one slot. |
-| `sectionAction` | the `action` of a `SectionHead` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
+| `sectionAction` | the `action` of a `SectionHead` or a titled `Section` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
 | `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `destructive`, `danger`, `outline` | `--hd-btn-h` | one | The dialog encloses them, so `secondary` is the ordinary answer and the confirm is the one `default`. `ghost` is not: a footer button with no edge reads as a link in a place where every choice should look equally pressable. |
 
 ## Primitives

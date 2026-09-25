@@ -734,6 +734,19 @@
   margin-top: 0;
 }
 
+/* On a page, a section head keeps the page's one section rhythm — the 32px a
+   `Section` owns — so a page half composed of `Section`s and half of
+   `SectionHead`s reads as one page, and a label sits nearer its own card than
+   the card above it. That includes a head that opens a `<section>` of its
+   own: `:first-child` above zeroed it, so a wrapped section started 6px under
+   the card before it and its label named neither card. The margin now
+   collapses through the wrapper and spaces the section itself. A dialog keeps
+   the tighter step it had, and so does the Dashboard's sticky band, which is a
+   page heading with its own padding rather than a label over a card. */
+[data-slot='app-window-page'] .sectionHead:not([data-sticky]) {
+  margin-top: var(--hd-space-8); /* desk: 20 (0 as a section's first child) → 32 on a page, the Section rhythm */
+}
+
 .sectionHead[data-sticky] {
   padding: var(--usage-strip, 0) 0 var(--hd-space-2);
   background: var(--hd-card);
