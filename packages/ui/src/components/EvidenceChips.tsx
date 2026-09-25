@@ -15,6 +15,7 @@ import {
   stateTone,
 } from '../design'
 import { openExternal } from '../lib/desktop'
+import { useSnapshot } from '../state/context'
 import {
   byWords,
   cardChips,
@@ -44,17 +45,36 @@ const FactChipView = ({ chip, className }: { readonly chip: FactChip; readonly c
   </Chip>
 )
 
+/**
+ * Whether the card these facts belong to says its work is done. Read from the
+ * board that holds the evidence, so a board card needs no extra prop; a
+ * caller that knows better (a historical card) says so with `finished`.
+ */
+const useFinished = (id: number, card: CardEvidence | undefined, given: boolean | undefined): boolean => {
+  const snapshot = useSnapshot()
+  if (given !== undefined) return given
+  if (!card) return false
+  for (const [room, evidence] of snapshot.boardEvidence) {
+    if (!evidence.cards.includes(card)) continue
+    return snapshot.teams.get(room)?.intents.find((one) => one.id === id)?.state === 'done'
+  }
+  return false
+}
+
 export const EvidenceChips = ({
   id,
   title,
   card,
+  finished,
 }: {
   readonly id: number
   readonly title: string
   readonly card: CardEvidence | undefined
+  /** Whether the card says its work is done. Read from its board when not given. */
+  readonly finished?: boolean
 }) => {
   const [open, setOpen] = useState(false)
-  const chips = cardChips(card)
+  const chips = cardChips(card, useFinished(id, card, finished))
   if (chips.length === 0) return null
   return (
     <>

@@ -72,7 +72,7 @@ it('renders a runtime mark and returned card evidence for an attributed Seat', a
   expect(host.textContent).toContain('no longer has evidence')
 })
 
-it('keeps the way into a card\'s evidence when its only fact is a diff that changed nothing', async () => {
+it('keeps the way into a historical card\'s evidence when its only fact is a diff that changed nothing', async () => {
   const supplied = { ...value(), cards: [{ board: 'room-1', id: 7 }] }
   const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) }, { card: 7 })
   const snapshot = {
@@ -86,4 +86,18 @@ it('keeps the way into a card\'s evidence when its only fact is a diff that chan
   expect(entry).not.toBeNull()
   expect(entry?.textContent).toBe('no changes')
   expect(host.textContent).not.toContain('no longer has evidence')
+})
+
+it('draws nothing for a zero diff on a card its board still shows being worked', async () => {
+  const supplied = { ...value(), cards: [{ board: 'room-1', id: 7 }] }
+  const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) }, { card: 7 })
+  const snapshot = {
+    ...emptySnapshot(), status: 'open',
+    runtimes: [{ id: 'fixture', presentation: { name: 'Fixture', brand: 'codex' } }],
+    boardEvidence: new Map([['room-1', { cards: [cardEvidence(7, [none])] }]]),
+    teams: new Map([['room-1', { intents: [{ id: 7, state: 'claimed' }] }]]),
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readProvenance: async () => undefined } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><CommitProvenance root="/work/project" sha={supplied.sha} value={supplied} /></StoreProvider>))
+  expect(host.querySelector('button[aria-label^="What the desk observed on #7"]')).toBeNull()
 })

@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { cardEvidence, checkView, ciView, prView } from '../preview/evidence-fixture'
+import { cardEvidence, checkView, ciView, factView, prView } from '../preview/evidence-fixture'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { EvidenceChips, ObservedDialog } from './EvidenceChips'
@@ -24,9 +24,12 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/* One snapshot object: a store that answers every read with a new one never
+   settles, now that the chips read the board they belong to. */
+const SNAPSHOT = { ...emptySnapshot(), status: 'open' } as AppSnapshot
 const store = {
   subscribe: () => () => {},
-  getSnapshot: () => ({ ...emptySnapshot(), status: 'open' }) as AppSnapshot,
+  getSnapshot: () => SNAPSHOT,
 } as unknown as AppStore
 
 const mount = async (node: React.ReactNode): Promise<void> => {
@@ -111,4 +114,27 @@ it("each chip's tone is the one the state map gives its outcome, and stale and u
   expect(container.querySelector('button')?.getAttribute('aria-label')).toBe(
     'What the desk observed on #1: e2e running, verify ✓ @a1b2c3d, lint ✓ @a1b2c3d — 2 commits since (stale), CI cancelled, PR #12 merged (unknown)',
   )
+})
+
+it('reads from its board whether the card is finished: a zero diff alone is news only on a done card', async () => {
+  const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
+  const done = cardEvidence(1, [none])
+  const working = cardEvidence(2, [none])
+  const board = {
+    ...emptySnapshot(),
+    status: 'open',
+    boardEvidence: new Map([['room-1', { room: 'room-1', cards: [done, working] }]]),
+    teams: new Map([['room-1', { intents: [{ id: 1, state: 'done' }, { id: 2, state: 'claimed' }] }]]),
+  } as unknown as AppSnapshot
+  const boardStore = { subscribe: () => () => {}, getSnapshot: () => board } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={boardStore}>
+        <div data-card="1"><EvidenceChips id={1} title="Finished" card={done} /></div>
+        <div data-card="2"><EvidenceChips id={2} title="Working" card={working} /></div>
+      </StoreProvider>,
+    )
+  })
+  expect(container.querySelector('[data-card="1"]')?.textContent).toBe('no changes')
+  expect(container.querySelector('[data-card="2"]')?.innerHTML).toBe('')
 })

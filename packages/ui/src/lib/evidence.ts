@@ -174,7 +174,12 @@ export const chipOf = (view: EvidenceView): FactChip => {
   }
 }
 
-export const cardChips = (card: CardEvidence | undefined): readonly FactChip[] => {
+/**
+ * A card's chips. `finished` is whether the card says its work is done — on
+ * the board, an intent in the `done` state, which is what lands a card in
+ * Needs you, In review or Ready rather than To do or Working.
+ */
+export const cardChips = (card: CardEvidence | undefined, finished = false): readonly FactChip[] => {
   if (!card) return []
   const running = new Set(card.running.map((one) => one.name))
   const chips = [
@@ -191,10 +196,12 @@ export const cardChips = (card: CardEvidence | undefined): readonly FactChip[] =
       .map((view) => ({ view, chip: chipOf(view) })),
   ]
   /* A diff that changed nothing is a count of zero: beside other facts it
-     says nothing and draws no chip (the dialog still lists it). Alone, it is
-     the evidence — on a Done card "no changes" is the finding — and it is
-     also the only way into the dialog, so it stays, quiet and neutral. */
+     says nothing and draws no chip (the dialog still lists it). Alone on a
+     card that says it is finished, it is the finding — work that claims to
+     be done changed nothing — so it stays, one quiet neutral chip. On a card
+     still being worked, or not yet claimed, nothing is known yet: the same
+     "no changes" on every working card is noise, so it draws nothing. */
   const said = chips.filter((one) => !('view' in one) || !isEmptyDiffView(one.view))
-  const kept = said.length > 0 ? said : chips.slice(0, 1)
+  const kept = said.length > 0 || !finished ? said : chips.slice(0, 1)
   return kept.map((one) => ('chip' in one ? one.chip : one))
 }

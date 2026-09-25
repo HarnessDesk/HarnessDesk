@@ -51,7 +51,9 @@ export const CommitProvenance = ({ root, sha, value: supplied }: { readonly root
         })}</Rows>
         {value.cards.map((card) => {
           const evidence = snapshot.boardEvidence.get(card.board)?.cards.find((entry) => entry.card === card.id)
-          return evidence ? <EvidenceChips key={`${card.board}:${card.id}`} id={card.id} title="Provenance evidence" card={evidence} /> : <Note key={`${card.board}:${card.id}`}>The desk no longer has evidence for this historical card.</Note>
+          /* A card this desk no longer holds is history, and history is over. */
+          const intent = snapshot.teams.get(card.board)?.intents.find((entry) => entry.id === card.id)
+          return evidence ? <EvidenceChips key={`${card.board}:${card.id}`} id={card.id} title="Provenance evidence" card={evidence} finished={intent ? intent.state === 'done' : true} /> : <Note key={`${card.board}:${card.id}`}>The desk no longer has evidence for this historical card.</Note>
         })}
       </>}
     {seat && <ProvenanceDialog root={root} seat={seat} onClose={() => setSeat(null)} />}
