@@ -219,6 +219,8 @@ it('the sidebar’s project menu opens the project’s page', () => {
   const { store } = mount(
     <WorkspaceMenu
       group={{ root: STOREFRONT.path, name: 'storefront', sessions: [], updatedAt: 0 }}
+      current={false}
+      actualRoot={STOREFRONT.path}
       at={{ x: 10, y: 10 }}
       onClose={() => {}}
       onNewWorktree={() => {}}

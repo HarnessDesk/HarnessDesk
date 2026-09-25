@@ -47,7 +47,14 @@ const mount = (pinned: string[], subject: ProjectGroup) => {
   } as unknown as AppStore
   act(() => root.render(
     <StoreProvider store={store}>
-      <WorkspaceMenu group={subject} at={{ x: 10, y: 10 }} onClose={() => {}} onNewWorktree={() => {}} />
+      <WorkspaceMenu
+        group={subject}
+        current={false}
+        actualRoot={subject.root}
+        at={{ x: 10, y: 10 }}
+        onClose={() => {}}
+        onNewWorktree={() => {}}
+      />
     </StoreProvider>,
   ))
   return store
@@ -81,7 +88,14 @@ it('says nothing when the store has not moved anything', () => {
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, moveProject: vi.fn() } as unknown as AppStore
   act(() => root.render(
     <StoreProvider store={store}>
-      <WorkspaceMenu group={group('/b', 'billing')} at={{ x: 10, y: 10 }} onClose={() => {}} onNewWorktree={() => {}} />
+      <WorkspaceMenu
+        group={group('/b', 'billing')}
+        current={false}
+        actualRoot="/b"
+        at={{ x: 10, y: 10 }}
+        onClose={() => {}}
+        onNewWorktree={() => {}}
+      />
     </StoreProvider>,
   ))
   act(() => row('Move up').click())

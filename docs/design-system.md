@@ -256,6 +256,7 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-z-sheet` | `60` |
 | `--hd-z-dialog` | `100` |
 | `--hd-z-toast` | `200` |
+| `--hd-notice-inset` | `0px` |
 
 ### The solid
 

@@ -175,6 +175,54 @@ describe('groupByProject', () => {
     expect(groups[0]?.root).toBe(main)
   })
 
+  /**
+   * The public report (#907): opened through a path alias — a symlink, or
+   * macOS's own `/var` → `/private/var` — the same project showed up as two
+   * sidebar rows with different item counts, one of them empty. `groupByProject`
+   * alone cannot show this: every session here already carries the same
+   * `repo.root`, so it was always going to fold into one group, fix or no fix
+   * — a fact a run against the pre-fix `groupByProject` confirms. The row
+   * `SessionTree.tsx` actually adds a second, empty copy of is keyed by
+   * comparing `projectGroupRootOf(workspace)` against the group's own root,
+   * so that is the comparison this asserts: the same alias `projectGroupRootOf`
+   * is already guarded against, one link deep, one more time at the boundary
+   * the sidebar itself reads.
+   */
+  it('answers the group its own row is compared against, for a workspace opened through an alias (#907)', () => {
+    const real = '/private/var/folders/x/work/widgets'
+    const link = '/var/folders/x/work/widgets'
+    const open = workspace(link, at(real))
+    const groups = groupByProject([session('a', real, null, 1, at(real))], [link], open)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(real)
+    expect(projectGroupRootOf(open)).toBe(groups[0]?.root)
+  })
+
+  /**
+   * The same report, for a folder no git repository ever names (#907). Outside
+   * git there is no `repo.root` to fold sessions by, so `groupByProject` keys
+   * a session with no remote by its own `cwd` — and an agent process started
+   * at a link already reports that `cwd` resolved, the same way `getcwd`
+   * always does. The open workspace's own `path` is kept at the alias
+   * spelling on purpose (`describeWorkspace`), so without `realPath` the two
+   * disagree and the folder shows up twice, one of them empty — reproduced
+   * here by leaving `realPath` off the workspace the way the host used to
+   * answer before it carried one.
+   */
+  it('answers the group its own row is compared against, for a non-git folder opened through an alias (#907)', () => {
+    const real = '/private/var/folders/x/work/scratch'
+    const link = '/var/folders/x/work/scratch'
+    const openWithoutRealPath: WorkspaceEntry = { path: link, name: 'scratch', lastOpenedAt: 1 }
+    const openWithRealPath: WorkspaceEntry = { ...openWithoutRealPath, realPath: real }
+    const groups = groupByProject([session('a', real, null, 1, null)], [link], openWithRealPath)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(real)
+    // Fails without `realPath`: `projectGroupRootOf` had nothing left to
+    // correct the alias with, so it answered the raw spelling instead.
+    expect(projectGroupRootOf(openWithoutRealPath)).not.toBe(groups[0]?.root)
+    expect(projectGroupRootOf(openWithRealPath)).toBe(groups[0]?.root)
+  })
+
   it('will not invent a project from a path nothing else vouches for', () => {
     const groups = groupByProject(
       [session('gone', '/Users/a/code/never-seen/.claude/worktrees/x', null, 9, null)],
