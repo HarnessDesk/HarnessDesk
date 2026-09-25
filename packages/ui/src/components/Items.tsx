@@ -30,7 +30,31 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { stripAnsi } from '../lib/ansi'
-import { ActionError, Button, Card, ChangeStats, Chip, CodeBlock, CopyButton, DisclosureChevron, Lightbox, Spinner, Text, TurnItem, type LightboxImage } from '../design'
+import {
+  ActionError,
+  Button,
+  Card,
+  CardViewport,
+  ChangeStats,
+  Chip,
+  CodeBlock,
+  CodeText,
+  ComposerChip,
+  CopyButton,
+  DisclosureChevron,
+  Dot,
+  KeyValue,
+  KeyValueRow,
+  Lightbox,
+  Note,
+  PatchSection,
+  Separator,
+  Spinner,
+  Text,
+  TextMark,
+  TurnItem,
+  type LightboxImage,
+} from '../design'
 import { instant } from '../lib/clock'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
@@ -209,7 +233,13 @@ const StatusMark = ({ status }: { status: ItemStatus }) => {
   return <Chip tone="neutral" size="sm">Declined</Chip>
 }
 
-/** Shared disclosure row used by commands, tools, reasoning, and file changes. */
+/**
+ * Shared disclosure row used by commands, tools, reasoning, and file changes.
+ *
+ * An opened step hangs its body under its own title, one way: the body only
+ * places what it holds, and each thing in it — a code plate, a diff, a list
+ * of arguments, a line of thought — is a design part that owns its own box.
+ */
 const Row = ({
   icon,
   title,
@@ -217,7 +247,6 @@ const Row = ({
   meta,
   status,
   defaultOpen = false,
-  bareBody = false,
   children,
 }: {
   icon: ReactNode
@@ -226,8 +255,6 @@ const Row = ({
   meta?: ReactNode
   status?: ItemStatus
   defaultOpen?: boolean
-  /** The child draws its own plate, so the disclosure body supplies alignment only. */
-  bareBody?: boolean
   children?: ReactNode
 }) => {
   const [open, setOpen] = useState(defaultOpen)
@@ -240,20 +267,18 @@ const Row = ({
         type="button" variant="quiet" size="row" className={styles.rowHeader}
         onClick={() => collapsible && setOpen((value) => !value)}
         aria-expanded={collapsible ? open : undefined}
-        style={collapsible ? undefined : { cursor: 'default' }}
+        cursor={collapsible ? 'pointer' : 'default'}
         title={hoverTitle}
       >
-        <span className={`${styles.rowIcon} text-(--hd-muted-foreground)`}>{icon}</span>
-        <span className={`${styles.rowTitle} font-(family-name:--hd-font-family) text-base leading-(--hd-line) text-(--hd-foreground)`}>{title}</span>
+        <Text role="meta" className={styles.rowIcon}>{icon}</Text>
+        <Text role="prose" className={styles.rowTitle}>{title}</Text>
         <Text as="span" role="meta" numeric className={styles.rowMeta}>
           {meta}
           {status && <StatusMark status={status} />}
         </Text>
         {collapsible && <DisclosureChevron open={open} size="lg" />}
       </Button>
-      {collapsible && open && (
-        <div className={bareBody ? styles.rowBodyBare : `${styles.rowBody} pt-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) ps-(--hd-space-6)`}>{children}</div>
-      )}
+      {collapsible && open && <div className={styles.rowBody}>{children}</div>}
     </>
   )
 
@@ -262,7 +287,9 @@ const Row = ({
   ) : (
     // Card's own default gap-4/py-4 is sized for a section's boxed content,
     // not a dense conversation row: without the override every tool row here
-    // grows from its intended ~30px to ~62px.
+    // grows from its intended ~30px to ~62px. Items-only for now, so the
+    // override stays local rather than becoming a third Card spacing value
+    // with one caller.
     <Card variant="plate" className={`${styles.row} !gap-0 !py-0`}>{inner}</Card>
   )
 }
@@ -311,7 +338,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
   const when = sentAt(at)
   const copyFailed = useCopyFailed()
   return (
-    <div className={`${styles.userFooter} min-h-(--hd-chip-h) pr-(--hd-space-0-5)`}>
+    <div className={styles.userFooter}>
       {when && <Text as="span" role="meta" numeric className="mr-(--hd-space-1-5)">{when}</Text>}
       <CopyButton text={text} label="Copy this message" onError={copyFailed} />
       <Button
@@ -429,7 +456,7 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
   const [preview, setPreview] = useState<number | null>(null)
 
   return (
-    <div className={`${styles.userRow} py-(--hd-space-3) pb-(--hd-space-1)`}>
+    <div className={styles.userRow}>
       {(injections.length > 0 || (item.context?.length ?? 0) > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
           {injections.map((injection, index) => (
@@ -475,19 +502,19 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
               // A skill is an instruction bundle, not a file: badging it as one
               // would hide that the agent was handed a procedure to follow.
               return (
-                <span key={index} className={`${styles.chip} h-(--hd-chip-h) px-(--hd-space-2) rounded-full bg-(--hd-accent-dim) text-(--hd-primary-ink) text-xs`} title={part.path}>
+                <ComposerChip key={index} tone="brand" title={part.path}>
                   <SparkIcon size={12} />
                   {part.name}
                   <Chip tone="neutral" size="sm">Skill</Chip>
-                </span>
+                </ComposerChip>
               )
             }
             if (part.type === 'mention') {
               return (
-                <span key={index} className={`${styles.chip} h-(--hd-chip-h) px-(--hd-space-2) rounded-full bg-(--hd-accent-dim) text-(--hd-primary-ink) text-xs`} title={part.path}>
+                <ComposerChip key={index} tone="brand" title={part.path}>
                   <FileIcon size={12} />
                   {part.name}
-                </span>
+                </ComposerChip>
               )
             }
             // A path on the runtime's machine, or a URL the transcript will
@@ -499,10 +526,10 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
                   ? part.name ?? 'Image'
                   : 'Image'
             return (
-              <span key={index} className={`${styles.chip} h-(--hd-chip-h) px-(--hd-space-2) rounded-full bg-(--hd-accent-dim) text-(--hd-primary-ink) text-xs`} title={part.type === 'localImage' ? part.path : undefined}>
+              <ComposerChip key={index} tone="brand" {...(part.type === 'localImage' ? { title: part.path } : {})}>
                 <ImageIcon size={12} />
                 {name}
-              </span>
+              </ComposerChip>
             )
           })}
         </div>
@@ -560,23 +587,31 @@ const ContextInjection = ({
     })()
   return (
     <div
-      className={`${styles.injectionWrap} rounded-(--hd-radius) ${open ? 'bg-(--hd-card) shadow-(--hd-hairline) overflow-hidden' : ''} ${fromAgent ? 'shadow-[inset_2px_0_0_0_var(--hd-primary)] bg-(--hd-primary-muted)' : ''}`}
+      className={styles.injectionWrap}
       {...(open ? { 'data-open': '' } : {})}
       {...(fromAgent ? { 'data-peer': '' } : {})}
     >
-      <Button type="button" variant={fromAgent ? 'quiet' : 'row'} size="row" className={styles.injection} onClick={() => setOpen((value) => !value)}>
+      <Button type="button" variant="row" size="row" className={styles.injection} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <DisclosureChevron open={open} size="xs" />
         {fromAgent ? <TeamIcon size={12} /> : <FileIcon size={12} />}
-        {fromAgent ? 'From another agent' : origin === 'agent' ? 'Sent with your message' : 'Context added'}
-        <span className="text-xs font-medium text-(--hd-secondary-foreground)">{fromAgent ? label.replace(/^Message from /, '') : label}</span>
+        {fromAgent ? (
+          <Text role="navigation" tone="brand">From another agent</Text>
+        ) : origin === 'agent' ? 'Sent with your message' : 'Context added'}
+        <Text role="meta" ink="secondary">{fromAgent ? label.replace(/^Message from /, '') : label}</Text>
       </Button>
       {/* The body is prose, not terminal output: a git note, a hand-off
           packet, a plugin's summary — all written in Markdown by whoever
-          composed them. A <pre> here printed that authoring as source. */}
+          composed them. A <pre> here printed that authoring as source. It
+          opens the way a step does: the row stays a line, and what it holds
+          stands in a plate under it. */}
       {open && (
-        <div className="py-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-2-5) border-t border-(--hd-border) max-h-[380px] overflow-auto [&>div]:text-sm [&>div]:leading-(--hd-line) [&>div]:text-(--hd-secondary-foreground) [&_h1]:text-base [&_h2]:text-base [&_h3]:text-sm [&_h4]:text-sm">
-          <Markdown text={text} />
-        </div>
+        <Card variant="plate" spacing="compact" className={styles.injectionBody}>
+          <CardViewport size="lines" maxHeight={380}>
+            <Text as="div" role="muted">
+              <Markdown chat text={text} />
+            </Text>
+          </CardViewport>
+        </Card>
       )}
     </div>
   )
@@ -589,12 +624,18 @@ const AssistantMessage = ({
   item: AssistantMessageItem
   streaming: boolean
 }) => (
-  <div className={`py-(--hd-space-1-5) ${item.phase === 'commentary' ? 'text-(--hd-secondary-foreground)' : ''}`}>
+  <Text as="div" role="prose" {...(item.phase === 'commentary' ? { ink: 'secondary' as const } : {})}>
     <Markdown text={item.text} />
-    {streaming && <span className={`${styles.caret} h-[1.15em] ms-(--hd-space-0-5) rounded-full bg-(--hd-accent) animate-[hd-blink_1.1s_steps(2,start)_infinite]`} />}
+    {/* Still writing: the system's running mark, the one the inspector's
+        running rows and the header's status wear. */}
+    {streaming && (
+      <span className={styles.caret} aria-label="Still writing">
+        <Dot state="signin" pulse />
+      </span>
+    )}
     {/* No actions here: they sit once at the end of the turn (TurnTail), for
         the whole answer, rather than under every paragraph of it. */}
-  </div>
+  </Text>
 )
 
 const Reasoning = ({ item }: { item: ReasoningItem }) => {
@@ -609,13 +650,13 @@ const Reasoning = ({ item }: { item: ReasoningItem }) => {
       title={headline}
     >
       {body.length > 0 && (
-        <div className="py-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) text-base leading-(--hd-line) text-(--hd-secondary-foreground)">
+        <Text as="div" role="prose" ink="secondary">
           {body.map((paragraph, index) => (
             <p key={index} className={styles.reasoningSummary}>
               {paragraph}
             </p>
           ))}
-        </div>
+        </Text>
       )}
     </Row>
   )
@@ -694,7 +735,6 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
       }
       status={effectiveItemStatus(item)}
       defaultOpen={item.status === 'inProgress'}
-      bareBody
     >
       <CodeBlock
         command={shellCommandOf(item.command)}
@@ -737,7 +777,6 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
       }
       status={item.status}
       defaultOpen={item.changes.length === 1}
-      bareBody
     >
       {only ? (
         <DiffView diff={only.diff} wholeFile={wholeFileOf(only.kind.type)} inline />
@@ -770,20 +809,16 @@ const FileEntry = ({
   const added = counts.added
 
   return (
-    <div className="border-t border-(--hd-border) first:border-t-0">
-      <Button type="button" variant="quiet" size="content" className={styles.fileHeader} onClick={() => setOpen((v) => !v)}>
+    <PatchSection>
+      <Button type="button" variant="quiet" size="content" className={styles.fileHeader} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <DisclosureChevron open={open} size="sm" />
-        <span className={`${styles.filePath} text-sm`} title={change.path}>
+        <Text role="muted" className={styles.filePath} title={change.path}>
           {relativeTo(change.path, root)}
-        </span>
+        </Text>
         <ChangeStats added={added} removed={counts.removed} />
       </Button>
-      {open && (
-        <div className="px-(--hd-space-2-5) pb-(--hd-space-2-5)">
-          <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />
-        </div>
-      )}
-    </div>
+      {open && <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />}
+    </PatchSection>
   )
 }
 
@@ -814,18 +849,20 @@ const findDiff = (value: unknown): string | null => {
   return null
 }
 
+/**
+ * A plan's steps, drawn the way the Tasks panel draws them: the step's mark
+ * set in its line (`TextMark`), a finished one struck and stepped back
+ * (`Text done`), and the one in progress at the subject weight.
+ */
 const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
-  <ul className="m-0 py-(--hd-space-2) px-(--hd-space-3) list-none flex flex-col gap-(--hd-space-0-5)">
+  <ul className={styles.list}>
     {todos.map((todo, index) => (
-      <li
-        key={index}
-        className={`flex gap-(--hd-space-2) items-start text-base leading-(--hd-line) ${todo.done ? 'text-(--hd-muted-foreground) line-through' : ''} ${todo.active ? 'text-(--hd-foreground) font-medium' : ''}`}
-      >
-        <span className={`flex-none inline-flex items-center w-3.5 h-(--hd-line) ${todo.active ? 'text-(--hd-accent)' : 'text-(--hd-muted-foreground)'}`} aria-hidden="true">
-          {todo.done ? <TodoDoneIcon size={13} /> : todo.active ? <TodoActiveIcon size={13} /> : <TodoPendingIcon size={13} />}
-        </span>
-        {todo.label}
-      </li>
+      <Text as="li" role="prose" key={index} className={styles.listItem}>
+        <TextMark role="prose">
+          {todo.done ? <TodoDoneIcon size={12} /> : todo.active ? <TodoActiveIcon size={12} /> : <TodoPendingIcon size={12} />}
+        </TextMark>
+        <Text role={todo.active ? 'subject' : 'prose'} done={todo.done}>{todo.label}</Text>
+      </Text>
     ))}
   </ul>
 )
@@ -851,25 +888,24 @@ const headlineArg = (args: unknown, root: string | undefined): string | null => 
  */
 const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) {
-    return args === null || args === undefined ? null : (
-      <pre data-role="json" className="m-0 py-(--hd-space-2-5) px-(--hd-space-3) max-h-[300px] overflow-auto font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) whitespace-pre-wrap text-(--hd-secondary-foreground)">{JSON.stringify(args, null, 2)}</pre>
-    )
+    return args === null || args === undefined ? null : <CodeBlock output={JSON.stringify(args, null, 2)} />
   }
   const argTodos = findTodos(args)
   if (argTodos) return <TodoListView todos={argTodos} />
   const entries = Object.entries(args as Record<string, unknown>)
   if (entries.length === 0) return null
   return (
-    <dl className="m-0 py-(--hd-space-2) px-(--hd-space-3) grid grid-cols-[max-content_minmax(0,1fr)] gap-x-(--hd-space-2-5) gap-y-(--hd-space-0-5) items-baseline border-b border-(--hd-border)">
+    <KeyValue variant="panel" data-role="arguments" className={styles.args}>
       {entries.map(([key, value]) => (
-        <div key={key} className={styles.argRow}>
-          <dt className="text-xs text-(--hd-muted-foreground) font-(family-name:--hd-font-code)">{key}</dt>
-          <dd className="m-0 min-w-0 max-h-[132px] overflow-auto font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) whitespace-pre-wrap break-anywhere text-(--hd-secondary-foreground)">
-            {typeof value === 'string' ? relativeTo(value, root) : JSON.stringify(value, null, 1)}
-          </dd>
-        </div>
+        <KeyValueRow key={key} variant="panel" label={<CodeText>{key}</CodeText>}>
+          <CardViewport size="lines" maxHeight={132}>
+            <CodeText className={styles.argValue}>
+              {typeof value === 'string' ? relativeTo(value, root) : JSON.stringify(value, null, 1)}
+            </CodeText>
+          </CardViewport>
+        </KeyValueRow>
       ))}
-    </dl>
+    </KeyValue>
   )
 }
 
@@ -966,7 +1002,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
         headline ? (
           <>
             {label}
-            <span className="ms-(--hd-space-2) text-sm text-(--hd-muted-foreground) font-normal">{headline}</span>
+            <Text role="muted" ink="muted" className={styles.headline}>{headline}</Text>
           </>
         ) : (
           label
@@ -982,9 +1018,16 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       }
       status={effectiveItemStatus(item)}
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
-      bareBody={Boolean(change) || Boolean(command)}
     >
-      {wire && <div data-role="wire-name" className="py-(--hd-space-2) px-(--hd-space-3) border-b border-(--hd-border) font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) break-anywhere text-(--hd-muted-foreground)">{wire}</div>}
+      {/* A plain wrapper, not `Text` itself: `Text` owns `data-role` for its
+          own role, so a second meaning of the attribute has to sit outside it. */}
+      {wire && (
+        <div data-role="wire-name" className={styles.wire}>
+          <Text as="span" role="meta">
+            <CodeText>{wire}</CodeText>
+          </Text>
+        </div>
+      )}
       {item.error ? (
         <CodeBlock output={stripAnsi(item.error)} />
       ) : change ? (
@@ -1025,18 +1068,9 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               return <TodoListView key={index} todos={todos} />
             }
             const diff = findDiff(part.value)
-            if (diff) {
-              return (
-                <div key={index} className="px-(--hd-space-2-5) pb-(--hd-space-2-5)">
-                  <DiffView diff={diff} inline />
-                </div>
-              )
-            }
-            return (
-              <pre key={index} data-role="json" className="m-0 py-(--hd-space-2-5) px-(--hd-space-3) max-h-[300px] overflow-auto font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) whitespace-pre-wrap break-anywhere text-(--hd-secondary-foreground)">
-                {JSON.stringify(part.value, null, 2)}
-              </pre>
-            )
+            if (diff) return <DiffView key={index} diff={diff} inline />
+            // Structured output is output: the same plate as a text result.
+            return <CodeBlock key={index} output={JSON.stringify(part.value, null, 2)} />
           })}
         </>
       )}
@@ -1105,9 +1139,9 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
                     })}
               >
                 <AgentIcon size={12} />
-                <span className={`${styles.filePath} text-sm`}>
+                <Text role="muted" className={styles.filePath}>
                   {member.nickname ?? member.sessionId.slice(0, 8)}
-                </span>
+                </Text>
                 {member.role && <Chip tone="neutral" size="sm">{capitalize(member.role)}</Chip>}
                 {member.state && <Chip tone="neutral" size="sm">{MEMBER_STATE_WORDS[member.state] ?? capitalize(member.state)}</Chip>}
                 {member.usage && member.usage.totalTokens > 0 && (
@@ -1145,24 +1179,34 @@ const Plan = ({ item }: { item: PlanItem }) => {
 
   return (
     <Row icon={<PlanIcon size={14} />} title="Plan" defaultOpen>
-      <ol className="m-0 py-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) list-none flex flex-col gap-(--hd-space-0-5)">
+      {/* The same list as a tool's todo list, every step still to do. */}
+      <ol className={styles.list}>
         {steps.map((step, index) => (
-          <li key={index} className={`${styles.planStep} py-(--hd-space-0-5) text-base leading-(--hd-line)`} data-status="pending">
-            <span className={`${styles.planBullet} h-3.5 mt-(--hd-space-1) rounded-full border-[1.5px] border-(--hd-border-heavy)`} />
-            {step}
-          </li>
+          <Text as="li" role="prose" key={index} className={styles.listItem} data-status="pending">
+            <TextMark role="prose"><TodoPendingIcon size={12} /></TextMark>
+            <Text role="prose">{step}</Text>
+          </Text>
         ))}
       </ol>
     </Row>
   )
 }
 
-const Compaction = (_: { item: CompactionItem }) => (
-  <div className={`${styles.marker} py-(--hd-space-2-5) text-(--hd-muted-foreground) text-xs`}>
-    <span className={`${styles.markerLine} h-px bg-(--hd-border-strong)`} />
-    Earlier messages were summarised to free up context
-    <span className={`${styles.markerLine} h-px bg-(--hd-border-strong)`} />
+/**
+ * A line across the column with a word in it: where a conversation was
+ * summarised, where a review began or ended. The rules are the system's
+ * separator, the one the work fold's own head runs out to.
+ */
+const Marker = ({ children }: { children: ReactNode }) => (
+  <div className={styles.marker}>
+    <Separator className={styles.markerLine} />
+    <Text role="meta">{children}</Text>
+    <Separator className={styles.markerLine} />
   </div>
+)
+
+const Compaction = (_: { item: CompactionItem }) => (
+  <Marker>Earlier messages were summarised to free up context</Marker>
 )
 
 /**
@@ -1171,18 +1215,13 @@ const Compaction = (_: { item: CompactionItem }) => (
  * it is the setting for what follows, not something to read.
  */
 const Notice = ({ item }: { item: NoticeItem }) => (
-  <div className={`${styles.notice} min-h-(--hd-chip-h) py-(--hd-space-0-5) text-(--hd-muted-foreground) text-xs leading-(--hd-line-sm)`}>
-    <InfoIcon size={12} className={`${styles.noticeIcon} mt-(--hd-space-1)`} />
-    <span>{item.text}</span>
-  </div>
+  <Note ink="muted" icon={<InfoIcon size={12} className={styles.noticeIcon} />}>
+    {item.text}
+  </Note>
 )
 
 const Review = ({ item }: { item: ReviewItem }) => (
-  <div className={`${styles.marker} py-(--hd-space-2-5) text-(--hd-muted-foreground) text-xs`}>
-    <span className={`${styles.markerLine} h-px bg-(--hd-border-strong)`} />
-    {item.phase === 'entered' ? `Started review: ${item.review}` : 'Finished review'}
-    <span className={`${styles.markerLine} h-px bg-(--hd-border-strong)`} />
-  </div>
+  <Marker>{item.phase === 'entered' ? `Started review: ${item.review}` : 'Finished review'}</Marker>
 )
 
 const ErrorRow = ({ item }: { item: ErrorItem }) => (

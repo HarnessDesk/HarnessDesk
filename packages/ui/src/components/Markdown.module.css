@@ -445,6 +445,7 @@
 .chat {
   font-size: inherit;
   line-height: inherit;
+  color: inherit; /* desk: foreground → inherit, a message's ink is its row's, as its size is */
 
   /* The document ladder at half pitch: 1.125 per rung becomes its square root,
      so h1 lands one full rung above the row and h2 half of one. A message is
