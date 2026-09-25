@@ -156,10 +156,10 @@ const ToolPaneHeaderDivider = () => (
  * than a single field — a repository's actions, its history's scope and
  * search, the head of the commit it has open. It stands at the same 36px as
  * `find`, and it is a floor rather than a height: a pane narrower than its
- * controls lets them take a second line (the caller's layout says whether they
- * wrap), and the bar grows with them instead of cutting the last one off. A
- * bar that is a set of controls says so with `role="toolbar"`, the one role a
- * bar may take.
+ * controls wraps them onto a second line, and the bar grows with them instead
+ * of cutting the last one off. A bar whose one line must never break — a head
+ * whose title ellipsises instead — says `flex-nowrap`. A bar that is a set of
+ * controls says so with `role="toolbar"`, the one role a bar may take.
  */
 const ToolPaneBar = ({
   as = 'div',
@@ -177,7 +177,7 @@ const ToolPaneBar = ({
       : variant === 'address'
         ? 'h-10'
         : variant === 'tools'
-          ? 'min-h-9 py-0.5'
+          ? 'min-h-9 flex-wrap gap-y-1 py-0.5'
           : 'h-9'
   return React.createElement(as, {
     ...props,

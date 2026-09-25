@@ -324,8 +324,10 @@
 }
 
 /* The commit's head sets its glyph, id and subject a word apart: it reads as
-   one line of text rather than a row of controls. */
+   one line of text rather than a row of controls, and never wraps — its
+   subject ellipsises instead. */
 .detailHead {
+  flex-wrap: nowrap;
   gap: var(--hd-space-2);
 }
 
