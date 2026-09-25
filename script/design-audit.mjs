@@ -1698,6 +1698,36 @@ export const rawZIndexes = (css) => {
 }
 
 /**
+ * A time written out where motion is declared.
+ *
+ * The motion tokens name the event — `--hd-duration-enter`, `-exit`, `-fast`,
+ * `-pulse` — so a surface that writes `0.16s` has picked its own clock, and a
+ * change to how fast the app moves reaches every surface but that one. It
+ * reads declarations, not property names alone: `transition`, `animation` and
+ * their `-duration` and `-delay` longhands, prefixed or not, with any time in
+ * the value counted. Zero is not a duration — `visibility 0s linear …` and the
+ * reduced-motion reset say "no time", which no token needs to name.
+ */
+const TIME_LITERAL = /(?<![\w.-])(\d*\.?\d+)(?:ms|s)\b/g
+const timesIn = (value) => [...value.matchAll(TIME_LITERAL)].filter((match) => Number(match[1]) !== 0)
+export const rawDurations = (css) =>
+  declarationsOf(css).filter(
+    ({ property, value }) =>
+      /^(?:-webkit-)?(?:transition|animation)(?:-duration|-delay)?$/i.test(property) && timesIn(value).length > 0,
+  )
+
+/**
+ * The same, spelled as a Tailwind utility: `duration-200`, `delay-75`, an
+ * arbitrary `duration-[160ms]`, or a time inside an arbitrary `animate-[…]`.
+ * `duration-(--hd-duration-enter)` names a token and is the way out.
+ */
+const DURATION_UTILITY = /(?<![\w-])(?:[\w-]+:)*(?:duration|delay)-(?:\d+|\[[^\]]*\])(?![\w-])|(?<![\w-])(?:[\w-]+:)*animate-\[[^\]]*\]/g
+export const rawDurationUtilities = (code) =>
+  [...code.matchAll(DURATION_UTILITY)]
+    .map((match) => match[0])
+    .filter((utility) => !/animate-\[/.test(utility) || timesIn(utility.replace(/_/g, ' ')).length > 0)
+
+/**
  * A `.tsx` file's code, with its comments gone.
  *
  * `bare` above is for CSS and must not be pointed at TypeScript: `/*` opens a
@@ -1725,6 +1755,7 @@ const findings = {
   danglingToken: [],
   crossImport: [],
   rawZIndex: [],
+  rawDuration: [],
   rawColour: [],
   arbitraryUtility: [],
   rawType: [],
@@ -3223,6 +3254,11 @@ for (const file of cssFiles()) {
   // that is the band the ladder is for.
   for (const { value } of rawZIndexes(read(file))) findings.rawZIndex.push(`${name}: z-index: ${value}`)
 
+  // Motion written as a number. See `rawDurations`.
+  for (const { property, value } of rawDurations(read(file))) {
+    findings.rawDuration.push(`${name}: ${property}: ${value.replace(/\s+/g, ' ').slice(0, 48)}`)
+  }
+
   // A system token defined outside the file that owns the system.
   //
   // The `--hd-` prefix means "this is the app's vocabulary". Defining one in a
@@ -3424,6 +3460,9 @@ export const squaresOf = (cssPath) => {
 const ARBITRARY = /\b(?:text|rounded|h|w|size|p[xytblr]?|m[xytblr]?|gap(?:-[xy])?)-\[(\d+)px\]/g
 
 for (const file of tsxFiles()) {
+  // Motion is the app's, not the system's alone: a screen that writes its own
+  // clock drifts from every other surface the same way.
+  for (const utility of rawDurationUtilities(codeOf(file))) findings.rawDuration.push(`${label(file)}: ${utility}`)
   if (file.includes(`${path.sep}design${path.sep}`) && !file.includes('.test.')) {
     for (const match of codeOf(file).matchAll(ARBITRARY)) {
       findings.arbitraryUtility.push(`${label(file)}: ${match[0]}`)

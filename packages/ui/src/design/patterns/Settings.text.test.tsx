@@ -35,7 +35,9 @@ it('sets PageHead and the page text role on the wordmark type', () => {
   expect(page?.className).toContain('text-(length:--hd-heading)')
   expect(page?.className).toContain('leading-(--hd-line-heading)')
   expect(page?.className).toContain('font-semibold')
-  expect(page?.className).toContain('tracking-[-0.01em]')
+  // The display face and its tracking are tokens, so a foundation moves both.
+  expect(page?.className).toContain('font-(family-name:--hd-font-display)')
+  expect(page?.className).toContain('tracking-(--hd-tracking-display)')
   const typeClasses = (node: HTMLElement | null) => node?.className
     .split(' ')
     .filter(name => /^(?:text-\(length|leading-|font-|tracking-)/.test(name))
@@ -43,7 +45,8 @@ it('sets PageHead and the page text role on the wordmark type', () => {
   expect(css).toMatch(/\.pageTitle\s*{[^}]*font-size:\s*var\(--hd-heading\)/s)
   expect(css).toMatch(/\.pageTitle\s*{[^}]*line-height:\s*var\(--hd-line-heading\)/s)
   expect(css).toMatch(/\.pageTitle\s*{[^}]*font-weight:\s*var\(--hd-weight-semibold\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*letter-spacing:\s*-0\.01em/s)
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-family:\s*var\(--hd-font-display\)/s)
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*letter-spacing:\s*var\(--hd-tracking-display\)/s)
 })
 
 it('can preserve the end of a truncated path', () => {

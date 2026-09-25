@@ -23,10 +23,10 @@ output of `codex app-server generate-ts`, with the producing version in
 binary is neither bundled nor modified; HarnessDesk launches the one already on
 the machine, and its authentication stays in `~/.codex`.
 
-**Geist — SIL OFL 1.1** (`licenses/OFL-1.1-geist.txt`), Copyright 2024 The Geist
-Project Authors. Two woff2 files in `packages/ui/src/assets/fonts/`, unmodified
-as served, subset to latin and latin-ext; the served version is in
-`VERSION.json` beside them.
+**Geist and Geist Mono — SIL OFL 1.1** (`licenses/OFL-1.1-geist.txt`), Copyright
+2024 The Geist Project Authors. Four woff2 files in `packages/ui/src/assets/fonts/`,
+two per family, unmodified as served, subset to latin and latin-ext; the served
+versions are in `VERSION.json` beside them.
 
 **shadcn/ui — MIT** (`licenses/MIT-shadcn.txt`), Copyright (c) 2023 shadcn.
 shadcn distributes components as source to copy rather than as a package, so

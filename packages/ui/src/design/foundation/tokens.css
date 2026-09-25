@@ -57,21 +57,47 @@ body {
     'Liberation Mono', 'PingFang SC', 'Microsoft YaHei';
   --hdp-font-family: var(--hd-font-family);
   --hdp-font-family-code: var(--hd-font-code);
-  /* Display face for the few surfaces that greet rather than inform — the
-     conversation's empty-state title. The default foundation keeps it in the
-     interface sans; a foundation may answer differently (Editorial reaches
-     for macOS's own serif). */
-  --hd-font-display: var(--hd-font-family);
+  /* The display face: the names of places and the figures that fill a card —
+     the wordmark, a page's title, a detail page's name, a dashboard figure
+     and a metric. Geist Mono, bundled beside Geist and drawn by the
+     same hands, so the two sit on one set of proportions and the title reads
+     as the same voice set on a drafting grid rather than a second brand.
 
-  /* HarnessDesk brand. The platform's accent is DeepSeek blue; this replaces
-     it so the app does not present itself as someone else's product. */
-  --hd-accent: var(--hdp-static-accent-500); /* desk: the palette was rebuilt; this is its value */
+     It is HarnessDesk's signature, and it is spent sparingly on purpose: a
+     screen carries one or two display lines and every other word stays in
+     the interface sans. Nothing at the reading size or below wears it: a
+     dialog's question and a row's title are read, and read in the sans. A foundation may answer differently — Editorial
+     reaches for macOS's own serif — and every title follows, because each
+     one reads this token rather than naming a face.
+
+     Tracking is part of the face, not of the component: a mono set at its
+     own spacing looks typed; pulled in, it looks drawn. */
+  --hd-font-display: 'Geist Mono', ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei';
+  --hd-tracking-display: -0.03em;
+
+  /* The title block: the hairline a page head closes on, and the short mark
+     in the accent at its start (Settings.module.css `.pageHead`). The second
+     half of the signature — the display face names the place, the rule sets
+     it off from what is on it. A foundation that wants no mark sets its
+     width to 0. */
+  --hd-title-rule: var(--hd-border);
+  --hd-title-rule-width: var(--hd-space-px);
+  --hd-title-rule-gap: var(--hd-space-4);
+  --hd-title-rule-mark: var(--hd-accent);
+  --hd-title-rule-mark-width: var(--hd-space-6);
+  --hd-title-rule-mark-height: var(--hd-space-0-5);
+
+  /* HarnessDesk brand: Blueprint cobalt, the ink of an engineer's drawing.
+     Deep enough that white reads on it at 5.5:1 — the lighter blue it
+     replaced managed 4.1:1, short of AA for a 13px label on the fill. */
+  --hd-accent: var(--hdp-static-accent-500);
   /* Ink on the accent. One value, because every surface painted with the
      accent needs it and each one reaching for `white` is a literal that the
      next palette silently breaks. */
   --hd-accent-foreground: rgb(255, 255, 255);
-  --hd-accent-hover: var(--hdp-static-accent-450); /* desk: the palette was rebuilt; this is its value */
-  --hd-accent-dim: rgba(82, 117, 235, 0.12); /* desk: the palette was rebuilt; this is its value */
+  --hd-accent-hover: var(--hdp-static-accent-600); /* a press darkens the drawing ink; it never washes it out */
+  --hd-accent-dim: rgba(52, 88, 240, 0.12);
   --hd-danger: var(--hdp-static-red-500);
   --hd-danger-dim: rgba(228, 68, 62, 0.12); /* desk: the palette was rebuilt; this is its value */
   --hd-success: var(--hdp-static-green-500);
@@ -97,7 +123,7 @@ body {
   --hd-warning-ink: rgb(150, 100, 0); /* desk: re-solved against the rebuilt palette */
   --hd-danger-ink: rgb(196, 52, 48); /* desk: re-solved against the rebuilt palette */
   --hd-success-ink: rgb(0, 126, 63); /* desk: re-solved against the rebuilt palette */
-  --hd-primary-ink: rgb(69, 99, 205); /* desk: re-solved against the rebuilt palette */
+  --hd-primary-ink: rgb(40, 72, 210); /* solved: 6.0:1 on its own 12% wash */
 
   /* --- tints ---------------------------------------------------------------
      Five hues that identify a thing rather than judge it — which account,
@@ -399,13 +425,42 @@ body {
   --hd-scrollbar-fill-hover: var(--hdp-alias-scrollbar-hover-l1);
 
   /* --- motion --------------------------------------------------------------
-     One curve, three durations. Fast is a state change the finger caused —
-     a hover, a press. Base is something appearing or leaving. Slow is a
-     surface moving across the window, and is rare. */
+     Motion says where a thing came from and where it went, and nothing else.
+     Three curves, each for one direction of travel:
+
+       --hd-ease       a state that changes in place: a hover, a press, a
+                       colour, a width. Symmetric, because nothing arrives.
+       --hd-ease-out   something arriving — a menu, a dialog, a fold opening.
+                       Fast off the mark and settling, so it is there at once
+                       and still reads as having moved.
+       --hd-ease-in    something leaving. It accelerates away and is quicker
+                       than its entrance: nobody waits to watch a menu close.
+
+     Durations name the event, not a number. Fast is a change the finger
+     caused. Enter and exit are an overlay or a fold. Base is a surface
+     resizing; slow is a surface crossing the window, and is rare. The loops
+     are ambient — a live dot, the sweep on words still being written — and
+     are the only motion that repeats.
+
+     `prefers-reduced-motion` takes every one of these to an instant in
+     app.css. `design-audit` counts a time written out in a transition or an
+     animation (`rawDuration`), so a new surface cannot pick its own. */
   --hd-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --hd-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --hd-ease-in: cubic-bezier(0.5, 0, 0.75, 0);
   --hd-duration-fast: 0.1s;
+  --hd-duration-enter: 0.18s;
+  --hd-duration-exit: 0.12s;
   --hd-duration: 0.2s;
   --hd-duration-slow: 0.3s;
+  --hd-duration-pulse: 1.6s;
+  --hd-duration-sweep: 1.8s;
+  --hd-duration-cadence: 1s;
+  /* How far an arriving surface travels: a menu grows from 97% toward its
+     trigger, a revealed block rises one space step. Small on purpose — the
+     motion is a hint of direction, not a flourish. */
+  --hd-motion-scale: 0.97;
+  --hd-motion-rise: var(--hd-space-1);
 
   /* --- elevation -----------------------------------------------------------
      What floats, and how far. A menu sits just off the surface; a dialog sits

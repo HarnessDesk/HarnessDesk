@@ -585,16 +585,16 @@ export const SectionHead = ({
 }
 
 const TEXT_ROLE = {
-  wordmark: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
-  page: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
+  wordmark: 'font-(family-name:--hd-font-display) text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-(--hd-tracking-display)',
+  page: 'font-(family-name:--hd-font-display) text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-(--hd-tracking-display)',
   subject: 'text-base leading-(--hd-line) font-medium',
   row: 'text-sm leading-(--hd-line-sm) font-medium',
   navigation: 'text-sm leading-(--hd-line-sm) font-normal',
   muted: 'text-sm leading-(--hd-line-sm) font-normal',
   meta: 'text-xs leading-(--hd-line-xs) font-normal',
   figure:
-    'text-(length:--hd-display) leading-(--hd-line-display) font-semibold tracking-[-0.025em] tabular-nums',
-  metric: 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums',
+    'font-(family-name:--hd-font-display) text-(length:--hd-display) leading-(--hd-line-display) font-semibold tracking-(--hd-tracking-display) tabular-nums',
+  metric: 'font-(family-name:--hd-font-display) text-lg leading-none font-semibold tracking-(--hd-tracking-display) tabular-nums',
   value: 'text-base leading-(--hd-line) font-normal tabular-nums',
   /* A sentence at the reading size: `value`'s step and weight, without the
      tabular figures a value lines up by — a reason, a summary, a notice. */

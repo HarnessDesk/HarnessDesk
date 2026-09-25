@@ -52,7 +52,7 @@
     var(--hd-shadow-notice); /* desk: both literals, unchanged, now named */
   color: var(--hd-foreground);
   text-align: left;
-  animation: enter 0.16s var(--hd-ease); /* desk: canonical One UI System scale */
+  animation: enter var(--hd-duration-enter) var(--hd-ease-out);
 }
 
 @keyframes enter {
@@ -158,7 +158,7 @@
   font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.12s var(--hd-ease); /* desk: canonical One UI System scale */
+  transition: background var(--hd-duration-fast) var(--hd-ease);
 }
 
 .action:hover {

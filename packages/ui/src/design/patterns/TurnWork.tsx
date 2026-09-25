@@ -2,6 +2,7 @@ import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
+import { revealMotion } from '../ui/motion'
 import { inkTone } from '../ui/tone'
 
 /**
@@ -77,6 +78,15 @@ const TurnItem = ({
 )
 
 /**
+ * The fold's open body: the steps themselves. Opening the fold reveals them in
+ * place — they rise a step as they fade in (`revealMotion`), so the reader sees
+ * where the list came from. Closing is instant; the fold is already gone.
+ */
+const TurnWorkBody = ({ className, ...props }: React.ComponentProps<'div'>) => (
+  <div data-slot="turn-work-body" className={cn(revealMotion, className)} {...props} />
+)
+
+/**
  * The live line: what is happening this second, in the register of a status
  * rather than a record — faint, and moving. It stands as tall as the step
  * rows it will become, and its words shimmer unless the reader asked for less
@@ -113,7 +123,7 @@ const TurnWorkLive = ({
       className={cn(
         'bg-[linear-gradient(90deg,var(--hd-muted-foreground)_0%,var(--hd-muted-foreground)_35%,var(--hd-foreground)_50%,var(--hd-muted-foreground)_65%,var(--hd-muted-foreground)_100%)]',
         '[background-size:220%_100%] bg-clip-text text-transparent',
-        'animate-[shimmer_1.8s_linear_infinite] [--tw-enter-translate-x:0]',
+        'animate-[shimmer_var(--hd-duration-sweep)_linear_infinite] [--tw-enter-translate-x:0]',
         'motion-reduce:animate-none motion-reduce:bg-none motion-reduce:text-(--hd-muted-foreground)',
       )}
     >
@@ -142,6 +152,7 @@ const TurnWorkLive = ({
 
 export {
   TurnItem,
+  TurnWorkBody,
   TurnWorkHeader,
   TurnWorkHeaderLabel,
   TurnWorkLive,

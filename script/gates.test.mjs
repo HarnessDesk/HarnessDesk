@@ -14,6 +14,8 @@ import {
   exportedNamesOf,
   NAMED_COLOURS,
   rawColours,
+  rawDurations,
+  rawDurationUtilities,
   rawZIndexes,
   looksLikeUnmappedAppearanceUtility,
   classOwnersOf,
@@ -4049,4 +4051,38 @@ test('a URL is bad as the tokenizer says, and NUL is U+FFFD (#762)', () => {
 test('deep nesting of rules does not throw (#762)', () => {
   assert.doesNotThrow(() => rawZIndexes(`${'.a{'.repeat(12000)}--x: 1`))
   assert.doesNotThrow(() => rawZIndexes(`${'@media all{'.repeat(12000)}.a { z-index: 60 }`))
+})
+
+/*
+ * Motion written as a number. A time in a transition or an animation is its
+ * own clock; a motion token is the system's. Zero is "no time" and is not a
+ * clock, and a loop's step count is not a time.
+ */
+test('a time written into a transition or an animation is counted, in any spelling', () => {
+  const found = (css) => rawDurations(css).map(({ property }) => property)
+  assert.deepEqual(found('.a { transition: opacity 0.16s ease; }'), ['transition'])
+  assert.deepEqual(found('.a { transition: width 90ms var(--hd-ease), opacity var(--hd-duration-fast); }'), ['transition'])
+  assert.deepEqual(found('.a { animation: pulse 1.6s ease-in-out infinite }'), ['animation'])
+  assert.deepEqual(found('.a { -webkit-transition-duration: .2s; }'), ['-webkit-transition-duration'])
+  assert.deepEqual(found('.a { animation-delay: 40ms; }'), ['animation-delay'])
+})
+
+test('motion tokens, zero and step counts are not raw durations', () => {
+  assert.deepEqual(rawDurations('.a { transition: opacity var(--hd-duration-fast) var(--hd-ease); }'), [])
+  assert.deepEqual(rawDurations('.a { transition: visibility 0s linear var(--hd-duration-slow); }'), [])
+  assert.deepEqual(rawDurations('.a { animation-duration: 0s !important; }'), [])
+  assert.deepEqual(rawDurations('.a { animation: hd-cadence var(--hd-duration-cadence) steps(48, end) infinite; }'), [])
+  // a keyframe whose name ends in a digit and an s is a name, not a time
+  assert.deepEqual(rawDurations('.a { animation: fade2s var(--hd-duration-enter); }'), [])
+  // a time outside motion is not this rule's business
+  assert.deepEqual(rawDurations('.a { --hd-duration-enter: 0.18s; }'), [])
+})
+
+test('a Tailwind utility that writes its own clock is counted; one that names a token is not', () => {
+  assert.deepEqual(rawDurationUtilities("cn('rounded-xl duration-200', 'x')"), ['duration-200'])
+  assert.deepEqual(rawDurationUtilities("'data-ending-style:delay-75'"), ['data-ending-style:delay-75'])
+  assert.deepEqual(rawDurationUtilities("'duration-[160ms]'"), ['duration-[160ms]'])
+  assert.deepEqual(rawDurationUtilities("'animate-[shimmer_1.8s_linear_infinite]'"), ['animate-[shimmer_1.8s_linear_infinite]'])
+  assert.deepEqual(rawDurationUtilities("'duration-(--hd-duration-enter) data-ending-style:duration-(--hd-duration-exit)'"), [])
+  assert.deepEqual(rawDurationUtilities("'animate-[shimmer_var(--hd-duration-sweep)_linear_infinite]'"), [])
 })

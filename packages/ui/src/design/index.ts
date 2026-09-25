@@ -117,6 +117,7 @@ export {
   TurnItem,
   TurnWorkHeader,
   TurnWorkHeaderLabel,
+  TurnWorkBody,
   TurnWorkLive,
   type TurnWorkState,
 } from './patterns/TurnWork'

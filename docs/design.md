@@ -33,6 +33,37 @@ somebody happened to install it. Neither stack ends in a bare `monospace`:
 Windows CJK falls back to
 SimSun from there.
 
+`--hd-font-display` is **Geist Mono**, bundled beside Geist by the same script
+and drawn by the same hands, set with `--hd-tracking-display` (−0.03em). It is
+HarnessDesk's signature, and it is spent on very little: the names of places
+and the figures that fill a card — the `wordmark`, `page` and detail titles,
+and the `figure` and `metric` roles. A screen carries one or two display lines;
+every other word is in the interface sans. Nothing at the reading size or
+below wears it, because a dialog's question and a row's title are read, not
+posted on a door. Pulled in by three hundredths of an em, a mono title reads as
+drawn rather than typed. A foundation answers the question for itself —
+Editorial sets the same token to macOS's serif — and every title follows,
+because each one reads the token rather than naming a face.
+
+### The title block
+
+A page's head closes on a hairline with a short mark in the accent at its
+start (`PageHead`, `DetailHead`): the rule under the title on a drawing sheet.
+The name of a place is set off from what is on it by one line rather than a box
+or a band of colour, and the mark is the only place the accent appears on a page
+that the reader did not put there. Its colours and measures are the
+`--hd-title-rule*` tokens, so a foundation retunes the mark, or sets its width
+to 0 to drop it, without touching the pattern.
+
+### The accent
+
+The accent is Blueprint cobalt, `rgb(52, 88, 240)`: deep enough that white
+reads on it at 5.5:1 where the lighter blue before it managed 4.1:1 — short of
+AA for a 13px label on the fill. Its hover darkens rather than lightens, since a
+press presses ink into the page rather than washing it out. The accent still
+means what is *yours* — the focus ring, a link, a selection, the title mark —
+and a primary button stays ink (`--hd-solid`), as the section on buttons says.
+
 ### The sizes
 
 The rule is a split: **13px is the chrome, 14px is what is read.** The counts
@@ -123,8 +154,8 @@ are doing; screens do not invent a new spelling for the same job:
 
 | role | spelling | what wears it |
 | --- | --- | --- |
-| wordmark | 20 / semibold | the product name beside its mark |
-| page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
+| wordmark | 20 / semibold, display face | the product name beside its mark |
+| page | 20 / semibold, display face | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
 | group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | row | 13 / medium | the title of a setting, and the word above a control |
@@ -611,6 +642,40 @@ What stayed, and why:
 | Open links in Browser pane · Persist sessions | Each says what the *off* state does. |
 | Clear browsing data | Names its blast radius: this pane, not your browser. |
 | Every disabled row's reason | A tooltip on a disabled control is unreachable. |
+
+## Motion
+
+Motion says where a thing came from and where it went, and nothing else. It is
+tokens, like type and space, and `design-audit` counts a time written out in a
+transition, an animation or a Tailwind utility (`rawDuration`), so a surface
+cannot pick its own clock.
+
+| token | value | what it times |
+| --- | --- | --- |
+| `--hd-duration-fast` | 100ms | a change the finger caused: a hover, a press, a colour. Tailwind's bare `transition-*` utilities default to it |
+| `--hd-duration-enter` | 180ms | something arriving: a menu, a dialog, a fold's body |
+| `--hd-duration-exit` | 120ms | the same thing leaving — quicker, because nobody waits to watch a menu close |
+| `--hd-duration` / `-slow` | 200 / 300ms | a surface resizing, or crossing the window; rare |
+| `--hd-duration-pulse` / `-sweep` / `-cadence` | 1.6s / 1.8s / 1s | the only loops: a live dot, the sweep over words still being written, the stepped working line |
+
+Three curves, one per direction of travel: `--hd-ease` for a state changing in
+place, `--hd-ease-out` for an arrival (fast off the mark, settling), and
+`--hd-ease-in` for a departure (accelerating away). An arriving surface grows
+from `--hd-motion-scale` (0.97) toward its trigger, or rises
+`--hd-motion-rise` into place; small on purpose, a hint of direction rather
+than a flourish.
+
+Overlays do not choose any of this. `design/ui/motion.ts` holds it once:
+`floatingMotion` for anything anchored to a trigger (menus, popovers, selects,
+tooltips, hover cards), `modalMotion` and `scrimMotion` for a dialog, and
+`revealMotion` for a block that appears in place when something opens, such as
+a turn's work fold. They are transitions from Base UI's `data-starting-style`
+and `data-ending-style`, never keyframe animations keyed on them: the starting
+attribute is gone a frame later and an animation declared on it goes with it,
+which is how every menu in the app used to cut in rather than arrive.
+
+`prefers-reduced-motion` takes every duration to an instant in `app.css`; the
+tokens need no reduced variant of their own.
 
 ## A page: sections and summaries
 

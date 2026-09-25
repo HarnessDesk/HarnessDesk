@@ -2,6 +2,7 @@ import { PreviewCard as HoverCardPrimitive } from '@base-ui/react/preview-card'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import { floatingMotion } from './motion'
 
 /* Vendored from shadcn/ui (hover-card); z-index and surface from the app's
  * own token names, and the two delays below are the app's rather than the
@@ -105,7 +106,8 @@ const HoverCardContent = ({
           /* `p-3`, so a card of plain facts — a sentence, a key/value list —
              is never the first thing that has to hand-roll its own inset;
              a card whose body is a composed card of its own says `bleed`. */
-          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-72 origin-(--transform-origin) overflow-hidden rounded-lg border shadow-md outline-hidden',
+          floatingMotion,
+          'bg-popover text-popover-foreground w-72 overflow-hidden rounded-lg border shadow-md outline-hidden',
           bleed ? 'p-0' : 'p-3',
           className,
         )}

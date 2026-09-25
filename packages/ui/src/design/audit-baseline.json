@@ -18,6 +18,7 @@
   "rawRadius": 0,
   "offGrid": 0,
   "rawZIndex": 0,
+  "rawDuration": 0,
   "rawColour": 0,
   "arbitraryUtility": 0
 }

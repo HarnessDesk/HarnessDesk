@@ -181,7 +181,7 @@ a:hover {
   background-clip: text;
   background-size: 250% 100%;
   -webkit-text-fill-color: transparent;
-  animation: hd-cadence 1s steps(48, end) infinite;
+  animation: hd-cadence var(--hd-duration-cadence) steps(48, end) infinite;
 }
 
 @keyframes hd-cadence {
