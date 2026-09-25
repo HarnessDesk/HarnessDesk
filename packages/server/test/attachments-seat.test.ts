@@ -12,7 +12,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { bundleDigest, mcpIdentityDigest, type BundleFile } from '../src/attachments/catalog.js'
-import { AttachmentsPlane, UnsuppressedAutoLoadError, type AttachmentSubject, type AttachmentsPlanePort, type ResolvedForPlane } from '../src/attachments/plane.js'
+import { AttachmentsPlane, HeldBeyondFilterError, UnsuppressedAutoLoadError, type AttachmentSubject, type AttachmentsPlanePort, type ResolvedForPlane } from '../src/attachments/plane.js'
 import { tempDir } from './scratch.js'
 import { seat } from './fixtures/goals.js'
 
@@ -456,6 +456,40 @@ test('a held session’s receipt counts only under a key this Seat’s own filte
   const foreign = await receiptFrom(answering('another-seats-key'), 's' as never, reopen.input.key, { reopen, seatKeys: plane.keysOf(opened.id) })
   assert.deepEqual(foreign.loaded, [], 'a key this Seat never had: nothing loaded')
   assert.deepEqual(plane.keysOf(seat('seat-other').id), new Set())
+})
+
+/*
+ * #939, from the review of #940. Right after a restart, a fresh
+ * `AttachmentsPlane`'s key ledger for a Seat is empty — this process has
+ * never handed that Seat any key at all. A held session's pre-restart
+ * receipt is then neither provably within its filter nor provably outside
+ * it: there is nothing here to check it against. Silently recording
+ * "nothing loaded" would be trusted from then on as if it had truthfully
+ * been asked; instead the reopen fails closed, and the caller closes the
+ * session rather than carry a receipt nobody actually read back.
+ */
+test('a held session answered by a process that never opened its Seat at all fails closed, never as nothing loaded', async () => {
+  const { receiptFrom } = await import('../src/attachments/plane.js')
+  const id = identity({ name: 'held', seed: 'held-restart' })
+  const port = portFor({ scout: [declaration(id)] })
+  permit(port, subject(), id)
+  const folder = tempDir('hd-attach-seat-held-restart-')
+  const plane = new AttachmentsPlane(folder, port)
+  const opened = seat('seat-held-restart')
+  const first = await plane.prepare(subject())
+  await plane.record(opened, first, { key: first.input.key, loaded: [{ kind: 'skill', name: 'held', digest: id.digest }], refused: [] })
+
+  // A fresh process (a restart) reads back the same frozen filter: its own key ledger for this Seat starts empty.
+  const restarted = new AttachmentsPlane(folder, port)
+  const reopen = await restarted.reapply(opened, { build: '1.0.0' })
+  assert.ok(reopen)
+  assert.deepEqual(restarted.keysOf(opened.id), new Set(), 'a fresh process has handed this Seat no key yet')
+  const answering = (key: string) => ({ attachmentReceipt: async () => ({ key, loaded: [{ kind: 'skill' as const, name: 'held', digest: id.digest }], refused: [] }) })
+  await assert.rejects(
+    receiptFrom(answering(first.input.key), 's' as never, reopen.input.key, { reopen, seatKeys: restarted.keysOf(opened.id) }),
+    (error: unknown) => error instanceof HeldBeyondFilterError,
+    'an unprovable held receipt closes the session rather than being read as nothing loaded',
+  )
 })
 
 /*

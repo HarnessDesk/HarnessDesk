@@ -105,7 +105,10 @@ export interface ReopenedSeat {
  * What a runtime says a session loaded — asked of the runtime itself after
  * the session exists, never assumed from what it was handed. A runtime with
  * no such method, one that throws, or one that answers for a key this Seat
- * was not prepared with, is taken at its most conservative: nothing loaded.
+ * was not prepared with in this process, is taken at its most conservative:
+ * nothing loaded — unless this process has never prepared this Seat at all,
+ * in which case there is nothing to weigh the answer against and the reopen
+ * fails closed instead of guessing (`HeldBeyondFilterError`; #939).
  */
 export async function receiptFrom(
   runtime: { attachmentReceipt?(session: SessionId): Promise<SessionAttachmentReceipt> } | undefined,
@@ -136,10 +139,28 @@ export async function receiptFrom(
      than keep it on content this Seat may no longer load. What it names is
      then checked against the frozen identities by `record`, never taken as more. */
   const reopen = options.reopen
+  if (!reopen) return empty
+  const seatKeys = options.seatKeys
+  /* This process has never handed this Seat any key at all — most tellingly,
+     right after a restart, whose fresh `AttachmentsPlane` starts every
+     Seat's ledger empty. There is nothing here to weigh the held session's
+     reported key against, and it would be just as wrong to trust that as
+     proof of nothing loaded as to trust it as proof of anything: a session
+     a hold kept alive outlasts a restart and can still hold everything its
+     Seat approved. Neither guess is provable, so this reopen fails closed —
+     the caller closes the session — rather than silently recording "nothing
+     loaded" for a Seat that was never actually asked (#939). A held session
+     proves what it loaded only by an actual reopen in a process that was
+     there to hand it a key in the first place. */
+  if (!seatKeys?.size) {
+    throw new HeldBeyondFilterError(
+      'This desk has not reopened this conversation since it last restarted, so what the agent still holds cannot be checked against anything; it is being closed rather than assumed to hold nothing.',
+    )
+  }
   /* Only a session this Seat's own filter was handed to: its key is one this
-     process recorded for this Seat. Any other key — another Seat's input, or
-     none this desk gave — is nothing loaded (review P3-1 on #940). */
-  if (!reopen || !options.seatKeys?.has(observed.key)) return empty
+     process recorded for this Seat. Any other key — another Seat's input —
+     is nothing loaded (review P3-1 on #940). */
+  if (!seatKeys.has(observed.key)) return empty
   const allowed = new Set(
     reopen.declarations
       .filter((one) => one.identity !== null && one.problem === null)
