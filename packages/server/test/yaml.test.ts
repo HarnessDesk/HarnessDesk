@@ -249,3 +249,53 @@ order: |
 
 
 
+
+test('a key named __proto__ is refused by name, wherever a key is written, and nothing reaches a prototype', () => {
+  /* To JavaScript, `map['__proto__'] = value` writes no key: it swaps the
+     map's prototype, so whatever is under it answers for every field the
+     document leaves unset. A reader that honoured it would read fields no
+     line of the file names. */
+  const refuses = (source: string, line: number): void => {
+    assert.throws(
+      () => parseYaml(source),
+      (error: unknown) => {
+        assert.ok(error instanceof YamlError, `expected a YamlError for:\n${source}`)
+        assert.equal(error.line, line, source)
+        assert.match(error.message, /"__proto__"/)
+        return true
+      },
+    )
+  }
+  refuses('a: 1\n__proto__: {b: 2}\n', 2)
+  refuses('a: 1\n"__proto__":\n  b: 2\n', 2)
+  refuses('list:\n  - __proto__: {b: 2}\n', 2)
+  refuses('list:\n  - a: 1\n    __proto__: {b: 2}\n', 3)
+  refuses('a: {__proto__: {b: 2}}\n', 1)
+  refuses("a: [{'__proto__': {b: 2}}]\n", 1)
+  // A key that only looks like it is an ordinary key.
+  const kept = parseYaml('__proto: 1\nproto__: 2\n') as Record<string, unknown>
+  assert.deepEqual(kept, { __proto: 1, proto__: 2 })
+  assert.equal(Object.getPrototypeOf(kept), Object.prototype)
+})
+
+test('duplicate keys in inline maps refuse in either order', () => {
+  /* A block map already refused a key set twice; an inline map kept the
+     last one, so `{ flow: safe, flow: unsafe }` read as `unsafe` while a
+     reviewer's eye stopped at `safe`. Either order is refused, by name and line. */
+  const refuses = (source: string, key: string, line: number): void => {
+    assert.throws(
+      () => parseYaml(source),
+      (error: unknown) => {
+        assert.ok(error instanceof YamlError, `expected a YamlError for:\n${source}`)
+        assert.equal(error.line, line, source)
+        assert.match(error.message, new RegExp(`"${key}" is set twice`))
+        return true
+      },
+    )
+  }
+  refuses('opens: {flow: safe, flow: unsafe}\n', 'flow', 1)
+  refuses('opens: {flow: unsafe, flow: safe}\n', 'flow', 1)
+  refuses('a: 1\nlist:\n  - {b: [1, {c: 1, "c": 2}]}\n', 'c', 3)
+  // Distinct keys in an inline map still read.
+  assert.deepEqual(parseYaml('opens: {flow: safe, agent: other}\n'), { opens: { flow: 'safe', agent: 'other' } })
+})

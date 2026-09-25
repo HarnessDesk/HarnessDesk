@@ -34,6 +34,8 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   lead?: React.ReactNode
   title: React.ReactNode
   subtitle?: React.ReactNode
+  /** An earned sentence wraps whole; names, paths and compact facts truncate. */
+  wrapSubtitle?: boolean
   /** The reading: a figure, a chip, a `Delta`, a menu. */
   trail?: React.ReactNode
   /** Below the title, full width — a `Progress`, a set of chips. */
@@ -79,7 +81,7 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
    * the caller knows whether the keyboard reaches this row here or through
    * something inside it.
    */
-  as?: 'div' | 'button'
+  as?: 'div' | 'button' | 'label'
 }
 
 const ListRow = ({
@@ -87,6 +89,7 @@ const ListRow = ({
   lead,
   title,
   subtitle,
+  wrapSubtitle,
   trail,
   meta,
   interactive,
@@ -114,6 +117,15 @@ const ListRow = ({
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
       interactive && nav && 'hover:bg-(--hd-sidebar-hover)',
       selected && 'bg-(--hd-selected)',
+      /* The same fade a refused control wears everywhere else in the app —
+         `buttonVariants`'s `ghost`/`floating`/`choice` — so a row a caller
+         marks `data-refused` reads as refused at a glance instead of only
+         differing by the reason printed under it. Scoped to the lead and
+         the title only, never the row as a whole: the subtitle is where a
+         refused row's reason lives, and fading it along with everything
+         else measured at roughly 1.9:1 in light mode — under body-text
+         contrast for the one line a person is shown this row to read. */
+      'data-[refused]:[&_[data-slot=list-row-lead]]:opacity-45 data-[refused]:[&_[data-slot=list-row-title]]:opacity-45',
       /*
        * A selected destination takes the app's one navigation mark, and
        * everything inside it comes off the row's own ink — a subtitle or a
@@ -140,11 +152,12 @@ const ListRow = ({
     )}
     {...props}
   >
-    {lead != null && <span className="shrink-0">{lead}</span>}
-    <div className="min-w-0 flex-1">
+    {lead != null && <span data-slot="list-row-lead" className="inline-flex shrink-0 items-center gap-2">{lead}</span>}
+    <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
+        data-slot="list-row-title"
         className={cn(
-          'truncate leading-snug',
+          'truncate leading-(--hd-line)',
           size === 'sm' ? 'text-base' : 'text-base font-medium',
           selected && 'font-medium',
         )}
@@ -154,7 +167,11 @@ const ListRow = ({
       {subtitle != null && (
         <div
           data-slot="list-row-subtitle"
-          className="truncate text-xs text-(--hd-muted-foreground)"
+          {...(wrapSubtitle ? { 'data-wrap-subtitle': '' } : {})}
+          className={cn(
+            'text-xs text-(--hd-muted-foreground)',
+            wrapSubtitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
+          )}
         >
           {subtitle}
         </div>
@@ -206,4 +223,46 @@ const ListRows = ({
   />
 )
 
-export { ListRow, ListRows }
+/**
+ * What a row opens under itself — a file's patch, and what to do with it.
+ *
+ * One drawing for every list that unfolds a row in place: the inspector's
+ * Changes list and a commit's file list in the history pane. It starts a
+ * short step under the row and leaves a longer one before the next, so it
+ * reads as the row's and not as the start of the next.
+ *
+ * `inset` is where the list's rows keep their words. A list whose rows reach
+ * its edges (the inspector's) lets the detail reach them too, so a patch's
+ * edges carry on the row's; a list whose rows stand on an inner line (a
+ * commit's files) sets the detail on that line, and gives it the longer
+ * closing step its rows, which have no gap between them, do not.
+ *
+ * A third row has no list at all: a transcript step whose one opened body —
+ * reasoning, an argument list, a diff — hangs under the row's own *title*
+ * rather than its edge. `inset="title"` is that step: the header's 2px of
+ * padding, its 16px icon and the 8px gap after it, so the body's first word
+ * lands under the title's first letter. Padding, not margin, even for a
+ * child that draws its own plate — a full-width block is indented the same
+ * either way, and a caller composing a plate back in adds `pe-0` to keep its
+ * own right edge.
+ */
+const ListRowDetail = ({
+  className,
+  inset = false,
+  ...props
+}: React.ComponentProps<'div'> & { inset?: boolean | 'title' }) => (
+  <div
+    data-slot="list-row-detail"
+    {...(inset === true ? { 'data-inset': '' } : {})}
+    {...(inset === 'title' ? { 'data-inset': 'title' } : {})}
+    className={cn(
+      inset === 'title'
+        ? 'pt-(--hd-space-0-5) pb-(--hd-space-1-5) ps-(--hd-space-6)'
+        : cn('pt-1', inset ? 'px-3 pb-3' : 'pb-2'),
+      className,
+    )}
+    {...props}
+  />
+)
+
+export { ListRow, ListRowDetail, ListRows }

@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
 import {
+  BrowserInvocations,
   setEditorEngine,
   setForgeEngine,
   setTeamEngine,
@@ -112,6 +113,7 @@ export class PluginHostProcess {
   #child: ChildProcess | null = null
   #nextId = 0
   readonly #pending = new Map<number, Pending>()
+  readonly #browserInvocations = new BrowserInvocations()
   #plugins: readonly PluginInstance[] = []
   #contributions: readonly CapabilityContribution[] = []
   /**
@@ -420,6 +422,11 @@ export class PluginHostProcess {
             reply({ response: request.request, result: await plane.seat(scope) })
             return
           }
+          case 'forge/publicationAllowed': {
+            // Answered for the invocation the parent armed, never for a scope the child names.
+            reply({ response: request.request, result: await plane.publicationAllowed(scope) })
+            return
+          }
           case 'forge/publish': {
             // The reference crosses from the child into every window's
             // transcript; a shape the renderer does not expect stops here.
@@ -447,7 +454,7 @@ export class PluginHostProcess {
           return
         }
         const params = request.params as Record<string, unknown>
-        const scope = (params['scope'] ?? {}) as TeamScope
+        const claimed = (params['scope'] ?? {}) as TeamScope
         // The scope is the child's claim; the armed set is the parent's
         // knowledge. See `#teamScopes` — a claim the parent is not currently
         // standing behind is refused, not believed.
@@ -461,11 +468,17 @@ export class PluginHostProcess {
         // remains one trust domain — a plugin that lies about its identity is
         // still only reaching a window where the plugin it names is itself
         // mid-invocation — but the ambient, always-on grant is gone.
-        if (!this.#armedFor(scope, 'team')) {
+        if (!this.#armedFor(claimed, 'team')) {
           refuse(
             'Refused: this team call does not ride a live invocation the host dispatched to this plugin for that conversation, so it cannot be attributed. Team verbs work only while a tool call, context resolution, or command for that conversation — dispatched to this plugin, which must be granted `team` — is in flight.',
           )
           return
+        }
+        const scope: TeamScope = {
+          ...claimed,
+          ...(claimed.invocation
+            ? { signal: this.#browserInvocations.signal(claimed.invocation, claimed.plugin) }
+            : {}),
         }
         switch (request.method) {
           case 'team/board': {
@@ -519,6 +532,18 @@ export class PluginHostProcess {
             reply({
               response: request.request,
               result: await plane.awaitWork(scope, {
+                ...(cycle !== undefined ? { cycle: Number(cycle) } : {}),
+                ...(blockMs !== undefined ? { blockMs: Number(blockMs) } : {}),
+              }),
+            })
+            return
+          }
+          case 'team/awaitMember': {
+            const { member, cycle, blockMs } = params as { member: string; cycle?: number; blockMs?: number }
+            reply({
+              response: request.request,
+              result: await plane.awaitMember(scope, {
+                member: String(member ?? ''),
                 ...(cycle !== undefined ? { cycle: Number(cycle) } : {}),
                 ...(blockMs !== undefined ? { blockMs: Number(blockMs) } : {}),
               }),
@@ -584,12 +609,67 @@ export class PluginHostProcess {
             })
             return
           }
+          case 'team/reviewCandidates': {
+            reply({ response: request.request, result: await plane.reviewCandidates(Number(params['intent']), scope) })
+            return
+          }
+          case 'team/recordReview': {
+            const { intent, candidate, verdict, against } = params as {
+              intent: number
+              candidate: string
+              verdict: string
+              against?: readonly string[]
+            }
+            reply({
+              response: request.request,
+              result: await plane.recordReview(
+                { intent: Number(intent), candidate: String(candidate), verdict: String(verdict), ...(against !== undefined ? { against } : {}) },
+                scope,
+              ),
+            })
+            return
+          }
+          /*
+           * The findings ledger: the input is handed on exactly as the child
+           * sent it, never spread into the scope, so a key it may not carry —
+           * a Seat, a revision, an authority — reaches the host's validator
+           * and is refused there, whole, before anything is written.
+           */
+          case 'team/raiseFinding': {
+            reply({ response: request.request, result: await plane.raiseFinding(params['input'] as never, scope) })
+            return
+          }
+          case 'team/repairFinding': {
+            reply({ response: request.request, result: await plane.repairFinding(params['input'] as never, scope) })
+            return
+          }
+          case 'team/decideFinding': {
+            reply({ response: request.request, result: await plane.decideFinding(params['input'] as never, scope) })
+            return
+          }
+          case 'team/listFindings': {
+            reply({ response: request.request, result: await plane.listFindings(params['input'] as never, scope) })
+            return
+          }
           default:
             refuse(`Unknown request ${String(request.method)}.`)
             return
         }
       }
 
+      const invocation = (request.params as { invocation?: unknown })?.invocation
+      const identity = this.#browserInvocations.resolve(invocation)
+      const owner = this.#browserInvocations.owner(invocation)
+      if (
+        !this.#plugins.some(
+          (plugin) =>
+            String(plugin.instanceId) === owner &&
+            plugin.enabled &&
+            plugin.permissions.browser,
+        )
+      ) {
+        throw new Error('This plugin no longer has a browser grant.')
+      }
       const engine = this.#options.browserEngine
       if (!engine) {
         refuse('The host has no browser of its own.')
@@ -597,22 +677,22 @@ export class PluginHostProcess {
       }
       switch (request.method) {
         case 'browser/ensure':
-          await engine.ensure()
+          await engine.ensure(identity)
           reply({ response: request.request, result: null })
           return
         case 'browser/send': {
           const { method, params } = request.params as { method: string; params?: Record<string, unknown> }
-          const sender = await engine.ensure()
+          const sender = await engine.ensure(identity)
           reply({ response: request.request, result: (await sender.send(method, params)) ?? null })
           return
         }
         case 'browser/events': {
-          const sender = await engine.ensure()
+          const sender = await engine.ensure(identity)
           reply({ response: request.request, result: (await sender.drain?.()) ?? [] })
           return
         }
         case 'browser/close':
-          await engine.close()
+          await engine.close(identity)
           reply({ response: request.request, result: null })
           return
         default:
@@ -632,12 +712,35 @@ export class PluginHostProcess {
     method: M,
     params: PluginHostMethods[M]['params'],
   ): Promise<PluginHostMethods[M]['result']> {
+    await this.ensure()
+    let browserInvocation: string | undefined
+    if (method === 'tool/invoke') {
+      const input = params as PluginHostMethods['tool/invoke']['params']
+      const namespaced = childContributionId(input.id as ContributionId)
+      const owner = this.#plugins.find((plugin) =>
+        plugin.contributions.some((entry) => entry.id === namespaced),
+      )
+      if (
+        input.browser &&
+        owner?.enabled &&
+        owner.contributions.some(
+          (entry) => entry.id === namespaced && scopeApplies(entry.scope, input.scope),
+        )
+      ) {
+        const identity = this.#browserInvocations.begin(input.browser.profile, String(owner.instanceId))
+        browserInvocation = identity.invocation
+        params = { ...input, browser: identity } as PluginHostMethods[M]['params']
+      } else if (input.browser) {
+        const { browser: _browser, ...plain } = input
+        params = plain as PluginHostMethods[M]['params']
+      }
+    }
     const armKeys = this.#armedScopesFor(method, params)
-    if (armKeys.length === 0) return this.#dispatch(method, params)
     for (const key of armKeys) this.#teamScopes.set(key, (this.#teamScopes.get(key) ?? 0) + 1)
     try {
       return await this.#dispatch(method, params)
     } finally {
+      if (browserInvocation) this.#browserInvocations.end(browserInvocation)
       for (const key of armKeys) {
         const count = (this.#teamScopes.get(key) ?? 1) - 1
         if (count <= 0) this.#teamScopes.delete(key)
@@ -719,13 +822,21 @@ export class PluginHostProcess {
    * write a `team/*` frame while armed would reach the board without the
    * grant the manifest never asked for.
    */
-  #armedFor(scope: { readonly runtime?: unknown; readonly sessionId?: unknown; readonly plugin?: unknown }, plane: 'team' | 'forge'): boolean {
+  #armedFor(scope: { readonly runtime?: unknown; readonly sessionId?: unknown; readonly plugin?: unknown; readonly invocation?: unknown }, plane: 'team' | 'forge'): boolean {
     if (typeof scope.runtime !== 'string' || typeof scope.sessionId !== 'string' || typeof scope.plugin !== 'string') {
       return false
     }
     if ((this.#teamScopes.get(teamScopeKey(scope.runtime, scope.sessionId, scope.plugin)) ?? 0) <= 0) return false
     const plugin = this.#plugins.find((entry) => String(entry.instanceId) === scope.plugin)
-    return plugin !== undefined && plugin.enabled && plugin.permissions[plane] === true
+    if (plugin === undefined || !plugin.enabled || plugin.permissions[plane] !== true) return false
+    if (scope.invocation !== undefined) {
+      try {
+        this.#browserInvocations.resolve(scope.invocation, scope.plugin)
+      } catch {
+        return false
+      }
+    }
+    return true
   }
 
   /** The plugins whose scoped engine calls — team or forge — a live invocation arms. */
@@ -833,6 +944,7 @@ export class SupervisedExtensionHost {
   readonly #listeners = new Set<(event: ExtensionEvent) => void>()
   readonly #logger: KernelLogger
   #workspace: { root: string | null; branch: string | null } = { root: null, branch: null }
+  #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
 
   constructor(kernel: ExtensionKernel, options: SupervisedExtensionHostOptions = {}) {
     this.#kernel = kernel
@@ -920,13 +1032,24 @@ export class SupervisedExtensionHost {
     return [...this.#kernel.plugins(), ...this.#child.plugins]
   }
 
+  setBrowserResolver(resolve: (scope: ScopeQuery) => string | undefined): void {
+    this.#browserResolver = resolve
+    this.#kernel.setBrowserResolver(resolve)
+  }
+
   async invokeTool(id: ContributionId, args: unknown, scope: ScopeQuery): Promise<ToolResult> {
     if (this.#ownsInProcess(id)) return this.#kernel.invokeTool(id, args, scope)
     if (!isChildContributionId(id)) {
       return { ok: false, error: `No tool is registered with id ${String(id)}` }
     }
     try {
-      return await this.#child.call('tool/invoke', { id: stripChildContributionId(id), args, scope })
+      const profile = this.#browserResolver(scope)
+      return await this.#child.call('tool/invoke', {
+        id: stripChildContributionId(id),
+        args,
+        scope,
+        ...(profile ? { browser: { invocation: 'pending-parent-lease', profile } } : {}),
+      })
     } catch (error) {
       // The failure is the answer: the turn goes on, told plainly why.
       return { ok: false, error: error instanceof Error ? error.message : String(error) }

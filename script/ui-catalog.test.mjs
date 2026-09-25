@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { catalogCoverage, catalogIntegrity, cvaContract, declarationStrings, importGraph, isReachable, renderedDeclarationStrings, exportedModules } from './ui-catalog.mjs'
+import { catalogCoverage, catalogIntegrity, cvaContract, declarationStrings, importGraph, isReachable, renderedDeclarationStrings, exportedModules, surfaceLoads } from './ui-catalog.mjs'
 
 test('discovers canonical modules through star, named and namespace exports', () => {
   assert.deepEqual(exportedModules(`
@@ -336,4 +336,119 @@ test('reports stale catalog entries as well as missing ones', () => {
   })
   assert.deepEqual(result.staleUi, ['retired'])
   assert.deepEqual(result.stalePatterns, ['OldDialog'])
+})
+
+/*
+ * Two surfaces in one module, one screen each. The #762 review built exactly
+ * this and found the lazy handle for one surface "reaching" the other's
+ * screen, because a dynamic import was recorded as a whole-file edge.
+ */
+const surfaceModule = [
+  { path: 'app/surfaces.tsx', source: "import { Conversation } from './Conversation'\nimport { Sidebar } from './Sidebar'\nexport const ConversationSurface = () => <Conversation />\nexport const RailSurface = () => <Sidebar />" },
+  { path: 'app/Conversation.tsx', source: 'export const Conversation = () => null' },
+  { path: 'app/Sidebar.tsx', source: 'export const Sidebar = () => null' },
+]
+const withHandle = (source) => importGraph([{ path: 'app/Explorer.tsx', source }, ...surfaceModule])
+
+test('a lazy handle reaches only the export it takes, not its siblings (#762)', () => {
+  const graph = withHandle("export const C = lazy(() => import('./surfaces').then((m) => ({ default: m.ConversationSurface })))")
+  assert.deepEqual(
+    { conversation: isReachable(graph, 'app/Explorer.tsx', 'app/Conversation.tsx'), unrelatedSidebar: isReachable(graph, 'app/Explorer.tsx', 'app/Sidebar.tsx') },
+    { conversation: true, unrelatedSidebar: false },
+  )
+  const destructured = withHandle("export const C = lazy(() => import('./surfaces').then(({ RailSurface }) => ({ default: RailSurface })))")
+  assert.equal(isReachable(destructured, 'app/Explorer.tsx', 'app/Sidebar.tsx'), true)
+  assert.equal(isReachable(destructured, 'app/Explorer.tsx', 'app/Conversation.tsx'), false)
+})
+
+test('a dynamic import whose exports cannot be read stays whole-file (#762)', () => {
+  // over-reaching is the safe direction for "reachable"
+  for (const source of [
+    "export const C = lazy(() => import('./surfaces').then((m) => ({ default: pick(m) })))",
+    "const load = () => import('./surfaces')\nexport const C = lazy(() => load().then((m) => ({ default: m.ConversationSurface })))",
+    "export const C = lazy(() => import('./surfaces').then(({ ...all }) => ({ default: all.ConversationSurface })))",
+  ]) assert.equal(isReachable(withHandle(source), 'app/Explorer.tsx', 'app/Sidebar.tsx'), true, source)
+})
+
+test('an anchored example is walked from that one export (#762)', () => {
+  const graph = importGraph(surfaceModule)
+  assert.equal(isReachable(graph, 'app/surfaces.tsx#RailSurface', 'app/Sidebar.tsx'), true)
+  assert.equal(isReachable(graph, 'app/surfaces.tsx#ConversationSurface', 'app/Sidebar.tsx'), false)
+  // an anchor naming nothing the file exports reaches nothing
+  assert.equal(isReachable(graph, 'app/surfaces.tsx#Missing', 'app/Sidebar.tsx'), false)
+})
+
+test('each explorer tab is bound to the export its handle renders, and a swap is flagged (#762)', () => {
+  const explorer = [
+    "const RailSurface = lazy(() => import('./surfaces').then((m) => ({ default: m.RailSurface })))",
+    "const GitSurface = lazy(() => import('./surfaces').then((m) => ({ default: m.GitSurface })))",
+    "const Hidden = lazy(() => load().then((m) => ({ default: m.RailSurface })))",
+    "const SURFACES = [",
+    "  { id: 'rail', title: 'Left bar', about: '', render: GitSurface },",
+    "  { id: 'git', title: 'Git', about: '', render: GitSurface },",
+    "  { id: 'hidden', title: 'Hidden', about: '', render: Hidden },",
+    "] as const",
+  ].join('\n')
+  const loads = surfaceLoads(explorer, 'app/Explorer.tsx', new Set(['app/surfaces.tsx']))
+  assert.deepEqual(loads.get('git'), { target: 'app/surfaces.tsx', symbol: 'GitSurface' })
+  // a handle that hides its import behind a helper renders nothing the check can read
+  assert.equal(loads.get('hidden'), null)
+  const integrity = catalogIntegrity({
+    entries: [
+      { id: 'surface.rail', exampleId: 'rail', implementationPath: 'app/Sidebar.tsx', examples: ['app/surfaces.tsx#RailSurface'], consumers: [], catalogOnly: true, variants: ['default'], sizes: ['default'], states: ['default'], visual: false },
+      { id: 'surface.git', exampleId: 'git', implementationPath: 'app/GitPane.tsx', examples: ['app/surfaces.tsx#GitSurface'], consumers: [], catalogOnly: true, variants: ['default'], sizes: ['default'], states: ['default'], visual: false },
+    ],
+    existingPaths: new Set(['app/Sidebar.tsx', 'app/GitPane.tsx', 'app/surfaces.tsx']),
+    exampleIds: new Set(['rail', 'git']),
+    requiredSurfaces: [],
+    surfaceLoadsByView: loads,
+  })
+  // the rail tab renders the git handle: its row's export is never loaded
+  assert.deepEqual(integrity.unloadedAnchors, ['surface.rail'])
+  assert.deepEqual(integrity.danglingExamplePaths, [])
+})
+
+/*
+ * The #762 re-review: a handle that touched the Left bar export and rendered
+ * Git satisfied the Left bar anchor, because every export the callback read
+ * counted as loaded. What a tab shows is the `default` its loader returns.
+ */
+const renders = (handle) =>
+  surfaceLoads(
+    `const H = ${handle}\nconst SURFACES = [ { id: 'rail', title: 'Left bar', about: '', render: H } ] as const`,
+    'app/Explorer.tsx',
+    new Set(['app/surfaces.tsx']),
+  ).get('rail')
+
+test('a tab renders the default its loader returns, not every export it touches (#762)', () => {
+  assert.deepEqual(
+    renders("lazy(() => import('./surfaces').then((m) => { void m.RailSurface; return { default: m.GitSurface } }))"),
+    { target: 'app/surfaces.tsx', symbol: 'GitSurface' },
+  )
+  assert.deepEqual(
+    renders("lazy(() => import('./surfaces').then(({ RailSurface: Rail }) => ({ default: Rail })))"),
+    { target: 'app/surfaces.tsx', symbol: 'RailSurface' },
+  )
+  // a bare import renders the module's own default export
+  assert.deepEqual(renders("lazy(() => import('./surfaces'))"), { target: 'app/surfaces.tsx', symbol: 'default' })
+})
+
+test('a loader whose rendered export cannot be read renders nothing, and is reported (#762)', () => {
+  for (const handle of [
+    // two returns that disagree
+    "lazy(() => import('./surfaces').then((m) => { if (flag) return { default: m.RailSurface }; return { default: m.GitSurface } }))",
+    // a computed default
+    "lazy(() => import('./surfaces').then((m) => ({ default: pick(m) })))",
+    // a helper that hides the import
+    "lazy(() => load().then((m) => ({ default: m.RailSurface })))",
+  ]) assert.equal(renders(handle), null, handle)
+
+  const integrity = catalogIntegrity({
+    entries: [{ id: 'surface.rail', exampleId: 'rail', implementationPath: 'app/Sidebar.tsx', examples: ['app/surfaces.tsx#RailSurface'], consumers: [], catalogOnly: true, variants: ['default'], sizes: ['default'], states: ['default'], visual: false }],
+    existingPaths: new Set(['app/Sidebar.tsx', 'app/surfaces.tsx']),
+    exampleIds: new Set(['rail']),
+    requiredSurfaces: [],
+    surfaceLoadsByView: new Map([['rail', renders("lazy(() => import('./surfaces').then((m) => { void m.RailSurface; return { default: m.GitSurface } }))")]]),
+  })
+  assert.deepEqual(integrity.unloadedAnchors, ['surface.rail'])
 })

@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
+import { safeLedgerDiagnostic } from './diagnostics.js'
+
 /**
  * What a model costs, per token.
  *
@@ -25,6 +27,8 @@ export interface ModelRates {
 export interface PricingOptions {
   readonly cachePath: string
   readonly overlayPath: string
+  /** Injectable text reader for deterministic filesystem-failure tests. */
+  readonly readText?: (path: string) => Promise<string>
   /** Injectable for tests, and the seam where a user could turn the fetch off. */
   readonly fetchCatalogue?: () => Promise<unknown>
   readonly ttlMs?: number
@@ -154,6 +158,14 @@ export class Pricing {
     return this.#options.now?.() ?? Date.now()
   }
 
+  #log(message: string, details?: Record<string, unknown>): void {
+    this.#options.log?.(message, safeLedgerDiagnostic(message, details))
+  }
+
+  #readText(path: string): Promise<string> {
+    return this.#options.readText?.(path) ?? readFile(path, 'utf8')
+  }
+
   /** Loads the overlay and the cached catalogue; refreshes the catalogue if it is stale. */
   async warm(): Promise<void> {
     await this.#loadOverlay()
@@ -182,8 +194,8 @@ export class Pricing {
       await writeFile(this.#options.cachePath, JSON.stringify(payload), 'utf8')
     } catch (error) {
       // The last good copy stays usable; prices are advisory, not load-bearing.
-      this.#options.log?.('the model price catalogue could not be refreshed', {
-        error: error instanceof Error ? error.message : String(error),
+      this.#log('the model price catalogue could not be refreshed', {
+        error,
       })
     }
   }
@@ -232,12 +244,37 @@ export class Pricing {
     return best ? ratesFrom(best.cost) : null
   }
 
+  /** The same choice as rateFor, with enough provenance for a read-only report. */
+  rateObservation(model: string): {
+    rates: ModelRates | null
+    observedAt: number | null
+    kind: 'catalogue' | 'overlay' | 'unknown'
+    fingerprint: string
+  } {
+    const key = model.trim().toLowerCase()
+    const vendor = vendorFor(key)
+    const overlay = key === '' ? undefined : this.#overlay.get(key) ?? (vendor ? this.#overlay.get(`${vendor}/${key}`) : undefined)
+    const rates = this.rateFor(model)
+    const kind = overlay ? 'overlay' : rates ? 'catalogue' : 'unknown'
+    return {
+      rates,
+      observedAt: kind === 'catalogue' && this.#fetchedAt > 0 ? this.#fetchedAt : null,
+      kind,
+      fingerprint: JSON.stringify({ kind, rates }),
+    }
+  }
+
   async #loadOverlay(): Promise<void> {
     this.#overlay.clear()
     let raw: string
     try {
-      raw = await readFile(this.#options.overlayPath, 'utf8')
-    } catch {
+      raw = await this.#readText(this.#options.overlayPath)
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT') return
+      this.#log('the price overlay could not be read', {
+        path: this.#options.overlayPath,
+        error,
+      })
       return
     }
     try {
@@ -248,16 +285,16 @@ export class Pricing {
         if (rates) this.#overlay.set(key.trim().toLowerCase(), rates)
       }
     } catch (error) {
-      this.#options.log?.('the price overlay could not be read', {
+      this.#log('the price overlay could not be read', {
         path: this.#options.overlayPath,
-        error: error instanceof Error ? error.message : String(error),
+        error,
       })
     }
   }
 
   async #loadCache(): Promise<void> {
     try {
-      const raw = await readFile(this.#options.cachePath, 'utf8')
+      const raw = await this.#readText(this.#options.cachePath)
       const parsed = JSON.parse(raw) as CachedCatalogue
       if (typeof parsed.fetchedAt === 'number' && typeof parsed.catalogue === 'object') {
         this.#catalogue = parsed.catalogue

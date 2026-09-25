@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
 import { runtimeId, type LedgerDay,
@@ -8,19 +9,26 @@ import { runtimeId, type LedgerDay,
   type ScanProgress,
   type SpendCoverage,
   type SpendSummary,
+  type InsightQuery,
+  type InsightSource,
 } from '@harnessdesk/protocol'
 
 import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
-import { listTargets, scanFile, type CorpusSpec, type ScanTarget } from './scan.js'
+import { safeLedgerDiagnostic } from './diagnostics.js'
+import { listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
+import { INSIGHT_BYTE_LIMIT, INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError, InsightSourceChangedError, type UsageDetail, type UsageSample } from './insight.js'
 
 /**
  * Tokens and money, read off the agents' own transcripts.
  *
- * Everything the ledger says is a *list-price equivalent*: what these tokens
+ * Most of what the ledger says is a *list-price equivalent*: what these tokens
  * would have cost at public API rates. That is a useful number — it is how a
  * person decides whether a plan is worth keeping — and it is not an invoice,
  * which is why every total it produces carries its provenance and its coverage.
+ * Where an agent records what it billed (OpenCode, Cline), that figure is used
+ * as it stands and the total says so: `vendorMetered`, or `mixed` beside
+ * list-priced rows.
  *
  * Design: `docs/usage-dashboard.md`.
  */
@@ -33,6 +41,13 @@ export interface LedgerOptions {
   readonly log?: (message: string, details?: Record<string, unknown>) => void
   readonly now?: () => number
   readonly pricing?: Pricing
+  /**
+   * How much source data one Insight read may spend in total, tracked against
+   * bytes a scanner actually read rather than a source's size at discovery.
+   * Defaults to `INSIGHT_BYTE_LIMIT`; narrowed only in tests, to exercise the
+   * bound without fixtures sized in tens of megabytes.
+   */
+  readonly insightByteLimit?: number
 }
 
 const DAY = 86_400_000
@@ -59,25 +74,54 @@ interface Priced {
   readonly tokens: number
   readonly priced: number
   readonly unpriced: number
+  /** Of `priced`, the requests whose cost the agent reported rather than we computed. */
+  readonly vendor: number
+}
+
+/** What a set of priced requests is, said once for the card and the bands alike. */
+const provenanceOf = (priced: number, vendor: number): SpendSummary['provenance'] => {
+  if (priced === 0) return 'unknown'
+  if (vendor === 0) return 'listPrice'
+  return vendor === priced ? 'vendorMetered' : 'mixed'
+}
+
+const failedCorpusSource = (
+  corpus: CorpusSpec | ScanTarget,
+  checkedAt: number,
+  problem: string,
+): InsightSource => {
+  const path = 'path' in corpus ? corpus.path : corpus.root
+  return {
+    id: `corpus:${corpus.kind}:${corpus.runtime}:${createHash('sha256').update(path).digest('hex').slice(0, 16)}`,
+    runtime: corpus.runtime,
+    kind: 'corpus',
+    label: 'Recorded usage',
+    observedAt: null,
+    checkedAt,
+    stale: false,
+    problem,
+  }
 }
 
 export class Ledger {
   readonly #options: LedgerOptions
   readonly #store: LedgerStore
   readonly #pricing: Pricing
+  readonly #insightByteLimit: number
   #progress: ScanProgress = IDLE
   #scanning: Promise<void> | null = null
   #warmed: Promise<void> | null = null
 
   constructor(options: LedgerOptions) {
     this.#options = options
+    this.#insightByteLimit = options.insightByteLimit ?? INSIGHT_BYTE_LIMIT
     this.#store = new LedgerStore(options.databasePath ?? join(options.stateDir, 'usage.sqlite'))
     const paths = defaultPricingPaths(options.stateDir)
     this.#pricing =
       options.pricing ??
       new Pricing({
         ...paths,
-        ...(options.log ? { log: options.log } : {}),
+        ...(options.log ? { log: (message, details) => this.#log(message, details) } : {}),
         ...(options.now ? { now: options.now } : {}),
       })
     // Buckets move if the zone changes, so the zone the history was built in is
@@ -87,7 +131,7 @@ export class Ledger {
     const pinned = this.#store.meta('timezone')
     if (pinned === null) this.#store.setMeta('timezone', zone)
     else if (pinned !== zone) {
-      options.log?.('usage history was bucketed in another timezone; days may straddle', {
+      this.#log('usage history was bucketed in another timezone; days may straddle', {
         pinned,
         current: zone,
       })
@@ -102,8 +146,159 @@ export class Ledger {
     return this.#options.now?.() ?? Date.now()
   }
 
+  #log(message: string, details?: Record<string, unknown>): void {
+    this.#options.log?.(message, safeLedgerDiagnostic(message, details))
+  }
+
   get progress(): ScanProgress {
     return this.#progress
+  }
+
+  /**
+   * Read the already-scanned ledger without changing it. Aggregated historical
+   * rows deliberately retain no guessed session or turn identity; callers must
+   * leave those amounts unattributed rather than manufacture a join.
+   */
+  async readInsight(query: InsightQuery, options: { readonly refresh?: boolean; readonly signal?: AbortSignal } = {}): Promise<UsageDetail> {
+    if (!Number.isFinite(query.from) || !Number.isFinite(query.to) || query.from >= query.to) {
+      throw new Error('Choose a valid Insight time range.')
+    }
+    if (query.to - query.from > 90 * DAY) throw new Error('Insight reads at most 90 days at once.')
+    if (options.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
+    /* Insight deliberately reads the source records once at their native granularity.
+       The SQLite ledger remains the fast aggregate dashboard, but has already
+       discarded the call identity needed for conservative historical joins. */
+    await this.warm()
+    const detailSamples: UsageSample[] = []
+    const detailSources: InsightSource[] = []
+    const gaps: string[] = []
+    let bytes = 0
+    let targets: ScanTarget[] = []
+    const corpora = query.runtime === undefined
+      ? this.#options.corpora
+      : this.#options.corpora.filter((corpus) => corpus.runtime === query.runtime)
+    for (const corpus of corpora) {
+      try {
+        targets.push(...await listTargets([corpus], {
+          unreadable: () => {
+            // The source itself must say which runtime was unavailable, but
+            // never expose the agent-owned corpus path or account details.
+            detailSources.push(failedCorpusSource(corpus, this.#now(), 'Recorded usage source could not be discovered.'))
+            gaps.push('A recorded usage source could not be discovered.')
+          },
+        }))
+      }
+      catch {
+        // Discovery implementations can still fail outside their per-folder
+        // callback. Preserve only the corpus identity and fixed public text;
+        // their errors can include agent-owned paths or database details.
+        detailSources.push(failedCorpusSource(corpus, this.#now(), 'Recorded usage source could not be discovered.'))
+        gaps.push('Recorded usage source could not be discovered.')
+      }
+    }
+    if (targets.length > 10_000) {
+      gaps.push('Insight stopped before more than 10,000 source files. Choose a narrower range.')
+      targets = targets.slice(0, 10_000)
+    }
+    for (const target of targets) {
+      if (options.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
+      // `bytes` is what scanners actually read, never a target's size at
+      // discovery: a source rewritten or appended to after `listTargets` ran
+      // can be larger now than that stale figure says, and trusting it here
+      // would let such a source spend past what this read promises overall.
+      if (bytes >= this.#insightByteLimit) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }
+      try {
+        const result = await scanFile(target, 0, [], { emit: (sample) => detailSamples.push(sample), signal: options.signal, byteLimit: this.#insightByteLimit - bytes })
+        // `bytesRead`, never `offset`: `offset` is the incremental-scan
+        // cursor, advanced only for a line actually committed, and a line
+        // `take()` rejects as not JSON was still read off disk before it
+        // was rejected — `offset` alone said none of it had been (round 3
+        // review).
+        bytes += result.bytesRead
+      } catch (error) {
+        if ((error as { name?: string }).name === 'AbortError') throw error
+        if (error instanceof InsightBudgetExceededError) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }
+        // Read whole and then refused because it changed: what was read still counts.
+        if (error instanceof InsightSourceChangedError) bytes += error.bytesRead
+        detailSources.push(failedCorpusSource(target, this.#now(), 'Recorded usage source could not be read.'))
+        // Database and filesystem errors often echo agent-owned paths. The
+        // source carries the opaque identity; the rendered gap says only what
+        // Insight can safely promise.
+        gaps.push('A recorded usage source could not be read.')
+      }
+    }
+    const selected = detailSamples.filter((sample) => sample.project === query.root && sample.from !== null && sample.from >= query.from && sample.from < query.to)
+    const priced = selected.map((sample) => {
+      if (sample.usd.value !== null || !sample.model) return sample
+      const rates = this.#pricing.rateObservation(sample.model).rates
+      if (!rates) return sample
+      const parts = [sample.input, sample.output, sample.cacheRead, sample.cacheWrite]
+      if (parts.some((part) => part.value === null)) return sample
+      const value = sample.input.value! * rates.input + sample.output.value! * rates.output + sample.cacheRead.value! * rates.cacheRead + sample.cacheWrite.value! * rates.cacheWrite
+      return { ...sample, usd: { value, quality: 'estimate' as const }, moneyBasis: 'listPrice' as const }
+    })
+    const readSources = [...new Map([
+      ...detailSources,
+      ...priced.map((sample) => sample.source),
+    ].map((source) => [source.id, source])).values()]
+    return {
+      samples: priced, sources: readSources, gaps: [...gaps, ...(priced.some((sample) => sample.usd.value === null) ? ['Some recorded usage has no known USD rate.'] : [])],
+      complete: priced.length > 0 && gaps.length === 0 && priced.every((sample) => sample.usd.value !== null),
+    }
+    /* c8 ignore next -- retained below as the aggregate implementation's
+       reference for migrations; normal Insight reads return from source rows. */
+    if (options.refresh) await this.scan()
+    const checkedAt = this.#now()
+    const rows = this.#store.since(startOfDay(query.from)).filter((row) => row.day < query.to && row.project === query.root)
+    const sources = new Map<string, InsightSource>()
+    const samples: UsageSample[] = rows.map((row, index) => {
+      const sourceId = `ledger:${index}:${row.runtime}:${row.day}`
+      const source: InsightSource = {
+        id: sourceId,
+        runtime: row.runtime,
+        kind: 'corpus',
+        label: 'Recorded agent usage',
+        observedAt: row.day,
+        checkedAt,
+        stale: false,
+        problem: null,
+      }
+      sources.set(sourceId, source)
+      const tokens = row.input + row.output + row.cacheRead + row.cacheWrite
+      const observed = this.#pricing.rateObservation(row.model)
+      const vendor = typeof row.vendorCost === 'number'
+      const priced = vendor
+        ? { value: row.vendorCost!, quality: 'exact' as const }
+        : observed.rates === null
+          ? { value: null, quality: 'unknown' as const }
+          : { value: row.input * observed.rates.input + row.output * observed.rates.output + row.cacheRead * observed.rates.cacheRead + row.cacheWrite * observed.rates.cacheWrite, quality: 'estimate' as const }
+      return {
+        key: `aggregate:${row.file}:${row.day}:${row.runtime}:${row.model}:${row.project}`,
+        source,
+        runtime: row.runtime,
+        sessionId: null,
+        turnId: null,
+        requestId: null,
+        project: row.project || null,
+        model: row.model || null,
+        from: row.day,
+        to: row.day + DAY,
+        scope: 'session',
+        includesChildren: null,
+        input: { value: row.input, quality: 'exact' },
+        output: { value: row.output, quality: 'exact' },
+        cacheRead: { value: row.cacheRead, quality: 'exact' },
+        cacheWrite: { value: row.cacheWrite, quality: 'exact' },
+        usd: priced,
+        moneyBasis: vendor ? 'vendorMetered' : observed.rates ? 'listPrice' : 'unknown',
+      }
+    })
+    return {
+      samples,
+      sources: [...sources.values()],
+      gaps: samples.some((sample) => sample.usd.value === null) ? ['Some recorded usage has no known USD rate.'] : [],
+      complete: samples.length > 0 && samples.every((sample) => sample.usd.value !== null),
+    }
   }
 
   /** Prices load once, lazily: nothing is fetched for a screen nobody opened. */
@@ -138,14 +333,26 @@ export class Ledger {
   async #doScan(full: boolean): Promise<void> {
     const startedAt = this.#now()
     let targets: ScanTarget[] = []
+    let discoveryFailures = 0
     try {
-      targets = await listTargets(this.#options.corpora)
+      for (const corpus of this.#options.corpora) {
+        targets.push(...await listTargets([corpus], {
+          unreadable: (_folder, error) => {
+            discoveryFailures += 1
+            this.#log('a folder of transcripts could not be read, so the usage in it was not counted', {
+              kind: corpus.kind,
+              failures: discoveryFailures,
+              error,
+            })
+          },
+        }))
+      }
     } catch (error) {
       this.#report({
         ...IDLE,
         startedAt,
         finishedAt: this.#now(),
-        error: error instanceof Error ? error.message : String(error),
+        error: 'Recorded usage source discovery failed.',
       })
       return
     }
@@ -170,11 +377,13 @@ export class Ledger {
 
     let filesDone = 0
     let bytesDone = 0
+    let readFailures = 0
     for (const target of pending) {
       const cursor = full ? null : this.#store.cursor(target.path)
       // A file that shrank was rewritten, not appended to: its rows go and it
-      // is read from the start, which the file-keyed rows make safe.
-      const rewritten = cursor !== null && target.size < cursor.offset
+      // is read from the start, which the file-keyed rows make safe. A kind
+      // that is always rewritten is always read that way.
+      const rewritten = (cursor !== null && target.size < cursor.offset) || wholeFile(target.kind)
       const from = rewritten || cursor === null ? 0 : cursor.offset
       const tail = rewritten || cursor === null ? [] : cursor.tail
       try {
@@ -186,9 +395,11 @@ export class Ledger {
           full || rewritten,
         )
       } catch (error) {
-        this.#options.log?.('a transcript could not be read', {
-          path: target.path,
-          error: error instanceof Error ? error.message : String(error),
+        readFailures += 1
+        this.#log('a transcript could not be read', {
+          kind: target.kind,
+          failures: readFailures,
+          error,
         })
       }
       filesDone += 1
@@ -229,14 +440,18 @@ export class Ledger {
 
   #price(row: UsageRow): Priced {
     const tokens = row.input + row.output + row.cacheRead + row.cacheWrite
+    // What the agent billed is what it cost, a free model's zero included.
+    if (typeof row.vendorCost === 'number') {
+      return { cost: row.vendorCost, tokens, priced: row.requests, unpriced: 0, vendor: row.requests }
+    }
     const rates: ModelRates | null = this.#pricing.rateFor(row.model)
-    if (!rates) return { cost: 0, tokens, priced: 0, unpriced: row.requests }
+    if (!rates) return { cost: 0, tokens, priced: 0, unpriced: row.requests, vendor: 0 }
     const cost =
       row.input * rates.input +
       row.output * rates.output +
       row.cacheRead * rates.cacheRead +
       row.cacheWrite * rates.cacheWrite
-    return { cost, tokens, priced: row.requests, unpriced: 0 }
+    return { cost, tokens, priced: row.requests, unpriced: 0, vendor: 0 }
   }
 
   /** The money half of one agent's card. */
@@ -252,6 +467,7 @@ export class Ledger {
     let todayTokens = 0
     let priced = 0
     let unpriced = 0
+    let vendor = 0
     const byDay = new Map<number, { cost: number; tokens: number }>()
     for (const row of rows) {
       const cost = this.#price(row)
@@ -259,6 +475,7 @@ export class Ledger {
       windowTokens += cost.tokens
       priced += cost.priced
       unpriced += cost.unpriced
+      vendor += cost.vendor
       if (row.day === today) {
         todayCost += cost.cost
         todayTokens += cost.tokens
@@ -275,7 +492,7 @@ export class Ledger {
       windowDays: days,
       todayTokens,
       windowTokens,
-      provenance: anyPriced ? 'listPrice' : 'unknown',
+      provenance: provenanceOf(priced, vendor),
       coverage: {
         priced,
         unpriced,
@@ -300,6 +517,7 @@ export class Ledger {
     let totalTokens = 0
     let priced = 0
     let unpriced = 0
+    let vendor = 0
     interface Group {
       label: string
       /** Distinct paths behind one basename, so a collision can be told apart. */
@@ -318,6 +536,7 @@ export class Ledger {
       totalTokens += cost.tokens
       priced += cost.priced
       unpriced += cost.unpriced
+      vendor += cost.vendor
 
       // A model or a project is one thing however many agents touched it —
       // "what did this project cost" is the question the pivot is named for,
@@ -402,10 +621,10 @@ export class Ledger {
       currency: 'USD',
       totalCost: anyPriced ? totalCost : null,
       totalTokens,
-      // Everything the ledger prices is list price. A request it could not
-      // price is a hole in the coverage, not a second kind of source, and the
-      // counts below are where that is said.
-      provenance: anyPriced ? 'listPrice' : 'unknown',
+      // List price, the agents' own figures, or both. A request that could
+      // not be priced either way is a hole in the coverage, not a third kind
+      // of source, and the counts below are where that is said.
+      provenance: provenanceOf(priced, vendor),
       coverage,
       rows: ordered,
       daily: [...daily.values()].sort((a, b) => a.day - b.day),
@@ -429,5 +648,5 @@ const projectPath = (path: string): string => {
 }
 
 export { Pricing } from './pricing.js'
-export { defaultCorpora, type CorpusSpec } from './scan.js'
+export { corpusRoot, defaultCorpora, type CorpusKind, type CorpusSpec } from './scan.js'
 export { LedgerStore } from './store.js'

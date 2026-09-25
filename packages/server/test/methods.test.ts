@@ -84,23 +84,35 @@ test('a terminal with nowhere to run is refused in the name of the runtime that 
   )
 })
 
-test('a worktree is only created under an open workspace, and the service is not asked otherwise', async () => {
+/**
+ * The handler's half of the boundary: the host's git confinement decides, and
+ * the service is asked about the folder it answered with, links resolved, not
+ * about the spelling off the wire.
+ */
+test('a worktree is only created where the git confinement admits, in the folder it answers with', async () => {
   const open = tempDir('hd-methods-open-')
   const elsewhere = tempDir('hd-methods-elsewhere-')
-  let created = 0
+  const link = join(open, 'link')
+  const real = join(open, 'real')
+  const asked: string[] = []
   const ctx = contextWith({
-    workspaces: { openRoots: () => [open] },
+    workspaces: {
+      confineGitRoot: async (root: string) => {
+        if (root === link) return real
+        throw new Error(`${root} is outside every open workspace.`)
+      },
+    },
     worktrees: {
-      create: async () => {
-        created += 1
+      create: async (root: string) => {
+        asked.push(root)
         return { path: join(open, 'wt'), branch: 'wt' }
       },
     },
   })
-  await assert.rejects(dispatch(ctx, 'worktree/create', { root: elsewhere, name: 'wt' }))
-  assert.equal(created, 0)
-  await dispatch(ctx, 'worktree/create', { root: open, name: 'wt' })
-  assert.equal(created, 1)
+  await assert.rejects(dispatch(ctx, 'worktree/create', { root: elsewhere, name: 'wt' }), /outside every open workspace/)
+  assert.deepEqual(asked, [], 'the service is not asked about a root the confinement refused')
+  await dispatch(ctx, 'worktree/create', { root: link, name: 'wt' })
+  assert.deepEqual(asked, [real])
 })
 
 /**
@@ -467,4 +479,33 @@ test('a worktree is not brought home while a conversation in it is working', asy
 
   await dispatch(ctx([{ ...working, status: { type: 'idle' } }]), 'worktree/bringHome', { path: tree })
   assert.equal(asked, 1, 'and it goes once the turn is over')
+})
+
+/**
+ * `workspace/recent` still resolves the most recent workspace's `realPath`
+ * live, and used to await it unbounded: a stalled mount held up the whole
+ * list, not just its own row. It now races that resolve against a bound
+ * (`RECENT_REAL_PATH_TIMEOUT_MS`) and answers with the saved key — the same
+ * comparison key `#openWorkspace` already persisted onto the record — the
+ * moment the live resolve misses it, rather than waiting on a filesystem call
+ * that may never return (#939).
+ */
+test('the most recent workspace answers with its saved key when its live realpath resolve never returns', { timeout: 5_000 }, async (t) => {
+  const { RECENT_REAL_PATH_TIMEOUT_MS } = await import('../src/methods/workspace.js')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const folder = tempDir('hd-methods-recent-stalled-')
+  const latest = { path: folder, name: 'folder', lastOpenedAt: 1, realPath: `${folder}-saved-key` }
+  const ctx = contextWith({
+    state: { state: { workspaces: [latest] } },
+    workspaces: {
+      repoOf: async () => null,
+      topLevel: async () => null,
+      // A live resolve that never settles on its own — a stalled mount.
+      realPath: () => new Promise<string>(() => {}),
+    },
+  })
+  const settled = dispatch(ctx, 'workspace/recent', {})
+  t.mock.timers.tick(RECENT_REAL_PATH_TIMEOUT_MS)
+  const recent = (await settled) as unknown as { path: string; realPath?: string }[]
+  assert.equal(recent[0]?.realPath, latest.realPath, 'the saved key answers once the bound is reached')
 })

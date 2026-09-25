@@ -1,28 +1,26 @@
-import { Button } from '../design'
 import { useMemo } from 'react'
 
 import type { Session, Turn } from '@harnessdesk/protocol'
 
 import { cacheHealthOf } from '../lib/cache-health'
+import { instant } from '../lib/clock'
 import { formatTokens } from '../lib/context-usage'
-import { delegatedIn, summariseTurn } from '../lib/turn-summary'
-import { openExternal } from '../lib/desktop'
-import { useStore } from '../state/context'
-import { KindGlyph } from '../design'
-import { AlertIcon, CheckIcon, DiffIcon, QuestionIcon, TerminalIcon } from './Icons'
+import { delegatedIn } from '../lib/turn-summary'
+import { ActionError, Alert, AlertContent, AlertDescription, Text, Tooltip, TooltipContent, TooltipTrigger } from '../design'
+import { AlertIcon } from './Icons'
 import { MessageActions } from './MessageActions'
 import styles from './Conversation.module.css'
 
 /**
  * The line under a finished turn.
  *
- * Reports what the turn cost, because that is the question a user actually has
- * after watching an agent work. Every figure comes from the runtime; nothing is
- * estimated, and anything the runtime did not report is simply absent rather
- * than guessed at.
+ * Actions and the clock stay in the transcript. The figures wait on the
+ * clock's tooltip: every one comes from the runtime, and anything the runtime
+ * did not report is absent rather than guessed at.
  */
 
-const formatDuration = (ms: number): string =>
+/** A duration, in the shortest unit that still reads as one figure — "496ms", "1.2s", "3m". Shared with any live line that reads the same clock. */
+export const formatDuration = (ms: number): string =>
   ms < 1000 ? `${Math.round(ms)}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 60_000)}m`
 
 /** Items that represent work, as opposed to the prose describing it. */
@@ -31,21 +29,15 @@ const STEP_TYPES = new Set(['command', 'fileChange', 'toolCall', 'webSearch'])
 export const TurnTail = ({
   turn,
   session,
-  hideFiles = false,
   answer = '',
 }: {
   turn: Turn
   session: Session
-  /** The files card above already lists them. */
-  hideFiles?: boolean
   /** The turn's answer, for the copy / rate / retry row. */
   answer?: string
 }) => {
-  const store = useStore()
-  const summary = useMemo(() => summariseTurn(turn, session.cwd), [turn, session.cwd])
   const parts = useMemo(() => {
-    // A part carries its own hover line where it has one to give. The cache
-    // chip is a verdict, and a verdict has to be able to show its working.
+    // Each part is one fact on the clock's hover line.
     const out: { text: string; title?: string }[] = []
 
     const steps = turn.items.filter((item) => STEP_TYPES.has(item.type)).length
@@ -89,21 +81,8 @@ export const TurnTail = ({
       })
     }
 
-    if (turn.status === 'interrupted') out.push({ text: 'stopped' })
-    if (turn.status === 'failed') out.push({ text: 'failed' })
     return out
   }, [turn, session])
-
-  // What the failed chip says on hover: which steps, and — when the turn
-  // finished all the same — that the count is not a verdict on the turn.
-  const failuresTitle = summary
-    ? [
-        summary.failures.join('\n'),
-        turn.status === 'completed' ? 'The turn finished anyway; the agent carried on from these.' : '',
-      ]
-        .filter((part) => part.length > 0)
-        .join('\n\n')
-    : ''
 
   // A turn that completed with nothing the reader can see — no message, no
   // work — must say so. Silence here looks like a broken app; it once hid a
@@ -112,124 +91,59 @@ export const TurnTail = ({
   const silent = turn.status === 'completed' && !visible
 
   const actions = answer.trim().length > 0 && turn.status === 'completed'
-  if (parts.length === 0 && !silent && !summary && !actions && !(turn.status === 'failed' && turn.error)) return null
+  const stamp = instant(turn.completedAt ?? turn.startedAt)
+  const when = stamp === null
+    ? null
+    : new Date(stamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  const figures = parts.map((part) => part.text).join(' · ')
+  const details = parts.flatMap((part) => part.title ? [part.title] : [])
+  if (!silent && !actions && when === null && !(turn.status === 'failed' && turn.error)) return null
 
   return (
     <>
-      {/* Where the turn got, for the reader who did not watch it get there:
-          files, commands, tests, and what broke — read off the items, not
-          the prose. The files open the Changes panel. */}
-      {summary && (
-        <div className={styles.turnSummary} role="status">
-          {summary.files.length > 0 && !hideFiles && (
-            <Button
-              type="button"
-              variant="quiet" size="chip" className={styles.turnSummaryItem}
-              onClick={() => store.setDetailsTab('changes')}
-              title={summary.files.join('\n')}
-            >
-              <DiffIcon size={12} />
-              <span className={styles.turnSummaryLabel}>
-                {summary.files.length === 1
-                  ? summary.files[0]
-                  : `${summary.files.length} files · ${summary.files.slice(0, 2).join(', ')}${summary.files.length > 2 ? ', …' : ''}`}
-              </span>
-            </Button>
-          )}
-          {summary.commands > 0 && (
-            <span className={styles.turnSummaryFact}>
-              <TerminalIcon size={12} />
-              <span className={styles.turnSummaryLabel}>
-                {summary.commands} command{summary.commands === 1 ? '' : 's'}
-              </span>
-            </span>
-          )}
-          {summary.tests && (
-            <span
-              className={styles.turnSummaryFact}
-              data-tone={summary.tests.failed > 0 ? 'bad' : 'good'}
-            >
-              {summary.tests.failed > 0 ? <AlertIcon size={12} /> : <CheckIcon size={12} />}
-              <span className={styles.turnSummaryLabel}>
-                {summary.tests.failed > 0
-                  ? `tests failed (${summary.tests.failed} of ${summary.tests.ran} run${summary.tests.ran === 1 ? '' : 's'})`
-                  : `tests passed${summary.tests.ran > 1 ? ` (${summary.tests.ran} runs)` : ''}`}
-              </span>
-            </span>
-          )}
-          {/* A step that ended badly is worth a count, never the command line:
-              a shell one-liner is longer than the column and says nothing at a
-              glance. Red only when the turn itself did not finish — inside a
-              turn that completed, a non-zero exit is usually a probe the agent
-              went on from, and colouring it as a failure misreads the turn. */}
-          {summary.failures.length > 0 && (
-            <span
-              className={styles.turnSummaryFact}
-              {...(turn.status === 'completed' ? {} : { 'data-tone': 'bad' })}
-              title={failuresTitle}
-            >
-              <AlertIcon size={12} />
-              <span className={styles.turnSummaryLabel}>
-                {summary.failures.length} step{summary.failures.length === 1 ? '' : 's'} failed
-              </span>
-            </span>
-          )}
-          {/* What the turn put on the forge, each a door to the page. The
-              verb is the transcript row's; here the number is enough. */}
-          {summary.published.map((reference, index) => (
-            <Button
-              key={`${reference.url}-${index}`}
-              type="button"
-              variant="quiet" size="chip" className={styles.turnSummaryItem}
-              onClick={() => openExternal(reference.url)}
-              title={reference.title ?? reference.url}
-            >
-              <KindGlyph kind={reference.kind} size={12} />
-              <span className={styles.turnSummaryLabel}>
-                {reference.kind === 'review'
-                  ? `reviewed #${reference.number}`
-                  : reference.kind === 'comment'
-                    ? `commented on #${reference.number}`
-                    : reference.action === 'updated'
-                      ? `updated #${reference.number}`
-                      : `opened #${reference.number}`}
-              </span>
-            </Button>
-          ))}
-          {summary.question && (
-            <span className={styles.turnSummaryFact} data-tone="ask">
-              <QuestionIcon size={12} />
-              <span className={styles.turnSummaryLabel}>waiting for your answer</span>
-            </span>
-          )}
-        </div>
-      )}
+      {/* Drawn as a failure, but announced politely: nothing the person did
+          was refused, and the turn is over, so there is nothing to interrupt. */}
       {silent && (
-        <div className={styles.turnError} role="status">
-          The agent finished this turn without any output.
-        </div>
+        <Alert tone="danger" role="status" className={styles.turnError}>
+          <AlertIcon />
+          <AlertContent>
+            <AlertDescription>The agent finished this turn without any output.</AlertDescription>
+          </AlertContent>
+        </Alert>
       )}
       {/* A failed turn says why, in the transcript, where the reader is —
           not only as a toast that has already faded by the time they look. */}
       {turn.status === 'failed' && turn.error && (
-        <div className={styles.turnError} role="alert">
+        <ActionError className={styles.turnError}>
           {turn.error.message}
           {turn.error.retrying ? ' Retrying…' : ''}
-        </div>
+        </ActionError>
       )}
-      {(parts.length > 0 || actions) && (
-        <div className={styles.turnTail}>
-          {actions && <MessageActions text={answer} at={turn.completedAt ?? turn.startedAt} />}
+      {(actions || when !== null) && (
+        <Text as="div" role="meta" numeric className={styles.turnTail}>
+          {actions && <MessageActions text={answer} />}
           <span className={styles.turnTailSpacer} />
-          <span className={styles.turnTailStats} title={parts.map((part) => part.text).join(' · ')}>
-            {parts.map((part, index) => (
-              <span key={part.text} {...(part.title ? { title: part.title } : {})}>
-                {index > 0 ? ' · ' : ''}
-                {part.text}
-              </span>
-            ))}
-          </span>
-        </div>
+          {when !== null && figures.length > 0 ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={<span className={styles.turnTailTime} tabIndex={0} data-testid="turn-time" />}
+              >
+                {when}
+              </TooltipTrigger>
+              <TooltipContent>
+                {figures}
+                {details.map((detail, index) => (
+                  <span key={`${index}-${detail}`}>
+                    <br />
+                    {detail}
+                  </span>
+                ))}
+              </TooltipContent>
+            </Tooltip>
+          ) : when !== null ? (
+            <span className={styles.turnTailTime} data-testid="turn-time">{when}</span>
+          ) : null}
+        </Text>
       )}
     </>
   )

@@ -136,6 +136,7 @@ export const describeAdapterConformance = (name: string, harness: ConformanceHar
       await withRuntime(async (runtime) => {
         assert.ok(runtime.info.id.length > 0)
         assert.ok(runtime.info.presentation.name.trim().length > 0, 'presentation.name is what the shell calls it')
+        assert.equal(typeof runtime.info.capabilities.sessionEnvironment, 'boolean')
         for (const [key, value] of Object.entries(runtime.info.capabilities)) {
           assert.equal(typeof value, 'boolean', `capability ${key} must be a boolean verb`)
         }
@@ -318,6 +319,22 @@ export const describeAdapterConformance = (name: string, harness: ConformanceHar
             event.type === 'runtime/options',
         )
         assert.equal(findOption(announced.options, toggle.id)?.currentValue, !toggle.currentValue)
+      })
+    })
+
+    test('a plain conversation stays native: no attachments requested, no receipt owed', async () => {
+      // The suite's own default `sessionOptions` names no Agent and no
+      // attachment input — proving this needs no attachments-aware harness
+      // beyond that. A runtime without the extension has nothing to check;
+      // one that has it must still refuse to invent a receipt for a session
+      // it was never asked to scope, exactly as it would refuse one for an
+      // unrecognised id.
+      await withSession(async (session, runtime) => {
+        if (!runtime.attachmentReceipt) return
+        await assert.rejects(
+          runtime.attachmentReceipt(session.id),
+          'a runtime that supports attachmentReceipt must still refuse it for a session opened with none',
+        )
       })
     })
   })

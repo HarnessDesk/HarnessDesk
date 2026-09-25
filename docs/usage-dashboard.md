@@ -12,6 +12,20 @@ popover and the window the work happens in are not the same problem.*
 
 ## The question
 
+## Insight
+
+Insight is the read-only historical companion to the account dashboard. It
+reads the same agent-owned corpora at call or session granularity and carries
+the source, observation time, price basis and missing fields with every total.
+An unavailable value is **Unknown**, never zero. List-price equivalents are
+estimates; agent-recorded vendor USD is labelled separately. Account balances,
+quota windows and context occupancy are not attributed as spend.
+
+Project and Goal views leave corpus rows without a unique historical Seat
+unattributed. They never divide a total among Goals, rewrite receipts, or
+append evidence. A comparison accepts only an explicit selected cohort with
+compatible complete money observations on both sides.
+
 When you run four agents, you have four plans, four reset clocks and four bills,
 and the one that ran out is never the one in front of you. Quota used to be
 buried in settings panes you never opened before sending a turn, or missing
@@ -78,6 +92,7 @@ interface UsageReport {
   readonly fetchedAt: number
   readonly staleAfterMs: number
   readonly error: UsageError | null      // stays on the row; never drops the others
+  readonly unverified?: UnverifiedUsage | null  // another sign-in's figures: drawn, never read as the agent's
 }
 ```
 
@@ -97,8 +112,9 @@ it; `check-layering.mjs` only forbids it above.
 | --- | --- | --- | --- |
 | 1 | Runtime adapter queries | Codex, live, already wired | free |
 | 2 | A declared local file the agent already writes | Claude Code: `~/.claude.json → cachedUsageUtilization` — session, weekly, model-scoped lanes, plan, identity, `severity` | free, and watched on disk |
-| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`) | one request, cached |
-| 4 | The local ledger — the agent's own transcripts | tokens and list-price cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl` | one incremental scan |
+| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance) | one request, cached |
+| 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models), Amp (`amp usage` → the credit balance) | one process start and one request, at most once a minute (Amp: every five) |
+| 4 | The local ledger — the agent's own records | tokens and cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl`, Gemini CLI's `~/.gemini/tmp/*/chats/*.jsonl`, Qwen Code's `~/.qwen/projects/*/chats/*.jsonl` (list price); OpenCode's `opencode.db` and Cline's `sessions.db` (the cost the agent recorded) | one incremental scan |
 
 Tier 2 is the discovery that makes this cheap. Claude Code caches its full
 utilization payload — every lane, the reset times, the plan, the account, and
@@ -123,6 +139,121 @@ does not exist and the meter has nothing to read. A Copilot agent is bound to
 this meter either way; it simply has no lanes to report until a road that
 writes that file has been used. Nothing here will prompt for keychain access
 to close the gap.
+
+**Antigravity, measured 2026-09-17.** The ACP server the desk runs (1.1.1,
+Google's, proprietary) puts no quota on the wire, and keeps its Google token
+in a keychain item (`gemini` / `antigravity-acp`) whose access list names only
+its own binary — reading it would prompt, so it is not read. The `agy` CLI
+beside it answers the question itself: `/usage` is one of the commands its
+print mode runs without a model turn, and with `--output-format json` it
+prints the structured payload it draws (`command.data.groups[].buckets[]`:
+`window`, `remaining_fraction`, `reset_time`). The meter runs exactly that,
+with two guards, because every other run of agy has side effects: it installs
+its own updates in place — the first probe of `/usage` moved this machine from
+1.2.5 to 1.2.6 — which `AGY_CLI_DISABLE_AUTO_UPDATE=true` turns off (the word:
+agy ignores `1` and spawns its updater anyway), and it writes
+a ~20 KB log into `~/.gemini/antigravity-cli/log/` per run, which `--log-file`
+sends to the null device. A read younger than a minute is answered again
+rather than starting agy after every turn of a busy flow.
+
+Signed out is only what agy says it is. Measured with its ADC route forced
+and no credentials, the JSON said "authentication failed or timed out" (which
+a timeout also says) and stderr said `Error: authentication required. Run
+'agy' to log in.`, the sentence Google's headless docs promise. That sentence
+and two others of agy's own ("stored credentials are expired or revoked",
+"You are not logged into Antigravity") are the whole match; anything else, a
+503 from the sign-in service included, is an error.
+
+**A meter that fails keeps what it had.** Until #769 a meter that threw was
+dropped as silence however recently it had answered, so one 503 took a card
+back to "no source available". It now keeps its last good reading, dated when
+it was read, with the failure beside it — the rule a runtime's own figures
+already had. With no earlier reading, a failure is still logged and no card.
+
+The figures are **the agy CLI's sign-in**, not the ACP server's: the two sign
+in separately (see the known-agents note), and neither says which Google
+account it is, so the desk cannot tell whether they are the agent's. So they
+are never treated as the agent's. The meter marks its reading `unverified`,
+and the service files it under `UsageReport.unverified` rather than in
+`lanes`. The Dashboard card draws it under its own name ("agy CLI sign-in",
+"from the agy CLI"), with the chip still read from the report itself.
+Readiness, the chip, the alerts, the header strip, the tray and Setup Desk all
+reduce over `lanes`, which are empty, so a spent `agy` account can never mark
+Antigravity out of quota or hide "Use this agent", and an Antigravity whose
+own account is spent is not shown as ready on `agy`'s numbers either (review
+of #769). The same goes for the two places a second round of that review
+found. The Dashboard's rail row names the agent and nothing else, so it
+answers from the agent's own lanes ("—" here), never from `unverified`. And
+when `agy` fails, the failure is `unverified.error`, drawn in the card's note
+beside its last good figures; `report.error` is the agent's own, and would
+have turned the chip "Unavailable" over a source the agent does not depend
+on. A bucket that is untouched reports a reset of
+"now plus a week" that moves on every read, so a full bucket's reset is drawn
+as no date at all. Every lane is scoped to a group of models — see the
+headline rule below for what that does to the card.
+
+**The rest of the roster, measured 2026-09-18.** Six agents read "not
+metered" on the development machine: Antigravity (above), Amp, Cline, Gemini
+CLI, OpenCode and Qwen Code. Each was checked in its own source for what it
+can say, and each now says it:
+
+| Agent | What it offers a client | What the card shows |
+| --- | --- | --- |
+| Amp | `amp usage` prints the balance in a short report its server writes (no JSON form); account lookups share a limit of 60 an hour with Amp's own. `amp-acp` forwards none of the SDK's per-message `usage`. | the balance, `$10.00 left`, re-asked at most every five minutes |
+| Cline | Its CLI's account screen asks `api.cline.bot` for the user and the billed account's balance (micro-dollars), with the session in `providers.json`. Its ACP server drops the engine's `usage` event. Its `sessions.db` keeps each session's usage and `totalCost`. | the balance, plus the spend Cline billed |
+| Gemini CLI | A Code Assist sign-in has a quota (the existing meter); an API key has none anywhere. Its chat logs carry tokens and model per call. | spend at list price |
+| OpenCode | Zen's balance has no endpoint an API key can read (requested upstream, anomalyco/opencode#10448). Go's limits do: `GET /zen/go/v1/usage` with the Go key returns the rolling 5-hour, weekly and monthly windows (`status`, `percent`, `resetsAt`) — not read by the desk yet, for want of a Go subscription to measure against. It sends `usage_update` (context, session cost) and keeps each session's tokens and `cost` in `opencode.db`. | spend at the cost OpenCode recorded, a free model's `$0` included |
+| Qwen Code | No quota endpoint. Its transcripts record `usageMetadata` per call. | spend at list price |
+
+The token Cline's meter uses is **never refreshed**: refreshing rotates the
+refresh token, and without writing the new pair back — which the desk never
+does to another application's file — that would sign Cline out. Cline
+refreshes it whenever it runs, including each turn the desk sends it; between
+times the last reading stands with its own age. A second Cline account is
+moved with `--data-dir` on the row, not an environment variable — Cline has
+none for it — so the sign-in and the spend are both read from that folder
+when the row carries the flag (round 3 review: the binding read only
+`CLINE_DATA_DIR`, which a `--data-dir` row never sets, and missed it).
+`CLINE_DB_DATA_DIR` still names the database on its own even then, exactly as
+it does with no override: the two flags move different things, and a row can
+set one without the other (round 4 review). Amp's meter, and the `amp`
+binary it runs, read the row's own environment too, not the host process's —
+a second Amp account moves the same way, through `PATH` (round 4 review: the
+binding built a bare `AmpMeter()` and always asked the host's own `amp`).
+And beneath every one of those variables sits the plainest one: a row that
+isolates an agent with a bare `HOME` — the ordinary way, ahead of any of the
+above — moves every one of these paths with it, `~` in `--data-dir` included,
+because that is what the row's own process resolves `homedir()` to (round 5
+review: each fallback still read the desk's own `homedir()` when the row set
+only `HOME`, so a `HOME`-isolated row's sign-in and spend were the desk's).
+The ledger reads OpenCode's
+and Cline's databases the same way it reads nothing else: through
+`readForeignDatabase`, which never guesses whether the owner is running. A WAL
+database with no `-wal` or `-shm` beside it is opened `immutable` and the read
+is checked afterwards (a plain read-only open would create both files in the
+owner's folder, measured), and is discarded if the file changed meanwhile. One
+with either file is copied, with its log, to a private folder and read there,
+and the copy is trusted only if the source was the same before and after —
+size and time, not bytes, so a rewrite landing on both by chance would be
+missed; neither agent's writer does this. A database over 1 GiB that may be
+open is refused rather than copied, so a very large store stays on its last
+good rows rather than being copied whole on every scan.
+Neither a leftover `-shm` (Cline's has outlived its run by weeks) nor a missing
+one (an owner in exclusive locking mode has none) says anything about the
+owner. Requests an agent priced and requests it did not are never summed into
+one ledger row, so a row's cost and provenance are always one or the other.
+Gemini CLI writes a message again as its counts
+arrive and hides rewound ones without un-spending them, so a chat log is read
+whole each time it changes, at the last record of each call. OpenCode's and
+Cline's figures are session totals, so a session's spend falls on the day it
+was last touched.
+
+Where an agent records what it billed, that figure is the one used, and the
+spend says so: `vendorMetered` for those rows alone, `mixed` beside list-priced
+ones. A prepaid balance counts as usage reported in the line above the cards,
+so an overdrawn Cline reads "Cline is out of credits." rather than "No agent
+here reports plan usage."; its card says the balance waits for a top-up, not
+a reset; and the Accounts rail shows the balance where a percentage would go.
 
 **Read-only, always.** HarnessDesk never writes to another application's
 credential file, config or cache. It reads to answer one question and keeps
@@ -277,6 +408,21 @@ at 0% all week while every other model answers normally, and a card headlined
 still gets said, in one line under the bar — *Fable is spent — other models
 still work* — and only an account-wide limit turns the card red, raises the
 banner, or counts as an exhausted agent in the line at the top.
+
+**With no account-wide lane, the scopes are alternatives.** Antigravity
+reports a weekly limit for its Gemini models and another for its Claude and
+GPT ones, and nothing for the account; Gemini CLI reports one per model. Same
+rule, other shape: a spent scope is stepped around while any other still has
+room, so the headline is a scope that can still run a turn, and the spent one
+stays in the list, red, with its reset. Only when every scope is spent is the
+account out, and then the scope that comes back first is the headline, because
+when is the only question left. (Until 2026-09-17 such a report was treated as
+blocked by its tightest scope, on the stated assumption that no source had this
+shape; Gemini CLI already did.) Seating an Agent asks the same question, plus
+one: a candidate whose model has a spent lane of its own is passed over for
+another (#778). A lane counts as the model's own when its scope is exactly the
+model id, as Gemini CLI reports it; a scope that names a group, like
+Antigravity's, matches no candidate.
 
 **How far back the money goes.** The spend band picks its own window: a week is
 what you are spending now, a month is the cycle most plans bill on, and a quarter

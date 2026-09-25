@@ -1,14 +1,25 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  approvalId as makeApprovalId,
+  ceilingOfPermission,
   holderOf,
+  DEFAULT_LANE_PREFERENCES,
+  lanePreferences,
+  itemId,
   isFolderGone,
+  type CeilingLevel,
+  type ApprovalDecision,
+  type NoticeItem,
+  type SeatCeiling,
+  flowStepOf,
   isBusy,
   isSessionBusy,
   isSessionGone,
@@ -17,11 +28,14 @@ import {
   SessionBusyError,
   sessionId as makeSessionId,
   sessionKey,
+  splitSessionKey,
+  type AgentEntry,
   type AgentEvent,
   type AgentRuntime,
   type ArchiveFilter,
   type AgentSession,
   type ConfigOption,
+  type FlowSeat,
   type TurnId,
   type CapabilityRegistry,
   type ContextImage,
@@ -40,8 +54,12 @@ import {
   type RuntimeId,
   type Session,
   type SessionId,
+  type SessionKey,
   type RepoInfo,
   type SessionSummary,
+  type Intent,
+  type TeamActor,
+  type TeamState,
   type Turn,
   type UserContent,
   type Unsubscribe,
@@ -50,13 +68,40 @@ import {
   type Approval,
   type ContributionId,
   type ScopeQuery,
+  type GoalSeatRequest,
+  type GoalReceipt,
   type SecretReload,
+  type SeatId,
+  type SeatRecord,
+  type SeatArchived,
+  type SeatLeft,
   type PublicationItem,
+  type SessionAttachments,
+  type SessionAttachmentReceipt,
+  type SeatAttachmentsRecord,
+  type AttachmentSupport,
   runtimeId,
   sessionModel,
 } from '@harnessdesk/protocol'
 
-import type { AgentDirectory } from './agent-registry.js'
+import { packagedPath, type AgentDirectory } from './agent-registry.js'
+import { exportAgentFolders, importAgentFolder } from './agent-files.js'
+import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-file.js'
+import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
+import { AgentWatch } from './agent-watch.js'
+import { Agents } from './agents.js'
+import { FlowCatalog } from './flow-catalog.js'
+import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
+import { FlowReview } from './flow-evidence.js'
+import { FlowPreviews } from './flow-preview.js'
+import { FlowUpdates, TreeQueue } from './flow-update.js'
+import { AuthoringPlane } from './authoring/plane.js'
+import { factsKey, hostContextPort, previewStart, resolveContext, type ContextPort } from './authoring/start.js'
+import { previewAgent } from './methods/agents.js'
+import { PERSON, type TurnCause } from './ceilings/cause.js'
+import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
+import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
+import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
@@ -66,24 +111,60 @@ import { UsageService } from './usage/service.js'
 import { CredentialBroker, plainCipher, type CredentialCipher } from './credentials.js'
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
-import { Worktrees, repositoryOf } from './worktree.js'
+import { canonicalDestination } from './git-worktree.js'
+import { Worktrees, openRepositoryRoot, repositoryOf } from './worktree.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
-import { SessionRegistry, type SessionRecord } from './registry.js'
+import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
+import { EvidencePlane } from './evidence/plane.js'
+import { GhFindingForge, type GhApiRunner } from './findings/forge.js'
+import { FindingsPlane } from './findings/plane.js'
+import { gapOf, Publications, type FindingForgePort } from './findings/publication.js'
+import { QuestionDeadline } from './findings/rounds.js'
+import { ProvenancePlane } from './provenance/plane.js'
+import { AttachmentsPlane, receiptFrom, type AttachmentSubject as PlaneAttachmentSubject, type ReopenedSeat } from './attachments/plane.js'
+import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
+import { resolveAttachmentDeclarations } from './attachments/catalog.js'
+import { ghInCheckout, type GhInCheckout } from './evidence/forge.js'
+import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
+import type { SeatOpening } from './evidence/records.js'
+import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
 import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
+import { waitFor } from './flow.js'
 import { Flows, runCheck } from './flows.js'
-import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
+import { dispatchAfter, Serial } from './goals/assignments.js'
+import { goalMembers } from './goals/members.js'
+import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
+import { exportMemory, importMemory, type MemoryBackupPort } from './memory/backup.js'
+import { availablePorts, laneOf, LaneAllocator, LaneStore } from './goals/lanes.js'
+import {
+  environmentForCheckout,
+  environmentForSession,
+  laneStandingOrder,
+  requireLaneSupport,
+} from './goals/lane-environment.js'
+import { importMigrationSeats, migrateDesk } from './goals/migration.js'
+import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
+import type { GoalOperation } from './goals/operations.js'
+import { acquireDeskWriter } from './goals/writer-lease.js'
+import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
-import { LocalFiles, confine, describeWorkspace } from './workspace.js'
+import { InsightPlane } from './insight/plane.js'
+import { IntakePlane, type IntakeTimers } from './intake/plane.js'
+import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
+import type { UsageSample } from './ledger/insight.js'
+import { InsightContexts } from './insight/context.js'
+import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
+import { seatAgent } from './methods/agents.js'
 
 /**
  * The host.
@@ -112,6 +193,7 @@ export interface ExtensionHost extends CapabilityRegistry {
   setWorkspace(state: { root: string | null; branch: string | null }): void
   /** Where an agent's `browser_open` puts the page. See `BrowserSettings`. */
   setBrowserSettings(settings: BrowserSettings): void
+  setBrowserResolver?(resolve: (scope: ScopeQuery) => string | undefined): void
   /** Reads a manifest for the consent dialog; imports nothing. */
   inspectPlugin(specifier: string): Promise<{
     id: string
@@ -124,6 +206,56 @@ export interface ExtensionHost extends CapabilityRegistry {
   }>
   installPlugin(specifier: string): Promise<string>
   uninstallPlugin(pluginId: string): Promise<void>
+}
+
+/**
+ * A conversation opened on a seat, and what it is actually running.
+ *
+ * Both halves are read from the conversation after its picks were applied —
+ * what the runtime reports, never the request: `running` for a caller that
+ * must compare it with what it asked for, `label` for one that only has to say
+ * it. A runtime's report is only as good as what its agent says. Over ACP a
+ * pick the agent answered without a word about is reported at what was asked,
+ * as the agent's claim (`AcpSession.setOption`). Codex says where every change
+ * lands, and one it took without saying so is refused at the pick rather than
+ * reported (`CodexSession.setOption`).
+ */
+export interface OpenedSeat {
+  readonly runtime: string
+  readonly sessionId: string
+  readonly running: SeatRunning
+  /** How the desk describes it: "Cursor · Gemini 3.8 Flash · High · thinking". */
+  readonly label: string
+}
+
+/**
+ * A conversation a seating has opened and not yet kept or let go — what a
+ * discard has to know to delete only what its seating opened and nobody else
+ * touched (`Host#discardSeat`). Only ever a conversation the runtime opened
+ * new: one it answered with an id the desk already held is refused before it
+ * is held at all (`Host#openSeat`).
+ *
+ * Kept beside the registry, not on its record: a record is the conversation's,
+ * and outlives the seating; this lives exactly as long as the seating's hold on
+ * it.
+ */
+interface SeatInHand {
+  /**
+   * The handle the seating opened it on: the one a discard closes, when
+   * nobody is in the conversation yet. A reopen since, which puts a
+   * *different* handle on the record, counts as somebody being in it
+   * (`#leaveAsItIs`) — so a discard that finds one closes nothing at all,
+   * this handle included, rather than closing this one regardless of what
+   * the record now holds.
+   */
+  readonly live: AgentSession
+  /** A window asked something of it — read it, reopened it, wrote to it — while the seating held it. */
+  reached: boolean
+  /**
+   * Past the point of no return: being deleted or archived. Nothing a window
+   * asks may start on it now, because nothing that starts could be kept.
+   */
+  removing: boolean
 }
 
 /** One permission-policy rule, as stored in preferences. */
@@ -159,6 +291,9 @@ export interface ModelRouteRecord {
  * cost the whole app — no window, no error, nothing to read.
  */
 const START_TIMEOUT_MS = 15_000
+const HELD_ALLOW = 'allow'
+const HELD_REFUSE = 'refuse'
+const HELD_WAIT_SEC = 45
 /**
  * How long a send may count as busy without the agent having accepted it.
  * The mark exists to keep two messages typed in the same breath from both
@@ -169,6 +304,59 @@ const START_TIMEOUT_MS = 15_000
 const SEND_ACCEPT_DEADLINE_MS = 30_000
 
 /**
+ * Where the built-in Agents ship: `agents/` at the root of this package, beside
+ * `src` and `dist`.
+ *
+ * Found from this module the way the bridges and the tool bridge are found —
+ * relative to the compiled file, then through `packagedPath` — so it is the same
+ * directory in a checkout, a standalone host and the app. The unpacked twin
+ * matters here for a reason of its own: an entry's `path` is shown to a person
+ * and handed to other programs to open, and a path inside `app.asar` is one only
+ * this process can read. The Agents that ship with the app live there, one
+ * folder each. The app carries the folder because the desktop build copies
+ * this whole package and unpacks every `node_modules` entry (`asarUnpack`);
+ * `files` lists it too, so the manifest says what the package holds. A
+ * directory that is not there is still an empty tier rather than a failure.
+ *
+ * `__setBuiltinAgentRootForTests` below replaces the computed path outright,
+ * for exactly the test that has to prove the host watches wherever this
+ * function points — with no explicit `builtinAgents` option to override that
+ * resolution — against a folder of its own, never the checkout's real
+ * `agents/`, which someone may be editing while the suite runs. There is no
+ * environment variable for this: an env override a stale shell left set
+ * would silently swap out the whole built-in tier of a real, packaged app,
+ * and nothing here checks for one. Only a test that imports this module and
+ * calls that function directly can ever see anything but the real path.
+ */
+let builtinAgentRootForTests: string | null = null
+
+/**
+ * Test-only: every `builtinAgentRoot()` call answers `path` until cleared
+ * (`null`) or the process ends. `bootstrap.ts` never imports this, and there
+ * is no way to reach it short of calling it from test code — see
+ * `builtinAgentRoot`'s own comment for why that is deliberate.
+ */
+export const __setBuiltinAgentRootForTests = (path: string | null): void => {
+  builtinAgentRootForTests = path
+}
+
+export const builtinAgentRoot = (): string =>
+  builtinAgentRootForTests ?? packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
+
+/** Editable starter flows ship beside Agent starters and are never renderer-selected paths. */
+export const builtinFlowRoot = (): string =>
+  packagedPath(fileURLToPath(new URL('../../flows', import.meta.url)))
+
+/**
+ * Which vendor a session of `runtime` in `cwd` reaches, as its adapter
+ * reports it: `providerAt` where the agent reads project configuration,
+ * `info.provider` otherwise, and unknown for an account that pays through a
+ * gateway, which can serve anyone's models. See `Host.#providerOf`.
+ */
+export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throughGateway: boolean): Promise<string | null> =>
+  throughGateway ? null : (runtime.providerAt ? await runtime.providerAt(cwd) : runtime.info.provider) ?? null
+
+/**
  * The "Last terminal output" composer chip. Terminals are the host's own
  * workbench tool — they never became a plugin — so this contribution lives
  * here: `capability/list` appends it and `context/resolve` answers it from
@@ -177,6 +365,14 @@ const SEND_ACCEPT_DEADLINE_MS = 30_000
 export interface HostOptions {
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
   readonly forge?: ForgePlaneOptions
+  /**
+   * The forge a closed round's findings are posted through. Constructor
+   * injection for tests only — a scripted transport — and absent everywhere
+   * else, where the desk's own `gh` adapter is composed.
+   */
+  readonly findingForge?: FindingForgePort
+  /** How the evidence plane reads a branch's pull request with `gh`. Tests answer as the forge would. */
+  readonly evidence?: { readonly gh?: GhInCheckout }
   readonly logger: Logger
   /**
    * How stored credentials are protected at rest. The desktop shell passes a
@@ -191,6 +387,22 @@ export interface HostOptions {
   readonly pickDirectory?: () => Promise<string | null>
   /** Shows a folder in the OS file browser. Supplied by the desktop shell. */
   readonly revealPath?: (path: string) => Promise<void>
+  /**
+   * Moves a file or folder to the OS Trash, where it can be put back.
+   * Supplied by the desktop shell; without it, removing an Agent says so.
+   */
+  readonly trashPath?: (path: string) => Promise<void>
+  /**
+   * Where the Agents that ship with the app are read from, watched and opened
+   * for reading. The app never passes this: they are `builtinAgentRoot()`.
+   * A test that counts `agent/changed` points it at a copy, because the real
+   * folder is this checkout's `packages/server/agents`, which somebody may be
+   * editing while the tests run — and to a host watching it, every edit there
+   * is a notice to every window.
+   */
+  readonly builtinAgents?: string
+  /** Test-only override for the flows which ship with the host. */
+  readonly builtinFlows?: string
   readonly version?: string
   /**
    * Tells a runtime when a newer build of it is published. Optional: without
@@ -213,6 +425,13 @@ export interface HostOptions {
    */
   readonly sendAcceptDeadlineMs?: number
   /**
+   * How long each read a seating makes before it chooses may take — an
+   * account, a model list, the usage. See `SEAT_READ_DEADLINE_MS`.
+   */
+  readonly seatReadDeadlineMs?: number
+  /** How long a desk-tool action held for the person waits for an answer. */
+  readonly heldWaitMs?: number
+  /**
    * How to give an agent one more account. Supplied by the wiring, because
    * only the wiring knows that a second Codex means a second process over a
    * second credential home — the host stays free of any one backend's idea of
@@ -220,16 +439,36 @@ export interface HostOptions {
    */
   readonly accounts?: AccountFactory
   /**
+   * The home folder the Library is scanned under when an Agent's `skills:`
+   * and `mcp:` names are resolved — this person's own, unless a test points
+   * it at a fixture so a suite never reads the machine it runs on.
+   */
+  readonly libraryHome?: string
+  /**
    * The writable agent registry — how the interface adds and removes ACP
    * agents. Supplied by the wiring, which is the only place that knows how a
-   * registry entry becomes a runtime; without one, `agents/register` says so.
+   * registry entry becomes a runtime; without one, `acp/register` says so.
    */
   readonly agents?: AgentDirectory
   /**
    * Every copy of an agent on this machine, and which one answers. Attached
-   * to `RuntimeInfo.install` and asked again through `agents/installs`.
+   * to `RuntimeInfo.install` and asked again through `runtime/installs`.
    */
   readonly installs?: InstallService
+  /**
+   * Intake's reach outside the desk, for tests only: the forge `gh` a
+   * trigger reads, the clocks it paces and budgets by, the timers its
+   * watchers run on, and where a project's usage is read from. Absent
+   * everywhere else, where the person's own `gh`, the wall and monotonic
+   * clocks, unref'd timers and the ledger are used. Never a wire route.
+   */
+  readonly intake?: {
+    readonly gh?: GhApiRunner
+    readonly now?: () => number
+    readonly monotonic?: () => number
+    readonly timers?: IntakeTimers
+    readonly usage?: (project: string, from: number, to: number) => Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
+  }
 }
 
 /**
@@ -289,7 +528,28 @@ export type Broadcast = (notification: WireNotification) => void
  */
 const REOPEN_REFUSALS_TO_LET_GO = 2
 
+/** Why a Goal takes no person decision on its findings now, or null while it is open. A snapshot read of the Goal store. */
+const findingDecisionRefusal = (store: GoalStore, goal: string): string | null => {
+  let document: ReturnType<GoalStore['read']>
+  try {
+    document = store.read(goal)
+  } catch {
+    return 'There is no such Goal on this desk.'
+  }
+  if (document.restored) return 'This Goal came from a backup. Its findings are history here; start a new Goal to decide them.'
+  if (document.goal.state === 'wrapped') return 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.'
+  if (document.goal.state !== 'open') return 'This Goal is being wrapped, so nothing more is decided on it.'
+  return null
+}
+
 export class Host {
+  /** Desktop may restore only a persisted, unreleased lane's opaque profile. */
+  browserProfileAllowed(profile: string): boolean {
+    return this.#lanes
+      .list()
+      .some((lane) => lane.browserProfile === profile && lane.state !== 'released')
+  }
+
   readonly registry = new SessionRegistry()
   readonly #runtimes = new Map<string, AgentRuntime>()
   readonly #subscriptions: Unsubscribe[] = []
@@ -303,6 +563,8 @@ export class Host {
 
   readonly #extensions: ExtensionHost | null
   readonly #worktrees: Worktrees
+  readonly #laneStore: LaneStore
+  readonly #lanes: LaneAllocator
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
@@ -332,6 +594,90 @@ export class Host {
    * and is the only thing on this plane that spends anything.
    */
   readonly #flows: Flows
+  readonly #flowPreviews: FlowPreviews
+  readonly #flowUpdates: FlowUpdates
+  /** The one queue of configuration writes per tree: flow updates and authoring saves take it alike. */
+  readonly #configQueue = new TreeQueue()
+  readonly #authoring: AuthoringPlane
+  /** Git and the forge as a front-door start reads them: argument vectors, bounded, in a confined project. */
+  readonly #frontDoorContext: ContextPort
+  /**
+   * The Agent roster: this machine's under the state directory, the built-in
+   * ones beside this package, and a project's own under whichever open folder a
+   * request names. Read afresh on every ask — an Agent is a file somebody edits.
+   */
+  readonly #agents: Agents
+  /**
+   * This machine's seats for its Agents: `seating.json`, beside `agents/` in
+   * the state directory. Replaces an Agent's `prefer` here, never merges with
+   * it — precedence is a seating's own `seats`, then this, then `prefer`.
+   *
+   * Named apart from `#seating` (below), which is a different thing: the
+   * conversations a seating has opened and not yet kept or let go.
+   */
+  readonly #machineSeating: MachineSeatingFile
+  /**
+   * The evidence plane: every Seat this desk kept and what it observed, one
+   * append-only store per project under `evidence/` in the state directory.
+   */
+  readonly #evidence: EvidencePlane
+  /**
+   * Phase 12's local approval store: a person's own answer to "may this be
+   * loaded", sealed with an HMAC key that lives beside it in the state
+   * directory — host-owned, never a project tree or a transcript, and never
+   * carried by a backup (see `AttachmentTrust`'s own doc comment).
+   */
+  readonly #attachmentTrust: AttachmentTrust
+  /** Phase 12's frozen Seat attachments: prepare/open/read, and the live gateway server list each open Seat may reach. */
+  readonly #attachments: AttachmentsPlane
+  /**
+   * Aborted when the desk quits: every MCP exchange the gateway has in
+   * flight for a Seat is torn down with it (`attachments/transport.ts`
+   * escalates to SIGKILL), rather than left running past the process that
+   * started it.
+   */
+  readonly #attachmentAbort = new AbortController()
+  /** Teardown a wiring registered with `onDispose` — the tool gateway's socket, most of all. */
+  readonly #disposers: (() => Promise<void> | void)[] = []
+  readonly #provenance: ProvenancePlane
+  /** Startup stays off the interactive launch path, but quit still owns it. */
+  #provenanceStart: Promise<void> = Promise.resolve()
+  #provenanceGeneration = 0
+  readonly #goalStore: GoalStore
+  readonly #goalSerial = new Serial()
+  readonly #goals: GoalPlane
+  /** The findings ledger's one writer: every finding event is appended through it, one project at a time. */
+  readonly #findings: FindingsPlane
+  /** The closed-round publisher: one operation at a time, journaled in each run's own file. */
+  readonly #publications: Publications
+  /** Deadlines on questions unattended flow Seats ask. */
+  readonly #questions: QuestionDeadline
+  /** Historical usage is lazy and read-only until an explicitly stamped order apply. */
+  readonly #insight: InsightPlane
+  /** Triggers: consent, monitoring, admission, budgets and named waits. See `intake/plane.ts`. */
+  readonly #intake: IntakePlane
+  readonly #turnInsight = new InsightContexts()
+  #goalWriter: Awaited<ReturnType<typeof acquireDeskWriter>> | null = null
+  #goalsReady = false
+  #publishingTeamProjection = false
+  /**
+   * The roster, watched (`AgentWatch`). Made at start rather than in the
+   * constructor, so a host that is built and never started watches nothing.
+   */
+  #agentWatch: AgentWatch | null = null
+  /**
+   * Bumped on every call to `#watchProjects`; a call applies its snapshot only
+   * if it is still the latest by the time it has one, so a slower, older call
+   * — `#openWorkspace` and `forgetBoardRoots` both fire it without waiting —
+   * can never finish last and re-point the watch at a stale set of projects.
+   */
+  #watchGeneration = 0
+  /**
+   * Set at the top of `dispose()`, before anything in it can yield: a `start()`
+   * still working through its own awaits reads this right before making the
+   * roster's watch, so a quit that lands first leaves none to leak.
+   */
+  #disposed = false
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -340,6 +686,14 @@ export class Host {
    * however many conversations the history lists in it.
    */
   readonly #repos = new Map<string, Promise<RepoInfo | null>>()
+  /**
+   * Each remembered folder's git top level, for the roster's watch, cached the
+   * way `#repos` is: an open asks git about the folder it adds, not again
+   * about every folder already remembered, and a folder on a stalled volume
+   * holds the watch up until its first answer only, not on every open.
+   * Cleared where the board roots are, when a folder is forgotten.
+   */
+  readonly #topLevels = new Map<string, Promise<string | null>>()
   readonly #terminals = new Terminals((notification) => this.#push(notification))
   /**
    * The editor plane. Held here, and not in the extension host, because it is
@@ -351,8 +705,18 @@ export class Host {
     roots: () => this.#openRoots(),
     push: (notification) => this.#push(notification),
   })
-  /** Update advisories found so far, overlaid on each runtime's own `info`. */
-  readonly #updates = new Map<string, RuntimeUpdate>()
+  /**
+   * Update advisories found so far, each with the version it was measured
+   * against, overlaid on each runtime's own `info` — but only beside that
+   * version. See `#updateFor`.
+   */
+  readonly #updates = new Map<string, { readonly against: string | null; readonly update: RuntimeUpdate | null }>()
+  /**
+   * Runtimes whose advisory is being measured now, so a burst of reads measures
+   * once. The runtime itself, not its id: one registered in its place is
+   * another runtime, and its measurement is its own.
+   */
+  readonly #measuringUpdates = new WeakSet<AgentRuntime>()
   readonly #catalogs: CatalogRefresher
   /** Local sources bound to a runtime by the wiring; see `bindUsage`. */
   readonly #meters = new Map<RuntimeId, UsageMeter>()
@@ -395,7 +759,29 @@ export class Host {
   constructor(private readonly options: HostOptions) {
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
+    this.#goalStore = new GoalStore(this.#state.directory)
     this.#worktrees = new Worktrees(this.#state.directory)
+    this.#laneStore = new LaneStore(this.#state.directory)
+    this.#lanes = new LaneAllocator({
+      list: () => this.#laneStore.list(),
+      save: (lane) => this.#laneStore.save(lane),
+      available: availablePorts,
+      create: async (id, goal) => {
+        const document = this.#goalStore.read(goal)
+        // A Goal pinned to a commit cuts every lane from that commit, never from whatever the project has checked out.
+        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}`, ...(document.goal.at ? { base: document.goal.at } : {}) })
+        if (!checkout.branch) throw new Error('The lane checkout has no branch. Its reservation was kept.')
+        return { cwd: checkout.path, branch: checkout.branch }
+      },
+      locate: async (lane) => {
+        const document = this.#goalStore.read(lane.goal)
+        const matches = (await this.#worktrees.list(document.goal.cwd)).filter((checkout) => checkout.branch === `harnessdesk/lane-${lane.id}`)
+        if (matches.length !== 1 || !matches[0]?.branch) return null
+        return { cwd: matches[0].path, branch: matches[0].branch }
+      },
+      active: (lane) => this.#evidence.seats.all().some((seat) => !seat.closed && !seat.restored && (seat.id === lane.seat || seat.board === lane.goal && lane.cwd !== '' && seat.checkout.cwd === lane.cwd)),
+      busy: (lane) => this.registry.all().some((record) => record.session.cwd === lane.cwd && isBusy(record.session)),
+    })
     this.#credentials = new CredentialBroker(
       join(this.#state.directory, 'credentials.json'),
       options.credentialCipher ?? plainCipher,
@@ -417,6 +803,95 @@ export class Host {
     )
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
     this.#names = new SessionNames(join(this.#state.directory, 'names.json'))
+    // Beside `agents.json` and everything else the desk keeps, so a test rig or
+    // a HARNESSDESK_HOME that moves the state directory moves these with it.
+    this.#agents = new Agents({
+      user: join(this.#state.directory, 'agents'),
+      builtin: options.builtinAgents ?? builtinAgentRoot(),
+    })
+    // Beside everything else the desk keeps on this machine, so a rig's
+    // HARNESSDESK_HOME that moves the state directory moves these with it.
+    this.#machineSeating = new MachineSeatingFile(join(this.#state.directory, SEATING_FILE), {
+      log: (message, details) => this.#logger.warn(message, details),
+    })
+    this.#evidence = new EvidencePlane(
+      {
+        dir: join(this.#state.directory, 'evidence'),
+        seenFile: join(this.#state.directory, SEEN_FILE),
+        ...(options.evidence?.gh ? { gh: options.evidence.gh } : {}),
+        cipher: options.credentialCipher ?? plainCipher,
+      },
+      {
+        board: (room) => {
+          try {
+            return this.#goalState(room)
+          } catch {
+            return this.#team.hasRoom(room) ? this.#team.stateFor(room) : null
+          }
+        },
+        cwdOf: (runtime, sessionId) =>
+          this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null,
+        push: (notification) => this.#push(notification),
+        log: (message, details) => this.#logger.warn(message, details ?? {}),
+        canMutateBoard: (goal) => {
+          try {
+            const document = this.#goalStore.read(goal)
+            return document.goal.state === 'open' && document.operation === null
+          } catch {
+            return false
+          }
+        },
+        /* The one place a new fact reaches the flow engine: every durable
+           append, whoever wrote it, re-reads the guards of runs waiting on
+           those Goals. Never a message. Read lazily: the engine is made
+           after this plane, and nothing appends before both exist. */
+        appended: (boards) => {
+          if (this.#disposed) return
+          for (const board of boards) {
+            void this.#flows?.wakeEvidence(board).catch((error: unknown) =>
+              this.#logger.warn('a flow could not re-read its evidence', { goal: board, error: error instanceof Error ? error.message : String(error) }))
+          }
+        },
+      },
+    )
+    // A conversation seen for the first time wears the Agent its Seat record names.
+    this.registry.restoreSeatedAs((runtime, id) => this.#evidence.seatedAs(runtime, id))
+    // Phase 12's local approval store — beside `state.json` and sealed with
+    // its own HMAC key, exactly the way `evidence/seen.ts`'s `commands-seen.key`
+    // is: host-owned, owner-only permissions, never a project tree, and never
+    // carried by a backup. A missing or corrupt key fails closed on its own
+    // (`AttachmentTrust#permits`); this wiring adds nothing that could widen that.
+    this.#attachmentTrust = new AttachmentTrust(join(this.#state.directory, ATTACHMENT_TRUST_FILE), {
+      cipher: options.credentialCipher ?? plainCipher,
+    })
+    // Receipts, the frozen filter each Seat re-applies on a reopen, and the
+    // staged copies of exactly what was approved — all machine state, none of
+    // it in a project tree, and none of it carried by a backup except the
+    // receipts, which come back as history only.
+    this.#attachments = new AttachmentsPlane(
+      join(this.#state.directory, 'attachments', 'seats'),
+      {
+        resolve: async (subject) => {
+          const entry = await this.#agents.read(subject.agent, subject.project)
+          if (!entry) return { declarations: [], resolved: [] }
+          return this.#attachmentDeclarations(entry, subject.project)
+        },
+        permits: (subject, identity) => this.#attachmentTrust.permits(subject, identity),
+        support: (subject) => this.#attachmentSupport(subject),
+        suppressUnapproved: async (subject) => this.#attachmentSupport(subject).suppressUnapproved,
+        // Words only, for a Seat whose seating fell back to a runtime its review was not for (#895).
+        reviewedElsewhere: async (subject, identity) => {
+          const [reviewed] = await this.#attachmentTrust.approvedOnOtherRuntimes(subject, identity)
+          if (!reviewed) return null
+          const nameOf = (id: string): string => this.#runtimes.get(id as RuntimeId)?.info.presentation.name ?? 'another agent'
+          return { reviewed: nameOf(reviewed), seated: nameOf(subject.runtime) }
+        },
+      },
+      {
+        staging: join(this.#state.directory, 'attachments', 'staged'),
+        frozen: join(this.#state.directory, 'attachments', 'frozen'),
+      },
+    )
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -436,6 +911,9 @@ export class Host {
         record: (runtime, sessionId, item) => this.#recordPublication(runtime, sessionId, item),
         toolsOffered: () =>
           this.options.extensions?.list('tool', {}).some((tool) => tool.name === 'pr_create') ?? false,
+        embargoOf: (runtime, sessionId) => this.#findings?.embargoOf(runtime, sessionId) ?? null,
+        // Read lazily: the intake plane is made after this one, and nothing posts before both exist.
+        posted: (reference) => this.#intake.deskPosted(reference),
       },
       options.forge ?? {},
     )
@@ -447,84 +925,709 @@ export class Host {
       // the room's post is such a use. This used to throw "not attached" for
       // exactly the conversations the user's own composer reopens without a
       // word, which made a room's members vanish on every catalogue refresh.
-      send: async (runtime, id, text) => {
-        const live = await this.#teamLive(runtime, id)
-        await live.send([{ type: 'text', text }])
+      send: async (runtime, id, text, allowed, from) => {
+        await dispatchAfter(
+          allowed ?? (() => ({ ok: true })),
+          () => this.#teamLive(runtime, id),
+          async (live) => {
+            if (from) await this.#startTurn(runtime, id, from, () => live.send([{ type: 'text', text }]))
+            else await live.send([{ type: 'text', text }])
+          },
+        )
       },
-      steer: async (runtime, id, text) => {
-        const live = await this.#teamLive(runtime, id)
-        await live.steer([{ type: 'text', text }])
+      steer: async (runtime, id, text, allowed, from) => {
+        await dispatchAfter(
+          allowed ?? (() => ({ ok: true })),
+          () => this.#teamLive(runtime, id),
+          async (live) => {
+            await live.steer([{ type: 'text', text }])
+            if (from) this.#markRunningTurn(runtime, id, this.#messageCause(from))
+          },
+        )
+      },
+      goalMembers: (goal) => {
+        const document = this.#goalStore.list().find((candidate) => candidate.goal.id === goal)
+        if (!document) return null
+        return {
+          seats: goalMembers(document, this.#evidence.seats.all()),
+          legacy: document.legacy?.nicknames,
+          sentence: document.goal.sentence,
+          runtimeNames: Object.fromEntries([...this.#runtimes.entries()].map(([id, runtime]) =>
+            [id, runtime.info.presentation.name])),
+        }
+      },
+      memberStatus: (seat) => {
+        const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
+        if (!record) return { exists: true, turn: null, stopped: null }
+        const running = [...record.running]
+        if (running.length > 1) {
+          throw new Error('This member has more than one running turn; wait after one finishes.')
+        }
+        return {
+          exists: true,
+          turn: running[0] ? String(running[0]) : null,
+          stopped: record.detached ? 'the agent stopped' : null,
+        }
+      },
+      canDispatch: (goal) => this.#goals.canDispatch(goal),
+      // A trigger's Goal is unattended: its members accept each other's messages unless one says otherwise.
+      unattendedInbound: (room) => {
+        try {
+          return this.#goalStore.read(room).goal.origin.kind === 'trigger'
+        } catch {
+          return false
+        }
+      },
+      canMutateBoard: (goal) => {
+        try {
+          const document = this.#goalStore.read(goal)
+          if (!document.restored && document.goal.state === 'open' && document.operation !== null && this.#goals.isStuck(goal)) {
+            /* The Goal's own board is the one a person working in it touches,
+               and a stuck operation refuses every change to it: this change is
+               where the set-aside is tried again, behind whatever holds the
+               Goal queue — never awaited here (review P2-1 on #940). */
+            this.#retryStuckGoals()
+            return { ok: false as const, reason: 'This Goal’s last assignment or release could not be set aside, and it is being set aside again now. Try this again in a moment.' }
+          }
+          return !document.restored && document.goal.state === 'open' && document.operation === null
+            ? { ok: true as const }
+            : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
+        } catch {
+          // A legacy room has no Goal document and retains the Team engine's
+          // standalone behaviour until migration gives it one.
+          return { ok: true as const }
+        }
       },
       changed: (state) => this.#push({ method: 'team/changed', params: { state } }),
+      // Built inside the Goal's queue, from the Team's copy as it is when the save runs.
+      startOf: async (cwd) => {
+        const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])
+        return revision ? { head: revision.head, upstream } : null
+      },
+      // A refused save is put back before the Goal's queue runs anything else.
+      mutate: (snapshot, refused) => this.#goalSerial.run(async () => {
+        try {
+          const state = snapshot()
+          // Carried, whole, by a Goal-plane write that landed: nothing is left to save.
+          if (state !== null) await this.#saveTeamProjection(state)
+          /* A board write landed (this one, or the one that carried it), so
+             whatever refused setting aside a stuck assignment or release may
+             be gone: try it again, behind this task in the Goal queue. */
+          this.#retryStuckGoals()
+        } catch (error) {
+          refused?.(error instanceof Error ? error : new Error(String(error)))
+          throw error
+        }
+      }),
       removed: (room) => this.#push({ method: 'team/removed', params: { room } }),
       /* Membership moved, so whatever this host was counting about reaching
          that conversation no longer applies. See `TeamPort.membershipChanged`
          and `#teamRefusals`. */
       membershipChanged: (runtime, sessionId) => {
-        this.#teamRefusals.delete(sessionKey(runtime, makeSessionId(sessionId)))
-        const record = this.registry.get(runtime, makeSessionId(sessionId))
-        if (record) record.reopenRefusals = 0
+        this.#membershipChanged(runtime, sessionId)
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
+      settled: (room, intent) => this.#evidence.settled(room, intent),
+    })
+    /**
+     * Structured review, host-scoped: the caller's Seat resolves the Goal it
+     * is on (the Seat book, never a caller-supplied id), and `Flows` resolves
+     * the round/candidates from there. `this.#flows` is read lazily inside
+     * these closures — they are only ever called well after the constructor
+     * returns, once a Flows instance exists to read.
+     */
+    const review = new FlowReview({
+      bindingFor: async (intent, scope) => {
+        if (!scope.runtime || !scope.sessionId) return null
+        const seat = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+        if (!seat || seat.closed || !seat.board) return null
+        const bound = await this.#flows.reviewBindingFor(seat.board, intent, { runtime: scope.runtime, sessionId: scope.sessionId })
+        if (!bound) return null
+        return {
+          goal: seat.board, seat: bound.seat as SeatId, answers: bound.answers, round: bound.round,
+          subjects: bound.subjects, unsettled: bound.unsettled,
+        }
+      },
+      facts: async (goal) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+      },
+      append: async (goal, record) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record)
+      },
+      now: () => Date.now(),
     })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
       /* Opened with the seat's picks, then *read back*: a runtime drops a
          pick it declines rather than failing, so a seat that believes it is
          running at an effort it is not is a seat with an unchecked claim on
          it. Whatever it is really running is what the record and the room
-         say it is. */
-      seat: async (seat, where) => {
-        const runtime = this.#runtime({ runtime: seat.runtime })
-        const live = await runtime.createSession({
-          cwd: where.cwd,
-          ...(seat.model ? { model: seat.model } : {}),
-          options: {
-            ...(seat.effort ? { effort: seat.effort } : {}),
-            ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
-          },
-        })
-        const session = this.#attach(runtime, live.id, live)
-        await live.setTitle(where.title).catch(() => {})
-        await this.#names.set(runtime.info.id, live.id, where.title)
-        const label = await this.#applySeatPicks(live, seat)
-        return { runtime: String(runtime.info.id), sessionId: String(session.id), label }
+         say it is — a flow says it in the label, and carries on. */
+      openLegacySeat: async (input) => {
+        // A live Team room may have queued its initial projection just before
+        // a legacy Flow starts. Promote behind that same writer, otherwise
+        // both paths observe no Goal and race to create revision zero.
+        await this.#goalSerial.run(() => this.#ensureGoalFromTeam(input.goal))
+        return this.#goals.openLegacySeat(input)
       },
-      order: async (runtime, sessionId, text) => {
-        const live = await this.#teamLive(runtime as RuntimeId, sessionId)
-        await live.send([{ type: 'text', text }])
-      },
+      releaseGoalSeat: (goal, seat) => this.#goals.release(goal, seat),
+      order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
       reseat: async (runtime, sessionId, seat) => {
         const live = await this.#teamLive(runtime as RuntimeId, sessionId)
-        return this.#applySeatPicks(live, seat)
+        await this.#applySeatPicks(live, seat)
+        return this.#labelOf(seat.runtime, live.options())
       },
       turnFailure: (runtime, sessionId) => {
         const record = this.registry.get(runtime as RuntimeId, makeSessionId(sessionId))
         const last = record?.session.turns[record.session.turns.length - 1]
         return last?.status === 'failed' ? (last.error?.message ?? 'the turn failed') : null
       },
-      retire: async (runtime, sessionId) => {
-        const id = makeSessionId(sessionId)
-        await this.registry.get(runtime as RuntimeId, id)?.live?.close().catch(() => {})
-        this.registry.get(runtime as RuntimeId, id)?.approvals.clear()
+      retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
+      confine: (folder) => this.#confineRoom(folder),
+      canMutateBoard: (goal) => {
+        try {
+          const document = this.#goalStore.read(goal)
+          return !document.restored && document.goal.state === 'open' && document.operation === null
+            ? { ok: true as const }
+            : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
+        } catch {
+          return { ok: true as const }
+        }
       },
-      join: async (room, runtime, sessionId) => {
-        const id = makeSessionId(sessionId)
-        const known = this.registry.get(runtime as RuntimeId, id)?.session
-        await this.#team.joinRoom(room, runtime as RuntimeId, sessionId, {
-          title: this.#names.nameOf(runtime as RuntimeId, id) ?? known?.title ?? null,
-          agent: this.#runtime({ runtime }).info.presentation.name,
-          cwd: known?.cwd ?? '',
-          model: known?.settings?.model ?? null,
-          at: Date.now(),
-        })
-      },
-      isolate: async (root, name) => (await this.#worktrees.create(root, { name })).path,
-      run: (command, where) => runCheck(command, where),
+      run: (command, where) => this.#evidence.flowCheck(command, where, runCheck),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
-    })
+      recovery: {
+        goal: (room) => {
+          const exists = this.#goalStore.list().some((document) => document.goal.id === room)
+          return { exists, writable: exists && this.#goals.canDispatch(room).ok }
+        },
+        seats: (room) => this.#evidence.seats.all().filter((seat) => seat.board === room),
+      },
+    }, new FlowCatalog({
+      userRoot: join(this.#state.directory, 'flows'),
+      builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
+      confine: (root) => this.#confineRoom(root),
+    }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
+      providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
+      openSeat: async (input) => {
+        const record = await this.#goals.seat(input)
+        // A trigger Goal's Seat starts its meter here — once durable, never awaited inside the run's queue.
+        this.#intake.seated(record, this.#delegationUncertainRuntimes.has(record.session.runtime) ? 'unknown' : 'none')
+        return record
+      },
+      release: (goal, seat) => this.#goals.release(goal, seat as SeatId),
+      canDispatch: (goal) => this.#goals.canDispatch(goal),
+      createGoal: async (input) => {
+        const { at, ...goal } = input
+        return (await this.#goals.create(goal, at ? { at } : {})).goal
+      },
+      // A front-door run's empty Goal, reserved in the Goal queue against the revision its preview saw.
+      reserveGoal: async (input) => { await this.#goals.reserveEmptyFlowGoal(input) },
+      // Let go of again by the run that holds it, when that run ended before its first round.
+      releaseGoal: (input) => this.#goals.releaseFlowReservation(input),
+      // A Goal this run made, or an existing one reserved for it: how an interrupted start is found rather than repeated.
+      goalsOf: (run) => this.#goalStore.list()
+        .filter((document) => (document.goal.origin.kind === 'flow' && document.goal.origin.run === run) || document.flowReservation?.run === run)
+        .map((document) => document.goal.id),
+      seatOf: (id) => this.#evidence.seats.byId(id as SeatId),
+      seatsOn: (goal) => this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored),
+      digestOf: async (goal, agent) => (await this.#agents.read(agent, this.#goalStore.read(goal).goal.root).catch(() => null))?.digest ?? null,
+      order: (seat, text) => this.#orderSeat(seat.session.runtime, seat.session.sessionId, text),
+      busy: (seat) => {
+        const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
+        return record ? this.#queueBusy(record) : false
+      },
+      // A trigger's run interrupts each Seat it lets go, closed or not: no turn it started outlives it.
+      interrupt: async (seat) => {
+        const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
+        if (record?.live && record.running.size > 0) await record.live.interrupt()
+      },
+      laneOf: (seat) => this.#lanes.forSeat(seat.id),
+      reseat: async (seat) => {
+        const live = await this.#teamLive(seat.session.runtime as RuntimeId, seat.session.sessionId)
+        await this.#applySeatPicks(live, seat.seat)
+        return this.#labelOf(seat.seat.runtime, live.options())
+      },
+      // Tells windows only: a run's own journal moved, not the Goal's board,
+      // and a view read here could predate the board's own pending write.
+      // Each run goes out whole, so a run status on screen never waits to be asked.
+      changed: (goal, runs) => {
+        for (const execution of runs) this.#push({ method: 'flow/execution-changed', params: { execution } })
+        void this.#goals.refresh(goal, { install: false }).catch(() => {})
+      },
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+      headOf: async (cwd) => {
+        const revision = await revisionOf(cwd)
+        return revision ? { at: revision.head, dirty: revision.dirty } : { at: null, dirty: false }
+      },
+      runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
+    }, {
+      /**
+       * What every evidence guard reads: this Goal's own facts in append
+       * order, each judged against git now, never the board's folded display
+       * projection. The engine builds the subjects and judges them itself.
+       */
+      facts: async (goal) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+      },
+      /* A trigger's run: compiled from the same frozen closure its arm
+         consented to, attached only to the Goal its firing made, and gated
+         on every dispatch by its budget. Read lazily: the intake plane is
+         made after this engine, and no trigger run starts before both exist. */
+      triggered: {
+        freeze: (root, definition) => this.#intake.freeze(root, definition),
+        originOf: (goal) => {
+          try {
+            return this.#goalStore.read(goal).goal.origin
+          } catch {
+            return null
+          }
+        },
+        gate: async (run) => this.#intake.gate(run),
+      },
+    }), review)
     this.#team.attachFlows(this.#flows)
+    /*
+     * Lock order. Five queues order the desk's writes; a holder may only ask
+     * for a queue to its right, and never waits on one to its left:
+     *
+     *   publication  →  run  →  Team  →  Goal  →  project
+     *
+     * - publication (`Publications`, one desk-wide queue of forge operations):
+     *   takes a run queue for each journal transition and the project queue
+     *   for a ledger read or a post event, holding neither across a remote call.
+     * - run (`FlowExecutions`' `SerialRun`, one per flow run): may seat or
+     *   release a Seat and create a Goal (the Goal queue), write the board
+     *   (Team), and run a finding command, gate, packet or publication decision
+     *   (the project queue). Never the publication queue: a closed round's
+     *   batch is decided in the run queue but sent from its own.
+     * - Team (the board's write chain): a board save runs in the Goal queue.
+     * - Goal (the host's `#goalSerial`): may read the ledger and append a
+     *   carry (the project queue). Everything it reads of a run — its state,
+     *   its overrides, what posting left unsettled — is a snapshot that takes
+     *   no queue (`Publications.gaps`, `status`); a wrap waits for posting to
+     *   settle (`settledFor`) before it takes this queue, never inside it.
+     * - project (`FindingsPlane`'s queue, one per canonical project): the
+     *   evidence store only. It asks for nothing.
+     *
+     * Intake adds two queues to the far left and two leaves beside project:
+     *
+     *   intake source  →  admission  →  publication  →  …
+     *
+     * - intake source (`IntakeMonitor`, one per project and source): reads the
+     *   forge or the clock, offers each fact to admission, then commits its
+     *   cursor. Nothing to its right ever waits on it; an arm's first
+     *   observation takes it before, never inside, the consent queue.
+     * - admission (`Admission`, one per desk): `intake.json`, the one journal
+     *   of firings, Goal groups and round intents. Inside it an offer reads
+     *   the arm again (consent, a leaf that takes no queue), claims an open
+     *   Goal under the Goal queue (`GoalPlane.intakeClaim`, the lifecycle
+     *   barrier a wrap also takes), journals, then applies each effect: a
+     *   Goal (Goal), a fact (project), a held round (run → Team → Goal) and
+     *   the release (run). A wrap takes the Goal queue for its barrier and
+     *   never waits on admission: it refuses while a firing is landing.
+     * - intake consent (`TriggerConsent`, one per desk): `triggers-machine.json`
+     *   and its sealed key only. It asks for nothing; an arm observes the
+     *   source before it takes this queue and re-reads what it binds inside it.
+     * - intake cursors (`SourceCursors`, one per desk): `triggers-cursors.json`
+     *   only, re-read inside its own queue on every commit. It asks for nothing.
+     * - intake preferences and attention (`IntakePlane`, one each per desk):
+     *   `triggers-preferences.json` and `triggers-attention.json`, leaves that
+     *   ask for nothing. Waits are named from snapshots (the journal, runs,
+     *   the board, approvals, postings) read outside every queue, then written
+     *   through the outbox's own; a budget's meter, stop and settlement take
+     *   admission's queue and are never awaited inside a run, Team or Goal
+     *   queue — a Seat's opening, a turn and a wrap only queue them.
+     * - a trigger's run posts each closed round as one review through the
+     *   publication queue, exactly as phase 7 posts a finding: journaled in
+     *   the run's queue, sent from the publication queue holding none.
+     *
+     * Phase 12's queues are leaves beside project, each taken only by the
+     * Goal queue or by nothing at all, and each asking for nothing:
+     *
+     *   Goal  →  memory archive  (`CitationArchive`'s write chain)
+     *   Goal  →  attachment receipts / trust  (`AttachmentReceipts`,
+     *            `AttachmentTrust`'s write chains)
+     *
+     * A citation (`GoalPlane.cite`, and the pre-wrap capture) retains its
+     * bytes in the archive while holding the Goal queue; the archive's
+     * reference callback is a no-op, so it never waits on a Goal. A Seat's
+     * attachments are prepared and recorded inside its seating, which may
+     * already hold run → Goal. Neither reaches publication, a run, Team or the
+     * findings ledger, and the MCP gateway's admission reads the blind-round
+     * embargo as a snapshot (`embargoOf`), taking no queue.
+     *
+     * Configuration writes take one more leaf: the tree queue (`TreeQueue`,
+     * one per canonical project or the desk's own folder), shared by flow
+     * updates and authoring saves. A save holds it across its journal and
+     * its confined writes and asks for nothing else; nothing that holds a
+     * run, Team, Goal or Intake queue ever waits on it.
+     *
+     * A run seating a card holds run → Goal; a wrap preview holds Goal and
+     * reads runs only as snapshots: no cycle. `findings-publication.test.ts`
+     * and `goal-wrap.test.ts` hold both sides at once.
+     */
+    /* Read lazily, like the review wiring above: nothing here runs until a
+       Seat calls a finding tool or a person carries findings, well after the
+       constructor has made every plane it names. */
+    this.#findings = new FindingsPlane({
+      store: this.#evidence.store,
+      seats: this.#evidence.seats,
+      flows: {
+        binding: (goal, card, caller) => this.#flows.findingBinding(goal, card, caller),
+        candidate: (id, card, scope) => this.#flows.heldCandidate(id, card, scope),
+        journal: (run, step) => this.#flows.withFindingJournal(run, step),
+        pending: () => this.#flows.pendingFindings(),
+        run: (run) => this.#flows.findingRun(run),
+        subjects: (goal, round) => this.#flows.subjectsOf(goal, round),
+        recordClose: (run, round, next) => this.#flows.recordRoundClose(run, round, next),
+        blindRounds: (goal) => this.#flows.blindRounds(goal),
+        embargoedRounds: (goal) => this.#flows.embargoedRounds(goal),
+        facts: async (goal) => {
+          const state = this.#goalState(goal)
+          return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+        },
+        seriesOfGoal: (goal) => this.#flows.seriesOfGoal(goal),
+        overridesOfGoal: (goal) => this.#flows.overridesOfGoal(goal),
+        authorizeExtraRound: (run, round, reason) => this.#flows.authorizeExtraRound(run, round, reason),
+        recordExceptionDecision: (run, findings, admit) => this.#flows.recordExceptionDecision(run, findings, admit),
+        recordOverride: (run, override) => this.#flows.recordOverride(run, override),
+        stopRun: (run, reason) => this.#flows.stopRun(run, reason),
+        recordDecisionStamp: (run, stamp, key) => this.#flows.recordDecisionStamp(run, stamp, key),
+        decide: (run, step) => this.#flows.withDecision(run, step),
+      },
+      goals: { carry: (input, prepare) => this.#goals.carryFindings(input, prepare) },
+      goalClosed: (goal) => findingDecisionRefusal(this.#goalStore, goal),
+      projectOf: async (goal) => {
+        const state = this.#goalState(goal)
+        return projectOf(state.cwd ?? state.root)
+      },
+      headOf: async (cwd) => {
+        const revision = await revisionOf(cwd)
+        return revision ? { at: revision.head, dirty: revision.dirty } : { at: null, dirty: false }
+      },
+      now: () => Date.now(),
+      changed: (goal) => {
+        this.#evidence.announce(goal)
+        this.#push({ method: 'finding/changed', params: { goal, revision: Date.now() } })
+      },
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#team.attachFindings(this.#findings)
+    this.#publications = new Publications({
+      journal: (run, step) => this.#flows.withPublicationJournal(run, step),
+      runs: () => this.#flows.publicationRuns(),
+      run: (run) => {
+        const snapshot = this.#flows.findingRun(run)
+        return snapshot ? { goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings } : null
+      },
+      entry: (key) => this.#flows.publicationEntry(key),
+      snapshot: (run) => this.#flows.publicationOf(run),
+      roundClosed: (run, round) => this.#flows.roundClosed(run, round),
+      goal: (goal) => {
+        try {
+          const document = this.#goalStore.read(goal)
+          return { open: document.goal.state === 'open', preference: document.goal.findingPublication }
+        } catch {
+          return null
+        }
+      },
+      projectOf: async (goal) => {
+        const state = this.#goalState(goal)
+        return projectOf(state.cwd ?? state.root)
+      },
+      facts: async (goal) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+      },
+      ledger: (project) => this.#findings.ledgerOf(project),
+      seat: (id) => this.#evidence.seats.byId(id),
+      template: () => this.#reviewSignature(),
+      appendPost: (input) => this.#findings.appendPost(input),
+      forge: options.findingForge ?? new GhFindingForge(),
+      // A trigger's run posts each closed round as one review; every other run, comment by comment.
+      summary: (run) => this.#flows.executionOf(run)?.intake !== undefined,
+      // Posting is dispatch too: a paused machine, or a cap below what is committed, sends nothing new for a trigger's Goal.
+      beforeDispatch: (goal) => this.#intake.beforeDispatch(goal),
+      now: () => Date.now(),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#findings.attachPublisher(this.#publications)
+    this.#flows.onRunStopped((run) => this.#publications.cancel(run, 'The run was stopped before this was posted, so it stays on the desk.'))
+    // Every round close of a run with findings bookkeeping is processed by the ledger's writer before the run goes on.
+    this.#flows.onRoundClosed((run, round) => this.#findings.roundClosed(run, round))
+    this.#flows.attachFindingsGate((run) => this.#findings.gate(run))
+    this.#flows.attachReviewPackets((run, round, role, subjects) => this.#findings.packetFor(run, round, role, subjects))
+    /* An unattended Seat's question: nobody is there to answer it, so after
+       twenty seconds its turn is interrupted once — what it already said is
+       kept — and its run stops for a person with the reason. It is never
+       answered on anyone's behalf. */
+    this.#questions = new QuestionDeadline({
+      setTimer: (fire, ms) => { const timer = setTimeout(fire, ms); timer.unref?.(); return timer },
+      clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+      interrupt: async (key) => {
+        const [runtime, sessionId] = splitQuestionKey(key)
+        await this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live?.interrupt()
+      },
+      stop: async (key, reason) => {
+        const [runtime, sessionId] = splitQuestionKey(key)
+        await this.#flows.stopForQuestion(runtime, sessionId, reason)
+      },
+    })
+    this.#flowPreviews = new FlowPreviews({
+      confine: (root) => this.#confineRoom(root),
+      // `root` here is already a confined, real project path — the same one
+      // that becomes the started Goal's own — so this reads that project's
+      // roster directly, without `agent/seat/dry`'s extra "or its repository
+      // top" step for an optional, possibly-a-subfolder `project` param.
+      agents: (root) => this.#agents.list(root),
+      // `this.#context` is assigned once the whole constructor has run; every
+      // wire call this preview port answers happens long after that.
+      previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
+      storedRun: async (run) => this.#flows.storedRun(run),
+      // A front-door token's target, read again from git and the forge at Start: never the facts the preview saw.
+      resolveTarget: async (context) => {
+        await this.#confineRoom(context.root)
+        return factsKey(await resolveContext(this.#frontDoorContext, context))
+      },
+      now: () => Date.now(),
+    })
+    // The catalogue a trigger's closure resolves its flow through: the same layers and rules as a person's.
+    const intakeCatalog = new FlowCatalog({
+      userRoot: join(this.#state.directory, 'flows'),
+      builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
+      confine: (root) => this.#confineRoom(root),
+    })
+    this.#flowUpdates = new FlowUpdates({
+      stateDir: join(this.#state.directory, 'flow-updates'),
+      catalogue: new FlowCatalog({
+        userRoot: join(this.#state.directory, 'flows'),
+        builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
+        confine: (root) => this.#confineRoom(root),
+      }),
+      queue: this.#configQueue,
+    })
+    // The same `gh` the evidence plane reads pull requests with, so a rig's fake forge answers both.
+    const gh = options.evidence?.gh ?? ghInCheckout
+    this.#frontDoorContext = hostContextPort((args, cwd) => gh(args, cwd))
+    /* This person's Agents and flows are `agents/` and `flows/` in the state
+       folder — the same roots the roster and the catalogue above read — so a
+       save lands exactly where the next listing looks. */
+    this.#authoring = new AuthoringPlane({
+      home: this.#state.directory,
+      journal: join(this.#state.directory, 'authoring'),
+      builtinAgents: options.builtinAgents ?? builtinAgentRoot(),
+      builtinFlows: options.builtinFlows ?? builtinFlowRoot(),
+      confine: (root) => this.#confineRoom(root),
+      agents: (root) => this.#agents.list(root),
+      queue: this.#configQueue,
+      // A save is told to every window directly; nothing waits for a file watch to notice it.
+      changed: (change) => {
+        if (change.agents) this.#push({ method: 'agent/changed', params: { project: change.scope === 'project' ? change.root : null } })
+      },
+    })
+    const goalPort = {
+      seats: {
+        all: () => this.#evidence.seats.all(),
+        byId: (id: SeatId) => this.#evidence.seats.byId(id),
+      },
+      confine: async (input) => {
+        const cwd = input.cwd ?? input.root
+        await this.#confineRoom(cwd)
+        const root = await this.#boardRootOf(cwd)
+        if (!root) throw new Error(`${cwd} is outside every project opened here.`)
+        return { root, cwd }
+      },
+      known: async (runtime: string, session: string) => {
+        const agent = this.#runtimes.get(runtime)
+        if (!agent) return null
+        const id = makeSessionId(session)
+        const record = this.registry.get(runtime as RuntimeId, id)
+        const held = record?.live ? record.session : await this.#hostRead(agent, id).catch(() => null)
+        if (!held) return null
+        const project = await this.#boardRootOf(held.cwd)
+        return project ? { project, busy: isBusy(held) } : null
+      },
+      claimable: (goal: string, card: number, session) => this.#goalClaimable(goal, card, session.runtime, session.sessionId),
+      // A truly plain conversation (never kept as any Agent's Seat) has
+      // nothing to adopt falsely — `opening` below hands it `agent: null`
+      // either way, so it is not "loose" in the sense this check exists for.
+      // Only a session that already claims an Agent identity, yet whose
+      // *this-process* attachment loading was never recorded for it (a fresh
+      // registry record after a restart, never reconnected through
+      // `seatAgent`), is refused: its native load set is opaque and could
+      // silently stand in for what that Agent's declarations would approve.
+      attachmentsObserved: async (session): Promise<boolean> => {
+        const previous = this.#evidence.seats.latestKeptOf(session.runtime, session.sessionId)
+        if (!previous || previous.agent === null) return true
+        return this.registry.attachmentSeatOf(session.runtime as RuntimeId, makeSessionId(session.sessionId)) !== null
+      },
+      opening: async (goal: string, session, id: SeatId): Promise<SeatOpening> => {
+        const previous = this.#evidence.seats.latestKeptOf(session.runtime, session.sessionId)
+        const runtime = this.#runtimes.get(session.runtime)
+        const held = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
+        const known = held?.live ? held.session :
+          runtime ? await this.#hostRead(runtime, makeSessionId(session.sessionId)).catch(() => null) : null
+        if (!known) throw new Error('Choose a conversation its runtime can still open.')
+        const revision = await revisionOf(known.cwd)
+        const document = this.#goalStore.read(goal)
+        return {
+          id,
+          agent: previous?.agent ?? null,
+          briefDigest: previous?.briefDigest ?? null,
+          seat: previous?.seat ?? { runtime: session.runtime },
+          seatLabel: previous?.seatLabel ?? session.runtime,
+          passedOver: previous?.passedOver ?? [],
+          standing: previous?.standing ?? { kind: 'unknown' },
+          ceiling: previous?.ceiling ?? null,
+          checkout: {
+            cwd: known.cwd,
+            project: document.goal.root,
+            branch: revision?.branch ?? null,
+            head: revision?.head ?? null,
+          },
+          session,
+          board: goal,
+          role: null,
+          openedAt: Date.now(),
+        }
+      },
+      board: (goal: string) => this.#goalState(goal),
+      evidence: (goal: string) => this.#evidence.board(goal),
+      evidenceIds: (goal: string, project: string) => this.#evidence.factIdsOfGoal(goal, project),
+      flow: (goal: string) => this.#flows.runsFor(goal).find((run) => run.state === 'running' || run.state === 'stalled'),
+      busy: (session) => {
+        const record = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
+        return record ? isBusy(record.session) : false
+      },
+      waits: () => false,
+      stranded: (goal: string, card: number) => this.#goalStranded(goal, card),
+      held: (goal: string) => this.#goalState(goal).channel.some((entry) => entry.kind === 'message' && entry.state === 'held'),
+      settledFor: async (goal: string) => {
+        await this.#evidence.settledFor(goal)
+        // A wrap waits for its findings' posting to end: posted, skipped, or a gap a person records.
+        await this.#publications.settleForWrap(goal)
+      },
+      answer: (seat: SeatRecord) => this.#goalAnswer(seat),
+      revision: async (cwd: string) => {
+        const revision = await revisionOf(cwd)
+        return revision ? { head: revision.head, dirty: revision.dirty } : { head: null, dirty: null }
+      },
+      changed: (view, options) => {
+        if (options?.install !== false && !this.#publishingTeamProjection) {
+          this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster, { final: this.#goalFinal(view.goal.id) })
+        }
+        this.#push({ method: 'goal/changed', params: { view } })
+      },
+      activity: (goal, previous, activity, sentence) => this.#push({
+        method: 'goal/activity', params: { goal, previous, activity, sentence },
+      }),
+      ready: () => this.#goalsReady
+        ? { ok: true as const }
+        : { ok: false as const, reason: 'The Goal store is still starting. Wait for recovery to finish.' },
+      seatAgent: async (input: GoalSeatRequest, goal, policy) => {
+        const asked = {
+          id: input.agent,
+          cwd: goal.cwd,
+          project: goal.root,
+          ...(input.seats === undefined ? {} : { seats: input.seats }),
+          ...(input.grant?.kind === 'permission' ? { permission: input.grant.permission } : {}),
+        }
+        return (await seatAgent(this.#context, asked, {
+          board: goal.id,
+          role: null,
+          ...(input.grant === undefined ? {} : { grant: input.grant }),
+          ...(policy.unattended ? { unattended: true } : {}),
+          ...(policy.requireHeld ? { requireHeld: true as const } : {}),
+        })).record
+      },
+      openLegacySeat: async (input, goal) => {
+        const cwd = goal.cwd
+        const opened = await this.#openSeat(input.spec, { cwd, title: input.title })
+        try {
+          const held = await this.#holdSeat(opened.runtime, opened.sessionId, ceilingOfPermission(input.permission))
+          const record = await this.#evidence.seats.opened({
+            agent: null,
+            briefDigest: null,
+            seat: input.spec,
+            seatLabel: opened.label,
+            passedOver: [],
+            standing: { kind: 'permission', permission: input.permission },
+            ceiling: held.ceiling,
+            cwd,
+            session: { runtime: opened.runtime, sessionId: opened.sessionId },
+            board: goal.id,
+            role: input.role,
+          })
+          this.#seating.delete(sessionKey(opened.runtime, opened.sessionId))
+          await this.#team.joinRoom(goal.id, opened.runtime as RuntimeId, opened.sessionId, {
+            title: input.title,
+            agent: this.#runtime({ runtime: opened.runtime }).info.presentation.name,
+            cwd,
+            model: null,
+            at: Date.now(),
+          })
+          this.#team.setRole(goal.id, opened.runtime, opened.sessionId, input.role)
+          return record
+        } catch (error) {
+          await this.#retireSeat(opened.runtime, opened.sessionId)
+          throw error
+        }
+      },
+      importOpening: async (project: string, opening: SeatOpening) => {
+        await this.#evidence.seats.importOpening(project, opening)
+        this.#membershipChanged(opening.session.runtime as RuntimeId, opening.session.sessionId)
+      },
+      closeId: async (id: SeatId, reason: string) => {
+        const record = await this.#evidence.seats.closeId(id, reason)
+        await this.#attachments.revokeLive(id)
+        this.#membershipChanged(record.session.runtime as RuntimeId, record.session.sessionId)
+      },
+      claim: async (goal: string, card: number, opening: SeatOpening) => {
+        await this.#claimGoalCard(goal, card, opening)
+      },
+      releaseClaim: async (goal: string, seat: SeatId) => {
+        await this.#releaseGoalCard(goal, seat)
+      },
+      refuseMail: async (goal: string, seat: SeatId) => {
+        const record = this.#evidence.seats.byId(seat)
+        if (record) this.#team.refuseSeatMail(goal, record.session.runtime, record.session.sessionId, String(seat))
+      },
+      retainLane: async (seat: SeatId) => {
+        const lane = this.#lanes.forSeat(seat)
+        if (lane) await this.#lanes.retain(lane.id)
+      },
+      wake: (goal: string) => this.#team.nudgeRoom(goal),
+      stopFlows: (goal: string) => this.#flows.stopGoal(goal),
+      flowLive: (goal: string) => this.#flows.executionsFor(goal).some((run) => run.state === 'running' || run.state === 'stalled'),
+      executions: (goal: string) => this.#flows.executionsFor(goal),
+      cards: (goal: string) => this.#goalIntents(goal),
+      holdBoard: (goal: string, reason: string) => this.#team.holdBoard(goal, reason),
+      finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
+      finishWrap: (operation) => this.#finishGoalWrap(operation),
+      intakeHeld: (goal: string) => this.#intake?.held(goal) ?? false,
+      intakeReceipt: async (goal: string) => {
+        const status = await this.#intake?.goal(goal)
+        if (!status) return null
+        return { trigger: status.trigger, source: status.source, label: status.label, stop: status.budget?.stop ?? null }
+      },
+      findings: async (goal: string) => {
+        const { receipt, gaps } = await this.#findings.receiptWithGaps(goal)
+        return {
+          receipt,
+          // What a person skipped is recorded as it is; what is still unsettled asks the person at the wrap.
+          gaps: [...gaps, ...this.#publications.recordedGaps(goal)],
+          publication: await this.#publications.gaps(goal),
+        }
+      },
+    } satisfies GoalPlanePort
+    this.#goals = new GoalPlane(this.#goalStore, goalPort, this.#goalSerial)
+    this.#goals.attachFindings((records) => this.#findings.appendCarry(records))
+    this.#goals.attachLanes(this.#lanes, () => this.#lanePreferences())
     this.#catalogs = new CatalogRefresher({
       ...(options.catalogRefreshMs !== undefined ? { intervalMs: options.catalogRefreshMs } : {}),
       log: (message, details) => this.#logger.warn(message, details),
@@ -537,6 +1640,20 @@ export class Host {
       },
     })
     this.#extensions = options.extensions ?? null
+    this.#extensions?.setBrowserResolver?.((scope) => {
+      if (!scope.runtime || !scope.sessionId) return undefined
+      const record = this.registry.get(scope.runtime, scope.sessionId)
+      if (!record) return undefined
+      const matches = this.#lanes
+        .list()
+        .filter((lane) => lane.cwd !== '' && lane.cwd === record.session.cwd)
+      if (matches.length > 1) throw new Error('This checkout has conflicting browser lanes.')
+      const lane = matches[0]
+      if (lane?.state === 'released') {
+        throw new Error('This lane was released. Open a new isolated Seat.')
+      }
+      return lane?.browserProfile ?? 'default'
+    })
     if (this.#extensions) {
       this.#subscriptions.push(
         this.#extensions.subscribe((event) => this.#onExtensionEvent(event)),
@@ -548,6 +1665,72 @@ export class Host {
       // defaults it was supposed to replace.
       this.#applyBrowserSettings()
     }
+    this.#insight = new InsightPlane({
+      ledger: () => this.#ledgerService,
+      goals: this.#goals,
+      seats: () => this.#evidence.seats.all(),
+      seating: this.#machineSeating,
+    })
+    this.#provenance = new ProvenancePlane({
+      evidence: this.#evidence,
+      stateDir: this.#state.directory,
+      projects: () => [],
+      push: (notice) => this.#push(notice),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#intake = new IntakePlane({
+      home: this.#state.directory,
+      cipher: options.credentialCipher ?? plainCipher,
+      confine: (root) => this.#confineGitRoot(root),
+      flowSource: (root, id) => intakeCatalog.resolve(root, id),
+      // A trigger's closure is read as its Goal will be seated: unattended.
+      preview: (root, source) => this.#flowPreviews.freeze(root, source, { unattended: true }),
+      // And what each Agent attaches, by content: an arm consents to the bytes a Seat would load.
+      attachments: async (root, agent) => {
+        const entry = await this.#agents.read(agent, root)
+        if (!entry?.definition) return []
+        return (await this.#attachmentDeclarations(entry, root)).resolved
+          .map((one) => JSON.stringify([one.identity.kind, one.identity.name, one.identity.digest, one.identity.source]))
+      },
+      goals: {
+        ensureTriggerGoal: (request) => this.#goals.ensureTriggerGoal(request),
+        lifecycle: (goal) => this.#goals.lifecycle(goal),
+        claim: (goal, claim) => this.#goals.intakeClaim(goal, claim),
+        origin: (goal) => {
+          try {
+            return this.#goalStore.read(goal).goal.origin
+          } catch {
+            return null
+          }
+        },
+      },
+      flows: {
+        startTriggered: (request) => this.#flows.startTriggered(request),
+        againTriggered: (run, key, evidence) => this.#flows.againTriggered(run, key, evidence),
+        resumeTriggered: (run) => this.#flows.resumeTriggered(run),
+        supersedeTriggered: (run, why, next) => this.#flows.supersedeTriggered(run, why, next),
+        runs: (goal) => this.#flows.executionsFor(goal),
+        execution: (run) => this.#flows.executionOf(run),
+        stopRun: async (run, why) => { await this.#flows.stopRun(run, why) },
+        holdTriggered: (run, why) => this.#flows.holdTriggered(run, why),
+        setAsideTriggered: (run, why) => this.#flows.setAsideTriggered(run, why),
+        interruptChecks: (goal) => this.#flows.interruptChecks(goal),
+      },
+      evidence: { observeTrigger: (firing, goal, fact) => this.#evidence.observeTrigger(firing, goal, fact) },
+      seats: () => this.#evidence.seats.all(),
+      interrupt: (goal) => this.#interruptGoal(goal),
+      lane: (goal) => this.#allowanceOf(goal),
+      refreshLanes: (goals) => this.#refreshAllowances(goals),
+      republish: (goal) => this.#publications.settleForWrap(goal),
+      usage: options.intake?.usage ?? ((project, from, to) => this.#usageOf(project, from, to)),
+      waits: (goal) => this.#triggerWaits(goal),
+      push: (notification) => this.#push(notification),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+      now: options.intake?.now ?? (() => Date.now()),
+      monotonic: options.intake?.monotonic ?? (() => performance.now()),
+      ...(options.intake?.gh ? { gh: options.intake.gh } : {}),
+      ...(options.intake?.timers ? { timers: options.intake.timers } : {}),
+    })
     this.#context = this.#buildContext()
   }
 
@@ -574,6 +1757,12 @@ export class Host {
    * so that key is still read for team — an install made before this keeps
    * the board rules it was left with.
    */
+  /** The person's review signature template, as the Git plugin's stored settings hold it; the shipped one otherwise. */
+  #reviewSignature(): string {
+    const stored = this.#storedPluginSettings('git')?.['reviewSignature']
+    return typeof stored === 'string' ? stored : DEFAULT_REVIEW_SIGNATURE
+  }
+
   #storedPluginSettings(id: string): Record<string, unknown> | null {
     const preferences = this.#state.state.preferences
     const all = preferences['pluginSettings']
@@ -625,9 +1814,11 @@ export class Host {
       this.#logger.warn('a runtime with this id was already registered; replacing it', {
         runtime: id,
       })
+      this.#invalidateDelegations(id)
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
       this.#catalogs.forget(id)
+      this.#updates.delete(id)
     }
     this.#runtimes.set(id, runtime)
     this.#catalogs.watch(runtime)
@@ -686,11 +1877,13 @@ export class Host {
    */
   bindUsage(
     runtime: RuntimeId,
-    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind'] },
+    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string },
   ): void {
     if (binding.meter) this.#meters.set(runtime, binding.meter)
     if (binding.corpus) {
-      const [spec] = defaultCorpora([{ id: runtime, kind: binding.corpus }])
+      const [spec] = binding.root
+        ? [{ runtime, kind: binding.corpus, root: binding.root }]
+        : defaultCorpora([{ id: runtime, kind: binding.corpus }])
       if (spec) this.#corpora.push(spec)
     }
   }
@@ -737,7 +1930,9 @@ export class Host {
   }
 
   async start(): Promise<void> {
+    this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
+    await this.#laneStore.load()
     // Everything that restores a stored setting runs here, after the file has
     // been read, and never in the constructor. Until it did, a board left
     // holding inbound messages came back accepting them, and every plugin's
@@ -745,22 +1940,140 @@ export class Host {
     this.#applyBrowserSettings()
     this.#applyTeamSettings()
     await this.#applyPluginSettings()
-    await this.#team.load()
+    await this.#evidence.load().catch((error: unknown) => {
+      this.#logger.error('the Seat records this desk keeps could not be read', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+    /* Staged copies no Seat and no approval references are collected once
+       per launch, before any Seat can open on one (#895). Kept on any doubt:
+       a copy left behind costs disk, one removed too eagerly costs a Seat. */
+    await this.#attachmentTrust.digests()
+      .then((approved) => (approved === null ? 0 : this.#attachments.collectStaged(approved)))
+      .catch((error: unknown) => {
+        this.#logger.warn('staged attachment copies could not be collected', { error: error instanceof Error ? error.message : String(error) })
+      })
+    await migrateDesk(
+      this.#state.directory,
+      (seats) => importMigrationSeats(seats, this.#evidence.seats),
+    ).catch((error: unknown) => {
+      this.#logger.error('the rooms could not be loaded', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    })
+    await this.#goalStore.load()
+    await this.#recoverGoalMail()
+    this.#goalsReady = true
+    await this.#goals.recover()
+    /* Let through, unlike the runs below: rooms that cannot be read refuse
+       the launch. Degraded, this desk would come up with no rooms, and the
+       rest of it would believe that — `Flows.load` stops every running run
+       whose room it cannot find, on disk — while nothing on screen could say
+       otherwise, because the team hangs its problems on a room. The shell
+       answers a start that rejects with "could not start" and the sentence
+       `Team.load` wrote: the folder, the reason, and what to do. Recorded
+       first, so a diagnostics bundle carries it too. */
+    await this.#team.load().catch((error: unknown) => {
+      this.#logger.error('the rooms could not be loaded', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    })
+    for (const view of await this.#goals.list()) {
+      this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster, { final: this.#goalFinal(view.goal.id) })
+    }
     /* After the rooms, because a run reconciles against the board it left
        behind: a quit between the last card of a round finishing and the next
        round opening is a run that has to be asked, on this launch, whether
-       its board moved on without it. */
-    await this.#flows.load()
+       its board moved on without it.
+
+       And caught, not let through: a folder of runs that will not open costs
+       flows, not the desk. Let through, it would cost every conversation and
+       every room — the shell answers a start that rejects with "could not
+       start" and quits — the way one silent runtime once held the whole app
+       shut. The engine keeps the reason and refuses to start a flow with it,
+       which is where somebody meets it; this line is the record. */
+    await this.#flows.load().catch((error: unknown) => {
+      this.#logger.error('the flow runs this desk keeps could not be read', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+    // After the runs: a finding command a stop left part-way is settled from
+    // its run's own journal, before any Seat can ask for another.
+    await this.#findings.recover()
+    // Then posting: a send a stop interrupted is read back from the forge, never sent again.
+    await this.#publications.recover().catch((error: unknown) => {
+      this.#logger.warn('closed rounds could not be queued for posting again', { error: error instanceof Error ? error.message : String(error) })
+    })
+    // Then triggers, with dispatch held: every journaled firing finished to its
+    // held round before any runtime is asked for anything, and before any run resumes.
+    await this.#intake.load()
+    // Both room and flow recovery can change a Goal's activity. Seed the
+    // in-memory comparison point only after they have settled, so the first
+    // later change can cross the notification boundary normally.
+    await this.#goals.hydrateActivity()
+    // Every already-saved Goal's citations, back into the memory plane this
+    // launch just constructed fresh — otherwise a citation retained before
+    // the last restart reads back as never retained at all (#886-adjacent:
+    // found proving phase 12's own CDP walkthrough step, "a citation
+    // resolves after the Goal that made it ends").
+    await this.#goals.hydrateMemory()
     // Read before anything can be listed: `nameOf` answers synchronously, so
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
+    // Start capture after the stored names and rooms have recovered, so its
+    // first project snapshot cannot describe a partially restored desk.
+    this.#provenanceStart = this.#provenance.start().then(() => this.#captureProjects()).catch(() => {
+      this.#logger.warn('provenance could not start')
+    })
+    /* From here on a file changed under any of the roster's roots is one
+       notice to every window. Guarded on `#disposed`: everything above this
+       point can yield, and a quit landing in one of those gaps must find no
+       watch here to leak — `dispose()` cannot close what `start()` has not
+       made yet, and does not run again once it has. */
+    if (!this.#disposed) {
+      this.#agentWatch = new AgentWatch({
+        roots: [this.#agents.roots.user, this.#agents.roots.builtin],
+        changed: (project) => this.#push({ method: 'agent/changed', params: { project } }),
+        log: (message, details) => this.#logger.warn(message, details),
+      })
+      /* Not awaited: nothing below needs the watch pointed at open projects
+         yet, and pointing it asks git once per remembered folder. Awaited
+         here, a window's first listing on a stalled volume or a checkout with
+         many linked worktrees would wait behind every one of those probes
+         before any runtime could start. */
+      void this.#watchProjects().catch((error: unknown) => {
+        this.#logger.warn('could not point the roster watch at the open projects', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }
     await Promise.all([...this.#runtimes.values()].map((runtime) => this.#startOne(runtime)))
     /* And only now wake what stopped while the desk was down. Reconciling a
        run's rounds is board work and belongs above; *sending* to a seat needs
        the agent that holds it to be running, and asking a moment too early
        answers "Cursor is not running" for every seat of every flow. */
-    void this.#flows.resume()
+    /* Held firings are released through their gates, and only then is any
+       source read: a trigger's run never dispatches before its runtime is up. */
+    /* In the documented order: held firings released through their gates
+       first, then triggers' runs resume — a trigger's run never advances on a
+       resume that overtook its firing's release, or on a budget nobody has
+       read yet this launch. A run a person started has neither to wait for,
+       so it resumes at once, beside them. Not awaited by start itself. */
+    const resumeFailed = (error: unknown): void => {
+      this.#logger.warn('flows could not resume', { error: error instanceof Error ? error.message : String(error) })
+    }
+    void this.#flows.resume('person').catch(resumeFailed)
+    void (async () => {
+      if (!this.#disposed) {
+        await this.#intake.ready().catch((error: unknown) => {
+          this.#logger.warn('triggers could not start watching', { error: error instanceof Error ? error.message : String(error) })
+        })
+      }
+      await this.#flows.resume('triggered')
+    })().catch(resumeFailed)
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
   }
 
@@ -822,7 +2135,23 @@ export class Host {
   }
 
   async dispose(): Promise<void> {
+    // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
+    this.#disposed = true
+    // No Seat reaches a server past this point: every live grant is revoked,
+    // every exchange in flight is aborted, and the gateway's socket is closed.
+    // (Synchronous: nothing here may yield before every runtime is told, below.)
+    this.#attachments.revokeAll()
+    this.#attachmentAbort.abort()
     this.#catalogs.stop()
+    this.#agentWatch?.dispose()
+    // No save preview survives the host: an apply from here on refuses, and one in flight finishes on its queue.
+    this.#authoring.close()
+    /* Triggers stop first: no new admission, no poll, no budget sweep and no
+       meter read from here on; what is in flight is abandoned with its cursor
+       kept, and awaited below before the runs and the Goals are flushed. */
+    const intakeClosed = this.#intake.close().catch((error: unknown) => {
+      this.#logger.warn('triggers did not close cleanly', { error: error instanceof Error ? error.message : String(error) })
+    })
     /*
       Every runtime is told the quit has begun before anything below can yield.
 
@@ -857,6 +2186,11 @@ export class Host {
         }),
       ),
     )
+    for (const disposer of this.#disposers.splice(0)) {
+      await Promise.resolve()
+        .then(disposer)
+        .catch((error: unknown) => this.#logger.warn('a teardown did not finish cleanly', { error: String(error) }))
+    }
     for (const unsubscribe of this.#subscriptions) unsubscribe()
     this.#subscriptions.length = 0
     for (const list of this.#runtimeSubscriptions.values()) for (const off of list) off()
@@ -871,8 +2205,21 @@ export class Host {
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */
     this.#team.stopWaiting('the desk is closing')
+    for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
+    this.#questions.close()
+    await intakeClosed
     await this.#flows.flush()
+    await this.#publications.idle()
+    await this.#findings.close()
     await this.#team.flush()
+    await this.#provenanceStart
+    await this.#provenance.close().catch(() => {
+      this.#logger.warn('provenance observations could not be saved')
+    })
+    await this.#evidence.close()
+    await this.#goalStore.flush()
+    await this.#goalWriter?.release()
+    this.#goalWriter = null
     /* Last, because everything above it can still record. `append` is called
        from the event fan-out and returns before its write lands, so a quit
        that did not wait here was only the *request* to stop writing: the last
@@ -979,13 +2326,625 @@ export class Host {
   // ------------------------------------------------------------------ methods
 
   async call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
+    this.#noteReach(params)
     // Validated by the wire layer against the same table the handler's type
     // reads from; see `methods/index.ts` for what the table guarantees.
     return dispatch(this.#context, method, params)
   }
 
+  /**
+   * A window asked something of one conversation. When a seating holds it, the
+   * seating may no longer delete it (`#discardSeat`) — and once the seating is
+   * past the point of no return, the ask is refused rather than let start on a
+   * conversation that is going.
+   *
+   * Here, at the one door every window's request comes through, and before the
+   * request does anything: a read, a reopen or a message still on its way when
+   * a discard decides is one the discard has already heard of. Everything that
+   * names a conversation counts — a person who opened it is about to use it,
+   * and an empty conversation kept is a smaller mistake than a used one
+   * deleted.
+   */
+  #noteReach(params: unknown): void {
+    if (this.#seating.size === 0 || typeof params !== 'object' || params === null) return
+    const { runtime, sessionId } = params as { readonly runtime?: unknown; readonly sessionId?: unknown }
+    if (typeof runtime !== 'string' || typeof sessionId !== 'string') return
+    const inHand = this.#seating.get(sessionKey(runtime, sessionId))
+    if (!inHand) return
+    if (inHand.removing) {
+      throw new SessionGoneError(
+        'This conversation was opened for a seat that was passed over, and it is being removed.',
+      )
+    }
+    inHand.reached = true
+  }
+
 
   // ------------------------------------------------------------------ private
+
+  #lanePreferences() {
+    return lanePreferences(Object.hasOwn(this.#state.state.preferences, 'lanes')
+      ? this.#state.state.preferences['lanes']
+      : DEFAULT_LANE_PREFERENCES)
+  }
+
+  /**
+   * Which vendor a session of this runtime in `cwd` reaches, as its adapter
+   * reports it (`RuntimeInfo.provider`, `AgentRuntime.providerAt`) — what a
+   * flow step that must be independent of an earlier one is checked against.
+   * Unknown for a runtime that does not say, and for an account slot that
+   * runs through a gateway, which can serve anyone's models. Never inferred
+   * from a runtime's id or name.
+   */
+  async #providerOf(runtime: string, cwd: string): Promise<string | null> {
+    const agent = this.#runtimes.get(runtime)
+    return agent ? reportedProvider(agent, cwd, Boolean(this.options.accounts?.slotOf(agent.info)?.gateway)) : null
+  }
+
+  #goalState(id: string): TeamState {
+    const document = this.#goalStore.read(id)
+    return {
+      id,
+      name: document.goal.sentence,
+      updatedAt: document.goal.updatedAt,
+      root: document.goal.root,
+      ...(document.goal.cwd === document.goal.root ? {} : { cwd: document.goal.cwd }),
+      members: [],
+      intents: document.board.intents,
+      channel: document.board.channel,
+      messaging: document.board.messaging,
+      nicknames: document.legacy?.nicknames ?? {},
+      roles: {},
+      plans: document.legacy?.plans ?? [],
+      problem: this.#goalStore.problem,
+    }
+  }
+
+  /** A room created by an older live caller becomes a Goal before a legacy flow seats into it. */
+  async #ensureGoalFromTeam(id: string): Promise<void> {
+    try {
+      this.#goalStore.read(id)
+      return
+    } catch {
+      // Continue only when the compatibility Team really owns this id.
+    }
+    if (!this.#team.hasRoom(id)) throw new Error('That Goal is not on this desk.')
+    const state = this.#team.stateFor(id)
+    const at = state.updatedAt || Date.now()
+    await this.#goalStore.save({
+      version: 1,
+      goal: {
+        id,
+        root: state.root,
+        cwd: state.cwd ?? state.root,
+        sentence: state.name || 'Imported work',
+        state: 'open',
+        revision: 0,
+        checkout: 'shared',
+        dependsOn: [],
+        origin: { kind: 'legacy', source: 'live-room' },
+        createdAt: at,
+        updatedAt: at,
+        receipt: null,
+      },
+      board: {
+        nextIntent: Math.max(1, ...state.intents.map((intent) => intent.id + 1)),
+        messaging: state.messaging,
+        intents: state.intents,
+        channel: state.channel,
+      },
+      citations: [],
+      receipt: null,
+      operation: null,
+    }, null)
+  }
+
+  /** The Team engine's copy of a board, saved into its Goal's document: the one writer of a Goal's cards and channel. */
+  async #saveTeamProjection(state: TeamState): Promise<void> {
+    const legacy = this.#team.legacyFor(state.id)
+    let document: GoalDocument
+    try {
+      document = this.#goalStore.read(state.id)
+    } catch {
+      const at = state.updatedAt || Date.now()
+      await this.#goalStore.save({
+        version: 1,
+        goal: {
+          id: state.id,
+          root: state.root,
+          cwd: state.cwd ?? state.root,
+          sentence: state.name || 'Imported work',
+          state: 'open',
+          revision: 0,
+          checkout: 'shared',
+          dependsOn: [],
+          origin: { kind: 'legacy', source: 'live-room' },
+          createdAt: at,
+          updatedAt: at,
+          receipt: null,
+        },
+        board: {
+          nextIntent: Math.max(1, ...state.intents.map((intent) => intent.id + 1)),
+          messaging: state.messaging,
+          intents: state.intents,
+          channel: state.channel,
+        },
+        legacy: {
+          source: 'live-room',
+          plans: legacy.plans,
+          nicknames: legacy.nicknames,
+          roster: legacy.roster,
+          sourceSha256: createHash('sha256').update(state.id).digest('hex'),
+          seatLocations: {},
+        },
+        citations: [],
+        receipt: null,
+        operation: null,
+      }, null)
+      await this.#refreshTeamProjection(state.id)
+      return
+    }
+    if (document.restored || document.goal.state !== 'open' || document.operation) {
+      throw new Error('This Goal is read-only or is finishing an operation. Start another Goal for new work.')
+    }
+    const at = state.updatedAt || Date.now()
+    const intents = state.intents
+    await this.#goalStore.save({
+      ...document,
+      goal: {
+        ...document.goal,
+        sentence: state.name || document.goal.sentence,
+        revision: document.goal.revision + 1,
+        updatedAt: at,
+      },
+      board: {
+        nextIntent: Math.max(1, document.board.nextIntent, ...intents.map((intent) => intent.id + 1)),
+        messaging: state.messaging,
+        intents,
+        channel: state.channel,
+      },
+      ...(document.legacy ? {
+        legacy: {
+          ...document.legacy,
+          plans: legacy.plans,
+          nicknames: legacy.nicknames,
+          roster: legacy.roster,
+        },
+      } : {}),
+    }, document.goal.revision)
+    await this.#refreshTeamProjection(state.id)
+  }
+
+  async #refreshTeamProjection(goal: string): Promise<void> {
+    this.#publishingTeamProjection = true
+    try {
+      await this.#goals.refresh(goal)
+    } finally {
+      this.#publishingTeamProjection = false
+    }
+  }
+
+  async #recoverGoalMail(): Promise<void> {
+    for (const document of this.#goalStore.list()) {
+      if (document.restored || document.goal.state === 'wrapped') continue
+      let changed = false
+      const channel = document.board.channel.map((entry) => {
+        if (entry.kind !== 'message' || entry.state !== 'queued') return entry
+        changed = true
+        return {
+          ...entry,
+          state: 'refused' as const,
+          reason: 'The desk restarted before the message was delivered.',
+        }
+      })
+      if (!changed) continue
+      await this.#goalStore.save({
+        ...document,
+        board: { ...document.board, channel },
+        goal: { ...document.goal, revision: document.goal.revision + 1 },
+      }, document.goal.revision)
+    }
+  }
+
+  /** Whether a Goal's board can no longer change — wrapped, or brought by a backup — so its document is the last word. */
+  #goalFinal(goal: string): boolean {
+    try {
+      const document = this.#goalStore.read(goal)
+      return Boolean(document.restored) || document.goal.state !== 'open'
+    } catch {
+      return false
+    }
+  }
+
+  /** A Goal's cards as they stand: the Team's copy, the one writer, once it holds the board; the document until then. */
+  #goalIntents(goal: string): readonly Intent[] {
+    return this.#team.hasRoom(goal) ? this.#team.stateFor(goal).intents : this.#goalStore.read(goal).board.intents
+  }
+
+  #goalClaimable(goal: string, card: number, runtime: string, sessionId: string): boolean {
+    return this.#claimableIn(this.#goalIntents(goal), goal, card, runtime, sessionId)
+  }
+
+  #claimableIn(intents: readonly Intent[], goal: string, card: number, runtime: string, sessionId: string): boolean {
+    /* A card a flow bound to one Seat is that Seat's alone; while the Seat is
+       still opening, only that opening's own claim — the one GoalPlane.seat
+       makes inside the same transaction — may take it. */
+    const bound = this.#flows.bindingFor(goal, card)
+    if (bound && !(bound.session ? bound.session.runtime === runtime && bound.session.sessionId === sessionId : bound.opening)) return false
+    const intent = intents.find((one) => one.id === card)
+    if (!intent || intent.state === 'done' || intent.state === 'abandoned' ||
+      intent.state === 'claimed' && !(intent.claim?.runtime === runtime && intent.claim.sessionId === sessionId) ||
+      intent.state === 'blocked' && intent.blockedBy === 'hand') return false
+    const waits = intent.dependsOn.some((id) => {
+      const dependency = intents.find((one) => one.id === id)
+      return dependency !== undefined && dependency.state !== 'done'
+    })
+    if (waits) return false
+    return !intents.some((one) =>
+      one.id !== card && one.state === 'claimed' && one.claim?.runtime === runtime && one.claim.sessionId === sessionId,
+    )
+  }
+
+  #goalStranded(goal: string, card: number): boolean {
+    const intent = this.#goalIntents(goal).find((one) => one.id === card)
+    if (intent?.state !== 'claimed' || !intent.claim?.leaseUntil || Date.now() < intent.claim.leaseUntil) return false
+    return this.registry.get(intent.claim.runtime, makeSessionId(intent.claim.sessionId)) === undefined
+  }
+
+  /**
+   * A change the Goal plane makes to a Goal's cards — a claim, a release —
+   * inside the Goal's queue it already holds. Made to the Team's copy, the one
+   * writer of a Goal's board, and saved from it; only before the Team holds
+   * the board (recovery at launch) is the document written directly, when
+   * there is no second copy to keep up with. `patch` is checked against the
+   * cards as they stand and may refuse by throwing, before anything moves.
+   */
+  async #goalPlaneWrite(goal: string, patch: (intents: readonly Intent[]) => readonly Intent[]): Promise<void> {
+    /* While a wrap is staged, its releases are written alone, onto the
+       document as the wrap read it: nothing the Team changed since rides along
+       into a document whose receipt never saw it. A wrap only — an
+       assignment or a release has no receipt, and its claim has to find the
+       cards as the one writer holds them, including a card whose own save is
+       still queued behind another. Patched onto the document instead, that
+       card was missing, the claim was refused, and the assignment stayed
+       staged, refusing every later save of the Goal. */
+    const staged = this.#goalStore.read(goal).operation?.kind === 'wrap'
+    const save = staged
+      ? async () => {
+        const now = this.#goalStore.read(goal)
+        const intents = patch(now.board.intents)
+        if (intents !== now.board.intents) await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
+      }
+      /* Whole: a Team save this write carries is answered as done once it
+         lands, so its name, messaging and plans have to land here too. */
+      : (state: TeamState) => this.#writeGoalBoard(goal, state, { whole: true })
+    if (!(await this.#team.goalPlaneWrite(goal, patch, save, { carry: !staged }))) {
+      const document = this.#goalStore.read(goal)
+      const intents = patch(document.board.intents)
+      if (intents === document.board.intents) return
+      await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
+    }
+    this.#retryStuckGoals()
+  }
+
+  /**
+   * Queues a retry of every stuck set-aside behind whatever holds the Goal
+   * queue. Never awaited: every caller is inside that queue, or answering a
+   * verb that must not wait on it. Cheap when nothing is stuck.
+   */
+  #retryStuckGoals(): void {
+    void this.#goals.retryStuck().catch((error: unknown) => {
+      this.#logger.warn('goal set-aside retry failed', { error: error instanceof Error ? error.message : String(error) })
+    })
+  }
+
+  /**
+   * A Goal's cards and channel, written into its document from one copy of
+   * the board. Refused once the Goal is wrapped or was brought by a backup;
+   * allowed while one of the Goal plane's own operations — a release, the
+   * wrap's own releases — is in progress, since that operation is what is
+   * writing. `whole` writes the rest of the Team's copy with them — the name,
+   * messaging, and a legacy room's plans, nicknames and roster — exactly as
+   * `#saveTeamProjection` would.
+   */
+  async #writeGoalBoard(goal: string, state: TeamState, options: { readonly whole?: boolean } = {}): Promise<void> {
+    const document = this.#goalStore.read(goal)
+    if (document.restored || document.goal.state === 'wrapped') {
+      throw new Error('This Goal is read-only. Start another Goal for new work.')
+    }
+    const at = Date.now()
+    const legacy = options.whole && document.legacy ? this.#team.legacyFor(goal) : null
+    await this.#goalStore.save({
+      ...document,
+      board: {
+        ...document.board,
+        nextIntent: Math.max(1, document.board.nextIntent, ...state.intents.map((intent) => intent.id + 1)),
+        ...(options.whole ? { messaging: state.messaging } : {}),
+        intents: state.intents,
+        channel: state.channel,
+      },
+      goal: {
+        ...document.goal,
+        ...(options.whole ? { sentence: state.name || document.goal.sentence } : {}),
+        revision: document.goal.revision + 1,
+        updatedAt: at,
+      },
+      ...(legacy && document.legacy ? {
+        legacy: { ...document.legacy, plans: legacy.plans, nicknames: legacy.nicknames, roster: legacy.roster },
+      } : {}),
+    }, document.goal.revision)
+  }
+
+  async #claimGoalCard(goal: string, card: number, opening: SeatOpening): Promise<void> {
+    const { runtime, sessionId } = opening.session
+    const upstream = await upstreamTipOf(opening.checkout.cwd).catch(() => null)
+    await this.#goalPlaneWrite(goal, (intents) => {
+      const current = intents.find((one) => one.id === card)
+      if (!current) throw new Error('Choose an existing card.')
+      if (current.state === 'claimed' && current.claim?.runtime === runtime && current.claim.sessionId === sessionId) return intents
+      if (!this.#claimableIn(intents, goal, card, runtime, sessionId)) {
+        throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
+      }
+      const at = Date.now()
+      return intents.map((intent) => intent.id === card ? {
+        ...intent,
+        state: 'claimed' as const,
+        // Where the Seat's checkout stood as it took the card: the start of this card's work.
+        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream },
+        updatedAt: at,
+        blockedBy: null,
+        blockedReason: null,
+      } : intent)
+    })
+  }
+
+  async #releaseGoalCard(goal: string, seat: SeatId): Promise<void> {
+    const record = this.#evidence.seats.byId(seat)
+    if (!record) return
+    await this.#goalPlaneWrite(goal, (intents) => {
+      const held = intents.find((intent) => intent.state === 'claimed' &&
+        intent.claim?.runtime === record.session.runtime && intent.claim.sessionId === record.session.sessionId)
+      if (!held) return intents
+      const blocked = held.dependsOn.some((id) => {
+        const dependency = intents.find((one) => one.id === id)
+        return dependency !== undefined && dependency.state !== 'done'
+      })
+      const at = Date.now()
+      return intents.map((intent) => intent.id === held.id ? {
+        ...intent,
+        state: blocked ? 'blocked' as const : 'open' as const,
+        claim: null,
+        blockedBy: blocked ? 'graph' as const : null,
+        blockedReason: null,
+        updatedAt: at,
+      } : intent)
+    })
+  }
+
+  async #finishGoalOperation(goal: string, operation: string): Promise<void> {
+    const document = this.#goalStore.read(goal)
+    if (document.operation === null) return
+    if (document.operation.id !== operation) throw new Error('Another Goal operation replaced this one. Finish recovery first.')
+    await this.#goalStore.save({
+      ...document,
+      operation: null,
+      goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: Date.now() },
+    }, document.goal.revision)
+  }
+
+  async #goalAnswer(seat: SeatRecord): Promise<{
+    readonly answer: GoalReceipt['answers'][number] | null
+    readonly gaps: readonly string[]
+  }> {
+    const runtime = this.#runtimes.get(seat.session.runtime)
+    if (!runtime) return { answer: null, gaps: [`${seat.seatLabel}'s transcript is unavailable.`] }
+    let session: Session
+    try {
+      session = await this.#read(runtime, makeSessionId(seat.session.sessionId))
+    } catch {
+      return { answer: null, gaps: [`${seat.seatLabel}'s transcript is unavailable.`] }
+    }
+    const turn = session.turns.at(-1)
+    const raw = turn?.items.filter((item) => item.type === 'assistantMessage')
+      .map((item) => (item as { readonly text?: string }).text ?? '')
+      .filter((text) => text.trim() !== '').at(-1) ?? ''
+    const clipped = raw.length <= 16_000 ? raw : `${raw.slice(0, 7_990)}\n… answer truncated …\n${raw.slice(-7_989)}`
+    const partial = turn !== undefined && turn.status !== 'completed'
+    const gaps = [
+      ...(raw ? [] : [`${seat.seatLabel} has no recorded answer.`]),
+      ...(raw.length > 16_000 ? [`${seat.seatLabel}'s answer was truncated to 16000 characters.`] : []),
+      ...(partial ? [`${seat.seatLabel}'s last answer was partial (${turn.status}).`] : []),
+      ...(session.usage === null || session.usage === undefined
+        ? [`${seat.seatLabel}'s spend was not recorded.`]
+        : session.usage.total.outputExact === false
+          ? [`${seat.seatLabel}'s output spend is a lower bound.`]
+          : []),
+    ]
+    return {
+      answer: {
+        seat: seat.id,
+        session: seat.session,
+        turn: turn ? String(turn.id) : null,
+        text: clipped,
+        partial,
+        stopReason: !turn || turn.status === 'completed' ? null : (turn.error?.message ?? turn.status),
+      },
+      gaps,
+    }
+  }
+
+  async #finishGoalWrap(operation: Extract<GoalOperation, { kind: 'wrap' }>): Promise<void> {
+    const document = this.#goalStore.read(operation.goal)
+    if (document.operation === null && document.receipt?.id === operation.receipt.id) return
+    if (document.operation?.kind !== 'wrap' || document.operation.id !== operation.id ||
+        document.operation.receipt.id !== operation.receipt.id) {
+      throw new Error('Another Goal operation replaced this wrap. Finish recovery first.')
+    }
+    const resolutions = new Map(operation.receipt.cards.map((card) => [card.id, card]))
+    const at = operation.receipt.wrappedAt
+    /* A card the receipt has no disposition for was added after the wrap read
+       the board — which the board's wrap barrier now refuses, but an earlier
+       build let through and left the Goal wrapping on every launch. It was
+       never reviewed, so it is set aside, saying why, on the card and on the
+       receipt; the person's own dispositions are left as they approved them. */
+    const unreviewed = { resolution: 'dropped' as const, reason: 'Added while the Goal was wrapping, so it was never reviewed.' }
+    const setAside = document.board.intents.filter((intent) => !resolutions.has(intent.id))
+      .map((intent) => ({ id: intent.id, ...unreviewed }))
+    const receipt: GoalReceipt = setAside.length === 0 ? operation.receipt
+      : { ...operation.receipt, cards: [...operation.receipt.cards, ...setAside] }
+    const board = {
+      ...document.board,
+      intents: document.board.intents.map((intent) => {
+        const resolution = resolutions.get(intent.id) ?? unreviewed
+        return {
+          ...intent,
+          state: resolution.resolution === 'finished' ? 'done' as const : 'abandoned' as const,
+          claim: null,
+          blockedBy: null,
+          blockedReason: null,
+          ...(resolution.reason?.trim() ? { note: resolution.reason.trim() } : {}),
+          updatedAt: at,
+        }
+      }),
+    }
+    await this.#goalStore.save({
+      ...document,
+      board,
+      receipt,
+      operation: null,
+      goal: {
+        ...document.goal,
+        state: 'wrapped',
+        receipt: operation.receipt.id,
+        revision: document.goal.revision + 1,
+        updatedAt: at,
+      },
+    }, document.goal.revision)
+    this.#team.closeGoalWaits(operation.goal)
+    // A trigger Goal's reservation settles against its final spend — never awaited inside the Goal's queue.
+    this.#intake.wrapped(operation.goal)
+    try {
+      const view = await this.#goals.view(operation.goal)
+      this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster, { final: true })
+      this.#push({ method: 'goal/changed', params: { view } })
+    } catch (error) {
+      this.#logger.warn('a wrapped Goal could not be announced after its receipt was stored', {
+        goal: operation.goal,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  /**
+   * Interrupts every live turn on a Goal's open Seats — a budget stop, a
+   * pause, a new head — keeping whatever each already said. A turn that
+   * already ended is nothing to interrupt.
+   */
+  async #interruptGoal(goal: string): Promise<void> {
+    const seats = this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored)
+    await Promise.all(seats.map(async (seat) => {
+      const record = this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
+      if (!record?.live || record.running.size === 0) return
+      await record.live.interrupt().catch((error: unknown) => {
+        this.#logger.warn('a trigger Seat’s turn could not be interrupted', { seat: seat.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }))
+  }
+
+  /** The runtimes a Goal's open Seats spend from. */
+  #spendingRuntimes(goal: string): readonly RuntimeId[] {
+    return [...new Set(this.#evidence.seats.all()
+      .filter((seat) => seat.board === goal && seat.closed === null && !seat.restored)
+      .map((seat) => runtimeId(seat.session.runtime)))]
+  }
+
+  /**
+   * Whether a Goal's Seats still have allowance, as the usage service last
+   * read each of their runtimes: a limit reached is spent; no reading, a
+   * stale one, or one that failed with nothing to show is unknown — which
+   * refuses unattended dispatch rather than guessing.
+   */
+  #allowanceOf(goal: string): 'available' | 'spent' | 'unknown' {
+    const now = Date.now()
+    let unknown = false
+    for (const runtime of this.#spendingRuntimes(goal)) {
+      const report = this.#usageService.cached(runtime)
+      if (!report) { unknown = true; continue }
+      if (report.reached !== null || report.lanes.some((lane) => lane.usedPercent >= 100)) return 'spent'
+      if (now - report.fetchedAt > report.staleAfterMs) unknown = true
+      else if (report.error && report.lanes.length === 0 && !report.credits) unknown = true
+    }
+    return unknown ? 'unknown' : 'available'
+  }
+
+  /** Reads the allowance of every runtime these Goals spend from again, where the last reading went stale. */
+  async #refreshAllowances(goals: readonly string[]): Promise<void> {
+    const runtimes = new Set(goals.flatMap((goal) => this.#spendingRuntimes(goal)))
+    const now = Date.now()
+    for (const runtime of runtimes) {
+      const report = this.#usageService.cached(runtime)
+      if (report && now - report.fetchedAt < report.staleAfterMs / 2) continue
+      await this.#usageService.refresh(runtime).catch(() => undefined)
+    }
+  }
+
+  /** Every usage sample the ledger holds for a project in a window, and whether it could read all of it. */
+  async #usageOf(project: string, from: number, to: number): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }> {
+    const detail = await this.#ledgerService.readInsight({ root: project, from, to })
+    return { samples: detail.samples, complete: detail.gaps.length === 0 }
+  }
+
+  /**
+   * What the host holds on a trigger Goal for a person, read as a snapshot:
+   * the Team's held messages, a Seat conversation's approvals and held desk
+   * actions, its questions, the cards a flow addressed to a person, and the
+   * postings a person has to look at.
+   */
+  #triggerWaits(goal: string): HostWaits {
+    let board: TeamState
+    try {
+      board = this.#goalState(goal)
+    } catch {
+      return NO_WAITS
+    }
+    const actor = (one: TeamActor | null | undefined): string =>
+      actorWords(one, (runtime, sessionId) => this.#conversationName(runtime, sessionId))
+    const messages = board.channel.flatMap((entry) => entry.kind === 'message' && entry.state === 'held'
+      ? [{ id: entry.id, from: actor(entry.from), to: entry.to ? (entry.to.nickname ?? entry.to.title) : 'everyone', reason: entry.reason ?? null }]
+      : [])
+    const seats = this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored)
+    const approvals: { id: string; seat: string; what: string; held: boolean }[] = []
+    const questions: { id: string; seat: string; what: string }[] = []
+    for (const seat of seats) {
+      const record = this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
+      if (!record) continue
+      const who = seat.agent?.name ?? seat.seatLabel
+      for (const approval of record.approvals.values()) {
+        if (approval.type === 'userInput' || approval.type === 'elicitation') {
+          const what = approval.type === 'userInput' ? approval.questions?.[0]?.question : (approval.message ?? approval.reason)
+          questions.push({ id: String(approval.id), seat: who, what: String(what ?? 'A question is waiting in its conversation.') })
+          continue
+        }
+        const what = approval.type === 'command' ? `run ${approval.command}` : approval.type === 'fileChange'
+          ? `change ${approval.changes.length === 1 ? 'one file' : `${approval.changes.length} files`}`
+          : approval.summary ?? 'an action is waiting'
+        approvals.push({ id: String(approval.id), seat: who, what: String(what), held: String(approval.id).startsWith('held-') })
+      }
+    }
+    const executions = this.#flows.executionsFor(goal)
+    const steps = board.intents.flatMap((intent) => intent.state !== 'done' && intent.state !== 'abandoned' &&
+      flowStepOf(intent, undefined, executions)?.kind === 'person' ? [{ card: intent.id, title: intent.title }] : [])
+    const postings: { key: string; reason: string }[] = []
+    for (const run of executions.filter((one) => one.intake)) {
+      for (const entry of Object.values(this.#flows.publicationOf(run.id)?.ops ?? {})) {
+        if (entry.state === 'uncertain' || (entry.state === 'prepared' && entry.reason !== null) || entry.state === 'started') {
+          if (entry.state === 'started' && entry.reason === null) continue
+          postings.push({ key: entry.key, reason: gapOf(entry) })
+        }
+      }
+    }
+    return { messages, approvals, questions, steps, members: [], postings }
+  }
 
   /**
    * The seam the wire methods are written against. Each member is a closure
@@ -1007,11 +2966,91 @@ export class Host {
       worktrees: this.#worktrees,
       team: this.#team,
       flows: this.#flows,
+      flowPreviews: this.#flowPreviews,
+      flowUpdates: this.#flowUpdates,
+      authoring: this.#authoring,
+      frontDoor: {
+        preview: (input) => previewStart({
+          confine: (root) => this.#confineRoom(root),
+          context: this.#frontDoorContext,
+          previews: this.#flowPreviews,
+          goal: (id) => this.#goals.view(id),
+          canDispatch: (id) => this.#goals.canDispatch(id),
+          reserved: (id) => {
+            try {
+              return this.#goalStore.read(id).flowReservation !== undefined
+            } catch {
+              return true
+            }
+          },
+        }, input),
+      },
+      goals: this.#goals,
+      lanes: this.#lanes,
+      laneSettings: {
+        read: () => this.#lanePreferences(),
+        set: async (value) => {
+          const checked = lanePreferences(value)
+          await this.#state.setPreferences({ lanes: checked })
+          return checked
+        },
+      },
+      laneEnvironment: {
+        forCheckout: (cwd) => environmentForCheckout(cwd, this.#lanes.list()),
+        forSession: async (runtime, sessionId) => {
+          const owner = this.#runtime({ runtime })
+          const environment = environmentForSession(
+            String(owner.info.id),
+            sessionId,
+            this.#lanes.list(),
+            this.#evidence.seats.all(),
+          )
+          requireLaneSupport(owner.info, environment)
+          return environment
+        },
+      },
+      agents: this.#agents,
+      seating: this.#machineSeating,
+      evidence: this.#evidence,
+      attachments: {
+        prepare: (subject) => this.#attachments.prepare(subject),
+        record: (seat, prepared, receipt) => this.#attachments.record(seat, prepared, receipt),
+        trust: {
+          preview: (subject, entries, options) => this.#attachmentTrust.preview(subject, entries, options),
+          approve: (token) => this.#attachmentTrust.approve(token),
+        },
+        seatRecord: (seat) => this.#attachments.read(seat),
+        declarations: (entry, root) => this.#attachmentDeclarations(entry, root),
+        carriesFilter: async (runtime, id) => {
+          const seat = this.#evidence.seats.latestKeptOf(runtime, id)
+          return seat !== null && (await this.#carriesFilter(seat, 'reopen'))
+        },
+        forkRefusal: (runtime, id) => this.#forkRefusal(runtime, id),
+      },
+      findings: {
+        list: (input) => this.#findings.list(input),
+        read: (input) => this.#findings.read(input),
+        carry: (input) => this.#findings.carry(input),
+        setPublication: (goal, revision, enabled) => this.#goals.update(goal, revision, { findingPublication: enabled }),
+        run: (input) => this.#findings.runView(input.run),
+        decide: (input) => this.#findings.decideRun(input),
+        publications: (input) => this.#findings.publications(input),
+        publish: (input) => this.#findings.publish(input),
+      },
+      provenance: {
+        read: (root, shas) => this.#provenance.read(root, shas),
+        status: (root) => this.#provenance.status(root),
+        setCapture: (root, enabled) => this.#provenance.setCapture(root, enabled),
+        retry: (root) => this.#provenance.retry(root),
+        seat: (root, id) => this.#provenance.seat(root, id),
+      },
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,
       usage: () => this.#usageService,
       ledger: () => this.#ledgerService,
+      insight: this.#insight,
+      intake: this.#intake,
       libraryUsage: () => {
         // Lazy: the reader is only built when the page first asks, and the
         // first read pays for the transcripts it walks. Every read after is
@@ -1019,6 +3058,7 @@ export class Host {
         this.#libraryUsage ??= new LibraryUsageReader(
           join(this.#state.directory, 'transcripts'),
           join(this.#state.directory, 'cache', 'library-usage.json'),
+          { log: (message, details) => this.#logger.warn(message, details) },
         )
         return this.#libraryUsage
       },
@@ -1050,6 +3090,32 @@ export class Host {
         busyElsewhere: (runtime, id, error) => this.#busyElsewhere(runtime, id, error),
         cannotReopen: (runtime, error) => this.#cannotReopen(runtime, error),
       },
+      seats: {
+        open: (seat, where) => this.#openSeat(seat, where),
+        order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
+        hold: (runtime, sessionId, level) => this.#holdSeat(runtime, sessionId, level),
+        retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
+        discard: (runtime, sessionId) => this.#discardSeat(runtime as RuntimeId, makeSessionId(sessionId)),
+        recordAgent: (runtime, sessionId, seated) => {
+          // Kept: the seating's hold ends, and the conversation is the Agent's (`#seating`).
+          this.#seating.delete(sessionKey(runtime, sessionId))
+          const record = this.registry.seatAs(runtime as RuntimeId, makeSessionId(sessionId), seated)
+          // Every window holding this conversation learns it, not only the one that asked.
+          if (record.session.settings) {
+            this.#push({
+              method: 'event',
+              params: {
+                runtime: record.runtime,
+                event: { type: 'session/settings', sessionId: record.session.id, settings: record.session.settings },
+              },
+            })
+          }
+          return record.session
+        },
+      },
+      ceilings: {
+        answerHeld: (approvalId, decision) => this.#answerHeld(approvalId, decision),
+      },
       queue: {
         push: (record) => this.#pushQueue(record),
         drain: (record) => this.#drain(record),
@@ -1079,11 +3145,21 @@ export class Host {
       },
       workspaces: {
         openRoots: () => this.#openRoots(),
+        fileRoots: (mode) => this.#fileRoots(mode),
         confineGitRoot: (root) => this.#confineGitRoot(root),
+        confineProvenanceRoot: (root) => this.#confineProvenanceRoot(root),
+        topLevel: (path) => gitOps.topLevel(path),
+        realPath: (path) => this.#realPath(path),
+        confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
         repoOf: (cwd) => this.#repoOf(cwd),
         boardRootOf: (cwd) => this.#boardRootOf(cwd),
-        forgetBoardRoots: () => this.#boardRoots.clear(),
+        forgetBoardRoots: () => {
+          this.#boardRoots.clear()
+          this.#topLevels.clear()
+          // The same moment the roster's watch lets go of a project that is no longer open.
+          void this.#watchProjects()
+        },
         issuePreviewTicket: (path, runtime) => {
           const ticket = randomBytes(24).toString('hex')
           this.#previewTickets.set(ticket, {
@@ -1134,7 +3210,7 @@ export class Host {
     })
   }
 
-  readonly #localFiles = new LocalFiles()
+  readonly #localFiles = new LocalFiles({ log: (message, details) => this.#logger.warn(message, details) })
 
   /**
    * The reader for a request: the runtime's own view when it declares one,
@@ -1151,15 +3227,40 @@ export class Host {
    * Where the renderer may read: the workspaces the user opened and the
    * working directories of sessions it is looking at. Everything else is
    * refused before any reader is asked.
+   *
+   * Only those spelled absolutely. Every check that holds a path to these —
+   * `confine`, `#confineGitRoot`, `openRepositoryRoot` — reads a relative one
+   * against this process's working directory, which is no folder anybody
+   * opened. The wire refuses one before it can become a root, but a
+   * conversation's cwd is whatever its agent reports, and one read or reopened
+   * from the agent's store carries the folder the agent wrote down; the
+   * workspaces come back from the state file.
    */
   #openRoots(): string[] {
     return [
       ...this.#state.state.workspaces
         .map((entry) => entry?.path)
-        .filter((path): path is string => typeof path === 'string' && path.length > 0),
+        .filter((path): path is string => typeof path === 'string' && isAbsolute(path)),
       ...this.registry.snapshot()
         .map((session) => session.cwd)
-        .filter((cwd): cwd is string => typeof cwd === 'string' && cwd.length > 0),
+        .filter((cwd): cwd is string => typeof cwd === 'string' && isAbsolute(cwd)),
+    ]
+  }
+
+  /**
+   * Where the renderer may read or write a file by path: the open roots, and
+   * the roster's own folders — this machine's for both, because a person
+   * edits their own Agents in the desk's editor; the built-in one for reading
+   * only, because nobody edits what ships (*Customize…* copies it first).
+   * `confine` compares path text by design, so a user Agent folder linked to a
+   * dotfiles checkout is read and saved through that link, just as the roster
+   * reads it. The built-in root never joins the write list.
+   */
+  #fileRoots(mode: 'read' | 'write'): string[] {
+    return [
+      ...this.#openRoots(),
+      join(this.#state.directory, 'agents'),
+      ...(mode === 'read' ? [this.#agents.roots.builtin] : []),
     ]
   }
 
@@ -1172,6 +3273,12 @@ export class Host {
    * past repositories the user has actually opened part of.
    */
   async #confineGitRoot(root: string): Promise<string> {
+    // Before anything resolves it. `realpath` reads a relative path against
+    // this process's working directory, so `confine` below only ever saw an
+    // absolute one and its own refusal could not fire: a relative root was
+    // admitted whenever, read from wherever the app had been started, it led
+    // into an open folder.
+    assertAbsolute(root)
     const roots = this.#openRoots()
     // Real paths on both sides. `confine` collapses `..` but cannot see a
     // symlink, so `opened/elsewhere -> /other/repo` passed a lexical test and
@@ -1191,12 +3298,84 @@ export class Host {
     }
   }
 
-  /** The path with its links resolved, or the path itself when it is not there. */
+  /**
+   * Provenance is keyed by Git's canonical project rather than a particular
+   * checkout. A linked checkout is an open root, but its main checkout is not;
+   * admit precisely that canonical project for provenance controls without
+   * broadening ordinary Git RPC confinement.
+   */
+  async #confineProvenanceRoot(root: string): Promise<string> {
+    assertAbsolute(root)
+    try {
+      const confined = await this.#confineGitRoot(root)
+      return (await this.#repoOf(confined))?.root ?? (await this.#topLevelOf(confined)) ?? confined
+    } catch (refusal) {
+      const real = await this.#realPath(root)
+      for (const open of this.#openRoots()) {
+        const repository = await this.#repoOf(open)
+        if (repository !== null && (await this.#realPath(repository.root)) === real) return real
+      }
+      throw refusal
+    }
+  }
+
+  /**
+   * Where a room may work: in a folder opened here or in a repository opened
+   * here, by the folder rule above or by the repository rule the worktree
+   * verbs answer to, whichever admits it. A room's folder is where its flows
+   * are read from, and where they seat agents and cut worktrees.
+   *
+   * The room dialog asks for both kinds. It names the project of the folder
+   * open (`projectRootOf`), which for a linked worktree is its main checkout:
+   * outside every open folder while only the worktree is open, so the folder
+   * rule refuses it although its repository is open. And a room can be made in
+   * a folder in no repository, which the repository rule has nothing to say
+   * about. Neither rule admits a folder the desk does not already let the
+   * renderer branch in or check out, and both see through links.
+   */
+  async #confineRoom(folder: string): Promise<void> {
+    assertAbsolute(folder)
+    if (await this.#confineGitRoot(folder).then(() => true, () => false)) return
+    if ((await openRepositoryRoot(folder, this.#openRoots()).catch(() => null)) !== null) return
+    // Where it leads, as the folder rule says it: a link in an open folder
+    // otherwise reads as a folder inside it.
+    throw new Error(
+      `${await this.#realPath(folder)} is outside every folder and repository opened here. Open it first.`,
+    )
+  }
+
+  /**
+   * The path with its links resolved. One that is not there — yet, or any
+   * more — is resolved through the deepest ancestor that is, the way a new
+   * worktree's folder is. Left as it was spelled, it was compared against open
+   * roots that had been resolved: a folder inside one reached through a link
+   * (macOS keeps its temporary folders behind /var -> /private/var) was
+   * refused as outside it, and one behind a link out of an open folder passed.
+   */
   async #realPath(path: string): Promise<string> {
     try {
       return await realpath(path)
     } catch {
-      return resolve(path)
+      return canonicalDestination(path)
+    }
+  }
+
+  /**
+   * Task 6's own backup sidecar port: the two otherwise-separate subsystems
+   * `MemoryBackup` spans, `GoalPlane`'s own `MemoryPlane` and the top-level
+   * `AttachmentsPlane`, behind the one small interface `memory/backup.ts`
+   * actually needs. Never a trust file, a staging directory, a gateway token
+   * or a server process — none of those are reachable through it.
+   */
+  #memoryBackupPort(): MemoryBackupPort {
+    return {
+      documents: () => this.#goals.memoryDocuments(),
+      readObject: (key) => this.#goals.readMemoryObject(key),
+      writeObject: (snapshot) => this.#goals.writeMemoryObject(snapshot),
+      registerRestoredMemory: (goal, index) => this.#goals.registerRestoredMemory(goal, index),
+      isRegistered: (citation, archive) => this.#goals.memoryRegistered(citation, archive),
+      attachmentHistory: () => this.#attachments.attachmentHistory(),
+      appendAttachment: (record) => this.#attachments.appendRestored(record),
     }
   }
 
@@ -1206,6 +3385,7 @@ export class Host {
    * another machine, and a restore is followed by signing in again.
    */
   async #backupExport(): Promise<BackupFile> {
+    await this.#goalStore.flush()
     return {
       kind: 'harnessdesk-backup',
       version: 1,
@@ -1214,6 +3394,21 @@ export class Host {
       agents: this.options.agents?.entries() ?? [],
       preferences: this.#state.state.preferences,
       transcripts: await this.#transcripts.exportAll(),
+      agentFolders: await exportAgentFolders(join(this.#state.directory, 'agents'), (message, details) =>
+        this.#logger.warn(message, details),
+      ),
+      seating: await this.#machineSeating.raw(),
+      evidence: await this.#evidence.backup(),
+      provenance: await this.#provenance.backup(),
+      goals: {
+        version: 1,
+        documents: this.#goalStore.list(),
+        // Backup export has always been callable before Host.start() in the
+        // diagnostics and migration tests. An unopened desk owns no live lane
+        // authority yet, so its portable Goal history has no lanes to export.
+        lanes: this.#laneStore.loaded ? this.#lanes.list() : [],
+      },
+      memory: await exportMemory(this.#memoryBackupPort()),
     }
   }
 
@@ -1234,6 +3429,35 @@ export class Host {
       file.version !== 1
     ) {
       throw new Error('That file is not a HarnessDesk backup.')
+    }
+
+    /* Validate the whole Goal payload before restoring any other part of the
+       backup. A malformed document cannot arrive after preferences, Agents or
+       transcripts have already changed this desk. */
+    let goalDocuments: GoalDocument[] = []
+    let goalLanes: ReturnType<typeof laneOf>[] = []
+    if (file.goals !== undefined) {
+      const payload = file.goals as { version?: unknown; documents?: unknown; lanes?: unknown }
+      let bytes = 0
+      try { bytes = Buffer.byteLength(JSON.stringify(payload)) } catch { throw new Error('The Goal backup cannot be read.') }
+      if (payload.version !== 1 || !Array.isArray(payload.documents) || !Array.isArray(payload.lanes) ||
+        payload.documents.length > 10_000 || payload.lanes.length > 10_000 || bytes > 64 * 1024 * 1024) {
+        throw new Error('The Goal backup cannot be read.')
+      }
+      goalDocuments = payload.documents.map(documentOf)
+      goalLanes = payload.lanes.map(laneOf)
+      const ids = new Set<string>()
+      for (const document of goalDocuments) {
+        if (ids.has(document.goal.id)) throw new Error('The Goal backup names a Goal twice.')
+        ids.add(document.goal.id)
+      }
+      const laneIds = new Set<string>()
+      for (const lane of goalLanes) {
+        if (laneIds.has(lane.id) || (!ids.has(lane.goal) && !this.#goalStore.list().some((one) => one.goal.id === lane.goal))) {
+          throw new Error('The Goal backup contains an invalid lane reference.')
+        }
+        laneIds.add(lane.id)
+      }
     }
 
     const agents = { restored: 0, skipped: 0 }
@@ -1285,8 +3509,97 @@ export class Host {
       else transcripts.skipped += 1
     }
 
-    this.#logger.info('backup restored', { agents, preferences, transcripts })
-    return { agents, preferences, transcripts }
+    const agentFolders = { restored: 0, skipped: 0 }
+    for (const copy of Array.isArray(file.agentFolders) ? file.agentFolders : []) {
+      try {
+        const outcome = await importAgentFolder(join(this.#state.directory, 'agents'), copy)
+        if (outcome.restored) {
+          agentFolders.restored += 1
+        } else {
+          agentFolders.skipped += 1
+          // `reason: null` is a plain collision with an Agent already here —
+          // this machine's own, never a stranger's, so it stays quiet.
+          if (outcome.reason !== null) {
+            this.#logger.warn('an Agent folder from a backup was refused', {
+              id: loggedId(backupCopyId(copy)),
+              error: outcome.reason,
+            })
+          }
+        }
+      } catch (error) {
+        agentFolders.skipped += 1
+        this.#logger.warn('an Agent folder from a backup could not be restored', {
+          id: loggedId(backupCopyId(copy)),
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    const seating = { restored: 0, skipped: 0 }
+    let seatingRevision: number | undefined
+    if (typeof file.seating === 'object' && file.seating !== null) {
+      const saved = parseSeating(JSON.stringify(file.seating))
+      for (const entry of saved.entries) {
+        try {
+          // `onlyIfAbsent` decides "is this Agent's id already taken" inside
+          // `set()`'s own write queue, against the file it is about to write —
+          // not from a read taken before this loop started, which a window's
+          // own `agent/seating/set` landing in the gap between that read and
+          // this call could otherwise have made stale.
+          const outcome = await this.#machineSeating.set(entry.id, entry.seats, { onlyIfAbsent: true })
+          if (outcome.wrote) {
+            seating.restored += 1
+            seatingRevision = outcome.seating.revision
+          } else seating.skipped += 1
+        } catch (error) {
+          seating.skipped += 1
+          this.#logger.warn('a seating entry from a backup could not be restored', {
+            id: entry.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+      seating.skipped += saved.problems.filter((one) => one.id !== null).length
+    }
+    if (agentFolders.restored > 0 || seating.restored > 0) {
+      this.#push({
+        method: 'agent/changed',
+        params: { project: null, ...(seatingRevision === undefined ? {} : { revision: seatingRevision }) },
+      })
+    }
+    // What the desk observed, and every Seat it kept: history, never over what this desk wrote.
+    const evidence = await this.#evidence.restore(file.evidence)
+    const provenance = await this.#provenance.restore(file.provenance)
+    const goals = file.goals === undefined ? undefined : {
+      restored: 0, duplicate: 0, conflict: 0,
+      lanesRestored: 0, lanesDuplicate: 0, lanesConflict: 0,
+    }
+    if (goals) {
+      const at = Date.now()
+      for (const document of goalDocuments) {
+        const outcome = await this.#goalStore.restore(document, at)
+        goals[outcome] += 1
+        if (outcome === 'restored') {
+          const view = await this.#goals.view(document.goal.id)
+          this.#team.installProjection(view.board, undefined, { final: true })
+          this.#push({ method: 'goal/changed', params: { view } })
+        }
+      }
+      for (const lane of goalLanes) {
+        const imported = restoredLane(lane)
+        const current = this.#laneStore.list().find((one) => one.id === imported.id)
+        if (!current) {
+          await this.#laneStore.save(imported)
+          goals.lanesRestored += 1
+        } else if (current.state === 'released' && current.seat === null && current.browserProfile === null &&
+          JSON.stringify(current) === JSON.stringify(imported)) {
+          goals.lanesDuplicate += 1
+        } else goals.lanesConflict += 1
+      }
+    }
+    const memory = await importMemory(this.#memoryBackupPort(), file.memory)
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, goals, memory })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, memory, ...(goals ? { goals } : {}) }
   }
 
   /**
@@ -1363,7 +3676,7 @@ export class Host {
     const entry = this.#previewTickets.get(ticket)
     this.#previewTickets.delete(ticket)
     if (!entry || entry.expiresAt < Date.now()) return null
-    const path = confine(entry.path, this.#openRoots())
+    const path = confine(entry.path, this.#fileRoots('read'))
     const bytes = await this.#files(entry.runtime).read(path)
     const extension = path.split('.').pop()?.toLowerCase()
     const contentType =
@@ -1502,7 +3815,22 @@ export class Host {
 
   async #openWorkspace(path: string) {
     const described = await describeWorkspace(path)
-    const record = { ...described, lastOpenedAt: Date.now() }
+    // `describeWorkspace` keeps `path` at the spelling it was opened at, on
+    // purpose (see its own comment) — `repo`/`checkoutRoot` below are the
+    // renderer's canonical answer inside a repository, and this is the same
+    // answer outside one, so a non-git folder opened through a link (#907)
+    // has something to compare its own sessions against too. `#realPath`
+    // already exists for the identical reason a confinement check has.
+    //
+    // Resolved once, here, and carried into the persisted record itself
+    // (`WorkspaceRecord.realPath`) rather than only into this call's own
+    // return value: `workspace/recent` (#943) reads it straight back off
+    // every remembered entry with no filesystem call of its own, the way it
+    // already did before it needed a comparison key at all — a call per
+    // entry, unbounded over up to 50 remembered folders, is exactly the cost
+    // recording it here avoids.
+    const realPath = await this.#realPath(described.path)
+    const record = { ...described, lastOpenedAt: Date.now(), realPath }
     await this.#state.touchWorkspace(record)
     // Here, not at one call site: `workspace/pick` opens a workspace too, and
     // only `workspace/open` was clearing this. A folder that resolved to no
@@ -1512,6 +3840,9 @@ export class Host {
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
     this.#extensions?.setWorkspace({ root: described.path, branch: git?.branch ?? null })
+    // Fire-and-forget: opening a folder must not wait on re-pointing the
+    // roster's watch, which walks every open project's ancestors afresh.
+    void this.#watchProjects()
     return {
       ...record,
       name: described.name || basename(described.path),
@@ -1519,7 +3850,61 @@ export class Host {
       // Which project this folder is, so the session list can put a worktree
       // opened as a workspace under the project it is a checkout of.
       repo: await this.#repoOf(described.path),
+      // The top of *this* checkout — a linked worktree's own, where `repo`
+      // above deliberately names the main one instead. `#topLevelOf` is the
+      // same cached read `#watchProjects` makes for this same folder, so a
+      // surface comparing against this never disagrees with what a change
+      // notification names.
+      checkoutRoot: await this.#topLevelOf(described.path),
     }
+  }
+
+  /**
+   * Points the roster's watch at every open project: each open folder and its
+   * own git top level — a project keeps its Agents at the top of its
+   * repository, and a person often opens a folder inside it. `confineGitRoot`
+   * admits the top level as a project for `agent/list` on the open folder's
+   * account, and for a linked worktree it is that worktree's own top. The
+   * main checkout `#repoOf` answers with for a linked worktree is not added:
+   * `confineGitRoot` does not admit it on the worktree's account, so no Agent
+   * read reaches it through the worktree. The top level is asked once per
+   * folder (`#topLevelOf`).
+   *
+   * Called without being waited on from two places that can race each other —
+   * opening a folder, and forgetting one — so every call reads its own
+   * snapshot of `this.#state.state.workspaces` and asks git about it in
+   * parallel (`Promise.all`, the way `#withRepos` does), and only applies what
+   * it found if no later call has started since: a generation bumped on
+   * entry, checked again once the asking is done. An older call finishing
+   * last from a slower git probe can then only ever lose to a newer one,
+   * never re-add a folder the newer call had already let go of.
+   */
+  async #watchProjects(): Promise<void> {
+    this.#captureProjects()
+    const watch = this.#agentWatch
+    if (!watch) return
+    const generation = ++this.#watchGeneration
+    const roots = new Set<string>()
+    await Promise.all(
+      this.#state.state.workspaces.map(async (entry) => {
+        if (typeof entry?.path !== 'string' || entry.path === '') return
+        roots.add(entry.path)
+        const top = await this.#topLevelOf(entry.path)
+        if (top) roots.add(top)
+      }),
+    )
+    // Superseded while this was asking git: whatever it found is stale, and the call that made it stale already applied its own.
+    if (generation !== this.#watchGeneration) return
+    await watch.watchProjects([...roots])
+  }
+
+  /** A folder's git top level, asked of git once per folder until a folder is forgotten (`#topLevels`). */
+  #topLevelOf(cwd: string): Promise<string | null> {
+    const held = this.#topLevels.get(cwd)
+    if (held) return held
+    const asked = gitOps.topLevel(cwd).catch(() => null)
+    this.#topLevels.set(cwd, asked)
+    return asked
   }
 
   /** What the host knows about a runtime, by id — null for one it does not hold. */
@@ -1534,8 +3919,410 @@ export class Host {
    * runtimes and records, and a publication lands in a transcript only the
    * host holds.
    */
+  /**
+   * What the desktop shell answered for one named wait on unattended work:
+   * shown outside the app, or could not be. Recorded on the wait's own id;
+   * never a wire route, and never claimed for the shell.
+   */
+  intakeNotified(id: string, status: 'delivered' | 'unavailable'): Promise<boolean> {
+    return this.#intake.notified(id, status)
+  }
+
+  /** Announces every unresolved wait again by its own id: for a subscriber that joined after they were raised. */
+  replayIntakeAttention(): void {
+    this.#intake.replay()
+  }
+
+  /** The intake plane, for tests that drive its timers by hand and read its journal. */
+  get intakePlane(): IntakePlane {
+    return this.#intake
+  }
+
+  /** The flow engine, for tests that stop a run the way a person's Drop does. */
+  get flowsPlane(): Flows {
+    return this.#flows
+  }
+
   get forgePlane(): ForgePlane {
     return this.#forge
+  }
+
+  /** The gate every desk-tool call passes before it reaches its plugin. */
+  get ceilingGate(): CeilingGate {
+    return this.#ceilingGate
+  }
+
+  /**
+   * Phase 12's local approval store. Exposed the same way `ceilingGate` is —
+   * a real, host-owned service a caller outside `HostContext` (the tool
+   * gateway's own wiring, a future approval wire method) reaches directly,
+   * rather than a second copy of its logic.
+   */
+  get attachmentTrust(): AttachmentTrust {
+    return this.#attachmentTrust
+  }
+
+  /** Phase 12's frozen Seat attachments, for the same reason `attachmentTrust` is exposed. */
+  get attachmentsPlane(): AttachmentsPlane {
+    return this.#attachments
+  }
+
+  /** Task 1's catalog for one Agent, over this desk's runtimes and Library home — the one resolution every attachment surface shares. */
+  #attachmentDeclarations(entry: AgentEntry, root: string): ReturnType<typeof resolveAttachmentDeclarations> {
+    return resolveAttachmentDeclarations(entry, root, this.#inventoryAgents(), this.options.libraryHome ?? homedir())
+  }
+
+  /** What this runtime build can do with a Seat's attachments — unsupported until it is actually measured. */
+  #attachmentSupport(subject: PlaneAttachmentSubject): AttachmentSupport {
+    const runtime = this.#runtimes.get(subject.runtime as RuntimeId)
+    return (
+      runtime?.info.attachments ?? {
+        runtime: subject.runtime,
+        build: subject.build,
+        skills: 'unsupported',
+        mcp: 'unsupported',
+        suppressUnapproved: false,
+        reason: `${runtime?.info.presentation.name ?? 'This agent'} has not been measured against phase 12’s attachment contract.`,
+      }
+    )
+  }
+
+  /** Aborted at quit: the gateway hands it to every MCP exchange it starts for a Seat. */
+  get attachmentSignal(): AbortSignal {
+    return this.#attachmentAbort.signal
+  }
+
+  /** Where every server a Seat reaches runs: host-owned, under machine state — see `AttachmentGatewayHost`. */
+  get attachmentRunDirectory(): string {
+    return join(this.#state.directory, 'attachments', 'run')
+  }
+
+  /** Registers teardown that must run when this desk quits — before anything it depends on is gone. */
+  onDispose(disposer: () => Promise<void> | void): void {
+    this.#disposers.push(disposer)
+  }
+
+  /**
+   * A reopen of a conversation whose latest kept Seat froze attachments: the
+   * frozen filter, revalidated for this runtime build (`AttachmentsPlane
+   * .reapply`). `null` for a plain conversation, one seated before phase 12,
+   * or a restored Seat — none of which has a filter to re-apply.
+   */
+  async #reopenAttachments(runtime: AgentRuntime, id: SessionId): Promise<ReopenedSeat | null> {
+    const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
+    if (!seat) return null
+    const prepared = await this.#attachments.reapply(seat, { build: runtime.info.version ?? '' })
+    if (prepared) return { seat, prepared }
+    const refusal = await this.#unreadableFilter(seat)
+    if (refusal) throw new Error(refusal)
+    return null
+  }
+
+  /**
+   * Why a Seat with no readable frozen filter may not be reopened or forked,
+   * or null when it simply never carried one. That is the plain path — a Seat
+   * that never declared anything — only when nothing says otherwise: a frozen
+   * file there but unreadable, or receipts with no filter beside them, mean a
+   * damaged record; no record at all while its Agent now declares skills or
+   * servers means the conversation predates attachments. Either way it fails
+   * closed rather than open on the agent's own defaults.
+   */
+  async #unreadableFilter(seat: SeatRecord): Promise<string | null> {
+    if (await this.#attachments.lostFilter(seat.id)) {
+      return 'This conversation’s record of its Agent’s approved attachments is missing or damaged, so it is not reopened or forked on the agent’s own defaults. Seat the Agent again to carry them.'
+    }
+    const declares = await this.#agentDeclaresAttachments(seat)
+    // Only for a Seat still kept: a reopen or a fork would put it back to work on the agent's defaults (review P3-3 on #940).
+    if (declares === 'unreadable' && seat.closed === null) {
+      return 'This conversation was seated as an Agent whose file can no longer be read, and it kept no record of what that Agent approved — so it is not reopened or forked on the agent’s own defaults. Seat an Agent again.'
+    }
+    if (declares) {
+      return 'This conversation was seated before Agents carried attachments, and its Agent now declares skills or servers this conversation never loaded — so it is not reopened or forked on the agent’s own defaults. Seat the Agent afresh to carry them.'
+    }
+    return null
+  }
+
+  /**
+   * Whether the Agent a Seat was seated as declares any skill or server today
+   * — or `'unreadable'` when it was seated as an Agent whose file is gone or
+   * will not parse, so nobody can say (#895). Read as "it might": with no
+   * frozen filter and no receipt, a crash right after the session opened
+   * would otherwise let the reopen go ahead unfiltered.
+   */
+  async #agentDeclaresAttachments(seat: SeatRecord): Promise<boolean | 'unreadable'> {
+    if (!seat.agent) return false
+    const entry = await this.#agents.read(seat.agent.id, seat.checkout.project ?? undefined).catch(() => null)
+    const definition = entry?.definition
+    if (!definition) return 'unreadable'
+    return definition.skills.length > 0 || definition.mcp.length > 0
+  }
+
+  /**
+   * Reads what the reopened conversation actually loaded, appends it as the
+   * Seat's next epoch, and records the Seat beside the session again. A
+   * failure closes the reopened handle rather than leave it running on a
+   * filter nobody could record.
+   */
+  async #finishReopen(runtime: AgentRuntime, live: AgentSession, reopened: ReopenedSeat): Promise<void> {
+    try {
+      const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key, { reopen: reopened.prepared, seatKeys: this.#attachments.keysOf(reopened.seat.id) })
+      await this.#attachments.record(reopened.seat, reopened.prepared, receipt)
+      this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
+    } catch (error) {
+      await this.#letGo(runtime.info.id, live.id, live)
+      throw new Error(
+        `This conversation's approved attachments could not be re-applied, so it was closed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  /**
+   * A read of a conversation whose Seat carries — or should carry — a filter,
+   * when it is not live here: never a bare `readSession`, which over ACP is a
+   * `session/load` with no filter, and an agent may start its ambient and
+   * project servers the moment a session opens, turn or no turn.
+   *
+   * Served from the transcript this host kept (rule 3: the host keeps its
+   * own). When it kept none, the conversation is opened the one way it may
+   * be — on its frozen, revalidated filter, through the same reopen a resume
+   * takes, refused exactly as that reopen refuses. `null` for a conversation
+   * that is live here already (it opened on its filter), or whose Seat never
+   * carried one: the ordinary read serves those.
+   */
+  async #scopedRead(runtime: AgentRuntime, id: SessionId): Promise<Session | null> {
+    if (this.registry.get(runtime.info.id, id)?.live) return null
+    // Being reopened right now, on its filter: the reopen's own read of what
+    // it just opened is an ordinary one (the runtime holds it live, filtered).
+    if (this.#reattaching.has(`${runtime.info.id}\u0000${id}`)) return null
+    const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
+    if (!seat) return null
+    if (!(await this.#carriesFilter(seat, 'read'))) return null
+    const kept = await this.#transcripts.recover(runtime.info.id, id)
+    if (kept) return kept
+    const live = await this.#liveFor(runtime.info.id, id)
+    return this.#transcripts.enrich(await runtime.readSession(live.id))
+  }
+
+  /**
+   * Whether a Seat carries — or should carry — a filter: a frozen one, a lost
+   * one, or an Agent that now declares attachments. For a `reopen` of a Seat
+   * still kept, an Agent file that can no longer be read counts too, so the
+   * reopen goes the scoped way and is refused there (`#unreadableFilter`). A
+   * `read` of an old conversation never counts it: reading it stays possible
+   * (review P3-3 on #940).
+   */
+  async #carriesFilter(seat: SeatRecord, purpose: 'read' | 'reopen'): Promise<boolean> {
+    if ((await this.#attachments.frozen(seat.id)) || (await this.#attachments.lostFilter(seat.id))) return true
+    const declares = await this.#agentDeclaresAttachments(seat)
+    return declares === true || (declares === 'unreadable' && purpose === 'reopen' && seat.closed === null)
+  }
+
+  /** A read for the host's own bookkeeping — the same rule as a client's: a filtered Seat's conversation is never opened unfiltered. */
+  async #hostRead(runtime: AgentRuntime, id: SessionId): Promise<Session> {
+    return (await this.#scopedRead(runtime, id)) ?? runtime.readSession(id)
+  }
+
+  /** Why a fork of this conversation is refused, or null: a fork would run with no filter, and a fork is not the Seat. */
+  async #forkRefusal(runtime: RuntimeId, id: SessionId): Promise<string | null> {
+    const seat = this.#evidence.seats.latestKeptOf(runtime, id)
+    if (!seat) return null
+    if (await this.#attachments.frozen(seat.id)) {
+      return 'This conversation carries an Agent’s approved attachments, and a fork of it would run without them. Seat the Agent again instead.'
+    }
+    // The same checks a reopen makes: a record that cannot be read back is
+    // no licence to run a copy of the conversation unfiltered.
+    return this.#unreadableFilter(seat)
+  }
+
+  readonly #ceilingGate = new CeilingGate({
+    rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
+    ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
+    causeOf: (runtime, sessionId, turnId) => this.#causeOf(runtime, sessionId, turnId),
+    nameOf: (runtime, sessionId) => this.#conversationName(runtime, sessionId),
+    say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
+    askPerson: (runtime, sessionId, question) => this.#askPerson(runtime, sessionId, question),
+    embargoOf: (runtime, sessionId) => this.#findings?.embargoOf(runtime, sessionId) ?? null,
+  })
+
+  /** A reported child conversation to the conversation that delegated it. */
+  readonly #delegatedBy = new Map<SessionKey, { readonly runtime: string; readonly sessionId: string }>()
+  /** A bounded association was lost, so an otherwise unknown caller is unsafe. */
+  readonly #delegationUncertainRuntimes = new Set<string>()
+
+  /** A runtime epoch cannot vouch for the children its predecessor reported. */
+  #invalidateDelegations(runtime: RuntimeId): void {
+    const id = String(runtime)
+    for (const key of this.#delegatedBy.keys()) {
+      if (String(splitSessionKey(key).runtime) === id) this.#delegatedBy.delete(key)
+    }
+    this.#delegationUncertainRuntimes.add(id)
+  }
+
+  readonly #messageTurns = new Map<string, TurnCause>()
+  readonly #pendingCauses = new Map<string, TurnCause>()
+
+  #messageCause(from: TeamSender): TurnCause {
+    const sender = this.#rootOf(String(from.runtime), from.sessionId) ?? {
+      runtime: String(from.runtime), sessionId: from.sessionId,
+    }
+    return { kind: 'message', from, ceiling: this.#ceilingOf(sender.runtime, sender.sessionId) }
+  }
+
+  #turnKey(runtime: string, sessionId: string, turnId: string): string {
+    return JSON.stringify([runtime, sessionId, turnId])
+  }
+
+  #noteTurnCause(key: string, cause: TurnCause): void {
+    this.#messageTurns.set(key, cause)
+    if (this.#messageTurns.size > 2000) {
+      const oldest = this.#messageTurns.keys().next().value
+      if (oldest !== undefined) this.#messageTurns.delete(oldest)
+    }
+  }
+
+  async #startTurn(runtime: RuntimeId, sessionId: string, from: TeamSender | null, send: () => Promise<TurnId>): Promise<void> {
+    const key = String(sessionKey(runtime, makeSessionId(sessionId)))
+    if (!from) {
+      await send()
+      return
+    }
+    const cause = this.#messageCause(from)
+    this.#pendingCauses.set(key, cause)
+    try {
+      const turn = await send()
+      this.#noteTurnCause(this.#turnKey(String(runtime), sessionId, String(turn)), cause)
+    } finally {
+      if (this.#pendingCauses.get(key) === cause) this.#pendingCauses.delete(key)
+    }
+  }
+
+  #markRunningTurn(runtime: RuntimeId, sessionId: string, cause: TurnCause): void {
+    const turn = [...(this.registry.get(runtime, makeSessionId(sessionId))?.running ?? [])].at(-1)
+    if (turn !== undefined) this.#noteTurnCause(this.#turnKey(String(runtime), sessionId, String(turn)), cause)
+  }
+
+  #causeOf(runtime: string, sessionId: string, turnId?: string): TurnCause {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record) return PERSON
+    const running = [...record.running].map(String)
+    const turn = turnId !== undefined && running.includes(turnId) ? turnId : running.at(-1)
+    if (turn === undefined) return PERSON
+    return this.#messageTurns.get(this.#turnKey(runtime, sessionId, turn)) ?? PERSON
+  }
+
+  readonly #heldAnswers = new Map<string, (answer: 'allowed' | 'refused' | 'unanswered') => void>()
+
+  #conversationName(runtime: string, sessionId: string): string {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    return (
+      this.#team.nameOf(runtime, sessionId) ??
+      record?.seatedAs?.name ??
+      this.#names.nameOf(runtimeId(runtime), makeSessionId(sessionId)) ??
+      record?.session.title ??
+      this.#runtimes.get(runtimeId(runtime))?.info.presentation.name ??
+      runtime
+    )
+  }
+
+  async #askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'> {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record || this.#disposed) return 'unanswered'
+    const id = makeApprovalId(`held-${randomBytes(6).toString('hex')}`)
+    const turnId = [...record.running].at(-1)
+    const approval: Approval = {
+      id,
+      sessionId: record.session.id,
+      ...(turnId !== undefined ? { turnId } : {}),
+      requestedAt: Date.now(),
+      type: 'permission',
+      summary: question.summary,
+      reason: question.reason,
+      options: [
+        { id: HELD_ALLOW, label: 'Allow it once', intent: 'approve' },
+        { id: HELD_REFUSE, label: 'Refuse', intent: 'deny' },
+      ],
+    }
+    const requested: AgentEvent = { type: 'approval/requested', approval }
+    this.#audit.record(record.runtime, requested, () => record.session.cwd)
+    this.registry.apply(record.runtime, requested)
+    this.#push({ method: 'event', params: { runtime: record.runtime, event: requested } })
+    const waitMs = this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
+    const answer = await new Promise<'allowed' | 'refused' | 'unanswered'>((resolve) => {
+      const timer = setTimeout(() => resolve('unanswered'), waitMs)
+      this.#heldAnswers.set(String(id), (said) => {
+        clearTimeout(timer)
+        resolve(said)
+      })
+    })
+    this.#heldAnswers.delete(String(id))
+    this.#onEvent(record.runtime, {
+      type: 'approval/resolved',
+      sessionId: record.session.id,
+      approvalId: id,
+      resolution: answer === 'unanswered'
+        ? { outcome: 'timedOut' }
+        : { outcome: 'decided', decision: { type: 'option', optionId: answer === 'allowed' ? HELD_ALLOW : HELD_REFUSE } },
+    })
+    return answer
+  }
+
+  #answerHeld(approvalId: string, decision: ApprovalDecision): boolean {
+    const answer = this.#heldAnswers.get(approvalId)
+    if (!answer) return false
+    answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : 'refused')
+    return true
+  }
+
+  #noteDelegation(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type !== 'item/started' && event.type !== 'item/completed') return
+    if (event.item.type !== 'subagent') return
+    const root = this.#rootOf(String(runtime), String(event.sessionId))
+    if (root === null) this.#delegationUncertainRuntimes.add(String(runtime))
+    for (const member of event.item.members) {
+      if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
+      if (root !== null) this.#delegatedBy.set(sessionKey(runtime, makeSessionId(member.sessionId)), root)
+      if (this.#delegatedBy.size > 2000) {
+        const oldest = this.#delegatedBy.keys().next().value
+        if (oldest !== undefined) {
+          this.#delegatedBy.delete(oldest)
+          this.#delegationUncertainRuntimes.add(String(splitSessionKey(oldest).runtime))
+        }
+      }
+    }
+  }
+
+  #rootOf(runtime: string, sessionId: string): Conversation | null {
+    let at: Conversation = { runtime, sessionId }
+    const seen = new Set<string>()
+    for (let depth = 0; depth < 8; depth += 1) {
+      if (this.registry.get(runtimeId(at.runtime), makeSessionId(at.sessionId))) return at
+      const key = sessionKey(runtimeId(at.runtime), makeSessionId(at.sessionId))
+      if (seen.has(key)) return null
+      seen.add(key)
+      const parent = this.#delegatedBy.get(key)
+      if (!parent) return this.#delegationUncertainRuntimes.has(runtime) ? null : at
+      at = parent
+    }
+    return this.registry.get(runtimeId(at.runtime), makeSessionId(at.sessionId)) ? at : null
+  }
+
+  /** The Agent or live-flow ceiling governing this conversation. */
+  #ceilingOf(runtime: string, sessionId: string): SeatCeiling | null {
+    const seated = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.seatedAs?.ceiling
+    if (seated) return seated
+    const flowSeat = this.#flows.seatOf(runtime, sessionId)
+    return flowSeat ? { level: ceilingOfPermission(flowSeat.permission), hold: 'asked' } : null
+  }
+
+  /** Put a desk decision in the conversation's running or latest turn. */
+  #say(runtime: string, sessionId: string, text: string): boolean {
+    const item: NoticeItem = { id: itemId(`desk-${randomBytes(6).toString('hex')}`), type: 'notice', text }
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record) return false
+    const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
+    if (turnId === undefined) return false
+    this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })
+    return true
   }
 
   /**
@@ -1585,7 +4372,16 @@ export class Host {
     // Two calls arriving together — a send and the option write beside it —
     // must resume once between them, not once each.
     const already = this.#reattaching.get(key)
-    if (already) return already
+    if (already) {
+      this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
+      try {
+        return await already
+      } finally {
+        const left = (this.#reopenWaiters.get(key) ?? 1) - 1
+        if (left > 0) this.#reopenWaiters.set(key, left)
+        else this.#reopenWaiters.delete(key)
+      }
+    }
     const attempt = this.#reattach(this.#runtime({ runtime }), id)
     this.#reattaching.set(key, attempt)
     try {
@@ -1597,6 +4393,18 @@ export class Host {
 
   /** Conversations being re-opened right now, so concurrent callers share one. */
   readonly #reattaching = new Map<string, Promise<AgentSession>>()
+  /** How many callers are waiting on a reopen already in flight, per conversation. */
+  readonly #reopenWaiters = new Map<string, number>()
+
+  /**
+   * How many callers are waiting on a reopen of this conversation that is
+   * already in flight — the observable sign that a second caller joined the
+   * one reopen rather than starting another. For a test's gate and for
+   * diagnostics; it decides nothing.
+   */
+  reopenWaiters(runtime: string, sessionId: string): number {
+    return this.#reopenWaiters.get(`${runtime}\u0000${sessionId}`) ?? 0
+  }
 
   /**
    * The team plane's handle for a member — reopened when the agent restarted
@@ -1678,6 +4486,13 @@ export class Host {
    * the moment a reopen succeeds. See `#teamLive`.
    */
   readonly #teamRefusals = new Map<string, number>()
+
+  #membershipChanged(runtime: RuntimeId, sessionId: string): void {
+    const id = makeSessionId(sessionId)
+    this.#teamRefusals.delete(sessionKey(runtime, id))
+    const record = this.registry.get(runtime, id)
+    if (record) record.reopenRefusals = 0
+  }
 
   /** Why a conversation would not come back, in the agent's name and its own words. */
   #cannotReopen(runtime: AgentRuntime, error: unknown): string {
@@ -1781,8 +4596,16 @@ export class Host {
       )
     }
     let live: AgentSession
+    // A Seat that froze attachments reopens on that same filter, revalidated
+    // — never on the runtime's own defaults, which would load every ambient
+    // skill and server its approval was there to keep out.
+    const reopened = await this.#reopenAttachments(runtime, id)
     try {
-      live = await runtime.resumeSession(id, {})
+      const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
+      live = await runtime.resumeSession(id, {
+        ...(environment ? { environment } : {}),
+        ...(reopened ? { attachments: reopened.prepared.input } : {}),
+      })
     } catch (error) {
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
       // The sentence is the same either way; what differs is whether asking
@@ -1800,6 +4623,7 @@ export class Host {
     const transcript = await this.#read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
     const record = this.registry.upsert(session, live)
+    if (reopened) await this.#finishReopen(runtime, live, reopened)
     this.#logger.info('reopened a conversation whose agent had restarted', {
       runtime: runtime.info.id,
       session: String(id),
@@ -1810,7 +4634,8 @@ export class Host {
       method: 'event',
       params: {
         runtime: runtime.info.id,
-        event: { type: 'session/settings', sessionId: id, settings: live.settings() },
+        // As the registry now holds them, which is the handle's plus the Agent it was seated as.
+        event: { type: 'session/settings', sessionId: id, settings: record.session.settings ?? live.settings() },
       },
     })
     this.#push({
@@ -1837,6 +4662,8 @@ export class Host {
   async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) return held.session
+    const scoped = await this.#scopedRead(runtime, id)
+    if (scoped) return scoped
     try {
       return await this.#transcripts.enrich(await runtime.readSession(id))
     } catch (error) {
@@ -2018,13 +4845,396 @@ export class Host {
   }
 
   /**
-   * Puts one conversation on the model, effort and switches a flow's seat
-   * asked for, and answers with what it is *actually* running.
+   * Conversations a seating has opened and not yet kept or let go, by session
+   * key: the only conversations `#discardSeat` will ever delete, and only while
+   * nobody else has had a hand in them. Entered as each is opened
+   * (`#openSeat`); left when the seat is kept (a flow's `seat`, `recordAgent`),
+   * retired, or discarded.
+   */
+  readonly #seating = new Map<string, SeatInHand>()
+
+  /**
+   * Opens a conversation on a seat, puts it on the seat's picks, and answers
+   * with what it is actually running — the one way the desk opens a
+   * conversation for a seat, whether a flow's role or an Agent asked for it.
+   *
+   * What it answers is read back from the conversation once the picks are in —
+   * the runtime's report, never the request: a runtime drops a pick it has no
+   * place for rather than failing (see `#applySeatPicks`), and an agent can
+   * settle one on the nearest thing it has and answer without an error. What
+   * to do about a difference is the caller's. A flow says it in the seat's
+   * label and carries on; an Agent passes the seat over rather than keep
+   * something it did not ask for.
+   *
+   * It answers with an open seat or with nothing open. A conversation that
+   * opened and then failed on the way to being handed back is discarded here
+   * (`#discardSeat`), because nothing else knows it is there to close it —
+   * and a caller that goes on to open the next seat must not be leaving one
+   * behind. The failure goes on exactly as it was thrown, and what the discard
+   * left of the conversation is noted beside it (`leftOnFailure`).
+   *
+   * The seating holds what it opened until its caller keeps it or lets it go
+   * (`#seating`), so that a discard can tell the conversation it opened, and
+   * nobody else touched, from one it must leave alone.
+   *
+   * What the desk already holds on the runtime is looked at before the
+   * conversation is asked for, because a runtime that answers with one of those
+   * ids has handed back somebody's conversation, not a new one — with its own
+   * record, name, handle and row. The seat stops there, before anything is done
+   * to it: it is not attached, which would put the seating's handle over
+   * theirs; not named, which would rename their conversation after the Agent;
+   * and not closed, because a close is said by the conversation's id, and the
+   * runtime would hear it as theirs. The failure is noted `alreadyHeld`, so the
+   * seating passes the candidate over as that; a flow's seat fails in its words.
+   */
+  async #openSeat(
+    seat: FlowSeat,
+    where: {
+      readonly cwd: string
+      readonly title: string
+      readonly environment?: Readonly<Record<string, string>>
+      readonly attachments?: SessionAttachments
+    },
+  ): Promise<OpenedSeat> {
+    const runtime = this.#runtime({ runtime: seat.runtime })
+    const environment = where.environment ?? environmentForCheckout(where.cwd, this.#lanes.list())
+    requireLaneSupport(runtime.info, environment)
+    if (environment && this.#extensions && !this.#extensions.setBrowserResolver) {
+      throw new Error(
+        'This extension host cannot isolate a lane browser. Choose a supported extension host or turn isolation off.',
+      )
+    }
+    const held = new Set(
+      this.registry
+        .all()
+        .filter((record) => record.runtime === runtime.info.id)
+        .map((record) => String(record.session.id)),
+    )
+    let live: Awaited<ReturnType<typeof runtime.createSession>>
+    try {
+      live = await runtime.createSession({
+        cwd: where.cwd,
+        ...(environment ? { environment } : {}),
+        ...(seat.model ? { model: seat.model } : {}),
+        ...(where.attachments ? { attachments: where.attachments } : {}),
+        options: {
+          ...(seat.effort ? { effort: seat.effort } : {}),
+          ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
+        },
+      })
+    } catch (error) {
+      // Nothing opened, so nothing is left — said outright rather than left
+      // unsaid, because an adapter that keeps one error object and throws it
+      // again for the next seat would otherwise leave a stale note from
+      // whatever an earlier seat's own discard left, read out here as this
+      // seat's, though this seat never opened a conversation at all.
+      noteLeftOnFailure(error, null)
+      throw error
+    }
+    if (held.has(String(live.id))) {
+      this.#logger.warn('a runtime answered a new seat with a conversation the desk already holds, so it was left as it is', {
+        runtime: String(runtime.info.id),
+        session: String(live.id),
+      })
+      const refused = new Error(
+        `${runtime.info.presentation.name} answered with a conversation the desk already holds, not a new one`,
+      )
+      noteLeftOnFailure(refused, { kind: 'alreadyHeld' })
+      throw refused
+    }
+    this.#seating.set(sessionKey(runtime.info.id, live.id), { live, reached: false, removing: false })
+    try {
+      const session = this.#attach(runtime, live.id, live)
+      await live.setTitle(where.title).catch(() => {})
+      await this.#names.set(runtime.info.id, live.id, where.title)
+      await this.#applySeatPicks(live, seat)
+      const ran = live.options()
+      return {
+        runtime: String(runtime.info.id),
+        sessionId: String(session.id),
+        running: runningOf(ran, live.settings()),
+        label: this.#labelOf(seat.runtime, ran),
+      }
+    } catch (error) {
+      // Passed over part-way through opening, so discarded like any other seat
+      // passed over — and what that left is noted on the failure, not dropped.
+      const left = await this.#discardSeat(runtime.info.id, live.id).catch((failure: unknown) => {
+        this.#logger.warn('a seat lost part-way through opening could not be discarded', {
+          runtime: String(runtime.info.id),
+          session: String(live.id),
+          error: describeError(failure),
+        })
+        return null
+      })
+      noteLeftOnFailure(error, left)
+      throw error
+    }
+  }
+
+  /**
+   * Hands a seated conversation its standing order: one message, and the
+   * whole job is inside its turn.
+   *
+   * `recordAs: 'notice'` — this is host-authored text no person typed, so it
+   * is not recorded as one. Without it, a fresh Agent seat's whole brief
+   * showed as the first message bubble, in the person's own voice, and
+   * `titleOf` read the conversation's title back off it.
+   */
+  async #holdSeat(runtime: string, sessionId: string, level: CeilingLevel): Promise<SeatHold> {
+    const found = this.#runtimes.get(runtime as RuntimeId)
+    const control = found ? this.#infoOf(found).ceilings?.[level] : undefined
+    if (!control) return holdCeiling({ options: () => [], setOption: async () => undefined }, level, undefined)
+    const live = await this.#teamLive(runtime as RuntimeId, sessionId)
+    return holdCeiling(live, level, control)
+  }
+
+  async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
+    const live = await this.#teamLive(runtime as RuntimeId, sessionId)
+    const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
+    await live.send(
+      [{ type: 'text', text: laneStandingOrder(text, environment) }],
+      { recordAs: 'notice' },
+    )
+  }
+
+  /** Closes a conversation a seating opened and will not use, and lets it go — the seating's hold with it. */
+  async #retireSeat(runtime: string, sessionId: string): Promise<void> {
+    const id = makeSessionId(sessionId)
+    this.#seating.delete(sessionKey(runtime, id))
+    await this.#letGo(runtime as RuntimeId, id, this.registry.get(runtime as RuntimeId, id)?.live)
+  }
+
+  /**
+   * Takes a seat a seating opened and passed over out of the world: closed,
+   * let go, removed where its runtime keeps it, forgotten by the desk, and
+   * dropped from every window — unless it is not the seating's alone to take.
+   * Answers what it was left as, or null when nothing is left.
+   *
+   * Only a conversation the seating itself opened, and nobody else touched, is
+   * ever deleted. It is a row in every window from its `session/started`,
+   * titled with the Agent's name, for as long as the seating holds it — across
+   * the title, the name, every pick and the read-back — and a person can open
+   * that row and write in it. So it is looked at (`#leaveAsItIs`) before its
+   * handle is touched, and once more after the seating's own handle is let go
+   * and before anything that cannot be undone. One somebody had a hand in is
+   * left as it is — its record, its name and its row — and so is the handle
+   * they were using: one they are already in when it is passed over is not
+   * closed at all, because a closed handle stops hearing its conversation
+   * (Codex's close unsubscribes from the thread), and a turn running on it
+   * would read as running for good, with every message after it queued behind
+   * it. Only one somebody reached for while it was closing is left closed, as a
+   * retired seat is. Nothing is awaited between the second look and the delete
+   * being on its way, and from then on a window's request for it is refused
+   * (`#noteReach`), so nothing can start on it in between.
+   *
+   * What "removed" means is the runtime's. One that can delete is asked to:
+   * Codex erases the thread from its own history, and the Claude Code and
+   * Cursor bridges move whatever their agent wrote to the Trash — for a
+   * conversation that never took a message, nothing but the bridge's own
+   * bookkeeping. One that cannot has no way in to its own store from here, and
+   * the desk cannot tell whether it recorded a conversation nobody spoke in;
+   * so it is archived — in the runtime's own archive when it has one, the
+   * desk's otherwise — and keeps its name, so that if it was recorded it stays
+   * out of the list and explained. One that is asked and refuses gets the same.
+   *
+   * The record and every window's row go before any file is touched, and each
+   * file after that is a best effort of its own (`#forgetSeat`): a file that
+   * will not write neither brings the rows back nor ends a seating that is
+   * about to try its next candidate.
+   */
+  async #discardSeat(runtime: RuntimeId, id: SessionId): Promise<SeatLeft | null> {
+    const key = sessionKey(runtime, id)
+    const inHand = this.#seating.get(key)
+    // Only a seating's own conversation is discarded; anything else is a caller's mistake, and said so.
+    if (!inHand) throw new Error(`No seating holds conversation ${String(id)}, so there is none of it to discard.`)
+    try {
+      // Before its handle is touched: somebody already in it keeps the handle they are in it on.
+      const before = this.#leaveAsItIs(inHand, runtime, id)
+      if (!before) await this.#letGo(runtime, id, inHand.live)
+      // And again once it is let go, for anything that reached it while it was closing. From
+      // this look to the delete on its way nothing is awaited, so nothing can start on it in between.
+      const leave = before ?? this.#leaveAsItIs(inHand, runtime, id)
+      if (leave) {
+        // Read fresh off the record rather than assumed from `before`: a
+        // reopen since this seat was opened puts a *different* handle on the
+        // record, which is one of `#leaveAsItIs`'s own reasons to leave
+        // things as they are — and when that is why, this seating's own
+        // handle was never "kept open" by anything done here, it was simply
+        // superseded, which is a different fact from either "kept open" or
+        // "closed".
+        const record = this.registry.get(runtime, id)
+        const handle = record?.live === inHand.live ? 'kept open' : record?.live ? 'replaced' : 'closed'
+        this.#logger.info('a seat passed over was left as it is, not deleted', {
+          runtime: String(runtime),
+          session: String(id),
+          why: leave.kind,
+          handle,
+        })
+        return leave
+      }
+      inHand.removing = true
+      const owner = this.#runtimes.get(runtime)
+      if (!owner) {
+        this.#logger.warn('a seat passed over could not be deleted: its runtime was gone', {
+          runtime: String(runtime),
+          session: String(id),
+        })
+      }
+      // The runtime first, because whether it deleted decides what the desk keeps.
+      const asked = owner ? await this.#askToDelete(owner, id) : null
+      // Then out of the host's records and every window, before any file is touched.
+      this.registry.delete(runtime, id)
+      this.#push({ method: 'session/removed', params: { runtime, sessionId: id } })
+      const left: SeatLeft | null = owner && asked ? await this.#leftAs(owner, id, asked) : { kind: 'unasked' }
+      await this.#forgetSeat(runtime, id, left)
+      return left
+    } finally {
+      this.#seating.delete(key)
+    }
+  }
+
+  /**
+   * Why a seat passed over must be left as it is, or null when it is the
+   * seating's alone: opened by it — which `#openSeat` saw to — and touched by
+   * nobody else.
+   *
+   * Touched is anything the desk can see: a window that asked anything of it
+   * (`SeatInHand.reached`); a turn it watched start, or a message waiting for
+   * it, on its record; a send, a queue or a reopen still on its way; a handle on
+   * its record other than the one the seating opened. A turn that started some
+   * other way than a window asking — a room's post, say — is on the record too.
+   */
+  #leaveAsItIs(inHand: SeatInHand, runtime: RuntimeId, id: SessionId): SeatLeft | null {
+    const key = sessionKey(runtime, id)
+    const record = this.registry.get(runtime, id)
+    const touched =
+      inHand.reached ||
+      this.#sendingNow.has(key) ||
+      this.#draining.has(key) ||
+      this.#reattaching.has(key) ||
+      (record !== undefined &&
+        (record.session.turns.length > 0 ||
+          record.watched.size > 0 ||
+          record.queue.messages.length > 0 ||
+          (record.live !== null && record.live !== inHand.live)))
+    return touched ? { kind: 'inUse' } : null
+  }
+
+  /**
+   * Asks a passed-over seat's runtime to delete it where it keeps it: deleted;
+   * `cannot`, for a runtime with no delete to ask; or refused, in its words.
+   * What the desk does about one still there is its caller's (`#archiveSeat`).
+   */
+  async #askToDelete(owner: AgentRuntime, id: SessionId): Promise<'deleted' | 'cannot' | { readonly refused: string }> {
+    if (!owner.info.capabilities.deleteHistory) return 'cannot'
+    try {
+      await owner.deleteSession(id)
+      return 'deleted'
+    } catch (error) {
+      this.#logger.warn('a seat passed over could not be deleted where its runtime keeps it, so it is archived instead', {
+        runtime: String(owner.info.id),
+        session: String(id),
+        error: describeError(error),
+      })
+      return { refused: describeError(error) }
+    }
+  }
+
+  /**
+   * What a passed-over seat is left as, once its runtime has answered: nothing
+   * when it deleted it; otherwise out of the list (`#archiveSeat`) and said to
+   * be — `kept` by a runtime with no delete, `undeleted` by one that refused.
+   */
+  async #leftAs(
+    owner: AgentRuntime,
+    id: SessionId,
+    asked: 'deleted' | 'cannot' | { readonly refused: string },
+  ): Promise<SeatLeft | null> {
+    if (asked === 'deleted') return null
+    const archived = await this.#archiveSeat(owner, id)
+    return asked === 'cannot' ? { kind: 'kept', archived } : { kind: 'undeleted', detail: asked.refused, archived }
+  }
+
+  /**
+   * Puts a passed-over seat the desk could not delete out of the list, the way
+   * `session/archive` does: in the runtime's own archive when it keeps one, the
+   * desk's otherwise, never both. Answers where — or that it could not.
+   */
+  async #archiveSeat(owner: AgentRuntime, id: SessionId): Promise<SeatArchived> {
+    try {
+      if (owner.info.capabilities.archiveHistory) {
+        await owner.archiveSession(id, true)
+        return 'runtime'
+      }
+      await this.#archive.set(owner.info.id, id, true)
+      return 'here'
+    } catch (error) {
+      this.#logger.warn('a seat passed over could not be archived', {
+        runtime: String(owner.info.id),
+        session: String(id),
+        error: describeError(error),
+      })
+      return 'failed'
+    }
+  }
+
+  /**
+   * What the desk keeps about a passed-over seat, let go of once the seat is
+   * out of the registry and every window: its transcript, always; its archive
+   * mark and its name only once it is gone where its runtime keeps it — one
+   * that may still be listed keeps both, so it stays hidden and explained. Each
+   * is a best effort of its own, logged when it fails.
+   */
+  async #forgetSeat(runtime: RuntimeId, id: SessionId, left: SeatLeft | null): Promise<void> {
+    const forgets: [string, () => Promise<void>][] = [['transcript', () => this.#transcripts.forget(runtime, id)]]
+    if (left === null) {
+      forgets.push(['archive mark', () => this.#archive.forget(runtime, id)], ['name', () => this.#names.forget(runtime, id)])
+    }
+    for (const [what, forget] of forgets) {
+      try {
+        await forget()
+      } catch (error) {
+        this.#logger.warn('a seat passed over could not be forgotten everywhere', {
+          runtime: String(runtime),
+          session: String(id),
+          what,
+          error: describeError(error),
+        })
+      }
+    }
+  }
+
+  /**
+   * Closes one handle, and lets the host's record of it go as `session/close`
+   * does: nothing it was waiting to be asked, and no live handle kept on it.
+   *
+   * A handle is not gone because it was closed. Over ACP closing is no call at
+   * all — dropping the handle is the whole gesture — so a record still holding
+   * one is a conversation the desk would go on routing turns to, and a room
+   * would go on counting. Only the handle that was closed is let go: one a
+   * reopen put there in the meantime is somebody else's.
+   */
+  async #letGo(runtime: RuntimeId, id: SessionId, live: AgentSession | null | undefined): Promise<void> {
+    await live?.close().catch(() => {})
+    const record = this.registry.get(runtime, id)
+    if (!record) return
+    record.approvals.clear()
+    if (live && record.live === live) {
+      record.live = null
+      record.detached = false
+    }
+  }
+
+  /**
+   * Puts one conversation on the model, effort and switches a seat asked for.
+   * What it is *actually* running afterwards is read back by the caller, from
+   * the conversation — `#openSeat`, and a flow's re-arm.
    *
    * Read back rather than assumed, because a runtime drops a pick it declines
    * rather than failing — a seat that believes it is running at an effort it
    * is not is a seat with an unchecked claim on it, and a review signed with
-   * that claim is a review that lies about who wrote it.
+   * that claim is a review that lies about who wrote it. A pick that fails is
+   * logged and the rest still go on: whether that is fatal is the caller's.
    *
    * Applied at seating **and before every re-arm**. A bridge that restarts
    * holds no session state, so a conversation it reopens comes back on the
@@ -2038,7 +5248,7 @@ export class Host {
   async #applySeatPicks(
     live: Awaited<ReturnType<AgentRuntime['createSession']>>,
     seat: { runtime: string; model?: string | null; effort?: string | null; thinking?: boolean },
-  ): Promise<string> {
+  ): Promise<void> {
     for (const [id, value] of Object.entries({
       ...(seat.model ? { model: seat.model } : {}),
       ...(seat.effort ? { effort: seat.effort } : {}),
@@ -2067,9 +5277,16 @@ export class Host {
         })
       })
     }
-    const ran = live.options()
+  }
+
+  /**
+   * What a seat is running, as the desk says it: the runtime, the model and
+   * the effort by the labels the runtime gives them, and `thinking` when it
+   * is on — from the controls as they stand, not as they were asked for.
+   */
+  #labelOf(runtime: string, ran: readonly ConfigOption[]): string {
     return [
-      this.#runtimes.get(seat.runtime)?.info.presentation.name ?? seat.runtime,
+      this.#runtimes.get(runtime)?.info.presentation.name ?? runtime,
       ...['model', 'effort'].map((id) => {
         const option = ran.find((one) => one.id === id)
         if (!option) return null
@@ -2154,12 +5371,29 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    this.#noteDelegation(runtime, event)
+    if (event.type === 'turn/started') {
+      const key = String(sessionKey(runtime, event.sessionId))
+      const pending = this.#pendingCauses.get(key)
+      if (pending) {
+        this.#noteTurnCause(this.#turnKey(String(runtime), String(event.sessionId), String(event.turn.id)), pending)
+        this.#pendingCauses.delete(key)
+      }
+    }
     // The host's permission policy runs before the backend's own
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.
     if (event.type === 'approval/requested') {
       const verdict = this.#applyPolicy(runtime, event.approval)
       if (verdict) return
+      // A question, not a yes/no: from a Seat nobody watches, it gets a deadline.
+      if ((event.approval.type === 'userInput' || event.approval.type === 'elicitation') &&
+        this.#flows.unattended(String(runtime), String(event.approval.sessionId))) {
+        this.#questions.asked(questionKey(String(runtime), String(event.approval.sessionId)), String(event.approval.id))
+      }
+    }
+    if (event.type === 'approval/resolved') {
+      this.#questions.answered(questionKey(String(runtime), String(event.sessionId)), String(event.approvalId))
     }
     // A denial, noticed while the original approval is still in the
     // registry (`registry.apply` below deletes it). The team plane holds
@@ -2199,10 +5433,31 @@ export class Host {
           )
         : []
     const record = this.registry.apply(runtime, event)
+    // A trigger Goal's Seat started or ended a turn: its meter reads usage with it.
+    if ((event.type === 'turn/started' || event.type === 'turn/completed') && record) {
+      const seated = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime &&
+        candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
+      if (seated?.board) this.#intake.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
+    }
     if (event.type === 'turn/started' && record) {
       this.#sendingNow.delete(recordKey(record))
+      const seat = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime && candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
+      this.#turnInsight.start({ runtime, session: record.session.id, turn: String(event.turn.id), at: Date.now(), seat: seat?.id ?? null, before: record.session.usage ?? null })
     }
     let outgoing: AgentEvent = event
+    /* Which Agent a conversation was seated as is the host's to say. A runtime
+       re-announcing its settings, or its whole session, knows nothing of it —
+       or echoes back what a renderer patched in — and a window folding that
+       event would lose the record the host kept, or take one it never made.
+       So it goes out as the host holds it (`seatedSettings`). */
+    if (event.type === 'session/settings') {
+      const settings = seatedSettings(event.settings, record?.seatedAs ?? null)
+      if (settings !== event.settings) outgoing = { ...event, settings }
+    }
+    if (event.type === 'session/started') {
+      const session = seatedSession(event.session, record?.seatedAs ?? null)
+      if (session !== event.session) outgoing = { ...event, session }
+    }
     if (record && event.type === 'turn/completed' && published.length > 0) {
       const kept = record.session.turns.find((turn) => turn.id === event.turn.id)
       const items = withPublications(kept?.items ?? [], published)
@@ -2218,7 +5473,8 @@ export class Host {
     if (record && event.type === 'session/tasks') record.tasks = event.tasks
     // What the host just folded in is what a read tomorrow will be missing.
     if (record && event.type !== 'approval/requested' && event.type !== 'approval/resolved') {
-      this.#transcripts.record(record.session, { now: event.type === 'turn/completed' })
+      if (event.type === 'turn/completed') this.#turnInsight.complete(runtime, record.session.id, String(event.turn.id), Date.now(), record.session.usage ?? null)
+      this.#transcripts.record(record.session, { now: event.type === 'turn/completed', insight: this.#turnInsight.forSession(runtime, record.session.id) })
     }
     // The numbers moved because a turn just spent some: re-read that agent
     // only, and only when someone could be looking. Cheaper and fresher than
@@ -2277,7 +5533,7 @@ export class Host {
         runtime,
         String(event.sessionId),
         event.type === 'turn/completed'
-          ? { ...(answer ? { answer } : {}), ...(failure ? { failure } : {}) }
+          ? { turn: String(event.turn.id), ...(answer ? { answer } : {}), ...(failure ? { failure } : {}) }
           : undefined,
       )
       /* A seat of a running flow has exactly one turn, and it is meant to
@@ -2325,6 +5581,9 @@ export class Host {
            conversations on one agent and one account are told apart by the one
            thing that actually differs between them. */
         model: sessionModel(record.session),
+        /* A conversation seated as an Agent is called that in a room. */
+        ...(record.seatedAs ? { seatedAs: record.seatedAs.name } : {}),
+        ceiling: this.#ceilingOf(String(record.runtime), String(record.session.id)),
         /* Everything the host holds a record for is open, by construction —
            that is what having a record means. The rooms mint the other kind
            themselves, for their members that nobody has opened this run. */
@@ -2789,6 +6048,22 @@ export class Host {
    * The promise itself is cached, not its result, so a page listing twenty
    * conversations in one folder starts one `rev-parse` rather than twenty.
    */
+  /** Register canonical open checkouts without making the opening wait for capture. */
+  #captureProjects(): void {
+    if (this.#disposed) return
+    const generation = ++this.#provenanceGeneration
+    const roots = this.#openRoots()
+    void Promise.all(roots.map(async (root) => {
+      const [checkout, repository] = await Promise.all([this.#topLevelOf(root), this.#repoOf(root)])
+      return [checkout ?? root, ...(repository === null ? [] : [repository.root])]
+    }))
+      .then((projects) => {
+        if (this.#disposed || generation !== this.#provenanceGeneration) return
+        this.#provenance.setProjects(projects.flat())
+      })
+      .catch(() => this.#logger.warn('provenance projects could not be registered'))
+  }
+
   #repoOf(cwd: string): Promise<RepoInfo | null> {
     const held = this.#repos.get(cwd)
     if (held) return held
@@ -2915,20 +6190,31 @@ export class Host {
     return name === null ? row : { ...row, title: name }
   }
 
+  /**
+   * The version a runtime is shown with: its own, or — for a direct agent
+   * (no drives) whose self-reported version is missing or a placeholder —
+   * the one the install service chose (#354). The update advisory is
+   * measured against this same number, so the notice never argues with the
+   * build line above it.
+   */
+  #versionOf(runtime: AgentRuntime): string | null | undefined {
+    const info = runtime.info
+    const placeholder =
+      info.version === null ||
+      info.version === undefined ||
+      /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(info.version.trim())
+    if (info.drives || !placeholder) return info.version
+    return this.options.installs?.last(String(info.id))?.chosen?.version ?? info.version
+  }
+
   #infoOf(runtime: AgentRuntime): RuntimeInfo {
-    const update = this.#updates.get(runtime.info.id)
     const catalogCheckedAt = this.#catalogs.lastChecked(runtime.info.id)
     const accounts = this.options.accounts
     const slot = accounts?.slotOf(runtime.info) ?? null
     const install = this.options.installs?.last(String(runtime.info.id))
     const info = runtime.info
-
-    // For a direct agent (no drives) whose self-reported version is missing or placeholder,
-    // fall back to the install service's chosen version if available (#354).
-    const version =
-      !info.drives && (info.version === null || info.version === undefined || /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(info.version.trim()))
-        ? install?.chosen?.version ?? info.version
-        : info.version
+    const version = this.#versionOf(runtime)
+    const update = this.#updateFor(runtime, version)
 
     return {
       ...info,
@@ -2961,30 +6247,71 @@ export class Host {
   }
 
   /**
-   * Asks the update source about a runtime that has just come up, and tells
-   * connected clients when the answer changes what they should show. Runs
-   * after `start()` resolves, never on its critical path: an offline machine
-   * must not wait on a registry to open a window.
+   * The advisory for the version a runtime is shown with, or null.
+   *
+   * Only ever one measured against that version. A runtime moves while the
+   * app is open — "Refresh models" restarts an idle one onto a build it
+   * finds on disk, and an app-server can come back up on a new binary — and
+   * an advisory measured before the move is about a build that has gone: it
+   * once put "Codex 0.155.0 is available" under "Codex 0.155.0". So a
+   * version that has not been measured shows nothing, and is measured now;
+   * `#checkForUpdate` tells open windows when the answer differs from what
+   * they were shown.
+   */
+  #updateFor(runtime: AgentRuntime, version: string | null | undefined): RuntimeUpdate | null {
+    if (!this.options.updates) return null
+    const known = this.#updates.get(runtime.info.id)
+    if (known?.against === (version ?? null)) return known.update
+    void this.#checkForUpdate(runtime)
+    return null
+  }
+
+  /**
+   * Measures a runtime's advisory against the version it is shown with, and
+   * tells connected clients when the answer changes what they were shown.
+   * Runs after `start()` resolves and whenever that version moves, never on
+   * a critical path: an offline machine must not wait on a registry to open
+   * a window.
    */
   async #checkForUpdate(runtime: AgentRuntime): Promise<void> {
-    if (!this.options.updates) return
+    const updates = this.options.updates
     const id = runtime.info.id
+    if (!updates || this.#measuringUpdates.has(runtime)) return
+    this.#measuringUpdates.add(runtime)
     try {
-      const update = await this.options.updates.updateFor(runtime.info)
-      const before = this.#updates.get(id)
-      if (update) this.#updates.set(id, update)
-      else this.#updates.delete(id)
-      if (before?.version !== update?.version) {
-        this.#logger.info('runtime update available', { runtime: id, running: runtime.info.version, latest: update?.version ?? null })
-        this.#push({ method: 'runtime/infoChanged', params: { runtime: id, info: this.#infoOf(runtime) } })
+      // A runtime that moves while it is being measured is measured again, a
+      // few times at most: the answer is only worth keeping for the build
+      // it describes. One that is still moving after the last try keeps
+      // nothing, so no notice can be about a build it has left; the version it
+      // ended on is measured by the next read of its description, as any
+      // version not yet measured is.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const against = this.#versionOf(runtime) ?? null
+        const update = await updates.updateFor({ ...runtime.info, version: against })
+        // Removed, or replaced under the same id, while the registry answered.
+        if (this.#runtimes.get(id) !== runtime) return
+        if ((this.#versionOf(runtime) ?? null) !== against) continue
+        const before = this.#updates.get(id)
+        this.#updates.set(id, { against, update })
+        // What a window was shown for this version: the old answer only if it
+        // was measured against it too — otherwise nothing, see `#updateFor`.
+        const shown = before?.against === against ? before.update : null
+        if (shown?.version !== update?.version) {
+          this.#logger.info('runtime update available', { runtime: id, running: against, latest: update?.version ?? null })
+          this.#push({ method: 'runtime/infoChanged', params: { runtime: id, info: this.#infoOf(runtime) } })
+        }
+        return
       }
     } catch (error) {
       this.#logger.debug('update check failed', { runtime: id, error: String(error) })
+    } finally {
+      this.#measuringUpdates.delete(runtime)
     }
   }
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
     if (health.state !== 'ready') {
+      this.#invalidateDelegations(runtime)
       for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
       this.#terminals.detachAll(runtime)
       // Same reason as `unregister`: these sessions went down without a
@@ -2996,6 +6323,15 @@ export class Host {
   }
 
   #push(notification: WireNotification): void {
+    // What a trigger Goal's waits are made of: named again once the current pass ends.
+    if (!this.#disposed) this.#intake?.noticed(notification)
+    if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
+      this.#provenance.evidenceChanged(this.#team.stateFor(notification.params.room).root)
+    }
+    if (!this.#disposed && (notification.method === 'session/removed' ||
+      (notification.method === 'event' && notification.params.event.type === 'session/started'))) {
+      this.#captureProjects()
+    }
     for (const broadcast of this.#broadcasters) {
       try {
         broadcast(notification)
@@ -3022,6 +6358,51 @@ const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, 
 
 const describeError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
+
+/** A backup's own `id` field, whatever shape it turns out to be — never trusted to be the string it claims. */
+const backupCopyId = (copy: unknown): unknown =>
+  typeof copy === 'object' && copy !== null && 'id' in copy ? (copy as { id: unknown }).id : null
+
+/** The most a logged id is ever allowed to cost, quotes and all. */
+const LOGGED_ID_LIMIT = 140
+
+/**
+ * A backup's own id, safe to put in a log: quoted like any other logged
+ * value, and capped — nothing here says a stranger's string is short,
+ * printable, or even a string at all.
+ *
+ * The *raw* text is capped first, not the quoted text: a control character or
+ * anything else JSON expands to several characters (a NUL becomes six
+ * characters, U+0000 spelled out) is exactly why a cap taken before quoting
+ * could smuggle a short raw string past it — but a cap taken by slicing the
+ * already-quoted text at a raw character position can itself land inside one
+ * of those six characters, leaving `\u00` with nothing after it, or between
+ * the two UTF-16 halves of an astral character's surrogate pair, which
+ * `JSON.stringify` leaves unescaped and so gives no mark of where it is safe
+ * to cut. Both are avoided the same way: find the longest prefix of the raw
+ * text, whole code points only, whose own quoted form still fits the cap
+ * once the ellipsis this appends is counted — then quote only that prefix.
+ * An escape or a surrogate pair is then always either whole or entirely
+ * behind the cut, never half of either.
+ */
+const loggedId = (id: unknown): string => {
+  const text = typeof id === 'string' ? id : String(id)
+  const whole = JSON.stringify(text)
+  if (whole.length <= LOGGED_ID_LIMIT) return whole
+  // The prefix's own quoted form may cost this much: its closing quote is
+  // about to be swapped for `…"`, one character longer, so one is held back
+  // here to leave room for that swap.
+  const budget = LOGGED_ID_LIMIT - 1
+  let prefix = ''
+  for (const codePoint of text) {
+    const next = prefix + codePoint
+    if (JSON.stringify(next).length > budget) break
+    prefix = next
+  }
+  // The quoted prefix's own closing quote is dropped and put back after the
+  // ellipsis, exactly as the un-truncated form's is by `JSON.stringify` itself.
+  return `${JSON.stringify(prefix).slice(0, -1)}…"`
+}
 
 /**
  * Why a queue stopped, in the turn's own words where it has any. A person
@@ -3072,3 +6453,10 @@ export const isDirectory = async (path: string): Promise<boolean> => {
  * Worded from the runtime's own presentation, so the message is true for
  * whichever runtime was asked and never names one the host has not met.
  */
+
+/** One conversation, as a question deadline keys it. */
+const questionKey = (runtime: string, sessionId: string): string => `${runtime}\u0000${sessionId}`
+const splitQuestionKey = (key: string): [string, string] => {
+  const at = key.indexOf('\u0000')
+  return [key.slice(0, at), key.slice(at + 1)]
+}

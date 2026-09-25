@@ -1,0 +1,58 @@
+.plate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  min-width: 0;
+  padding: var(--hd-code-inset);
+  border-radius: var(--hd-code-radius);
+  background: var(--hd-code-fill);
+  box-shadow: var(--hd-code-edge);
+  color: var(--hd-secondary-foreground);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-code-text);
+  line-height: var(--hd-code-line);
+}
+
+.command {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.prompt {
+  flex: none;
+  color: var(--hd-muted-foreground);
+}
+
+/* The command is the exact text a person copies, so it reads at full ink,
+   like code in prose; the prompt and what it printed stay quieter. */
+.commandText {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--hd-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.copy {
+  flex: none;
+  align-self: flex-start;
+  margin: calc(var(--hd-space-1) * -1);
+  margin-left: 0;
+}
+
+.body {
+  min-width: 0;
+  max-height: var(--hd-code-max-height);
+  overflow: auto;
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.exit {
+  color: var(--hd-danger-ink);
+}

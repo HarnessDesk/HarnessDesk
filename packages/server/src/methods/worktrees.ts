@@ -2,8 +2,7 @@ import { resolve, sep } from 'node:path'
 
 import { isBusy } from '@harnessdesk/protocol'
 
-import { confine } from '../workspace.js'
-import { confineToOpenRepository } from '../worktree.js'
+import { confineToOpenRepository, openRepositoryRoot } from '../worktree.js'
 import type { MethodsUnder } from './context.js'
 
 /**
@@ -12,11 +11,29 @@ import type { MethodsUnder } from './context.js'
  * (`git/worktree*`) live with the rest of git.
  */
 export const worktreeMethods = {
-  'worktree/list': (ctx, params) => ctx.worktrees.list(params.root),
+  // Held to the repositories opened here, as the verbs below are, rather than
+  // to open folders as `git/worktrees` is: after a refused bring-back the store
+  // lists the main checkout, which that dialog also reads through
+  // `worktree/changes`, and which is outside every open folder when the one
+  // open is a linked worktree. A folder in no repository answers an empty
+  // list, not a refusal: the store asks this of every folder it opens.
+  'worktree/list': async (ctx, params) => {
+    const main = await openRepositoryRoot(params.root, ctx.workspaces.openRoots())
+    return main === null ? [] : ctx.worktrees.list(main)
+  },
 
-  'worktree/create': (ctx, params) => {
-    confine(params.root, ctx.workspaces.openRoots())
-    return ctx.worktrees.create(params.root, {
+  // Held to open folders, as `git/worktreeAdd` is, with real paths on both
+  // sides. The lexical check before it could not see a link: with A open,
+  // `A/elsewhere -> B` passed as inside A, and `git -C` followed the link and
+  // cut a worktree and a branch in B, which nobody opened. Not the repository
+  // rule the verbs around it use: the store asks this of the open folder
+  // itself, and that rule judges the checkouts `git worktree list` names,
+  // which for a submodule or a `--separate-git-dir` checkout is its git
+  // directory, so it refuses the very folder that is open. Git then runs in
+  // the path that was judged, not in the wire's spelling resolved again.
+  'worktree/create': async (ctx, params) => {
+    const root = await ctx.workspaces.confineGitRoot(params.root)
+    return ctx.worktrees.create(root, {
       name: params.name,
       ...(params.base ? { base: params.base } : {}),
     })

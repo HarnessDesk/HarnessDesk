@@ -77,6 +77,27 @@ export const prose = (comment) =>
     .replace(/\s+/g, ' ')
     .trim()
 
+/**
+ * Where a token group stops.
+ *
+ * At the next *structural* comment — another `--- section ---` header, or one
+ * of the `===` band dividers — and not at the next comment of any kind. It
+ * used to be the latter, which meant a note written between two declarations
+ * silently ended the group: adding one inside the type block dropped every
+ * `--hd-line-*` and `--hd-weight-*` token out of the published table, and
+ * `--check` still passed because it reproduced the same truncation. A comment
+ * explaining a value is the most ordinary thing to write in this file and it
+ * cannot be the thing that ends a section.
+ */
+const GROUP_END = /\/\*\s*[-=]{3}/
+
+/** The declarations of one group: everything from its header to the next one. */
+export const groupDeclarations = (afterHeader) => {
+  const ends = afterHeader.search(GROUP_END)
+  return [...afterHeader.slice(0, ends === -1 ? undefined : ends)
+    .matchAll(/(--[A-Za-z0-9-]+)\s*:\s*([^;]+);/g)].map((hit) => [hit[1], hit[2].trim()])
+}
+
 /** Every section of the token file, as its comment plus its declarations. */
 const tokenSections = () => {
   const css = read(path.join(DESIGN, 'foundation/tokens.css'))
@@ -84,9 +105,7 @@ const tokenSections = () => {
   const header = /\/\* --- ([a-z ]+) -+\n([\s\S]*?)\*\//g
   let match
   while ((match = header.exec(css)) !== null) {
-    const after = css.slice(header.lastIndex)
-    const names = [...after.slice(0, after.indexOf('/*') === -1 ? undefined : after.indexOf('/*'))
-      .matchAll(/(--[A-Za-z0-9-]+)\s*:\s*([^;]+);/g)].map((hit) => [hit[1], hit[2].trim()])
+    const names = groupDeclarations(css.slice(header.lastIndex))
     sections.push({
       title: match[1].trim(),
       about: prose(match[2]),

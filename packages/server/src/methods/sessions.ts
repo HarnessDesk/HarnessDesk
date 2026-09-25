@@ -11,6 +11,8 @@ import {
 } from '@harnessdesk/protocol'
 
 import * as gitOps from '../git-ops.js'
+import { requireLaneSupport } from '../goals/lane-environment.js'
+import { assertAbsoluteCwd } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 import { checkOption } from './runtimes.js'
 
@@ -21,6 +23,7 @@ import { checkOption } from './runtimes.js'
  */
 export const sessionMethods = {
   'session/list': async (ctx, params) => {
+    assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
     const page = await runtime.listSessions({
       ...(params.cursor ? { cursor: params.cursor } : {}),
@@ -53,25 +56,38 @@ export const sessionMethods = {
   },
 
   'session/create': async (ctx, params) => {
+    // Before any runtime is handed it, here and in a reopen or a fork. The
+    // adapters pass a cwd on as given, and an agent reads a relative one
+    // against its own working directory, which it has from this process:
+    // wherever the app happened to be started. Codex reads an empty one as that
+    // directory itself. The conversation's cwd is then an open root, which
+    // every confinement check trusts. A reopen or a fork that names no folder
+    // keeps the conversation's own.
+    assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
     // Routes resolve here and only here. A client-supplied `route` is
     // discarded: the wire names a route by id, the host exchanges the
     // stored credential for a loopback gateway, and only the resolved
     // gateway address reaches the adapter.
-    const { route: _clientRoute, routeId, ...rest } = params.options as typeof params.options & {
+    // `attachments` is the host's own, like `route`: a Seat's approved filter
+    // is set by `agent/seat` alone, never by whoever calls this.
+    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = params.options as typeof params.options & {
       routeId?: string
     }
     let options = rest as typeof params.options
     if (typeof routeId === 'string') {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
-    const live = await runtime.createSession(options)
+    const environment = ctx.laneEnvironment.forCheckout(options.cwd)
+    requireLaneSupport(runtime.info, environment)
+    const live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
   'session/resume': async (ctx, params) => {
+    assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>
@@ -79,8 +95,27 @@ export const sessionMethods = {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
     let live: AgentSession
+    // A Seat that froze attachments reopens on that filter, revalidated —
+    // never on the runtime's defaults. A conversation already live here kept
+    // the filter it opened with, and is handed back as it is.
+    // A Seat that carries — or should carry — a filter is reopened the one
+    // way the host reopens it everywhere: on its frozen, revalidated filter,
+    // through the host's shared reopen, so a reconnect already opening it
+    // (a queued message, a room post) and this resume are one reopen, never
+    // two that race — the second would drop the session under the first's
+    // running turn. A conversation already live here kept its filter.
+    const sessionId = makeSessionId(params.sessionId)
+    const scoped = !ctx.registry.get(runtime.info.id, sessionId)?.live && ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false)
     try {
-      live = await runtime.resumeSession(makeSessionId(params.sessionId), options)
+      if (scoped) {
+        live = await ctx.sessions.live({ runtime: runtime.info.id, sessionId })
+      } else {
+        const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
+        live = await runtime.resumeSession(sessionId, {
+          ...options,
+          ...(environment ? { environment } : {}),
+        })
+      }
     } catch (error) {
       // A conversation held by another writer is not a failure to explain
       // but a place to be sent; it keeps its own sentence and its code.
@@ -114,15 +149,24 @@ export const sessionMethods = {
   },
 
   'session/fork': async (ctx, params) => {
+    assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>
     if (typeof routeId === 'string') {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
-    const live = await runtime.forkSession(makeSessionId(params.sessionId), options)
+    // A fork is a new conversation, not the Seat: it would run with none of
+    // the Seat's approved filter, on the runtime's own defaults. Refused.
+    const refusal = await ctx.attachments?.forkRefusal(runtime.info.id, makeSessionId(params.sessionId))
+    if (refusal) throw new Error(refusal)
+    const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
+    const live = await runtime.forkSession(makeSessionId(params.sessionId), {
+      ...options,
+      ...(environment ? { environment } : {}),
+    })
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
@@ -159,6 +203,11 @@ export const sessionMethods = {
       await record.live?.close().catch(() => {})
       ctx.registry.delete(runtime.info.id, id)
     }
+    /* Its Seat, if it had one, is closed — never removed: the record outlives
+       the conversation it points at, which is exactly when it is needed. */
+    await ctx.evidence.seats.closed(runtime.info.id, id, 'deleted')
+    // Every window, not only the one that asked: another may be drawing it.
+    ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id } })
     return {
       disposition: outcome?.disposition ?? 'removed',
       ...(outcome?.removed !== undefined ? { removed: outcome.removed } : {}),
@@ -175,7 +224,7 @@ export const sessionMethods = {
          conversation is in a room: membership does, and a member of a room
          that is not open is drawn as such and reopened by the next thing
          addressed to it. Closing a pane is window management; leaving a room
-         is `team/room/leave`. */
+         is releasing its durable Goal Seat. */
       record.detached = false
     }
     return null
@@ -282,7 +331,10 @@ export const sessionMethods = {
   'session/review': async (ctx, params) => {
     const live = await ctx.sessions.live(params)
     if (!live.review) throw new Error('This runtime cannot review changes.')
-    await live.review(params.target)
-    return null
+    const side = await live.review(params.target)
+    /* A review in a conversation of its own comes back as that conversation,
+       attached here as a fork's is: the host holds its handle from the first
+       word, so the window that opens it can send to it without reopening it. */
+    return side ? ctx.sessions.attach(ctx.runtimes.resolve(params), side.id, side) : null
   },
 } satisfies MethodsUnder<'session/' | 'transcripts/'>

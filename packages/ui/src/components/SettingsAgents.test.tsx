@@ -14,7 +14,7 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { AddAgents, AgentsSection } from './SettingsAgents'
+import { AddAgents, RuntimesSection } from './SettingsAgents'
 
 /**
  * Adding an agent from the interface — the door the audit found missing.
@@ -166,7 +166,7 @@ it('sends the custom form as typed, arguments split by line', async () => {
   type(byLabel('Arguments'), '--acp\n--config /tmp/x.yml\n')
 
   await act(async () => {
-    button('Add agent')?.click()
+    button('Add runtime')?.click()
   })
 
   expect(addAgent).toHaveBeenCalledWith({
@@ -188,7 +188,7 @@ it('forgets what was typed when the custom form is cancelled', async () => {
   await act(async () => {
     button('Cancel')?.click()
   })
-  expect(document.body.querySelector('[role="dialog"][aria-label="Add a custom agent"]')).toBeNull()
+  expect(document.body.querySelector('[role="dialog"][aria-label="Add a custom runtime"]')).toBeNull()
   await act(async () => {
     button('Set up…')?.click()
   })
@@ -206,9 +206,9 @@ it('says so, in the dialog, when adding fails', async () => {
   type(byLabel('Name'), 'My Harness')
   type(byLabel('Command'), '/usr/local/bin/my-harness')
   await act(async () => {
-    button('Add agent')?.click()
+    button('Add runtime')?.click()
   })
-  const dialog = document.body.querySelector('[role="dialog"][aria-label="Add a custom agent"]')
+  const dialog = document.body.querySelector('[role="dialog"][aria-label="Add a custom runtime"]')
   expect(dialog).not.toBeNull()
   const alert = dialog?.querySelector('[role="alert"]')
   expect(alert?.textContent).toContain('could not add it')
@@ -224,7 +224,7 @@ it('says so when adding throws', async () => {
   type(byLabel('Name'), 'My Harness')
   type(byLabel('Command'), 'nope')
   await act(async () => {
-    button('Add agent')?.click()
+    button('Add runtime')?.click()
   })
   const alert = document.body.querySelector('[role="dialog"] [role="alert"]')
   expect(alert?.textContent).toContain('exited with 127')
@@ -290,6 +290,16 @@ it('renders the registry with the same honesty per row', async () => {
   expect(document.body.textContent).toContain('Gemini CLI')
   // Unverified binary build: carries the unverified badge on its cell.
   expect(document.body.textContent).toContain('Unverified')
+  // Every entry is a plate card, compact — the card the transcript's cards
+  // are, not a box drawn for the registry alone.
+  const cells = REGISTRY.map((agent) =>
+    [...document.body.querySelectorAll('[data-slot="card"]')].find((card) => card.textContent?.includes(agent.name)),
+  )
+  expect(cells.every(Boolean)).toBe(true)
+  for (const cell of cells) {
+    expect(cell?.getAttribute('data-variant')).toBe('plate')
+    expect(cell?.getAttribute('data-spacing')).toBe('compact')
+  }
 })
 
 it('adds a registry entry by its id and re-reads the registry', async () => {
@@ -410,7 +420,7 @@ const mountList = async (
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsSection onSignIn={() => {}} />
+        <RuntimesSection onSignIn={() => {}} />
       </StoreProvider>,
     )
   })
@@ -465,6 +475,12 @@ it('an agent that will not start shows its own words, its lines kept, and the re
   // The agent's own output keeps its line breaks; a validator writes one
   // finding per line and a paragraph of them is what nobody read.
   const block = document.body.querySelector('pre')
+  // It scrolls inside a window of 170px rather than pushing the agents below
+  // it off the screen, and the window is a flush card that keeps its corners.
+  const window = block?.closest('[data-slot="card-viewport"]') as HTMLElement | null
+  expect(window?.getAttribute('data-size')).toBe('lines')
+  expect(window?.style.maxHeight).toBe('170px')
+  expect(window?.closest('[data-slot="card"]')?.getAttribute('data-variant')).toBe('flush')
   expect(block?.textContent).toContain('\u00d7 x.json:12')
   expect(block?.textContent).toContain('config is invalid: ~/.delta/x.json')
   // Our sentence introduces the block rather than being buried inside it,
@@ -520,7 +536,7 @@ it('Expand all opens every block, and Collapse all folds the roster flat', async
 
 it('search finds an agent by the address of an account under it', async () => {
   await mountList()
-  type('input[aria-label="Search agents or accounts"]', 'grace@')
+  type('input[aria-label="Search runtimes or accounts"]', 'grace@')
 
   expect(listed()).toEqual(['Alpha'])
   // A hit is shown open — hiding what was searched for would be the wrong answer.
@@ -529,10 +545,10 @@ it('search finds an agent by the address of an account under it', async () => {
 
 it('a search that finds nothing offers the way back', async () => {
   await mountList()
-  type('input[aria-label="Search agents or accounts"]', 'nobody')
+  type('input[aria-label="Search runtimes or accounts"]', 'nobody')
 
   expect(listed()).toEqual([])
-  expect(document.body.textContent).toContain('No agent matches')
+  expect(document.body.textContent).toContain('No runtime matches')
 
   await act(async () => button('Clear filters')?.click())
   expect(listed()).toEqual(['Alpha', 'Beta', 'Gamma'])
@@ -597,7 +613,7 @@ it('a pin on a copy that has gone says so, and names the copy that runs (#219)',
     accountsByRuntime: { opencode: signedIn([], []) },
     store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
   })
-  const open = [...document.body.querySelectorAll('button')].find((node) => node.className.includes('headOpen')) as HTMLButtonElement
+  const open = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="text"][data-role="subject"]')) as HTMLButtonElement
   await act(async () => open.click())
   expect(document.body.textContent).toContain('Running 1.18.29 · via Homebrew')
   expect(document.body.textContent).not.toContain('Pinned to')
@@ -622,7 +638,7 @@ const openInstall = async (install: InstallInfo): Promise<void> => {
     accountsByRuntime: { opencode: signedIn([], []) },
     store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
   })
-  const head = [...document.body.querySelectorAll('button')].find((node) => node.className.includes('headOpen')) as
+  const head = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="text"][data-role="subject"]')) as
     | HTMLButtonElement
     | undefined
   if (head) await act(async () => head.click())
@@ -834,4 +850,16 @@ it("an agent's own page shows every copy on the machine, and offers the two verb
   )
   await act(async () => (update as HTMLButtonElement).click())
   expect(updateAgent).toHaveBeenCalledWith('opencode')
+})
+
+it('closes an open agent with a bar of its account actions, ruled off above', async () => {
+  await mountList()
+  const fold = [...document.body.querySelectorAll('button')].find(
+    (node) => node.getAttribute('aria-label') === 'Show the accounts under Alpha',
+  ) as HTMLButtonElement
+  await act(async () => fold.click())
+  const bar = [...document.body.querySelectorAll('[data-slot="bar"]')].find((node) =>
+    node.textContent?.includes('Add account'),
+  )
+  expect(bar?.getAttribute('data-rule')).toBe('top')
 })

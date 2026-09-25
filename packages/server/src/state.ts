@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { lanePreferences } from '@harnessdesk/protocol'
 
 /**
  * HarnessDesk-side persistence.
@@ -26,6 +27,16 @@ export interface WorkspaceRecord {
   readonly lastOpenedAt: number
   /** Opaque and minted once; survives renames, moves and schema migrations. */
   readonly id?: string
+  /**
+   * `path`, with every symlink resolved, as `#openWorkspace` found it the
+   * moment this folder was last opened — a comparison key only (#907, #943),
+   * never a launch path or an input to anything. Recorded here, rather than
+   * resolved again whenever the recent list is read, so `workspace/recent`
+   * never has to make a filesystem call per remembered entry: absent on a
+   * record from before this field existed, in which case that one entry
+   * simply carries no comparison key until it is opened again.
+   */
+  readonly realPath?: string
 }
 
 export interface AppState {
@@ -127,7 +138,8 @@ export class StateStore {
   }
 
   async setPreferences(patch: Record<string, unknown>): Promise<void> {
-    this.#state = { ...this.#state, preferences: { ...this.#state.preferences, ...patch } }
+    const checked = Object.hasOwn(patch, 'lanes') ? { ...patch, lanes: lanePreferences(patch['lanes']) } : patch
+    this.#state = { ...this.#state, preferences: { ...this.#state.preferences, ...checked } }
     await this.#persist()
   }
 

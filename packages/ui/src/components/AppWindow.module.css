@@ -11,11 +11,10 @@
 .win {
   position: fixed;
   inset: 0;
-  z-index: 45;
+  z-index: var(--hd-z-window);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--hd-card);
 }
 
 .winBody {
@@ -29,16 +28,12 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--hd-sidebar);
-  border-right: 1px solid var(--hd-sidebar-border);
 }
 
 /* The traffic lights are the window's own, so the nav starts below the band
    they sit in rather than drawing its own. */
 .winNavTop {
   flex: none;
-  padding: 0 12px 8px;
-  padding-top: var(--hd-titlebar-height);
 }
 
 .backRow {
@@ -50,60 +45,18 @@
      it always has, and Studio stands it at the page's control height. A fixed
      height under Desk cost every row in this column 9px. */
 
- /* desk: canonical One UI System scale */
-
   text-align: left;
 
 }
 
 .backIcon {
   flex: none;
-  color: var(--hd-sidebar-muted-foreground);
   display: inline-grid;
   place-items: center;
 }
 
-/* The search field, on the tokens every other control in this window reads:
-   the page's control height, the small radius, the elevation and the focus
-   ring. It was a 32px pill with a hard border swap — a pill because nothing
-   said otherwise, at a height nothing else in the window shared. */
-.winSearch {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  height: var(--hd-page-search-h, 32px);
+.winSearchLayout {
   margin-top: var(--hd-space-1-5);
-  padding: 0 var(--hd-space-2-5);
-  border: 1px solid var(--hd-border-strong);
-  /* Desk's is a pill; Studio squares it to the radius every other control on
-     the page is cut to. */
-  border-radius: var(--hd-page-search-radius, 16px);
-  background: var(--hd-card);
-  box-shadow: var(--hd-input-shadow);
-  color: var(--hd-sidebar-muted-foreground);
-  transition:
-    border-color var(--hd-duration-fast) var(--hd-ease),
-    box-shadow var(--hd-duration-fast) var(--hd-ease);
-}
-
-.winSearch:focus-within {
-  border-color: var(--hd-ring);
-  box-shadow: var(--hd-focus-ring);
-}
-
-.winSearch input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: none;
-  color: var(--hd-sidebar-foreground);
-  font: inherit;
-  font-size: var(--hd-text-sm);
-  outline: none;
-}
-
-.winSearch input::placeholder {
-  color: var(--hd-sidebar-muted-foreground);
 }
 
 /* A column, so a rail's last child can take `margin-top: auto` and sit at the
@@ -114,27 +67,10 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 6px 12px 12px;
 }
 
 .winGroup {
   margin-bottom: var(--hd-page-group-gap, var(--hd-space-4)); /* desk: canonical One UI System scale */
-}
-
-/* The word over a group of pages — "You", "Agents", "Capabilities". The same
-   five tokens the sidebar's own section label reads, so the two columns in
-   this app cannot drift apart, and so one Interface setting moves both. See
-   the longer note in Sidebar.module.css. */
-.winGroupLabel {
-  /* The air above a group is 20px either way: Desk spends 14 of it on the
-     margin under the group above and 6 here, Studio puts all 20 here and
-     closes the margin. Same rhythm, one place to change it. */
-  padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-space-2) var(--hd-space-1); /* desk: canonical One UI System scale */
-  font-size: var(--hd-label-size, var(--hd-text-sm));
-  font-weight: var(--hd-label-weight, var(--hd-weight-normal));
-  letter-spacing: var(--hd-label-tracking, 0);
-  text-transform: var(--hd-label-transform, none);
-  color: var(--hd-label-ink, var(--hd-sidebar-muted-foreground));
 }
 
 .winNavItem {
@@ -143,8 +79,6 @@
   min-width: 0;
   gap: 10px;
   width: 100%;
-
- /* desk: canonical One UI System scale */
 
   text-align: left;
 
@@ -163,7 +97,6 @@
 
 .winNavIcon {
   flex: none;
-  color: var(--hd-sidebar-muted-foreground);
   display: inline-grid;
   place-items: center;
 }
@@ -171,11 +104,6 @@
 /* The icon and count riding in a selected row. Tertiary grey survives a grey
    wash and is unreadable on the brand blue, so the quieter ink is its own
    token and both interfaces answer it. */
-.winNavItem[data-selected] .winNavIcon,
-.winNavItem[data-selected] .winNavCount {
-  color: var(--hd-sidebar-selected-muted-foreground, var(--hd-secondary-foreground));
-}
-
 .winNavLabel {
   min-width: 0;
   overflow: hidden;
@@ -185,9 +113,6 @@
 .winNavCount {
   margin-left: auto;
   flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-sidebar-muted-foreground);
-  font-variant-numeric: tabular-nums;
 }
 
 /* A nav item that carries both a count and a state puts the state last, so
@@ -207,14 +132,8 @@
   margin-bottom: var(--hd-page-group-gap, var(--hd-space-4)); /* desk: canonical One UI System scale */
 }
 
-.winIdentityLabel {
-  font-weight: var(--hd-weight-medium);
-}
-
 .winNavEmpty {
-  padding: 10px var(--hd-space-2); /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-sm);
-  color: var(--hd-sidebar-muted-foreground);
+  margin: 10px var(--hd-space-2); /* desk: padding → margin, the text role owns its inner box */
 }
 
 /* --- the content page ----------------------------------------------------
@@ -233,8 +152,6 @@
 .page {
   min-height: 0;
   overflow-y: auto;
-  padding: var(--hd-space-6) var(--hd-space-8) 40px; /* desk: canonical One UI System scale */
-  padding-top: max(var(--hd-space-6), var(--hd-titlebar-height)); /* desk: canonical One UI System scale */
 }
 
 /* Centred, not left-hugged. The column is a reading measure, and a measure

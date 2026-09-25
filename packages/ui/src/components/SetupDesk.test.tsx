@@ -46,7 +46,7 @@ const mount = async (
   active: string | null = null,
 ) => {
   const onSignIn = vi.fn()
-  const onOpenAgents = vi.fn()
+  const onOpenRuntimes = vi.fn()
   const selectRuntime = vi.fn(async () => {})
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -65,11 +65,11 @@ const mount = async (
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <SetupDesk onSignIn={onSignIn} onOpenAgents={onOpenAgents} />
+        <SetupDesk onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
       </StoreProvider>,
     )
   })
-  return { onSignIn, onOpenAgents, selectRuntime }
+  return { onSignIn, onOpenRuntimes, selectRuntime }
 }
 
 const button = (label: string): HTMLButtonElement | undefined =>
@@ -117,7 +117,7 @@ it('a signed-out agent gets its sign-in, a healthy one the offer to work', async
 })
 
 it('the active agent is not offered to itself, and the add door is always there', async () => {
-  const { onOpenAgents } = await mount(
+  const { onOpenRuntimes } = await mount(
     [runtime('fine', 'Healthy')],
     { fine: { state: 'ready' } },
     { fine: signedIn },
@@ -125,8 +125,8 @@ it('the active agent is not offered to itself, and the add door is always there'
   )
 
   expect(button('Use this agent')).toBeUndefined()
-  button('Add an agent…')?.click()
-  expect(onOpenAgents).toHaveBeenCalled()
+  button('Add a runtime…')?.click()
+  expect(onOpenRuntimes).toHaveBeenCalled()
 })
 
 it('two entries sharing a brand remain distinguishable while account data loads', async () => {
@@ -138,7 +138,7 @@ it('two entries sharing a brand remain distinguishable while account data loads'
   )
 
   expect(container.textContent).toContain('codex-work')
-  expect(container.querySelectorAll('[class*="rowWhich"]').length).toBe(1)
+  expect(container.querySelectorAll('[data-tone="neutral"][data-size="sm"]')).toHaveLength(1)
 })
 
 it('a lone agent is not made to wear its registry name', async () => {
@@ -149,6 +149,20 @@ it('a lone agent is not made to wear its registry name', async () => {
     'codex-work',
   )
 
-  expect(container.querySelectorAll('[class*="rowWhich"]').length).toBe(0)
+  expect(container.querySelectorAll('[data-tone="neutral"][data-size="sm"]')).toHaveLength(0)
   expect(container.textContent).not.toContain('codex-work')
+})
+
+it('composes the shared card and list-row roles', async () => {
+  await mount(
+    [runtime('fine', 'Healthy')],
+    { fine: { state: 'ready' } },
+    { fine: signedIn },
+    'fine',
+  )
+
+  expect(container.querySelector('[data-slot="card"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="list-rows"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="list-row"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="icon-tile"]')).not.toBeNull()
 })

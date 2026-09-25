@@ -25,18 +25,28 @@ const describeInstall = async (
 export type AccountRuntimePrefix = 'runtime/account/' | 'runtime/apiKey/'
 
 /**
- * Who is registered and who is signed in: the writable agent registry, extra
- * accounts of one agent, and the API keys the host stores on an agent's
- * behalf.
+ * The `runtime/installs*` verbs — which copy of one runtime's CLI on this
+ * machine answers. They are about the runtime, which is why the wire names
+ * them under `runtime/`, and they are answered here because both are gated on
+ * the writable registry this module owns and both share `describeInstall`
+ * with `acp/update`. Carved out of `runtimes.ts` by name, exactly the way the
+ * account verbs are.
+ */
+export type InstallRuntimePrefix = 'runtime/installs'
+
+/**
+ * Who is registered and who is signed in: the writable agent registry, which
+ * copy of a registered agent runs, extra accounts of one agent, and the API
+ * keys the host stores on an agent's behalf.
  */
 export const accountMethods = {
-  'agents/catalog': (ctx) => {
+  'acp/catalog': (ctx) => {
     const agents = ctx.options.agents
     if (!agents) return []
     return agents.templates(ctx.runtimes.ids())
   },
 
-  'agents/registry': (ctx) => {
+  'acp/registry': (ctx) => {
     const agents = ctx.options.agents
     if (!agents) {
       return { agents: [], fetchedAt: null, unavailable: 'This host has no writable agent registry.' }
@@ -44,7 +54,7 @@ export const accountMethods = {
     return agents.registryCatalog(ctx.runtimes.ids())
   },
 
-  'agents/register': async (ctx, params) => {
+  'acp/register': async (ctx, params) => {
     const agents = ctx.options.agents
     if (!agents) throw new Error('This host has no writable agent registry.')
     const { runtime, usage } = await agents.register(params, ctx.runtimes.ids())
@@ -66,7 +76,7 @@ export const accountMethods = {
     return { runtime: runtime.info.id, info }
   },
 
-  'agents/remove': async (ctx, params) => {
+  'acp/remove': async (ctx, params) => {
     const agents = ctx.options.agents
     const runtime = ctx.runtimes.resolve(params)
     if (!agents?.owns(runtime.info.id)) {
@@ -80,7 +90,7 @@ export const accountMethods = {
     return null
   },
 
-  'agents/installs': async (ctx, params) => {
+  'runtime/installs': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const info = await describeInstall(ctx, runtime)
     if (!info) {
@@ -89,7 +99,7 @@ export const accountMethods = {
     return info
   },
 
-  'agents/installs/use': async (ctx, params) => {
+  'runtime/installs/use': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const installs = ctx.options.installs
     if (!installs || !ctx.options.agents?.owns(runtime.info.id)) {
@@ -119,7 +129,7 @@ export const accountMethods = {
     return info
   },
 
-  'agents/update': async (ctx, params) => {
+  'acp/update': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const agents = ctx.options.agents
     if (!agents?.owns(runtime.info.id)) {
@@ -173,4 +183,4 @@ export const accountMethods = {
     await ctx.accounts.announce(params.runtime)
     return { applied }
   },
-} satisfies MethodsUnder<'agents/' | AccountRuntimePrefix>
+} satisfies MethodsUnder<'acp/' | AccountRuntimePrefix | InstallRuntimePrefix>

@@ -91,11 +91,20 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
     transport: { request },
     // The Profile page writes the name when it is let go.
     setProfile: vi.fn(),
-    // The Agents page reads the machine on mount; these are the verbs it asks
+    // The Runtimes page reads the machine on mount; these are the verbs it asks
     // for, answered emptily so the redirect can be watched landing on it.
     loadAccounts: vi.fn(async () => {}),
     agentCatalog: vi.fn(async () => []),
     acpRegistry: vi.fn(async () => ({ agents: [], fetchedAt: 1 })),
+    newSessionDefaultsFor: vi.fn(async () => []),
+    loadPolicyRules: vi.fn(async () => []),
+    savePolicyRules: vi.fn(async () => {}),
+    loadUnheldCeilings: vi.fn(async () => 'seat'),
+    saveUnheldCeilings: vi.fn(async () => {}),
+    loadUnattendedCeilings: vi.fn(async () => 'refuse'),
+    setUnattendedCeilings: vi.fn(async () => {}),
+    // The Library page's own Agent filter roster read.
+    loadAgents: vi.fn(async () => {}),
   } as unknown as AppStore
 }
 
@@ -243,18 +252,18 @@ it('a route to Extensions still gives way when the agent has none', async () => 
   const { route, held, rerender } = await mount([runtime({ mcp: false, extensionStore: false })])
 
   // The page belongs to the agent rather than to the app, so the redirect has
-  // the last word over the route: Agents, not a blank panel.
+  // the last word over the route: Runtimes, not a blank panel.
   await act(async () => route('extensions'))
-  expect(page()).toBe('Agents')
+  expect(page()).toBe('Runtimes')
 
   // And it corrects the one copy of the section, so the parent is not left
   // naming a page the window is not on — which would make the next request
-  // for Agents a no-op against a window that had never got there by choice.
-  expect(held()).toBe('agents')
+  // for Runtimes a no-op against a window that had never got there by choice.
+  expect(held()).toBe('runtimes')
 
   // The correction sticks: nothing re-asserts the route it gave way to.
   await act(async () => rerender())
-  expect(page()).toBe('Agents')
+  expect(page()).toBe('Runtimes')
 })
 
 it('the import banner opens the Library with its import flow, window already open', async () => {
@@ -308,6 +317,54 @@ it('keeps you in the rail while a search could mean you, and only then', async (
   find('account')
   expect(navRow('HarnessDesk')).toBeUndefined()
   expect(document.body.textContent).not.toContain('Nothing in settings matches')
+})
+
+it('Permissions search and the ceiling fix open the same section', async () => {
+  await mount()
+  const search = document.body.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')
+  if (!search) throw new Error('no rail search')
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  for (const word of ['ceiling', 'ceilings', 'held', 'asked']) {
+    act(() => {
+      setValue?.call(search, word)
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(navRow('Permissions'), `${word} should find Permissions`).toBeDefined()
+  }
+
+  const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
+  const store = makeStore([runtime()])
+  await act(async () => root.render(
+    <StoreProvider store={store}>
+      <Settings
+        section="permissions"
+        focus="ceilings"
+        onSection={() => {}}
+        onClose={() => {}}
+        onSignIn={() => {}}
+      />
+    </StoreProvider>,
+  ))
+  const ceilings = document.body.querySelector<HTMLElement>('section[aria-label="Ceilings"]')
+  expect(document.activeElement).toBe(ceilings)
+  expect(scroll).toHaveBeenCalledWith({ block: 'start' })
+  expect(document.body.textContent).toContain('Approvals')
+  expect(document.body.textContent).toContain('Rules')
+  scroll.mockRestore()
+})
+
+it('ordinary Permissions navigation preserves its controls without writing ceiling policy', async () => {
+  const store = makeStore([runtime()])
+  await act(async () => root.render(
+    <StoreProvider store={store}>
+      <Settings section="permissions" onSection={() => {}} onClose={() => {}} onSignIn={() => {}} />
+    </StoreProvider>,
+  ))
+  expect(document.body.textContent).toContain('Approvals')
+  expect(document.body.textContent).toContain('Rules')
+  expect(document.activeElement).not.toBe(document.body.querySelector('section[aria-label="Ceilings"]'))
+  expect(store.savePolicyRules).not.toHaveBeenCalled()
+  expect(store.saveUnheldCeilings).not.toHaveBeenCalled()
 })
 
 it('takes a typed name back on the first Escape, and closes the window on the second', async () => {

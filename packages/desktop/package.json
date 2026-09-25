@@ -1,6 +1,6 @@
 {
   "name": "@harnessdesk/desktop",
-  "version": "0.2.0",
+  "version": "0.2.4",
   "private": true,
   "description": "HarnessDesk for macOS.",
   "repository": {
@@ -62,8 +62,12 @@
         "to": "ui"
       },
       {
-        "from": "../../assets/avatars/128",
-        "to": "avatars/128"
+        "from": "../../assets/avatars/384",
+        "to": "avatars/384"
+      },
+      {
+        "from": "../../assets/brand/faces/384",
+        "to": "faces/384"
       }
     ],
     "asarUnpack": [

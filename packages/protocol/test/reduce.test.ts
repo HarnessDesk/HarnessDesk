@@ -81,6 +81,47 @@ test('assistant text deltas accumulate and item/completed wins', () => {
   assert.equal(allItems(session).length, 1, 'completed replaces rather than appends')
 })
 
+/**
+ * The fold every runtime ends a turn with: chunks while it speaks, then the
+ * whole turn again when it finishes. The completion *replaces* — a turn whose
+ * items were built delta by delta must not come back with the final text
+ * appended to what it already holds, or one answer reads as two spliced end to
+ * end — which is how a room's message looked when two prompts shared one turn.
+ */
+test('a turn completing over its own deltas replaces the text rather than doubling it', () => {
+  const streaming: AgentItem = { id: itemId('a1'), type: 'assistantMessage', text: '' }
+  const body = 'Idempotent on the delivery id.\n\nWorth noting for #5: the provider resets its backoff.'
+  let session = reduceAll(baseSession(), [
+    openTurn(),
+    { type: 'item/started', sessionId: SESSION, turnId: TURN, item: streaming },
+    ...body.split(' ').map((word, index): AgentEvent => ({
+      type: 'item/delta',
+      sessionId: SESSION,
+      turnId: TURN,
+      itemId: itemId('a1'),
+      delta: { kind: 'assistantText', text: index === 0 ? word : ` ${word}` },
+    })),
+  ])
+  const streamed = allItems(session)[0]
+  assert.equal(streamed?.type === 'assistantMessage' && streamed.text, body)
+
+  session = reduceSession(session, {
+    type: 'turn/completed',
+    sessionId: SESSION,
+    turn: {
+      id: TURN,
+      items: [{ ...streaming, text: body }],
+      status: 'completed',
+      completedAt: 10,
+      durationMs: 10,
+    },
+  })
+  const items = allItems(session)
+  assert.equal(items.length, 1, 'one message, not one per source of the same words')
+  const final = items[0]
+  assert.equal(final?.type === 'assistantMessage' && final.text, body)
+})
+
 test('reasoning deltas fill sparse indices without losing earlier parts', () => {
   const item: AgentItem = { id: itemId('r1'), type: 'reasoning', summary: [], content: [] }
   const session = reduceAll(baseSession(), [
@@ -208,6 +249,33 @@ test('turn/completed keeps streamed items when the summary is thinner', () => {
   assert.equal(currentTurn(session)?.status, 'completed')
 })
 
+test('turn/completed cannot turn a streamed notice back into a user message when its list is fuller', () => {
+  const opening = itemId('opening')
+  let session = reduceAll(baseSession(), [
+    openTurn(),
+    {
+      type: 'item/started',
+      sessionId: SESSION,
+      turnId: TURN,
+      item: { id: opening, type: 'notice', text: 'the standing order' },
+    },
+  ])
+  session = reduceSession(session, {
+    type: 'turn/completed',
+    sessionId: SESSION,
+    turn: {
+      id: TURN,
+      status: 'completed',
+      items: [
+        { id: opening, type: 'userMessage', content: [{ type: 'text', text: 'the standing order' }] },
+        { id: itemId('answer'), type: 'assistantMessage', text: 'done' },
+      ],
+    },
+  })
+
+  assert.deepEqual(allItems(session).map((entry) => entry.type), ['notice', 'assistantMessage'])
+})
+
 // --------------------------------------------------------------- mergeRead
 
 const readOf = (turns: Session['turns'], itemsLoaded = true): Session => ({
@@ -231,6 +299,25 @@ test('a read brings new turns and corrects settled ones', () => {
   assert.equal(merged.turns[0]?.items.length, 1)
   assert.equal(merged.turns[0]?.diff, 'a diff')
   assert.equal(allItems(merged).length, 2)
+})
+
+test('a fuller read cannot turn a held notice back into a user message', () => {
+  const opening = itemId('opening')
+  const held = readOf([
+    { id: turnId('t1'), status: 'completed', items: [{ id: opening, type: 'notice', text: 'the standing order' }] },
+  ])
+  const read = readOf([
+    {
+      id: turnId('t1'),
+      status: 'completed',
+      items: [
+        { id: opening, type: 'userMessage', content: [{ type: 'text', text: 'the standing order' }] },
+        { id: itemId('answer'), type: 'assistantMessage', text: 'done' },
+      ],
+    },
+  ])
+
+  assert.deepEqual(allItems(mergeRead(held, read)).map((entry) => entry.type), ['notice', 'assistantMessage'])
 })
 
 test('a plan the read is silent about is the one we watched arrive', () => {

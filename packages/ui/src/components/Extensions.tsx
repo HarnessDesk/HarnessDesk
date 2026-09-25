@@ -6,7 +6,7 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, ExtensionIcon, PluginIcon, ServerIcon } from './Icons'
-import { Button, Chip, Note, PageHead, Row, Rows, Search, SectionHead } from '../design'
+import { Button, Chip, IconTile, Monogram, Note, PageHead, Row, Rows, Search, SectionHead } from '../design'
 import { Tabs, TabsList, TabsTrigger } from '../design'
 import styles from './Settings.module.css'
 
@@ -207,20 +207,15 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
         // drops catalogue URLs, because this renderer loads no remote images.
         // `onError` stays for the one case left: a logo file that will not decode.
         plugin.logoUrl && !logoBroken ? (
-          <img
-            src={plugin.logoUrl}
-            alt=""
-            width={20}
-            height={20}
-            style={{ borderRadius: 5 }}
-            onError={() => setLogoBroken(true)}
-          />
+          <IconTile size="xs">
+            <img src={plugin.logoUrl} alt="" onError={() => setLogoBroken(true)} />
+          </IconTile>
         ) : plugin.brandColor ? (
           // No logo but an accent: the listing's own colour under its
           // initial, the way the runtime's store draws it.
-          <span className={styles.skillTile} style={{ background: plugin.brandColor }}>
-            {plugin.name.charAt(0).toUpperCase()}
-          </span>
+          <IconTile size="xs" color={plugin.brandColor}>
+            <Monogram>{plugin.name.charAt(0).toUpperCase()}</Monogram>
+          </IconTile>
         ) : // No logo and no accent: the glyph. Most catalogue rows land here,
         // because a listing's mark lives on the catalogue's own host.
         plugin.external ? (

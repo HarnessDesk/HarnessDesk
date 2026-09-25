@@ -1,6 +1,14 @@
 import { useState, type JSX } from 'react'
 
-import { BranchIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import type { AgentItem } from '@harnessdesk/protocol'
+
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
+import { DiffView } from '../../components/Diff'
+import { ItemView } from '../../components/Items'
+import { Markdown } from '../../components/Markdown'
+import { PublicationCard } from '../../components/Publication'
+import { StoreProvider } from '../../state/context'
+import { emptySnapshot, type AppStore } from '../../state/store'
 import {
   Alert,
   AlertContent,
@@ -8,33 +16,72 @@ import {
   AlertTitle,
   Banner,
   BannerAction,
+  ActionError,
+  AppWindowPage,
+  AppWindowRail,
+  AppWindowRailScroll,
+  AppWindowRailTop,
   Button,
+  Card,
+  ChangeStats,
   AgentCard,
+  ApprovalCode,
   ApprovalDialog,
+  ApprovalMeta,
+  ApprovalReason,
   ChannelMessage,
+  ChannelNotice,
   ChannelSignal,
   Chip,
+  ChoiceList,
+  ComposerChip,
+  ComposerDropHint,
+  ComposerShell,
+  CodeBlock,
+  CodeText,
+  CopyButton,
   ConfirmDialog,
   DetailHead,
   Face,
+  Field,
+  Fieldset,
+  FileState,
   Input,
+  Keycap,
   Dialog,
   Dot,
   NativeSelect,
   PageHead,
+  PatchHeader,
   Row,
   RowButton,
+  Checkbox,
   RowChoice,
   Rows,
   Lightbox,
-  PublicationCard,
+  MetaList,
+  Monogram,
+  NavigationGroupHeader,
+  Note,
+  NoteList,
+  PopoverSurface,
   RefusedAction,
   SectionHead,
   Segmented,
+  StatePill,
+  Spinner,
+  Text,
+  TextMark,
   Switch,
   SwitchShape,
   ToggleGroup,
   ToggleGroupItem,
+  stateTone,
+  SortableAnnouncer,
+  SortableHandle,
+  Toolbar,
+  sortableItemClass,
+  useSortable,
 } from '..'
 import styles from './explorer.module.css'
 
@@ -68,8 +115,8 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
-const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'action'] as const
-const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
+const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
+const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
 const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare'] as const
@@ -144,6 +191,7 @@ const StateBoard = () => (
         <Dot state="signin" />
         <Dot state="limit" />
         <Dot state="broken" />
+        <Dot state="signin" pulse />
       </Case>
       <Case label="chip">
         <Chip state="ready" />
@@ -154,11 +202,81 @@ const StateBoard = () => (
         <Chip state="limit" label="Out of weekly credit until Thursday" />
         <Chip state="broken" label="No executable at that path" />
       </Case>
+      <Case label="chip tones">
+        <Chip tone="neutral">Neutral</Chip>
+        <Chip tone="brand">Brand</Chip>
+        <Chip tone="success">Success</Chip>
+        <Chip tone="warning">Warning</Chip>
+        <Chip tone="danger">Danger</Chip>
+        <Chip tone="info">Info</Chip>
+      </Case>
+      <Case label="outline tag">
+        <Chip tone="neutral" size="sm" variant="outline" emphasis>Loaded first</Chip>
+      </Case>
+      <Case label="chip identity tints">
+        <Chip tint="blue">Branch</Chip>
+        <Chip tint="amber">Tag</Chip>
+        <Chip tint="violet">Session</Chip>
+      </Case>
+      <Case label="long identity chip">
+        <Chip tint="blue" title="feat/promo-stacking-for-the-seasonal-storefront">
+          <BranchIcon size={10} />
+          <span>feat/promo-stacking-for-the-seasonal-storefront</span>
+        </Chip>
+      </Case>
+      <Case label="emphatic current chip">
+        <Chip tone="brand" emphasis>HEAD</Chip>
+      </Case>
+      <Case label="stale and unknown">
+        <Chip tone="success" stale>Passed yesterday</Chip>
+        <Chip tone="danger" unknown />
+        <Chip tone="warning" unknown>Last checked</Chip>
+      </Case>
+      <Case label="one line, in a narrow card">
+        <div className="flex w-44 flex-wrap gap-1 rounded-(--hd-radius-md) border border-(--hd-border) p-2">
+          <Chip tone="success">verify ✓ @a1b2c3d</Chip>
+          <Chip tone="neutral" stale>verify ✓ @a1b2c3d — 2 commits since</Chip>
+          <Chip tone="neutral" stale>+120 −30 in 6 files — 2 commits since</Chip>
+        </div>
+      </Case>
+      <Case label="counts, zero draws nothing">
+        <Chip tone="neutral" count={5}>never fired</Chip>
+        <Chip tone="warning" count={2}>copies differ</Chip>
+        <Chip tone="warning" count={0}>reach none</Chip>
+      </Case>
+      <Case label="pull request states">
+        {(['open', 'draft', 'merged', 'closed'] as const).map((state) => (
+          <StatePill key={state} state={state} />
+        ))}
+      </Case>
+      <Case label="check outcomes">
+        {(['passed', 'failed', 'running', 'skipped', 'timed out'] as const).map((state) => {
+          const { label, tone } = stateTone(state)
+          return <Chip key={state} tone={tone}>{label}</Chip>
+        })}
+      </Case>
+      <Case label="running operation">
+        <Spinner size="sm" tone="brand" aria-label="Loading" />
+      </Case>
+      <Case label="text marks">
+        <span className="flex items-baseline gap-2"><TextMark role="row"><TodoPendingIcon size={12} /></TextMark><Text role="row">Planned</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="success"><CheckIcon size={12} /></TextMark><Text role="row">Done</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="warning"><CrossIcon size={12} /></TextMark><Text role="row">Failed</Text></span>
+      </Case>
+      <Case label="library row facts">
+        <Monogram>CR</Monogram>
+        <MetaList><span>3 copies</span><span>Last Tuesday</span></MetaList>
+        <CodeText as="code" size="inherit">~/skills/code-review</CodeText>
+      </Case>
+      <Case label="supporting note with icon">
+        <Note ink="muted" icon={<FolderIcon size={13} />}>Manifest required</Note>
+      </Case>
     </div>
     <p className={styles.rule}>
-      One vocabulary of five states, so a colour means the same thing in the sidebar, on a settings
-      row and in the account list. Pass <code>label</code> only to say something more specific than
-      the state&rsquo;s own name — never to say something different.
+      Readiness keeps its five states and dot. A toned chip judges any other compact fact; a tinted
+      chip identifies one. The emphatic brand form marks the current item. Stale crosses out what is
+      no longer current, while unknown says the fact cannot be determined. Pull requests and checks
+      take their label and tone from one <code>stateTone</code> map.
     </p>
   </>
 )
@@ -254,10 +372,23 @@ const ControlBoard = () => {
 
 const RowBoard = () => {
   const [choice, setChoice] = useState('ask')
+  const [folded, setFolded] = useState(true)
+  const [picked, setPicked] = useState(false)
   return (
     <>
       <div className={styles.stack}>
+        <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
+        <PageHead
+          title={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
+          blurb="Settings for this desk."
+        />
         <SectionHead name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
+        <SectionHead
+          sticky
+          name="What is left"
+          description="Gemini is out of quota."
+          action={<Button variant="outline" size="sm">Range</Button>}
+        />
         <Rows>
           <Row
             mark={<PluginIcon size={15} />}
@@ -278,6 +409,24 @@ const RowBoard = () => {
             onClick={() => {}}
           />
         </Rows>
+
+        <SectionHead name="A row that opens and folds" />
+        <Rows data-catalog-case="row-fold">
+          <RowButton
+            mark={<TerminalIcon size={15} />}
+            title={<Text role="subject">Codex</Text>}
+            chevron={false}
+            onClick={() => {}}
+            fold={{ open: !folded, onToggle: () => setFolded((was) => !was), label: `${folded ? 'Show' : 'Hide'} the accounts under Codex` }}
+          />
+          {!folded && <RowButton title="dev" desc="dev@example.com" onClick={() => {}} />}
+        </Rows>
+        <Checkbox
+          data-catalog-case="checkbox-label"
+          checked={picked}
+          onCheckedChange={(next) => setPicked(next === true)}
+          label={<Text role="navigation">Install for Codex</Text>}
+        />
 
         <SectionHead name="When an agent asks to run something" />
         <Rows>
@@ -308,8 +457,9 @@ const RowBoard = () => {
 const HeadBoard = () => (
   <>
     <div className={styles.stack}>
+      <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
       <PageHead
-        title="Agents"
+        title={<span data-slot="page-title-case" data-catalog-size="page">Agents</span>}
         blurb="Which coding agents this app can start a session with."
         actions={<Button variant="default">Add an agent</Button>}
       />
@@ -322,9 +472,32 @@ const HeadBoard = () => (
       />
     </div>
     <p className={styles.rule}>
-      20px and 600 weight name the app and a sheet; a page title is 16px at 500. That is the whole
-      heading scale — a screen that wants a third size is asking for a size the system does not
-      have.
+      20px and 600 weight name the app and a page; subjects use the reading step at medium. That is
+      the whole heading scale — a screen that wants a third size is asking for a size the system
+      does not have.
+    </p>
+  </>
+)
+
+const AppWindowBoard = () => (
+  <>
+    <div className="grid h-72 w-full grid-cols-[15.25rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
+      <AppWindowRail className="flex min-h-0 flex-col">
+        <AppWindowRailTop>
+          <Button variant="navigation" size="navigation" className="w-full">Back to app</Button>
+        </AppWindowRailTop>
+        <AppWindowRailScroll className="flex min-h-0 flex-1 flex-col">
+          <NavigationGroupHeader label="You" />
+          <Button variant="navigation" size="navigation" data-selected className="w-full">Appearance</Button>
+          <Button variant="navigation" size="navigation" className="w-full">Permissions</Button>
+        </AppWindowRailScroll>
+      </AppWindowRail>
+      <AppWindowPage className="overflow-hidden">
+        <PageHead title="Appearance" blurb="The full-window page uses the same reading measure and rail in every destination." />
+      </AppWindowPage>
+    </div>
+    <p className={styles.rule}>
+      A destination window is one surface: a navigation plate and a centred page plate. Base UI owns modality and focus; this pattern owns the visible chrome.
     </p>
   </>
 )
@@ -366,6 +539,23 @@ const BannerBoard = () => (
           </AlertContent>
         </Alert>
       ))}
+      {ALERT_CATALOG_VARIANTS.map((variant) => (
+        <Alert key={variant} tone="neutral" variant={variant} data-catalog-variant={variant}>
+          <AlertContent>
+            <AlertTitle>{variant} neutral</AlertTitle>
+            <AlertDescription>An ambient hand-off that belongs with the page.</AlertDescription>
+          </AlertContent>
+        </Alert>
+      ))}
+      <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
+      <Card variant="flush">
+        <PatchHeader>packages/ui/src/components/GitPane.tsx</PatchHeader>
+        <section className="flex items-center gap-2 px-3 py-2">
+          <FileState state="modified" />
+          <span>One implementation for repository presentation</span>
+          <ChangeStats added={12} removed={3} className="ml-auto" />
+        </section>
+      </Card>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
       </Banner>
@@ -417,13 +607,161 @@ const BannerBoard = () => (
   </>
 )
 
+/**
+ * A sortable list: drag from the handle, or ⌥↑/⌥↓ from a row, and the move is
+ * announced. This owner answers at once; the app's message queue — the one
+ * consumer drawn here — answers when the host does.
+ */
+const QueueRows = () => {
+  const [ids, setIds] = useState(['Run the focused tests again', 'Then write the release note', 'Open a pull request'])
+  const sortable = useSortable({
+    ids,
+    name: (id) => `“${id}”`,
+    onMove: (id, to) => setIds((was) => {
+      const rest = was.filter((one) => one !== id)
+      return [...rest.slice(0, to), id, ...rest.slice(to)]
+    }),
+  })
+  return (
+    <>
+      <ol aria-label="Waiting messages" data-catalog-case="sortable-list" className="flex flex-col gap-0.5">
+        {ids.map((id, index) => (
+          <li key={id} data-slot="sortable-row" {...sortable.row(id, index)} className={`${sortableItemClass()} flex items-center gap-2`}>
+            <SortableHandle {...sortable.handle(id)} />
+            <Text role="meta">{index + 1}</Text>
+            <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
+            {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
+            <span data-slot="sortable-actions" className="flex shrink-0 items-center">
+              <Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <SortableAnnouncer message={sortable.announcement} />
+    </>
+  )
+}
+
+const QueueBoard = () => (
+  <>
+    <div className={styles.stack}>
+      <Alert variant="soft" tone="warning" className="flex-col items-stretch gap-1.5">
+        <Toolbar className="flex-nowrap">
+          <Text role="meta" tone="warning"><AlertIcon size={13} /></Text>
+          <Text role="meta" ink="primary" className="flex-1">The turn did not finish. Two messages waiting.</Text>
+          <Button variant="quiet" size="sm">Send now</Button>
+        </Toolbar>
+        <QueueRows />
+      </Alert>
+      <PopoverSurface limit="trigger">
+        <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
+        <Button variant="navigation" size="navigation" className="w-full">/review</Button>
+      </PopoverSurface>
+      <Text role="muted" as="div">
+        Press <Keycap>esc</Keycap> to close; “Set<Text as="b" role="meta" ink="primary" weight="semibold">tings</Text>” shows the matched text at full ink and weight.
+      </Text>
+      <NoteList><li>A short supporting fact keeps its list anatomy.</li></NoteList>
+      <ComposerShell className="relative min-h-20">
+        <ComposerChip tone="brand" removeLabel="Remove report.pdf" onRemove={() => {}}>report.pdf</ComposerChip>
+        <ComposerDropHint>Drop images to attach</ComposerDropHint>
+      </ComposerShell>
+    </div>
+    <p className={styles.rule}>
+      The queue is one held-work surface: warning belongs to the paused header, order stays quiet in
+      its rows, and the controls arrive only at the row being handled. Trigger pickers use the same
+      floating plate as anchored menus.
+    </p>
+  </>
+)
+
+/* The prose renderer reads the app's theme through the store, and this page
+   has none; it gets the empty desk's snapshot, kept in one place so the store
+   hands back the same object each time it is asked. */
+const catalogueSnapshot = emptySnapshot()
+const catalogueStore = { subscribe: () => () => {}, getSnapshot: () => catalogueSnapshot } as unknown as AppStore
+const CATALOGUE_DIFF = [
+  'diff --git a/src/new.ts b/src/new.ts',
+  'new file mode 100644',
+  'index 0000000..734dfc9',
+  '--- /dev/null',
+  '+++ b/src/new.ts',
+  '@@ -0,0 +1,2 @@',
+  '+export const opened = true',
+  '+export const count = 2',
+  'diff --git a/src/existing.ts b/src/existing.ts',
+  'index 1111111..2222222 100644',
+  '--- a/src/existing.ts',
+  '+++ b/src/existing.ts',
+  '@@ -8,2 +8,2 @@',
+  '-const label = "Before"',
+  '+const label = "After"',
+  ' render(label)',
+].join('\n')
+
+const CATALOGUE_INLINE_EDIT = {
+  id: 'catalogue-inline-edit',
+  type: 'toolCall',
+  tool: 'Edit src/existing.ts',
+  source: { kind: 'builtin' },
+  status: 'completed',
+  args: {
+    file_path: '/workspace/src/existing.ts',
+    old_string: 'const label = "Before"',
+    new_string: 'const label = "After"',
+  },
+} as AgentItem
+
+const CodeBoard = () => (
+  <div className={styles.stack}>
+    <Case label="command, output, and failure">
+      <div className="w-full" data-testid="code-block-sample">
+        <CodeBlock
+          command="pnpm --filter @harnessdesk/ui exec vitest run src/components/Items"
+          output={'Tests 1 failed\nDuration 1.8s'}
+          exitCode={1}
+        />
+      </div>
+    </Case>
+    <Case label="the copy control">
+      <CopyButton text="pnpm verify" label="Copy this command" />
+    </Case>
+    <Case label="the same plate in prose">
+      <div className="w-full" data-testid="markdown-code-sample">
+        <StoreProvider store={catalogueStore}>
+          <Markdown text={'```ts\nconst opened = true\n```'} />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="two hunks, including a new file">
+      <div className="w-full" data-testid="diff-sample">
+        <DiffView diff={CATALOGUE_DIFF} />
+      </div>
+    </Case>
+    <Case label="the same plate in an opened step">
+      <div className="w-full" data-testid="inline-diff-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_INLINE_EDIT} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <p className={styles.rule}>
+      A command and what it printed are one exact record, so they share one
+      plate and one code register. Prose keeps its horizontal scroll because a
+      source line is not a shell command and should not be reflowed.
+    </p>
+  </div>
+)
+
 const DialogBoard = () => {
-  const [open, setOpen] = useState<null | 'plain' | 'confirm' | 'approval' | 'lightbox'>(null)
+  const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'lightbox'>(null)
+  const [name, setName] = useState('')
+  const [ceiling, setCeiling] = useState<'read' | 'edit' | 'publish' | 'merge'>('read')
   return (
     <>
       <div className={styles.matrix}>
         <Case label="open one">
           <Button variant="secondary" onClick={() => setOpen('plain')}>Dialog</Button>
+          <Button variant="secondary" onClick={() => setOpen('form')}>Form dialog</Button>
           <Button variant="destructive" onClick={() => setOpen('confirm')}>
             Delete conversation
           </Button>
@@ -449,10 +787,50 @@ const DialogBoard = () => {
           Sessions you start in this folder are grouped under it, and worktrees are cut from it.
         </Dialog>
       )}
+      {open === 'form' && (
+        /* The form grammar: the body is the form stack, a Field's label sits
+           on its control, a Fieldset's legend on its group, and a ChoiceList
+           explains only the answer that holds. The primary stays disabled
+           until the name is written. */
+        <Dialog
+          title="Save as an Agent"
+          size="md"
+          onClose={() => setOpen(null)}
+          footer={
+            <>
+              <Button variant="default" disabled={name.trim() === ''} onClick={() => setOpen(null)}>
+                Save
+              </Button>
+              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+            </>
+          }
+        >
+          <Field label="Name">
+            {(control) => <Input {...control} value={name} placeholder="Checkout reviewer" onChange={(event) => setName(event.target.value)} />}
+          </Field>
+          <Field label="What it is for" optional hint="One line. The roster shows it under the name.">
+            {(control) => <Input {...control} />}
+          </Field>
+          <Fieldset legend="The most it may do">
+            <ChoiceList
+              label="The most it may do"
+              value={ceiling}
+              onChange={setCeiling}
+              options={[
+                { value: 'read', title: 'Read', description: 'Changes nothing: it reads, searches and reports.' },
+                { value: 'edit', title: 'Edit', description: 'May change files and commit in its own checkout, and never push.' },
+                { value: 'publish', title: 'Publish', description: 'May push its own branch and open a pull request, and never merge.' },
+                { value: 'merge', title: 'Merge', description: 'May merge what it is asked to merge.' },
+              ]}
+            />
+          </Fieldset>
+        </Dialog>
+      )}
       {open === 'confirm' && (
         <ConfirmDialog
           title="Delete conversation"
           confirmLabel="Delete"
+          tone="destructive"
           onConfirm={() => setOpen(null)}
           onCancel={() => setOpen(null)}
         >
@@ -471,7 +849,9 @@ const DialogBoard = () => {
             { id: 'run', label: 'Run once', shortcut: 2, placement: 'proceed', onSelect: () => setOpen(null) },
           ]}
         >
-          <code>pnpm verify</code> runs in the current workspace.
+          <ApprovalReason>Runs the repository's complete verification gate.</ApprovalReason>
+          <ApprovalCode>pnpm verify</ApprovalCode>
+          <ApprovalMeta label="in">/workspace</ApprovalMeta>
         </ApprovalDialog>
       )}
       {open === 'lightbox' && (
@@ -518,6 +898,13 @@ const DialogBoard = () => {
         <code>Cancel</code>. Someone reading quickly sees two verbs and picks one;{' '}
         <code>Cancel</code> beside <code>Delete</code> reads as two ways to stop.
       </p>
+      <p className={styles.rule}>
+        A footer has one filled button: the act, in ink — or filled red (<code>danger</code>) when it
+        destroys — and a quiet way out. A disabled act keeps its own hue, dimmed, so it still reads as
+        the act. A form dialog&rsquo;s body keeps one rhythm: a label 6px over its control, the next
+        field 16px down, a legend on its group the way a label sits on its field, and a choice list
+        that explains only the answer that holds.
+      </p>
     </>
   )
 }
@@ -528,10 +915,8 @@ const DialogBoard = () => {
  * verdict — including the refusal the host issued when Cursor addressed a
  * conversation by a name nobody has.
  *
- * Shown at both densities, because the same channel is read in two places
- * that are not the same size: the 360px Team panel, where it is a glance, and
- * the room pane, where it *is* the conversation and should read like every
- * chat window the reader has ever used.
+ * One density: the channel is read in the room, where it *is* the
+ * conversation, and it is built from the transcript's own parts.
  */
 const ChannelBoard = () => (
   <div className={styles.stack}>
@@ -572,49 +957,23 @@ const ChannelBoard = () => (
       </div>
     </Case>
 
-    <Case label="room density — the same channel, at the size it is the conversation">
-      <div className={styles.channelRoom}>
-        <ChannelSignal
-          by="You"
-          said="added #1 — verify never builds the renderer · script/verify.mjs"
-          at="03:29 PM"
-          density="room"
-        />
-        <ChannelSignal
-          by="Reviewer"
-          said="claimed #1 — verify never builds the renderer"
-          at="03:30 PM"
-          density="room"
+    <Case label="a notice, and a message with its envelope">
+      <div className={styles.channel}>
+        <ChannelNotice
+          about="Opus"
+          cause="limit"
+          text="You've hit your usage limit. It resets at 3:20 PM."
+          at="03:36 PM"
         />
         <ChannelMessage
           from="Builder"
           brand="cursor"
           tint="violet"
           to="Reviewer"
-          at="03:34 PM"
+          at="03:37 PM"
           state="delivered"
-          density="room"
           envelope={'Message from Builder — “Review the verify fix”\n\nThe verify fix looks right.'}
           text="The verify fix looks right — root build, then the suites. One thing: the fixture copy runs before the renderer build, so a changed fixture needs two runs to land."
-        />
-        <ChannelMessage
-          from="Reviewer"
-          brand="codex"
-          tint="green"
-          at="03:35 PM"
-          state="delivered"
-          density="room"
-          text="Understood — taking the CI parity point as the headline in the commit message."
-        />
-        <ChannelMessage
-          from="Reviewer"
-          brand="codex"
-          tint="green"
-          at="03:35 PM"
-          state="delivered"
-          grouped
-          density="room"
-          text="Nothing else is open on my side."
         />
       </div>
     </Case>
@@ -655,15 +1014,13 @@ const ChannelBoard = () => (
     </Case>
 
     <p className={styles.rule}>
-      Two densities, one implementation. The panel is a glance in 360px: a 24px
-      mark, 13px type, and the time and delivery state floated right, where a
-      long name cannot push them off. The room is the conversation at full pane
-      width: a 36px mark, 14px body, and the attribution as one run at the left
-      &mdash; name, who it reached, when, and how it went &mdash; with a
-      full-bleed highlight under the row the pointer is on. Both come from one{' '}
-      <code>DENSITY</code> table in <code>ChannelMessage</code>; the envelope is
-      held back until the pointer or the keyboard arrives, because it is a
-      diagnostic rather than part of reading.
+      One density, and the transcript&rsquo;s parts. Each row is a transcript
+      item &mdash; a grouped message and a board event are its light register
+      &mdash; the face is the room&rsquo;s identity tile on the sender&rsquo;s
+      tint, the attribution is one run of facts at the left (name, who it
+      reached, when, and how it went), and trouble is a chip in the tone it is.
+      The envelope is held back until the pointer or the keyboard arrives,
+      because it is a diagnostic rather than part of reading.
     </p>
   </div>
 )
@@ -679,6 +1036,12 @@ const REVIEW_TEXT = `Reviewed your 86e1bdb fix. Verdict: correct and complete.
 One-line fix, right target, no regressions. Ship it.`
 
 export const BOARDS: Board[] = [
+  {
+    id: 'queue',
+    title: 'Sortable list · Trigger picker',
+    about: 'Work waiting beside the composer, and the list that inserts into it.',
+    render: QueueBoard,
+  },
   {
     id: 'button',
     title: 'Button · icon size',
@@ -710,6 +1073,12 @@ export const BOARDS: Board[] = [
     render: HeadBoard,
   },
   {
+    id: 'app-window',
+    title: 'AppWindow',
+    about: 'Full-window navigation and page chrome for places a person goes to read.',
+    render: AppWindowBoard,
+  },
+  {
     id: 'face',
     title: 'Face',
     about: 'A person, drawn: the face they chose, or the house mark.',
@@ -720,6 +1089,12 @@ export const BOARDS: Board[] = [
     title: 'Banner',
     about: 'Something the app needs to say that nobody asked for.',
     render: BannerBoard,
+  },
+  {
+    id: 'code',
+    title: 'CodeBlock',
+    about: 'A command and its output, kept together as one exact record.',
+    render: CodeBoard,
   },
   {
     id: 'channel',

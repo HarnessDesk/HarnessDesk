@@ -9,7 +9,6 @@
 
 .list {
   margin: 0;
-  padding: 0;
   list-style: none;
 }
 
@@ -20,25 +19,7 @@
      it was one more off-scale number in the app. One rung down; a pixel of
      bullet gap is not what tells these rows apart. */
   gap: var(--hd-space-1-5);
-  align-items: flex-start;
-  padding: var(--hd-space-0-5) 0;
-  /* The scale, not a number: `--hd-text` is what a row you read is set in,
-     and it is what the session rows above this panel already use. The 12.5px
-     these rows inherited from the block vocabulary is the exact value
-     `docs/design.md` names as how the app ended up with ten sizes
-     and no scale. */
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
-}
-
-.bullet {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: var(--hd-line);
-  color: var(--hd-muted-foreground);
+  align-items: first baseline; /* desk: flex-start → first baseline, the TextMark sits on the label's first line, not 8px above it */
 }
 
 /*
@@ -66,23 +47,13 @@
 
 }
 
-.doneLabel {
-  text-decoration: line-through;
-  opacity: 0.6;
-}
-
 .hint {
   margin-left: var(--hd-space-1-5);
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
 }
 
 /* Says the panel is showing something the conversation does not say. */
 .edited {
   margin-left: var(--hd-space-1-5);
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-  font-style: italic;
 }
 
 .input {

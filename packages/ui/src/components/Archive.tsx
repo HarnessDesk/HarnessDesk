@@ -8,7 +8,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { ArchiveIcon, FolderIcon, SearchIcon, UndoIcon } from './Icons'
-import { Button, PageDescription, PageHead, RefusedAction, Row, Rows, Search, SectionHead } from '../design'
+import { Button, EmptyState, Note, PageDescription, PageHead, RefusedAction, Row, Rows, Search, SectionHead } from '../design'
 import styles from './Archive.module.css'
 
 /**
@@ -155,7 +155,7 @@ export const ArchiveSection = () => {
                 </>
               }
             />
-            <p className={styles.note}>{blurbFor(runtime)}</p>
+            <Note ink="muted" className={styles.note}>{blurbFor(runtime)}</Note>
             <Rows>
               {rows.map((summary) => {
                 const deletable = runtime.capabilities.deleteHistory
@@ -232,20 +232,22 @@ const Empty = ({ query }: { query: string }) => {
   if (query !== '') {
     return (
       <Rows>
-        <Row
-          mark={<SearchIcon size={15} />}
+        <EmptyState
+          variant="row"
+          icon={<SearchIcon size={15} />}
           title={`Nothing here matches “${query}”`}
-          desc="Search covers the name, the opening message and the folder."
+          description="Search covers the name, the opening message and the folder."
         />
       </Rows>
     )
   }
   return (
     <Rows>
-      <Row
-        mark={<ArchiveIcon size={15} />}
+      <EmptyState
+        variant="row"
+        icon={<ArchiveIcon size={15} />}
         title="Nothing is archived"
-        desc="Archive one from its ⋯ menu in the sidebar; Restore puts it back."
+        description="Archive one from its ⋯ menu in the sidebar; Restore puts it back."
       />
     </Rows>
   )

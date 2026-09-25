@@ -64,26 +64,30 @@ import { brandForRuntime } from '../lib/brands'
 import { ModelMark, RuntimeMark } from './BrandIcons'
 import { describeLimits, formatReset } from '../lib/limits'
 import { agentGroups } from '../lib/accounts'
+import { exportedSentence, restoredSentence } from '../lib/backup-words'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { summarise } from '../lib/options'
 import { presetsFor, snapshotValues, type AgentPreset } from '../state/presets'
 import { ArchiveSection } from './Archive'
 import { LibrarySection } from './Library'
-import { AgentsSection, agentReadiness } from './SettingsAgents'
+import { RuntimesSection, agentReadiness } from './SettingsAgents'
 import { PluginsSection } from './PluginsSection'
 import { ExtensionsSection } from './Extensions'
+import { CeilingsSection } from './SettingsCeilings'
 import { RemoveWorktree } from './RemoveWorktree'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
   BackLink,
   Button,
   Chip,
+  CodeText,
   DetailMark,
   DetailHead,
   Dot,
   Field,
   FormStack,
   Input,
+  IconTile,
   FileButton,
   Note,
   PageHead,
@@ -93,18 +97,23 @@ import {
   RowValue,
   Rows,
   Search,
+  Section,
   SectionHead,
-  SectionToggle,
   NativeSelect,
+  Monogram,
   Switch,
-  WireText,
+  Text,
 } from '../design'
-import { Dialog, ConfirmDialog } from '../design'
+import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
 import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
 import { ProfileFace } from './ProfileFace'
 import { profileName } from '../lib/profile'
+import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
+import { ProjectPage } from './ProjectPage'
+import { LaneSettings } from './LaneSettings'
+import { TriggerSettings } from './TriggerSettings'
 import styles from './Settings.module.css'
 
 /**
@@ -124,7 +133,7 @@ export type Section =
   | 'shortcuts'
   | 'workspaces'
   | 'archive'
-  | 'agents'
+  | 'runtimes'
   | 'models'
   | 'skills'
   | 'extensions'
@@ -144,12 +153,16 @@ const MOVED: Readonly<Record<string, Section>> = {
   account: 'general',
   preferences: 'general',
   presets: 'models',
+  // Permanent: `agents` named the installed CLIs, and that page is
+  // `runtimes` now. The roster of Agents lives in its own left-menu window,
+  // never in Settings, so this id is never handed back to a page here.
+  agents: 'runtimes',
 }
 const SECTIONS: readonly Section[] = [
   'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive',
-  'agents', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
+  'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
 ]
-export const resolveSection = (name: string | null | undefined, fallback: Section = 'agents'): Section =>
+export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes'): Section =>
   name && (SECTIONS as readonly string[]).includes(name)
     ? (name as Section)
     : (name && MOVED[name]) || fallback
@@ -313,6 +326,7 @@ const RoutesRows = () => {
         <ConfirmDialog
           title={`Remove ${removing.name}?`}
           confirmLabel="Remove endpoint"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             void store.deleteRoute(removing.id)
@@ -426,6 +440,7 @@ const KeysRows = () => {
         <ConfirmDialog
           title={`Forget ${removing.name}?`}
           confirmLabel="Forget key"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             const ref = removing.ref
@@ -601,7 +616,7 @@ const isAccessOption = (option: ConfigOption): boolean =>
  * comes first, because that is what a person means by "permissions"; the
  * rules that answer for you come second, and are written in a dialog.
  */
-const PermissionsSection = () => {
+const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [rules, setRules] = useState<readonly PolicyRule[] | null>(null)
@@ -640,13 +655,16 @@ const PermissionsSection = () => {
     <>
       <PageHead
         title="Permissions"
-        blurb="What each agent may do without asking, and the rules that answer for you."
+        blurb="Ceilings set the most a seat may do. Approvals ask you about an action; rules answer recurring permission requests."
       />
 
+      <CeilingsSection focus={focus} />
+
       {groups.length > 0 && (
-        <>
-          <SectionHead name="Approvals" />
-          <Note>What a new session starts with. An agent that decides this per conversation says so.</Note>
+        <Section title="Approvals" description="What a new session starts with. An agent that decides this per conversation says so.">
+          {/* Each runtime's head is a sub-head of this section — a step
+              tighter than a section's — so twelve runtimes read as twelve
+              groups of one section rather than twelve sections. */}
           {groups.map((group) => (
             <NewSessionDefaults
               key={group.info.id}
@@ -657,46 +675,44 @@ const PermissionsSection = () => {
               empty="Decided when a session starts"
             />
           ))}
-        </>
+        </Section>
       )}
 
-      <SectionHead
-        name={withCount('Rules', rules?.length ?? 0)}
+      <Section
+        title={withCount('Rules', rules?.length ?? 0)}
+        description="They answer a request before it reaches you, for every agent alike; a question an agent asks you directly always comes through."
         action={
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
             <PlusIcon size={13} />
             Add rule
           </Button>
         }
-      />
-      <Note>
-        A rule answers a request before it reaches you, for every agent alike. A question an
-        agent asks you directly always comes through.
-      </Note>
-      {saveError && <Note tone="bad">{saveError}</Note>}
-      <Rows>
-        {rules === null ? (
-          <Row title="Loading…" />
-        ) : rules.length === 0 ? (
-          <Row title="No rules yet" desc="Every request reaches you." />
-        ) : (
-          rules.map((rule) => (
-            <Row
-              key={rule.id}
-              mark={<ShieldIcon size={15} />}
-              title={rule.name}
-              desc={`${rule.action === 'approve' ? 'Approves' : 'Denies'} ${kindWords(rule.match.type)}${
-                rule.match.pattern ? ` containing “${rule.match.pattern}”` : ''
-              }.`}
-              control={
-                <Button size="sm" variant="ghost" onClick={() => setRemoving(rule)}>
-                  Remove…
-                </Button>
-              }
-            />
-          ))
-        )}
-      </Rows>
+      >
+        {saveError && <Note tone="bad">{saveError}</Note>}
+        <Rows>
+          {rules === null ? (
+            <Row title="Loading…" />
+          ) : rules.length === 0 ? (
+            <EmptyState variant="row" title="No rules yet" description="Every request reaches you." />
+          ) : (
+            rules.map((rule) => (
+              <Row
+                key={rule.id}
+                mark={<ShieldIcon size={15} />}
+                title={rule.name}
+                desc={`${rule.action === 'approve' ? 'Approves' : 'Denies'} ${kindWords(rule.match.type)}${
+                  rule.match.pattern ? ` containing “${rule.match.pattern}”` : ''
+                }.`}
+                control={
+                  <Button size="sm" variant="ghost" onClick={() => setRemoving(rule)}>
+                    Remove…
+                  </Button>
+                }
+              />
+            ))
+          )}
+        </Rows>
+      </Section>
       {adding && (
         <AddRuleDialog onAdd={(rule) => save([...(rules ?? []), rule])} onClose={() => setAdding(false)} />
       )}
@@ -704,6 +720,7 @@ const PermissionsSection = () => {
         <ConfirmDialog
           title={`Remove “${removing.name}”?`}
           confirmLabel="Remove rule"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             // The page reports a refused write; the dialog has already gone.
@@ -774,7 +791,7 @@ const SavePresetDialog = ({
             <Input
               {...control}
               value={name}
-              placeholder="Careful reviewer"
+              placeholder="High effort, asks first"
               autoFocus
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
@@ -823,7 +840,7 @@ const PresetsRows = () => {
       <Note>A preset is a session’s model, effort and permissions saved under a name, for the composer to apply in one click.</Note>
       <Rows>
         {presets.length === 0 && (
-          <Row title="No presets yet" desc="Set a session up the way you like, then save it here." />
+          <EmptyState variant="row" title="No presets yet" description="Set a session up the way you like, then save it here." />
         )}
         {presets.map((preset) => (
           <Row
@@ -854,6 +871,7 @@ const PresetsRows = () => {
         <ConfirmDialog
           title={`Remove ${removing.name}?`}
           confirmLabel="Remove preset"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             void store.saveCustomPresets(
@@ -908,9 +926,9 @@ const ModelsSection = () => {
         action={
           <>
             {total > 0 && (
-              <SectionToggle>
+              <Text role="muted" ink="muted">
                 {shown === total ? 'All in the composer' : `${shown} of ${total} in the composer`}
-              </SectionToggle>
+              </Text>
             )}
             {total > 4 && shown > 0 && (
               <Button size="sm" variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, true)}>
@@ -948,13 +966,14 @@ const ModelsSection = () => {
 
       <Rows>
         {total === 0 && (
-          <Row
+          <EmptyState
+            variant="row"
             title="No models yet"
-            desc={`${runtime.presentation.name} has not reported any. Refresh once it is signed in.`}
+            description={`${runtime.presentation.name} has not reported any. Refresh once it is signed in.`}
           />
         )}
         {total > 0 && listed.length === 0 && (
-          <Row title="No matches" desc={`Nothing ${runtime.presentation.name} offers matches “${query.trim()}”.`} />
+          <EmptyState variant="row" title="No matches" description={`Nothing ${runtime.presentation.name} offers matches “${query.trim()}”.`} />
         )}
         {listed.map((model) => (
           <Row
@@ -968,18 +987,18 @@ const ModelsSection = () => {
             title={
               <>
                 {model.displayName}
-                {model.isDefault && <span className={styles.inlineBadge}>Default</span>}
+                {model.isDefault && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>Default</Chip>}
                 {(model.reasoningLevels.length > 0 || model.thinking) && (
                   <span className={styles.efforts}>
                     {model.thinking && (
-                      <span className={styles.effort} data-thinking>
+                      <Chip tone="brand" size="sm">
                         {model.thinking === 'always' ? 'Always thinks' : 'Thinking'}
-                      </span>
+                      </Chip>
                     )}
                     {model.reasoningLevels.map((level) => (
-                      <span key={level.id} className={styles.effort}>
+                      <Chip key={level.id} tone="neutral" size="sm">
                         {level.label}
-                      </span>
+                      </Chip>
                     ))}
                   </span>
                 )}
@@ -1084,23 +1103,21 @@ const skillScopeLabel = (scope: string | undefined): string | null => {
  */
 const SkillMark = ({ skill, size = 15 }: { skill: SkillInfo; size?: number }) => {
   const [broken, setBroken] = useState(false)
+  // The plugin row's drawing: the logo cropped in an icon tile, else the
+  // listing's colour under its initial, at the tile step the glyph matches.
+  const tile = size >= 20 ? 'sm' : 'xs'
   if (skill.iconUrl && !broken) {
     return (
-      <img
-        src={skill.iconUrl}
-        alt=""
-        width={size + 5}
-        height={size + 5}
-        style={{ borderRadius: 5 }}
-        onError={() => setBroken(true)}
-      />
+      <IconTile size={tile}>
+        <img src={skill.iconUrl} alt="" onError={() => setBroken(true)} />
+      </IconTile>
     )
   }
   if (skill.brandColor) {
     return (
-      <span className={styles.skillTile} style={{ background: skill.brandColor }}>
-        {skillTitle(skill).charAt(0).toUpperCase()}
-      </span>
+      <IconTile size={tile} color={skill.brandColor}>
+        <Monogram>{skillTitle(skill).charAt(0).toUpperCase()}</Monogram>
+      </IconTile>
     )
   }
   return <SparkIcon size={size} />
@@ -1157,13 +1174,13 @@ const SkillPage = ({
       {skill.description && skill.description !== skill.shortDescription && (
         <>
           <SectionHead name="What it does" />
-          <p className={styles.skillBody}>{skill.description}</p>
+          <Text as="p" role="muted" className={styles.skillBody}>{skill.description}</Text>
         </>
       )}
 
       <SectionHead name="About" />
       <Rows>
-        <Row title="Identifier" control={<WireText>{skill.name}</WireText>} />
+        <Row title="Identifier" control={<Text role="meta"><CodeText>{skill.name}</CodeText></Text>} />
         {skill.path && (
           <Row
             title="Where it lives"
@@ -1263,9 +1280,9 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
                   mark={<SkillMark skill={skill} />}
                   title={skillTitle(skill)}
                   desc={
-                    <span className={styles.skillDesc}>
+                    <Text role="muted" className={styles.skillDesc}>
                       {skill.shortDescription ?? skill.description}
-                    </span>
+                    </Text>
                   }
                   control={
                     <>
@@ -1331,7 +1348,7 @@ const BrowserSection = () => {
       <PageHead title="Browser" blurb="Where the pages agents open appear, and what those pages may keep." />
 
       <SectionHead name="Pages open" />
-      <Rows>
+      <Rows role="radiogroup" aria-label="Pages open">
         {PLACEMENTS.map((option) => (
           <RowChoice
             key={option.value}
@@ -1346,11 +1363,12 @@ const BrowserSection = () => {
       {prefs.placement === 'window' && (
         <>
           <SectionHead name="Which browser" />
-          <Rows>
+          <Rows role="radiogroup" aria-label="Which browser">
             <RowChoice
               title="Whichever is installed"
               desc={found[0] ? `Today that is ${found[0].name}.` : 'None found yet.'}
               selected={prefs.externalBinary === ''}
+              tabStop={prefs.externalBinary !== '' && !found.some((browser) => browser.path === prefs.externalBinary)}
               onClick={() => store.setBrowserPrefs({ externalBinary: '' })}
             />
             {found.map((browser) => (
@@ -1460,20 +1478,29 @@ const BrowserSection = () => {
 }
 
 /**
- * Every folder this desk has opened, and the worktrees it made for them.
- *
- * Forgetting a folder drops it from the list and touches nothing on disk;
- * removing a worktree goes through the dialog that lists what would be lost.
+ * Every folder HarnessDesk has opened, each a way into its project's page —
+ * and Settings opened on a project (`focus`, from the sidebar's project menu)
+ * goes straight there. Open and Forget are on the page: a row that opens
+ * something cannot also hold buttons.
  */
-const WorkspacesSection = () => {
-  const store = useStore()
+export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | null }) => {
   const snapshot = useSnapshot()
+  // 'triggers' is not a workspace path — it asks this list page to scroll to
+  // its own machine-wide "Triggers on this Mac", never to open a project by
+  // that literal name.
+  const [open, setOpen] = useState<string | null>(focus === 'triggers' ? null : focus)
+  useEffect(() => {
+    if (focus === 'triggers') setOpen(null)
+    else if (focus) setOpen(focus)
+  }, [focus])
+
+  if (open) return <ProjectPage key={open} root={open} onBack={() => setOpen(null)} />
 
   return (
     <>
       <PageHead
         title="Workspaces"
-        blurb="Every folder HarnessDesk has opened. Forgetting one touches nothing on disk."
+        blurb="Every folder HarnessDesk has opened, and each project’s own page. Forgetting one touches nothing on disk."
       />
 
       <SectionHead name={withCount('Folders', snapshot.workspaces.length)} />
@@ -1481,38 +1508,23 @@ const WorkspacesSection = () => {
         {snapshot.workspaces.length === 0 && (
           <Row title="No folders opened yet" desc="Open one from File › Open Folder, or ⌘O." />
         )}
-        {snapshot.workspaces.map((workspace) => {
-          const isCurrent = workspace.path === snapshot.workspace?.path
-          return (
-            <Row
-              key={workspace.path}
-              mark={<FolderIcon size={15} />}
-              title={workspace.name}
-              desc={workspace.path}
-              control={
-                isCurrent ? (
-                  <Chip state="ready" label="Current" />
-                ) : (
-                  <>
-                    <Button variant="secondary" size="sm" onClick={() => store.openWorkspace(workspace.path)}>
-                      Open
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="Drop it from this list. The folder is untouched."
-                      onClick={() => void store.forgetWorkspace(workspace.path)}
-                    >
-                      Forget
-                    </Button>
-                  </>
-                )
-              }
-            />
-          )
-        })}
+        {snapshot.workspaces.map((workspace) => (
+          <RowButton
+            key={workspace.path}
+            mark={<FolderIcon size={15} />}
+            title={workspace.name}
+            desc={shortPath(workspace.path, snapshot.home)}
+            {...(workspace.path === snapshot.workspace?.path
+              ? { control: <Chip state="ready" label="Current" /> }
+              : {})}
+            onClick={() => setOpen(workspace.path)}
+          />
+        ))}
       </Rows>
       <WorktreeRows />
+      <SectionHead name="Lanes" />
+      <LaneSettings root={snapshot.workspace?.path} />
+      <TriggerSettings focus={focus} />
     </>
   )
 }
@@ -1547,7 +1559,7 @@ export const GeneralSectionRows = () => (
  * already registered and conversations with a newer local copy are left
  * alone, and the sentence under the row afterwards counts what happened.
  */
-const BackupRows = () => {
+export const BackupRows = () => {
   const store = useStore()
   const [busy, setBusy] = useState<'export' | 'restore' | false>(false)
   const [outcome, setOutcome] = useState<string | null>(null)
@@ -1563,9 +1575,7 @@ const BackupRows = () => {
       anchor.download = `harnessdesk-backup-${new Date().toISOString().slice(0, 10)}.json`
       anchor.click()
       URL.revokeObjectURL(url)
-      setOutcome(
-        `Exported ${backup.agents.length} ${backup.agents.length === 1 ? 'agent' : 'agents'} and ${backup.transcripts.length} ${backup.transcripts.length === 1 ? 'conversation' : 'conversations'}.`,
-      )
+      setOutcome(exportedSentence(backup))
     } catch (error) {
       setOutcome(error instanceof Error ? error.message : String(error))
     } finally {
@@ -1578,10 +1588,7 @@ const BackupRows = () => {
     try {
       const backup: unknown = JSON.parse(await file.text())
       const report = await store.transport.request('backup/import', { backup })
-      const skipped = report.agents.skipped + report.transcripts.skipped
-      setOutcome(
-        `Restored ${report.agents.restored} ${report.agents.restored === 1 ? 'agent' : 'agents'}, ${report.preferences} ${report.preferences === 1 ? 'preference' : 'preferences'} and ${report.transcripts.restored} ${report.transcripts.restored === 1 ? 'conversation' : 'conversations'}.${skipped > 0 ? ` ${skipped} already here or newer, left alone.` : ''}`,
-      )
+      setOutcome(restoredSentence(report))
     } catch (error) {
       setOutcome(error instanceof Error ? error.message : String(error))
     } finally {
@@ -1593,7 +1600,7 @@ const BackupRows = () => {
     <Rows>
       <Row
         title="Back up this Mac’s HarnessDesk"
-        desc="Agents, preferences and transcripts in one file — sign in again after restoring."
+        desc="Runtimes, your Agents and their seats on this Mac, preferences, transcripts and what the desk observed, in one file — sign in again after restoring."
         control={
           <Button variant="secondary" size="sm" disabled={busy !== false} onClick={() => void exportBackup()}>
             <DownloadIcon size={13} />
@@ -1749,7 +1756,8 @@ const matches = (entry: NavEntry, query: string): boolean => {
  * and read by `LibrarySection` on its own first render.
  */
 export const Settings = ({
-  section = 'agents',
+  section = 'runtimes',
+  focus = null,
   libraryImport = false,
   onSection,
   onClose,
@@ -1757,6 +1765,8 @@ export const Settings = ({
 }: {
   /** The page on show. Owned by the caller, so any route can redirect it. */
   section?: Section
+  /** The thing inside the page to open — handed down once, as it arrives. */
+  focus?: string | null
   /** Open the Library with its import flow already up — the banner's route in. */
   libraryImport?: boolean
   /** The nav rail's clicks, and the redirect off a page an agent has lost. */
@@ -1793,10 +1803,10 @@ export const Settings = ({
   // Before this, the nav item vanished and the page stayed selected: a blank
   // panel with nothing highlighted and no way to tell what had happened.
   useEffect(() => {
-    if (section === 'extensions' && !hasExtensions) onSection('agents')
+    if (section === 'extensions' && !hasExtensions) onSection('runtimes')
   }, [section, hasExtensions, onSection])
 
-  // The Agents row carries the one state that stops a first session, so the
+  // The Runtimes row carries the one state that stops a first session, so the
   // nav can say there is something to do without being opened.
   // Asked per agent, not per runtime, so the rail and the page it opens
   // cannot disagree: a second account added but never signed into is an
@@ -1879,12 +1889,12 @@ export const Settings = ({
       label: 'Agents',
       entries: [
         {
-          id: 'agents',
-          label: 'Agents',
+          id: 'runtimes',
+          label: 'Runtimes',
           icon: <AgentIcon size={14} />,
           ...(accountCount > 0 ? { count: accountCount } : {}),
           ...(agentsState ? { state: agentsState } : {}),
-          keywords: ['accounts', 'sign in', 'sign out', 'add agent', 'registry', 'nickname', 'ring', 'usage', 'plan', 'new sessions', 'defaults', 'update', 'remove'],
+          keywords: ['runtimes', 'installed', 'cli', 'accounts', 'sign in', 'sign out', 'add runtime', 'registry', 'nickname', 'ring', 'usage', 'plan', 'new sessions', 'defaults', 'update', 'remove'],
         },
         {
           id: 'models',
@@ -1949,7 +1959,7 @@ export const Settings = ({
           id: 'permissions',
           label: 'Permissions',
           icon: <ShieldIcon size={14} />,
-          keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network'],
+          keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked'],
         },
         {
           id: 'browser',
@@ -2022,23 +2032,26 @@ export const Settings = ({
         )}
       </WindowNav>
 
-      {/* The library is a grid of agent columns, not a column of sentences, so
-          it takes the wide measure the usage dashboard uses. */}
-      <WindowPage key={section} wide={section === 'library'}>
+      {/* Every page in this window stands on one measure, including the library.
+          It was the one exception, taken when its captions still wrapped and
+          twelve agent marks had to sit beside a paragraph; the caption is one
+          clamped line now, so the marks have their room at the ordinary width
+          and the window stops having a page that is a different shape. */}
+      <WindowPage key={section}>
             {section === 'profile' && <ProfileSection />}
             {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}
             {section === 'appearance' && <AppearanceSection />}
             {section === 'notifications' && <NotificationsSection />}
             {section === 'shortcuts' && <ShortcutsSection />}
-            {section === 'workspaces' && <WorkspacesSection />}
+            {section === 'workspaces' && <WorkspacesSection focus={focus} />}
             {section === 'archive' && <ArchiveSection />}
-            {section === 'agents' && <AgentsSection onSignIn={onSignIn} />}
+            {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} focus={focus} />}
             {section === 'models' && <ModelsSection />}
             {section === 'plugins' && <PluginsSection />}
             {section === 'extensions' && hasExtensions && <ExtensionsSection />}
             {section === 'library' && <LibrarySection initialFlow={libraryImport ? 'import' : null} />}
             {section === 'skills' && <SkillsSection onUse={onClose} />}
-            {section === 'permissions' && <PermissionsSection />}
+            {section === 'permissions' && <PermissionsSection focus={focus} />}
             {section === 'browser' && <BrowserSection />}
       </WindowPage>
     </AppWindow>

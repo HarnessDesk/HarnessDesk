@@ -1,5 +1,7 @@
 import type { Flow, FlowProblem } from '@harnessdesk/protocol'
 
+import { CHANGED_PREVIEW } from '../flow-preview.js'
+import { sourceDigest } from '../flow-execution.js'
 import { dryRun, parseFlow, validateFlow } from '../flow.js'
 import type { HostContext, MethodsUnder } from './context.js'
 
@@ -12,9 +14,20 @@ import type { HostContext, MethodsUnder } from './context.js'
  * asks the pure engine a question.
  */
 export const flowMethods = {
-  'flow/list': (ctx, params) => ctx.flows.list(params.root),
+  /* Both read files under their root, so both are held to what is open before
+     anything is read, on the rule a room is: the room dialog asks them about
+     the root it will make its room at, which for a linked worktree is the main
+     checkout. `flow/dry` is not held: it reads nothing, and only names its
+     root in the report. */
+  'flow/list': async (ctx, params) => {
+    await ctx.workspaces.confineRoom(params.root)
+    return ctx.flows.list(params.root)
+  },
 
-  'flow/read': (ctx, params) => ctx.flows.source(params.root, params.path),
+  'flow/read': async (ctx, params) => {
+    await ctx.workspaces.confineRoom(params.root)
+    return ctx.flows.source(params.root, params.path)
+  },
 
   /**
    * Takes the flow's *text*, not a path, so the dialog checks what is in the
@@ -56,6 +69,101 @@ export const flowMethods = {
   'flow/stop': (ctx, params) => ctx.flows.stop(params.run),
 
   'flow/runs': (ctx, params) => ctx.flows.runsFor(params.room),
+
+  // ------------------------------------------------------------------- v2
+
+  'flow/catalog': (ctx, params) => ctx.flows.catalog(params.root),
+
+  'flow/source': (ctx, params) => ctx.flows.catalogSource(params.root, params.id, params.origin),
+
+  /**
+   * Spends nothing: every read here is the kind `agent/seat/dry` already
+   * makes, and the token this mints authorizes only the exact text and
+   * inputs it was taken of.
+   */
+  'flow/preview': (ctx, params) => ctx.flowPreviews.preview(params.root, params.source, params.vars, params.retry),
+
+  /**
+   * The only v2 call that spends anything. Redeems the token first — a
+   * caller-supplied `compiled`, ceiling or evidence is not a wire param at
+   * all, so there is nothing here to trust but what the token itself froze —
+   * then hands the frozen policy to `Flows`, which mints the run and its
+   * Goal together.
+   */
+  'flow/start-goal': async (ctx, params) => {
+    const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {})
+    if (!redeemed) throw new Error(CHANGED_PREVIEW)
+    /* The held-seat policy and the reused Goal are the token's, never the
+       request's: a front-door token started without its Goal, or with another,
+       is refused, and nothing here can turn it into an ordinary start. */
+    const bound = redeemed.frontDoor
+    if (JSON.stringify(bound?.goal ?? null) !== JSON.stringify(params.goal ?? null)) throw new Error(CHANGED_PREVIEW)
+    return ctx.flows.startGoal({
+      root: params.root,
+      sentence: params.sentence,
+      source: params.source,
+      sourcePath: null,
+      compiled: redeemed.compiled,
+      ...(params.vars ? { vars: params.vars } : {}),
+      ...(bound ? { requireHeld: true as const } : {}),
+      ...(bound?.goal ? { goal: bound.goal } : {}),
+      /* Where the run works and what it works on, as the host resolved them
+         for the token — the folder its context named, and the commit every
+         Seat is pinned to — never re-read from the request. */
+      ...(bound ? { cwd: bound.target.context.root } : {}),
+      ...(bound?.target.resolved ? { target: bound.target.resolved } : {}),
+      authorization: {
+        sourceDigest: sourceDigest(params.source),
+        commandDigest: sourceDigest(JSON.stringify(redeemed.commands)),
+        approvedAt: Date.now(),
+        ...(bound ? { start: 'front-door' as const } : {}),
+      },
+    })
+  },
+
+  'flow/execution': (ctx, params) => {
+    const execution = ctx.flows.executionOf(params.run)
+    if (!execution) throw new Error(`There is no flow run ${params.run}.`)
+    return execution
+  },
+
+  /**
+   * The exact source/vars this run was started with, so `flow/preview`'s own
+   * `retry` equality check can be satisfied by a renderer that only just
+   * read this run — never by one that started it, which already has them.
+   */
+  'flow/execution/source': (ctx, params) => {
+    const stored = ctx.flows.storedRun(params.run)
+    if (!stored) throw new Error(`There is no saved source for flow run ${params.run}.`)
+    return stored
+  },
+
+  /**
+   * Re-runs an interrupted check, once a person has looked. The token is a
+   * fresh `flow/preview` one, additionally bound to this exact run and card —
+   * `flow/preview`'s own `retry` param is what mints it, validated there
+   * against the run's saved source and inputs, so nothing here re-chooses the
+   * command or checkout.
+   */
+  'flow/check/retry': async (ctx, params) => {
+    const bound = ctx.flowPreviews.retryTarget(params.token)
+    if (!bound || bound.run !== params.run || bound.card !== params.card) throw new Error(CHANGED_PREVIEW)
+    const stored = ctx.flows.storedRun(params.run)
+    const execution = ctx.flows.executionOf(params.run)
+    if (!stored || !execution) throw new Error(CHANGED_PREVIEW)
+    const goal = await ctx.goals.view(execution.goal)
+    const redeemed = await ctx.flowPreviews.redeem(params.token, goal.goal.root, stored.source, stored.vars)
+    if (!redeemed) throw new Error(CHANGED_PREVIEW)
+    return ctx.flows.retryCheck(params.run, params.card)
+  },
+
+  'flow/update/preview': (ctx, params) => ctx.flowUpdates.preview(params.root, params.id),
+
+  'flow/update/apply': (ctx, params) => ctx.flowUpdates.apply(params.root, params.token),
+
+  'flow/customize/preview': (ctx, params) => ctx.flowUpdates.customizePreview(params.root, params.id),
+
+  'flow/customize/apply': (ctx, params) => ctx.flowUpdates.customizeApply(params.root, params.id, params.token),
 } satisfies MethodsUnder<'flow/'>
 
 /**

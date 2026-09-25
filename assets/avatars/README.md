@@ -46,6 +46,11 @@ what identifies *the product*: the app icon, the menu bar, the README, the site.
 identify *somebody using it*. A surface that reaches in here for a logo has picked the
 wrong folder.
 
+The picker offers the mark too — `assets/brand/faces`, the app's own icon in six
+colourways, rendered by `pnpm run icons` and listed before the whales. They are the
+brand folder's, not this one's, and this folder is regenerated wholesale, so nothing
+of theirs may be dropped in here.
+
 ## Sizes
 
 Three, every one of them a transparent PNG, and none of them upscaled — 384 is the

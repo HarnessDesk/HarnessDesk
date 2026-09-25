@@ -14,6 +14,8 @@ import { StoreProvider } from '../state/context'
 import { MountProvider } from '../panels/mount'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { GitPane } from './GitPane'
+import gitPaneCss from './GitPane.module.css?raw'
+import gitPaneSource from './GitPane.tsx?raw'
 
 /**
  * The history pane against a scripted host. What is held: the pane asks for
@@ -89,6 +91,9 @@ interface Script {
   readonly home?: string
   /** Answers for the write verbs, by method name. */
   readonly on?: Readonly<Record<string, unknown>>
+  readonly provenance?: readonly import('@harnessdesk/protocol').CommitProvenance[]
+  /** Sequential batch answers; an Error models a rejected host read. */
+  readonly provenanceReads?: readonly (readonly import('@harnessdesk/protocol').CommitProvenance[] | Error)[]
 }
 
 const mount = async (script: Script) => {
@@ -128,7 +133,7 @@ const mount = async (script: Script) => {
   const send = vi.fn(async () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
   })
-  const snapshot = {
+  let snapshot = {
     ...emptySnapshot(),
     status: 'open',
     activeRuntime: 'claude',
@@ -139,10 +144,23 @@ const mount = async (script: Script) => {
       { id: 'codex', name: 'Codex', capabilities: {}, presentation: { name: 'Codex', brand: 'codex' } },
     ],
   } as unknown as AppSnapshot
+  const subscribers = new Set<() => void>()
+  let provenanceRead = 0
   const store = {
-    subscribe: () => () => {},
+    subscribe: (listener: () => void) => { subscribers.add(listener); return () => { subscribers.delete(listener) } },
     getSnapshot: () => snapshot,
     transport: { request },
+    readProvenance: vi.fn(async (root: string, shas: readonly string[]) => {
+      const answer = script.provenanceReads?.[provenanceRead++]
+      if (answer instanceof Error) throw answer
+      return {
+      project: root,
+      revision: 0,
+      health: { project: root, enabled: true, state: 'healthy', reason: 'Current.', nextStep: 'None.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 0 },
+      commits: answer ?? script.provenance ?? shas.map((sha) => ({ sha, state: 'unattributed', coverage: 'none', seats: [], via: null, reason: 'not-observed', explanation: 'No local observation.', evidenceIds: [], cards: [], observedAt: null })),
+    }
+    }),
+    readProvenanceSeat: vi.fn(async () => ({ seat: null, session: null, unavailable: null })),
     setDetailsTab,
     openDetailsTab,
     notice,
@@ -153,6 +171,15 @@ const mount = async (script: Script) => {
     revealWorkspace: vi.fn(async () => {}),
     newSession,
     send,
+    // The front door this pane's BranchMenu opens: an empty catalogue is
+    // enough to mount it and read what it was opened with, without also
+    // scripting `authoring/start/preview` for a test that is not about the
+    // dry run itself — `FrontDoor.test.tsx` owns that.
+    openFrontDoor: vi.fn(),
+    closeFrontDoor: vi.fn(),
+    flowCatalog: vi.fn(async () => []),
+    agentsIn: vi.fn(async () => []),
+    openGoal: vi.fn(),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -166,7 +193,11 @@ const mount = async (script: Script) => {
       </StoreProvider>,
     )
   })
-  return { request, setDetailsTab, openDetailsTab, notice, openWorkspace, newSession, send, store }
+  const updateSnapshot = (next: Partial<AppSnapshot>) => {
+    snapshot = { ...snapshot, ...next }
+    for (const listener of subscribers) listener()
+  }
+  return { request, setDetailsTab, openDetailsTab, notice, openWorkspace, newSession, send, store, updateSnapshot }
 }
 
 const button = (label: string): HTMLButtonElement => {
@@ -212,6 +243,77 @@ it('asks for the log, the refs and the status together, and shows the walk', asy
   // The short id column.
   expect(document.body.textContent).toContain('aaaa111')
   expect(document.body.textContent).toContain('2 commits')
+})
+
+it('keeps the windowed commit row borderless and marks the graph column edge', async () => {
+  await mount({
+    log: [
+      commit('aaaa1111111', 'tip', { parents: ['bbbb2222222'] }),
+      commit('bbbb2222222', 'root'),
+    ],
+  })
+  const rows = [...container.querySelectorAll<HTMLElement>('[role="option"]')]
+  expect(rows).toHaveLength(2)
+  expect(rows.every((row) => row.className.includes('border-0'))).toBe(true)
+  expect(rows.every((row) => row.className.includes('cursor-default'))).toBe(true)
+  expect(rows.every((row) => row.className.includes('select-none'))).toBe(true)
+  expect(rows.every((row) => row.style.paddingRight === 'var(--hd-space-3)')).toBe(true)
+  const head = container.querySelector('[role="row"]')
+  expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
+})
+
+it('keeps a loaded history Seat actionable in selected detail when the refresh is refused', async () => {
+  const sha = 'aaaa1111111'
+  await mount({
+    log: [commit(sha, 'tip')],
+    provenance: [{ sha, state: 'attributed', coverage: 'complete', seats: [{ id: 'seat-1', agentName: 'Contributor 1', runtime: 'fixture', seatLabel: 'Alpha', session: { runtime: 'fixture', sessionId: 'one' } }], via: 'observed', reason: null, explanation: 'Observed.', evidenceIds: [], cards: [], observedAt: 1 }],
+  })
+  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  expect(container.textContent).toContain('Contributor 1')
+  expect([...container.querySelectorAll('button')].some((item) => item.textContent === 'Seat record')).toBe(true)
+})
+
+it('refreshes selected provenance detail from a successful newer batch', async () => {
+  const sha = 'aaaa1111111'
+  const original = { sha, state: 'attributed' as const, coverage: 'complete' as const, seats: [], via: 'observed' as const, reason: null, explanation: 'Original evidence.', evidenceIds: [], cards: [], observedAt: 1 }
+  const refreshed = { ...original, explanation: 'Refreshed evidence.' }
+  const { updateSnapshot } = await mount({ log: [commit(sha, 'tip')], provenanceReads: [[original], [original], [refreshed], [refreshed]] })
+  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  expect(container.textContent).toContain('Original evidence.')
+  await act(async () => {
+    updateSnapshot({ provenanceRevision: new Map([['/repo/app', 1]]) })
+    await Promise.resolve()
+  })
+  expect(container.textContent).toContain('Refreshed evidence.')
+  expect(container.textContent).not.toContain('Original evidence.')
+})
+
+it('offers a provenance retry when the selected batch and detail read both fail', async () => {
+  const sha = 'aaaa1111111'
+  await mount({ log: [commit(sha, 'tip')], provenanceReads: [new Error('offline'), new Error('offline')] })
+  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  const detail = container.querySelector<HTMLElement>('section[aria-label="Commit provenance"]')!
+  expect(detail.textContent).toContain('Provenance could not be read.')
+  expect([...detail.querySelectorAll('button')].some((item) => item.textContent === 'Retry provenance')).toBe(true)
+})
+
+it('uses the shared search field for history and refs, with history clearable', async () => {
+  await mount({})
+  const history = container.querySelector<HTMLInputElement>('input[aria-label="Search history"]')
+  const refs = container.querySelector<HTMLInputElement>('input[aria-label="Filter refs"]')
+  for (const input of [history, refs]) {
+    expect(input?.type).toBe('search')
+    expect(input?.closest('[data-slot="search"]')).not.toBeNull()
+  }
+
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(history, 'needle')
+    history?.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const clear = container.querySelector<HTMLButtonElement>('button[aria-label="Clear the search"]')
+  expect(clear?.closest('[data-slot="search"]')).toBe(history?.closest('[data-slot="search"]'))
+  await act(async () => clear?.click())
+  expect(history?.value).toBe('')
 })
 
 it('uses padded canonical segments for the branch scope', async () => {
@@ -424,6 +526,24 @@ it('a branch row answers with the SourceTree menu, and delete asks in red first'
   expect(request).not.toHaveBeenCalledWith('git/deleteBranch', expect.anything())
   await act(async () => button('Delete').click())
   expect(request).toHaveBeenCalledWith('git/deleteBranch', { root: '/repo/app', name: 'feat/graph' })
+})
+
+it('a branch’s Review… opens the front door bound to that branch, without checking it out', async () => {
+  const { store, request } = await mount({ log: [commit('aaaa1111111', 'tip')] })
+  const row = [...document.body.querySelectorAll('button')].find((node) => node.title.startsWith('feat/graph —'))!
+  await rightClick(row)
+
+  const menu = document.querySelector('[role="menu"]')!
+  expect(menu.textContent).toContain('Review…')
+
+  await act(async () => button('Review…').click())
+
+  expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'branch', root: '/repo/app', branch: 'feat/graph' }, undefined)
+  // No checkout, and no history/provenance fetch — a branch shortcut supplies
+  // a context to resolve, never authority to act on the working tree.
+  expect(request).not.toHaveBeenCalledWith('git/checkout', expect.anything())
+  // The dry-run dialog itself mounted, reading the (empty) catalogue.
+  expect(document.body.textContent).toContain('No shapes here yet')
 })
 
 it('the commit menu offers the git verbs, and cherry-pick refuses a merge', async () => {
@@ -1048,4 +1168,18 @@ it('a file staged and then changed again is one file to commit, not two', async 
   await act(async () => button('Commit').click())
   const rows = [...document.querySelectorAll('[role="checkbox"]')].filter((node) => node.textContent?.includes('src/a.ts'))
   expect(rows).toHaveLength(1)
+})
+
+/**
+ * The commit's head stands on the tool bar, which wraps its controls in a
+ * narrow pane. The head is one line of text whose subject ellipsises, so it
+ * says `nowrap`: wrapped, a long subject would drop under the id on a line of
+ * its own. Read as text, because the CSS module is stubbed here.
+ */
+it('keeps the open commit’s head on one line, while the other tool bars wrap', () => {
+  expect(gitPaneSource).toContain('<ToolPaneBar variant="tools" className={styles.detailHead}>')
+  const at = gitPaneCss.indexOf('.detailHead {')
+  expect(at, 'the head has a rule of its own').toBeGreaterThan(-1)
+  const rule = gitPaneCss.slice(at, gitPaneCss.indexOf('}', at)).replace(/\/\*[\s\S]*?\*\//g, '')
+  expect(rule).toMatch(/flex-wrap:\s*nowrap/)
 })

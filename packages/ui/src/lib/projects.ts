@@ -1,5 +1,7 @@
 import type { SessionSummary, WorkspaceEntry } from '@harnessdesk/protocol'
 
+import { isPathInside, relativeTo, shortPath } from './paths'
+
 /**
  * Sessions grouped by project, where a project is a repository rather than
  * a folder.
@@ -62,6 +64,21 @@ export const isWorktreeSession = (summary: SessionSummary): boolean =>
   summary.repo ? summary.repo.worktree : isWorktreePath(summary.cwd)
 
 export const folderName = (path: string): string => path.split('/').filter(Boolean).at(-1) ?? path
+
+/**
+ * A folder, the way a person reads one beside the work it holds: the project's
+ * own short name when it is the project (`widgets`), that name plus the way
+ * down when it is inside it (`widgets/packages/ui`), and otherwise a
+ * home-shortened path (`~/elsewhere`) — never the raw absolute one, which is
+ * the hover's to carry.
+ */
+export const folderShown = (path: string, home: string | null | undefined, project?: string | null): string => {
+  if (project && isPathInside(path, project)) {
+    const below = relativeTo(path, project)
+    return below === path ? folderName(project) : `${folderName(project)}/${below}`
+  }
+  return shortPath(path, home)
+}
 
 /**
  * One key per repository, whatever the remote's spelling:
@@ -176,7 +193,7 @@ export const groupByProject = (
   }
 
   // A worktree is a checkout to work in, not a project to be homed at.
-  const claimant = current === null || currentIsWorktree(current) ? null : current.path
+  const claimant = current === null || currentIsWorktree(current) ? null : ownPathOf(current)
   return [...byKey.entries()].map(([key, { sessions, cwds }]) => {
     const root = homeOf(key, cwds, known, claimant)
     return {
@@ -192,6 +209,59 @@ const currentIsWorktree = (workspace: WorkspaceEntry): boolean =>
   workspace.repo ? workspace.repo.worktree : isWorktreePath(workspace.path)
 
 /**
+ * `workspace.path`, corrected for the one case a plain string cannot answer.
+ *
+ * The host keeps `workspace.path` at the spelling it was opened at,
+ * deliberately not `realpath`'d (`describeWorkspace`) — a session with no
+ * git repository is matched against the open list by that same raw spelling,
+ * and resolving links there would strand that case. But git's own root for
+ * this folder (`checkoutRoot`, or `repo.root` outside a worktree) is computed
+ * by resolving them, so when the folder was reached through one — macOS keeps
+ * its own temporary folders behind `/var` → `/private/var` — that root is not
+ * a textual ancestor of the path that produced it. That disagreement can
+ * only be a spelling difference, never a real subfolder: an ordinary
+ * subfolder of an ordinary checkout always passes the lexical check, so this
+ * never touches the "home where you are standing" rule below, and resolves
+ * only the spelling a link introduced. Grouping sessions by `repo.root`
+ * while the workspace list kept the open folder's own spelling filed the same
+ * project under two keys, and it showed up twice in the sidebar (#898).
+ *
+ * Outside git there is no `repo.root` to disagree with — `checkout` is
+ * `null` — but the same link can still be in the opened spelling, and the
+ * folder's own sessions still report their real `cwd` (an agent process
+ * started at a link answers `getcwd` resolved, same as git does). `path`
+ * itself is not the answer there either, so this reads `workspace.realPath`
+ * — the host's own resolution of the same folder, kept separate from `path`
+ * for exactly this reason — with the identical lexical test: only a link
+ * fails it, an ordinary folder passes and is left alone (#907).
+ */
+const ownPathOf = (workspace: WorkspaceEntry): string => {
+  const checkout = workspace.checkoutRoot ?? workspace.repo?.root ?? null
+  if (checkout) return isPathInside(workspace.path, checkout) ? workspace.path : checkout
+  const real = workspace.realPath ?? null
+  return real && !isPathInside(workspace.path, real) ? real : workspace.path
+}
+
+/**
+ * The folder a Goal, a flow or a race actually starts in.
+ *
+ * Never the canonical form: a Seat's checkout, a flow's `cwd` and a race's
+ * worktree are all cut from the folder that was genuinely opened, and
+ * `ownPathOf`'s corrected root is a *different folder on disk* the moment a
+ * subfolder — or a link into a monorepo package — is what got opened. A
+ * review of #905 caught this reading `ownPathOf` for exactly that reason:
+ * creation started at the repository's own top instead of the subfolder
+ * standing open in front of the person who asked for it. Only a worktree is
+ * special here, and it already was before that fix — a worktree is a
+ * checkout to work in, not a project to be homed at, so this defers to the
+ * checkout it was cut from.
+ */
+export const projectRootOf = (workspace: WorkspaceEntry | null | undefined): string | null => {
+  if (!workspace) return null
+  return currentIsWorktree(workspace) ? (workspace.repo?.root ?? workspace.path) : workspace.path
+}
+
+/**
  * The row the folder you have open belongs to.
  *
  * The same answer `homeOf` gives, and it has to be: everything the list does
@@ -202,8 +272,37 @@ const currentIsWorktree = (workspace: WorkspaceEntry): boolean =>
  * highlight. So an open subfolder still claims its project's home, exactly as
  * grouping lets it, and only a worktree defers to the checkout it was cut
  * from.
+ *
+ * Grouping and comparison only. Never read this where a folder is about to be
+ * acted on — `projectRootOf` is that answer, and it is deliberately a
+ * different function: the day these two were one, creating a Goal in a
+ * subfolder reached through a link created it at the repository's own top
+ * instead (a review of #905 caught it).
  */
-export const projectRootOf = (workspace: WorkspaceEntry | null | undefined): string | null => {
+export const projectGroupRootOf = (workspace: WorkspaceEntry | null | undefined): string | null => {
   if (!workspace) return null
-  return currentIsWorktree(workspace) ? (workspace.repo?.root ?? workspace.path) : workspace.path
+  return currentIsWorktree(workspace) ? (workspace.repo?.root ?? workspace.path) : ownPathOf(workspace)
+}
+
+/**
+ * `listPrefs.pinned`/`.collapsed`, corrected for the one spelling a link
+ * could have recorded them under.
+ *
+ * A pin or a fold names a project by its group's `root`. Before #898's fix a
+ * project reached through a link — macOS's own `/var` → `/private/var` — was
+ * homed at the raw, unresolved path; `projectGroupRootOf` now homes it at the
+ * canonical one instead, so a pin or fold recorded under the old spelling no
+ * longer matches the root the list reads by. The open workspace is the only
+ * place both spellings are ever known at once, so it is the only entry a
+ * plain read can correct — anything pinned or folded under a project that is
+ * not open right now is unaffected either way, for better or worse.
+ */
+export const migratedRoots = (
+  roots: readonly string[],
+  workspace: WorkspaceEntry | null | undefined,
+): readonly string[] => {
+  if (!workspace) return roots
+  const canonical = projectGroupRootOf(workspace)
+  if (!canonical || canonical === workspace.path) return roots
+  return roots.map((root) => (root === workspace.path ? canonical : root))
 }

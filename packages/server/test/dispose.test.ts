@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import fs from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -14,7 +15,10 @@ import {
 } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
+import { ProvenancePlane } from '../src/provenance/plane.js'
+import { Team } from '../src/team.js'
 import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
+import { shippedAgentsCopy } from './fixtures/harness.js'
 
 /**
  * The quit reaches every runtime before a catalogue re-read can resume.
@@ -217,4 +221,103 @@ test('the quit waits out the writers, so what was recorded is on disk when it re
     .filter(Boolean)
     .map((line) => (JSON.parse(line) as { kind: string }).kind)
   assert.deepEqual(kinds, ['session/started', 'approval/decided'])
+})
+
+/**
+ * Provenance deliberately starts outside the interactive launch path, but its
+ * state work still belongs to the host that started it. A quit which resolves
+ * while that startup is parked lets a following test remove the state folder
+ * before the observer and its journal have joined the teardown.
+ */
+test('the quit owns a provenance startup before its state directory can be removed', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-provenance-'))
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+    catalogRefreshMs: 0,
+  })
+  host.register(new FakeRuntime())
+  let release: () => void = () => undefined
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let arrived: () => void = () => undefined
+  const reading = new Promise<void>((resolve) => { arrived = resolve })
+  let continueQuit: () => void = () => undefined
+  const afterTeamFlush = new Promise<void>((resolve) => { continueQuit = resolve })
+  let teamFlushed: () => void = () => undefined
+  const atProvenanceBoundary = new Promise<void>((resolve) => { teamFlushed = resolve })
+  let provenanceCloseCalled = false
+  const originalRead = fs.readFile
+  t.mock.method(fs, 'readFile', async (...args: Parameters<typeof fs.readFile>) => {
+    if (String(args[0]).endsWith('provenance-preferences.json')) {
+      arrived()
+      await gate
+    }
+    return originalRead(...args)
+  })
+  const originalTeamFlush = Team.prototype.flush
+  t.mock.method(Team.prototype, 'flush', async function (this: Team) {
+    await originalTeamFlush.call(this)
+    teamFlushed()
+    await afterTeamFlush
+  })
+  const originalProvenanceClose = ProvenancePlane.prototype.close
+  t.mock.method(ProvenancePlane.prototype, 'close', async function (this: ProvenancePlane) {
+    provenanceCloseCalled = true
+    await originalProvenanceClose.call(this)
+  })
+
+  await host.start()
+  await reading
+  const quitting = host.dispose()
+  await atProvenanceBoundary
+  continueQuit()
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(provenanceCloseCalled, false, 'the detached provenance startup still belongs to this quit')
+
+  release()
+  await quitting
+  await rm(stateDir, { recursive: true, force: true })
+  assert.equal(existsSync(stateDir), false, 'nothing the disposed host owns can recreate its state directory')
+})
+
+/**
+ * F6 of the Task 8 fix: a quit that lands while `start()` is still working
+ * through its own awaits (state, rooms, flow runs, names — every one of them
+ * a yield a quit can land in) must never leave a roster watch made after
+ * `dispose()` has already run. `start()` guards making one on `#disposed`,
+ * read at the one place the watch is about to be made; the plainest way to
+ * land a quit before that read, without racing real timing, is to dispose
+ * before `start()` is ever called; a disposed host's own `#disposed` reads no
+ * differently whichever came first, so this is the same guard a quit reaching
+ * mid-`start()` depends on, exercised without a probabilistic race.
+ */
+test('a host disposed before start() ever runs makes no roster watch', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-watch-'))
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+    catalogRefreshMs: 0,
+    // Counted below: a copy, so no edit to the real shipped folder can be one.
+    builtinAgents: await shippedAgentsCopy(),
+  })
+  const pushed: unknown[] = []
+  host.addBroadcaster((notification) => pushed.push(notification))
+
+  await host.dispose()
+  await host.start()
+  // Dispose before removing the folder it wrote into: removing first races
+  // the host's own writes and can leave later hooks unrun (#868).
+  t.after(() => host.dispose())
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+
+  // If a watch had been made anyway, this is exactly what it exists to notice.
+  await mkdir(join(stateDir, 'agents', 'scout'), { recursive: true })
+  await writeFile(join(stateDir, 'agents', 'scout', 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  assert.deepEqual(
+    pushed.filter((one) => typeof one === 'object' && one !== null && 'method' in one && (one as { method: unknown }).method === 'agent/changed'),
+    [],
+    'a host disposed before start() ever ran made no watch to notice this',
+  )
 })

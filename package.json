@@ -1,6 +1,6 @@
 {
   "name": "harnessdesk",
-  "version": "0.2.0",
+  "version": "0.2.4",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -60,12 +60,14 @@
     "design": "pnpm --filter @harnessdesk/ui run dev",
     "test:ui-system": "playwright test -c playwright.ui-system.config.ts",
     "test:ui-system:install": "playwright install chromium",
+    "design:metrics": "UPDATE_METRICS=1 playwright test -c playwright.ui-system.config.ts metrics.spec.ts",
     "test:ui-system:native": "node e2e/ui-system/native-smoke.mjs",
     "layering": "node script/check-layering.mjs",
     "check:fixes": "node script/check-half-applied-fixes.mjs",
     "icons": "node script/build-icons.mjs",
     "avatars": "node script/cut-avatars.mjs",
-    "dsh:compare": "node script/dsh-compare.mjs"
+    "dsh:compare": "node script/dsh-compare.mjs",
+    "release": "node script/release.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

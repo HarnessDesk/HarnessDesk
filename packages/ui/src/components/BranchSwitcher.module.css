@@ -9,35 +9,13 @@
   margin: 2px 6px 4px;
 }
 
-.searchIcon {
-  position: absolute;
-  left: 9px;
-  color: var(--hd-muted-foreground);
-  pointer-events: none;
-}
-
 .filter {
   width: 100%;
-
- /* desk: canonical One UI System scale */
-
 }
 
 .list {
-  max-height: 260px;
   overflow-y: auto;
-}
-
-.note,
-.error {
-  padding: 6px 10px 8px;
-  font-size: var(--hd-text-sm);
-  line-height: 17px;
-  color: var(--hd-muted-foreground);
-}
-
-.error {
-  color: var(--hd-danger);
+  max-height: min(260px, 50vh);
 }
 
 .create {
@@ -55,7 +33,4 @@
 
 .createButton {
   flex: none;
-
- /* desk: #fff → the ink named for a brand fill */
-
 }

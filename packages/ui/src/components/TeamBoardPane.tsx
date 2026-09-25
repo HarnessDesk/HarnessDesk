@@ -2,40 +2,51 @@ import { useEffect, useMemo, useState } from 'react'
 
 import {
   sessionKey,
+  type BoardEvidence,
+  type CardEvidence,
+  type CheckUnseen,
   type Intent,
   type SessionId,
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
-import { Dialog, Input } from '../design'
+import { Dialog, Field, Input, Note, Text } from '../design'
 import { runtimeTint } from '../lib/accounts'
+import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
+import { shortSha } from '../lib/git-refs'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
+import { EvidenceChips } from './EvidenceChips'
+import { RunCheck } from './RunCheck'
+import { FrontDoor } from './FrontDoor'
 import { HandOut } from './HandOut'
+import { GoalAssign } from './GoalAssign'
 import { SessionHoverCard } from './AgentCards'
-import { useDismissOverlays } from '../design'
 import { BrandMark } from './BrandIcons'
 import {
   AgentIcon,
   BranchIcon,
   ClockIcon,
   HandoffIcon,
+  MoreIcon,
   PlanIcon,
   PlusIcon,
+  TeamIcon,
 } from './Icons'
 import {
   Board,
   BoardCard,
   BoardColumn,
-  BoardMenuButton,
+  Banner,
+  BannerAction,
   Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   EmptyState,
   IconTile,
+  Menu,
+  MenuItem,
+  MenuSeparator,
+  Popover,
   ToolPane,
   ToolPaneBody,
   ToolPaneHeader,
@@ -105,19 +116,19 @@ import {
  * actually stuck. The distinction was in the data the whole time; this is a
  * projection change, not a schema change.
  */
-type ColumnId = 'waiting' | 'open' | 'claimed' | 'blocked' | 'done'
+const TINTS: Readonly<Record<FactColumn, Tint>> = {
+  todo: 'teal',
+  working: 'sky',
+  needs: 'amber',
+  review: 'violet',
+  ready: 'green',
+  aside: 'blue',
+}
 
-const COLUMNS: readonly { state: ColumnId; title: string; tint: Tint }[] = [
-  /* Waiting takes `teal`, the quietest tint in the set that is not already
-     spoken for: it identifies a column, it does not judge one. Nothing here is
-     wrong — the graph simply has not reached it — so it must not borrow
-     Blocked's amber and read as a second problem. */
-  { state: 'waiting', title: 'Waiting', tint: 'teal' },
-  { state: 'open', title: 'Ready', tint: 'sky' },
-  { state: 'claimed', title: 'Claimed', tint: 'violet' },
-  { state: 'blocked', title: 'Blocked', tint: 'amber' },
-  { state: 'done', title: 'Done', tint: 'green' },
-]
+const COLUMNS: readonly { id: FactColumn; title: string; tint: Tint }[] = FACT_COLUMNS.map((column) => ({
+  ...column,
+  tint: TINTS[column.id],
+}))
 
 /** How long ago, said the way a person would say it. */
 const describeAge = (ms: number): string => {
@@ -159,15 +170,6 @@ const strandedFor = (
   return now - until
 }
 
-/**
- * Abandoned work is settled but not done, and must not sit in `Done` looking
- * finished — it is folded into the last column wearing its own chip.
- */
-const columnOf = (intent: Intent): ColumnId => {
-  if (intent.state === 'abandoned') return 'done'
-  if (intent.state === 'blocked') return intent.blockedBy === 'hand' ? 'blocked' : 'waiting'
-  return intent.state
-}
 
 /**
  * What the room calls the conversation holding a claim.
@@ -187,60 +189,16 @@ const nicknameOf = (
 /** The user's verbs, as the host will take them. */
 type Verb = 'reopen' | 'abandon' | 'done' | 'release' | 'block'
 
-/**
- * What dropping this card on that column would do — or why nothing happens.
- *
- * The honest half of drag-and-drop, and the half every reference gets wrong by
- * letting a card land anywhere and inventing a state for it. Three of the five
- * columns are the user's to fill and two are not, because the *engine* says so:
- *
- *   Ready and Done    are `release`/`reopen` and `done` — the referee's verbs,
- *                     which always win over a claim.
- *   Blocked           is `block`, and it is the one drop that asks a question
- *                     first. A card there has to say what stopped it, or the
- *                     column is a place work goes to be forgotten — so the
- *                     drop opens a field rather than guessing a reason
- *                     nobody gave.
- *   Claimed           is not handed out. An agent claims work, and that is
- *                     what makes the file lock mean anything.
- *   Waiting           belongs to the dependency graph. A card is there because
- *                     something it depends on is unfinished, and it leaves the
- *                     moment that lands — dropping one in would be a claim
- *                     about other work that is not true.
- *
- * So a refusal is a sentence, shown on the column while the card is in the
- * air, rather than a drop that silently does nothing.
- */
-const dropOn = (
-  intent: Intent,
-  to: ColumnId,
-): { verb: Verb; label: string } | { refusal: string } | null => {
-  if (columnOf(intent) === to) return null
-  if (to === 'done') return { verb: 'done', label: `Mark #${intent.id} done` }
-  if (to === 'open')
-    return intent.state === 'claimed'
-      ? { verb: 'release', label: `Take #${intent.id} back off its holder` }
-      : { verb: 'reopen', label: `Put #${intent.id} back in play` }
-  /* The three the user has no verb for, each said in its own words. One shared
-     sentence would have been a rule about the board; these are three different
-     facts about who owns which column. */
-  if (to === 'blocked') return { verb: 'block', label: `Stop #${intent.id} — you will be asked why` }
-  if (to === 'claimed')
-    return {
-      refusal: 'A job is claimed by the agent that takes it, never handed out. Ask someone to pick it up.',
-    }
-  return {
-    refusal: 'Waiting is the dependency graph’s to decide; it clears when the work it waits on lands.',
-  }
-}
+type BoardChecks = Pick<BoardEvidence, 'checks' | 'refused' | 'unreadable'>
+
+const NO_CHECKS: BoardChecks = { checks: [], refused: [], unreadable: null }
+
+const CHECKS_FILE_WORDS = '.harnessdesk/checks.yml'
 
 export const TeamBoardPane = ({ room }: { room: string }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [trouble, setTrouble] = useState<string | null>(null)
-  /** Which card is in the air, and which column the pointer is over. */
-  const [dragging, setDragging] = useState<number | null>(null)
-  const [over, setOver] = useState<ColumnId | null>(null)
   /**
    * The long form, and the goal it was opened from.
    *
@@ -248,8 +206,9 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
    * Add beside a goal does not make anybody pick it out of a menu they were
    * just looking at.
    */
-  const [detailed, setDetailed] = useState<null | { plan: number | null }>(null)
+  const [detailed, setDetailed] = useState(false)
   const [handing, setHanding] = useState(false)
+  const [assigning, setAssigning] = useState<number | null>(null)
   /**
    * Who is on this board, from the host.
    *
@@ -271,26 +230,22 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const peers = roster && roster.room === room ? roster.peers : null
   /** The job being stopped, while its reason is being written. */
   const [stopping, setStopping] = useState<Intent | null>(null)
+  const [asking, setAsking] = useState<{ readonly card: number; readonly unseen: CheckUnseen } | null>(null)
+  const [starting, setStarting] = useState(false)
+  const [startingTeam, setStartingTeam] = useState(false)
 
   /* Boards are keyed by room, so a room that has gone — deleted, or named by
      a layout written before it existed — simply has no entry, which is the
      empty state below rather than an error. */
   const board = snapshot.teams.get(room)
+  const goal = snapshot.goals.get(room)
   const intents = board?.intents ?? []
-  /* Only the goals still running: a wrapped one has said what it had to say,
-     and a band that grew forever would push the work off the screen. */
-  const running = (board?.plans ?? []).filter(
-    (plan) => plan.state === 'running',
-  )
-
   const openCards = intents.filter((one) => one.state === 'open' && !one.claim).length
-
-  const byColumn = useMemo(() => {
-    const out = new Map<ColumnId, Intent[]>()
-    for (const column of COLUMNS) out.set(column.state, [])
-    for (const intent of intents) out.get(columnOf(intent))?.push(intent)
-    return out
-  }, [intents])
+  /* The front door's own reusable-empty-Goal rule: no Seats yet. A Goal
+     already carrying one is a live effort, not a blank slate — reusing it
+     from here would start a second, unrelated run beside it rather than
+     the fresh one this button promises. */
+  const emptyGoal = goal !== undefined && goal.members.length === 0 ? goal : null
 
   /* Membership changes when a conversation opens or closes, and when somebody
      is added to or taken out of the room — that last one takes neither a new
@@ -305,6 +260,20 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   useEffect(() => {
     void store.loadFlowRuns(room)
   }, [store, room])
+
+  useEffect(() => {
+    const read = (): void => void store.loadBoardEvidence(room)
+    read()
+    const timer = setInterval(read, 30_000)
+    window.addEventListener('focus', read)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', read)
+    }
+  }, [store, room])
+  const evidence = snapshot.boardEvidence.get(room)
+  const evidenceFailed = snapshot.boardEvidenceFailed.has(room)
+  const waitingForEvidence = evidence === undefined && intents.some((intent) => intent.state === 'done')
   useEffect(() => {
     let live = true
     void store
@@ -362,25 +331,48 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
     return () => clearInterval(timer)
   }, [watchingLeases])
 
-  const inFlight = dragging === null ? null : (intents.find((one) => one.id === dragging) ?? null)
-
-  /**
-   * A title, straight onto the board.
-   *
-   * The composer clears the moment it hands the title over, so this only has
-   * to say what happened. A refusal used to have to put the words back into a
-   * field that had never let go of them; now it says so in the pane's own
-   * trouble line and quotes the title, because the field it came from has
-   * already moved on to the next card.
-   */
-  const add = (title: string): void => {
-    void store
-      .teamAdd(room, { title })
-      .then(() => setTrouble(null))
-      .catch(() =>
-        setTrouble(`The host did not take “${title}”; the board is as it was.`),
+  const waiting = useMemo(() => new Set(snapshot.approvals.map((one) => one.key)), [snapshot.approvals])
+  const flowRun = (snapshot.flowRuns.get(room) ?? []).find(
+    (one) => one.state === 'running' || one.state === 'stalled',
+  )
+  const executions = useMemo(
+    () => [...snapshot.flowExecutions.values()].filter((one) => one.goal === room),
+    [snapshot.flowExecutions, room],
+  )
+  const placed = useMemo(() => {
+    const out = new Map<number, Placement>()
+    for (const intent of intents) {
+      // A completed card's column is an evidence verdict. Until the first
+      // read succeeds, omitting it is honest; “nothing checked” is not.
+      if (intent.state === 'done' && evidence === undefined) continue
+      const role = flowStepOf(intent, flowRun, executions)
+      out.set(
+        intent.id,
+        placeCard({
+          intent,
+          evidence: evidence?.cards.find((one) => one.card === intent.id),
+          stranded: strandedFor(intent, now, attached) !== null,
+          holderWaits: intent.claim
+            ? waiting.has(sessionKey(intent.claim.runtime, intent.claim.sessionId as SessionId))
+            : false,
+          forPerson: role?.kind === 'person',
+        }),
       )
-  }
+    }
+    return out
+  }, [intents, evidence, now, attached, waiting, flowRun, executions])
+  const byColumn = useMemo(() => {
+    const out = new Map<FactColumn, Intent[]>()
+    for (const column of COLUMNS) out.set(column.id, [])
+    for (const intent of intents) {
+      const placement = placed.get(intent.id)
+      if (placement) out.get(placement.column)?.push(intent)
+    }
+    return out
+  }, [intents, placed])
+  const shown = COLUMNS.filter(
+    (column) => column.id !== 'aside' || (byColumn.get('aside')?.length ?? 0) > 0,
+  )
 
   /* The reason is only ever passed when there is one: `block` is the only verb
      that reads it, and handing the other four an explicit `undefined` makes
@@ -411,28 +403,40 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
       )
   }
 
-  const openAdd = (plan: number | null): void => setDetailed({ plan })
+  const openAdd = (): void => setDetailed(true)
+
+  const runCheck = (
+    card: number,
+    name: string,
+    answer?: { readonly seen: string; readonly digest: string },
+  ): void => {
+    setStarting(answer !== undefined)
+    void (answer !== undefined
+      ? store.runCheck(room, card, name, answer)
+      : store.runCheck(room, card, name))
+      .then((result) => {
+        if (result.kind === 'unseen') {
+          setAsking({ card, unseen: result.unseen })
+          return
+        }
+        setAsking(null)
+        setTrouble(null)
+      })
+      .catch((error: unknown) => {
+        setAsking(null)
+        setTrouble(
+          error instanceof Error && error.message
+            ? error.message
+            : `${name} did not start on #${card}; nothing ran.`,
+        )
+      })
+      .finally(() => setStarting(false))
+  }
 
   /** The edge that makes this a board and not a chart: task to conversation. */
   const openHolder = (intent: Intent): void => {
     if (!intent.claim) return
     void store.openSession(intent.claim.sessionId as SessionId, { runtime: intent.claim.runtime })
-  }
-
-  const drop = (to: ColumnId): void => {
-    const intent = inFlight
-    setDragging(null)
-    setOver(null)
-    if (!intent) return
-    const outcome = dropOn(intent, to)
-    if (!outcome || 'refusal' in outcome) return
-    /* The one drop that asks a question. A card in Blocked that does not say
-       what stopped it sends every reader to the channel to find out, which is
-       the trip the board exists to save — so the reason is collected before
-       the move rather than hoped for after it. Cancelling leaves the card
-       exactly where it was. */
-    if (outcome.verb === 'block') return setStopping(intent)
-    act(intent.id, outcome.verb)
   }
 
   return (
@@ -441,7 +445,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        whatever the room's rail left over. The header's tally is the first
        thing to go — the columns are counted anyway — and the button that adds
        work keeps its label to the last. */
-    <ToolPane className="@container/board size-full rounded-none border-0">
+    <ToolPane variant="integrated" className="@container/board">
       <ToolPaneHeader
         icon={<PlanIcon />}
         title="Board"
@@ -452,9 +456,9 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         subtitle={
           intents.length === 0
             ? 'Nothing on the board yet'
-            : `${byColumn.get('open')?.length ?? 0} ready · ${
-                byColumn.get('claimed')?.length ?? 0
-              } claimed · ${byColumn.get('blocked')?.length ?? 0} blocked`
+            : `${byColumn.get('todo')?.length ?? 0} to do · ${
+                byColumn.get('working')?.length ?? 0
+              } working · ${byColumn.get('needs')?.length ?? 0} need you`
         }
         subtitleFace="text"
         actions={
@@ -503,7 +507,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                  job" has to match what is announced. */
               aria-label="New job — add work with files, dependencies and a goal"
               title="Add work with files, dependencies and a goal"
-              onClick={() => openAdd(null)}
+              onClick={openAdd}
             >
               <PlusIcon />
               {/* The label goes at the narrowest width and the glyph carries
@@ -515,211 +519,68 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         }
       />
       <ToolPaneBody>
-        {trouble && (
-          <p className="mb-2 text-xs text-(--hd-danger-ink)" role="alert">
-            {trouble}
-          </p>
+        {trouble && <Note tone="bad">{trouble}</Note>}
+        {waitingForEvidence && (
+          <Banner
+            tone={evidenceFailed ? 'danger' : 'info'}
+            title={evidenceFailed ? 'Evidence unavailable' : 'Checking current evidence'}
+            role={evidenceFailed ? 'alert' : 'status'}
+            actions={
+              evidenceFailed ? (
+                <BannerAction onClick={() => void store.loadBoardEvidence(room)}>Try again</BannerAction>
+              ) : undefined
+            }
+          >
+            {evidenceFailed
+              ? 'The desk could not read the current facts, so completed work has not been placed.'
+              : 'Completed work will be placed after the desk reads its current facts.'}
+          </Banner>
         )}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —
             and the refusal, when something is still live, is read here rather
             than thrown away, because it is an answer rather than a failure. */}
-        {running.length > 0 && (
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            {running.map((plan) => {
-              const live = intents.filter(
-                (one: Intent) =>
-                  one.plan === plan.id && one.state !== 'done' && one.state !== 'abandoned',
-              ).length
-              return (
-                <span
-                  key={plan.id}
-                  className="flex items-center gap-2 rounded-(--hd-radius-sm) bg-(--hd-muted) px-2 py-1"
-                >
-                  <span className="text-xs font-medium">{plan.goal}</span>
-                  <span className="text-xs text-(--hd-muted-foreground) tabular-nums">
-                    {live > 0 ? `${live} live` : 'all done'}
-                  </span>
-                  {/* Work goes onto a goal from the goal itself: the one place
-                      a reader is already thinking about that goal, and the only
-                      way `plan` gets set without typing an id. */}
-                  <Button
-                    variant="muted"
-                    size="xs"
-                    title={`Add work to “${plan.goal}”`}
-                    onClick={() => openAdd(plan.id)}
-                  >
-                    <PlusIcon />
-                    Add
-                  </Button>
-                  <Button
-                    variant="muted"
-                    size="xs"
-                    disabled={live > 0}
-                    title={
-                      live > 0
-                        ? `${live} ${live === 1 ? 'job is' : 'jobs are'} still live on this goal`
-                        : 'Put this goal away; its jobs stay as the record'
-                    }
-                    onClick={() => {
-                      void store
-                        .teamWrap(room, plan.id)
-                        .then((answer) =>
-                          setTrouble(answer.startsWith('Refused') ? answer : null),
-                        )
-                        .catch(() =>
-                          setTrouble('The host did not take that; the board is as it was.'),
-                        )
-                    }}
-                  >
-                    Wrap up
-                  </Button>
-                </span>
-              )
-            })}
-          </div>
-        )}
         {intents.length === 0 ? (
           <EmptyState
             icon={<PlanIcon />}
             title="Nothing on the board"
             description="Work added here — by you, or by any agent that can reach the board — can be claimed by one conversation at a time, with its files owned while the claim lives."
           >
-            <Button size="sm" className="self-center" onClick={() => openAdd(null)}>
+            <Button size="sm" className="self-center" onClick={openAdd}>
               <PlusIcon />
               Add the first job
             </Button>
+            {emptyGoal && (
+              <Button size="sm" variant="secondary" className="self-center" onClick={() => setStartingTeam(true)}>
+                <TeamIcon />
+                Start with a team
+              </Button>
+            )}
           </EmptyState>
         ) : (
-          /* Wrapped, not scrolled: five fixed states in a pane that gives its
-             width up to the right dock and the rail. A scrolled board does not
-             get shorter, it hides a state — and the first to go is Blocked,
-             which is what the board was opened to find. */
-          <Board wrap>
-            {COLUMNS.map((column) => {
-              const cards = byColumn.get(column.state) ?? []
-              const outcome = inFlight ? dropOn(inFlight, column.state) : null
-              const refused = outcome !== null && 'refusal' in outcome
-              const takes = outcome !== null && !('refusal' in outcome)
+          <Board wrap derived>
+            {shown.map((column) => {
+              const cards = byColumn.get(column.id) ?? []
               return (
-                <BoardColumn
-                  key={column.state}
-                  title={column.title}
-                  count={cards.length}
-                  tint={column.tint}
-                  /* Only the column a person can actually put new work into
-                     carries the add affordance. On the other four it would be
-                     a button that adds somewhere else, which is worse than no
-                     button at all.
-
-                     One affordance, not two: the slot at the foot takes a
-                     title on the spot, which is the quick path that used to be
-                     a field in the pane header, moved to the place the card
-                     will appear. The column keeps no `+` of its own, because
-                     the long form already has a door — the pane header's — and
-                     a third way to add work on one screen is a reader deciding
-                     which of three buttons they meant. */
-                  {...(column.state === 'open'
-                    ? {
-                        addLabel: 'Add work',
-                        addPlaceholder: 'Title, then Enter',
-                        onAddTitle: add,
-                      }
-                    : {})}
-                  {...(inFlight
-                    ? {
-                        /* The outline belongs to the column the pointer is
-                           over *and* that would take the card. Keyed on `over`
-                           alone, it stayed lit on the last legal column while
-                           the pointer sat on an illegal one — which is the
-                           board pointing at the wrong place at the exact
-                           moment somebody is deciding where to let go. */
-                        'data-over': over === column.state && takes ? '' : undefined,
-                        'data-takes': takes ? '' : undefined,
-                        'data-refused': refused ? '' : undefined,
-                      }
-                    : {})}
-                  className={
-                    'transition-colors ' +
-                    /* The column the card would land in, said while it is still
-                       in the air. Dashed rather than filled: the card is not
-                       there yet. */
-                    'data-[over]:outline-2 data-[over]:outline-dashed data-[over]:outline-(--hd-primary) data-[over]:-outline-offset-2 ' +
-                    'data-[refused]:opacity-45'
-                  }
-                  onDragOver={(event) => {
-                    if (!inFlight) return
-                    /* Every column the pointer crosses claims `over`, so the
-                       one it left stops being lit. Only a column that would
-                       take the card allows the drop, though: the rest keep the
-                       browser's "no" cursor, which is the platform saying the
-                       same thing the column already says in words. */
-                    if (over !== column.state) setOver(column.state)
-                    if (!takes) return
-                    event.preventDefault()
-                    event.dataTransfer.dropEffect = 'move'
-                  }}
-                  onDragLeave={(event) => {
-                    /* `dragleave` fires crossing every child, so the pointer
-                       leaving a card inside the column would clear the
-                       highlight the column just earned. */
-                    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
-                    setOver((was) => (was === column.state ? null : was))
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault()
-                    drop(column.state)
-                  }}
-                >
-                  {/* What this column would do with the card, or why it will
-                      not take it — said while the card is still in the air, and
-                      above the cards rather than under them, because it is a
-                      fact about the column and not about whatever happens to be
-                      last in it.
-
-                      A tooltip cannot carry either half: no browser shows one
-                      mid-drag. And the promise is the *verb*, not "drop here" —
-                      the four columns do four different things to a card, and
-                      the one a person is about to trigger is worth naming
-                      before they let go. */}
-                  {takes && (
-                    <p className="px-1.5 pb-1 text-xs leading-snug font-medium text-(--hd-primary-ink)">
-                      {(outcome as { label: string }).label}
-                    </p>
-                  )}
-                  {refused && (
-                    <p className="px-1.5 pb-1 text-xs leading-snug text-(--hd-muted-foreground)">
-                      {(outcome as { refusal: string }).refusal}
-                    </p>
-                  )}
+                <BoardColumn key={column.id} title={column.title} count={cards.length} tint={column.tint}>
                   {cards.map((intent) => (
                     <IntentCard
                       key={intent.id}
                       intent={intent}
                       room={room}
-                      dragging={dragging === intent.id}
-                      onDragStart={() => setDragging(intent.id)}
-                      onDragEnd={() => {
-                        setDragging(null)
-                        setOver(null)
-                      }}
+                      placement={placed.get(intent.id) ?? null}
                       now={now}
                       attached={attached}
+                      evidence={evidence?.cards.find((one) => one.card === intent.id)}
+                      checks={evidence ?? NO_CHECKS}
+                      onRunCheck={(name) => runCheck(intent.id, name)}
+                      onAssign={goal && !intent.claim && intent.state === 'open' ? () => setAssigning(intent.id) : undefined}
                       onOpenHolder={() => openHolder(intent)}
                       onAct={(verb, outcome) =>
                         verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)
                       }
                     />
                   ))}
-                  {cards.length === 0 && !inFlight && (
-                    /* A column with nothing in it still has to read as a
-                       column. Only while nothing is being dragged: with a card
-                       in the air the line above is saying something the reader
-                       needs more. */
-                    <p className="px-1.5 py-3 text-center text-xs text-(--hd-muted-foreground)">
-                      Nothing here
-                    </p>
-                  )}
                 </BoardColumn>
               )
             })}
@@ -736,6 +597,20 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           }}
         />
       )}
+      {asking && (
+        <RunCheck
+          unseen={asking.unseen}
+          card={asking.card}
+          busy={starting}
+          onRun={() =>
+            runCheck(asking.card, asking.unseen.check.name, {
+              seen: asking.unseen.check.run,
+              digest: asking.unseen.digest,
+            })
+          }
+          onCancel={() => setAsking(null)}
+        />
+      )}
       {handing && (
         <HandOut
           room={room}
@@ -745,15 +620,28 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           onTrouble={setTrouble}
         />
       )}
+      {assigning !== null && goal ? (
+        <GoalAssign view={goal} card={assigning} onClose={() => setAssigning(null)} />
+      ) : null}
       {detailed && (
         <AddWork
           room={room}
-          plan={detailed.plan}
-          plans={running}
           intents={intents}
           peers={peers ?? []}
-          onClose={() => setDetailed(null)}
+          onClose={() => setDetailed(false)}
           onTrouble={setTrouble}
+        />
+      )}
+      {startingTeam && emptyGoal && (
+        <FrontDoor
+          context={{ kind: 'project', root: emptyGoal.goal.root }}
+          goal={{ id: emptyGoal.goal.id, revision: emptyGoal.goal.revision }}
+          onClose={() => setStartingTeam(false)}
+          onStarted={() => {
+            // The same Goal, mid-start already — nothing here to navigate to
+            // that this pane is not already showing.
+            setStartingTeam(false)
+          }}
         />
       )}
     </ToolPane>
@@ -796,31 +684,34 @@ const StopWork = ({
         </>
       }
     >
-      <div className="flex flex-col gap-2">
-        <p className="text-sm text-(--hd-muted-foreground)">
-          “{intent.title}” goes to Blocked. Any claim on it is released, and a finished dependency
-          will not start it again — only a deliberate reopen will.
-        </p>
-        <Input
-          autoFocus
-          aria-label="Why it is stopped"
-          value={reason}
-          placeholder="Waiting on the rename"
-          onChange={(event) => setReason(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') onStop(reason)
-          }}
-        />
-        {/* Allowed through empty, and told what that costs. Refusing would put
-            a modal between a person and a board they are allowed to change;
-            saying nothing about it would produce the silent card this field
-            exists to prevent. */}
-        <p className="text-xs text-(--hd-muted-foreground)">
-          {reason.trim()
-            ? 'The card will say this, and so will the room.'
-            : 'Without a reason the card says only that you stopped it.'}
-        </p>
-      </div>
+      <p>
+        “{intent.title}” goes to Blocked. Any claim on it is released, and a finished dependency
+        will not start it again — only a deliberate reopen will.
+      </p>
+      {/* Allowed through empty, and told what that costs. Refusing would put
+          a modal between a person and a board they are allowed to change;
+          saying nothing about it would produce the silent card this field
+          exists to prevent. */}
+      <Field
+        label="Why it is stopped"
+        optional
+        hint={reason.trim()
+          ? 'The card will say this, and so will the room.'
+          : 'Without a reason the card says only that you stopped it.'}
+      >
+        {(control) => (
+          <Input
+            {...control}
+            autoFocus
+            value={reason}
+            placeholder="Waiting on the rename"
+            onChange={(event) => setReason(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') onStop(reason)
+            }}
+          />
+        )}
+      </Field>
     </Dialog>
   )
 }
@@ -833,55 +724,56 @@ const StopWork = ({
  * the column *cannot* say: who holds it, why it stopped, how long it has been
  * sitting there, and what it is waiting on.
  */
+import { seatCeilingOf } from '../lib/ceilings'
+import { CeilingChip } from './CeilingChip'
+
 const IntentCard = ({
   intent,
   room,
-  dragging,
+  placement,
   now,
   attached,
-  onDragStart,
-  onDragEnd,
+  evidence,
+  checks,
+  onRunCheck,
+  onAssign,
   onOpenHolder,
   onAct,
 }: {
   intent: Intent
   room: string
-  dragging: boolean
+  placement: Placement | null
   /** The pane's clock, so a lease runs out on screen and not only on re-render. */
   now: number
   /** The host's peer list, as a predicate. `null` until it has answered. */
   attached: null | ((claim: { runtime: string; sessionId: string }) => boolean)
-  onDragStart: () => void
-  onDragEnd: () => void
+  /** What the desk observed on this card; undefined when nothing. */
+  evidence: CardEvidence | undefined
+  /** The checks the room's project names: to run, refused, or none readable. */
+  checks: BoardChecks
+  onRunCheck: (name: string) => void
+  onAssign?: () => void
   onOpenHolder: () => void
   /** `outcome` is what the person answered, on a card a flow addressed to them. */
   onAct: (verb: Verb, outcome?: string) => void
 }) => {
   const snapshot = useSnapshot()
 
-  /*
-   * The menu's open state is held here rather than left to Base UI, because
-   * something other than the menu has to be able to close it. Base UI closes on
-   * Escape and on a press outside, and a window taking the screen is neither:
-   * Settings, Usage and — in a narrow window — the floating sidebar announce
-   * themselves instead, and a menu drawn at `--hd-z-popover` outranks all
-   * three, so this one hung over whichever of them opened, modal, holding the
-   * focus they had just taken (#214).
-   */
-  const [menuOpen, setMenuOpen] = useState(false)
-  useDismissOverlays(menuOpen, () => setMenuOpen(false))
-
   /* The role this card was addressed to, as the running flow defines it.
      A room with no flow has no entry here at all, which is every room that
      existed before flows — and then every branch below falls through to what
      the card has always drawn. */
-  const role = useMemo(() => {
-    if (!intent.role) return null
-    const run = (snapshot.flowRuns.get(room) ?? []).find(
-      (one) => one.state === 'running' || one.state === 'stalled',
-    )
-    return run?.flow.roles.find((one) => one.id === intent.role) ?? null
-  }, [intent.role, room, snapshot.flowRuns])
+  const role = useMemo(
+    () =>
+      flowStepOf(
+        intent,
+        (snapshot.flowRuns.get(room) ?? []).find(
+          (one) => one.state === 'running' || one.state === 'stalled',
+        ),
+        [...snapshot.flowExecutions.values()].filter((one) => one.goal === room),
+      ),
+    [intent, room, snapshot.flowRuns, snapshot.flowExecutions],
+  )
 
   const runtime = intent.claim
     ? (snapshot.runtimes.find((one) => one.id === intent.claim?.runtime) ?? null)
@@ -906,18 +798,45 @@ const IntentCard = ({
   const holderTint = intent.claim
     ? runtimeTint(intent.claim.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)
     : 'blue'
+  const holderCeiling = intent.claim
+    ? seatCeilingOf(session?.settings, snapshot.flowRuns.get(room) ?? [], intent.claim.runtime, intent.claim.sessionId)
+    : null
+
+  /**
+   * A later review round's repair delta, read off the same frozen reference
+   * `finding/run` exposes — ids and revisions only, never a copy of a
+   * finding's own body into a second, mutable card field. `dispatch` is the
+   * host's own `<run>:<round>:<slot>` key for a card a flow opened; a card a
+   * person or an agent added carries none, and reads as no lead.
+   */
+  const repairLead = useMemo(() => {
+    const run = intent.dispatch?.split(':')[0]
+    const round = intent.dispatch?.split(':')[1]
+    const view = run ? snapshot.findingRuns.get(run) : undefined
+    if (!view?.repair || String(view.round) !== round) return null
+    return view.repair
+      .map((lead) => {
+        const claimed = lead.claimed.length > 0 ? lead.claimed.join(', ') : 'none'
+        const unresolved = lead.unresolved.length > 0 ? lead.unresolved.join(', ') : 'none'
+        return `Repair delta ${shortSha(lead.from)} → ${shortSha(lead.to)} — claims to close ${claimed}; still open ${unresolved}`
+      })
+      .join(' ')
+  }, [intent.dispatch, snapshot.findingRuns])
 
   /**
    * The one line under the title, and the order is the order a reader needs it.
    *
    * Why it stopped outranks what it is: a card in Blocked that does not say
    * what blocked it sends the reader to the channel, which is the trip the
-   * board exists to save. A finished card's note is the completion note the
-   * next agent will read. Only when neither exists does the card fall back to
-   * its own description.
+   * board exists to save. A repair lead outranks the card's own detail and any
+   * completion note: what changed since the last review is what a reseated
+   * reviewer needs first, never a stale full transcript of the earlier round.
+   * Only when none of these exist does the card fall back to its own
+   * description.
    */
   const note =
     intent.blockedReason ??
+    repairLead ??
     (intent.state === 'done' || intent.state === 'abandoned' ? intent.note : null) ??
     intent.detail ??
     null
@@ -968,30 +887,38 @@ const IntentCard = ({
       : []),
   ]
 
+  const busy = evidence?.running[0]?.name ?? null
+  const checkItems: readonly {
+    readonly key: string
+    readonly label: string
+    readonly why: string | null
+  }[] =
+    intent.state === 'abandoned'
+      ? []
+      : [
+          ...checks.checks.map((name) => ({
+            key: name,
+            label: `Run ${name}`,
+            why:
+              busy === null
+                ? null
+                : `${busy} is running on this card, and one check runs on a card at a time`,
+          })),
+          ...checks.refused.map((one) => ({
+            key: one.name,
+            label: `Run ${one.name}`,
+            why: `${CHECKS_FILE_WORDS} refuses it; the project's page says why`,
+          })),
+          ...(checks.unreadable
+            ? [{ key: '', label: 'Run a check', why: `${CHECKS_FILE_WORDS} cannot be read` }]
+            : []),
+        ]
+
   return (
     <BoardCard
-      /* The whole card is the handle. A grip glyph would be a second small
-         thing to aim at on a surface whose cards are already small, and every
-         verb a drag performs is in the menu below — so a keyboard loses a
-         shortcut here, never a capability. */
-      draggable
-      onDragStart={(event) => {
-        /* Text too, so a card dragged out of the app arrives somewhere as
-           something a person can read. */
-        event.dataTransfer.setData('text/plain', `#${intent.id} ${intent.title}`)
-        event.dataTransfer.effectAllowed = 'move'
-        onDragStart()
-      }}
-      onDragEnd={onDragEnd}
-      className={
-        'cursor-grab transition-[opacity,border-color] active:cursor-grabbing ' +
-        (dragging ? 'opacity-40' : 'hover:border-(--hd-border-strong)')
-      }
       title={
         <>
-          <span className="font-(family-name:--hd-font-code) text-xs text-(--hd-muted-foreground)">
-            #{intent.id}
-          </span>{' '}
+          <Text role="meta">#{intent.id}</Text>{' '}
           {intent.title}
         </>
       }
@@ -1049,9 +976,11 @@ const IntentCard = ({
                   the only split that cannot produce that: when either is short
                   the other takes the slack, and when both are long they lose
                   the same amount. */}
-              <span className="min-w-0 flex-1 basis-1/2 truncate text-xs font-medium">
+              {/* The card's key fact — who holds it — in a row's name role,
+                  the weight a name on a row is set in. */}
+              <Text role="row" truncate className="min-w-0 flex-1 basis-1/2">
                 {holderName}
-              </span>
+              </Text>
               {/* The conversation's own title, when it is not already the name
                   on the left. Compared against what is *drawn*, not against the
                   nickname: with no nickname the left falls back to the title,
@@ -1070,12 +999,16 @@ const IntentCard = ({
                    neither of the two things it was trying to say. The column is
                    the container that decides, because the pane's width is not
                    the card's width on a board of five. */
-                <span
-                  className="hidden min-w-0 flex-1 basis-1/2 truncate text-right text-xs text-(--hd-muted-foreground) @[13rem]/board-column:inline"
+                <Text
+                  role="meta"
+                  align="end"
+                  truncate
+                  className="hidden min-w-0 flex-1 basis-1/2 @[13rem]/board-column:inline"
                 >
                   {session.title}
-                </span>
+                </Text>
               )}
+              {holderCeiling && <CeilingChip ceiling={holderCeiling.ceiling} note={holderCeiling.note} />}
             </SessionHoverCard>
           </Button>
         ) : undefined
@@ -1094,40 +1027,31 @@ const IntentCard = ({
             ? { label: intent.files.join(', '), tint: 'teal' }
             : undefined
       }
-      /* A card never repeats its own state. `abandoned` is the one exception,
-         because it shares the Done column with work that actually finished and
-         the difference is the news. Stranded is the other thing a column
-         cannot say, because the card is still in Claimed and still looks
-         owned: this is "somebody is on it" versus "somebody was". */
       priority={
-        intent.state === 'abandoned'
-          ? { label: 'abandoned', tone: 'neutral' }
-          : stranded !== null
-            ? { label: `stranded ${describeAge(stranded)}`, tone: 'warning' }
-            : /* What the card answered, which is the one judgement a finished
-                 flow card carries — and the thing the next round was decided
-                 on, so a reader asking "why did that open?" reads it here.
-                 Neutral, always: the words are the flow author's own and this
-                 surface has no way to know which of them is the good news. */
-              intent.outcome
+        stranded !== null
+          ? { label: `stranded ${describeAge(stranded)}`, tone: 'warning' }
+          : placement?.column === 'needs' && placement.why
+            ? { label: placement.why, tone: 'warning' }
+            : intent.outcome
               ? { label: intent.outcome, tone: 'neutral' as const }
               : undefined
       }
       meta={
         <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 whitespace-nowrap">
+          <EvidenceChips id={intent.id} title={intent.title} card={evidence} finished={intent.state === 'done'} />
           {/* How long since anything happened to it. The number a person is
               actually after on a board is "how long has that been sitting
               there", and until now the card could not answer it at all. */}
           <span
-            className="inline-flex items-center gap-1 [&_svg]:size-3.5"
+            className="inline-flex items-center gap-1"
             title={`Last changed ${new Date(intent.updatedAt).toLocaleString()}`}
           >
-            <ClockIcon />
-            <span className="tabular-nums">{describeAge(now - intent.updatedAt)}</span>
+            <ClockIcon size={14} />
+            <Text role="meta" numeric>{describeAge(now - intent.updatedAt)}</Text>
           </span>
           {intent.role && intent.files.length > 0 && (
             <span
-              className="inline-flex min-w-0 items-center gap-1 [&_svg]:size-3.5"
+              className="inline-flex min-w-0 items-center gap-1"
               title={`Owns ${intent.files.join(', ')} while claimed`}
             >
               <span className="truncate">{intent.files.join(', ')}</span>
@@ -1135,11 +1059,11 @@ const IntentCard = ({
           )}
           {intent.dependsOn.length > 0 && (
             <span
-              className="inline-flex items-center gap-1 [&_svg]:size-3.5"
+              className="inline-flex items-center gap-1"
               title={`Waits for ${intent.dependsOn.map((one) => `#${one}`).join(', ')}`}
             >
-              <BranchIcon />
-              <span className="tabular-nums">{intent.dependsOn.length}</span>
+              <BranchIcon size={14} />
+              <Text role="meta" numeric>{intent.dependsOn.length}</Text>
             </span>
           )}
           {/* A finished job that left a context package says so, because the
@@ -1147,33 +1071,42 @@ const IntentCard = ({
               next agent reads instead of asking. */}
           {intent.handoff && (
             <span
-              className="inline-flex items-center gap-1 [&_svg]:size-3.5"
+              className="inline-flex items-center gap-1"
               title={intent.handoff}
             >
-              <HandoffIcon />
+              <HandoffIcon size={14} />
               <span>handoff</span>
             </span>
           )}
         </span>
       }
       actions={
-        verbs.length > 0 ? (
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger
-              render={<BoardMenuButton aria-label={`What to do with #${intent.id}`} />}
-            />
-            <DropdownMenuContent align="end">
-              {verbs.map((one) => (
-                <DropdownMenuItem
-                  key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
-                  variant={one.danger ? 'destructive' : 'default'}
-                  onClick={() => onAct(one.verb, one.outcome)}
-                >
-                  {one.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        verbs.length > 0 || checkItems.length > 0 || onAssign ? (
+          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
+            {(close) => (
+              <Menu close={close}>
+                {onAssign ? <MenuItem label="Give this to…" onSelect={onAssign} /> : null}
+                {onAssign && (checkItems.length > 0 || verbs.length > 0) ? <MenuSeparator /> : null}
+                {checkItems.map((one) => (
+                  <MenuItem
+                    key={`check:${one.key}`}
+                    label={one.label}
+                    disabled={one.why ?? false}
+                    onSelect={() => onRunCheck(one.key)}
+                  />
+                ))}
+                {checkItems.length > 0 && verbs.length > 0 && <MenuSeparator />}
+                {verbs.map((one) => (
+                  <MenuItem
+                    key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
+                    label={one.label}
+                    danger={one.danger}
+                    onSelect={() => onAct(one.verb, one.outcome)}
+                  />
+                ))}
+              </Menu>
+            )}
+          </Popover>
         ) : undefined
       }
     />

@@ -34,7 +34,8 @@ import {
 } from '../lib/acp-registry'
 import { describeLimits, formatReset } from '../lib/limits'
 import { readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
-import { codeSpans, splitHealth, type Unavailable } from '../lib/health'
+import { splitHealth, type Unavailable } from '../lib/health'
+import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { describeUpdate, describeVersion } from '../lib/versions'
@@ -44,7 +45,6 @@ import type { AppSnapshot } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
 import {
   AgentIcon,
-  CaretIcon,
   CheckIcon,
   PlusIcon,
   SignInIcon,
@@ -53,7 +53,10 @@ import {
 import {
   AccountMark,
   BackLink,
+  Bar,
   Button,
+  Card,
+  CardViewport,
   Chip,
   CodeText,
   DetailMark,
@@ -67,21 +70,26 @@ import {
   NativeSelect,
   Textarea,
   PageHead,
+  Progress,
   Row,
   RowButton,
   RowMark,
   RowValue,
   Rows,
+  Section,
   SectionHead,
   Segmented,
+  SummaryItem,
+  SummaryList,
   Switch,
+  Text,
 } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
-import { Dialog, ConfirmDialog } from '../design'
+import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import styles from './SettingsAgents.module.css'
 
 /**
- * Agents, and the accounts under them.
+ * Runtimes — the agent programs HarnessDesk starts — and the accounts under them.
  *
  * The account is the unit. An agent is the runtime that account speaks
  * through, so the page is a list of agents each holding its accounts, and
@@ -213,22 +221,20 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
     <>
       <SectionHead name="Usage" />
       {view?.blocked && (
-        <p className={styles.note} data-tone="bad">
+        <Text role="muted" as="p" tone="danger" className="mb-2">
           {view.blocked.title} — {view.blocked.detail}
-        </p>
+        </Text>
       )}
       {/* One card: the windows and the balance are one section's rows. Two
           cards under one heading read as a second section that forgot its
-          name (review of #216). */}
+          name (review of #216). Each window is a row of it, as the balance
+          is — the name, when it refills, and the meter with its figure at the
+          row's end — so the windows' meters line up in one column. */}
       {view && (view.windows.length > 0 || view.credits) ? (
         <Rows>
-          {view.windows.length > 0 && (
-            <div className={styles.meters}>
-              {view.windows.map((window) => (
-                <UsageMeter key={window.label} window={window} />
-              ))}
-            </div>
-          )}
+          {view.windows.map((window) => (
+            <UsageMeter key={window.label} window={window} />
+          ))}
           {view.credits && (
             <Row
               title="Credits"
@@ -237,50 +243,55 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
                 /* In the tone describeLimits grades it, as the meters are. A
                    zero is the reading #85 was about, and the row vocabulary's
                    dimmest ink drew it fainter than a window's name. */
-                <span className={styles.credits} data-tone={view.credits.tone}>
+                <Text role="muted" numeric tone={view.credits.tone === 'bad' ? 'danger' : undefined}>
                   {view.credits.label}
-                </span>
+                </Text>
               }
             />
           )}
         </Rows>
       ) : (
         <Rows>
-          <Row title="Nothing to read yet" desc={`${name} has not written any usage down on this Mac.`} />
+          <EmptyState variant="row" title="Nothing to read yet" description={`${name} has not written any usage down on this Mac.`} />
         </Rows>
       )}
     </>
   )
 }
 
-/** One rolling allowance as a bar: how much of the window is left, and when it refills. */
+/**
+ * One rolling allowance as a row of the usage card: its name, when it refills,
+ * and a meter of what is left.
+ *
+ * The meter is the app's one remaining-budget meter (`Progress` measuring
+ * what is left), so it fills with what is LEFT and grades itself the way the
+ * Dashboard's and the plan strip's do — neutral while there is room, amber
+ * under a fifth, red when spent. The figure is said, not implied: a bare
+ * "48%" reads as spent to half the people who see it.
+ */
 export const UsageMeter = ({ window }: { window: UsageWindow }) => {
   const remaining = Math.max(0, Math.round(100 - window.usedPercent))
-  const tone = remaining <= 0 ? 'bad' : remaining < 20 ? 'warn' : 'good'
   const reset = formatReset(window.resetsAt)
   return (
-    <div className={styles.meter} data-tone={tone}>
-      <div className={styles.meterHead}>
-        <span className={styles.meterLabel}>{window.label}</span>
-        <span className={styles.meterValue}>
-          {remaining}% left
-          {reset && <span className={styles.meterReset}> · resets {reset}</span>}
-        </span>
-      </div>
-      {/* Filled with what is LEFT, like every other meter in the app. It used
-          to fill with what had been spent under a figure reading "48% left",
-          so the bar and its own number moved in opposite directions. */}
-      <div
-        className={styles.meterTrack}
-        role="progressbar"
-        aria-valuenow={remaining}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={`${window.label} remaining`}
-      >
-        <div className={styles.meterFill} style={{ width: `${remaining}%` }} />
-      </div>
-    </div>
+    <Row
+      title={window.label}
+      {...(reset ? { desc: `Resets ${reset}` } : {})}
+      control={
+        <>
+          <Progress
+            className="w-40"
+            value={remaining}
+            measure="remaining"
+            size="sm"
+            label={false}
+            aria-label={`${window.label} remaining`}
+          />
+          <Text role="muted" numeric align="end" className="min-w-16">
+            {remaining}% left
+          </Text>
+        </>
+      }
+    />
   )
 }
 
@@ -313,20 +324,6 @@ const RingPicker = ({
   </span>
 )
 
-/** Host text, with what it wrote between backticks set as code. */
-const Prose = ({ text }: { text: string }) => (
-  <>
-    {codeSpans(text).map((span, index) =>
-      span.code ? (
-        <CodeText as="code" key={index}>
-          {span.text}
-        </CodeText>
-      ) : (
-        <span key={index}>{span.text}</span>
-      ),
-    )}
-  </>
-)
 
 /**
  * Why an agent will not start, in three parts rather than one paragraph.
@@ -339,21 +336,41 @@ const Prose = ({ text }: { text: string }) => (
  *
  * There is no state marker here. The block is the state; a red dot floating
  * beside six lines of it was pointing at something already said.
+ *
+ * It is a row of the card it stands in: the sentence is the row's title and
+ * the output and the repair are its description, whole rather than clamped.
  */
 const HealthBlock = ({ health }: { health: Unavailable }) => {
   const { lead, detail, remediation } = splitHealth(health)
   return (
-    <div className={styles.problem}>
-      <p className={styles.problemLead}>
-        <Prose text={lead} />
-      </p>
-      {detail && <pre className={styles.problemDetail}>{detail}</pre>}
-      {remediation && (
-        <p className={styles.problemFix}>
-          <Prose text={remediation} />
-        </p>
-      )}
-    </div>
+    <Row
+      title={<Prose text={lead} />}
+      wrapDesc
+      {...(detail || remediation
+        ? {
+            desc: (
+              <span className="mt-1.5 flex flex-col gap-2">
+                {/* Bounded, as a panel's code block is: the card keeps its
+                    corners while the lines scroll inside it. */}
+                {detail && (
+                  <Card variant="flush" radius="sm">
+                    <CardViewport size="lines" maxHeight={170}>
+                      <CodeText as="pre" block ground="muted">
+                        {detail}
+                      </CodeText>
+                    </CardViewport>
+                  </Card>
+                )}
+                {remediation && (
+                  <span>
+                    <Prose text={remediation} />
+                  </span>
+                )}
+              </span>
+            ),
+          }
+        : {})}
+    />
   )
 }
 
@@ -455,16 +472,16 @@ const AgentBlock = ({
   return (
     <Rows className={styles.agent} {...(open ? { 'data-open': '' } : {})}>
       {/* Two targets, not one: the agent's name opens what belongs to the
-          runtime — health, version, behaviour — and the caret only decides
-          whether its accounts are on screen. Nesting them would make one of
-          the two unreachable. */}
-      <div className={styles.head}>
-        {/* The tagline rides on hover here. This card is about an agent you
+          runtime — health, version, behaviour — and the fold at the row's end
+          only decides whether its accounts are on screen. Nesting them would
+          make one of the two unreachable, so the row draws them side by side.
+
+          The tagline rides on hover here. This card is about an agent you
             already chose and installed; a definition of it cannot change what
             you do on a page for managing its accounts, and the one line it had
             was set to nowrap, so a longer one arrived cut. It still shows in
-            full where choosing is the actual task — the Add agent list below,
-            first run, and sign-in. */}
+            full where choosing is the actual task — the Add a runtime list
+            below, first run, and sign-in. */}
         <RowButton
           className={styles.headOpen}
           onClick={onOpenAgent}
@@ -472,9 +489,9 @@ const AgentBlock = ({
           mark={<RuntimeMark runtime={info} size={17} />}
           title={
             <span className={styles.headName} title={info.presentation.tagline}>
-              {info.presentation.name}
-              {build && <span className={styles.headBuild}>{build}</span>}
-              {connection && <span className={styles.tag}>{connection}</span>}
+              <Text role="subject">{info.presentation.name}</Text>
+              {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
+              {connection && <Chip tone="neutral" size="sm">{connection}</Chip>}
             </span>
           }
           control={<span className={styles.headMeta}>
@@ -486,23 +503,18 @@ const AgentBlock = ({
                 accounts, which is what `defaultChipState` returns for the two
                 detail pages, so all three say the same thing (#131). */}
             {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
-            {count !== null && <span className={styles.headCount}>{count}</span>}
+            {count !== null && <Text role="muted" ink="muted" className="whitespace-nowrap">{count}</Text>}
             {state !== 'ready' && <Chip state={state} />}
           </span>}
+          fold={{
+            open,
+            onToggle,
+            label: `${open ? 'Hide' : 'Show'} the accounts under ${info.presentation.name}`,
+          }}
         />
-        <Button
-          type="button"
-          variant="quiet" size="content" className={styles.headToggle}
-          aria-expanded={open}
-          aria-label={`${open ? 'Hide' : 'Show'} the accounts under ${info.presentation.name}`}
-          onClick={onToggle}
-        >
-          <span className={styles.headToggleIcon} aria-hidden="true"><CaretIcon size={15} /></span>
-        </Button>
-      </div>
 
       {open && (
-      <div className={styles.body}>
+      <>
       <div className={styles.list}>
         {rows.map(({ entry, account }) => {
           const key = accountKey(entry.id, account)
@@ -529,10 +541,7 @@ const AgentBlock = ({
               key={key}
               onClick={() => onOpenAccount(entry.id, key)}
               mark={
-                <AccountMark
-                  className={styles.rowAvatar}
-                  data-tint={tintOf(key, snapshot.accountPrefs)}
-                >
+                <AccountMark data-tint={tintOf(key, snapshot.accountPrefs)}>
                   <RuntimeMark runtime={info} size={14} />
                 </AccountMark>
               }
@@ -540,7 +549,7 @@ const AgentBlock = ({
                 <span className={styles.rowName}>
                   {name}
                   {entry.id === info.id && rows.length > 1 && (
-                    <span className={styles.badge}>Default</span>
+                    <Chip tone="neutral" size="sm">Default</Chip>
                   )}
                 </span>
               }
@@ -553,17 +562,14 @@ const AgentBlock = ({
               control={
                 <>
                   {account.planType && (
-                    <span
-                      className={styles.plan}
-                      data-tint={tintOf(key, snapshot.accountPrefs)}
-                    >
+                    <Chip tint={tintOf(key, snapshot.accountPrefs)}>
                       {account.planType}
-                    </span>
+                    </Chip>
                   )}
                   {/* Said, not implied: a bare "48%" reads as spent to half the
                       people who see it, and the meters this comes from fill
                       with what is left. */}
-                  {left !== null && <span className={styles.figure}>{left}% left</span>}
+                  {left !== null && <Text role="muted" numeric className="whitespace-nowrap">{left}% left</Text>}
                   <Dot state={accountState} />
                 </>
               }
@@ -578,14 +584,14 @@ const AgentBlock = ({
           <Row
             key={entry.id}
             mark={
-              <AccountMark className={styles.rowAvatar}>
+              <AccountMark>
                 <RuntimeMark runtime={info} size={14} />
               </AccountMark>
             }
             title={
               <span className={styles.rowName}>
                 {entry.slot?.gateway?.name}
-                <span className={styles.badge}>Gateway</span>
+                <Chip tone="neutral" size="sm">Gateway</Chip>
               </span>
             }
             desc={entry.slot?.gateway?.endpoint}
@@ -678,7 +684,7 @@ const AgentBlock = ({
       {addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
 
       {(info.slot?.canAdd || (rows.length > 0 && info.capabilities.account && canSignIn)) && (
-        <div className={styles.foot}>
+        <Bar rule="top">
           {info.capabilities.account && canSignIn && (
             <Button
               size="sm"
@@ -710,9 +716,9 @@ const AgentBlock = ({
               Add gateway account…
             </Button>
           )}
-        </div>
+        </Bar>
       )}
-      </div>
+      </>
       )}
     </Rows>
   )
@@ -858,13 +864,13 @@ const CustomAgentDialog = ({ onAdded, onClose }: { onAdded: () => void; onClose:
 
   return (
     <Dialog
-      title="Add a custom agent"
+      title="Add a custom runtime"
       icon={<AgentIcon size={15} />}
       onClose={onClose}
       footer={
         <>
           <Button variant="default" disabled={busy || !ready} onClick={() => void add()}>
-            {busy ? 'Adding…' : 'Add agent'}
+            {busy ? 'Adding…' : 'Add runtime'}
           </Button>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
@@ -966,10 +972,10 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
 
   return (
     <>
-      <BackLink to="Agents" onClick={onBack} />
+      <BackLink to="Runtimes" onClick={onBack} />
       <PageHead
-        title="Add an agent"
-        blurb="An agent keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it."
+        title="Add a runtime"
+        blurb="A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it."
       />
       <Rows>
         {(templates ?? []).map((template) => (
@@ -1070,9 +1076,11 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
           {registryListed.map((agent) => {
             const line = registrySentence(agent)
             return (
-              <div
+              <Card
                 key={agent.id}
-                className={styles.registryCell}
+                variant="plate"
+                spacing="compact"
+                className={`${styles.registryCell} flex-row`}
                 {...(agent.available ? {} : { 'data-blocked': '' })}
               >
                 <RowMark>
@@ -1082,18 +1090,17 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                   />
                 </RowMark>
                 <span className={styles.registryCellText}>
-                  <span className={styles.registryCellName}>
+                  <Text role={agent.available ? 'row' : 'muted'} ink={agent.available ? undefined : 'muted'} className={styles.registryCellName}>
                     {agent.name}
                     {agent.run === 'binary' && agent.integrity === 'none' && !agent.installed && (
-                      <span
-                        className={`${styles.badge} ${styles.unverifiedBadge}`}
+                      <Chip tone="neutral" size="sm" className={styles.unverifiedBadge}
                         title="The registry publishes no checksum for this build, so the download cannot be verified."
                       >
                         Unverified
-                      </span>
+                      </Chip>
                     )}
-                  </span>
-                  {line && <span className={styles.registryCellLine}>{line}</span>}
+                  </Text>
+                  {line && <Text role="meta" className={styles.registryCellLine}>{line}</Text>}
                 </span>
                 {agent.registered ? (
                   <Chip state="ready" label="Added" />
@@ -1108,7 +1115,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                     {registryAddLabel(agent, busy === agent.id)}
                   </Button>
                 ) : null}
-              </div>
+              </Card>
             )
           })}
         </div>
@@ -1200,7 +1207,7 @@ const AccountDetail = ({
 
   return (
     <>
-      <BackLink to="Agents" onClick={onBack} />
+      <BackLink to="Runtimes" onClick={onBack} />
       <DetailHead
         mark={
           <AccountMark
@@ -1216,68 +1223,69 @@ const AccountDetail = ({
         actions={<Chip state={state} />}
       />
 
-      <SectionHead name="Name and colour" />
-      <Rows>
-        <Row
-          title="Name"
-          desc="How the sidebar, the composer and the menu bar refer to this account."
-          control={
-            <Input
-              className={styles.nameField}
-              value={name}
-              placeholder={accountName(account, undefined, info.presentation.name)}
-              aria-label="Account name"
-              onChange={(event) => setName(event.target.value)}
-              onBlur={() => store.setAccountPrefs(key, { nickname: name })}
-            />
-          }
-        />
-        <Row
-          title="Ring"
-          desc="Tells this account apart from another one of the same agent."
-          control={
-            <RingPicker
-              info={info}
-              value={tintOf(key, snapshot.accountPrefs)}
-              onChange={(tint) => store.setAccountPrefs(key, { tint })}
-            />
-          }
-        />
-      </Rows>
+      {/* Three ways the desk shows this account, in one card: the name and ring
+          it wears, and the limit it leads with. The limit was a one-row card
+          of its own, under a second "Usage" heading above the real one. */}
+      <Section title="How it is shown">
+        <Rows>
+          <Row
+            title="Name"
+            desc="How the sidebar, the composer and the menu bar refer to this account."
+            control={
+              <Input
+                className={styles.nameField}
+                value={name}
+                placeholder={accountName(account, undefined, info.presentation.name)}
+                aria-label="Account name"
+                onChange={(event) => setName(event.target.value)}
+                onBlur={() => store.setAccountPrefs(key, { nickname: name })}
+              />
+            }
+          />
+          <Row
+            title="Ring"
+            desc="Tells this account apart from another one of the same agent."
+            control={
+              <RingPicker
+                info={info}
+                value={tintOf(key, snapshot.accountPrefs)}
+                onChange={(tint) => store.setAccountPrefs(key, { tint })}
+              />
+            }
+          />
+          <Row
+            title="Primary usage window"
+            desc="Which limit appears first in the tray, account summary and menu."
+            control={
+              <NativeSelect
+                aria-label="Primary usage window"
+                value={pinLaneId}
+                disabled={usageOptions.length <= 1}
+                onChange={(event) => store.setAccountPrefs(key, { pinLaneId: event.target.value || undefined })}
+              >
+                {usageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </NativeSelect>
+            }
+          />
+        </Rows>
+      </Section>
 
-      <SectionHead name="Usage" />
-      <Rows>
-        <Row
-          title="Primary usage window"
-          desc="Which limit appears first in the tray, account summary and menu."
-          control={
-            <NativeSelect
-              aria-label="Primary usage window"
-              value={pinLaneId}
-              disabled={usageOptions.length <= 1}
-              onChange={(event) => store.setAccountPrefs(key, { pinLaneId: event.target.value || undefined })}
-            >
-              {usageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </NativeSelect>
-          }
-        />
-      </Rows>
-
-      <SectionHead name="Account" />
-      <Rows>
-        <Row
-          title={account.label}
-          desc={
-            account.kind === 'apiKey'
-              ? `Stored by HarnessDesk — ${snapshot.credentialProtection}. Handed to ${info.presentation.name} when it starts.`
-              : account.kind === 'externalKey'
-                ? `Read from ${account.planType}. HarnessDesk holds no copy.`
-                : `${info.presentation.name} keeps the credential; HarnessDesk never stores it.`
-          }
-          control={
-            <>
-              {planLabel && <RowValue>{planLabel}</RowValue>}
-              {isKey ? (
+      {/* The facts about the sign-in, as one card: who, on what plan, where
+          its credential lives, and whether new sessions start on it. They were
+          two cards under two headings ("Account", "Defaults"). */}
+      <Section title="Account">
+        <SummaryList>
+          <SummaryItem
+            label="Signed in as"
+            note={
+              account.kind === 'apiKey'
+                ? `Stored by HarnessDesk — ${snapshot.credentialProtection}. Handed to ${info.presentation.name} when it starts.`
+                : account.kind === 'externalKey'
+                  ? `Read from ${account.planType}. HarnessDesk holds no copy.`
+                  : `${info.presentation.name} keeps the credential; HarnessDesk never stores it.`
+            }
+            action={
+              isKey ? (
                 <Button variant="secondary" size="sm" onClick={() => onSignIn(info.id)}>
                   <SignInIcon size={13} />
                   Manage key…
@@ -1287,40 +1295,48 @@ const AccountDetail = ({
                   <SignOutIcon size={13} />
                   {info.slot?.removable ? 'Remove…' : 'Sign out…'}
                 </Button>
-              )}
-            </>
-          }
-        />
-        {credentialHome(info) && (
-          <Row
-            title="Where its credential lives"
-            desc={<CodeText>{credentialHome(info)}</CodeText>}
-          />
-        )}
-      </Rows>
+              )
+            }
+          >
+            {account.label}
+          </SummaryItem>
+          {planLabel && <SummaryItem label="Plan">{planLabel}</SummaryItem>}
+          {credentialHome(info) && (
+            <SummaryItem label="Credential" kind="path">{credentialHome(info) ?? ''}</SummaryItem>
+          )}
+          <SummaryItem
+            label="New sessions"
+            {...(snapshot.activeRuntime === info.id
+              ? {}
+              : {
+                  action: (
+                    <Button variant="secondary" size="sm" onClick={() => void store.selectRuntime(info.id)}>
+                      Make default
+                    </Button>
+                  ),
+                })}
+          >
+            {snapshot.activeRuntime === info.id ? (
+              /* The chip is the account's readiness as the default, the same
+                 reading the list and the agent's page give (#131). */
+              <span className="inline-flex flex-wrap items-center gap-x-(--hd-space-2)">
+                Start on this account
+                <Chip state={defaultChipState(info, snapshot)} label="Default" />
+              </span>
+            ) : (
+              'Start on another account'
+            )}
+          </SummaryItem>
+        </SummaryList>
+      </Section>
 
       <UsageSection limits={limits} name={info.presentation.name} />
 
-      <SectionHead name="Defaults" />
-      <Rows>
-        <Row
-          title="Use for new sessions"
-          desc="The composer starts on this account."
-          control={
-            snapshot.activeRuntime === info.id ? (
-              <Chip state={defaultChipState(info, snapshot)} label="Default" />
-            ) : (
-              <Button variant="secondary" size="sm" onClick={() => void store.selectRuntime(info.id)}>
-                Make default
-              </Button>
-            )
-          }
-        />
-      </Rows>
       {confirmingSignOut && (
         <ConfirmDialog
           title={info.slot?.removable ? `Remove ${accountName(account, prefs, info.presentation.name)}?` : `Sign out of ${accountName(account, prefs, info.presentation.name)}?`}
           confirmLabel={info.slot?.removable ? 'Remove account' : 'Sign out'}
+          tone="destructive"
           onCancel={() => setConfirmingSignOut(false)}
           onConfirm={() => {
             setConfirmingSignOut(false)
@@ -1355,33 +1371,59 @@ const OptionRows = ({
   return (
     <Rows>
       {dialog}
-      {options.map((option) => (
-        <Row
-          key={option.id}
-          title={option.label}
-          desc={option.description ?? option.disabled}
-          control={
-            option.type === 'boolean' ? (
-              <Switch
-                aria-label={option.label}
-                checked={option.currentValue}
-                disabled={Boolean(option.disabled)}
-                onCheckedChange={(next) => ask(option, next, () => onSet(option.id, next))}
-              />
-            ) : (
-              <Segmented
-                label={option.label}
-                value={String(option.currentValue)}
-                options={option.choices.map((choice) => ({
-                  value: String(choice.value),
-                  label: choice.label,
-                }))}
-                onChange={(value) => onSet(option.id, value)}
-              />
-            )
-          }
-        />
-      ))}
+      {options.map((option) => {
+        const nativeSelect =
+          option.type === 'select' &&
+          (option.choices.length > 3 || option.choices.some((choice) => Boolean(choice.disabled)))
+        return (
+          <Row
+            key={option.id}
+            title={option.label}
+            desc={option.description ?? option.disabled}
+            control={
+              option.type === 'boolean' ? (
+                <Switch
+                  aria-label={option.label}
+                  checked={option.currentValue}
+                  disabled={Boolean(option.disabled)}
+                  onCheckedChange={(next) => ask(option, next, () => onSet(option.id, next))}
+                />
+              ) : nativeSelect ? (
+                <NativeSelect
+                  aria-label={option.label}
+                  value={String(option.currentValue)}
+                  disabled={Boolean(option.disabled)}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    ask(option, value, () => onSet(option.id, value))
+                  }}
+                >
+                  {option.choices.map((choice) => (
+                    <option
+                      key={choice.value}
+                      value={choice.value}
+                      disabled={Boolean(choice.disabled)}
+                    >
+                      {choice.label}
+                      {choice.disabled ? ` — ${choice.disabled}` : ''}
+                    </option>
+                  ))}
+                </NativeSelect>
+              ) : (
+                <Segmented
+                  label={option.label}
+                  value={String(option.currentValue)}
+                  options={option.choices.map((choice) => ({
+                    value: String(choice.value),
+                    label: choice.label,
+                  }))}
+                  onChange={(value) => ask(option, value, () => onSet(option.id, value))}
+                />
+              )
+            }
+          />
+        )
+      })}
     </Rows>
   )
 }
@@ -1690,7 +1732,7 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
 
   return (
     <>
-      <BackLink to="Agents" onClick={onBack} />
+      <BackLink to="Runtimes" onClick={onBack} />
       <DetailHead
         mark={
           <DetailMark>
@@ -1780,6 +1822,7 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
         <ConfirmDialog
           title={`Remove ${info.presentation.name}?`}
           confirmLabel="Remove agent"
+          tone="destructive"
           onCancel={() => setConfirmingRemove(false)}
           onConfirm={() => {
             void store.removeAgent(info.id).then((removed) => {
@@ -1798,7 +1841,14 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
 /* --- the page ------------------------------------------------------------ */
 
 
-export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => void }) => {
+export const RuntimesSection = ({
+  onSignIn,
+  focus = null,
+}: {
+  onSignIn: (runtime: RuntimeId) => void
+  /** The thing inside the page to open, once — the refusal sheet's "Add Codex", "Open Cursor in Settings". */
+  focus?: string | null
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [view, setView] = useState<View>({ kind: 'list' })
@@ -1818,6 +1868,15 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
   useEffect(() => {
     void store.loadAccounts()
   }, [store])
+
+  // Opened on a thing inside the page — the refusal sheet's "Add Codex", its
+  // "Open Cursor in Settings" — rather than on the list.
+  useEffect(() => {
+    if (focus === 'add') setView({ kind: 'add' })
+    else if (focus && snapshot.runtimes.some((entry) => entry.id === focus)) {
+      setView({ kind: 'agent', runtime: focus as RuntimeId })
+    }
+  }, [focus, snapshot.runtimes])
 
   const back = (): void => setView({ kind: 'list' })
 
@@ -1875,8 +1934,8 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
   return (
     <>
       <PageHead
-        title="Agents"
-        blurb="The agents HarnessDesk can start, and the accounts each is signed in as."
+        title="Runtimes"
+        blurb="What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as."
         actions={
           <>
             {/* Hidden while filtering, which force-opens every hit anyway. */}
@@ -1887,7 +1946,7 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
             )}
             <Button variant="default" onClick={() => setView({ kind: 'add' })}>
               <PlusIcon size={14} />
-              Add agent
+              Add a runtime
             </Button>
           </>
         }
@@ -1900,7 +1959,7 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
           <Search
             className={styles.pageSearch}
             value={query}
-            placeholder="Search agents or accounts"
+            placeholder="Search runtimes or accounts"
             onChange={setQuery}
           />
           <NativeSelect
@@ -1920,17 +1979,17 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
       {listed.length === 0 ? (
         <Rows>
           <Row
-            title={groups.length === 0 ? 'No agent is registered yet' : 'No agent matches'}
+            title={groups.length === 0 ? 'No runtime is added yet' : 'No runtime matches'}
             desc={
               groups.length === 0
-                ? 'Add one to send it a session.'
+                ? 'Add one to start a conversation on it.'
                 : 'Nothing matches that search and status.'
             }
             control={
               groups.length === 0 ? (
                 <Button size="sm" variant="default" onClick={() => setView({ kind: 'add' })}>
                   <PlusIcon size={13} />
-                  Add agent
+                  Add a runtime
                 </Button>
               ) : (
                 <Button variant="secondary"

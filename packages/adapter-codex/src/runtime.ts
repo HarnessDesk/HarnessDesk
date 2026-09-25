@@ -1,4 +1,5 @@
 import { realpathSync } from 'node:fs'
+import { homedir } from 'node:os'
 import {
   CodexAppServer,
   CodexError,
@@ -12,6 +13,7 @@ import {
   type ServerRequestResponder,
 } from '@harnessdesk/codex'
 import {
+  laneEnvironmentOf,
   sessionId as makeSessionId,
   type AccountStatus,
   findOption,
@@ -20,6 +22,7 @@ import {
   SessionBusyError,
   type CapabilityRegistry,
   type AgentEvent,
+  type AgentItem,
   type AgentRuntime,
   type CatalogRefresh,
   type SkillProblem,
@@ -32,6 +35,7 @@ import {
   type OptionValue,
   type Page,
   type RateLimits,
+  type ResolvedModelRoute,
   type RuntimeHealth,
   type RuntimeId,
   type RuntimeInfo,
@@ -42,19 +46,29 @@ import {
   type SessionSummary,
   type SkillInfo,
   type Unsubscribe,
+  type UserMessageItem,
 } from '@harnessdesk/protocol'
 
+import { codexAttachmentSupport } from './attachments.js'
 import { automaticContext, contextPreamble, ToolProjection, toCodexToolResponse } from './capabilities.js'
 import { CodexCatalog, catalogWarningIn } from './catalog.js'
 import { CodexFiles } from './files.js'
 import { CodexExtensions } from './extensions.js'
+import { readHistory } from './history.js'
 import { iconDataUri } from './icon-uri.js'
 import { CodexProcesses } from './processes.js'
+import {
+  CODEX_PROFILE_OPTION_ID,
+  listCodexProfiles,
+  profileOption,
+  type CodexProfile,
+} from './profiles.js'
 import { CodexTasks } from './tasks.js'
 import { loginParamsFor, mapAccount, mapLoginStart, signInMethods } from './mapping/account.js'
 import { mapThrown } from './mapping/errors.js'
 import { mapNotification, mapRateLimits } from './mapping/notifications.js'
 import {
+  CODEX_CEILINGS,
   effortLabel,
   featureNameOf,
   overlayDraftValues,
@@ -70,10 +84,13 @@ import {
   type ThreadState,
 } from './mapping/options.js'
 import { CODEX_RUNTIME_ID, mapSession, mapSummary } from './mapping/session.js'
+import { ReviewTurns } from './review-turns.js'
 import { salvageSession } from './salvage.js'
 import { CodexSession } from './session.js'
 import { ApprovalRouter } from './approvals.js'
 import { holderOf, isBusyRefusal, sessionStoreOf } from './writer-lock.js'
+import { codexEnvironmentConfig } from './lane-environment.js'
+import { codexProvider } from './provider.js'
 
 /**
  * `AgentRuntime` over `codex app-server`.
@@ -123,6 +140,15 @@ export interface CodexRuntimeOptions {
    * person's own words. Nothing is sent for an empty answer.
    */
   readonly instructions?: () => string
+  /**
+   * How long a change to a thread's settings waits for Codex to say where it
+   * landed (`thread/settings/updated`) once Codex has taken it, before the
+   * change is refused as unconfirmed. Codex says so in the same breath as its
+   * answer, so the default is generous: the limit ends a wait for a word that
+   * is not coming, and is not a race with one that is. See
+   * `CodexSession.setOption`.
+   */
+  readonly settleMs?: number
 }
 
 /**
@@ -136,6 +162,7 @@ const OPT_OUT_NOTIFICATIONS = [
 ]
 
 const CAPABILITIES = {
+  sessionEnvironment: true,
   resume: true,
   fork: true,
   steer: true,
@@ -221,6 +248,13 @@ export class CodexRuntime implements AgentRuntime {
   /** The shell sessions a thread has left running; see `RuntimeTasks`. */
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
+  readonly #environments = new Map<string, Readonly<Record<string, string>>>()
+  /** Child thread id to the thread that spawned it. */
+  readonly #parents = new Map<string, string>()
+  /** A bounded thread association was lost, so an otherwise unknown child is unsafe. */
+  #delegationUncertain = false
+  /** Codex's inline reviews, made to open and close their turns; see `ReviewTurns`. */
+  readonly #reviewTurns = new ReviewTurns()
   readonly #eventListeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   #version: string | null = null
@@ -231,17 +265,27 @@ export class CodexRuntime implements AgentRuntime {
   readonly #id: RuntimeId
   readonly #name: string
   readonly #sharesHistory: boolean
+  /** How long a thread's settings change waits for Codex's word on it; see `CodexSession.setOption`. */
+  readonly #settleMs: number | undefined
   /** Where this instance's Codex keeps its rollouts, for `salvageSession`. */
   readonly #codexHome: string | null
   /** Resolved once and refreshed on start; see `AgentRuntime.sessionStore`. */
   #sessionStore: string
+  /** What Codex is started with, for reading which provider its sessions reach. */
+  readonly #launch: { readonly env: Readonly<Record<string, string | undefined>>; readonly overrides: readonly string[] }
+  /** Resolved on construction and refreshed on start, unknown until then; see `RuntimeInfo.provider`. */
+  #provider: string | null = null
+  #providerRead: Promise<void>
 
   constructor(options: CodexRuntimeOptions = {}) {
     this.#id = options.id ?? CODEX_RUNTIME_ID
     this.#name = options.name ?? 'Codex'
     this.#sharesHistory = options.sharesHistory ?? false
+    this.#settleMs = options.settleMs
     this.#codexHome = options.codexHome ?? null
     this.#sessionStore = sessionStoreOf(this.#codexHome)
+    this.#launch = { env: { ...process.env, ...options.env }, overrides: options.configOverrides ?? [] }
+    this.#providerRead = this.#readProvider()
     this.#binaryPath = options.binaryPath ?? null
     this.#logger = options.logger
     this.#capabilities = options.capabilities ?? null
@@ -274,8 +318,12 @@ export class CodexRuntime implements AgentRuntime {
 
     this.#disposeServer.push(
       this.#server.onNotification((notification) => {
-        this.#track(notification)
-        for (const event of mapNotification(notification, this.#id)) this.#emit(event)
+        // A review's turn is told as any other turn is before anything reads
+        // it; see `ReviewTurns`.
+        for (const seen of this.#reviewTurns.see(notification)) {
+          this.#track(seen)
+          for (const event of mapNotification(seen, this.#id)) this.#emit(this.#deSpeak(event))
+        }
       }),
       this.#server.onServerRequest((request, responder) =>
         this.#onServerRequest(request, responder),
@@ -304,6 +352,10 @@ export class CodexRuntime implements AgentRuntime {
         : this.#sharesHistory
           ? { ...CAPABILITIES, listHistory: false, searchHistory: false }
           : CAPABILITIES,
+      ...(this.#everStarted ? { ceilings: CODEX_CEILINGS } : {}),
+      // Observations, not defaults, the same rule `capabilities` above
+      // follows: nothing is claimed before the app-server has answered.
+      ...(this.#everStarted ? { attachments: codexAttachmentSupport(this.#version ?? '') } : {}),
       presentation: {
         ...PRESENTATION,
         install: {
@@ -311,6 +363,7 @@ export class CodexRuntime implements AgentRuntime {
           command: installCommandFor(this.#server.installation?.path),
         },
       },
+      provider: this.#provider,
       // Codex ≥0.135.0 refuses `wire_api = "chat"` outright (probed; see
       // script/probe/README.md), so Responses is the whole truth here.
       supportedWireProtocols: ['responses'],
@@ -328,8 +381,31 @@ export class CodexRuntime implements AgentRuntime {
     return this.#sessionStore
   }
 
+  /**
+   * OpenAI's, from Codex's own configuration, or unknown when anything it is
+   * started with could point it elsewhere — a `-c` override naming a
+   * provider or base URL included. See `codexProvider`.
+   */
+  async #resolveProvider(cwd?: string): Promise<string | null> {
+    if (this.#launch.overrides.some((one) => /model_provider|base_url/.test(one))) return null
+    return codexProvider(this.#codexHome, this.#launch.env, cwd)
+  }
+
+  #readProvider(): Promise<void> {
+    return this.#resolveProvider().then((provider) => { this.#provider = provider }, () => { this.#provider = null })
+  }
+
+  /** `AgentRuntime.providerAt`: a project's own `.codex/config.toml` can point its sessions elsewhere. */
+  async providerAt(cwd: string): Promise<string | null> {
+    await this.#providerRead
+    return this.#provider === null ? null : this.#resolveProvider(cwd)
+  }
+
   async start(): Promise<void> {
+    // Read beside the spawn, never ahead of it: a quit must find the start where it always did.
+    this.#providerRead = this.#readProvider()
     await this.#spawnServer()
+    await this.#providerRead
     // The links a slot's home is made of are relaid on every start, and a home
     // that had never held a thread now has a `sessions` directory to resolve.
     this.#sessionStore = sessionStoreOf(this.#codexHome)
@@ -479,14 +555,26 @@ export class CodexRuntime implements AgentRuntime {
     cwd?: string,
     values?: Readonly<Record<string, OptionValue>>,
   ): Promise<readonly ConfigOption[]> {
-    const where = cwd ?? process.cwd()
-    const [{ config }, catalog] = await Promise.all([
+    // Named no folder, the draft is read as the user's own, as the ACP
+    // adapter's is. This process's working directory depends on how the app
+    // was started — `/` from Finder, the checkout under `pnpm dev` — so a
+    // project layer found there was a default nobody chose.
+    const where = cwd ?? homedir()
+    const [{ config }, catalog, profiles] = await Promise.all([
       this.#server.request('config/read', { cwd: where }),
       this.#catalog.load(where),
+      listCodexProfiles(this.#codexHome),
     ])
-    let state = stateFromConfig(config, catalog, where)
-    if (values) state = overlayDraftValues(state, values, catalog)
-    return noteUnservedModel(sessionOptions(state, catalog), config.model, catalog)
+    const selected = profileSelection(values)
+    const chosen = profiles.find((entry) => entry.id === selected)?.profile
+    const effective = chosen?.model ? { ...config, model: chosen.model } : config
+    let state = stateFromConfig(effective, catalog, where)
+    const ordinary = withoutProfile(values)
+    if (Object.keys(ordinary).length > 0) state = overlayDraftValues(state, ordinary, catalog)
+    return [
+      ...noteUnservedModel(sessionOptions(state, catalog), effective.model, catalog),
+      profileOption(profiles, selected),
+    ]
   }
 
   async #listFeatures(): Promise<CodexProtocol.v2.ExperimentalFeature[]> {
@@ -754,18 +842,17 @@ export class CodexRuntime implements AgentRuntime {
   /**
    * Reads a full transcript without making the session live.
    *
-   * `thread/read` returns turns but may leave their items unloaded, so any turn
-   * that comes back short is paged through explicitly. Real threads reach
-   * several hundred items, well past one page.
+   * The thread first, without its turns, for how it keeps its history; then
+   * its history, read the way that says (`readHistory`). Reading it whole in
+   * one call is what Codex deprecated for a paginated thread — every thread
+   * it has started since 0.151.0 — and each one opened here raised the
+   * deprecation as a toast.
    */
   async readSession(id: SessionId): Promise<Session> {
     let thread: CodexProtocol.v2.Thread
     try {
-      const response = await this.#server.request('thread/read', {
-        threadId: id,
-        includeTurns: true,
-      })
-      thread = response.thread
+      const { thread: head } = await this.#server.request('thread/read', { threadId: id })
+      thread = { ...head, turns: await readHistory(this.#server, head) }
     } catch (error) {
       // Codex refuses a whole thread over one item it cannot deserialize — a
       // rollout saved by a newer build. The file itself still reads line by
@@ -779,46 +866,18 @@ export class CodexRuntime implements AgentRuntime {
       }
       throw error
     }
-    const turns: CodexProtocol.v2.Turn[] = []
-    for (const turn of thread.turns) {
-      if (turn.itemsView === 'full') {
-        turns.push(turn)
-        continue
-      }
-      turns.push({ ...turn, items: await this.#loadTurnItems(id, turn.id), itemsView: 'full' })
-    }
-    return mapSession(
-      { ...thread, turns },
-      {
-        runtime: this.#id,
-        skip: this.#automatic(),
-        itemsLoaded: true,
-        // Codex answers `thread/read` with no token figures whatsoever, so the
-        // last ones it reported are carried across from the live session — the
-        // read path `AcpSession` already has. A thread this process never
-        // opened has none, and the ring stays off until its next turn.
-        usage: this.#sessions.get(id)?.usage ?? null,
-      },
-    )
-  }
-
-  async #loadTurnItems(
-    id: SessionId,
-    turn: string,
-  ): Promise<CodexProtocol.v2.ThreadItem[]> {
-    const items: CodexProtocol.v2.ThreadItem[] = []
-    let cursor: string | null = null
-    do {
-      const page: CodexProtocol.v2.ThreadItemsListResponse = await this.#server.request(
-        'thread/items/list',
-        { threadId: id, turnId: turn, cursor, limit: 200 },
-      )
-      // 0.149.0 pages entries rather than bare items, each tagged with the turn
-      // it belongs to; the request is already scoped to one turn.
-      items.push(...page.data.map((entry) => entry.item))
-      cursor = page.nextCursor
-    } while (cursor)
-    return items
+    return mapSession(thread, {
+      runtime: this.#id,
+      skip: this.#automatic(),
+      // Whole by construction when paged. A turn read whole says for itself,
+      // and no Codex measured has answered one short.
+      itemsLoaded: thread.turns.every((turn) => turn.itemsView === 'full'),
+      // Codex answers `thread/read` with no token figures whatsoever, so the
+      // last ones it reported are carried across from the live session — the
+      // read path `AcpSession` already has. A thread this process never
+      // opened has none, and the ring stays off until its next turn.
+      usage: this.#sessions.get(id)?.usage ?? null,
+    })
   }
 
   async archiveSession(id: SessionId, archived: boolean): Promise<void> {
@@ -851,7 +910,7 @@ export class CodexRuntime implements AgentRuntime {
   async createSession(options: SessionOptions): Promise<AgentSession> {
     const projection = new ToolProjection()
     const dynamicTools = this.#projectTools(projection, { workspaceRoot: options.cwd })
-    const { start, after } = startParamsFor(options)
+    const { start, after } = await this.#startParamsFor(options)
     const response = await this.#server.request('thread/start', {
       cwd: options.cwd,
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
@@ -860,14 +919,82 @@ export class CodexRuntime implements AgentRuntime {
       ...this.#developerInstructions(),
       ...start,
     })
-    const session = await this.#register(response.thread, stateFromStartResponse(response), projection, true)
+    const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
+      created: true,
+      route: options.route ?? null,
+      environment: options.environment,
+    })
     return this.#applyAfterStart(session, after)
   }
 
+  /**
+   * A new thread set up like `like`, for work that has to leave `like` as it
+   * is — the review on a side thread (`CodexSession.review`).
+   *
+   * Started as a new conversation is: this desk's plugin tools and standing
+   * instruction, and registered here, so its turns, approvals and settings
+   * reach the interface like any other thread's. It is set up with what Codex
+   * last said of `like`, and with `like`'s route when it has one; both speak
+   * in `config`, the sandbox its details and the route its provider. A
+   * sandbox the start could not say follows as a settings update, and so do
+   * mode and effort, each only where the new thread does not already have it
+   * — judged just before it is sent, because a mode brings an effort with it,
+   * so an effort that matched at the start may not once the mode has moved.
+   * One Codex refuses closes the thread and says why, as a new
+   * conversation's would.
+   */
+  async #startBeside(like: CodexSession): Promise<CodexSession> {
+    const { start, route, sandbox, after, environment } = like.startLike()
+    const projection = new ToolProjection()
+    const dynamicTools = this.#projectTools(projection, { workspaceRoot: start.cwd })
+    const routed = route ? routeParams(route) : null
+    const response = await this.#server.request('thread/start', {
+      ...start,
+      ...(routed ? { modelProvider: routed.modelProvider } : {}),
+      ...(start.config || routed || environment
+        ? {
+            config: environment
+              ? codexEnvironmentConfig({ ...start.config, ...routed?.config }, environment)
+              : { ...start.config, ...routed?.config },
+          }
+        : {}),
+      ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
+      ...this.#developerInstructions(),
+    })
+    const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
+      created: true,
+      route,
+      environment,
+    })
+    try {
+      if (sandbox) await session.setSandbox(sandbox)
+      for (const [id, value] of after) {
+        if (findOption(session.options(), id)?.currentValue === value) continue
+        await session.setOption(id, value)
+      }
+    } catch (error) {
+      await session.close()
+      throw error
+    }
+    return session
+  }
+
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    const held = this.#environments.get(id)
+    if (
+      held &&
+      options.environment &&
+      JSON.stringify(held) !== JSON.stringify(laneEnvironmentOf(options.environment))
+    ) {
+      throw new Error('A live session cannot change its lane environment.')
+    }
+    if (options.environment && this.#sessions.has(id) && !held) {
+      throw new Error('An already-open session cannot acquire a lane environment.')
+    }
+    if (held && !options.environment) options = { ...options, environment: held }
     const existing = this.#sessions.get(id)
     if (existing) return existing
-    const { start, after } = startParamsFor(options)
+    const { start, after } = await this.#startParamsFor(options)
     let response: CodexProtocol.v2.ThreadResumeResponse
     try {
       response = await this.#server.request('thread/resume', {
@@ -875,6 +1002,8 @@ export class CodexRuntime implements AgentRuntime {
         ...(options.cwd ? { cwd: options.cwd } : {}),
         ...this.#developerInstructions(),
         ...start,
+        // The caller reads the transcript itself (`readSession`), and asked
+        // for here a paginated thread's turns draw a deprecationNotice.
         excludeTurns: true,
       })
     } catch (error) {
@@ -883,7 +1012,10 @@ export class CodexRuntime implements AgentRuntime {
     // `dynamicTools` is only accepted on thread/start, so a resumed thread keeps
     // whatever tool set it was created with. The session reports that as stale
     // rather than pretending newly loaded plugins are available.
-    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection())
+    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection(), {
+      route: options.route ?? null,
+      environment: options.environment,
+    })
     return this.#applyAfterStart(session, after)
   }
 
@@ -916,16 +1048,73 @@ export class CodexRuntime implements AgentRuntime {
     )
   }
 
+  /**
+   * Forks a thread, arriving with the history it copied: the fork is shown
+   * from the turns its `session/started` carries, and nothing reads it again.
+   * Those turns are read the way the fork keeps them (`readHistory`), not
+   * taken from `thread/fork` itself — asked for there, a paginated source's
+   * are answered with a deprecationNotice.
+   */
   async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
-    const { start, after } = startParamsFor(options)
+    const environment = options.environment ?? this.#environments.get(id)
+    if (environment) options = { ...options, environment }
+    const { start, after } = await this.#startParamsFor(options)
     const response = await this.#server.request('thread/fork', {
       threadId: id,
       ...(options.cwd ? { cwd: options.cwd } : {}),
       ...this.#developerInstructions(),
       ...start,
+      excludeTurns: true,
     })
-    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection())
+    const session = await this.#register(
+      { ...response.thread, turns: await this.#forkedHistory(response.thread) },
+      stateFromStartResponse(response),
+      new ToolProjection(),
+      { route: options.route ?? null, environment: options.environment },
+    )
     return this.#applyAfterStart(session, after)
+  }
+
+  /**
+   * The turns a fork was made with. The fork exists whether or not they can
+   * be read, so one that cannot is opened without them, which its
+   * `session/started` already calls unloaded. Nothing reads a fork again on
+   * its own, and an empty pane reads as a new conversation, so the person is
+   * told what loads it: choosing it in the sidebar, which reads it
+   * (`openSession`), even while it is the conversation on screen.
+   */
+  async #forkedHistory(fork: CodexProtocol.v2.Thread): Promise<CodexProtocol.v2.Turn[]> {
+    try {
+      return await readHistory(this.#server, fork)
+    } catch (error) {
+      this.#logger?.warn?.(`codex could not read the history of fork ${fork.id}`, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      this.#emit({
+        type: 'notice',
+        sessionId: makeSessionId(fork.id),
+        level: 'warning',
+        message: 'The branch was made, but its history could not be read. Choose it in the sidebar to load it.',
+      })
+      return []
+    }
+  }
+
+  /** Resolves the one start-only option into bounded thread config overrides. */
+  async #startParamsFor(options: Partial<SessionOptions>): Promise<ReturnType<typeof startParamsFor>> {
+    const selected = profileSelection(options.options)
+    let profile: CodexProfile | null = null
+    if (selected) {
+      const entry = (await listCodexProfiles(this.#codexHome)).find((candidate) => candidate.id === selected)
+      if (!entry?.profile) {
+        throw new Error(entry?.error ?? `${selected}.config.toml is not an available profile.`)
+      }
+      profile = entry.profile
+    }
+    return startParamsFor(
+      { ...options, ...(options.options ? { options: withoutProfile(options.options) } : {}) },
+      profile,
+    )
   }
 
   /**
@@ -960,8 +1149,17 @@ export class CodexRuntime implements AgentRuntime {
     thread: CodexProtocol.v2.Thread,
     state: ThreadState,
     projection: ToolProjection,
-    created = false,
+    opened: {
+      /** Started here rather than resumed or forked — see `CodexSessionDeps.created`. */
+      readonly created?: boolean
+      /** The model route it was opened on, which a thread set up like it needs again. */
+      readonly route?: ResolvedModelRoute | null
+      readonly environment?: Readonly<Record<string, string>> | undefined
+    } = {},
   ): Promise<CodexSession> {
+    const created = opened.created ?? false
+    // Whatever was heard of this thread before it was opened here is over.
+    this.#reviewTurns.forget(thread.id)
     const catalog = await this.#catalog.load(state.cwd)
     const session = new CodexSession({
       runtime: this.#id,
@@ -972,13 +1170,20 @@ export class CodexRuntime implements AgentRuntime {
       catalog,
       projection,
       created,
+      route: opened.route ?? null,
+      environment: opened.environment,
+      startBeside: (like) => this.#startBeside(like),
+      interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
+      ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
       onClosed: (id) => {
         this.#sessions.delete(id)
+        this.#reviewTurns.forget(id)
         this.tasks.forget(id)
       },
       emit: (event) => this.#emit(event),
     })
+    if (opened.environment) this.#environments.set(thread.id, laneEnvironmentOf(opened.environment))
     this.#sessions.set(thread.id, session)
     this.#emit({
       type: 'session/started',
@@ -1083,6 +1288,22 @@ export class CodexRuntime implements AgentRuntime {
    */
   #track(notification: CodexProtocol.ServerNotification): void {
     switch (notification.method) {
+      case 'thread/started': {
+        const { id, parentThreadId } = notification.params.thread
+        if (parentThreadId && parentThreadId !== id) {
+          const root = this.#rootOf(parentThreadId)
+          if (root === null) this.#delegationUncertain = true
+          else this.#parents.set(id, root)
+          if (this.#parents.size > 2000) {
+            const oldest = this.#parents.keys().next().value
+            if (oldest !== undefined) {
+              this.#parents.delete(oldest)
+              this.#delegationUncertain = true
+            }
+          }
+        }
+        return
+      }
       case 'thread/settings/updated':
         this.#sessions
           .get(notification.params.threadId)
@@ -1145,6 +1366,35 @@ export class CodexRuntime implements AgentRuntime {
     }
   }
 
+  /**
+   * Turns the opening item of a standing order back into a `notice`, the way
+   * one already is for a `/model` echo (`NoticeItem`) — the turn is real, and
+   * Codex still reports its opening as `userMessage` on the wire, but that
+   * text is an Agent's brief, not a person's, so it must not read or title as
+   * one (`CodexSession.send`, `recordAs: 'notice'`).
+   */
+  #deSpeak(event: AgentEvent): AgentEvent {
+    if (event.type !== 'item/started' && event.type !== 'item/completed') return event
+    if (event.item.type !== 'userMessage') return event
+    if (!this.#sessions.get(event.sessionId)?.isSilentTurn(event.turnId)) return event
+    return { ...event, item: noticeFromUserMessage(event.item) }
+  }
+
+  /** Walk an announced child thread to the conversation the desk opened. */
+  #rootOf(threadId: string): string | null {
+    let at = threadId
+    const seen = new Set<string>()
+    for (let depth = 0; depth < 8; depth += 1) {
+      if (this.#sessions.has(at)) return at
+      if (seen.has(at)) return null
+      seen.add(at)
+      const parent = this.#parents.get(at)
+      if (parent === undefined) return this.#delegationUncertain ? null : at
+      at = parent
+    }
+    return this.#sessions.has(at) ? at : null
+  }
+
   #onServerRequest(
     request: CodexProtocol.ServerRequest,
     responder: ServerRequestResponder,
@@ -1179,8 +1429,14 @@ export class CodexRuntime implements AgentRuntime {
     responder: ServerRequestResponder,
   ): Promise<void> {
     const registry = this.#capabilities
-    const session = this.#sessions.get(params.threadId)
+    const root = this.#rootOf(params.threadId)
     const label = `${params.namespace ?? ''}/${params.tool}`
+
+    if (root === null) {
+      responder.respond(toCodexToolResponse({ ok: false, error: 'Delegated tool call refused: its root conversation could not be confirmed.' }))
+      return
+    }
+    const session = this.#sessions.get(root)
 
     if (!registry) {
       responder.respond(
@@ -1190,7 +1446,7 @@ export class CodexRuntime implements AgentRuntime {
     }
 
     const scope = {
-      sessionId: makeSessionId(params.threadId),
+      sessionId: makeSessionId(root),
       turnId: turnIdOf(params.turnId),
       runtime: this.#id,
       ...(session ? { workspaceRoot: session.settings().cwd } : {}),
@@ -1245,13 +1501,18 @@ export class CodexRuntime implements AgentRuntime {
 
   #onStateChange(state: ConnectionState): void {
     if (state.type === 'ready') this.#version = state.installation.version
-    if (state.type === 'restarting' || state.type === 'failed') {
+    if (state.type !== 'ready') {
       // A restarted app-server has no memory of live threads or watches. Drop
       // the handles so the host resumes rather than sending turns into a dead
       // session, and so a watcher is not left waiting for changes that will
       // never arrive. The catalogue goes too: the new process asks its vendor
       // afresh, and may be answered differently — or be a different binary.
       this.#sessions.clear()
+      // A child id can be reused by the next app-server. Its parent came from
+      // the old process, so it is not evidence that this epoch delegated it.
+      this.#parents.clear()
+      this.#delegationUncertain = true
+      this.#reviewTurns.clear()
       this.tasks.dispose()
       this.#catalog.invalidate()
       this.#catalog.forgetWarning()
@@ -1270,6 +1531,16 @@ export class CodexRuntime implements AgentRuntime {
     for (const listener of this.#eventListeners) listener(event)
   }
 }
+
+/** A silent order's opening item, told as `notice` instead of `userMessage` — see `CodexRuntime.#deSpeak`. */
+const noticeFromUserMessage = (item: UserMessageItem): AgentItem => ({
+  id: item.id,
+  type: 'notice',
+  text: item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n'),
+  ...(item.startedAt !== undefined ? { startedAt: item.startedAt } : {}),
+  ...(item.completedAt !== undefined ? { completedAt: item.completedAt } : {}),
+  ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
+})
 
 const healthFromError = (error: CodexError): RuntimeHealth => {
   switch (error.code) {
@@ -1310,40 +1581,68 @@ const ROUTE_PROVIDER = 'harnessdesk_route'
 
 const startParamsFor = (
   options: Partial<SessionOptions>,
+  profile: CodexProfile | null = null,
 ): {
   start: StartOptionParams & {
     modelProvider?: string
-    config?: Record<string, string | number>
+    config?: NonNullable<CodexProtocol.v2.ThreadStartParams['config']>
   }
   after: readonly (readonly [string, OptionValue])[]
 } => {
   const { start, after } = splitStartOptions(options.options ?? {})
   const route = options.route
+  const routed = route ? routeParams(route) : null
+  const config = { ...profile?.config, ...routed?.config }
   return {
     start: {
+      ...(profile?.model ? { model: profile.model } : {}),
       ...(options.model ? { model: options.model } : {}),
       ...start,
-      // A model route becomes a provider defined only for this thread, via
-      // thread/start's dotted config overrides — the user's own config.toml
-      // is never written (probed working: script/probe/appserver-inject.mjs).
-      // The gateway token rides the base URL, so the provider needs no
-      // env_key and nothing lands in this process's environment.
-      ...(route
-        ? {
-            modelProvider: ROUTE_PROVIDER,
-            ...(route.model ? { model: route.model } : {}),
-            config: {
-              [`model_providers.${ROUTE_PROVIDER}.name`]: route.name,
-              [`model_providers.${ROUTE_PROVIDER}.base_url`]: route.endpoint,
-              [`model_providers.${ROUTE_PROVIDER}.wire_api`]: route.wireProtocol,
-              [`model_providers.${ROUTE_PROVIDER}.request_max_retries`]: 1,
-              [`model_providers.${ROUTE_PROVIDER}.stream_max_retries`]: 1,
-            },
-          }
-        : {}),
+      ...(routed ? { modelProvider: routed.modelProvider, ...(route?.model ? { model: route.model } : {}) } : {}),
+      ...(options.environment
+        ? { config: codexEnvironmentConfig(config, options.environment) }
+        : Object.keys(config).length > 0
+          ? { config }
+          : {}),
     },
     after,
   }
 }
+
+const profileSelection = (values: Readonly<Record<string, OptionValue>> | undefined): string => {
+  const selected = values?.[CODEX_PROFILE_OPTION_ID]
+  if (selected === undefined || selected === '') return ''
+  if (typeof selected !== 'string') throw new Error('Profile takes one of its listed values.')
+  return selected
+}
+
+const withoutProfile = (
+  values: Readonly<Record<string, OptionValue>> | undefined,
+): Readonly<Record<string, OptionValue>> => {
+  if (!values || !(CODEX_PROFILE_OPTION_ID in values)) return values ?? {}
+  const { [CODEX_PROFILE_OPTION_ID]: _profile, ...ordinary } = values
+  return ordinary
+}
+
+/**
+ * A model route as thread-verb fields: a provider defined only for this
+ * thread, via thread/start's dotted config overrides — the user's own
+ * config.toml is never written (probed working:
+ * script/probe/appserver-inject.mjs). The gateway token rides the base URL,
+ * so the provider needs no env_key and nothing lands in this process's
+ * environment.
+ */
+const routeParams = (
+  route: ResolvedModelRoute,
+): { modelProvider: string; config: Record<string, string | number> } => ({
+  modelProvider: ROUTE_PROVIDER,
+  config: {
+    [`model_providers.${ROUTE_PROVIDER}.name`]: route.name,
+    [`model_providers.${ROUTE_PROVIDER}.base_url`]: route.endpoint,
+    [`model_providers.${ROUTE_PROVIDER}.wire_api`]: route.wireProtocol,
+    [`model_providers.${ROUTE_PROVIDER}.request_max_retries`]: 1,
+    [`model_providers.${ROUTE_PROVIDER}.stream_max_retries`]: 1,
+  },
+})
 
 export { makeSessionId }

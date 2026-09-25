@@ -1,6 +1,6 @@
 /*
  * The worktree dialogs. A few shapes here rhyme with GitDialogs.module.css
- * (the stacked body, the inline refusal, the mode cards) rather than
+ * (the stacked body and the mode cards) rather than
  * importing them: a screen's stylesheet is not a library, and what deserves
  * promotion goes to design/ui or a named design/patterns contract instead.
  */
@@ -11,63 +11,26 @@
   gap: 12px;
 }
 
-.lede {
-  margin: 0;
-  font-size: var(--hd-text-sm);
-  line-height: 1.5;
-  color: var(--hd-secondary-foreground);
-}
-
-.note {
-  font-size: var(--hd-text-sm);
-  line-height: 1.5;
-  color: var(--hd-secondary-foreground);
-}
-
-.quiet {
-  padding: 16px;
-  color: var(--hd-muted-foreground);
-  font-size: var(--hd-text-sm);
-}
-
-.error {
-  padding: 8px 10px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
-  overflow-wrap: anywhere;
-}
-
 /* --- the list ------------------------------------------------------------ */
 
 .list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 380px;
   overflow-y: auto;
+  max-height: min(380px, 60vh);
 }
 
 .row {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
 }
 
-/* The checkout you are looking at gets the accent edge, not a background:
-   the row is already busy with chips, and a fill would fight them. */
-.row[data-here] {
-  box-shadow: inset 0 0 0 1.5px var(--hd-accent);
-}
-
-.row[data-gone] .rowName,
-.row[data-gone] .rowPath {
-  color: var(--hd-muted-foreground);
-  text-decoration: line-through;
+.rowContent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .rowHead {
@@ -80,17 +43,6 @@
 .rowIcon {
   flex: none;
   display: inline-flex;
-  color: var(--hd-secondary-foreground);
-}
-
-.rowName {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--hd-text-sm);
-  font-weight: 600;
-  color: var(--hd-foreground);
 }
 
 /* The path is the row's earned second line: two checkouts of one branch are
@@ -101,55 +53,6 @@
   white-space: nowrap;
   direction: rtl;
   text-align: left;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-}
-
-.chip {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 6px;
-  border-radius: var(--hd-radius-full);
-  font-size: var(--hd-text-xs);
-  line-height: 16px;
-  white-space: nowrap;
-}
-
-.chip[data-kind='here'] {
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
-}
-
-.chip[data-kind='main'] {
-  background: var(--hd-tint-blue-fill);
-  color: var(--hd-tint-blue-ink);
-  box-shadow: inset 0 0 0 1px var(--hd-tint-blue-edge);
-}
-
-.chip[data-kind='managed'] {
-  background: var(--hd-tint-violet-fill);
-  color: var(--hd-tint-violet-ink);
-  box-shadow: inset 0 0 0 1px var(--hd-tint-violet-edge);
-}
-
-.chip[data-kind='locked'] {
-  background: var(--hd-tint-amber-fill);
-  color: var(--hd-tint-amber-ink);
-  box-shadow: inset 0 0 0 1px var(--hd-tint-amber-edge);
-}
-
-.chip[data-kind='dirty'] {
-  background: var(--hd-muted);
-  color: var(--hd-secondary-foreground);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
-}
-
-.chip[data-kind='gone'] {
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
 }
 
 /* --- what a row can do --------------------------------------------------- */
@@ -161,32 +64,17 @@
   flex-wrap: wrap;
 }
 
-.working {
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-}
-
 /* The question a row asks, in place of its buttons: one dialog, never two. */
 .ask {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 8px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-muted);
-}
-
-.ask[data-tone='destructive'] {
-  background: var(--hd-danger-dim);
 }
 
 .askWhat {
   flex: 1 1 200px;
   min-width: 0;
-  font-size: var(--hd-text-sm);
-  line-height: 1.4;
-  color: var(--hd-foreground);
 }
 
 .ask input {
@@ -218,18 +106,6 @@
 
 }
 
-.modeName {
-  font-size: var(--hd-text-sm);
-  font-weight: 600;
-  color: var(--hd-foreground);
-}
-
-.modeWhat {
-  font-size: var(--hd-text-xs);
-  line-height: 1.4;
-  color: var(--hd-secondary-foreground);
-}
-
 .field {
   display: flex;
   align-items: center;
@@ -239,8 +115,6 @@
 .label {
   flex: none;
   width: 56px;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
 }
 
 .field input,
@@ -253,18 +127,10 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
 }
 
-/* The ignored contents a removal would take, named rather than counted: the
-   difference between "128 files" and "node_modules/, .env.local" is whether
-   a person can tell that something of theirs is in there. */
-.askList {
+.dangerCode {
   display: block;
-  margin-top: 4px;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-danger);
+  margin-top: var(--hd-space-1);
   overflow-wrap: anywhere;
 }

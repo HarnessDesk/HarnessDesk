@@ -4,7 +4,50 @@ import { test } from 'node:test'
 import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
-import { codeOf, compareBaseline, createSourceCache, sheetsOf, squaresOf, STYLESHEET_OWNERS } from './design-audit.mjs'
+import {
+  APPEARANCE_PROPERTIES,
+  codeOf,
+  compareBaseline,
+  createSourceCache,
+  declarationsOf,
+  designImportsOf,
+  exportedNamesOf,
+  NAMED_COLOURS,
+  rawColours,
+  rawZIndexes,
+  looksLikeUnmappedAppearanceUtility,
+  classOwnersOf,
+  declarationsByClassIn,
+  dynamicImportUsesOf,
+  exportsReferencing,
+  importersByFile,
+  importsIn,
+  isPatternModule,
+  isWorkbenchDockExempt,
+  NAMED_ROOTS,
+  parseScreenSource,
+  patternExportAppearanceOf,
+  resolveFamilies,
+  resolvedConsumersOf,
+  screenAppearanceOf,
+  screenAreaOf,
+  singleScreenAreaOf,
+  screenInlineStyleAppearanceOf,
+  patternSourceAppearanceOf,
+  screenPropertySideOf,
+  stylesheetFor,
+  screenUnclassifiedOf,
+  screenUnmappedUtilityOf,
+  screenUtilityAppearanceOf,
+  screenUtilityDeclarationOf,
+  screenUtilityUnclassifiedOf,
+  sheetsOf,
+  squaresOf,
+  STYLESHEET_OWNERS,
+  uppercaseLabelsOf,
+  visualKindUnionsOf,
+} from './design-audit.mjs'
+import { SECTIONS } from './design-sections.mjs'
 import { brandsIn } from './brands.mjs'
 import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mjs'
 import { DESCRIBED_AS, problemsWith, sectionOf, stepNames } from './check-verify-steps.mjs'
@@ -14,10 +57,21 @@ import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
+
+/**
+ * A clean scan, derived rather than listed.
+ *
+ * These fixtures used to name every category by hand, which made adding one to
+ * the audit break two tests that have nothing to say about it: the fixture was
+ * a second copy of the category list, kept in step by whoever noticed. Reading
+ * the list the audit itself uses means a new category arrives at zero, where a
+ * clean scan is exactly where it should arrive.
+ */
+const zeroes = () => Object.fromEntries(SECTIONS.map(([key]) => [key, 0]))
 import { createSteps } from './lib/steps.mjs'
 import { removeTemporaryDirectory } from './lib/temporary-directory.mjs'
 import { leadComment } from './design-doc.mjs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -43,6 +97,971 @@ test('audit source cache reads each present or missing stylesheet once and prese
 test('existing stylesheet co-ownership is capped at six families and eleven modules', () => {
   assert.equal(Object.keys(STYLESHEET_OWNERS).length, 6)
   assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 11)
+})
+
+test('single-screen pattern accounting recognizes non-Git screen families', () => {
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const dashboard = path.join(repoRoot, 'packages/ui/src/components/Usage.tsx')
+  assert.equal(screenAreaOf(sidebar), 'sidebar')
+  assert.equal(screenAreaOf(dashboard), 'usage')
+  assert.equal(singleScreenAreaOf([sidebar]), 'sidebar')
+  assert.equal(singleScreenAreaOf([dashboard]), 'usage')
+})
+
+test('single-screen pattern accounting groups Git screens but exempts cross-family use', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const gitDialogs = path.join(repoRoot, 'packages/ui/src/components/GitDialogs.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  assert.equal(singleScreenAreaOf([gitPane, gitDialogs]), 'git')
+  assert.equal(singleScreenAreaOf([gitPane, sidebar]), null)
+})
+
+test('single-screen pattern accounting follows a pattern consumer into its screen hosts', () => {
+  const approval = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  const room = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  const importers = new Map([[approval, [room, builtins]]])
+  // The registry mounts Approvals in the session view beside Conversation,
+  // and TeamRoomPane docks it too — two different places, not one, so the
+  // registry counts as its own area alongside `room` rather than being
+  // dropped, and a pattern used only by [approval] reads as cross-area
+  // (#925 review round 2, P1).
+  assert.equal(singleScreenAreaOf([approval], importers), null)
+})
+
+test('the pane registry mounts a screen without making its patterns shared', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  // Every pane is registered there; a pattern only GitPane uses is still Git's.
+  assert.equal(singleScreenAreaOf([gitPane], new Map([[gitPane, [builtins]]])), 'git')
+})
+
+/*
+ * #914, shape 2: before this, Git was the only screen family named, so a
+ * pattern used only by the conversation transcript's own files — Items,
+ * TurnWork, StepGroup and their siblings — read as cross-area, because each
+ * file was its own area. `screenAreaOf` names four families now, not one.
+ */
+test('single-screen pattern accounting groups the conversation family, not only Git (#914)', () => {
+  const items = path.join(repoRoot, 'packages/ui/src/components/Items.tsx')
+  const turnWork = path.join(repoRoot, 'packages/ui/src/components/TurnWork.tsx')
+  const stepGroup = path.join(repoRoot, 'packages/ui/src/components/StepGroup.tsx')
+  const conversationMap = path.join(repoRoot, 'packages/ui/src/components/ConversationMap.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  assert.equal(screenAreaOf(items), 'conversation')
+  assert.equal(screenAreaOf(turnWork), 'conversation')
+  assert.equal(screenAreaOf(conversationMap), 'conversation')
+  // Before #914 these were four separate areas ('items', 'turnwork',
+  // 'stepgroup'), so a pattern spread across any two of them read as
+  // cross-area and was never charged.
+  assert.equal(singleScreenAreaOf([items, turnWork, stepGroup]), 'conversation')
+  assert.equal(singleScreenAreaOf([items, sidebar]), null)
+})
+
+test('single-screen pattern accounting names the settings, agent roster and room families (#914)', () => {
+  const settings = path.join(repoRoot, 'packages/ui/src/components/Settings.tsx')
+  const settingsAgents = path.join(repoRoot, 'packages/ui/src/components/SettingsAgents.tsx')
+  const settingsYou = path.join(repoRoot, 'packages/ui/src/components/SettingsYou.tsx')
+  assert.equal(singleScreenAreaOf([settings, settingsAgents, settingsYou]), 'settings')
+
+  const agentsWindow = path.join(repoRoot, 'packages/ui/src/components/AgentsWindow.tsx')
+  const agentRoster = path.join(repoRoot, 'packages/ui/src/components/AgentRoster.tsx')
+  const agentPage = path.join(repoRoot, 'packages/ui/src/components/AgentPage.tsx')
+  assert.equal(singleScreenAreaOf([agentsWindow, agentRoster, agentPage]), 'agentroster')
+  // Agents.tsx (a session's own delegated sub-agents, in the right-dock
+  // inspector) is a different screen and must stay out of that family — it
+  // does, but not by keeping its own name: its one real importer is
+  // Details.tsx, which is itself unhosted, so the closure folds it (and
+  // Activity.tsx, and Trajectory.tsx) into `details` instead.
+  const agentsInspector = path.join(repoRoot, 'packages/ui/src/components/Agents.tsx')
+  assert.equal(screenAreaOf(agentsInspector), 'details')
+  assert.notEqual(screenAreaOf(agentsInspector), 'agentroster')
+
+  const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  const teamBoardPane = path.join(repoRoot, 'packages/ui/src/components/TeamBoardPane.tsx')
+  const goalHeader = path.join(repoRoot, 'packages/ui/src/components/GoalHeader.tsx')
+  assert.equal(singleScreenAreaOf([teamRoomPane, teamBoardPane, goalHeader]), 'room')
+  // GoalCreate (the new-session flow) and GoalMigrationBanner (the app's own
+  // chrome) are goals too, but never appear in the room, so they stay out.
+  const goalCreate = path.join(repoRoot, 'packages/ui/src/components/GoalCreate.tsx')
+  assert.notEqual(screenAreaOf(goalCreate), 'room')
+})
+
+/*
+ * A pattern one screen family consumes is that screen's code wherever it
+ * lives, so its appearance counts on the same ledger whichever spelling it
+ * takes. The stylesheet half was always counted; these hold the other two —
+ * a Tailwind utility in the pattern's own className and a key in its inline
+ * style — by the same classification a screen's are (#912 review: four
+ * single-consumer TurnWork parts moved screen appearance into design/ and the
+ * number fell without anything converging).
+ */
+const patternTsx = (name) => path.join(repoRoot, 'packages/ui/src/design/patterns', name)
+
+test('a single-consumer pattern counts the utilities its own className draws', () => {
+  const source = `export const Part = () => <span className="text-(--hd-muted-foreground) tabular-nums flex gap-2" />\n`
+  assert.deepEqual(patternSourceAppearanceOf(patternTsx('Part.tsx'), source), [
+    'design/patterns/Part.tsx: text-(--hd-muted-foreground) (color)',
+    'design/patterns/Part.tsx: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+test('a single-consumer pattern counts appearance in its inline style, and not its layout or custom properties', () => {
+  const source = `export const Part = () => <span style={{ color: 'red', width: 4, '--near': 1 }} />\n`
+  assert.deepEqual(patternSourceAppearanceOf(patternTsx('Part.tsx'), source), ['design/patterns/Part.tsx: style color'])
+})
+
+test('a pattern reached through cn() and a class constant is read the way a screen is', () => {
+  const source = [
+    "import { cn } from '@/lib/utils'",
+    "const INK = 'text-(--hd-warning-ink)'",
+    'export const Part = ({ on }) => <span className={cn(\'shrink-0\', on && INK, \'px-2\')} />',
+    '',
+  ].join('\n')
+  assert.deepEqual(patternSourceAppearanceOf(patternTsx('Part.tsx'), source), [
+    'design/patterns/Part.tsx: text-(--hd-warning-ink) (color)',
+    'design/patterns/Part.tsx: px-2 (padding-inline)',
+  ])
+})
+
+test('single-screen patterns leave semantic appearance to system primitives', () => {
+  // The Git history's chrome was a single-screen pattern; it is folded back
+  // into the Git pane, onto the tool pane's own bar and body, rather than
+  // parked in design/patterns with its appearance.
+  for (const file of ['GitHistory.tsx', 'GitHistory.module.css']) {
+    assert.equal(fs.existsSync(path.join(repoRoot, 'packages/ui/src/design/patterns', file)), false, file)
+  }
+
+  const turnWork = fs.readFileSync(path.join(repoRoot, 'packages/ui/src/design/patterns/TurnWork.tsx'), 'utf8')
+  assert.doesNotMatch(turnWork, /TurnWork\.module\.css/)
+  assert.match(turnWork, /quietHover/)
+})
+
+/*
+ * #914, shape 1: `design/index.ts` re-exports `design/ui` and a few patterns
+ * (InspectorPanel, DockPanel) with `export *`, not a named `export { X } from
+ * 'y'`. Reading only the named form, as the single-consumer rule used to,
+ * makes every part behind an `export *` invisible — never charged, whatever
+ * its consumers.
+ */
+test('exported-name resolution follows `export *`, however many hops deep, to the file that declares the name (#914)', () => {
+  const designIndex = path.join(repoRoot, 'packages/ui/src/design/index.ts')
+  // `Tick` reaches `design/index.ts` only through `export * from './ui'` and
+  // then `design/ui/index.ts`'s own `export * from './spark'` — two hops.
+  assert.deepEqual(exportedNamesOf(designIndex).get('Tick'), {
+    file: path.join(repoRoot, 'packages/ui/src/design/ui/spark.tsx'),
+    localName: 'Tick',
+  })
+  // `GroupLine` is declared in InspectorPanel.tsx and reaches design/index.ts
+  // only through `export * from './patterns/InspectorPanel'` — one hop, but
+  // still invisible to a reader of named exports only.
+  assert.deepEqual(exportedNamesOf(designIndex).get('GroupLine'), {
+    file: path.join(repoRoot, 'packages/ui/src/design/patterns/InspectorPanel.tsx'),
+    localName: 'GroupLine',
+  })
+})
+
+/*
+ * #914, shape 4: `components/Panel.tsx` re-exports `GroupLine` and `PanelRow`
+ * from `'../design'` — a shim entirely outside `design/`. A screen importing
+ * either from the shim used to leave no trace of ever having reached
+ * `design/` at all, because the old resolver only read a direct
+ * `from '../design'` import.
+ */
+test('exported-name resolution follows a re-export shim to the file that actually declares the name (#914)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-export-shim-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const shimPath = path.join(dir, 'Shim.tsx')
+    fs.writeFileSync(targetPath, 'export const Foo = () => null\nexport const Bar = () => null\n')
+    fs.writeFileSync(shimPath, "export { Foo, Bar } from './Target'\n")
+    assert.deepEqual(exportedNamesOf(shimPath).get('Foo'), { file: targetPath, localName: 'Foo' })
+    assert.deepEqual(exportedNamesOf(shimPath).get('Bar'), { file: targetPath, localName: 'Bar' })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+
+  // The real shape this fixes: Trajectory.tsx imports GroupLine from
+  // `./Panel` (the shim), not from `../design` directly.
+  const trajectory = path.join(repoRoot, 'packages/ui/src/components/Trajectory.tsx')
+  const found = designImportsOf(trajectory).find((ref) => ref.localName === 'GroupLine')
+  assert.deepEqual(found, {
+    file: path.join(repoRoot, 'packages/ui/src/design/patterns/InspectorPanel.tsx'),
+    localName: 'GroupLine',
+    localBinding: 'GroupLine',
+  })
+})
+
+/*
+ * #914, shape 3: consumers used to be merged per *module*, not per export, so
+ * one export used everywhere made every sibling export in the same file look
+ * shared too — a genuinely single-area sibling's own appearance was never
+ * charged. `patternExportAppearanceOf` resolves each export's own consumers
+ * before asking whether the module is single-area.
+ */
+test('a module charges only its single-area export, not a sibling export used everywhere (#914)', () => {
+  const module = patternTsx('Widget.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    'export const Common = () => <span className="tabular-nums" />',
+    'export const Solo = () => <span className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    // Common is shared: Sidebar and GitPane are two different areas.
+    { localName: 'Common', consumers: [widelyUsed, onlyConsumer] },
+    // Solo has one consumer only, so it is that screen's own appearance.
+    { localName: 'Solo', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: line-through (text-decoration)',
+  ])
+})
+
+test('a module whose every export reaches the same area is still charged in full, the original way (#914)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    'export const Head = () => <span className="tabular-nums" />',
+    'export const Foot = () => <span className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Head', consumers: [onlyConsumer] },
+    { localName: 'Foot', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+    'design/patterns/Widget.tsx [git screen area]: line-through (text-decoration)',
+  ])
+})
+
+/*
+ * #914 review: `declarationsByClassIn` first read a rule's selector and body
+ * with the same flat `bare(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)` `squaresOf`
+ * uses for its own narrow width/height check, then fed the extracted *body*
+ * text alone back into `declarationsOf`. That function is `declarationsIn`'s
+ * full stylesheet parser, which only flushes a declaration once it has seen a
+ * `{` open a rule; handed a body with no surrounding braces at all, it never
+ * enters a rule, so every declaration for a class-scoped export vanished
+ * silently (`Settings.tsx`'s `SearchMatch` and `RowMark`, real names this
+ * shipped with #914, both read as contributing nothing). The fix reads
+ * `declarationsIn`'s own `rule.prelude` instead of re-deriving a selector.
+ */
+test('the CSS-module classes a single-area export reaches for are charged, reading real declarations not a re-parsed body (#914)', () => {
+  const css = [
+    '.mono { font-family: var(--hd-mono); }',
+    '.monoBlock { padding: 8px; background: var(--hd-muted); }',
+    '',
+  ].join('\n')
+  const tagged = declarationsByClassIn(css)
+  assert.deepEqual(tagged, [
+    { classes: new Set(['mono']), property: 'font-family', value: 'var(--hd-mono)' },
+    { classes: new Set(['monoBlock']), property: 'padding', value: '8px' },
+    { classes: new Set(['monoBlock']), property: 'background', value: 'var(--hd-muted)' },
+  ])
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const source = [
+    "import styles from './Widget.module.css'",
+    'export const Shared = ({ className }) => <span className={styles.mono + \' \' + className} />',
+    'export const Solo = () => <span className={styles.monoBlock} />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Shared', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'Solo', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: padding',
+    'design/patterns/Widget.module.css [git screen area]: background',
+  ])
+})
+
+/*
+ * #914 review: a plain `.ts` design module (no JSX) has no sibling
+ * `.module.css` — `design/adapters/terminal.ts` is one. The original
+ * `module.replace(/\.tsx$/, '.module.css')` left `sheet` equal to `module`
+ * itself for a `.ts` file, so the module's own TypeScript source was read as
+ * though it were a stylesheet, and a bogus finding came out the other end.
+ */
+test('a plain .ts design module has no stylesheet to charge (#914)', () => {
+  assert.equal(stylesheetFor(patternTsx('Widget.tsx')), patternTsx('Widget.module.css'))
+  assert.equal(stylesheetFor(path.join(repoRoot, 'packages/ui/src/design/adapters/terminal.ts')), null)
+})
+
+test('stylesheetFor rejects a .ts pattern module too, not only an adapter (#914 review, item 7)', () => {
+  assert.equal(stylesheetFor(path.join(repoRoot, 'packages/ui/src/design/patterns/Foo.ts')), null)
+})
+
+/*
+ * #914 review, P1: `RowMark` alone draws `.rowMark`, but `Row` and
+ * `RowButton` in the same module also reach for it, and those are used
+ * everywhere. Before this, a class was charged to any single-area export
+ * that referenced it in its own scoped subtree, without asking whether some
+ * *other* declaration in the module — exported or not — reached for the same
+ * class. Only a class exclusively one export's own may be charged.
+ */
+test('a class shared with another export in the same module is not charged to a single-area export (#914 review, P1)', () => {
+  const source = [
+    "import styles from './Widget.module.css'",
+    'export const Row = ({ className }) => <span className={styles.rowMark + " " + className} />',
+    'export const RowButton = () => <span className={styles.rowMark} />',
+    'export const RowMark = () => <span className={styles.rowMark + " " + styles.soloOnly} />',
+    '',
+  ].join('\n')
+  const owners = classOwnersOf(parseScreenSource('Widget.tsx', source), 'styles')
+  // .rowMark is Row's, RowButton's and RowMark's — shared, whichever export
+  // is later found single-area.
+  assert.deepEqual(owners.get('rowMark'), new Set(['Row', 'RowButton', 'RowMark']))
+  // .soloOnly is reached only from RowMark's own body.
+  assert.deepEqual(owners.get('soloOnly'), new Set(['RowMark']))
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const css = ['.rowMark { color: red; }', '.soloOnly { padding: 4px; }', ''].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Row', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'RowButton', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'RowMark', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: padding',
+  ])
+})
+
+/*
+ * #914 review, item 7: the whole-module path must still work when a module
+ * has a local (unexported) helper and a class nothing references at all —
+ * neither should crash the walk or leak into a charge.
+ */
+test('the whole-module path tolerates a local helper and a class nothing references (#914 review, item 7)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    "import styles from './Widget.module.css'",
+    'const cx = (...parts) => parts.filter(Boolean).join(" ")',
+    'export const Head = () => <span className={cx(styles.head, "tabular-nums")} />',
+    'export const Foot = () => <span className={styles.head} />',
+    '',
+  ].join('\n')
+  const css = ['.head { color: red; }', '.unused { padding: 4px; }', ''].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Head', consumers: [onlyConsumer] },
+    { localName: 'Foot', consumers: [onlyConsumer] },
+  ]
+  // The whole-module path charges the whole sheet, `.unused` included: every
+  // export here reaches the same one area, so the entire module is that
+  // screen's appearance moved into design/ in full, not only the classes an
+  // export happens to reach today — unchanged from before this review, and
+  // this fixture is here so a future change to that rule has to notice it.
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: color',
+    'design/patterns/Widget.module.css [git screen area]: padding',
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, item 6: the workbench dock chrome is exempt by name, not by
+ * pattern — the real DockPanel.tsx module, where every listed export is
+ * genuinely single-area (`workbench`), still charges nothing.
+ */
+test('the workbench dock chrome is a named exemption, not a pattern match (#914 review, DockPanel policy)', () => {
+  const dockPanel = path.join(repoRoot, 'packages/ui/src/design/patterns/DockPanel.tsx')
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'WorkbenchRail'), true)
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'DockPanelTab'), true)
+  // RailSection is DockPanel.tsx's other export, and is not on the list:
+  // it is not single-area at all (AppWindow.tsx composes it too), so
+  // whether it would be exempt never comes up.
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'RailSection'), false)
+  // The same export name in a different module is not exempt — this is a
+  // named list, not a rule about the word "WorkbenchRail".
+  assert.equal(isWorkbenchDockExempt(patternTsx('Widget.tsx'), 'WorkbenchRail'), false)
+
+  const moduleSource = fs.readFileSync(dockPanel, 'utf8')
+  const sheet = stylesheetFor(dockPanel)
+  const sheetSource = sheet && fs.existsSync(sheet) ? fs.readFileSync(sheet, 'utf8') : null
+  const workbench = path.join(repoRoot, 'packages/ui/src/panels/Workbench.tsx')
+  const exportsAndConsumers = [
+    { localName: 'WorkbenchRail', consumers: [workbench] },
+    { localName: 'DockPanelTab', consumers: [workbench] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(dockPanel, moduleSource, sheet, sheetSource, exportsAndConsumers), [])
+})
+
+/*
+ * #925 review round 2, P3: an otherwise-uniform module (every export the
+ * same single area) with a named exemption must not take the whole-module
+ * fast path — that reads the whole file's text, which would charge an
+ * exempt export's own utilities right along with an unlisted sibling's. One
+ * unlisted export charges only itself.
+ */
+test('the dock exemption is a per-export skip: one unlisted export in an otherwise-uniform module still charges (#925 review round 2, P3)', () => {
+  const dockPanel = path.join(repoRoot, 'packages/ui/src/design/patterns/DockPanel.tsx')
+  const workbench = path.join(repoRoot, 'packages/ui/src/panels/Workbench.tsx')
+  const source = [
+    'export const WorkbenchRail = () => <div className="tabular-nums" />',
+    'export const NotYetExempt = () => <div className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'WorkbenchRail', consumers: [workbench] },
+    { localName: 'NotYetExempt', consumers: [workbench] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(dockPanel, source, null, null, exportsAndConsumers), [
+    'design/patterns/DockPanel.tsx [workbench screen area]: line-through (text-decoration)',
+  ])
+})
+
+/*
+ * #925 review round 2, item 5: the primitive ledger and a pattern moved into
+ * ui/ as gates tests, not only caught by --strict — `isPatternModule` is the
+ * one switch between the two ceilings, both of which are real SECTIONS
+ * entries with their own recorded baseline.
+ */
+test('isPatternModule is the one switch between screenAppearance and singleAreaPrimitive, both real ceilings (#925 review round 2, item 5)', () => {
+  assert.ok(SECTIONS.some(([key]) => key === 'singleAreaPrimitive'))
+  const asPattern = path.join(repoRoot, 'packages/ui/src/design/patterns/Widget.tsx')
+  const asPrimitive = path.join(repoRoot, 'packages/ui/src/design/ui/widget.tsx')
+  assert.equal(isPatternModule(asPattern), true)
+  assert.equal(isPatternModule(asPrimitive), false)
+
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = 'export const Solo = () => <span className="tabular-nums" />\n'
+  const exportsAndConsumers = [{ localName: 'Solo', consumers: [onlyConsumer] }]
+  // Charged under screenAppearance as a pattern...
+  assert.deepEqual(patternExportAppearanceOf(asPattern, source, null, null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+  // ...but the real audit loop never calls patternExportAppearanceOf for a
+  // ui/ module at all — isPatternModule routes it to singleAreaPrimitive
+  // instead, using the same singleScreenAreaOf check patternExportAppearanceOf
+  // itself uses internally to decide an export's own area.
+  assert.equal(singleScreenAreaOf([onlyConsumer]), 'git')
+})
+
+/*
+ * #925 review round 2, P1: `Approvals.tsx` is mounted by the registry's own
+ * session view (beside Conversation) *and* docked by TeamRoomPane — two
+ * different places. `GitPane.tsx` is mounted by the registry alone (no
+ * other screen), and stays exactly one screen's own. The distinction is
+ * whether a real screen host was found *alongside* the registry/app mount,
+ * not whether one exists at all.
+ */
+test('a registry mount alongside a real screen import is a host with its own area (#925 review round 2, P1)', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  // GitPane's only importer is the registry, alone — unaffected.
+  assert.equal(singleScreenAreaOf([gitPane], new Map([[gitPane, [builtins]]])), 'git')
+
+  // The real shape review found: Approvals is drawn in the registry's own
+  // ConversationView (beside Conversation.tsx) and docked by TeamRoomPane.
+  const approvals = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  assert.equal(singleScreenAreaOf([approvals], importersByFile), null)
+  assert.notEqual(screenAreaOf(approvals), screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')))
+})
+
+test('a file mounted by app/ and by one screen does not fold into that screen\'s family (#925 review round 2, P1)', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  const root = path.join(uiSrc, 'components', 'Root.tsx')
+  const child = path.join(uiSrc, 'components', 'Child.tsx')
+  const appFile = path.join(uiSrc, 'app', 'App.tsx')
+  const namedRoots = new Map([[root, 'lobby']])
+
+  // Without the app/ mount, Child has exactly one host and folds into it.
+  const onlyScreen = new Map([[child, [root]]])
+  assert.equal(resolveFamilies([root, child], onlyScreen, namedRoots).get(child), 'lobby')
+
+  // The same screen host, plus an app/ mount: reachable from two places, so
+  // Child keeps its own name instead.
+  const withAppMount = new Map([[child, [root, appFile]]])
+  assert.equal(resolveFamilies([root, child], withAppMount, namedRoots).get(child), 'child')
+
+  // An app/ mount alone (no other screen) changes nothing, the same as a
+  // bare registry mount.
+  const solo = path.join(uiSrc, 'components', 'Solo.tsx')
+  const onlyApp = new Map([[solo, [appFile]]])
+  assert.equal(resolveFamilies([solo], onlyApp, new Map()).get(solo), 'solo')
+})
+
+/*
+ * #925 review round 2, P1: `Dialog` composes `DialogBody`/`DialogSubhead` in
+ * the same file, with no import at all — an import scanner can never see
+ * this. Replicated the way the audit's own loop builds a same-module edge:
+ * for each of a module's own exports, which sibling export's own body
+ * references it.
+ */
+test('same-module composition: an export composed by a sibling inherits its consumers (#925 review round 2, P1)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-same-module-'))
+  try {
+    const modulePath = path.join(dir, 'IntraShell.tsx')
+    fs.writeFileSync(modulePath, ['export const IntraBody = () => <div />', 'export const IntraShell = () => <IntraBody />', ''].join('\n'))
+    const ast = parseScreenSource(modulePath, fs.readFileSync(modulePath, 'utf8'))
+    const exported = exportedNamesOf(modulePath)
+    const designUsers = new Map()
+    for (const [, ref] of exported) {
+      if (ref.file !== modulePath) continue
+      for (const composerName of exportsReferencing(ast, ref.localName)) {
+        if (composerName === ref.localName) continue
+        const key = `${modulePath}::${ref.localName}`
+        const entry = designUsers.get(key) ?? { file: modulePath, localName: ref.localName, users: [] }
+        entry.users.push({ file: modulePath, localName: composerName })
+        designUsers.set(key, entry)
+      }
+    }
+    assert.deepEqual(designUsers.get(`${modulePath}::IntraBody`)?.users, [{ file: modulePath, localName: 'IntraShell' }])
+
+    const areaA = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+    const areaB = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+    const directConsumers = new Map([
+      [`${modulePath}::IntraShell`, { file: modulePath, localName: 'IntraShell', consumers: [areaA, areaB] }],
+    ])
+    // IntraBody has no direct screen importer of its own — its whole reach
+    // is IntraShell's, which two different areas use, so IntraBody is
+    // cross-area too and would not be charged.
+    const reach = resolvedConsumersOf(modulePath, 'IntraBody', directConsumers, designUsers)
+    assert.deepEqual(reach.slice().sort(), [areaA, areaB].sort())
+    assert.equal(singleScreenAreaOf(reach), null)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, P3: the DFS this replaced memoized a *partial* result
+ * the moment it hit a cycle, so which of two mutually-importing files "won"
+ * a shared name could depend on which was visited first. The fixed point
+ * must give the same answer regardless of the order files are handed in.
+ */
+test('cycle resolution in the family closure is order-independent (#925 review round 2, P3)', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  const a = path.join(uiSrc, 'components', 'CycleA.tsx')
+  const b = path.join(uiSrc, 'components', 'CycleB.tsx')
+  const importers = new Map([
+    [a, [b]],
+    [b, [a]],
+  ])
+  const forward = resolveFamilies([a, b], importers, new Map())
+  const backward = resolveFamilies([b, a], importers, new Map())
+  assert.deepEqual([forward.get(a), forward.get(b)], [backward.get(a), backward.get(b)])
+  assert.equal(forward.get(a), 'cyclea')
+  assert.equal(forward.get(b), 'cycleb')
+})
+
+/*
+ * #925 review round 2, P3: an anonymous default export (no name of its own)
+ * must still map to something `directDeclarationIn` can scope into — the
+ * literal sentinel `default`, resolved to the export assignment's own
+ * expression rather than a named declaration.
+ */
+test('exportedNamesOf maps an anonymous default export to its module\'s own default (#925 review round 2, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-anonymous-default-'))
+  try {
+    const arrowPath = path.join(dir, 'ArrowDefault.tsx')
+    fs.writeFileSync(arrowPath, 'export default () => null\n')
+    assert.deepEqual(exportedNamesOf(arrowPath).get('default'), { file: arrowPath, localName: 'default' })
+
+    const module = patternTsx('Widget.tsx')
+    const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+    const source = 'export default () => <span className="tabular-nums" />\n'
+    const exportsAndConsumers = [{ localName: 'default', consumers: [onlyConsumer] }]
+    assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+      'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+    ])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, item 5: end-to-end wiring, not only the unit that
+ * finds a dynamic import — a screen file's own `lazy(() => import(...))`
+ * must register as a real design consumer through `designImportsOf`'s
+ * sibling mechanism, the same conservative way a design file's already does.
+ */
+test('a screen\'s dynamic import is read too, not only a design file\'s (#925 review round 2, P3/item 5)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-dynamic-import-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(targetPath, 'export const A = () => null\nexport const B = () => null\n')
+    fs.writeFileSync(screenPath, 'export const Lazied = () => { import("./Target"); return null }\n')
+    const ast = parseScreenSource(screenPath, fs.readFileSync(screenPath, 'utf8'))
+    const uses = dynamicImportUsesOf(ast, dir)
+    assert.deepEqual(uses, [{ exportName: 'Lazied', target: targetPath }])
+    // Every export of the target is reached, conservatively — the same
+    // wiring the audit's own screen loop uses to call `addConsumer`.
+    assert.deepEqual([...exportedNamesOf(targetPath).keys()].sort(), ['A', 'B'])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, item 5: the export function branch survives a
+ * mutation unless both directions are pinned — charged when its own
+ * consumers are single-area, uncharged when a sibling export function
+ * shares the same module but a different (or no) area.
+ */
+test('an export function is charged only when its own consumers are single-area, not merely present (#925 review round 2, item 5)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const source = [
+    'export function Solo() {',
+    '  return <span className="tabular-nums" />',
+    '}',
+    'export function Shared() {',
+    '  return <span className="line-through" />',
+    '}',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Solo', consumers: [onlyConsumer] },
+    { localName: 'Shared', consumers: [onlyConsumer, widelyUsed] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, P3: a `const` export was the only shape `directDeclarationIn`
+ * and `exportsReferencing` could scope into. An `export function` composer
+ * lost its design-to-design reach entirely — neither shape existed in the
+ * tree, so nothing today depended on the gap, but a future pattern written
+ * this way must not silently stop composing.
+ */
+test('directDeclarationIn and exportsReferencing read an export function declaration (#914 review, P3)', () => {
+  const source = [
+    "import { RailSection } from './DockPanel'",
+    'export function AppWindowRailTop(props) {',
+    '  return <RailSection {...props} />',
+    '}',
+    'export function AppWindowSurface(props) {',
+    '  return <div {...props} />',
+    '}',
+    '',
+  ].join('\n')
+  const ast = parseScreenSource('AppWindow.tsx', source)
+  assert.deepEqual(exportsReferencing(ast, 'RailSection'), ['AppWindowRailTop'])
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const fnSource = [
+    'export function Solo() {',
+    '  return <span className="tabular-nums" />',
+    '}',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [{ localName: 'Solo', consumers: [onlyConsumer] }]
+  assert.deepEqual(patternExportAppearanceOf(module, fnSource, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, P3: a composer that delegates its own drawing to a private,
+ * unexported helper must not read as composing nothing — the helper's own
+ * body is where the import is actually used.
+ */
+test('exportsReferencing resolves a local helper component to its own body (#914 review, P3)', () => {
+  const source = [
+    "import { RailSection } from './DockPanel'",
+    'const Inner = () => <RailSection stretch="head" />',
+    'export const AppWindowRailTop = () => <Inner />',
+    'export const AppWindowSurface = () => <div />',
+    '',
+  ].join('\n')
+  const ast = parseScreenSource('AppWindow.tsx', source)
+  assert.deepEqual(exportsReferencing(ast, 'RailSection'), ['AppWindowRailTop'])
+})
+
+/*
+ * #914 review, P3: `import X, { Y }` names a default and a named specifier
+ * in one statement; both must be read as real bindings.
+ */
+test('importsIn reads a default-and-named import together, and a type-only import is invisible (#914 review, P2/P3)', () => {
+  const code = [
+    "import type { Foo } from './Foo'",
+    "import Default, { Bar, type Baz, Qux as Quux } from './Bar'",
+    '',
+  ].join('\n')
+  const found = importsIn(code)
+  assert.equal(found.length, 1)
+  assert.equal(found[0].spec, './Bar')
+  assert.deepEqual(found[0].bindings, [
+    { kind: 'default', name: 'default', localBinding: 'Default' },
+    { kind: 'named', name: 'Bar', localBinding: 'Bar' },
+    { kind: 'named', name: 'Qux', localBinding: 'Quux' },
+  ])
+})
+
+/*
+ * #914 review, P2: a type-only import must not register as a real screen
+ * import, in either consumer path. The real shape review found:
+ * CommandPalette.tsx and Sidebar.tsx both `import type { Section } from
+ * './Settings'` — a type import, not a use, so it must not make a pattern
+ * used only by Settings.tsx read as shared with either of them.
+ */
+test('a type-only import does not register as a real screen import (#914 review, P2)', () => {
+  const settings = path.join(repoRoot, 'packages/ui/src/components/Settings.tsx')
+  const commandPalette = path.join(repoRoot, 'packages/ui/src/components/CommandPalette.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const realImporters = importersByFile.get(settings) ?? []
+  assert.equal(realImporters.includes(commandPalette), false)
+  assert.equal(realImporters.includes(sidebar), false)
+})
+
+/*
+ * #925 review round 2, P2: the previous version of this gate reimplemented
+ * the closure it checks — including the registry skip — so it could not
+ * catch the very bug this round found (Approvals folded into `room` because
+ * the registry mount was dropped instead of counted). Hand-written
+ * expectations for known real cases instead: they describe what a reader
+ * would expect from the real import graph, not from re-deriving it.
+ */
+test('screen families read correctly for known real cases, including the ones the closure gets subtle (#925 review round 2, P2)', () => {
+  const approvals = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  // Approvals is drawn in the registry's own session view (beside
+  // Conversation) and docked by TeamRoomPane — two different places — so it
+  // is multi-area, not `room`.
+  assert.notEqual(screenAreaOf(approvals), screenAreaOf(teamRoomPane))
+  assert.equal(singleScreenAreaOf([approvals], importersByFile), null)
+
+  // Trajectory's real host is Details.tsx (its only value importer), not
+  // Conversation — Details is itself unhosted, so both read `details`.
+  const trajectory = path.join(repoRoot, 'packages/ui/src/components/Trajectory.tsx')
+  const details = path.join(repoRoot, 'packages/ui/src/components/Details.tsx')
+  assert.equal(screenAreaOf(trajectory), screenAreaOf(details))
+  assert.equal(screenAreaOf(trajectory), 'details')
+
+  // Library.tsx is imported only by Settings.tsx, directly — one hop, not
+  // through ProjectPage or any other intermediary.
+  const library = path.join(repoRoot, 'packages/ui/src/components/Library.tsx')
+  assert.equal(screenAreaOf(library), 'settings')
+
+  // Two more single-host files, named so a future reader can check them by
+  // hand against the real tree the same way: GitDialogs.tsx's only real
+  // importer is GitPane.tsx, and BranchSwitcher.tsx's is Conversation.tsx —
+  // a branch switcher in the transcript's own header, not Git's.
+  const gitDialogs = path.join(repoRoot, 'packages/ui/src/components/GitDialogs.tsx')
+  const branchSwitcherFile = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
+  assert.equal(screenAreaOf(gitDialogs), 'git')
+  assert.equal(screenAreaOf(branchSwitcherFile), 'conversation')
+})
+
+/*
+ * #914 review, item 7: families have live effect, not just a one-hop
+ * assertion that happened to already be true — AppearancePreview.tsx is
+ * folded into `settings` two hops deep (Settings.tsx -> SettingsYou.tsx ->
+ * AppearancePreview.tsx), and BranchSwitcher.tsx into `conversation`
+ * (Conversation.tsx's own header), which the closure only finds by iterating
+ * to a fixed point.
+ */
+test('the family closure iterates more than one hop, with a real effect on real files (#914 review, item 7)', () => {
+  const appearancePreview = path.join(repoRoot, 'packages/ui/src/components/AppearancePreview.tsx')
+  const branchSwitcher = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
+  assert.equal(screenAreaOf(appearancePreview), 'settings')
+  assert.equal(screenAreaOf(branchSwitcher), 'conversation')
+})
+
+/*
+ * #914 review, P3: a namespace import reaches for whichever exports its own
+ * `D.X` sites actually name, found the same way a CSS-module binding's
+ * `styles.X` sites are — not assumed used just because the import exists,
+ * and not invisible just because it is not a named import.
+ */
+test('a namespace import reaches for the specific exports its own D.X sites name (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-namespace-'))
+  try {
+    const designIndex = path.join(repoRoot, 'packages/ui/src/design/index.ts')
+    const relative = path.relative(dir, designIndex).replace(/\.ts$/, '')
+    const spec = relative.startsWith('.') ? relative : `./${relative}`
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(
+      screenPath,
+      `import * as D from '${spec}'\nexport const Widget = () => <D.Button>{D.Chip}</D.Button>\n`,
+    )
+    const names = designImportsOf(screenPath).map((ref) => ref.localName).sort()
+    assert.ok(names.includes('Button'), `expected Button among ${names.join(', ')}`)
+    assert.ok(names.includes('Chip'), `expected Chip among ${names.join(', ')}`)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: an aliased design-to-design import must be traced by its
+ * local binding, not the name it was exported under — `RailSection`
+ * imported as `Rail` is found by looking for `Rail` in the importing file's
+ * own body, not by looking for `RailSection`.
+ */
+test('a design-to-design edge follows an aliased import by its local binding (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-aliased-design-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const composerPath = path.join(dir, 'Composer.tsx')
+    fs.writeFileSync(targetPath, 'export const RailSection = () => null\n')
+    fs.writeFileSync(composerPath, "import { RailSection as Rail } from './Target'\nexport const Outer = () => <Rail />\n")
+    const found = designImportsOf(composerPath)
+    assert.equal(found.length, 0) // Target.tsx is not under design/, so this is not counted as reaching design/
+    // The mechanism itself, proven directly: exportsReferencing is asked
+    // about the *local* binding a design-to-design scan would resolve to.
+    const composerAst = parseScreenSource(composerPath, fs.readFileSync(composerPath, 'utf8'))
+    assert.deepEqual(exportsReferencing(composerAst, 'Rail'), ['Outer'])
+    assert.deepEqual(exportsReferencing(composerAst, 'RailSection'), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: a default export — either `export default function Name`
+ * or `export default Name` naming an earlier local — is a name
+ * `directDeclarationIn` can now scope into, the same as a named export.
+ */
+test('exportedNamesOf recognizes a default export, named or re-exported by name (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-default-export-'))
+  try {
+    const fnPath = path.join(dir, 'FnDefault.tsx')
+    fs.writeFileSync(fnPath, 'export default function Widget() {\n  return null\n}\n')
+    assert.deepEqual(exportedNamesOf(fnPath).get('default'), { file: fnPath, localName: 'Widget' })
+
+    const namedPath = path.join(dir, 'NamedDefault.tsx')
+    fs.writeFileSync(namedPath, 'const Widget = () => null\nexport default Widget\n')
+    assert.deepEqual(exportedNamesOf(namedPath).get('default'), { file: namedPath, localName: 'Widget' })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: a dynamic `import('spec')` inside an exported
+ * declaration — directly, or wrapped in `lazy(() => import('spec'))` —
+ * cannot be resolved to specific names, so it is read as reaching for the
+ * target's entire surface. Conservative: it can only add a consumer a part
+ * genuinely has, never remove one it does not.
+ */
+test('a dynamic import reaches for every export of its target, conservatively (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-dynamic-import-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const callerPath = path.join(dir, 'Caller.tsx')
+    fs.writeFileSync(targetPath, 'export const A = () => null\nexport const B = () => null\n')
+    fs.writeFileSync(
+      callerPath,
+      [
+        "const lazy = (f) => f",
+        'export const Direct = () => { import("./Target"); return null }',
+        'export const Lazied = lazy(() => import("./Target"))',
+        'export const Untouched = () => null',
+        '',
+      ].join('\n'),
+    )
+    const ast = parseScreenSource(callerPath, fs.readFileSync(callerPath, 'utf8'))
+    const uses = dynamicImportUsesOf(ast, dir)
+    assert.deepEqual(uses.map((use) => use.exportName).sort(), ['Direct', 'Lazied'])
+    for (const use of uses) assert.equal(use.target, targetPath)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('designImportsOf never resolves a target outside design/ (#914 review, item 7)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-design-filter-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(targetPath, 'export const Foo = () => null\n')
+    fs.writeFileSync(screenPath, "import { Foo } from './Target'\n")
+    assert.deepEqual(designImportsOf(screenPath), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review: charging a part as single-area because it has one *screen*
+ * importer ignored a design part composing it into something used far more
+ * widely. `RailSection` (DockPanel.tsx) has one direct screen importer
+ * (Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+ * and `AppWindowRailScroll`, which `components/AppWindow.tsx` mounts for
+ * Settings, the Agents window, ChangesReview and Usage — so RailSection's
+ * true reach spans several areas, and charging it as "Sidebar's own" would
+ * have made the zero unreachable without faking a consumer away.
+ */
+test('exportsReferencing finds only the exports that actually compose an import, real file (#914)', () => {
+  const appWindow = path.join(repoRoot, 'packages/ui/src/design/patterns/AppWindow.tsx')
+  const ast = parseScreenSource(appWindow, fs.readFileSync(appWindow, 'utf8'))
+  assert.deepEqual(
+    new Set(exportsReferencing(ast, 'RailSection')),
+    new Set(['AppWindowRailTop', 'AppWindowRailScroll']),
+  )
+  // Neither of these draws RailSection at all.
+  assert.equal(exportsReferencing(ast, 'DialogPopup').includes('AppWindowRailTop'), false)
+})
+
+test('resolvedConsumersOf inherits the reach of every design export that composes one, cycles guarded (#914)', () => {
+  const part = { file: '/design/Rail.tsx', localName: 'RailSection' }
+  const wrapperA = { file: '/design/AppWindow.tsx', localName: 'AppWindowRailTop' }
+  const sidebar = '/components/Sidebar.tsx'
+  const settings = '/components/Settings.tsx'
+  const agentsWindow = '/components/AgentsWindow.tsx'
+
+  const directConsumers = new Map([
+    [`${part.file}::${part.localName}`, { file: part.file, localName: part.localName, consumers: [sidebar] }],
+    // AppWindowRailTop has no screen importer of its own in this fixture —
+    // its whole reach comes from what composes *it*.
+  ])
+  const designUsers = new Map([
+    // RailSection is composed into AppWindowRailTop.
+    [`${part.file}::${part.localName}`, { ...part, users: [wrapperA] }],
+    // AppWindowRailTop is itself composed into components/AppWindow.tsx's own
+    // exports, which Settings and AgentsWindow each mount — modelled here as
+    // a second design export so the chain is two hops, not one.
+    [`${wrapperA.file}::${wrapperA.localName}`, {
+      ...wrapperA,
+      users: [{ file: '/components/AppWindow.tsx', localName: 'AppWindowPage' }],
+    }],
+  ])
+  directConsumers.set('/components/AppWindow.tsx::AppWindowPage', {
+    file: '/components/AppWindow.tsx',
+    localName: 'AppWindowPage',
+    consumers: [settings, agentsWindow],
+  })
+
+  assert.deepEqual(
+    resolvedConsumersOf(part.file, part.localName, directConsumers, designUsers).sort(),
+    [agentsWindow, settings, sidebar].sort(),
+  )
+
+  // A cycle (A composes B, B composes A) terminates rather than looping.
+  const cyclic = new Map([
+    ['/a.tsx::A', { file: '/a.tsx', localName: 'A', users: [{ file: '/b.tsx', localName: 'B' }] }],
+    ['/b.tsx::B', { file: '/b.tsx', localName: 'B', users: [{ file: '/a.tsx', localName: 'A' }] }],
+  ])
+  assert.deepEqual(resolvedConsumersOf('/a.tsx', 'A', new Map(), cyclic), [])
+})
+
+/*
+ * #914 review: `design/ui/` holds generic, shadcn-registry-style primitives
+ * that are meant to exist before they have a second caller — charging one
+ * for having exactly one today would make the ceiling unreachable without
+ * inventing a pointless second caller. Only `design/patterns/` compositions
+ * are charged; a single-area primitive is listed under `--verbose` instead
+ * (see the audit's own `isMain` block), never counted or baselined.
+ */
+test('only design/patterns/ is a pattern module; design/ui/ primitives are not charged (#914)', () => {
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/patterns/Settings.tsx')), true)
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/ui/chart.tsx')), false)
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/ui/board.tsx')), false)
 })
 
 test('the browser integration job builds workspace package entries before Vite', () => {
@@ -237,10 +1256,21 @@ test('a head action is held to its own rung', () => {
 })
 
 test('a dialog footer is held to its own list', () => {
-  assert.deepEqual(usage.slotOffenders('<Dialog footer={<Btn variant="ghost">Save</Btn>} />', 'F.tsx'), [
-    "F.tsx: <Btn variant=\"ghost\"> in a dialog's footer",
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Btn variant="ghost">Save</Btn>} />', 'F.tsx'), [
+    "F.tsx:1: <Btn variant=\"ghost\"> in a dialog's footer",
+    "F.tsx:1: a lone button in a dialog's footer is its act, and is not filled",
   ])
-  assert.deepEqual(usage.slotOffenders('<Dialog footer={<Btn variant="secondary">Cancel</Btn>} />', 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Btn variant="secondary">Cancel</Btn>} />', 'F.tsx'), [
+    "F.tsx:1: a lone button in a dialog's footer is its act, and is not filled",
+  ])
+  // The soft red is a page's remove action, never a confirm's act.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="destructive">Delete</Button><Button variant="secondary">Keep</Button></>} />', 'F.tsx'),
+    [
+      "F.tsx:1: <Button variant=\"destructive\"> in a dialog's footer",
+      "F.tsx:1: a dialog's footer renders 2 buttons and no filled act",
+    ],
+  )
 })
 
 
@@ -311,22 +1341,111 @@ test('a rung it cannot read is not called full', () => {
   )
 })
 
-test('two ink actions is two primaries, and a conditional slot is left alone', () => {
+test('a footer renders one filled act on every branch, a lone button included', () => {
   assert.deepEqual(
-    usage.slotOffenders('<Dialog footer={<><Btn variant="default">A</Btn><Btn variant="primary">B</Btn></>} />', 'F.tsx'),
-    ["F.tsx: 2 ink actions in a dialog's footer, which holds one"],
+    usage.footerOffenders('<Dialog footer={<><Btn variant="default">A</Btn><Btn variant="primary">B</Btn></>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
   )
-  // Both of these are correct code that earlier versions of this rule
-  // reported. The library's apply dialog writes two ink buttons in two
-  // branches and shows one; a conditional label nested in a fragment is the
-  // ordinary way to write "Save or Create". Deciding which branch renders is
-  // a JSX parser's job, so where there is a conditional this says nothing.
+  // A filled red act is a filled button: beside the ink confirm it is a
+  // second default, and the footer has no answer to lean on.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button>Save</Button></>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
+  )
+  // The footer's own grammar passes: one filled confirm, a quiet way out.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button variant="secondary">Cancel</Button></>} />', 'F.tsx'),
+    [],
+  )
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<><Button>Save</Button><Button variant="quiet">Close</Button></>} />', 'F.tsx'), [])
+  // A lone Close is the footer's act, and filled: a secondary alone on the
+  // footer's ground is a frame the colour of the ground. Two unfilled
+  // buttons have no default.
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Button>Close</Button>} />', 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Button variant="secondary">Close</Button>} />', 'F.tsx'), [
+    "F.tsx:1: a lone button in a dialog's footer is its act, and is not filled",
+  ])
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="secondary">Open</Button><Button variant="secondary">Close</Button></>} />', 'F.tsx'),
+    ["F.tsx:1: a dialog's footer renders 2 buttons and no filled act"],
+  )
+  // Both arms of a conditional are read. Each arm here is right…
   const branched =
     '<Dialog footer={r ? (<Btn variant="primary">Close</Btn>) : (<><Btn variant="primary">Apply</Btn><Btn>Cancel</Btn></>)} />'
-  assert.deepEqual(usage.slotOffenders(branched, 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders(branched, 'F.tsx'), [])
   const nested =
     '<Dialog footer={<><Btn variant="secondary">Cancel</Btn>{e ? <Btn variant="default">Save</Btn> : <Btn variant="default">Create</Btn>}</>} />'
-  assert.deepEqual(usage.slotOffenders(nested, 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders(nested, 'F.tsx'), [])
+  // …and an arm that is wrong is found, where the text check stayed silent.
+  const wrongArm =
+    '<Dialog footer={<>{hard ? <Button variant="destructive">Reset</Button> : <Button>Reset</Button>}<Button variant="secondary">Keep</Button></>} />'
+  assert.ok(usage.footerOffenders(wrongArm, 'F.tsx').includes("F.tsx:1: a dialog's footer renders 2 buttons and no filled act"))
+  // `&&` is read with and without its button: here the rendering with it is
+  // two primaries…
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button>Save</Button>{more && <Button>Also</Button>}</>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
+  )
+  // …and here only the rendering without it is wrong: Keep alone, unfilled.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="secondary">Keep</Button>{canSave && <Button>Save</Button>}</>} />', 'F.tsx'),
+    ["F.tsx:1: a lone button in a dialog's footer is its act, and is not filled"],
+  )
+})
+
+test('a footer counts its aside, a buttonVariants control, and a hoisted local', () => {
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<Button>Save</Button>} footerAside={<Button>Also save</Button>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
+  )
+  // The aside is set a step down; its rung is not the footer's.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<Button>Save</Button>} footerAside={<Button variant="secondary" size="sm">Prune</Button>} />', 'F.tsx'),
+    [],
+  )
+  assert.deepEqual(
+    usage.footerOffenders(
+      "<Dialog footer={<><Button>Save</Button><DialogClose className={buttonVariants({ variant: 'ghost' })}>Cancel</DialogClose></>} />",
+      'F.tsx',
+    ),
+    ["F.tsx:1: <DialogClose variant=\"ghost\"> in a dialog's footer"],
+  )
+  const hoisted = 'const actions = <><Button>Save</Button><Button>Save too</Button></>;\n<Dialog footer={actions} />'
+  assert.deepEqual(usage.footerOffenders(hoisted, 'F.tsx'), ["F.tsx:2: 2 filled actions in a dialog's footer, which holds one"])
+})
+
+test('a footer written as a component is read through it, and one it cannot see into is unread, never empty', () => {
+  // A component in the same file is read to what it returns — an arrow, a
+  // block body with a return, and a function declaration.
+  const arrow = 'const FooterButtons = () => <><Button variant="secondary">A</Button><Button variant="secondary">B</Button></>;\n<Dialog footer={<FooterButtons />} />'
+  assert.deepEqual(usage.footerOffenders(arrow, 'F.tsx'), ["F.tsx:2: a dialog's footer renders 2 buttons and no filled act"])
+  const block = 'const FooterButtons = ({ busy }) => { if (busy) return <Button disabled>Saving</Button>; return <><Button>Save</Button><Button variant="secondary">Cancel</Button></> };\n<Dialog footer={<FooterButtons />} />'
+  assert.deepEqual(usage.footerOffenders(block, 'F.tsx'), [])
+  const declared = 'function FooterButtons() { return <Button variant="destructive">Delete</Button> }\n<Dialog footer={<FooterButtons />} />'
+  assert.deepEqual(usage.footerOffenders(declared, 'F.tsx'), [
+    "F.tsx:2: <Button variant=\"destructive\"> in a dialog's footer",
+    "F.tsx:2: a lone button in a dialog's footer is its act, and is not filled",
+  ])
+  // Imported, or otherwise out of sight: reported, not counted as empty.
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<SharedFooter />} />', 'F.tsx'), [
+    "F.tsx:1: a dialog's footer holds a part this cannot read",
+  ])
+  // A wrapper with buttons inside is read through its children.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<RefusedAction reason="x"><Button>Go</Button></RefusedAction>} />', 'F.tsx'),
+    [],
+  )
+})
+
+test('a spread that can set a footer button\'s variant makes it unread', () => {
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Button {...confirm}>Go</Button>} />', 'F.tsx'), [
+    "F.tsx:1: <Button> in a dialog's footer has a variant this cannot read",
+  ])
+  // A variant written after the spread is the variant.
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Button {...confirm} variant="default">Go</Button>} />', 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<>{...buttons}</>} />', 'F.tsx'), [
+    "F.tsx:1: a dialog's footer holds a part this cannot read",
+  ])
 })
 
 test('a rule is filed under the class it is about', (t) => {
@@ -380,22 +1499,7 @@ test("a comment's divider becomes a heading rather than a rule and a stray line"
 })
 
 test('compareBaseline requires a complete numeric zero baseline and zero current drift (#400)', () => {
-  const cleanCounts = {
-    wrongVariant: 0,
-    missingClass: 0,
-    forkedToken: 0,
-    handRolledOverlay: 0,
-    looseTarget: 0,
-    looseIcon: 0,
-    danglingToken: 0,
-    crossImport: 0,
-    rawRadius: 0,
-    offGrid: 0,
-    rawColour: 0,
-    arbitraryUtility: 0,
-    rawType: 0,
-    patternClass: 0,
-  }
+  const cleanCounts = zeroes()
 
   // A malformed baseline with string/non-numeric values
   const malformedBaseline = { ...cleanCounts, offGrid: 'nan' }
@@ -428,34 +1532,944 @@ test('compareBaseline requires a complete numeric zero baseline and zero current
 })
 
 
-test('a burn-down category is gated on a ceiling that may only fall', () => {
-  const clean = {
-    wrongVariant: 0, missingClass: 0, forkedToken: 0, handRolledOverlay: 0,
-    looseTarget: 0, looseIcon: 0, danglingToken: 0, crossImport: 0,
-    rawRadius: 0, offGrid: 0, rawColour: 0, arbitraryUtility: 0,
-    rawType: 0, patternClass: 0,
+test('each burn-down category is gated on a ceiling that may only fall', () => {
+  const clean = zeroes()
+
+  for (const key of ['patternClass', 'screenAppearance']) {
+    const ceiling = { ...clean, [key]: 126 }
+
+    // At the ceiling: the debt is recorded, so the gate is quiet.
+    const held = compareBaseline({ ...clean, [key]: 126 }, ceiling)
+    assert.equal(held.worse, false, `${key} sitting at the recorded ceiling must pass`)
+
+    // Above it: a screen just drew another piece of a role for itself.
+    const grown = compareBaseline({ ...clean, [key]: 127 }, ceiling)
+    assert.equal(grown.worse, true)
+    assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
+
+    // Below it: the work was done and the ceiling has to follow, or the debt can
+    // silently come back to 126 without the gate ever noticing.
+    const paid = compareBaseline({ ...clean, [key]: 125 }, ceiling)
+    assert.equal(paid.worse, true)
+    assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
   }
-  const ceiling = { ...clean, rawType: 34, patternClass: 126 }
 
-  // At the ceiling: the debt is recorded, so the gate is quiet.
-  const held = compareBaseline({ ...clean, rawType: 34, patternClass: 126 }, ceiling)
-  assert.equal(held.worse, false, 'sitting at the recorded ceiling must pass')
-
-  // Above it: a screen just wrote another literal.
-  const grown = compareBaseline({ ...clean, rawType: 35, patternClass: 126 }, ceiling)
-  assert.equal(grown.worse, true)
-  assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
-
-  // Below it: the work was done and the ceiling has to follow, or the debt can
-  // silently come back to 34 without the gate ever noticing.
-  const paid = compareBaseline({ ...clean, rawType: 33, patternClass: 126 }, ceiling)
-  assert.equal(paid.worse, true)
-  assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
+  const ceiling = { ...clean, patternClass: 126, screenAppearance: 126 }
 
   // A non-zero ceiling is still refused for every other category.
   const smuggled = compareBaseline(clean, { ...ceiling, offGrid: 5 })
   assert.equal(smuggled.worse, true)
   assert.ok(smuggled.problems.some((p) => p.message.includes('must be zero')))
+
+  // And a category that has burned down to nothing leaves the ratchet: type
+  // sizes reached zero, so a single literal coming back is refused outright
+  // rather than measured against a ceiling of nought.
+  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126, screenAppearance: 126 }, ceiling)
+  assert.equal(returned.worse, true)
+  assert.ok(returned.problems.some((p) => p.key === 'rawType'))
+})
+
+test('screen property families have one explicit appearance or layout boundary', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-appearance-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const file = path.join(components, 'Example.module.css')
+  const cases = [
+    // Type.
+    ['font', 'inherit', true],
+    ['font-variant-numeric', 'tabular-nums', true],
+    ['line-height', 'var(--hd-line)', true],
+    ['letter-spacing', '0.01em', true],
+    ['word-spacing', '0.01em', true],
+    ['text-transform', 'uppercase', true],
+    ['text-decoration-thickness', '1px', true],
+    ['text-underline-offset', '2px', true],
+    ['text-shadow', '0 1px black', true],
+    // Ink and ground.
+    ['color', 'var(--hd-foreground)', true],
+    ['background-image', 'linear-gradient(red, blue)', true],
+    ['fill', 'currentColor', true],
+    ['stroke-dasharray', '2 2', true],
+    ['caret-color', 'currentColor', true],
+    ['accent-color', 'currentColor', true],
+    ['filter', 'blur(1px)', true],
+    ['backdrop-filter', 'blur(1px)', true],
+    ['mix-blend-mode', 'multiply', true],
+    ['mask-image', 'linear-gradient(black, transparent)', true],
+    // Edge and inner box.
+    ['border-image-source', 'linear-gradient(red, blue)', true],
+    ['outline-offset', '2px', true],
+    ['box-shadow', 'var(--hd-shadow-sm)', true],
+    ['padding-inline', 'var(--hd-space-2)', true],
+    // Layout and behaviour.
+    ['display', 'grid', false],
+    ['flex-basis', 'auto', false],
+    ['grid-template-columns', '1fr 1fr', false],
+    ['gap', 'var(--hd-space-2)', false],
+    ['align-items', 'center', false],
+    ['position', 'absolute', false],
+    ['inset-inline', '0', false],
+    ['width', '30px', false],
+    ['margin-inline', 'auto', false],
+    ['overflow-y', 'auto', false],
+    ['z-index', 'var(--hd-z-popover)', false],
+    ['order', '1', false],
+    ['float', 'inline-start', false],
+    ['box-sizing', 'border-box', false],
+    ['aspect-ratio', '1', false],
+    ['object-fit', 'cover', false],
+    ['transform', 'translateX(1px)', false],
+    ['contain', 'layout', false],
+    ['isolation', 'isolate', false],
+    ['visibility', 'hidden', false],
+    ['opacity', '0', false],
+    ['cursor', 'pointer', false],
+    ['pointer-events', 'none', false],
+    ['user-select', 'none', false],
+    ['transition-duration', '100ms', false],
+    ['animation-name', 'pulse', false],
+    ['will-change', 'transform', false],
+    ['content', '"ready"', false],
+    ['white-space', 'nowrap', false],
+    ['text-overflow', 'ellipsis', false],
+    ['text-align', 'center', false],
+    ['vertical-align', 'middle', false],
+    ['word-break', 'break-word', false],
+    ['overflow-wrap', 'anywhere', false],
+    ['hyphens', 'auto', false],
+    ['list-style-type', 'none', false],
+    ['table-layout', 'fixed', false],
+    ['resize', 'both', false],
+    ['scroll-margin-top', '1rem', false],
+    ['appearance', 'none', false],
+    ['-webkit-app-region', 'drag', false],
+  ]
+
+  for (const [property, value, counts] of cases) {
+    const css = `.role { ${property}: ${value}; }`
+    const found = screenAppearanceOf(file, css)
+    assert.equal(found.length, counts ? 1 : 0, `${property} ${counts ? 'counts' : 'does not count'}`)
+    assert.deepEqual(screenUnclassifiedOf(file, css), [], `${property} is classified`)
+  }
+})
+
+test('screen appearance uses one boundary for height, min-height and max-height', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-height-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const file = path.join(root, 'packages/ui/src/components/Example.module.css')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const cases = [
+    ['30px', true],
+    ['2rem', true],
+    ['var(--hd-nav-h)', true],
+    ['calc(var(--hd-nav-h) + 2px)', true],
+    ['220px', true],
+    ['0', false],
+    ['0px', false],
+    ['100%', false],
+    ['calc(100% - 2px)', false],
+    ['100vh', false],
+    ['10dvh', false],
+    ['50svw', false],
+    ['100cqh', false],
+    ['20cqmin', false],
+    ['auto', false],
+    ['none', false],
+    ['fit-content', false],
+    ['fit-content(10rem)', false],
+    ['min-content', false],
+    ['max-content', false],
+    ['inherit', false],
+  ]
+
+  for (const property of ['height', 'min-height', 'max-height']) {
+    for (const [value, counts] of cases) {
+      const css = `.role { ${property}: ${value}; }`
+      assert.equal(
+        screenAppearanceOf(file, css).length,
+        counts ? 1 : 0,
+        `${property}: ${value} ${counts ? 'counts' : 'does not count'}`,
+      )
+    }
+  }
+})
+
+test('an unclassified screen property fails --strict and names the property and sheet', () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const file = path.join(root, 'packages/ui/src/components/AppWindow.module.css')
+  const original = fs.readFileSync(file, 'utf8')
+  try {
+    fs.writeFileSync(file, `${original}\n.unclassifiedGateProbe { speak: never; }\n`)
+    const result = spawnSync(process.execPath, ['script/design-audit.mjs', '--strict'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.notEqual(result.status, 0, 'an unclassified property must fail the strict audit')
+    assert.match(`${result.stdout}\n${result.stderr}`, /AppWindow\.module\.css: speak/)
+  } finally {
+    fs.writeFileSync(file, original)
+  }
+})
+
+/**
+ * The one group label is sentence case, and the only capitals the app keeps
+ * are printed on a `Keycap`. `uppercaseLabel` counts every other one, in the
+ * three spellings a screen has — a stylesheet's `text-transform`, a class
+ * list's `uppercase` utility, an inline style's `textTransform` — and never a
+ * comment, a keycap, or a string method that merely has the word in it.
+ */
+test('uppercaseLabel counts capitals on a label in every spelling, and none on a keycap', () => {
+  const css = path.join(repoRoot, 'packages/ui/src/components/Example.module.css')
+  const tsx = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const cases = [
+    [css, '.label { font-size: var(--hd-text-xs); text-transform: uppercase; }', 1],
+    [css, '.label { text-transform: var(--hd-label-transform, uppercase); }', 1],
+    [css, '.a, .b { letter-spacing: 0.04em; text-transform: uppercase }', 1],
+    [css, '.keycap { text-transform: uppercase; }', 0],
+    [css, '.label { text-transform: none; }', 0],
+    [css, '/* .label { text-transform: uppercase; } */ .label { color: red; }', 0],
+    [tsx, 'export const A = () => <span className="text-xs font-medium uppercase" />\n', 1],
+    [tsx, 'export const A = () => <span className="data-[on]:uppercase" />\n', 1],
+    [tsx, "export const A = () => <span style={{ textTransform: 'uppercase' }} />\n", 1],
+    [tsx, 'export const A = () => <><span className="uppercase" /><b className="uppercase" /></>\n', 2],
+    [tsx, 'export const A = ({ name }: { name: string }) => <span>{name.toUpperCase()}</span>\n', 0],
+    [tsx, '// uppercase once lived here\nexport const A = () => <span className="normal-case" />\n', 0],
+    [tsx, 'export const A = () => <Keycap className="uppercase">k</Keycap>\n', 0],
+  ]
+  for (const [file, source, count] of cases) {
+    assert.equal(uppercaseLabelsOf(file, source).length, count, source)
+  }
+  assert.match(uppercaseLabelsOf(css, '.railLabel { text-transform: uppercase }')[0], /components\/Example\.module\.css: \.railLabel/)
+})
+
+test('screen appearance excludes the design system and its named specialized renderers', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-appearance-scope-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const source = '.role { color: var(--hd-foreground); padding: var(--hd-space-2); }'
+  const files = [
+    path.join(root, 'packages/ui/src/design/patterns/Role.module.css'),
+    path.join(root, 'packages/ui/src/components/Markdown.module.css'),
+    path.join(root, 'packages/ui/src/components/Diff.module.css'),
+  ]
+  for (const file of files) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, source)
+    assert.deepEqual(screenAppearanceOf(file, fs.readFileSync(file, 'utf8')), [], file)
+  }
+})
+
+/**
+ * `screenAppearanceOf` reads a screen's `.module.css`; these fixtures cover
+ * the two other spellings the same drift moved into once the stylesheet went
+ * quiet — a Tailwind utility in `className` and a key in an inline `style`.
+ * No file is written to disk: `screenUtilityAppearanceOf` and
+ * `screenInlineStyleAppearanceOf` take `source` directly, the same as
+ * `screenAppearanceOf(file, css)` does, and only the path string drives the
+ * screen/exemption checks.
+ */
+const screenTsx = (name) => path.join(repoRoot, 'packages/ui/src/components', name)
+const classNameSource = (className) => `export const Example = () => <div className="${className}" />\n`
+// Every finding now names the file its declaration actually lives in — the
+// current file for a direct literal, a different one once item 1's identifier
+// resolution crosses an import — so a same-file fixture's expectation carries
+// the label too.
+const label = (name) => `components/${name}: `
+
+test('a plain screen utility counts, mapped to the property it draws', () => {
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('rounded-full')),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('a variant-prefixed screen utility is stripped to its base before it is classified', () => {
+  const cases = [
+    ['hover:bg-(--hd-accent-dim)', 'hover:bg-(--hd-accent-dim) (background)'],
+    ['data-[open]:text-sm', 'data-[open]:text-sm (font-size)'],
+    ['[&_h2]:text-base', '[&_h2]:text-base (font-size)'],
+    // Stacked variants: each one is its own top-level `:`, so the base is
+    // reached only once every layer is peeled off.
+    ['md:dark:hover:rounded-full', 'md:dark:hover:rounded-full (border-radius)'],
+  ]
+  for (const [className, expected] of cases) {
+    assert.deepEqual(
+      screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource(className)),
+      [`${label('Example.tsx')}${expected}`],
+      className,
+    )
+  }
+})
+
+test('the important marker is punctuation, in either spelling Tailwind has used for it', () => {
+  // v4 moved `!` to the end of the token; a v3 source may still lead with it.
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('bg-red-500!')),
+    [`${label('Example.tsx')}bg-red-500! (background)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('!bg-red-500')),
+    [`${label('Example.tsx')}!bg-red-500 (background)`],
+  )
+})
+
+test('an arbitrary height value counts exactly where the CSS height rule would', () => {
+  // Same three answers `screenAppearanceOf` gives a stylesheet's own
+  // `height`/`min-height`/`max-height`, reached through the utility instead:
+  // a real metric counts, a reset and a layout share do not.
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('max-h-[380px]')),
+    [`${label('Example.tsx')}max-h-[380px] (max-height)`],
+  )
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('h-full')), [])
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('h-0')), [])
+})
+
+test('a screen utility on the layout side of the boundary is not counted', () => {
+  // `text-align` and the truncate family are layout in `LAYOUT_BEHAVIOUR_PROPERTIES`
+  // whichever spelling declares them; a screen reaching for either is not new
+  // debt.
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('text-center')), [])
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('truncate')), [])
+})
+
+test('a screen utility inside a ternary is read on both branches, not only the one that looks true', () => {
+  // What spelling would this rule miss? A conditional class list, which is
+  // static text on both branches even though only one renders at a time —
+  // exactly `Items.tsx`'s `register === 'light' ? '' : ' rounded-(--hd-radius) ...'`.
+  const source = 'export const Example = () => <div className={`${styles.row}${open ? \' rounded-full\' : \' text-xs\'}`} />\n'
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a screen utility is read from a template literal and from a cn() call, not only a plain string', () => {
+  const templateSource = 'export const Example = () => <div className={`${styles.row} rounded-full`} />\n'
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), templateSource),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+
+  const cnCallSource = "import { cn } from '../lib/utils'\nexport const Example = () => <div className={cn('rounded-full', open && 'text-xs')} />\n"
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), cnCallSource),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a cn() call reached only through the const it was assigned to is read once, not twice', () => {
+  // What spelling would this rule miss? The call is found directly, wherever
+  // it sits in the file, and again by resolving the name a `className`
+  // references — both paths reach the identical call node, so its arguments
+  // must be read once, not once per path.
+  const indirectSource = "import { cn } from '../lib/utils'\nconst rowClass = cn('rounded-full')\nexport const Example = () => <div className={rowClass} />\n"
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), indirectSource),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('screen utility appearance excludes the design system, test files, and the Markdown/Diff exemption', () => {
+  const source = classNameSource('rounded-full')
+  const excluded = [
+    path.join(repoRoot, 'packages/ui/src/design/ui/button.tsx'),
+    path.join(repoRoot, 'packages/ui/src/components/Example.test.tsx'),
+    path.join(repoRoot, 'packages/ui/src/components/Markdown.tsx'),
+    path.join(repoRoot, 'packages/ui/src/components/Diff.tsx'),
+    // The icon façade carries the same exemption the loose-icon rule gives it.
+    path.join(repoRoot, 'packages/ui/src/components/Icons.tsx'),
+  ]
+  for (const file of excluded) assert.deepEqual(screenUtilityAppearanceOf(file, source), [], file)
+  // The same source, in an ordinary screen, does count — proving the fixture
+  // above excludes on purpose rather than by an accident in the source text.
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('a Tailwind utility maps to a property by its own shape, not a second appearance table', () => {
+  const cases = [
+    // `text-` is ambiguous between a size and a colour; the suffix decides.
+    ['text-xs', { property: 'font-size', value: '' }],
+    ['text-(length:--hd-x)', { property: 'font-size', value: '' }],
+    ['text-[12px]', { property: 'font-size', value: '' }],
+    ['text-(--hd-x)', { property: 'color', value: '' }],
+    ['text-(color:--hd-x)', { property: 'color', value: '' }],
+    ['text-[#fff]', { property: 'color', value: '' }],
+    ['text-red-500', { property: 'color', value: '' }],
+    // `text-shadow-*` shares the `text-` prefix with the size/colour family
+    // and must not fall through to it.
+    ['text-shadow-md', { property: 'text-shadow', value: '' }],
+    // `font-` is ambiguous between a weight, a family and (new) a stretch.
+    ['font-semibold', { property: 'font-weight', value: '' }],
+    ['font-mono', { property: 'font-family', value: '' }],
+    ['font-(family-name:--hd-font)', { property: 'font-family', value: '' }],
+    ['font-stretch-condensed', { property: 'font-stretch', value: '' }],
+    // `size-` sets width and height; only the height half is counted, by the
+    // same value rule as `h-`/`min-h-`/`max-h-`.
+    ['size-8', { property: 'height', value: '8' }],
+    ['size-full', { property: 'height', value: '100%' }],
+    // `` `h-${n}` ``/`` `px-${n}` `` leave a dangling prefix with nothing
+    // after the hyphen once the interpolation is read separately — counted
+    // the same way a dangling `text-` already fell through to a colour.
+    ['h-', { property: 'height', value: '' }],
+    ['px-', { property: 'padding-inline', value: '' }],
+    // The numeric-variant family, the negated tracking spelling, the new
+    // logical padding pair, and Tailwind's own escape hatch for a property
+    // no utility names.
+    ['tabular-nums', { property: 'font-variant-numeric', value: '' }],
+    ['-tracking-[2px]', { property: 'letter-spacing', value: '' }],
+    ['pbs-2', { property: 'padding-block-start', value: '' }],
+    ['pbe-2', { property: 'padding-block-end', value: '' }],
+    ['underline-offset-2', { property: 'text-underline-offset', value: '' }],
+    ['mix-blend-multiply', { property: 'mix-blend-mode', value: '' }],
+    ['inset-shadow-sm', { property: 'box-shadow', value: '' }],
+    ['inset-ring-2', { property: 'box-shadow', value: '' }],
+    ['mask-none', { property: 'mask-image', value: '' }],
+    ['[mask-type:luminance]', { property: 'mask-type', value: 'luminance' }],
+    // A token this rule has not been taught returns null rather than a guess.
+    ['font-condensed', null],
+  ]
+  for (const [token, expected] of cases) assert.deepEqual(screenUtilityDeclarationOf(token), expected, token)
+})
+
+/**
+ * Item 3's mechanical coverage check, walked FROM the real
+ * `APPEARANCE_PROPERTIES` export rather than a hand-copied list of its
+ * names: every family or exact property it counts needs an entry in
+ * `APPEARANCE_COVERAGE_SAMPLE` below, a representative utility that
+ * `screenUtilityDeclarationOf` maps to it, or is named as a hint on
+ * `looksLikeUnmappedAppearanceUtility` — never silently neither. Round 2
+ * review found the previous version of this test read a copy of the
+ * property names, so adding `text-indent` to the real table still passed:
+ * nothing forced a new sample to be written. Walking the export instead
+ * means a property or family with no entry here fails immediately, which is
+ * the proof this test is not vacuous — see the manual check in the task
+ * report, since committing the failing state itself would defeat the point.
+ *
+ * A property with no sample utility (`hint:` instead of a token) is one
+ * Tailwind gives no default scale to (`caret-color`, `filter`) or
+ * approximates only through the arbitrary-property escape hatch
+ * (`word-spacing`); those are read from the hint list instead of a mapped
+ * token.
+ */
+const APPEARANCE_COVERAGE_SAMPLE = {
+  'line-height': 'leading-tight',
+  'letter-spacing': 'tracking-wide',
+  'word-spacing': '[word-spacing:0.1em]',
+  'text-transform': 'uppercase',
+  'text-underline-offset': 'underline-offset-2',
+  'text-shadow': 'text-shadow-md',
+  color: 'text-red-500',
+  fill: 'fill-current',
+  'caret-color': { hint: 'caret-red-500' },
+  'accent-color': { hint: 'accent-red-500' },
+  filter: { hint: 'blur-md' },
+  'backdrop-filter': { hint: 'backdrop-blur-sm' },
+  'mix-blend-mode': 'mix-blend-multiply',
+  'box-shadow': 'shadow-md',
+  height: 'h-8',
+  'min-height': 'min-h-8',
+  'max-height': 'max-h-8',
+  font: 'font-mono',
+  'text-decoration': 'underline',
+  background: 'bg-red-500',
+  stroke: 'stroke-current',
+  mask: 'mask-none',
+  border: 'border',
+  outline: 'outline',
+  padding: 'p-2',
+}
+
+test('every family or exact property APPEARANCE_PROPERTIES counts has a sample utility or a hint', () => {
+  for (const property of [...APPEARANCE_PROPERTIES.exact, ...APPEARANCE_PROPERTIES.families]) {
+    const sample = APPEARANCE_COVERAGE_SAMPLE[property]
+    assert.ok(
+      sample !== undefined,
+      `${property} has no coverage sample — teach screenUtilityDeclarationOf a spelling (or add it to the hint list) and add one here`,
+    )
+    if (typeof sample === 'object') {
+      assert.equal(screenUtilityDeclarationOf(sample.hint), null, `${property}: ${sample.hint} should be a hint, not a mapping`)
+      assert.ok(looksLikeUnmappedAppearanceUtility(sample.hint), `${property}: ${sample.hint} should be flagged as a hint`)
+      continue
+    }
+    const declaration = screenUtilityDeclarationOf(sample)
+    assert.ok(declaration, `${property}: ${sample} has no utility mapping`)
+    assert.equal(screenPropertySideOf(declaration.property, declaration.value), 'appearance', `${property}: ${sample} -> ${declaration.property} is not appearance`)
+    assert.ok(
+      declaration.property === property || declaration.property.startsWith(`${property}-`),
+      `${property}: ${sample} mapped to ${declaration.property}, not the ${property} family`,
+    )
+  }
+})
+
+test('a bare antialiased is a hint, not a silent miss', () => {
+  assert.equal(screenUtilityDeclarationOf('antialiased'), null)
+  assert.ok(looksLikeUnmappedAppearanceUtility('antialiased'))
+  assert.ok(looksLikeUnmappedAppearanceUtility('subpixel-antialiased'))
+})
+
+test('an unmapped utility that looks like appearance is reported for --verbose only, never counted', () => {
+  const source = classNameSource('caret-red-500')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+  assert.deepEqual(screenUnmappedUtilityOf(screenTsx('Example.tsx'), source), [`${label('Example.tsx')}caret-red-500`])
+})
+
+/**
+ * Item 1: a class site that only names a `const`, not the literal itself.
+ * Round 1 review found four real shapes this rule missed entirely because it
+ * never resolved an identifier — `Conversation.tsx`'s plain string constants,
+ * `SettingsAgents.tsx`'s ternary, `TurnWork.tsx`'s array-and-`.join`, and
+ * `LibraryActions.tsx`'s constant exported and used again from `Library.tsx`
+ * — plus `BrowserPane.tsx`'s `className` written as an object key rather
+ * than a JSX attribute.
+ */
+test('a same-file const resolves at a class site: a string, a ternary, and an array.join', () => {
+  const stringSource = [
+    "const TITLE_CLASSES = 'font-(family-name:--hd-font-display) text-base'",
+    'export const Example = () => <div className={TITLE_CLASSES}>hi</div>',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), stringSource),
+    [`${label('Example.tsx')}font-(family-name:--hd-font-display) (font-family)`, `${label('Example.tsx')}text-base (font-size)`],
+  )
+
+  const ternarySource = [
+    "const fillClass = tone === 'bad' ? 'bg-(--hd-danger)' : 'bg-(--hd-success)'",
+    'export const Example = () => <div className={`h-full ${fillClass}`} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), ternarySource),
+    [`${label('Example.tsx')}bg-(--hd-danger) (background)`, `${label('Example.tsx')}bg-(--hd-success) (background)`],
+  )
+
+  const joinSource = [
+    "const SHIMMER_CLASSES = ['bg-clip-text', 'text-transparent'].join(' ')",
+    'export const Example = () => <span className={SHIMMER_CLASSES}>hi</span>',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), joinSource),
+    [`${label('Example.tsx')}bg-clip-text (background-clip)`, `${label('Example.tsx')}text-transparent (color)`],
+  )
+})
+
+test('a same-file const used at more than one class site is counted once, at its declaration', () => {
+  const source = [
+    "const SWITCH_TRACK = 'rounded-full'",
+    'export const Example = () => (',
+    '  <div>',
+    '    <span className={SWITCH_TRACK} />',
+    '    <span className={`${SWITCH_TRACK} w-fit`} />',
+    '  </div>',
+    ')',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('a const imported from another screen is counted once, at the file that defines it', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-const-import-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const definingFile = path.join(components, 'LibraryActions.tsx')
+  const consumingFile = path.join(components, 'Library.tsx')
+  fs.writeFileSync(definingFile, [
+    "export const SWITCH_TRACK = 'rounded-(--hd-radius-sm)'",
+    'export const Example = () => <div className={SWITCH_TRACK} />',
+  ].join('\n'))
+  fs.writeFileSync(consumingFile, [
+    "import { SWITCH_TRACK } from './LibraryActions'",
+    'export const Example = () => <div className={SWITCH_TRACK} />',
+  ].join('\n'))
+  const shared = new Set()
+  const definingFindings = screenUtilityAppearanceOf(definingFile, fs.readFileSync(definingFile, 'utf8'), undefined, shared)
+  const consumingFindings = screenUtilityAppearanceOf(consumingFile, fs.readFileSync(consumingFile, 'utf8'), undefined, shared)
+  assert.deepEqual(definingFindings, ['components/LibraryActions.tsx: rounded-(--hd-radius-sm) (border-radius)'])
+  // Not found again labelled under Library.tsx, and not silently dropped
+  // either — it was already counted once, at its definition.
+  assert.deepEqual(consumingFindings, [])
+})
+
+/**
+ * Item 1 (round 2): resolution is scope-correct, not "the first declaration
+ * anywhere in the file". Two components each declaring their own `const
+ * tone` are two declarations — both counted — and a shadowed inner `const
+ * tone` resolves to its own declaration inside the block that shadows it,
+ * not the outer one a flat name lookup would have found first.
+ */
+test('two components each declaring their own const tone are two declarations, both counted', () => {
+  const source = [
+    "const A = () => { const tone = 'rounded-full'; return <div className={tone} /> }",
+    "const B = () => { const tone = 'text-xs'; return <div className={tone} /> }",
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a shadowed inner const resolves to its own declaration, not the outer one', () => {
+  const source = [
+    'const Example = () => {',
+    "  const tone = 'text-xs'",
+    '  if (x) {',
+    "    const tone = 'rounded-full'",
+    '    return <span className={tone} />',
+    '  }',
+    '  return <span className={tone} />',
+    '}',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+/**
+ * Item 2 (round 2): a property access's member name is never treated as a
+ * bare variable reference, and only a recognized shape (string, template,
+ * ternary, array, `.join`, a class-combiner call) is walked once resolved —
+ * an arbitrary expression, such as a comparison, is not.
+ */
+test('the name after a dot is never resolved as a variable: styles.fileRow does not find a const fileRow', () => {
+  const source = [
+    "const fileRow = 'rounded-full'",
+    'export const Example = () => <div className={styles.fileRow} />',
+  ].join('\n')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+})
+
+test('a const holding a comparison, referenced at a class site, counts nothing', () => {
+  const source = [
+    "const active = x === 'underline'",
+    'export const Example = () => <div className={active} />',
+  ].join('\n')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+})
+
+/**
+ * Item 4 (round 2): the spellings round 2 review found still missed, none
+ * used today. `let`/`var` behaves like `const` when never reassigned;
+ * reassigned, every literal assignment reachable from the declaring scope is
+ * gathered under the one declaration, since a variable that can hold more
+ * than one thing statically is not the one thing a `const` is.
+ */
+test('a let never reassigned resolves like a const', () => {
+  const source = "let tone = 'rounded-full'\nexport const Example = () => <div className={tone} />\n"
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [`${label('Example.tsx')}rounded-full (border-radius)`])
+})
+
+test('a reassigned let counts every literal assignment it was given', () => {
+  const source = [
+    "let tone = 'rounded-full'",
+    "if (x) { tone = 'bg-(--hd-card)' }",
+    'export const Example = () => <div className={tone} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}bg-(--hd-card) (background)`],
+  )
+})
+
+test('a default import, a namespace import, a re-export, and a two-hop import all resolve, at their definition', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-import-shapes-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const write = (name, content) => fs.writeFileSync(path.join(components, name), content)
+  const read = (name) => fs.readFileSync(path.join(components, name), 'utf8')
+  const at = (name) => path.join(components, name)
+
+  write('DefaultBase.tsx', "export default 'rounded-full'\n")
+  write('DefaultUser.tsx', "import CLASS from './DefaultBase'\nexport const Example = () => <div className={CLASS} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('DefaultUser.tsx'), read('DefaultUser.tsx')),
+    ['components/DefaultBase.tsx: rounded-full (border-radius)'],
+  )
+
+  write('NsBase.tsx', "export const TONE = 'bg-(--hd-card)'\n")
+  write('NsUser.tsx', "import * as ns from './NsBase'\nexport const Example = () => <div className={ns.TONE} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('NsUser.tsx'), read('NsUser.tsx')),
+    ['components/NsBase.tsx: bg-(--hd-card) (background)'],
+  )
+
+  write('Origin.tsx', "export const SHARED = 'shadow-(--hd-hairline)'\n")
+  write('Reexport.tsx', "export { SHARED } from './Origin'\n")
+  write('ReexportUser.tsx', "import { SHARED } from './Reexport'\nexport const Example = () => <div className={SHARED} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('ReexportUser.tsx'), read('ReexportUser.tsx')),
+    ['components/Origin.tsx: shadow-(--hd-hairline) (box-shadow)'],
+  )
+
+  write('HopC.tsx', "export const DEEP = 'outline-2'\n")
+  write('HopB.tsx', "export { DEEP } from './HopC'\n")
+  write('HopA.tsx', "export { DEEP } from './HopB'\n")
+  write('HopUser.tsx', "import { DEEP } from './HopA'\nexport const Example = () => <div className={DEEP} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('HopUser.tsx'), read('HopUser.tsx')),
+    ['components/HopC.tsx: outline-2 (outline)'],
+  )
+})
+
+test('style={c && {...}} reads the guard\'s right side, and style={CONST} resolves a same-file object const', () => {
+  const guardSource = 'export const Example = () => <div style={c && { color: "red" }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), guardSource), ['style color'])
+
+  const constSource = [
+    'const FROZEN_STYLE = { color: "red" }',
+    'export const Example = () => <div style={FROZEN_STYLE} />',
+  ].join('\n')
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), constSource), ['style color'])
+})
+
+test('an arbitrary property the stylesheet rule treats as unclassified is a strict screenUnclassified finding', () => {
+  const source = classNameSource('[text-indent:2px]')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+  assert.deepEqual(
+    screenUtilityUnclassifiedOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}[text-indent:2px] (text-indent)`],
+  )
+})
+
+/**
+ * Round 3 review: the closed shape list was too narrow and dropped 15 real
+ * shapes the pre-round-2 walker still caught — none used in a counted file
+ * today, but exactly the blind spot this PR exists to close. Each fixture
+ * below was confirmed failing (finding nothing, or one token short) against
+ * `fb5fa67e`, the head that introduced the closed list, before this file's
+ * `classSiteTokens` grew the case that fixes it.
+ */
+const helperSource = (expr) => `export const Example = () => <div className={${expr}} />\n`
+
+test('?? and || read both sides; + reads both sides of a concatenation', () => {
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("cls ?? 'text-xs'")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("cls || 'text-xs'")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("'text-xs ' + extra")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('as, as const, satisfies and ! all recurse into their expression', () => {
+  const withConst = (expr) => `const cls = 'text-xs'\nexport const Example = () => <div className={${expr}} />\n`
+  for (const expr of ["('text-xs' as string)", "('text-xs' as const)", "('text-xs' satisfies string)", 'cls!']) {
+    assert.deepEqual(
+      screenUtilityAppearanceOf(screenTsx('Example.tsx'), expr.startsWith("'") ? helperSource(expr) : withConst(expr)),
+      [`${label('Example.tsx')}text-xs (font-size)`],
+      expr,
+    )
+  }
+  // `<T>x` is the same shape (recurse into `.expression`) but has no legal
+  // spelling in a `.tsx` file — `<` opens a JSX element there — so it cannot
+  // be fixture-tested on this parser; `screenUtilityDeclarationOf`'s dispatch
+  // still names `ts.isTypeAssertionExpression` alongside the others.
+})
+
+test('an object literal yields its string-literal keys: clsx({ \'text-xs\': c })', () => {
+  const source = "import { cn } from '../lib/utils'\nexport const Example = () => <div className={cn({ 'text-xs': c })} />\n"
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [`${label('Example.tsx')}text-xs (font-size)`])
+})
+
+test('a spread inside an array joined with .join(\' \') reads every element', () => {
+  const source = [
+    "const B = ['bg-(--hd-card)']",
+    "const SHIMMER = [...B, 'text-xs'].join(' ')",
+    'export const Example = () => <span className={SHIMMER} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}bg-(--hd-card) (background)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('an element access (TONE[t]) and optional chaining (o?.a) recurse into the object, not the key', () => {
+  const mapSource = [
+    "const TONE = { a: 'text-xs', b: 'rounded-full' }",
+    'export const Example = () => <div className={TONE[t]} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), mapSource),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+  const optionalSource = [
+    "const o = { a: 'text-xs' }",
+    'export const Example = () => <div className={o?.a} />',
+  ].join('\n')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), optionalSource), [`${label('Example.tsx')}text-xs (font-size)`])
+})
+
+test('a call this does not specifically recognize still reads its arguments and (for a method call) its object', () => {
+  assert.deepEqual(
+    screenUtilityAppearanceOf(
+      screenTsx('Example.tsx'),
+      "import { twMerge } from 'tailwind-merge'\nexport const Example = () => <div className={twMerge('text-xs', 'rounded-full')} />\n",
+    ),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("buttonVariants({ variant: 'a' }) + ' text-xs'")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("buttonVariants({ className: 'text-xs' })")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  const filterJoinSource = [
+    "const PARTS = ['text-xs', false]",
+    "const SHIMMER = PARTS.filter(Boolean).join(' ')",
+    'export const Example = () => <span className={SHIMMER} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), filterJoinSource),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("String('text-xs')")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a call resolving to a local function const is walked through its return expressions only', () => {
+  const source = [
+    "const classFor = (k) => { if (k === 'a') return 'text-xs'; return 'rounded-full' }",
+    'export const Example = () => <div className={classFor(k)} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('a reassigned let with += gathers that literal alongside the initializer', () => {
+  const source = [
+    "let c = 'text-xs'",
+    "c += ' bg-(--hd-card)'",
+    'export const Example = () => <div className={c} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}bg-(--hd-card) (background)`],
+  )
+})
+
+test('style={s ?? {...}} reads both sides, and an imported style={S} is read at its definition', (t) => {
+  assert.deepEqual(
+    screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), 'export const Example = () => <div style={s ?? { color: "red" }} />\n'),
+    ['style color'],
+  )
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-style-import-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const definingFile = path.join(components, 'StyleBase.tsx')
+  const consumingFile = path.join(components, 'StyleUser.tsx')
+  fs.writeFileSync(definingFile, "export const S = { color: 'red' }\n")
+  fs.writeFileSync(consumingFile, "import { S } from './StyleBase'\nexport const Example = () => <div style={S} />\n")
+  assert.deepEqual(screenInlineStyleAppearanceOf(consumingFile, fs.readFileSync(consumingFile, 'utf8')), ['style color'])
+})
+
+test('a className written as an object key is a class site, the same as a JSX attribute', () => {
+  // BrowserPane.tsx: createElement('webview', { className: `...` }).
+  const source = [
+    'export const Example = () =>',
+    "  createElement('webview', { className: `border-0 bg-(--hd-card)` })",
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}border-0 (border)`, `${label('Example.tsx')}bg-(--hd-card) (background)`],
+  )
+})
+
+test('an inline style counts its appearance keys and not its layout keys or an unresolvable reference', () => {
+  const styleSource = 'export const Example = () => <div style={{ background: "red", width: 10 }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), styleSource), ['style background'])
+
+  // A same-file object const is now resolved (item 4) — see the dedicated
+  // fixture below. What is still unresolvable is a value this cannot chase
+  // to any declaration at all: a function parameter, a prop, anything not a
+  // `const` this file itself declares.
+  const dynamicSource = 'export const Example = ({ obj }) => <div style={obj} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), dynamicSource), [])
+
+  // camelCase -> kebab-case, including a vendor prefix, and a key already
+  // spelled as a custom property is left exactly as written.
+  const vendorSource = 'export const Example = () => <div style={{ WebkitTransform: "scale(1)", \'--near\': near }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), vendorSource), [])
+})
+
+/** Item 4: style shapes round 1 review found unused but unhandled. */
+test('an inline style reads a shorthand key, a computed string key, satisfies, and a conditional', () => {
+  const shorthandSource = 'const color = "red"\nexport const Example = () => <div style={{ color }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), shorthandSource), ['style color'])
+
+  const computedSource = 'export const Example = () => <div style={{ [\'color\']: "red" }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), computedSource), ['style color'])
+
+  const satisfiesSource = 'export const Example = () => <div style={{ color: "red" } satisfies React.CSSProperties} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), satisfiesSource), ['style color'])
+
+  // Both branches read, not only the one a fixed `c` would pick.
+  const conditionalSource = 'export const Example = () => <div style={c ? { color: "red" } : { background: "blue" }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), conditionalSource), ['style color', 'style background'])
+})
+
+/**
+ * Item 5: the over-count round 1 review found — `GitPane.tsx`'s virtual list
+ * sets `height: total * ROW`, and the empty-value path a real metric falls
+ * through to (nothing looks like a reset or a layout share) was counting a
+ * plain arithmetic expression as though it were one. A height-family key
+ * with no literal value is decided explicitly as layout; every other
+ * property is unaffected, since only height has a value-based rule at all.
+ */
+test('a dynamic height-family style value is not counted; a dynamic value on an ordinary property still is', () => {
+  const heightSource = 'export const Example = () => <div style={{ height: total * ROW }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), heightSource), [])
+
+  const minHeightSource = 'export const Example = () => <div style={{ minHeight: rowCount * ROW }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), minHeightSource), [])
+
+  // A literal height value is unaffected — this is about an unknown value,
+  // not about height keys generally.
+  const literalSource = 'export const Example = () => <div style={{ height: 40 }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), literalSource), ['style height'])
+
+  // An ordinary (non-height) property with a dynamic value is still counted
+  // by property alone, as it always was — this decision is specific to the
+  // height family's value rule, not a blanket "unknown value" refusal.
+  const backgroundSource = 'export const Example = () => <div style={{ background: pick() }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), backgroundSource), ['style background'])
+})
+
+test('a visual kind prop cannot hide a component catalogue in one string union', () => {
+  assert.deepEqual(
+    visualKindUnionsOf(`
+      type PartKind =
+        | 'surface' | 'toolbar' | 'quiet' | 'meta' | 'path'
+        | 'card' | 'row' | 'label' | 'warning'
+      type PartProps = { kind: PartKind; children?: unknown }
+    `),
+    [{ prop: 'kind', type: 'PartKind', count: 9 }],
+  )
+  assert.deepEqual(
+    visualKindUnionsOf(`
+      type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+      type AlertProps = { tone: Tone }
+    `),
+    [],
+  )
 })
 
 
@@ -466,8 +2480,8 @@ test('a slot this cannot see into is reported, not skipped', () => {
   assert.deepEqual(usage.slotOffenders('<PageHead t="x" actions={headerAction} />', 'F.tsx'), [
     "F.tsx: a page head's action is held in `headerAction`, which this cannot read",
   ])
-  assert.deepEqual(usage.slotOffenders('<Dialog footer={renderFooter()} />', 'F.tsx'), [
-    "F.tsx: a dialog's footer is held in `renderFooter()`, which this cannot read",
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={renderFooter()} />', 'F.tsx'), [
+    "F.tsx:1: a dialog's footer holds a part this cannot read",
   ])
   // An element that simply is not a button is legible, and is not the rule's
   // business.
@@ -699,13 +2713,28 @@ test('the method list is the validator table\u2019s own keys, not the fields ins
   const source = [
     "const paramsValidators = {",
     "  'session/list': shape({ runtime: isString }),",
-    "  'team/room/join': shape({",
+    "  'team/post': shape({",
     "    'not/a/method': isString,",
     "    runtime: isString,",
     "  }),",
     "}",
   ].join('\n')
-  assert.deepEqual(methodsIn(source), ['session/list', 'team/room/join'])
+  assert.deepEqual(methodsIn(source), ['session/list', 'team/post'])
+})
+
+test('a hyphenated method name is on the list, not skipped', () => {
+  /* `\w` has no `-`, so `'flow/start-goal':` failed the key pattern outright
+     and the method was invisible to the gate — neither counted nor flagged.
+     Found during the flows work; the control is `session/list` beside it. */
+  const source = [
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "  'flow/start-goal': shape({ room: isString }),",
+    "  'agent-pool/lease-one': shape({}),",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list', 'flow/start-goal', 'agent-pool/lease-one'])
+  assert.deepEqual([...reachedBy(['flow/start-goal'], ["await request('flow/start-goal', { room })"])], ['flow/start-goal'])
 })
 
 test('a longer method name does not make a shorter one look called', () => {
@@ -746,6 +2775,42 @@ test('the method list stops at the validator table, not at the end of the file',
     "}",
   ].join('\n')
   assert.deepEqual(methodsIn(source), ['session/list'])
+})
+
+test('a method group spread into the validator table is on the list', () => {
+  /* `...goalValidators,` assembled goal/*, insight/* and finding/* into the
+     table from literals declared above it, and the parser read only the
+     table's own lines — every one of those methods was invisible to the gate.
+     The spread is followed to its own declaration; `unrelated` beside it is
+     the control that a literal nobody spreads is still not read. */
+  const source = [
+    "const goalValidators = {",
+    "  'goal/list': goalShape({}),",
+    "  'goal/create': goalShape({",
+    "    'not/a/method': isString,",
+    "  }),",
+    "}",
+    "const unrelated = {",
+    "  'not/a/method': 1,",
+    "}",
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "  ...goalValidators,",
+    "  'team/post': shape({}),",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list', 'goal/list', 'goal/create', 'team/post'])
+  // A spread that names nothing declared fails loudly rather than dropping a group.
+  assert.throws(() => methodsIn("const paramsValidators = {\n  ...missingValidators,\n}"), /missingValidators/)
+})
+
+test('the real validator table: every spread group is read, and every method is reachable or pinned', () => {
+  /* The end-to-end half of the test above, against the file as it is. Before
+     spreads were followed this list had no goal/* or insight/* entry at all. */
+  const methods = methodsIn(fs.readFileSync(path.join(repoRoot, 'packages/protocol/src/wire-validators.ts'), 'utf8'))
+  for (const method of ['goal/list', 'insight/usage']) assert.ok(methods.includes(method), method)
+  const run = spawnSync(process.execPath, [path.join(repoRoot, 'script/check-reachable.mjs')], { encoding: 'utf8' })
+  assert.equal(run.status, 0, run.stderr + run.stdout)
 })
 
 test('a method name held in a variable is not a caller either', () => {
@@ -1098,7 +3163,7 @@ test('a repository path in the documentation that resolves nowhere fails (#223)'
 
 test('an allowlisted doc path is held to its own reason (#223)', () => {
   const value = 'rmcp-client/src/oauth/store_lock.rs'
-  const named = new Map([[value, new Set(['docs/agents.md'])]])
+  const named = new Map([[value, new Set(['docs/runtimes.md'])]])
   const allowed = new Map([[value, "DeepSeek Harness's own Rust source"]])
   // The control: a named path that resolves nowhere is exactly what the entry is for.
   assert.deepEqual(docPathProblems(named, () => false, allowed), [])
@@ -1509,4 +3574,479 @@ test('packages/server/tsconfig.json includes project references for internal dep
     assert.ok(refs.has(dep), `packages/server/tsconfig.json is missing reference for dependency ${dep}`)
   }
   assert.ok(!refs.has('../transport-acp'), 'packages/server/tsconfig.json must not reference ../transport-acp')
+})
+
+/*
+ * The colour and stacking rules read declarations, not property names (#762
+ * review). Each case below is a spelling a property list would miss, or one it
+ * would wrongly count — the rule has to be seen getting both right.
+ */
+test('a colour written into any property is counted, not only the ones someone listed (#762)', () => {
+  const found = (css) => rawColours(css).map(({ property }) => property)
+  assert.deepEqual(found('.a { border: 1px solid #fff; }'), ['border'])
+  assert.deepEqual(found('.a { border-top: 1px solid rgb(0 0 0); }'), ['border-top'])
+  assert.deepEqual(found('.a { outline: 2px solid hsl(210 50% 50%); }'), ['outline'])
+  assert.deepEqual(found('.a { --tint: #abc; }'), ['--tint'])
+  // the last declaration in a block needs no semicolon
+  assert.deepEqual(found('.a { color: #fff }'), ['color'])
+  // a vendor prefix is a property like any other
+  assert.deepEqual(found('.a { -webkit-text-stroke: 1px #000; }'), ['-webkit-text-stroke'])
+})
+
+test('tokens, fragment references, strings and masks are not raw colours (#762)', () => {
+  assert.deepEqual(rawColours('.a { color: var(--hd-foreground); border: 1px solid var(--hd-border); }'), [])
+  assert.deepEqual(rawColours('.a { fill: url(#grad); }'), [])
+  assert.deepEqual(rawColours(".a::before { content: '#fff'; }"), [])
+  // a mask reads alpha: `#000` there means "show", not black
+  assert.deepEqual(rawColours('.a { mask-image: linear-gradient(to right, #000 80%, transparent); }'), [])
+  assert.deepEqual(rawColours('.a { -webkit-mask: radial-gradient(#000, transparent); }'), [])
+})
+
+test('a selector is never read as a declaration (#762)', () => {
+  assert.deepEqual(
+    declarationsOf('a:hover { color: red } .b:not(:focus) { gap: 4px; } @media (max-width: 720px) { .c { top: 0 } }')
+      .map(({ property }) => property),
+    ['color', 'gap', 'top'],
+  )
+})
+
+test('a stacking number is counted with !important and without a semicolon (#762)', () => {
+  const found = (css) => rawZIndexes(css).map(({ value }) => value)
+  assert.deepEqual(found('.a { z-index: 10 !important; }'), ['10'])
+  assert.deepEqual(found('.a { z-index: 40 }'), ['40'])
+  assert.deepEqual(found('.a { z-index: -20; }'), ['-20'])
+  // single digits order within one component; tokens are the point
+  assert.deepEqual(found('.a { z-index: 5; } .b { z-index: var(--hd-z-popover) !important; }'), [])
+})
+
+/* The #762 re-review: a `;` inside a string ended the declaration, which read
+   a colour out of valid CSS; and `red` was not a colour at all. */
+test('a semicolon inside a string or parentheses does not end a declaration (#762)', () => {
+  assert.deepEqual(declarationsOf('.a::before { content: "status: #fff; ready"; gap: 4px; }'), [
+    { property: 'content', value: '"status: #fff; ready"' },
+    { property: 'gap', value: '4px' },
+  ])
+  assert.deepEqual(rawColours('.a::before { content: "status: #fff; ready"; }'), [])
+  assert.deepEqual(
+    declarationsOf('.a { background: url(data:image/svg+xml;utf8,x); color: var(--hd-foreground) }').map(({ property }) => property),
+    ['background', 'color'],
+  )
+})
+
+test('a named colour is a raw colour; transparent, currentColor and the CSS-wide keywords are not (#762)', () => {
+  assert.equal(NAMED_COLOURS.length, 148)
+  const found = (css) => rawColours(css).map(({ property }) => property)
+  assert.deepEqual(found('.a { color: red; }'), ['color'])
+  assert.deepEqual(found('.a { border: 1px solid Tomato }'), ['border'])
+  assert.deepEqual(found('.a { --tint: white; }'), ['--tint'])
+  // a literal fallback is a literal
+  assert.deepEqual(found('.a { color: var(--hd-accent, rebeccapurple); }'), ['color'])
+  for (const keyword of ['transparent', 'currentColor', 'inherit', 'initial', 'unset', 'revert', 'revert-layer']) {
+    assert.deepEqual(found(`.a { color: ${keyword}; }`), [], keyword)
+  }
+  // part of a token's name, or a function, is not a colour
+  assert.deepEqual(found('.a { color: var(--hd-red); width: calc(tan(45deg) * 1px); }'), [])
+})
+
+test('a colour word is a name where authors write names (#762)', () => {
+  assert.deepEqual(rawColours('.a { animation: red 1s; grid-area: tan; font-family: Orange, sans-serif; counter-reset: gold; }'), [])
+  // but a hex there is still a colour, and a mask is still alpha
+  assert.deepEqual(rawColours('.a { animation: pulse 1s #fff; }').map(({ property }) => property), ['animation'])
+  assert.deepEqual(rawColours('.a { mask-image: linear-gradient(black, transparent); }'), [])
+})
+
+/* The second #762 re-review: two regex passes around the tokenizer did not
+   know what a string is — comment stripping, and `url()` blanking. */
+test('comment markers inside a string are not a comment (#762)', () => {
+  const css = '.a::before { content: "/*"; color: red; content: "*/"; }'
+  assert.deepEqual(declarationsOf(css).map(({ property }) => property), ['content', 'color', 'content'])
+  assert.deepEqual(rawColours(css).map(({ property }) => property), ['color'])
+  // a real comment still goes, apostrophe and all, without opening a string
+  assert.deepEqual(rawColours(".a { /* it's a note, don't count it: #fff */ color: red }").map(({ property }) => property), ['color'])
+  // an unquoted url() is an address: a `/*` there is a path, not a comment
+  assert.deepEqual(
+    declarationsOf('.a { background: url(img/*.png); color: red }').map(({ property }) => property),
+    ['background', 'color'],
+  )
+})
+
+test('a quoted url() ends at its own paren, not one inside its string (#762)', () => {
+  assert.deepEqual(rawColours(`.a { background: url("data:image/svg+xml,<svg transform='translate(1)' fill='red'/>"); }`), [])
+  assert.deepEqual(rawColours(".a { background: url('x(1).png') red; }").map(({ property }) => property), ['background'])
+})
+
+test('a stray quote ends at the line, and does not hide the rest of a stylesheet (#762)', () => {
+  assert.deepEqual(rawColours('.a { content: "unterminated\n  ; color: red }').map(({ property }) => property), ['color'])
+})
+
+/* The third #762 re-review: escapes, and the newlines CSS counts as one. */
+test('an escaped paren inside an unquoted url() is part of the address (#762)', () => {
+  assert.deepEqual(rawColours('.a { background: url(a\\)red.png); }'), [])
+  assert.deepEqual(rawColours('.a { background: url(x\\)#fff.png); }'), [])
+  // and a colour after the whole address is still one
+  assert.deepEqual(rawColours('.a { background: url(a\\)b.png) red; }').map(({ property }) => property), ['background'])
+})
+
+test('CR, form feed and CR LF are the newline CSS preprocessing makes them (#762)', () => {
+  // an unescaped CR or form feed ends a string, as a newline does
+  assert.deepEqual(rawColours('.a { content: "a\r; color: red }').map(({ property }) => property), ['color'])
+  assert.deepEqual(rawColours('.a { content: "a\f; color: red }').map(({ property }) => property), ['color'])
+  // a backslash before CR LF is one line continuation: the string goes on
+  assert.deepEqual(rawColours('.a { content: "a\\\r\n#fff"; }'), [])
+  assert.deepEqual(declarationsOf('.a {\r\n  color: red;\r\n  gap: 4px;\r\n}').map(({ property }) => property), ['color', 'gap'])
+})
+
+/* The fourth #762 re-review: CSS decodes escapes before it reads a name, so
+   the audit has to as well — each spelling below checked in Chromium. */
+test('an escaped colour, colour function or property is still one (#762)', () => {
+  const found = (css) => rawColours(css).map(({ property }) => property)
+  assert.deepEqual(found('.a { color: r\\65 d; }'), ['color'])
+  assert.deepEqual(found('.a { color: r\\000065d; }'), ['color'])
+  assert.deepEqual(found('.a { color: r\\67 b(255 0 0); }'), ['color'])
+  assert.deepEqual(found('.a { color: #\\66 ff; }'), ['color'])
+  assert.deepEqual(found('.a { c\\6f lor: red; }'), ['color'])
+  const layers = (css) => rawZIndexes(css).map(({ value }) => value)
+  assert.deepEqual(layers('.a { z-\\69 ndex: 10; }'), ['10'])
+  // property names are case-insensitive; a sign and an escaped !important are still an integer and a flag
+  assert.deepEqual(layers('.a { Z-INDEX: 10; }'), ['10'])
+  assert.deepEqual(layers('.a { z-index: +10; }'), ['+10'])
+  assert.deepEqual(layers('.a { z-index: 10 !\\69 mportant; }'), ['10'])
+})
+
+test('an escaped url() is a URL, and an escaped name that is not a colour is not one (#762)', () => {
+  assert.deepEqual(rawColours('.a { background: u\\72l(red); }'), [])
+  assert.deepEqual(rawColours('.a { color: r\\65 dx; }'), [])
+  assert.deepEqual(rawColours('.a { color: var(--hd-r\\65 d); }'), [])
+  // a custom property keeps its case, as the browser keeps it
+  assert.deepEqual(declarationsOf('.a { --Tint: 1; }').map(({ property }) => property), ['--Tint'])
+})
+
+/* Swept before the next review round rather than found by it: spellings of
+   the same two rules, each checked in Chromium first. */
+test('color() is a colour function, and colour words in grid lines, pages and view-transition classes are names (#762)', () => {
+  assert.deepEqual(rawColours('.a { color: color(srgb 1 0 0); }').map(({ property }) => property), ['color'])
+  assert.deepEqual(
+    rawColours('.a { grid-template-columns: [red] 1fr; grid-template-rows: [tan] auto; page: red; view-transition-class: red; }'),
+    [],
+  )
+})
+
+test('a z-index written as a number is counted however it is spelled (#762)', () => {
+  const layers = (css) => rawZIndexes(css).map(({ value }) => value)
+  assert.deepEqual(layers('.a { z-index: calc(10); }'), ['calc(10)'])
+  assert.deepEqual(layers('.a { z-index: calc(5 + 5); }'), ['calc(5 + 5)'])
+  assert.deepEqual(layers('.a { z-index: max(1, 12); }'), ['max(1, 12)'])
+  assert.deepEqual(layers('.a { z-index: clamp(10, 5, 20); }'), ['clamp(10, 5, 20)'])
+  // a number behind a custom property of this stylesheet, or in a fallback, is still a number
+  assert.deepEqual(layers('.a { --l: 60; z-index: var(--l); }'), ['var(--l)'])
+  assert.deepEqual(layers('.a { z-index: var(--nope, 60); }'), ['var(--nope, 60)'])
+})
+
+test('a z-index from the ladder, a single digit or not a number at all is not counted (#762)', () => {
+  const layers = (css) => rawZIndexes(css).map(({ value }) => value)
+  assert.deepEqual(layers('.a { z-index: var(--hd-z-popover); }'), [])
+  // derived from a rung, so it moves when the ladder moves — the line drawn on purpose
+  assert.deepEqual(layers('.a { z-index: calc(var(--hd-z-sticky) + 1); }'), [])
+  assert.deepEqual(layers('.a { z-index: 5; } .b { z-index: calc(2 * 3); } .c { z-index: auto; }'), [])
+  // not a valid z-index: the browser drops it
+  assert.deepEqual(layers('.a { z-index: 10.5; }'), [])
+  // a cycle resolves to nothing rather than looping
+  assert.deepEqual(layers('.a { --a: var(--b); --b: var(--a); z-index: var(--a); }'), [])
+})
+
+/* The fifth #762 re-review, and the neighbours of each finding — every value
+   below computed in Chromium first. */
+const counted = (css) => rawZIndexes(css).length > 0
+
+test('a z-index written through any CSS math function is counted, escaped or not (#762)', () => {
+  for (const math of ['c\\61lc(5 + 5)', 'abs(-12)', 'round(up, 10.1, 1)', 'round(10.4)', 'calc(pi * 4)', 'calc(infinity)',
+    'mod(25, 15)', 'rem(-25, 15)', 'pow(2, 4)', 'sqrt(100)', 'hypot(6, 8)', 'calc(e * 4)', 'calc(1e1)', 'calc(sin(0) + 12)'])
+    assert.equal(counted(`.a { z-index: ${math}; }`), true, math)
+  // what this cannot compute, and involves no rung, is reported rather than assumed small
+  assert.equal(counted('.a { z-index: calc(asin(1) / 1deg); }'), true)
+})
+
+test('a z-index that is small, from the ladder, or not valid CSS is not counted (#762)', () => {
+  for (const value of ['calc(2 * 3)', 'abs(-5)', 'var(--hd-z-popover)', 'calc(var(--hd-z-sticky) + 1)', 'auto',
+    // arithmetic outside a math function is not CSS: Chromium computes these to auto
+    'sign(-5) * -12', '5 + 5', '10.5'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+})
+
+test('var() falls back where the browser does, and each rule\'s custom property is its own candidate (#762)', () => {
+  assert.equal(counted('.a { --l: var(--l); z-index: var(--l, 60); }'), true)
+  assert.equal(counted('.a { --l: initial; z-index: var(--l, 60); }'), true)
+  // a later rule's definition does not replace this rule's
+  assert.equal(counted('.a { --l: 60; z-index: var(--l); } .b { --l: var(--hd-z-popover); }'), true)
+  assert.equal(counted('.a { z-index: calc(var(--x, 5) + 5); }'), true)
+  // a cycle with no fallback is invalid, and `inherit` defers to another element
+  assert.equal(counted('.a { --a: var(--b); --b: var(--a); z-index: var(--a); }'), false)
+  assert.equal(counted('.a { --l: inherit; z-index: var(--l); }'), false)
+})
+
+test('an author name is not a colour, in a property or inside a function (#762)', () => {
+  assert.deepEqual(rawColours('.a { transition-property: red; will-change: tan; }'), [])
+  assert.deepEqual(rawColours('.a { transition: red 1s; }'), [])
+  for (const content of ['counter(red)', 'counters(red, ".")', 'counter(x, red)', 'attr(red)'])
+    assert.deepEqual(rawColours(`.a { content: ${content}; }`), [], content)
+  assert.deepEqual(rawColours('.a { font-variant-alternates: styleset(red); }'), [])
+  // attr()'s fallback is a value, though, and a colour there is still one
+  assert.deepEqual(rawColours('.a { color: attr(data-x, red); }').map(({ property }) => property), ['color'])
+})
+
+test('a rung may be named, chosen between, or nudged by one digit; anything else done to it is counted (#762)', () => {
+  for (const value of ['var(--hd-z-popover)', 'calc(var(--hd-z-sticky) + 1)', 'calc(var(--hd-z-sticky) - 1)',
+    'calc(1 + var(--hd-z-sticky))', 'max(var(--hd-z-popover), var(--hd-z-drawer))'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+  for (const value of ['calc(var(--hd-z-sticky) + 60)', 'calc(var(--hd-z-popover) * 2)', 'max(var(--hd-z-popover), 60)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  assert.equal(counted('.a { --l: 60; z-index: calc(var(--hd-z-sticky) + var(--l)); }'), true)
+})
+
+/* The sixth #762 re-review, and the neighbours of each finding — every case
+   below computed in Chromium first, with the ladder in a sheet of its own. */
+test('only a rung, a choice between rungs, or a rung nudged by a whole digit takes a name (#762)', () => {
+  for (const value of ['calc(var(--hd-z-popover) * var(--hd-z-drawer))', 'abs(var(--hd-z-popover))',
+    'calc(var(--hd-z-popover) + infinity)', 'calc(var(--hd-z-popover) + 9.9)', 'round(var(--hd-z-popover))',
+    'calc(var(--hd-z-drawer) / var(--hd-z-popover))', 'calc(9 - var(--hd-z-popover))', 'calc(var(--hd-z-popover) + 1e1)',
+    // a nudge is the last thing done, not something to choose between
+    'max(var(--hd-z-popover), calc(var(--hd-z-drawer) + 1))'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  for (const value of ['calc(var(--hd-z-popover) + 9)', 'calc(var(--hd-z-popover) + 1.0)', 'calc(9 + var(--hd-z-popover))',
+    'min(var(--hd-z-popover))', 'clamp(var(--hd-z-sticky), var(--hd-z-popover), var(--hd-z-drawer))',
+    'calc(max(var(--hd-z-popover), var(--hd-z-drawer)) + 1)', 'C\\41LC(var(--hd-z-popover) + 1)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+})
+
+test('a var() of nothing is invalid wherever it is, and a keyword is read decoded (#762)', () => {
+  assert.equal(counted('.a { --l: var(--missing); z-index: var(--l, 60); }'), true)
+  assert.equal(counted('.a { --l: in\\69 tial; z-index: var(--l, 60); }'), true)
+  // invalid at computed-value time is the guaranteed-invalid value, not the parent's
+  assert.equal(counted('.p { --l: 5; } .a { --l: var(--missing); z-index: var(--l, 60); }'), true)
+  // a fallback that is used and reads the property back is a cycle; one that is not used is nothing
+  assert.equal(counted('.a { --a: var(--missing, var(--a)); z-index: var(--a, 60); }'), true)
+  assert.equal(counted('.a { --b: 5; --a: var(--b, var(--a)); z-index: var(--a, 60); }'), false)
+})
+
+test('a custom property another rule sets may not reach the element; one the whole document has does (#762)', () => {
+  assert.equal(counted('.a { z-index: var(--l, 60); } .b { --l: 5; }'), true)
+  for (const css of ['.a { --l: 5; } .a { z-index: var(--l, 60); }', ':root { --l: 5; } .a { z-index: var(--l, 60); }',
+    'html { --l: 5; } .a { z-index: var(--l, 60); }', '* { --l: 5; } .a { z-index: var(--l, 60); }',
+    ':r\\6f ot { --l: 5; } .a { z-index: var(--l, 60); }', '@layer x { :root { --l: 5; } } .a { z-index: var(--l, 60); }',
+    '.a { --l: 5; @media all { z-index: var(--l, 60); } }'])
+    assert.equal(counted(css), false, css)
+  // under a condition, or computed on the root where the other property is not set
+  assert.equal(counted('@media print { :root { --l: 5; } } .a { z-index: var(--l, 60); }'), true)
+  assert.equal(counted(':root { --l: inherit; } .a { z-index: var(--l, 60); }'), true)
+  assert.equal(counted(':root { --l: var(--m, 70); } .a { --m: 5; z-index: var(--l); }'), true)
+})
+
+test('an empty custom property is set, so its var() does not fall back (#762)', () => {
+  assert.deepEqual(declarationsOf('.a { --l: ; gap: ; }'), [{ property: '--l', value: '' }])
+  for (const css of ['.a { --l: ; z-index: var(--l, 60); }', '.a { --l: !important; z-index: var(--l, 60); }',
+    '.a { --l: ; } .a { z-index: var(--l, 60); }', '.a { --m: ; --l: var(--m); z-index: var(--l, 60); }'])
+    assert.equal(counted(css), false, css)
+})
+
+test('a registered custom property is its initial value where nothing sets it, and when what sets it does not fit (#762)', () => {
+  const at = (body, rest) => `@property --l { ${body} } ${rest}`
+  const integer = "syntax: '<integer>'; inherits: false; initial-value: 60"
+  for (const css of [at(integer, '.a { z-index: var(--l); }'), at(integer, '.a { z-index: var(--l, 5); }'),
+    at(integer, '.a { --l: initial; z-index: var(--l, 5); }'), at(integer, '.a { --l: foo; z-index: var(--l, 5); }'),
+    // it does not inherit, so the root's value never reaches
+    at(integer, ':root { --l: 5; } .a { z-index: var(--l); }'),
+    at("syntax: '*'; inherits: false", '.a { z-index: var(--l, 60); }'),
+    "@PROPERTY --\\6c { syntax: '<integer>'; inherits: false; initial-value: 60 } .a { z-index: var(--l, 5); }",
+    // a descriptor that does not parse, or is marked !important, is dropped on its own — not the rule
+    at("syntax: '<integer>'; syntax: '<Integer>'; inherits: false; initial-value: 60", '.a { z-index: var(--l, 5); }'),
+    at(`${integer}; foo: 1 !important`, '.a { z-index: var(--l, 5); }'),
+    // every property on a cycle is invalid, whatever a registration makes of what it read
+    "@property --b { syntax: '<integer>'; inherits: false; initial-value: 3 } .a { --a: var(--b); --b: var(--a); z-index: var(--a, 60); }"])
+    assert.equal(counted(css), true, css)
+  // a rule that registers nothing, a later rule that wins, a value that fits
+  for (const css of [at('initial-value: 60', '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<Integer>'; inherits: false; initial-value: 60", '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<integer>'; inherits: false; initial-value: 60px", '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<integer>'; inherits: false; initial-value: 60 !important", '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<integer>'; inherits: false; initial-value: var(--x)", '.a { z-index: var(--l, 5); }'),
+    ".x { @property --l { syntax: '<integer>'; inherits: false; initial-value: 60 } } .a { z-index: var(--l, 5); }",
+    at(integer, "@property --l { syntax: '<integer>'; inherits: false; initial-value: 3 } .a { z-index: var(--l, 5); }"),
+    at(integer, '.a { --l: 5; z-index: var(--l); }'),
+    at("syntax: 'auto'; inherits: false; initial-value: auto", '.a { z-index: var(--l, 60); }'),
+    at("syntax: '<integer>'; inherits: true; initial-value: 60", ':root { --l: 5; } .a { z-index: var(--l); }')])
+    assert.equal(counted(css), false, css)
+})
+
+/* Swept before the next review round rather than found by it: what a second
+   reader found in the answer to the sixth, each case computed in Chromium. */
+test('a declaration the browser drops sets nothing, and a comment still separates tokens (#762)', () => {
+  // dropped: an unmatched closer, a `!` at the top of a custom property, a bad string or URL
+  for (const value of ['5)', '5]', '(5])', '5 !foo', '!', '5 !important !important', '"x\n', 'url(a b)'])
+    assert.equal(counted(`.a { --l: ${value}; z-index: var(--l, 60); }`), true, value)
+  // kept: a `!` inside brackets, a lone block
+  assert.equal(counted('.a { --l: (5 !); z-index: var(--l, 60); }'), false)
+  assert.equal(counted('.a { --l: {5}; z-index: var(--l, 60); }'), false)
+  // a `;` inside brackets is part of the value
+  assert.deepEqual(declarationsOf('.a { --x: (a;b); gap: 1px }'), [{ property: '--x', value: '(a;b)' }, { property: 'gap', value: '1px' }])
+  // `.b {}; .a {…}`: the `;` joins the next prelude, and the browser drops that rule
+  assert.equal(counted('.b {}; .a { --l: 5 } .a { z-index: var(--l, 60); }'), true)
+  // inside a bracket, or an unquoted URL, nothing is structure
+  assert.equal(counted('.b { --x: [}]; --l: 5 } .a { --x: [}]; z-index: var(--l, 60); }'), true)
+  assert.equal(counted('.a { background: url(a(b); z-index: 60 }'), true)
+  // a comment is a token boundary
+  assert.equal(counted("@property/**/--l { syntax: '<integer>'; inherits: false; initial-value: 60 } .a { z-index: var(--l, 5); }"), true)
+  assert.equal(counted("@property --l { syn/**/tax: '<integer>'; inherits: false; initial-value: 5 } .a { z-index: var(--l, 60); }"), true)
+  // a block names one layer or none; a default namespace narrows `:root` and `*`
+  assert.equal(counted('@layer a, b { :root { --l: 5 } } .a { z-index: var(--l, 60); }'), true)
+  assert.equal(counted('@namespace url(http://www.w3.org/2000/svg); :root { --l: 5 } .a { z-index: var(--l, 60); }'), true)
+  // a `var()` that names no custom property drops its declaration
+  assert.equal(counted('.a { z-index: var(foo, 60); }'), false)
+  assert.equal(counted('.p { --l: 60; } .a { --l: var(foo); z-index: var(--l, 5); }'), true)
+})
+
+test('math is read with CSS tokens, and what cannot be computed is counted (#762)', () => {
+  // `+` and `-` need whitespace; a sign belongs to its number; no unary minus
+  for (const value of ['calc(5 +5)', 'calc(5+ 5)', 'calc(- 50)', 'calc(-(50))', 'calc(5 --5)', '1e1', '10.0'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+  for (const value of ['calc(5 - -5)', 'calc(-5 * -2)', 'calc(6 * +2)', 'clamp(none, 60, 100)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  // the end of the sheet closes what is open
+  assert.equal(counted('.a { z-index: var(--l, 60'), true)
+  assert.equal(counted('.a { z-index: calc(60'), true)
+  // `if()`, typed `attr()` and anything else it does not compute
+  for (const value of ['if(style(--x: 1): 5; else: 60)', 'attr(data-z type(<integer>), 60)', 'calc(10 * sibling-count())'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  // past a hundred levels Chromium refuses the expression
+  assert.equal(counted(`.a { z-index: calc(${'('.repeat(100)}60${')'.repeat(100)}); }`), false)
+  // and a rung's expression that is not CSS is `auto`, not a plane
+  assert.equal(counted('.a { z-index: calc(var(--hd-z-popover) -1); }'), false)
+})
+
+test('a keyword substituted into a custom property acts as one (#762)', () => {
+  for (const keyword of ['initial', 'unset', 'revert-layer', 'in\\69 tial', 'INITIAL'])
+    assert.equal(counted(`.a { --l: var(--missing, ${keyword}); z-index: var(--l, 60); }`), true, keyword)
+  // not alone, it is a value
+  assert.equal(counted('.a { --l: var(--missing, initial) 5; z-index: var(--l, 60); }'), false)
+})
+
+test('a cycle is invalid in whichever order the browser meets it (#762)', () => {
+  // a second cycle behind the first, or behind an invalid var(), still reaches its fallback
+  assert.equal(counted('.a { --b: var(--b) var(--c); --c: var(--b, 9); z-index: var(--c, 60); }'), true)
+  assert.equal(counted('.a { --m: initial; --b: var(--m) var(--c); --c: var(--b, 9); z-index: var(--c, 60); }'), true)
+  // `color: var(--c)` beside it makes `--b` read `--a` resolved, and fall back to 60
+  assert.equal(counted('.a { --c: var(--a) var(--b); --a: var(--c); --b: var(--a, 60); z-index: var(--b, 5); }'), true)
+  // but a property that reads the other directly can never find it resolved first
+  assert.equal(counted('.a { --a: var(--b, 70); --b: var(--a); z-index: var(--b, 5); }'), false)
+  assert.equal(counted('.a { --l: var(--l, 70); z-index: var(--l, 5); }'), false)
+})
+
+test('a registered value computes the way Chromium computes it (#762)', () => {
+  const at = (body, rest) => `@property --l { ${body} } ${rest}`
+  const number = "syntax: '<number>'; inherits: false"
+  const integer = "syntax: '<integer>'; inherits: false; initial-value: 60"
+  for (const css of [at(`${number}; initial-value: 60.0`, '.a { z-index: var(--l, 5); }'),
+    at(`${number}; initial-value: 6e1`, '.a { z-index: var(--l, 5); }'),
+    at(`${number}; initial-value: 1`, '.a { --l: 30.0; z-index: calc(var(--l) * 2); }'),
+    // math that is not CSS does not fit, so the property is its initial value
+    at(integer, '.a { --l: calc(2 +3); z-index: var(--l); }'),
+    at("syntax: '<integer>'; inherits: false; initial-value: calc(2 +3)", '.a { z-index: var(--l, 60); }'),
+    at("syntax: '<length>'; inherits: false; initial-value: 5", '.a { z-index: var(--l, 60); }'),
+    // a dropped descriptor leaves the one before it
+    at("syntax: '*'; inherits: false; initial-value: 60; initial-value: 5)", '.a { z-index: var(--l, 5); }'),
+    // a rule under a condition that never holds registers nothing
+    `@media not all { ${at("syntax: '<integer>'; inherits: false; initial-value: 5", '')} } .a { z-index: var(--l, 60); }`,
+    // an invalid value of an inheriting registration is its parent's — which another stylesheet may set to a rung
+    at("syntax: '<integer>'; inherits: true; initial-value: 1", '.a { --l: foo; z-index: calc(var(--l) * 2); }'),
+    // animated, it passes through every value between its keyframes
+    at("syntax: '<integer>'; inherits: false; initial-value: 3", '@keyframes k { from { --l: -3 } to { --l: 3 } } .a { --l: 3; animation: k 10s; z-index: calc(10 / var(--l)); }')])
+    assert.equal(counted(css), true, css)
+  for (const css of [at(`${number}; initial-value: 60.5`, '.a { z-index: var(--l, 5); }'),
+    at("syntax: '<int\\65ger>'; inherits: false; initial-value: 60", '.a { --l: 5; z-index: var(--l); }'),
+    at("syntax: '<integer>'; inherits: maybe; initial-value: 60", '.a { z-index: var(--l, 5); }')])
+    assert.equal(counted(css), false, css)
+})
+
+test('a broader selector, a pseudo-element and a nested rule reach what they cover (#762)', () => {
+  for (const css of ['.a { --l: 5 } .a:hover { z-index: var(--l, 60); }', '.a { --l: 5 } div.a { z-index: var(--l, 60); }',
+    '.a { --l: 5 } .x > .a { z-index: var(--l, 60); }', '.a { --l: 5 } .a::before { z-index: var(--l, 60); }',
+    '.a { --l: 5; &:hover { z-index: var(--l, 60); } }', '.a { --l: 5; & .b { z-index: var(--l, 60); } }',
+    '.a { --l: 5; .b { z-index: var(--l, 60); } }', '.a { --l: 5; .x & { z-index: var(--l, 60); } }',
+    '.a { --l: "var(--missing)"; z-index: var(--l, 60); }'])
+    assert.equal(counted(css), false, css)
+  // a narrower rule, a sibling, a list it does not cover, a selector the browser drops
+  for (const css of ['.a.b { --l: 5 } .a { z-index: var(--l, 60); }', '.a { --l: 5; & + .b { z-index: var(--l, 60); } }',
+    '.a { --l: 5 } .a, .b { z-index: var(--l, 60); }', ':root, .x:unknown { --l: 5 } .a { z-index: var(--l, 60); }',
+    // a registration that does not inherit reaches no pseudo-element
+    "@property --l { syntax: '<integer>'; inherits: false; initial-value: 60 } .a { --l: 5 } .a::before { z-index: var(--l); }"])
+    assert.equal(counted(css), true, css)
+})
+
+test('a chain too deep to follow is counted, never thrown (#762)', () => {
+  const chain = (length) => Array.from({ length }, (_, i) => `--p${i}: var(--p${i + 1});`).join(' ') + ` --p${length}: 5;`
+  // past the depth it follows — well inside any stack — it counts rather than assume the end is small
+  assert.equal(counted(`.a { ${chain(300)} z-index: var(--p0); }`), true)
+  assert.equal(counted(`.a { ${chain(100)} z-index: var(--p0); }`), false)
+  assert.doesNotThrow(() => rawZIndexes(`.a { ${chain(20000)} z-index: var(--p0); }`))
+  assert.doesNotThrow(() => rawZIndexes(`.a { z-index: ${'max('.repeat(20000)}var(--hd-z-x)${')'.repeat(20000)}; }`))
+})
+
+/* And from a second read of that answer, each case again computed in Chromium. */
+test('inside a style rule or @scope a selector is relative, so a broader one proves nothing (#762)', () => {
+  for (const css of ['.p { .a { --x: 5 } &.a { z-index: var(--x, 60); } }', '.p { .a { --x: 5 } + .a { z-index: var(--x, 60); } }',
+    '.p { .a { --x: 5 } .b &.a { z-index: var(--x, 60); } }', '@scope (.p) { .a { --x: 5 } :scope.a { z-index: var(--x, 60); } }',
+    '.p { @media all { .a { --x: 5 } &.a { z-index: var(--x, 60); } } }'])
+    assert.equal(counted(css), true, css)
+  // at the top of the sheet, or under conditions only, it still does
+  assert.equal(counted('@media all { .a { --x: 5 } .a:hover { z-index: var(--x, 60); } }'), false)
+})
+
+test('the top of a sheet reads as the browser reads it (#762)', () => {
+  // a `}` that closes nothing joins the next prelude, and drops that rule
+  for (const css of ['} .a { --x: 5 } .a { z-index: var(--x, 60); }', '.q { } } :root { --x: 5 } .a { z-index: var(--x, 60); }',
+    "} @property --x { syntax: '<integer>'; inherits: false; initial-value: 5 } .a { z-index: var(--x, 60); }"])
+    assert.equal(counted(css), true, css)
+  // a layer block names `ident('.'ident)*` or nothing
+  for (const name of ['1', 'a.', '"a"', 'a..b', 'a.1', '-1', 'a!'])
+    assert.equal(counted(`@layer ${name} { :root { --x: 5 } } .a { z-index: var(--x, 60); }`), true, name)
+  for (const name of ['a.b.c', '\\31', 'initial', ''])
+    assert.equal(counted(`@layer ${name} { :root { --x: 5 } } .a { z-index: var(--x, 60); }`), false, name)
+  // `<!--` and `-->` are nothing there, and a token of their own in a value
+  assert.equal(counted('<!-- :root { --x: 5 } --> .a { z-index: var(--x, 60); }'), false)
+  assert.equal(counted('.a { --x: <!-- 5; z-index: var(--x, 60); }'), false)
+})
+
+test('a registered number substitutes as the browser writes it back out (#762)', () => {
+  const number = (value, z = 'var(--x)') => `@property --x { syntax: '<number>'; inherits: false; initial-value: 0 } .a { --x: ${value}; z-index: ${z}; }`
+  for (const css of [number('59.9999999'), number('-9.9999999'), number('60.0000001', 'calc(var(--x))'), number('1234567', 'calc(var(--x) / 100000)')])
+    assert.equal(counted(css), true, css)
+  // from a million up it has an exponent, which is no integer
+  for (const css of [number('1234567'), number('1000000'), number('12345.67')]) assert.equal(counted(css), false, css)
+})
+
+test('a finite value against an infinite step is what CSS Values says (#762)', () => {
+  for (const value of ['mod(60, infinity)', 'rem(-60, infinity)', 'mod(-60, -infinity)', 'rem(60, -infinity)',
+    'round(up, 60, infinity)', 'round(down, -60, infinity)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), true, value)
+  for (const value of ['mod(60, -infinity)', 'mod(-60, infinity)', 'round(to-zero, 60, infinity)', 'round(60, infinity)'])
+    assert.equal(counted(`.a { z-index: ${value}; }`), false, value)
+})
+
+test('a var() name is read decoded, and only where a token starts (#762)', () => {
+  assert.equal(counted('.a { z-index: var(\\-\\-x, 60); }'), true)
+  assert.equal(counted('.a { --x: 60; z-index: var(\\2d-x); }'), true)
+  // `20var(` is a dimension and a bracket, not a call: substituted, this would be 20
+  assert.equal(counted('.a { z-index: calc(20var(--x, * 1)); }'), false)
+  assert.equal(counted('.a { z-index: calc(20 var(--x, * 1)); }'), true)
+})
+
+test('a URL is bad as the tokenizer says, and NUL is U+FFFD (#762)', () => {
+  const nul = String.fromCharCode(0)
+  assert.equal(counted('.a { --x: a url(a\\' + '\n' + 'b); z-index: var(--x, 60); }'), true)
+  assert.equal(counted(`.a { --x: 60; z-index: var(--x, url(a${nul}b)); }`), true)
+  assert.deepEqual(rawColours(`.a { background: url(a${nul}b) red; }`).map(({ property }) => property), ['background'])
+})
+
+test('deep nesting of rules does not throw (#762)', () => {
+  assert.doesNotThrow(() => rawZIndexes(`${'.a{'.repeat(12000)}--x: 1`))
+  assert.doesNotThrow(() => rawZIndexes(`${'@media all{'.repeat(12000)}.a { z-index: 60 }`))
 })

@@ -1,106 +1,9 @@
-.backdrop {
-  /* Over the pane it belongs to, not the window: the pane is positioned. */
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: var(--hd-scrim);
-  backdrop-filter: blur(2px);
-  /* The card is as wide as the pane allows, so the pane's width is the one
-     that decides whether its answers fit side by side. */
-  container: hd-approval / inline-size;
-}
-
-.dialog {
-  width: min(620px, 100%);
-  max-height: min(72vh, 720px);
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--hd-surface-radius);
-  background: var(--hd-surface-fill);
-  box-shadow: var(--hd-surface-shadow);
-  overflow: hidden;
-}
-
-/* The card takes focus when the approval arrives, but it is `tabindex="-1"` —
-   nobody can Tab to it, so a ring around the whole thing would only ever be
-   the app talking to itself. */
-.dialog:focus,
-.dialog:focus-visible {
-  outline: none;
-}
-
-.header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: var(--hd-space-4) 16px 10px; /* desk: canonical One UI System scale */
-}
-
-.headerIcon {
-  color: var(--hd-warning);
-}
-
-.title {
-  flex: 1;
-  font-size: var(--hd-text);
-  font-weight: 600;
-}
-
-.queue {
-  flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 16px 12px;
-}
-
 .reason {
   margin: 0 0 12px;
-  font-size: var(--hd-text-sm);
-  line-height: 20px;
-  color: var(--hd-secondary-foreground);
 }
 
 .command {
   margin: 0 0 10px;
-  padding: 10px 12px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-muted);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-sm);
-  line-height: 19px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.meta {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 12px;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-}
-
-.metaLabel {
-  font-weight: 500;
-}
-
-.metaValue {
-  font-family: var(--hd-font-code);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .fileBlock {
@@ -109,27 +12,10 @@
 
 .filePath {
   margin-bottom: 6px;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-secondary-foreground);
-}
-
-.permissionList {
-  margin: 0 0 12px;
-  padding-left: var(--hd-space-5); /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-sm);
-  line-height: 21px;
-  color: var(--hd-secondary-foreground);
 }
 
 .question {
   margin-bottom: 16px;
-}
-
-.questionText {
-  margin: 0 0 8px;
-  font-size: var(--hd-text);
-  font-weight: 500;
 }
 
 .choices {
@@ -143,85 +29,9 @@
   align-items: flex-start;
   gap: 8px;
 
-  text-align: left;
-
 }
 
 .choiceHint {
   display: block;
   margin-top: 2px;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-}
-
-.footer {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--hd-border);
-}
-
-.spacer {
-  flex: 1;
-}
-
-.button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 var(--hd-space-4); /* desk: canonical One UI System scale */
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-muted);
-  box-shadow: inset 0 0 0 1px var(--hd-border-emphasis);
-  color: inherit;
-  font-size: var(--hd-text);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.button:hover {
-  background: var(--hd-hover-solid);
-}
-
-.button[data-intent='approve'] {
-  background: var(--hd-accent);
-  box-shadow: none;
-  color: var(--hd-accent-foreground); /* desk: #fff → the ink named for a brand fill */
-}
-
-.button[data-intent='approve']:hover {
-  background: var(--hd-accent-hover);
-}
-
-.button[data-intent='deny'] {
-  color: var(--hd-danger);
-}
-
-.shortcut {
-  margin-left: 0;
-  opacity: 0.7;
-  font-size: var(--hd-text-xs);
-}
-
-/* A pane too narrow for the answers side by side lets them wrap, and each one
-   takes its share of its line. Held in one row, a phone's width wrapped the
-   middle answer to three lines and pushed the approving one — the answer the
-   agent is waiting for — half off the card. */
-@container hd-approval (max-width: 460px) {
-  .footer {
-    flex-wrap: wrap;
-  }
-
-  .spacer {
-    display: none;
-  }
-
-  .button {
-    flex: 1 1 auto;
-    justify-content: center;
-  }
 }

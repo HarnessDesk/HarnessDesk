@@ -57,6 +57,21 @@ const valueOf = (flag) => {
 }
 const terminator = argv.indexOf('--')
 const prompt = terminator === -1 ? '' : argv.slice(terminator + 1).join(' ')
+if (process.env.FAKE_LANE_ENV_LOG && process.env.HARNESSDESK_LANE_ID) {
+  const keys = [
+    'HARNESSDESK_GOAL_ID',
+    'HARNESSDESK_LANE_ID',
+    'HARNESSDESK_PORT_START',
+    'HARNESSDESK_PORT_END',
+    'HARNESSDESK_PORT_COUNT',
+    'PORT',
+  ]
+  appendFileSync(
+    process.env.FAKE_LANE_ENV_LOG,
+    `${JSON.stringify(Object.fromEntries(keys.map((key) => [key, process.env[key]])))}\n`,
+  )
+}
+
 const sessionId = valueOf('--resume') ?? 'fake-chat-unresumed'
 const model = valueOf('--model') ?? 'auto'
 const mode = valueOf('--mode') ?? 'default'

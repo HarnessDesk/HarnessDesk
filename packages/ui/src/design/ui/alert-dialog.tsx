@@ -1,6 +1,7 @@
 import { AlertDialog as AlertDialogPrimitive } from '@base-ui/react/alert-dialog'
 import type * as React from 'react'
 
+import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
 
 /**
@@ -47,11 +48,14 @@ const AlertDialogContent = ({ className, children, ...props }: AlertDialogPrimit
            arbitrary `max-w-[calc(100%-2rem)]`, which the design audit counts. */
         'fixed inset-x-6 top-1/2 z-(--hd-z-dialog) mx-auto grid max-w-md -translate-y-1/2 gap-3',
         'rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-4 shadow-(--hd-surface-shadow)',
+        /* The surface holds focus for Escape and never wears the ring; see
+           `SURFACE_FOCUS` in dialog.tsx. */
+        'outline-none focus-visible:outline-none',
         className,
       )}
       {...props}
     >
-      {children}
+      <DialogFormContext.Provider value={false}>{children}</DialogFormContext.Provider>
     </AlertDialogPrimitive.Popup>
   </AlertDialogPortal>
 )
@@ -85,7 +89,7 @@ const AlertDialogFooter = ({ className, ...props }: React.ComponentProps<'div'>)
 const AlertDialogTitle = ({ className, ...props }: AlertDialogPrimitive.Title.Props) => (
   <AlertDialogPrimitive.Title
     data-slot="alert-dialog-title"
-    className={cn('text-base font-semibold', className)}
+    className={cn('text-base font-medium', className)}
     {...props}
   />
 )

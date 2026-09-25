@@ -13,28 +13,10 @@
   min-width: 0;
 }
 
-.crumbWrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.crumbSep {
-  color: var(--hd-placeholder-foreground, var(--hd-muted-foreground));
-  padding: 0 2px;
-}
-
-.crumbCurrent {
-  padding: 1px var(--hd-space-1); /* desk: canonical One UI System scale */
-  font-weight: 600;
-  color: var(--hd-foreground);
-}
-
 .list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px;
 }
 
 .entry {
@@ -46,11 +28,4 @@
 
   text-align: left;
 
-}
-
-.empty {
-  padding: 24px 10px;
-  text-align: center;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
 }

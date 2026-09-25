@@ -1,0 +1,786 @@
+{
+  "adopted/attachment/size/default": {
+    "h": 50,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "6 6 6 6",
+    "radius": 6
+  },
+  "adopted/attachment/size/lg": {
+    "h": 50,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "8 8 8 8",
+    "radius": 6
+  },
+  "adopted/attachment/size/sm": {
+    "h": 50,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "4 4 4 4",
+    "radius": 6
+  },
+  "adopted/card/size/compact": {
+    "h": 68,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "12 12 12 12",
+    "radius": 6
+  },
+  "adopted/card/size/default": {
+    "h": 146,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "16 0 16 0",
+    "radius": 10
+  },
+  "adopted/marker/variant/border": {
+    "h": 30,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "6 8 6 8",
+    "radius": 6
+  },
+  "adopted/marker/variant/default": {
+    "h": 24,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "4 0 4 0",
+    "radius": 0
+  },
+  "adopted/marker/variant/separator": {
+    "h": 40,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "12 0 12 0",
+    "radius": 0
+  },
+  "adopted/table/variant/framed": {
+    "h": 51,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "adopted/table/variant/panel": {
+    "h": 49,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "adopted/textarea/size/compact": {
+    "h": 32,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
+  "adopted/textarea/size/composer": {
+    "h": 44,
+    "text": 13,
+    "weight": "400",
+    "line": 20,
+    "pad": "16 16 6 16",
+    "radius": 8
+  },
+  "adopted/textarea/size/default": {
+    "h": 56,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "6 10 6 10",
+    "radius": 8
+  },
+  "adopted/textarea/variant/code": {
+    "h": 32,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
+  "adopted/textarea/variant/composer": {
+    "h": 44,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "16 16 6 16",
+    "radius": 8
+  },
+  "adopted/textarea/variant/default": {
+    "h": 32,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
+  "adopted/textarea/variant/editor": {
+    "h": 32,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
+  "adopted/textarea/variant/inline": {
+    "h": 32,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
+  "badge/badge/variant/default": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "badge/badge/variant/destructive": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "badge/badge/variant/outline": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "badge/badge/variant/secondary": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "1 6 1 6",
+    "radius": 8
+  },
+  "badge/tabs-list/variant/default": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "1 1 1 1",
+    "radius": 6
+  },
+  "badge/tabs-list/variant/line": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "banner/alert/variant/default": {
+    "h": 61,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "10 12 10 12",
+    "radius": 10
+  },
+  "banner/alert/variant/soft": {
+    "h": 61,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "10 12 10 12",
+    "radius": 10
+  },
+  "button/button/size/chip": {
+    "h": 24,
+    "text": 12,
+    "weight": "500",
+    "line": 21,
+    "pad": "0 8 0 8",
+    "radius": 33554400
+  },
+  "button/button/size/content": {
+    "h": 15,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "button/button/size/default": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/size/fill": {
+    "h": 15,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "button/button/size/icon": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "button/button/size/icon-circle": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 0 0 0",
+    "radius": 33554400
+  },
+  "button/button/size/icon-sm": {
+    "h": 28,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "button/button/size/icon-xs": {
+    "h": 24,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "button/button/size/inline": {
+    "h": 31,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "4 4 4 4",
+    "radius": 6
+  },
+  "button/button/size/navigation": {
+    "h": 29,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 8 0 8",
+    "radius": 10
+  },
+  "button/button/size/panel": {
+    "h": 47,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "16 16 16 16",
+    "radius": 8
+  },
+  "button/button/size/pattern": {
+    "h": 21,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "button/button/size/row": {
+    "h": 29,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "4 8 4 8",
+    "radius": 10
+  },
+  "button/button/size/sm": {
+    "h": 28,
+    "text": 12,
+    "weight": "500",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "button/button/size/xs": {
+    "h": 20,
+    "text": 12,
+    "weight": "500",
+    "line": 16,
+    "pad": "0 6 0 6",
+    "radius": 8
+  },
+  "button/button/variant/action": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/choice": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/danger": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/default": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/destructive": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/floating": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 33554400
+  },
+  "button/button/variant/ghost": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/link": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/muted": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/navigation": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/outline": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/primary": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/quiet": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/reveal": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 6
+  },
+  "button/button/variant/row": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/secondary": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/subtle": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/warning": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "control/input/size/bare": {
+    "h": 28,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "control/input/size/compact": {
+    "h": 24,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 6 0 6",
+    "radius": 8
+  },
+  "control/input/size/default": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/chrome": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/code": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/default": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/filled": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/input/variant/quiet": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "control/native-select-control/size/compact": {
+    "h": 24,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 28 0 10",
+    "radius": 8
+  },
+  "control/native-select-control/size/default": {
+    "h": 30,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 28 0 10",
+    "radius": 8
+  },
+  "control/native-select-control/variant/default": {
+    "h": 30,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 28 0 10",
+    "radius": 8
+  },
+  "control/native-select-control/variant/filled": {
+    "h": 30,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 28 0 10",
+    "radius": 8
+  },
+  "control/switch/size/default": {
+    "h": 20,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 33554400
+  },
+  "control/switch/size/sm": {
+    "h": 18,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 33554400
+  },
+  "control/toggle-group/size/default": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "control/toggle-group/size/lg": {
+    "h": 32,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "control/toggle-group/size/sm": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "control/toggle-group/variant/default": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "control/toggle-group/variant/outline": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "list/avatar/size/default": {
+    "h": 24,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
+  "readings/key-value/variant/default": {
+    "h": 121,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "readings/key-value/variant/panel": {
+    "h": 38,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "readings/summary-card/variant/summary": {
+    "h": 273,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 0 0 0",
+    "radius": 14
+  },
+  "row/page-title-case/size/page": {
+    "h": 26,
+    "text": 20,
+    "weight": "600",
+    "line": 28,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "row/text/size/wordmark": {
+    "h": 28,
+    "text": 20,
+    "weight": "600",
+    "line": 28,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "section/section/variant/card": {
+    "h": 88,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 10
+  },
+  "section/section/variant/page": {
+    "h": 173,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "section/section/variant/panel": {
+    "h": 111,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "8 10 8 10",
+    "radius": 0
+  },
+  "section/section/variant/plain": {
+    "h": 86,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "section/section/variant/quiet": {
+    "h": 86,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 10
+  },
+  "stat/stat/variant/bordered": {
+    "h": 102,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "16 16 16 16",
+    "radius": 10
+  },
+  "stat/stat/variant/plain": {
+    "h": 102,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "stat/stat/variant/tinted": {
+    "h": 102,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "16 16 16 16",
+    "radius": 10
+  },
+  "tile/icon-tile/size/default": {
+    "h": 32,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 6
+  },
+  "tile/icon-tile/size/lg": {
+    "h": 40,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 6
+  },
+  "tile/icon-tile/size/sm": {
+    "h": 24,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 6
+  },
+  "tile/icon-tile/size/xs": {
+    "h": 18,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 6
+  },
+  "tool-pane/tool-pane/variant/default": {
+    "h": 224,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 10
+  },
+  "tool-pane/tool-pane/variant/integrated": {
+    "h": 224,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  }
+}

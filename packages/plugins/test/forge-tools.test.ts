@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { ExtensionKernel, setForgeEngine, type ForgeEngine, type ForgeSeat } from '@harnessdesk/cordis-host'
-import type { ContributionId, ForgeReference, ToolResult } from '@harnessdesk/protocol'
+import { DESK_POST_MARKER, type ContributionId, type ForgeReference, type ToolResult } from '@harnessdesk/protocol'
 
 import { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, gitPlugin, previousSignature, renderSignature, signBody, unmarked } from '../src/index.js'
 
@@ -34,8 +34,9 @@ const home = process.env.GH_FAKE_HOME
 fs.appendFileSync(path.join(home, 'calls.ndjson'), JSON.stringify(args) + '\n')
 const after = (flag) => { const at = args.indexOf(flag); return at === -1 ? null : args[at + 1] }
 const bodyFile = path.join(home, 'body.md')
+const mergedFile = path.join(home, 'merged')
 const pr = () => ({
-  number: 7, title: 'Add widgets', state: 'OPEN', isDraft: false,
+  number: 7, title: 'Add widgets', state: fs.existsSync(mergedFile) ? 'MERGED' : 'OPEN', isDraft: false,
   url: 'https://github.com/acme/widgets/pull/7', author: { login: 'octocat' },
   additions: 12, deletions: 3, changedFiles: 2,
   body: fs.existsSync(bodyFile) ? fs.readFileSync(bodyFile, 'utf8') : '',
@@ -45,6 +46,7 @@ const verb = args.slice(0, 2).join(' ')
 if (verb === 'pr list') { process.stdout.write(fs.existsSync(bodyFile) ? JSON.stringify([{ number: 7, url: pr().url }]) : '[]'); process.exit(0) }
 if (verb === 'pr create') { fs.writeFileSync(bodyFile, after('--body') ?? ''); process.stdout.write('https://github.com/acme/widgets/pull/7\n'); process.exit(0) }
 if (verb === 'pr edit') { const body = after('--body'); if (body !== null) fs.writeFileSync(bodyFile, body); process.exit(0) }
+if (verb === 'pr merge') { fs.writeFileSync(mergedFile, 'yes'); process.exit(0) }
 if (verb === 'pr review') { fs.writeFileSync(path.join(home, 'review.md'), after('--body') ?? ''); process.exit(0) }
 if (verb === 'pr comment') { process.stdout.write('https://github.com/acme/widgets/pull/7#issuecomment-1\n'); process.exit(0) }
 if (verb === 'pr view' || verb === 'pr checks') {
@@ -55,6 +57,13 @@ if (verb === 'pr view') { process.stdout.write(JSON.stringify(pr())); process.ex
 if (verb === 'pr checks') { process.stdout.write(JSON.stringify([{ name: 'build', state: 'SUCCESS', bucket: 'pass', link: 'https://ci/1', workflow: 'CI' }, { name: 'lint', state: 'FAILURE', bucket: 'fail', link: 'https://ci/2' }, { name: 'deploy', state: 'PENDING', bucket: 'pending' }])); process.exit(8) }
 if (verb === 'issue view') { process.stdout.write(JSON.stringify({ number: 42, title: 'Widgets wobble', state: 'OPEN', url: 'https://github.com/acme/widgets/issues/42', author: { login: 'octocat' }, body: 'They wobble.', labels: [{ name: 'bug' }], comments: [{ author: { login: 'hubot' }, body: 'Confirmed.', createdAt: '2026-09-10T00:00:00Z' }] })); process.exit(0) }
 if (verb === 'issue comment') { process.stdout.write('https://github.com/acme/widgets/issues/42#issuecomment-2\n'); process.exit(0) }
+if (verb.startsWith('api') && /^repos\/[^/]+\/[^/]+$/.test(args[1] ?? '')) {
+  // The repository's own merge-commit settings, as GitHub answers them; a test writes repo.json to change them.
+  const file = path.join(home, 'repo.json')
+  if (fs.existsSync(path.join(home, 'repo-fails'))) { process.stderr.write('gh: HTTP 502\n'); process.exit(1) }
+  process.stdout.write(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : JSON.stringify({ squash_merge_commit_message: 'PR_BODY', merge_commit_message: 'PR_TITLE' }))
+  process.exit(0)
+}
 if (verb.startsWith('api')) { process.stdout.write('https://github.com/acme/widgets/pull/7#pullrequestreview-9\n'); process.exit(0) }
 process.stderr.write('fake gh: unknown ' + verb + '\n'); process.exit(1)
 `
@@ -65,6 +74,8 @@ interface Rig {
   readonly home: string
   readonly published: ForgeReference[]
   readonly seat: { current: ForgeSeat | null }
+  /** Set, the desk refuses publication with this reason. */
+  readonly embargo: { current: string | null }
   tool(name: string): ContributionId
   calls(): string[][]
   run(name: string, args: unknown): Promise<string>
@@ -106,12 +117,15 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
 
   const published: ForgeReference[] = []
   const seat = { current: SEAT as ForgeSeat | null }
+  // Set, the desk refuses publication with this reason: a Seat still reviewing in a blind round.
+  const embargo = { current: null as string | null }
   const engine: ForgeEngine = {
     seat: async () => seat.current,
     identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }),
     publish: async (reference) => {
       published.push(reference)
     },
+    publicationAllowed: async () => embargo.current === null ? { ok: true } : { ok: false, reason: embargo.current },
   }
   setForgeEngine(engine)
   t.after(() => setForgeEngine(null))
@@ -134,6 +148,7 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
     home,
     published,
     seat,
+    embargo,
     tool,
     // No file is no calls: a refusal before the forge is reached is the point of some of these.
     calls: () =>
@@ -150,7 +165,19 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
 const bodySentTo = (calls: string[][], verb: string): string => {
   const call = calls.find((args) => args[0] === 'pr' && args[1] === verb)
   assert.ok(call, `gh pr ${verb} was called`)
-  return call[call.indexOf('--body') + 1] ?? ''
+  return withoutMarker(call[call.indexOf('--body') + 1] ?? '')
+}
+
+/**
+ * What a body said once the desk's own first line is taken off — after
+ * checking it is there: everything the desk posts opens with it, so a
+ * trigger never answers the desk's own words (review #898).
+ */
+const withoutMarker = (body: string): string => {
+  assert.ok(body.startsWith(`${DESK_POST_MARKER}\n`), `the desk's post opens with its marker: ${JSON.stringify(body.slice(0, 40))}`)
+  const rest = body.slice(DESK_POST_MARKER.length + 1)
+  assert.ok(!rest.includes(DESK_POST_MARKER), 'and carries it once')
+  return rest
 }
 
 test('pr_create signs the description for the seat and records the pull request in the conversation', async (t) => {
@@ -232,12 +259,50 @@ test('pr_update re-signs a new description, replacing the earlier line, and reco
   assert.equal(forge.published.at(-1)?.signature, null)
 })
 
+test('pr_merge merges only at the commit that was reviewed, squashes unless told otherwise, and records the pull request merged', async (t) => {
+  const forge = await rig(t)
+  // Opened through the desk: its description opens with the desk's marker, which a squash commit must never carry.
+  await forge.run('pr_create', { title: 'Add widgets', body: 'Widgets, as discussed.' })
+  const head = '0123456789abcdef0123456789abcdef01234567'
+  const said = await forge.run('pr_merge', { number: 7, head })
+  assert.match(said, /Merged pull request #7: Add widgets/)
+  const merge = forge.calls().find((args) => args[0] === 'pr' && args[1] === 'merge')!
+  assert.deepEqual(merge.slice(0, 6), ['pr', 'merge', '7', '--squash', '--match-head-commit', head])
+  const message = merge[merge.indexOf('--body') + 1] ?? ''
+  assert.ok(merge.includes('--body'), 'the repository squashes with the description: it is given, without the desk’s marker')
+  assert.ok(!message.includes('harnessdesk:'), 'and carries no desk marker')
+  assert.match(message, /^Widgets, as discussed\./)
+
+  // A repository whose merge commits do not use the description keeps its own message: no body is passed.
+  for (const setting of [{ squash_merge_commit_message: 'COMMIT_MESSAGES', merge_commit_message: 'PR_TITLE' }, { squash_merge_commit_message: 'BLANK', merge_commit_message: 'BLANK' }]) {
+    writeFileSync(join(forge.home, 'repo.json'), JSON.stringify(setting))
+    await forge.run('pr_merge', { number: 7, head })
+    const again = forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').at(-1)!
+    assert.equal(again.includes('--body'), false, `${setting.squash_merge_commit_message}: the repository's own message stands`)
+  }
+  // A merge commit uses the description when the repository says so for merges.
+  writeFileSync(join(forge.home, 'repo.json'), JSON.stringify({ squash_merge_commit_message: 'BLANK', merge_commit_message: 'PR_BODY' }))
+  await forge.run('pr_merge', { number: 7, head, method: 'merge' })
+  const merged = forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').at(-1)!
+  assert.match(merged[merged.indexOf('--body') + 1] ?? '', /^Widgets, as discussed\./)
+  // A setting that cannot be read overrides nothing.
+  writeFileSync(join(forge.home, 'repo-fails'), '')
+  await forge.run('pr_merge', { number: 7, head })
+  assert.equal(forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').at(-1)!.includes('--body'), false)
+  assert.equal(forge.published.at(-1)?.kind, 'pullRequest')
+  assert.equal(forge.published.at(-1)?.state, 'merged')
+
+  const invalid = await forge.run('pr_merge', { number: 7, head: 'short' })
+  assert.match(invalid, /whole commit/)
+  assert.equal(forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').length, 5)
+})
+
 test('pr_review opens with the review line; pr_comment is unsigned', async (t) => {
   const forge = await rig(t)
   await forge.run('pr_create', { title: 'Add widgets', body: 'first' })
   const said = await forge.run('pr_review', { event: 'request_changes', body: 'The limiter leaks.' })
   assert.match(said, /Requested changes on pull request #7/)
-  assert.equal(readFileSync(join(forge.home, 'review.md'), 'utf8'), '**Review by Codex GPT-5.4 · High · via HarnessDesk**\n\nThe limiter leaks.')
+  assert.equal(withoutMarker(readFileSync(join(forge.home, 'review.md'), 'utf8')), '**Review by Codex GPT-5.4 · High · via HarnessDesk**\n\nThe limiter leaks.')
   const review = forge.calls().find((args) => args[1] === 'review')!
   assert.ok(review.includes('--request-changes'))
   const posted = forge.published.at(-1)!
@@ -246,7 +311,7 @@ test('pr_review opens with the review line; pr_comment is unsigned', async (t) =
 
   await forge.run('pr_comment', { body: 'Also: the tests.' })
   const comment = forge.calls().find((args) => args[1] === 'comment')!
-  assert.equal(comment[comment.indexOf('--body') + 1], 'Also: the tests.')
+  assert.equal(withoutMarker(comment[comment.indexOf('--body') + 1]!), 'Also: the tests.')
   assert.equal(forge.published.at(-1)?.kind, 'comment')
   assert.equal(forge.published.at(-1)?.signature, null)
   assert.equal(forge.published.at(-1)?.url, 'https://github.com/acme/widgets/pull/7#issuecomment-1')
@@ -330,10 +395,10 @@ test('a person’s own template is replaced on update, whatever it says, because
   assert.equal(bodySentTo(own.calls(), 'edit'), `Rewritten.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}`, 'one line, the current seat’s, whatever the template says')
   // A description signed before the mark existed still loses its default-shaped line.
   await own.run('pr_update', { body: 'Older.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)' })
-  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), `Older.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}`)
+  assert.equal(withoutMarker(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1)!), `Older.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}`)
   own.seat.current = { agent: 'Gemini CLI', version: null, model: null, effort: null, thinking: false, label: 'Gemini CLI' }
   await own.run('pr_update', { body: `Bare.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}` })
-  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), `Bare.\n\nWritten by Gemini CLI ${SIGNATURE_MARK}`)
+  assert.equal(withoutMarker(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1)!), `Bare.\n\nWritten by Gemini CLI ${SIGNATURE_MARK}`)
 })
 
 test('an author’s last line that resembles a signature is the author’s, and stays', async (t) => {
@@ -385,7 +450,7 @@ test('checks, issues and their comments are read and posted, and the record says
   assert.equal(posted.url, 'https://github.com/acme/widgets/issues/42#issuecomment-2')
   assert.equal(posted.state, 'open')
   const comment = forge.calls().find((args) => args[0] === 'issue' && args[1] === 'comment')!
-  assert.equal(comment[comment.indexOf('--body') + 1], 'On it.')
+  assert.equal(withoutMarker(comment[comment.indexOf('--body') + 1]!), 'On it.')
 
   // A comment on a pull request says so too — said, not guessed from the size.
   await forge.run('pr_comment', { body: 'And here.' })
@@ -633,4 +698,38 @@ test('a tab does not close a fence that spaces opened, and whitespace is matched
   // closes, a deeper one still does not.
   assert.equal(previousSignature(['    ```', `    ${sample}`, '  ```', '', `Old line ${SIGNATURE_MARK}`].join('\n')), 'Old line')
   assert.equal(previousSignature(['  ```', '  code', '    ```', sample].join('\n')), null)
+})
+
+test('all direct desk publication paths honor embargo', async (t) => {
+  const forge = await rig(t)
+  await forge.run('pr_create', { title: 'Add widgets', body: 'first' })
+  const before = forge.calls().length
+  forge.embargo.current = 'Refused: this Seat is reviewing in a blind round that has not closed.'
+  for (const [name, args] of [
+    ['pr_review', { event: 'request_changes', body: 'The limiter leaks.' }],
+    ['pr_review', { event: 'approve', body: '' }],
+    ['pr_comment', { body: 'Early words.' }],
+    ['issue_comment', { number: 7, body: 'Early words, on the pull request’s own conversation.' }],
+  ] as const) {
+    assert.match(await forge.run(name, args), /^!Refused: this Seat is reviewing in a blind round/, name)
+  }
+  assert.equal(forge.calls().length, before, 'gh was never run: not even a read ahead of the refused write')
+  assert.equal(forge.published.length, 1, 'nothing more was recorded')
+  // A desk that cannot answer refuses as well: a post on a guess is what the embargo exists to prevent.
+  forge.embargo.current = null
+  setForgeEngine({
+    seat: async () => SEAT, identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }), publish: async () => {},
+    publicationAllowed: async () => { throw new Error('the host is gone') },
+  })
+  assert.match(await forge.run('pr_comment', { body: 'x' }), /^!Refused: the desk could not say whether this may be posted now \(the host is gone\)/)
+  assert.equal(forge.calls().length, before)
+})
+
+test('outside a blind round the same tools post as before', async (t) => {
+  const forge = await rig(t)
+  await forge.run('pr_create', { title: 'Add widgets', body: 'first' })
+  forge.embargo.current = null
+  assert.match(await forge.run('pr_review', { event: 'comment', body: 'Fine.' }), /Commented on pull request #7/)
+  assert.match(await forge.run('pr_comment', { body: 'Also fine.' }), /Commented on pull request #7/)
+  assert.match(await forge.run('issue_comment', { number: 42, body: 'On it.' }), /Commented on issue #42/)
 })

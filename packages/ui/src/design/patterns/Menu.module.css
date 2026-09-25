@@ -39,7 +39,7 @@
   border-radius: var(--hd-radius);
   background: var(--hd-card);
   box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.2),
+    var(--hd-shadow), /* desk: 0 10px 30px rgba(0,0,0,.2) -> one floating rung */
     inset 0 0 0 1px var(--hd-border-strong);
 }
 
@@ -66,21 +66,37 @@
   min-height: var(--hd-row-h);
   padding: var(--hd-space-1) 10px;
   border: none;
-  border-radius: var(--hd-radius-sm);
+  border-radius: var(--hd-nav-radius); /* desk: var(--hd-radius-sm) → var(--hd-nav-radius), menus and rails use one row shape */
   background: none;
   color: var(--hd-foreground);
   cursor: pointer;
   text-align: left;
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
+  font-size: var(--hd-text-sm); /* desk: var(--hd-text) → var(--hd-text-sm), menu rows use the chrome step */
+  line-height: var(--hd-line-sm); /* desk: var(--hd-line) → var(--hd-line-sm), the line follows its type step */
+}
+
+/* An account menu has two rows whose content is taller than the ordinary
+   one-line action. Their padding is part of that anatomy, not the menu that
+   happens to contain them. */
+.row[data-layout='profile'] {
+  padding: var(--hd-space-2);
+}
+
+.row[data-layout='account'] {
+  padding: var(--hd-space-1-5) var(--hd-space-2);
 }
 
 .row:hover,
 .row:focus-visible,
 .row[data-open],
-.row[data-popup-open] {
+.row[data-popup-open],
+.row[aria-expanded='true'] {
   background: var(--hd-hover);
   outline: none;
+}
+
+.row[data-current] {
+  background: var(--hd-accent-dim);
 }
 
 .row:disabled {
@@ -130,7 +146,7 @@
 
 .hint {
   font-size: var(--hd-text-sm);
-  line-height: 17px;
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
   color: var(--hd-muted-foreground);
   white-space: normal;
 }
@@ -142,8 +158,8 @@
   background: var(--hd-card-raised, var(--hd-hover));
   color: var(--hd-secondary-foreground);
   font-size: var(--hd-text-xs);
-  line-height: 18px;
-  font-weight: 500;
+  line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
+  font-weight: var(--hd-weight-medium);
 }
 
 .shortcut,
@@ -190,15 +206,31 @@
    "Organize sidebar" over its own list controls. Uppercase, bold and
    letter-spacing all shouted over the rows, which are the text that matters. */
 .label {
+  font-weight: var(--hd-weight-medium);
   padding: 8px 10px var(--hd-space-1);
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
 }
 
+.label[data-size='compact'] {
+  padding: var(--hd-space-1) var(--hd-space-2);
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  font-weight: var(--hd-weight-normal);
+}
+
+/* A note explains the rows; it never sets the menu's width. A menu sizes to
+   its words, and a note's words are a sentence: the model menu's footer —
+   "a newer build is available … npm i -g …" — stretched the menu across the
+   window, left its reasoning flyout no room at either side, and put that
+   flyout over the model list. Contained, a note wraps at the width the rows
+   give the menu. */
 .note {
+  contain: inline-size;
   padding: 6px 10px 8px;
   font-size: var(--hd-text-sm);
-  line-height: 17px;
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
   color: var(--hd-muted-foreground);
 }
 

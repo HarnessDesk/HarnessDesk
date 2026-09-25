@@ -207,3 +207,26 @@ it('a subject with no choice draws no band for one', () => {
   expect(container.querySelector('[data-slot="agent-card-choice"]')).toBeNull()
   expect(bands()).toBe(1)
 })
+
+it('draws an Agent band only for a conversation seated as one', () => {
+  render({ kind: 'session', name: 'Checkout review', tint: 'blue', mark: <svg /> })
+  expect(bands()).toBe(0)
+  render({
+    kind: 'session',
+    name: 'Checkout review',
+    tint: 'blue',
+    mark: <svg />,
+    agent: {
+      name: 'Code reviewer',
+      ceiling: 'Read · asked',
+      description: 'Reviews a change it did not write.',
+      origin: 'Built in',
+      seat: 'Claude · Opus 5 · High',
+      passedOver: ['Cursor — Cursor is signed out'],
+    },
+  })
+  expect(bands()).toBe(1)
+  for (const words of ['Code reviewer', 'Read · asked', 'Reviews a change it did not write.', 'Built in', 'Seated on Claude · Opus 5 · High', 'Passed over Cursor — Cursor is signed out']) {
+    expect(text()).toContain(words)
+  }
+})

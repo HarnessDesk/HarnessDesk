@@ -273,6 +273,14 @@ export interface ErrorItem extends ItemBase {
  * same shape the branch bar and the repository pane read for a pull request
  * they found on their own.
  */
+/**
+ * The first line of everything the desk itself posts to a forge — a
+ * comment, a review, a pull request's description — so a trigger that reads
+ * the forge back can never be fired by the desk's own words. GitHub renders
+ * it as nothing. Matched as the whole first line, exactly.
+ */
+export const DESK_POST_MARKER = '<!-- harnessdesk:post -->'
+
 export interface ForgeReference {
   readonly kind: 'pullRequest' | 'issue' | 'review' | 'comment'
   /** What the conversation did to it; absent for something merely looked up. */

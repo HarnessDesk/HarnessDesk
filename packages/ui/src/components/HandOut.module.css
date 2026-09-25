@@ -1,23 +1,8 @@
 /* The hand-out dialog: what every member is told, and what the first will read. */
-.body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-4);
-}
-
 .field {
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-1);
-}
-
-.label {
-  display: flex;
-  align-items: baseline;
-  gap: var(--hd-space-2);
-  font-size: var(--hd-text-sm);
-  font-weight: 600;
-  color: var(--hd-foreground);
 }
 
 .area {
@@ -25,31 +10,9 @@
 
 }
 
-.hint {
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-muted-foreground);
-}
-
 /* What one member will read, shown before anything goes out. */
 .preview {
   margin: 0;
-  max-height: 12rem;
+  max-block-size: 12rem;
   overflow: auto;
-  padding: var(--hd-space-2);
-  border: 1px solid var(--hd-border);
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-background);
-  font: inherit;
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.problem {
-  margin: 0;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-danger-ink);
 }

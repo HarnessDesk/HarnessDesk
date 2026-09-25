@@ -10,8 +10,8 @@ import type {
 
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
-import { Badge, Separator } from '../design'
-import { ChannelMessage, ChannelNotice, ChannelSignal, type ChannelDensity } from '../design'
+import { Chip, Separator } from '../design'
+import { ChannelMessage, ChannelNotice, ChannelSignal } from '../design'
 import { type Brand, brandForRuntime } from '../lib/brands'
 import { Markdown } from './Markdown'
 import { Face } from '../design'
@@ -69,7 +69,7 @@ type Tint = (typeof TINTS)[number] | 'blue'
 
 /** One sender, stable across their messages — the conversation, not the agent. */
 const senderKey = (actor: TeamActor): string =>
-  actor.kind === 'user' ? 'user' : `${actor.runtime}\u0000${actor.sessionId}`
+  actor.kind === 'user' ? 'user' : actor.kind === 'trigger' ? `trigger\u0000${actor.trigger}` : `${actor.runtime}\u0000${actor.sessionId}`
 
 /** A run of messages from one sender is one person talking. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -270,16 +270,12 @@ export const readChannel = (
 }
 
 /** The day said once, between the last of one day and the first of the next. */
-const DayDivider = ({ label, density = 'panel' }: { label: string; density?: ChannelDensity }) => (
-  <div
-    className={`my-1 flex items-center ${density === 'room' ? 'px-4' : 'px-3'}`}
-    role="separator"
-    aria-label={label}
-  >
+const DayDivider = ({ label }: { label: string }) => (
+  <div className="my-1 flex items-center" role="separator" aria-label={label}>
     <Separator className="w-auto flex-1" />
-    <Badge variant="outline" className="mx-2 bg-background font-normal text-muted-foreground">
+    <Chip tone="neutral" variant="outline" className="mx-2">
       {label}
-    </Badge>
+    </Chip>
     <Separator className="w-auto flex-1" />
   </div>
 )
@@ -287,24 +283,20 @@ const DayDivider = ({ label, density = 'panel' }: { label: string; density?: Cha
 /**
  * The channel, rendered.
  *
- * Exported because two surfaces show it now — this panel and the room pane —
- * and a second copy of the grouping, the retry-collapse and the day dividers
- * would be two channels agreeing by hand, with the fifteen tests that pin
- * this behaviour pinning only one of them. What the two callers bring is
- * their own chrome; what a message *is* lives here.
+ * Exported for the room pane, which brings its own chrome — the measure, the
+ * empty state, the composer. The grouping, the retry-collapse and the day
+ * dividers live here, with the tests that pin them; what a row *looks* like
+ * is `ChannelMessage`'s.
  */
 export const ChannelStream = ({
   entries,
   room,
   onTrouble,
-  density = 'panel',
   identify,
 }: {
   readonly entries: readonly TeamEntry[]
   readonly room: string
   readonly onTrouble: (message: string | null) => void
-  /** The panel's glance, or the room's conversation. See `ChannelMessage`. */
-  readonly density?: ChannelDensity
   /**
    * Hangs something off a message's face and author name — a name card, where
    * the caller knows the roster.
@@ -344,7 +336,7 @@ export const ChannelStream = ({
       if (dayOf(row.entry.at) !== day) {
         day = dayOf(row.entry.at)
         nodes.push(
-          <DayDivider key={`day-${row.entry.at}`} label={dayLabel(row.entry.at)} density={density} />,
+          <DayDivider key={`day-${row.entry.at}`} label={dayLabel(row.entry.at)} />,
         )
       }
       nodes.push(
@@ -355,7 +347,6 @@ export const ChannelStream = ({
             cause={row.entry.cause}
             text={row.entry.text}
             at={timeOf(row.entry.at)}
-            density={density}
           />
         ) : row.kind === 'signal' ? (
           <ChannelSignal
@@ -363,7 +354,6 @@ export const ChannelStream = ({
             by={actorName(row.entry.by, snapshot)}
             said={`${SIGNAL_WORD[row.entry.signal] ?? row.entry.signal} #${row.entry.intent} — ${row.entry.title}${row.entry.detail ? ` · ${row.entry.detail}` : ''}`}
             at={timeOf(row.entry.at)}
-            density={density}
           />
         ) : (
           <ChannelMessage
@@ -373,7 +363,6 @@ export const ChannelStream = ({
             {...(identify
               ? { identify: (node: ReactNode) => identify(row.entry.from, node) }
               : {})}
-            density={density}
             text={row.entry.batch ? row.entry.batch.template : row.entry.text}
             /* Rendered here rather than in the pattern: highlighting a fence
                needs the resolved theme, and the theme is app state. A
@@ -385,7 +374,7 @@ export const ChannelStream = ({
             tint={tints.get(senderKey(row.entry.from)) ?? 'blue'}
             {...(brandOf(row.entry.from, snapshot) ? { brand: brandOf(row.entry.from, snapshot) as Brand } : {})}
             /* You, in the face the seat wears. It fills the row's tile, so it
-               takes the tile's size and corner at either density — drawn from
+               takes the tile's size and corner — drawn from
                the snapshot this stream already holds, not a subscription of
                its own on every message you wrote. A user row carries no
                identity (`{ kind: 'user' }`, #218), so every one is drawn as
@@ -435,6 +424,10 @@ export const ChannelStream = ({
  */
 const actorName = (actor: TeamActor, snapshot: AppSnapshot): string => {
   if (actor.kind === 'user') return 'You'
+  /* Admission opened this while nobody was at the keyboard: the card is the
+     trigger's, never "You" — the misattribution a Goal a trigger opened used
+     to show in its own chat (#898). */
+  if (actor.kind === 'trigger') return `The trigger ${actor.trigger}`
   const agent =
     snapshot.runtimes.find((entry) => entry.id === actor.runtime)?.presentation.name ??
     actor.runtime
@@ -457,7 +450,7 @@ const actorName = (actor: TeamActor, snapshot: AppSnapshot): string => {
  * of its own when the answer is none.
  */
 const brandOf = (actor: TeamActor, snapshot: AppSnapshot): Brand | null => {
-  if (actor.kind === 'user') return null
+  if (actor.kind !== 'agent') return null
   const runtime = snapshot.runtimes.find((entry) => entry.id === actor.runtime)
   return runtime ? brandForRuntime(runtime) : null
 }

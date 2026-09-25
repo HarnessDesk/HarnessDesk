@@ -38,7 +38,10 @@ import { InstallPlugin } from './InstallPlugin'
 import {
   BackLink,
   Button,
+  Card,
+  CardContent,
   Chip,
+  CodeText,
   DetailMark,
   DetailHead,
   PageHead,
@@ -48,10 +51,11 @@ import {
   Rows,
   Search,
   SectionHead,
-  SectionToggle,
   NativeSelect,
+  Separator,
   Switch,
-  WireText,
+  Text,
+  Toolbar,
 } from '../design'
 import { Tabs, TabsList, TabsTrigger } from '../design'
 import { SchemaForm } from './SchemaForm'
@@ -300,10 +304,10 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
             name={KIND_HEADING[kind]}
             action={
               kind === 'tool' || kind === 'command' ? (
-                <SectionToggle>
+                <Text as="label" role="muted" ink="muted" className="inline-flex items-center gap-2">
                   Tool names
                   <Switch aria-label="Show tool names" checked={wire} onCheckedChange={setWire} />
-                </SectionToggle>
+                </Text>
               ) : undefined
             }
           />
@@ -314,7 +318,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
                 title={contributionSentence(contribution)}
                 control={
                   wire && (kind === 'tool' || kind === 'command') ? (
-                    <WireText>{describeContribution(contribution)}</WireText>
+                    <Text role="meta"><CodeText>{describeContribution(contribution)}</CodeText></Text>
                   ) : undefined
                 }
               />
@@ -338,19 +342,21 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
       {plugin.configSchema && (
         <>
           <SectionHead name="Configuration" />
-          <div className={styles.configCard}>
-            <SchemaForm
-              schema={plugin.configSchema}
-              value={plugin.config ?? {}}
-              onSubmit={(next) => void store.configurePlugin(plugin.identity.id, next)}
-            />
-          </div>
+          <Card radius="lg">
+            <CardContent>
+              <SchemaForm
+                schema={plugin.configSchema}
+                value={plugin.config ?? {}}
+                onSubmit={(next) => void store.configurePlugin(plugin.identity.id, next)}
+              />
+            </CardContent>
+          </Card>
         </>
       )}
 
       <SectionHead name="About" />
       <Rows>
-        <Row title="Identifier" control={<WireText>{plugin.identity.id}</WireText>} />
+        <Row title="Identifier" control={<Text role="meta"><CodeText>{plugin.identity.id}</CodeText></Text>} />
         <Row
           title="Source"
           control={
@@ -365,27 +371,30 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
       </Rows>
 
       {plugin.identity.source.kind !== 'builtin' && (
-        <div className={styles.pageActions}>
-          {plugin.identity.source.kind === 'local' && plugin.identity.source.path && (
-            <Button variant="secondary"
-              title={`Reinstall from ${plugin.identity.source.path}`}
-              onClick={() => void store.updatePluginFromSource(plugin)}
+        <>
+          <Separator />
+          <Toolbar className={styles.pageActions}>
+            {plugin.identity.source.kind === 'local' && plugin.identity.source.path && (
+              <Button variant="secondary"
+                title={`Reinstall from ${plugin.identity.source.path}`}
+                onClick={() => void store.updatePluginFromSource(plugin)}
+              >
+                <RetryIcon size={14} />
+                Update from source
+              </Button>
+            )}
+            <Button
+              variant="destructive"
+              onClick={() => {
+                void store.uninstallPlugin(plugin.identity.id)
+                onBack()
+              }}
             >
-              <RetryIcon size={14} />
-              Update from source
+              <TrashIcon size={14} />
+              Uninstall
             </Button>
-          )}
-          <Button
-            variant="destructive"
-            onClick={() => {
-              void store.uninstallPlugin(plugin.identity.id)
-              onBack()
-            }}
-          >
-            <TrashIcon size={14} />
-            Uninstall
-          </Button>
-        </div>
+          </Toolbar>
+        </>
       )}
     </>
   )
@@ -619,7 +628,7 @@ export const PluginsSection = () => {
         </Rows>
       ) : (
         <>
-          <p className={styles.crossNote}>
+          <Text as="p" role="muted" className={styles.crossNote}>
             Everything plugins add right now.
             {!pluginToolsReach && (
               <>
@@ -628,7 +637,7 @@ export const PluginsSection = () => {
                 request; they reach it only through its own configuration.
               </>
             )}
-          </p>
+          </Text>
           <div className={styles.capFilters}>
             <Search
               className={styles.search}

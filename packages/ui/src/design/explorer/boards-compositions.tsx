@@ -21,6 +21,8 @@ import {
   AttachmentGroup,
   AttachmentMedia,
   AttachmentTitle,
+  Avatar,
+  AvatarFallback,
   AvatarStack,
   Bars,
   Breadcrumb,
@@ -40,6 +42,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardViewport,
   Checkbox,
   ChoiceRow,
   DataTableColumnHeader,
@@ -57,11 +60,16 @@ import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
+  Badge,
   IconTile,
   InputGroupAddon,
   InputGroupInput,
   InputGroup,
   KeyValue,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   KeyValueRow,
   ListRow,
   ListRows,
@@ -69,6 +77,8 @@ import {
   MarkerContent,
   MarkerIcon,
   Progress,
+  ProgressRing,
+  ProgressStack,
   RadioGroup,
   RadioGroupItem,
   ResizeHandle,
@@ -100,6 +110,7 @@ import {
   SegmentMeter,
   Sparkline,
   Stat,
+  Tick,
   StatRow,
   Stepper,
   Table,
@@ -109,6 +120,12 @@ import {
   TableHeader,
   TableRow,
   Textarea,
+  ToolPane,
+  ToolPaneBar,
+  ToolPaneBody,
+  ToolPaneHeader,
+  ToolPaneMessage,
+  ToolPaneNotice,
   Toaster,
   Tooltip,
   TooltipContent,
@@ -120,9 +137,33 @@ import {
   Toolbar,
   ToolbarGap,
   toast,
+  SummaryItem,
+  SummaryList,
 } from '../ui'
+import {
+  Counts,
+  GroupLine,
+  PanelBody,
+  PanelFilter,
+  PanelFooter,
+  PanelFrame,
+  PanelRow,
+  PanelTools,
+  RunDot,
+} from '../patterns/InspectorPanel'
+import { PatchHeader } from '../patterns/Change'
+import {
+  DockDropEdge,
+  DockDropTarget,
+  PaneSurface,
+  WorkbenchCanvas,
+  WorkbenchRail,
+  WorkbenchScrim,
+} from '../patterns/DockPanel'
+import { CodeText, Row, Rows, SectionHead, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
+import { IconBoard } from './icon-board'
 import styles from './explorer.module.css'
 
 /**
@@ -150,15 +191,23 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
-const TEXTAREA_CATALOG_VARIANTS = ['default', 'editor', 'inline', 'composer'] as const
+const TEXTAREA_CATALOG_VARIANTS = ['default', 'editor', 'code', 'inline', 'composer'] as const
 const TEXTAREA_CATALOG_SIZES = ['default', 'compact', 'composer'] as const
 const TEXTAREA_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
 const ATTACHMENT_CATALOG_VARIANTS = ['default'] as const
 const ATTACHMENT_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
 const ATTACHMENT_CATALOG_STATES = ['default', 'loading', 'error'] as const
-const ATTACHMENT_CATALOG_ORIENTATION = ['horizontal', 'vertical'] as const
+const ATTACHMENT_CATALOG_ORIENTATION = ['horizontal', 'vertical', 'tile'] as const
+const BADGE_CATALOG_VARIANTS = ['default', 'secondary', 'destructive', 'outline'] as const
+const BADGE_CATALOG_SIZES = ['default'] as const
+const BADGE_CATALOG_STATES = ['default', 'active', 'inactive'] as const
+
+const TABS_CATALOG_VARIANTS = ['default', 'line'] as const
+const TABS_CATALOG_SIZES = ['default'] as const
+const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
+
 const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
-const ICON_TILE_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
+const ICON_TILE_CATALOG_SIZES = ['xs', 'sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
 const ICON_TILE_CATALOG_SHAPE = ['square', 'round'] as const
 const INPUT_GROUP_CATALOG_VARIANTS = ['default'] as const
@@ -168,9 +217,15 @@ const INPUT_GROUP_CATALOG_ALIGN = ['inline-start', 'inline-end', 'block-start', 
 const MARKER_CATALOG_VARIANTS = ['default', 'border', 'separator'] as const
 const MARKER_CATALOG_SIZES = ['default'] as const
 const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
-const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet'] as const
+const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel', 'page'] as const
 const SECTION_CATALOG_SIZES = ['default'] as const
 const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
+const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel', 'summary'] as const
+const KEY_VALUE_CATALOG_SIZES = ['default'] as const
+const KEY_VALUE_CATALOG_STATES = ['default', 'empty', 'populated'] as const
+const TOOL_PANE_CATALOG_VARIANTS = ['default', 'integrated'] as const
+const TOOL_PANE_CATALOG_SIZES = ['default'] as const
+const TOOL_PANE_CATALOG_STATES = ['default', 'loading', 'empty', 'error'] as const
 const STAT_CATALOG_VARIANTS = ['plain', 'bordered', 'tinted'] as const
 const STAT_CATALOG_SIZES = ['default'] as const
 const STAT_CATALOG_STATES = ['default', 'loading', 'error'] as const
@@ -300,6 +355,77 @@ const DeltaBoard = () => (
 
 // --- surfaces ---------------------------------------------------------------
 
+/**
+ * The Agent page, before and after the page grammar.
+ *
+ * Before: five facts about one Agent, each a grey label over a card that
+ * holds one row — the label 18px under the card above and 20px over its own,
+ * so it named neither. After: one `Section` holding one `SummaryList`, the
+ * facts read top to bottom like an inspector and every action in one column
+ * at the end. The words are the page's own, so the comparison is the layout
+ * and nothing else.
+ */
+const AGENT_FILE = '~/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md'
+const AGENT_BRIEF = 'Read a change against the checkout rules before anyone merges it, and say what would break.'
+
+const PageGrammar = () => (
+  <>
+    <div className="grid w-full items-start gap-(--hd-space-3) xl:grid-cols-2" data-catalog-example="page-grammar">
+      <Case label="the Agent page, before: a label over a one-row card, five times">
+        <div className="w-full">
+          <SectionHead name="File" />
+          <Rows>
+            <Row
+              title={<CodeText>{AGENT_FILE}</CodeText>}
+              desc="Comes first over the one that ships"
+              control={<><Button size="sm" variant="outline">Open file</Button><Button size="sm" variant="outline">Reveal</Button></>}
+            />
+          </Rows>
+          <SectionHead name="Ceiling" />
+          <Rows>
+            <Row title="Edit" desc="May change files and commit in its own checkout, and never push." control={<Button size="sm" variant="outline">Update…</Button>} />
+          </Rows>
+          <SectionHead name="Skills" />
+          <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
+          <SectionHead name="Servers" />
+          <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
+          <SectionHead name="Brief" />
+          <Rows><Row title={AGENT_BRIEF} control={<Button size="sm" variant="outline">Open in editor</Button>} /></Rows>
+        </div>
+      </Case>
+      <Case label="after: one Section, one SummaryList">
+        <div className="w-full">
+          <Section title="Agent" description="Read from its file; the file is the truth.">
+            <SummaryList>
+              <SummaryItem label="File" kind="path" note="Comes first over the one that ships" action={<Button size="sm" variant="secondary">Open file</Button>}>
+                {AGENT_FILE}
+              </SummaryItem>
+              <SummaryItem label="Ceiling" note="May change files and commit in its own checkout, and never push." action={<Button size="sm" variant="secondary">Update…</Button>}>
+                Edit
+              </SummaryItem>
+              <SummaryItem label="Skills" action={<Button size="sm" variant="secondary">Edit…</Button>}>Runtime defaults</SummaryItem>
+              <SummaryItem label="Servers" action={<Button size="sm" variant="secondary">Edit…</Button>}>Runtime defaults</SummaryItem>
+              <SummaryItem label="Brief" action={<Button size="sm" variant="secondary">Open in editor</Button>}>{AGENT_BRIEF}</SummaryItem>
+            </SummaryList>
+          </Section>
+          <Section title="Seats" action={<Button size="sm" variant="outline"><PlusIcon /> Add a seat…</Button>}>
+            <Rows>
+              <Row title="Claude · Opus" desc="The seat it takes here" />
+              <Row title="Codex" desc="Free here" />
+            </Rows>
+          </Section>
+        </div>
+      </Case>
+    </div>
+    <Rule>
+      A page is a head and a column of <code>Section</code>s, each a <code>GroupLabel</code> over one
+      card. The section owns the space — 8px from label to card, 32px to the next section — so a
+      screen writes no margin. Five facts about one thing are one <code>SummaryList</code>: a key
+      column, a value that wraps, an optional note and an action at the row&rsquo;s end.
+    </Rule>
+  </>
+)
+
 const SectionBoard = () => (
   <>
     <div
@@ -309,12 +435,30 @@ const SectionBoard = () => (
       data-catalog-sizes={SECTION_CATALOG_SIZES.join(' ')}
       data-catalog-states={SECTION_CATALOG_STATES.join(' ')}
     >
-      {SECTION_CATALOG_VARIANTS.map((variant) => (
-        <Section key={variant} variant={variant} data-catalog-variant={variant}>
-          <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
-          <SectionBody>Canonical section variant.</SectionBody>
-        </Section>
-      ))}
+      {SECTION_CATALOG_VARIANTS.map((variant) =>
+        variant === 'page' ? (
+          /* The page form: a title makes it a section of a page — the label
+             over its card, and the spacing owned. */
+          <div key={variant}>
+            <Section
+              title="Rules"
+              description="A rule answers a request before it reaches you."
+              action={<Button variant="outline" size="sm"><PlusIcon /> Add rule</Button>}
+              data-catalog-variant={variant}
+            >
+              <Rows>
+                <Row title="Allow the test runner" desc="Approves commands containing “pnpm test”." />
+                <Row title="Never push" desc="Denies commands containing “git push”." />
+              </Rows>
+            </Section>
+          </div>
+        ) : (
+          <Section key={variant} variant={variant} data-catalog-variant={variant}>
+            <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
+            <SectionBody>Canonical section variant.</SectionBody>
+          </Section>
+        ),
+      )}
       <Section>
         <SectionHeader>
           <SectionTitle>Approvals</SectionTitle>
@@ -349,6 +493,9 @@ const SectionBoard = () => (
           is a box someone forgot to delete.
         </SectionBody>
       </Section>
+      <Section variant="quiet">
+        <SectionBody spacing="compact">Compact inset for a short grant or summary.</SectionBody>
+      </Section>
       <Section variant="plain">
         <SectionHeader>
           <SectionTitle>Plain</SectionTitle>
@@ -370,6 +517,7 @@ const SectionBoard = () => (
         </SectionBody>
       </Section>
     </div>
+    <PageGrammar />
     <Rule>
       The header lays out on a grid that grows a second column only when a{' '}
       <code>SectionAction</code> is really there — <code>has-data-[slot=…]</code> asks the DOM
@@ -378,6 +526,41 @@ const SectionBoard = () => (
       padding and need their hover ground to reach the card&rsquo;s edge.
     </Rule>
   </>
+)
+
+
+/**
+ * Badge and Tabs — the two primitives that had no board.
+ *
+ * Both are shipped: `Badge` in the conversation, the composer controls, the
+ * skill sheet and a channel; `Tabs` in the changes review, extensions and the
+ * plugins section. Their only appearance in this catalogue used to be inside
+ * `showcase/ToolsPage`, a drawing of the tool panes — so the one place a
+ * reader could see a badge was a place where no badge the app ships had ever
+ * been rendered. Deleting the drawing left two primitives undocumented, which
+ * is how they came to be here.
+ */
+const BadgeTabsBoard = () => (
+  <div className={styles.stack} data-catalog-sizes={[...BADGE_CATALOG_SIZES, ...TABS_CATALOG_SIZES].join(' ')}>
+    <div className={styles.matrix} data-catalog-states={BADGE_CATALOG_STATES.join(' ')}>
+      {BADGE_CATALOG_VARIANTS.map((variant) => (
+        <Badge key={variant} variant={variant} data-catalog-variant={variant}>
+          {variant}
+        </Badge>
+      ))}
+    </div>
+
+    {TABS_CATALOG_VARIANTS.map((variant) => (
+      <Tabs key={variant} defaultValue="one" data-catalog-states={TABS_CATALOG_STATES.join(' ')}>
+        <TabsList variant={variant} data-catalog-variant={variant}>
+          <TabsTrigger value="one">One</TabsTrigger>
+          <TabsTrigger value="two">Two</TabsTrigger>
+        </TabsList>
+        <TabsContent value="one">The first panel.</TabsContent>
+        <TabsContent value="two">The second.</TabsContent>
+      </Tabs>
+    ))}
+  </div>
 )
 
 const TileBoard = () => (
@@ -442,6 +625,17 @@ const ListBoard = () => (
               subtitle="harnessdesk / src/api"
               trail={<Delta value={12} />}
             />
+            {/* One face on its own, the primitive the stack is made of — the
+                catalogue's measured case for `avatar`. */}
+            <ListRow
+              lead={
+                <Avatar data-catalog-size="default">
+                  <AvatarFallback>SH</AvatarFallback>
+                </Avatar>
+              }
+              title="Review the migration"
+              subtitle="Shane · asked 5m ago"
+            />
             <ListRow
               interactive
               lead={
@@ -461,7 +655,8 @@ const ListBoard = () => (
                 </IconTile>
               }
               title="Trace the flaky socket test"
-              subtitle="Waiting on approval since 09:12"
+              subtitle="Waiting on approval because the socket runner is still holding the port from its last failed attempt."
+              wrapSubtitle
               trail={<Progress value={19} tone="warning" className="w-24" />}
             />
           </ListRows>
@@ -479,15 +674,42 @@ const ListBoard = () => (
 
 const KeyValueBoard = () => (
   <>
-    <div className={styles.matrix}>
-      <Case label="one column, with a total">
+    <div
+      className={styles.matrix}
+      data-catalog-variants={KEY_VALUE_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={KEY_VALUE_CATALOG_SIZES.join(' ')}
+      data-catalog-states={KEY_VALUE_CATALOG_STATES.join(' ')}
+    >
+      <Case label="inspector: sentences wrap, a path gives up its middle">
+        <KeyValue className="w-full" data-catalog-variant="default">
+          <KeyValueRow label="Source" kind="path">~/work/storefront/.harnessdesk/triggers/review.json</KeyValueRow>
+          <KeyValueRow label="Declares">When a pull request opens, open review-pr.</KeyValueRow>
+          <KeyValueRow label="Repository">acme/widgets</KeyValueRow>
+        </KeyValue>
+      </Case>
+      <Case label="numbers, with a total">
         <KeyValue className="w-full">
-          <KeyValueRow label="Prompt">5.9M</KeyValueRow>
-          <KeyValueRow label="Completion">2.5M</KeyValueRow>
-          <KeyValueRow label="Cached">−1.8M</KeyValueRow>
-          <KeyValueRow label="Charged" emphasis>
+          <KeyValueRow label="Prompt" numeric>5.9M</KeyValueRow>
+          <KeyValueRow label="Completion" numeric>2.5M</KeyValueRow>
+          <KeyValueRow label="Cached" numeric>−1.8M</KeyValueRow>
+          <KeyValueRow label="Charged" numeric emphasis>
             $212.40
           </KeyValueRow>
+        </KeyValue>
+      </Case>
+      <Case label="summary: facts about one object, as a card">
+        <SummaryList className="w-full" data-catalog-variant="summary">
+          <SummaryItem label="File" kind="path" action={<Button size="sm" variant="secondary">Open file</Button>}>
+            ~/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md
+          </SummaryItem>
+          <SummaryItem label="Ceiling" note="May change files and commit in its own checkout, and never push.">Edit</SummaryItem>
+          <SummaryItem label="Seats" numeric>3</SummaryItem>
+        </SummaryList>
+      </Case>
+      <Case label="compact panel facts">
+        <KeyValue variant="panel" className="w-full" data-catalog-variant="panel">
+          <KeyValueRow variant="panel" label="Branch">main</KeyValueRow>
+          <KeyValueRow variant="panel" label="Status">Ready</KeyValueRow>
         </KeyValue>
       </Case>
       <Case label="progress, as a reading">
@@ -496,16 +718,113 @@ const KeyValueBoard = () => (
           <Progress value={44} />
           <Progress value={19} tone="warning" />
           <Progress value={96} tone="danger" label="96% of plan" />
+          <Progress value={12} measure="remaining" label="12% left" />
+        </div>
+      </Case>
+      <Case label="ring and composed reading">
+        <div className="flex w-full items-start gap-4">
+          <ProgressRing value={74} size={28} tone="warning" label="Context window" />
+          <ProgressStack
+            className="min-w-48 flex-1"
+            label="What is in context"
+            parts={[
+              { id: 'instructions', label: 'Instructions', value: 62, reading: '62K', meta: '62%' },
+              { id: 'tools', label: 'Tools', value: 38, reading: '38K', meta: '38%' },
+            ]}
+          />
+        </div>
+      </Case>
+      <Case label="text roles">
+        <div className="flex flex-col gap-1">
+          <Text role="subject">Account name</Text>
+          <Text role="row">Weekly allowance</Text>
+          <Text role="muted">Resets in four days</Text>
+          <Text role="meta">Read 2m ago</Text>
+          <Text role="meta" ink="secondary">Operation detail</Text>
+          <Text role="figure">74%</Text>
         </div>
       </Case>
     </div>
     <Rule>
-      The bar fills with what has <em>happened</em>. An earlier version of this app&rsquo;s usage
-      meter filled with what was left, sat next to a number counting up, and the two contradicted
-      each other on the same line — see <code>docs</code> and the meter-direction note.
+      Ordinary progress fills with what has <em>happened</em>. A remaining budget says so through
+      <code>measure=&quot;remaining&quot;</code>, fills with the amount left, and takes its warning and danger
+      tones from the same thresholds on every screen.
     </Rule>
   </>
 )
+
+const ToolPaneBoard = () => {
+  const [filter, setFilter] = useState('')
+  return (
+    <>
+      <div
+        className={styles.matrix}
+        data-catalog-variants={TOOL_PANE_CATALOG_VARIANTS.join(' ')}
+        data-catalog-sizes={TOOL_PANE_CATALOG_SIZES.join(' ')}
+        data-catalog-states={TOOL_PANE_CATALOG_STATES.join(' ')}
+      >
+        <Case label="standalone frame">
+          <ToolPane className="h-56 w-full" data-catalog-variant="default">
+            <ToolPaneHeader title="Terminal" subtitle="/work/project" />
+            <ToolPaneBody>
+              <CodeText>$ pnpm verify</CodeText>
+            </ToolPaneBody>
+          </ToolPane>
+        </Case>
+        <Case label="integrated tool">
+          <ToolPane variant="integrated" className="h-56 w-full" data-catalog-variant="integrated">
+            <ToolPaneHeader variant="window" title="Browser" subtitle="https://example.com" />
+            <ToolPaneBar variant="address">example.com</ToolPaneBar>
+            <ToolPaneNotice tone="warning">The page is still loading.</ToolPaneNotice>
+            <ToolPaneBody bleed>
+              <ToolPaneMessage>Waiting for the page.</ToolPaneMessage>
+            </ToolPaneBody>
+          </ToolPane>
+        </Case>
+        <Case label="inspector panel">
+          <PanelFrame>
+            <PanelTools>
+              <PanelFilter value={filter} placeholder="Filter changes" onChange={setFilter} />
+            </PanelTools>
+            <PanelBody>
+              <GroupLine left="Today" right="2" />
+              <PanelRow title="src/app.ts" sub="Modified" selected trail={<Counts added={4} removed={2} />} />
+              <PanelRow mark={<RunDot />} title="Run checks" sub="In progress" />
+            </PanelBody>
+            <PanelFooter left="2 changes" right="Running" />
+          </PanelFrame>
+        </Case>
+        <Case label="panel blocks">
+          <Section variant="panel" className="w-full">
+            <Card variant="flush">
+              <CardViewport size="editor" className="h-24">
+                <PatchHeader level="block"><CodeText>src/app.ts</CodeText></PatchHeader>
+                <ToolPaneMessage>Block content reaches the card edge.</ToolPaneMessage>
+              </CardViewport>
+            </Card>
+          </Section>
+        </Case>
+        <Case label="workbench chrome and drop target">
+          <WorkbenchCanvas className="relative flex h-56 w-full overflow-hidden">
+            <WorkbenchRail data-floating className="w-28 p-3">Rail</WorkbenchRail>
+            <ResizeHandle appearance="line" orientation="vertical" value={0.35} onChange={() => {}} />
+            <PaneSurface className="relative flex-1 p-3">
+              Pane
+              <DockDropEdge area="bottom" className="absolute inset-x-0 bottom-0">
+                <DockDropTarget active label="Dock in Bottom" />
+              </DockDropEdge>
+            </PaneSurface>
+            <WorkbenchScrim className="pointer-events-none absolute inset-0 opacity-20" />
+          </WorkbenchCanvas>
+        </Case>
+      </div>
+      <Rule>
+        A tool owns one frame whether it is freestanding or fills a dock. Inspectors use the same
+        row, filter, state and facts roles, so selection remains a fill and running remains a dot.
+      </Rule>
+    </>
+  )
+}
 
 // --- input ------------------------------------------------------------------
 
@@ -638,11 +957,35 @@ const EmptyBoard = () => (
           <EmptyState tight icon={<SearchIcon />} title="No sessions match" description="Try a shorter query." />
         </SectionBody>
       </Section>
+      <div className="flex flex-col gap-1">
+        <Text role="meta">inline — inside a list, a column or a pane</Text>
+        <div className="flex min-h-24 flex-col rounded-(--hd-radius-lg) bg-(--hd-muted) p-3">
+          <EmptyState variant="inline" className="mt-auto" title="Nothing here" />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Text role="meta">row — one row of a Rows card</Text>
+        <Rows>
+          <EmptyState variant="row" title="No presets yet" description="Set a session up the way you like, then save it here." />
+        </Rows>
+        <Rows>
+          <EmptyState
+            variant="row"
+            icon={<SearchIcon size={15} />}
+            title="Nothing here matches “retry”"
+            description="Search covers the name, the opening message and the folder."
+          />
+        </Rows>
+      </div>
     </div>
     <Rule>
       An empty state is a menu, not an apology: it takes the space the missing content would have
       occupied and spends it saying what could fill it. On a <code>ChoiceRow</code> the second line
       is always earned — the reader is choosing between options whose names cannot tell them apart.
+      Three shapes, one per place: <code>panel</code> owns a page or pane, <code>inline</code> is one
+      muted line in a list or column, <code>row</code> is a quiet row in a card. A navigation tree
+      never carries one under a node, and when the header already holds the primary action the empty
+      state&apos;s own action is secondary.
     </Rule>
   </>
 )
@@ -688,6 +1031,9 @@ const KanbanBoard = () => {
           </BoardColumn>
         ))}
       </Board>
+      <Board derived className="mt-3">
+        <BoardColumn title="No result" count={0} onAdd={() => undefined} />
+      </Board>
       <Rule>
         A card&rsquo;s column is its state, so no card repeats it — every card says who has it, how
         urgent it is and how much conversation it has collected, and none of them says &ldquo;in
@@ -695,7 +1041,8 @@ const KanbanBoard = () => {
         column pushes every card in it into a verdict it has not earned, and a card sitting there
         three days starts to read as an incident. Only <code>priority</code> judges. Unassigned is
         said out loud, because an unassigned card and a card whose avatars failed to load look
-        identical otherwise.
+        identical otherwise. A derived board reports facts and therefore offers no way to add or
+        move one; its empty column says so without drawing a drop target.
       </Rule>
     </>
   )
@@ -735,6 +1082,14 @@ const SparkBoard = () => (
         >
           <div className="text-base font-semibold tabular-nums">100</div>
         </Donut>
+      </Case>
+      <Case label="ticks — a strip index, the asked and the answered">
+        <div className="flex w-10 flex-col gap-2">
+          <Tick emphasis="strong" className="w-3" />
+          <Tick className="w-2" />
+          <Tick emphasis="strong" className="w-5" />
+          <Tick className="w-2" />
+        </div>
       </Case>
     </div>
     <Rule>
@@ -915,12 +1270,36 @@ const AdoptedBoard = () => {
         </Case>
 
         <Case label="card &mdash; grouped content">
-          <Card className="w-full">
+          <Card className="w-full" data-catalog-size="default">
             <CardHeader>
               <CardTitle>Catalog source</CardTitle>
               <CardDescription>The production card primitive, not copied markup.</CardDescription>
             </CardHeader>
             <CardContent>One border, one ground, one spacing contract.</CardContent>
+          </Card>
+          <Card variant="muted" className="w-full">
+            <CardHeader>
+              <CardTitle>No reading yet</CardTitle>
+              <CardDescription>The object remains present without claiming a figure.</CardDescription>
+            </CardHeader>
+          </Card>
+          <Card variant="flush" className="w-full">
+            <CardHeader>
+              <CardTitle>Content-owned rhythm</CardTitle>
+              <CardDescription>A flush card lets a table or diff reach its edge.</CardDescription>
+            </CardHeader>
+          </Card>
+          <Card radius="lg" className="w-full">
+            <CardContent>Large-radius configuration surface.</CardContent>
+          </Card>
+          <Card variant="flush" radius="sm" className="w-full">
+            <CardContent className="py-2">Small-radius code or diff plate.</CardContent>
+          </Card>
+          <Card spacing="compact" radius="sm" className="w-full" data-catalog-size="compact">
+            A dense report keeps one inset and one rhythm.
+          </Card>
+          <Card variant="plate" spacing="compact" className="w-full">
+            The app&rsquo;s own card: it follows the interface&rsquo;s card family, as the files card under an answer does.
           </Card>
         </Case>
 
@@ -1025,7 +1404,9 @@ const AdoptedBoard = () => {
           {ATTACHMENT_CATALOG_ORIENTATION.map((orientation) => (
             <Attachment key={orientation} orientation={orientation} data-catalog-orientation={orientation} state="done">
               <AttachmentMedia />
-              <AttachmentContent><AttachmentTitle>{orientation}</AttachmentTitle></AttachmentContent>
+              {orientation !== 'tile' && (
+                <AttachmentContent><AttachmentTitle>{orientation}</AttachmentTitle></AttachmentContent>
+              )}
             </Attachment>
           ))}
         </AttachmentGroup>
@@ -1072,10 +1453,28 @@ const AdoptedBoard = () => {
                     </TableCell>
                     <TableCell>{one.session}</TableCell>
                     <TableCell className="text-(--hd-muted-foreground)">{one.agent}</TableCell>
-                    <TableCell className="text-right tabular-nums">${one.spend}</TableCell>
+                    <TableCell align="end">${one.spend}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
+            </Table>
+            <Table variant="framed" data-catalog-variant="framed">
+              <TableHeader>
+                <TableRow variant="matrix">
+                  <TableHead variant="matrix" pinned>Name</TableHead>
+                  <TableHead variant="matrix" align="center">Agent</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow variant="matrix" interactive data-state="selected">
+                  <TableHead variant="row" pinned>code-review</TableHead>
+                  <TableCell variant="matrix">Loaded</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+            <Table variant="panel" data-catalog-variant="panel">
+              <TableHeader><TableRow variant="panel"><TableHead variant="panel">Panel fact</TableHead></TableRow></TableHeader>
+              <TableBody><TableRow variant="panel"><TableCell variant="panel">Compact value</TableCell></TableRow></TableBody>
             </Table>
           </SectionBody>
           <DataTablePagination
@@ -1151,6 +1550,20 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     render: SectionBoard,
   },
   {
+    id: 'badge',
+    title: 'Badge · Tabs',
+    about:
+      'A small standing label, and the two ways a set of panels names itself — a track with a raised active tab, and an underline with no track at all.',
+    render: BadgeTabsBoard,
+  },
+  {
+    id: 'icons',
+    title: 'The icon set',
+    about:
+      'Every glyph the app has, enumerated from the module rather than listed here — so the board cannot fall behind the set. The tile board beside this one judges the container; this one judges the set: one weight, no duplicates, no two arrows meaning the same thing.',
+    render: IconBoard,
+  },
+  {
     id: 'tile',
     title: 'IconTile',
     about: 'A glyph on a soft ground of its own, and the tone/tint line drawn where it bites.',
@@ -1167,6 +1580,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'KeyValue · Progress',
     about: 'Facts about one thing, and how far along it is.',
     render: KeyValueBoard,
+  },
+  {
+    id: 'tool-pane',
+    title: 'ToolPane · InspectorPanel',
+    about: 'The shared frame, bars, messages and inspector anatomy around live tools.',
+    render: ToolPaneBoard,
   },
   {
     id: 'field',

@@ -1,4 +1,14 @@
-import type { SpendSummary, UsageLane, UsageReport } from '@harnessdesk/protocol'
+import {
+  bindingLane,
+  isBlocked,
+  isLaneKnown,
+  reachedLaneOf,
+  remainingOf,
+  type SpendSummary,
+  type UsageLane,
+  type UsagePreference,
+  type UsageReport,
+} from '@harnessdesk/protocol'
 
 import { burn, MARGIN_BAND, type BurnView } from './burn'
 import { formatReset, type Tone } from './limits'
@@ -114,19 +124,16 @@ export interface ReportView {
   readonly age: string
 }
 
-/** The account-local choice that changes which usage lane leads a summary. */
-export interface UsagePreference {
-  readonly pinLaneId?: string
-}
+/*
+ * Whether an account can work at all — `remainingOf`, `bindingLane`,
+ * `reachedLaneOf`, `isBlocked` — is decided in `@harnessdesk/protocol`, beside
+ * the report it reads, because the host asks it too before it seats an Agent.
+ * Re-exported here so every surface keeps asking this module.
+ */
+export { bindingLane, isBlocked, reachedLaneOf, remainingOf, type UsagePreference }
 
 const clamp = (value: number, low: number, high: number): number =>
   value < low ? low : value > high ? high : value
-
-const isKnown = (lane: UsageLane): boolean => lane.usageKnown !== false
-
-/** What a lane has left, or null when the source never said. */
-export const remainingOf = (lane: UsageLane): number | null =>
-  isKnown(lane) ? 100 - clamp(lane.usedPercent, 0, 100) : null
 
 /**
  * Rounds to the nearest whole unit rather than truncating: 47h59m reads as two
@@ -194,7 +201,7 @@ export const describeLane = (
 ): LaneView => {
   const remaining = remainingOf(lane)
   const untilReset = lane.resetsAt === null ? null : lane.resetsAt - now
-  const known = isKnown(lane)
+  const known = isLaneKnown(lane)
   const gate = gatedUntil(lane, siblings, now)
   return {
     id: lane.id,
@@ -215,60 +222,6 @@ export const describeLane = (
     gatedUntil: gate,
     gatedFor: gate === null ? null : formatCountdownShort(gate - now),
   }
-}
-
-/**
- * The binding lane: the least left wins, and ties keep the source's own order.
- *
- * A lane whose usage the source never reported can only be the headline when
- * nothing measurable exists, because "unknown" is not evidence of trouble.
- * Placeholders — lanes synthesized to stand in for one that was not reported —
- * are never candidates at all.
- *
- * **A lane scoped to one model is not the account's headline.** Claude Code
- * reports a weekly limit for the account and a second one for Fable alone;
- * with Fable spent and the account at 21%, "0% left" is false about the
- * account and true only about a model you can stop using. The account-wide
- * lanes decide the headline, and a scoped lane is considered only when there
- * is nothing else to go on. It still appears in the list, still turns red,
- * and still says when it comes back.
- */
-export const bindingLane = (
-  lanes: readonly UsageLane[],
-  preference: UsagePreference = {},
-): UsageLane | null => {
-  const real = lanes.filter((lane) => lane.placeholder !== true)
-  if (real.length === 0) return null
-  const wide = real.filter((lane) => !lane.scope)
-  const candidates = wide.length > 0 ? wide : real
-  // A spent account-wide limit is a hard block. It wins over a shorter live
-  // window and over a pin because the shorter window cannot bypass it. When
-  // several are spent, the longest one is the most useful explanation of the
-  // hold; ties keep the provider's order.
-  const spent = candidates.filter((lane) => {
-    const remaining = remainingOf(lane)
-    return remaining !== null && remaining <= 0
-  })
-  if (spent.length > 0) {
-    return spent.reduce((best, lane) => {
-      const bestMinutes = best.windowMinutes ?? -1
-      const laneMinutes = lane.windowMinutes ?? -1
-      return laneMinutes > bestMinutes ? lane : best
-    })
-  }
-
-  const pinned = preference.pinLaneId
-    ? candidates.find((lane) => lane.id === preference.pinLaneId && isKnown(lane))
-    : undefined
-  if (pinned) return pinned
-
-  const measurable = candidates.filter((lane) => remainingOf(lane) !== null)
-  const ranked = measurable.length > 0 ? measurable : candidates
-  return ranked.reduce((best, lane) => {
-    const bestMinutes = best.windowMinutes ?? Number.POSITIVE_INFINITY
-    const laneMinutes = lane.windowMinutes ?? Number.POSITIVE_INFINITY
-    return laneMinutes < bestMinutes ? lane : best
-  }, ranked[0] as UsageLane)
 }
 
 /**
@@ -358,39 +311,30 @@ export const formatAge = (fetchedAt: number, now: number): string => {
 }
 
 /**
- * The lane a report's `reached` names, when it names one we can find.
+ * What the Dashboard draws for a report — and only the Dashboard.
  *
- * A source reports the id of the limit it hit, and that limit may be scoped to
- * a single model. Resolving it is how every surface avoids saying "out of
- * quota" about an account that has plenty left on every other model.
+ * A report whose own lanes are empty but which carries another sign-in's
+ * figures (`unverified`: Antigravity's, read through the separate `agy` CLI)
+ * is drawn with those figures, under that sign-in's name, so the card can
+ * show what it has without claiming it is this agent's account. The result is
+ * for drawing: readiness, the chip, alerts, the strip and the tray keep
+ * reading the report itself, whose lanes are empty, and so never decide
+ * anything on an account the desk cannot tie to the agent.
  */
-export const reachedLaneOf = (report: UsageReport): UsageLane | null =>
-  report.reached === null ? null : (report.lanes.find((lane) => lane.id === report.reached) ?? null)
-
-/**
- * Whether this account cannot be worked with at all.
- *
- * True when the lane that decides — the account-wide binding lane — is spent,
- * or when the limit the source says it hit is an account-wide one. A spent
- * model-scoped lane is deliberately *not* blocking: switch models and the
- * work continues.
- *
- * The one shape where a scoped lane can block is an account that reports no
- * account-wide lane at all, because `bindingLane` then has only scoped ones to
- * choose from and the least left of those is the whole of what we know. No
- * source we read has that shape — Codex, Claude Code and Cursor all report an
- * account-wide window — so it is a contract on the reading rather than a case
- * in the wild; `describeReport` pins it, so a source that arrives with only
- * scoped lanes fails a test rather than quietly blocking an account.
- */
-export const isBlocked = (report: UsageReport): boolean => {
-  const reached = reachedLaneOf(report)
-  if (reached && !reached.scope) return true
-  // A `reached` we cannot resolve is trusted as the source meant it.
-  if (report.reached !== null && reached === null) return true
-  const lane = bindingLane(report.lanes)
-  const remaining = lane ? remainingOf(lane) : null
-  return remaining !== null && remaining <= 0
+export const drawnReport = (report: UsageReport): UsageReport => {
+  const other = report.unverified
+  if (!other || report.lanes.length > 0) return report
+  return {
+    ...report,
+    account: other.whose,
+    lanes: other.lanes,
+    reached: other.reached,
+    fetchedAt: other.fetchedAt,
+    staleAfterMs: other.staleAfterMs,
+    // Its source's failure is what the card's note says; the agent's own
+    // error, if it has one, still reaches the chip through the report.
+    error: other.error ?? report.error,
+  }
 }
 
 /**
@@ -537,6 +481,27 @@ export interface RunwaySummary {
   readonly detail: string
 }
 
+/** Whether a report carries a balance a person could read — a finite one. */
+const hasBalance = (report: UsageReport): boolean =>
+  typeof report.credits?.remaining === 'number' && Number.isFinite(report.credits.remaining)
+
+/** A report with no window at all: whatever it has spent is a balance, not a quota. */
+const isBalanceOnly = (report: UsageReport): boolean => bindingLane(report.lanes) === null && hasBalance(report)
+
+/**
+ * What to call more than one spent account. Amp and Cline have only a
+ * balance, so a plural sentence has to say "credits" when every one of them
+ * is balance-only, "quota" when none is, and both when it is a mix — the
+ * word a single spent account already gets, said for a group (review round 4:
+ * this used to say "quota" even when every exhausted account was a balance).
+ */
+const exhaustedWord = (reports: readonly UsageReport[]): string => {
+  const credits = reports.filter(isBalanceOnly).length
+  if (credits === 0) return 'quota'
+  if (credits === reports.length) return 'credits'
+  return 'credits or quota'
+}
+
 /**
  * The one line above the cards.
  *
@@ -549,7 +514,16 @@ export const runway = (
   nameFor: (report: UsageReport) => string,
   now: number,
 ): RunwaySummary => {
-  const metered = reports.filter((report) => bindingLane(report.lanes) !== null)
+  // A prepaid balance is usage reported as much as a window is: Amp's and
+  // Cline's accounts have nothing else, and one of them at zero cannot run a
+  // turn, which this line exists to say before anyone reads a card.
+  const metered = reports.filter((report) => bindingLane(report.lanes) !== null || hasBalance(report))
+  // Figures for another sign-in (`unverified`) never count as an agent's own,
+  // here or anywhere; they are only named, so the line above a card full of
+  // them does not read as a contradiction of it.
+  const borrowed = reports.filter(
+    (report) => report.lanes.length === 0 && (report.unverified?.lanes.length ?? 0) > 0,
+  )
   const exhausted = metered.filter(isBlocked)
   const low = metered.filter((report) => {
     if (exhausted.includes(report)) return false
@@ -563,18 +537,25 @@ export const runway = (
     .filter((at): at is number => at !== null && at > now)
   const nextReturn = returns.length > 0 ? Math.min(...returns) : null
 
+  const only = exhausted[0]
   const headline =
-    exhausted.length === 1
-      ? `${nameFor(exhausted[0] as UsageReport)} is out of quota.`
+    exhausted.length === 1 && only
+      ? `${nameFor(only)} is out of ${isBalanceOnly(only) ? 'credits' : 'quota'}.`
       : exhausted.length > 1
-        ? `${exhausted.length} agents are out of quota.`
+        ? `${exhausted.length} agents are out of ${exhaustedWord(exhausted)}.`
         : low.length === 1
           ? `${nameFor(low[0] as UsageReport)} is running low.`
           : low.length > 1
             ? `${low.length} agents are running low.`
             : metered.length > 0
               ? 'Nothing is close to a limit.'
-              : 'No agent here reports plan usage.'
+              : borrowed.length > 0
+                ? `No agent here reports its own plan usage — ${
+                    borrowed.length === 1
+                      ? `${nameFor(borrowed[0] as UsageReport)} shows`
+                      : `${borrowed.length} agents show`
+                  } another sign-in's.`
+                : 'No agent here reports plan usage.'
 
   const parts: string[] = []
   if (nextReturn !== null) {
@@ -640,6 +621,69 @@ export const formatMoney = (amount: number | null, currency = 'USD'): string | n
  * — which carry different shapes around the same two facts — say it the same
  * way.
  */
+/**
+ * What the figures in the money band are, after "Last 30 days —".
+ *
+ * The band said "what these tokens would have cost at public API rates. Not a
+ * bill." of every total, which stopped being true the day an agent's own cost
+ * could be counted: OpenCode's and Cline's figures are what they recorded, a
+ * free model's zero included, and some of those are bills.
+ */
+export const spendHint = (provenance: SpendSummary['provenance'] | undefined): string => {
+  switch (provenance) {
+    case 'vendorMetered':
+      return 'what the agents recorded these tokens cost.'
+    case 'mixed':
+      return 'what the agents recorded, where they did, and public API rates for the rest. Not all of it is a bill.'
+    default:
+      return 'what these tokens would have cost at public API rates. Not a bill.'
+  }
+}
+
+/**
+ * How the page's own sentence names what the work cost. "At public rates" was
+ * all of it until agents recorded their own costs; where they do, it is only
+ * part of it. Until the ledger arrives it reads as list price, as the band's
+ * own subtitle does.
+ */
+export const costClause = (provenance: SpendSummary['provenance'] | undefined): string => {
+  switch (provenance) {
+    case 'vendorMetered':
+      return 'what the work cost as the agents recorded it'
+    case 'mixed':
+      return 'what the work cost as the agents recorded it or at public rates'
+    default:
+      return 'what the work cost at public rates'
+  }
+}
+
+/**
+ * The caveat under the *Where it went* table.
+ *
+ * A row is short only when a call in it has no price at all. With none short,
+ * it says where the prices came from: a public rate is no longer the only
+ * source, since Cline and OpenCode record what each call cost them.
+ */
+export const pricedNote = (
+  unpriced: number,
+  provenance: SpendSummary['provenance'] | undefined,
+): string => {
+  if (unpriced === 1) {
+    return 'One of these rows includes a model with no public price, so its cost is lower than shown.'
+  }
+  if (unpriced > 1) {
+    return `${unpriced} of these rows include models with no public price, so their cost is lower than shown.`
+  }
+  switch (provenance) {
+    case 'vendorMetered':
+      return 'Every call in this window carries the cost its agent recorded, so none is left out.'
+    case 'mixed':
+      return "Every call in this window carries a cost — its agent's record or a public price — so none is left out."
+    default:
+      return 'Every call in this window has a public price, so these figures are exact.'
+  }
+}
+
 export const provenanceLabel = (spend: Pick<SpendSummary, 'provenance'>): string => {
   switch (spend.provenance) {
     case 'listPrice':

@@ -67,7 +67,7 @@ Full positioning: [VISION.md](VISION.md).
 - **Plugins.** Twelve built in — git, files, search, task list, team,
   checkpoints, guardrails, the browser, the iOS Simulator, Android, the web
   fetcher and the test runner. A plugin's tools reach *every* agent:
-  HarnessDesk offers each one an MCP server carrying its 62 built-in plugin
+  HarnessDesk offers each one an MCP server carrying its 70 built-in plugin
   tools, so a capability written once is available wherever you are working.
 
 ## What it looks like
@@ -174,7 +174,7 @@ Stated plainly, because the gaps are the plan.
   of an agent that answers and the command that updates each of the others —
   `brew upgrade`, `npm install -g …@latest`, `uv tool upgrade` — and never
   runs them; only a build HarnessDesk downloaded itself is updated by
-  HarnessDesk ([agents.md](docs/agents.md)).
+  HarnessDesk ([runtimes.md](docs/runtimes.md)).
 - **Drive every agent's sign-in.** Gemini CLI, Kimi, CodeBuddy and pi sign in
   from their own interface; the settings page says which command to run in
   a terminal and offers the API-key field where the vendor takes one.

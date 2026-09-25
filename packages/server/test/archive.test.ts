@@ -12,7 +12,7 @@ import {
   type SessionSummary,
 } from '@harnessdesk/protocol'
 
-import { Host, Logger, StateStore, serve } from '../src/index.js'
+import { Host, Logger, StateStore, serve, type RunningServer } from '../src/index.js'
 import { SessionArchive } from '../src/archive.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client } from './fixtures/harness.js'
@@ -44,6 +44,7 @@ interface Rig {
   readonly host: Host
   readonly runtime: FakeRuntime
   readonly client: Client
+  readonly server: RunningServer
   readonly stateDir: string
   close(): Promise<void>
 }
@@ -64,6 +65,7 @@ const start = async (capabilities?: { archiveHistory?: boolean; deleteHistory?: 
     host,
     runtime,
     client,
+    server,
     stateDir,
     close: async () => {
       client.close()
@@ -163,6 +165,31 @@ test('deleting reports what happened and clears the mark the host was holding', 
     await archive.load()
     assert.equal(archive.has(runtimeId('fake'), sessionId('a')), false)
   } finally {
+    await rig.close()
+  }
+})
+
+test('deleting tells every window to drop it, not only the one that asked', async () => {
+  const rig = await start({ archiveHistory: false })
+  // A second window, drawing the same conversation, that asked for nothing.
+  const other = await Client.connect(rig.server)
+  try {
+    rig.runtime.history.push(summary('a'))
+    await rig.client.call('session/delete', { runtime: 'fake', sessionId: 'a' })
+    await other.until(
+      () =>
+        other.notifications.some(
+          (one) =>
+            'method' in one &&
+            one.method === 'session/removed' &&
+            String(one.params.runtime) === 'fake' &&
+            String(one.params.sessionId) === 'a',
+        ),
+      2_000,
+      'session/removed in the window that did not ask',
+    )
+  } finally {
+    other.close()
     await rig.close()
   }
 })

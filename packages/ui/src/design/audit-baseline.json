@@ -1,6 +1,12 @@
 {
-  "rawType": 2,
-  "patternClass": 126,
+  "rawType": 0,
+  "rawWeight": 0,
+  "patternClass": 0,
+  "screenAppearance": 51,
+  "singleAreaPrimitive": 44,
+  "uppercaseLabel": 0,
+  "screenUnclassified": 0,
+  "visualKindUnion": 0,
   "wrongVariant": 0,
   "missingClass": 0,
   "forkedToken": 0,
@@ -11,6 +17,7 @@
   "crossImport": 0,
   "rawRadius": 0,
   "offGrid": 0,
+  "rawZIndex": 0,
   "rawColour": 0,
   "arbitraryUtility": 0
 }

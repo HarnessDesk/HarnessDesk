@@ -22,7 +22,15 @@
   backdrop-filter: blur(2px);
 }
 
+/* On the backdrop's layer, and after it in the tree. `DialogOverlay` carries
+   `z-(--hd-z-dialog)`, and a positioned box at that layer paints over a
+   positioned sibling at `auto` whatever their order — which laid the scrim
+   over the surface and every answer in it, so a pointer could not answer and
+   the dialog itself was drawn blurred. `DialogContent` gives its own overlay
+   and viewport this same layer for the same reason, and the one written
+   second wins the tie. */
 .viewport {
+  z-index: var(--hd-z-dialog);
   display: grid;
   place-items: center;
   padding: var(--hd-space-6);
@@ -41,6 +49,24 @@
   outline: none;
 }
 
+/* The composer-slot card. The composer's own shell, down to its edge and its
+   shadow, because it stands exactly where that shell stood: same column,
+   same width, in flow at the bottom of the chat, the thread above it left
+   whole. It grows with its question up to a share of the pane and scrolls
+   inside past that, so a long command never pushes the thread off screen. */
+.docked {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: min(50vh, 480px);
+  border-radius: var(--hd-radius-lg);
+  background: var(--hd-card);
+  box-shadow: var(--hd-shadow-xs), inset 0 0 0 var(--hd-border-width) var(--hd-border-emphasis);
+  overflow: hidden;
+  outline: none;
+  container: hd-approval / inline-size;
+}
+
 .header {
   flex: none;
   display: flex;
@@ -57,7 +83,7 @@
 .title {
   flex: 1;
   font-size: var(--hd-text);
-  font-weight: var(--hd-weight-semibold);
+  font-weight: var(--hd-weight-medium); /* desk: var(--hd-weight-semibold) → var(--hd-weight-medium) */
 }
 
 .queue {
@@ -72,6 +98,75 @@
   min-height: 0;
   overflow-y: auto;
   padding: 0 var(--hd-space-4) var(--hd-space-3);
+}
+
+.reason {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-secondary-foreground);
+}
+
+.code {
+  padding: var(--hd-space-2-5) var(--hd-space-3);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+  box-shadow: inset 0 0 0 var(--hd-border-width) var(--hd-border-strong);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  gap: var(--hd-space-1-5);
+  margin-bottom: var(--hd-space-3);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+.metaLabel {
+  font-weight: var(--hd-weight-medium);
+}
+
+.metaValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--hd-font-code);
+}
+
+.meta[data-kind='folder'] .metaValue {
+  font-family: inherit;
+}
+
+.filePath {
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-secondary-foreground);
+}
+
+.permissionList {
+  margin: 0 0 var(--hd-space-3);
+  padding-left: var(--hd-space-5);
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-secondary-foreground);
+}
+
+.questionText {
+  margin: 0 0 var(--hd-space-2);
+  font-size: var(--hd-text);
+  font-weight: var(--hd-weight-medium);
+}
+
+.choiceHint {
+  display: block;
+  margin-top: var(--hd-space-0-5);
+  font-size: var(--hd-text-sm);
+  color: var(--hd-muted-foreground);
 }
 
 .footer {

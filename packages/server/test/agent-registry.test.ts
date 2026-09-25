@@ -211,10 +211,10 @@ const hostWith = async (t: { after(fn: () => unknown): void }) => {
   return { host, store, pushed, stateDir }
 }
 
-test('agents/register brings the runtime up and tells every window', async (t) => {
+test('acp/register brings the runtime up and tells every window', async (t) => {
   const { host, store, pushed } = await hostWith(t)
 
-  const result = await host.call('agents/register', { template: 'gemini' })
+  const result = await host.call('acp/register', { template: 'gemini' })
   assert.equal(result.runtime, 'gemini')
   assert.equal(result.info.origin, 'registry', 'the row knows it is the registry’s to remove')
   assert.ok(store.has('gemini'), 'the entry was persisted before the runtime existed')
@@ -226,26 +226,26 @@ test('agents/register brings the runtime up and tells every window', async (t) =
   assert.ok(hello.runtimes.some((entry) => entry.id === 'gemini'))
 })
 
-test('agents/register refuses an id that is already running', async (t) => {
+test('acp/register refuses an id that is already running', async (t) => {
   const { host } = await hostWith(t)
   host.register(new FakeRuntime({ id: 'gemini' as RuntimeId, name: 'Occupied' }))
-  await assert.rejects(host.call('agents/register', { template: 'gemini' }), /already running/)
+  await assert.rejects(host.call('acp/register', { template: 'gemini' }), /already running/)
 })
 
 test('a custom agent registers under a slug of its name', async (t) => {
   const { host, store } = await hostWith(t)
-  const result = await host.call('agents/register', {
+  const result = await host.call('acp/register', {
     custom: { name: 'My Local Agent', command: 'my-agent', args: ['--acp'] },
   })
   assert.equal(result.runtime, 'my-local-agent')
   assert.ok(store.has('my-local-agent'))
 })
 
-test('agents/remove unregisters the runtime and the row, and refuses what it does not own', async (t) => {
+test('acp/remove unregisters the runtime and the row, and refuses what it does not own', async (t) => {
   const { host, store, pushed } = await hostWith(t)
-  await host.call('agents/register', { template: 'gemini' })
+  await host.call('acp/register', { template: 'gemini' })
 
-  await host.call('agents/remove', { runtime: 'gemini' as RuntimeId })
+  await host.call('acp/remove', { runtime: 'gemini' as RuntimeId })
   assert.equal(store.has('gemini'), false, 'the entry left the file')
   assert.ok(
     pushed.some((entry) => entry.method === 'runtime/removed'),
@@ -257,7 +257,7 @@ test('agents/remove unregisters the runtime and the row, and refuses what it doe
   // A runtime the registry does not own — Codex, an account slot — is refused.
   host.register(new FakeRuntime({ id: 'builtin' as RuntimeId, name: 'Built In' }))
   await assert.rejects(
-    host.call('agents/remove', { runtime: 'builtin' as RuntimeId }),
+    host.call('acp/remove', { runtime: 'builtin' as RuntimeId }),
     /nothing to unregister/,
   )
 })
@@ -331,27 +331,27 @@ const registryHostWith = async (t: { after(fn: () => unknown): void }) => {
   return { host, store }
 }
 
-test('agents/registry answers through the directory, marking what this desk holds', async (t) => {
+test('acp/registry answers through the directory, marking what this desk holds', async (t) => {
   const { host, store } = await registryHostWith(t)
-  const before = await host.call('agents/registry', {})
+  const before = await host.call('acp/registry', {})
   assert.equal(before.agents[0]?.registered, false)
 
   // Registered in the file or running live both count as held.
   store.add({ id: 'goose', name: 'goose', command: 'goose' })
-  const after = await host.call('agents/registry', {})
+  const after = await host.call('acp/registry', {})
   assert.equal(after.agents[0]?.registered, true)
 })
 
 test('a host without a registry says so instead of erroring', async (t) => {
   const { host } = await hostWith(t)
-  const result = await host.call('agents/registry', {})
+  const result = await host.call('acp/registry', {})
   assert.equal(result.agents.length, 0)
   assert.match(result.unavailable ?? '', /reads no ACP registry/)
 })
 
-test('agents/register takes a registry entry, provenance and all', async (t) => {
+test('acp/register takes a registry entry, provenance and all', async (t) => {
   const { host, store } = await registryHostWith(t)
-  const result = await host.call('agents/register', { registry: { id: 'goose' } })
+  const result = await host.call('acp/register', { registry: { id: 'goose' } })
   assert.equal(result.runtime, 'goose')
   assert.equal(result.info.origin, 'registry', 'a registry row is removable like any other')
 
@@ -366,7 +366,7 @@ test('agents/register takes a registry entry, provenance and all', async (t) => 
 test('a registry id that resolves to nothing leaves no row behind', async (t) => {
   const { host, store } = await registryHostWith(t)
   await assert.rejects(
-    host.call('agents/register', { registry: { id: 'nope' } }),
+    host.call('acp/register', { registry: { id: 'nope' } }),
     /no agent with the id/,
   )
   assert.equal(store.ids().length, 0)
@@ -412,8 +412,8 @@ test('a registry name the desk has retired is not the one it lists, shows or wri
     await rm(stateDir, { recursive: true, force: true })
   })
 
-  assert.equal((await host.call('agents/registry', {})).agents[0]?.name, 'Antigravity')
-  const result = await host.call('agents/register', { registry: { id: 'antigravity-acp' } })
+  assert.equal((await host.call('acp/registry', {})).agents[0]?.name, 'Antigravity')
+  const result = await host.call('acp/register', { registry: { id: 'antigravity-acp' } })
   assert.equal(result.info.name, 'Antigravity')
   assert.equal(store.entry('antigravity-acp')?.['name'], 'Antigravity', 'the file says what the screen says')
 })
@@ -448,8 +448,8 @@ test('removing a registry-installed agent deletes its download; removing anythin
     await rm(stateDir, { recursive: true, force: true })
   })
 
-  await host.call('agents/register', { registry: { id: 'goose' } })
-  await host.call('agents/remove', { runtime: 'goose' as RuntimeId })
+  await host.call('acp/register', { registry: { id: 'goose' } })
+  await host.call('acp/remove', { runtime: 'goose' as RuntimeId })
   assert.ok(
     registry.calls.includes('uninstall:goose'),
     'the provenance told removal which download to delete',
@@ -457,8 +457,8 @@ test('removing a registry-installed agent deletes its download; removing anythin
 
   // A custom row has no provenance and owns no download: nothing to delete.
   registry.calls.length = 0
-  await host.call('agents/register', { custom: { name: 'Plain', command: 'plain' } })
-  await host.call('agents/remove', { runtime: 'plain' as RuntimeId })
+  await host.call('acp/register', { custom: { name: 'Plain', command: 'plain' } })
+  await host.call('acp/remove', { runtime: 'plain' as RuntimeId })
   assert.ok(
     !registry.calls.some((entry) => entry.startsWith('uninstall:')),
     'removal of a plain entry never reaches the registry',
@@ -487,10 +487,10 @@ test('an update replaces the download and collects the build it superseded', asy
     await rm(stateDir, { recursive: true, force: true })
   })
 
-  await host.call('agents/register', { registry: { id: 'goose' } })
+  await host.call('acp/register', { registry: { id: 'goose' } })
   registry.calls.length = 0
   registry.version = '1.1.0'
-  await host.call('agents/update', { runtime: 'goose' as RuntimeId })
+  await host.call('acp/update', { runtime: 'goose' as RuntimeId })
 
   // The row now runs the new build, and its provenance says which one.
   const entry = store.entry('goose')!
@@ -502,9 +502,9 @@ test('an update replaces the download and collects the build it superseded', asy
   assert.ok(registry.calls.includes('uninstallVersion:goose@1.0.0'))
 
   // An agent the desk did not install is its package manager's to update.
-  await host.call('agents/register', { custom: { name: 'Plain', command: 'plain' } })
+  await host.call('acp/register', { custom: { name: 'Plain', command: 'plain' } })
   await assert.rejects(
-    host.call('agents/update', { runtime: 'plain' as RuntimeId }),
+    host.call('acp/update', { runtime: 'plain' as RuntimeId }),
     /package manager updates it/,
   )
 })
@@ -529,7 +529,6 @@ test('store write does not follow preexisting pid temp symlink and overwrite out
 
 test('duplicate runtime IDs are deduplicated in store configs and replaced cleanly in host without ghost listeners (#446)', async (t) => {
   const dir = await tempDir()
-  t.after(() => rm(dir, { recursive: true, force: true }))
   const agentsPath = join(dir, 'agents.json')
   await writeFile(
     agentsPath,
@@ -550,7 +549,9 @@ test('duplicate runtime IDs are deduplicated in store configs and replaced clean
     state: new StateStore(join(dir, 'state.json')),
     catalogRefreshMs: 0,
   })
+  // Dispose before removing the folder the host wrote into (#868).
   t.after(() => host.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
 
   const one = new FakeRuntime({ id: 'dup' as RuntimeId, name: 'One' })
   const two = new FakeRuntime({ id: 'dup' as RuntimeId, name: 'Two' })

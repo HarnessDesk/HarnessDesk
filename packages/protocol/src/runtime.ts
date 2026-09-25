@@ -1,5 +1,7 @@
 import type { ApprovalDecision } from './approval.js'
+import type { AttachmentSupport, SessionAttachmentReceipt } from './attachments.js'
 import type { AgentEvent } from './events.js'
+import type { CeilingLevel } from './evidence.js'
 import type { ApprovalId, RuntimeId, SessionId, TurnId } from './ids.js'
 import type { UserContent } from './items.js'
 import type { ConfigOption, OptionValue } from './options.js'
@@ -106,12 +108,25 @@ export interface AccountStatus {
   readonly accounts: readonly Account[]
   /** How to sign in from here. Empty when the runtime has nothing it can drive. */
   readonly signInMethods: readonly AuthMethod[]
+  /**
+   * What the agent said when it refused to work signed out, as one sentence.
+   * It is said once for the whole account, not once per method: every way in
+   * answers the same refusal, and appending it to each method's description
+   * printed the same sentence under every one of them.
+   */
+  readonly refusal?: string
 }
 
 /**
  * What to review. The kinds are the ones a code agent has in common — the
  * working tree, a branch, a commit, or free-form instructions — so the shape
  * is shared rather than Codex's.
+ *
+ * `delivery` is where the review runs: `inline` in the conversation it was
+ * asked from, `detached` in a new conversation of its own, which the one it
+ * was asked from never hears about. Those are the desk's words, not a wire
+ * value to pass on: Codex has a `"detached"` delivery of its own, deprecated
+ * in 0.155.0, and the Codex adapter never sends it.
  */
 export type ReviewRequest =
   | { readonly type: 'uncommitted'; readonly delivery?: 'inline' | 'detached' }
@@ -121,7 +136,22 @@ export type ReviewRequest =
 
 /** What starting a sign-in produced, and therefore what the shell has to show. */
 export type LoginStart =
-  | { readonly type: 'browser'; readonly loginId: string; readonly url: string }
+  | {
+      readonly type: 'browser'
+      readonly loginId: string
+      /**
+       * The page to open, where the runtime has one to hand over — a CLI
+       * that printed its link, Codex's own flow.
+       *
+       * Absent when the *agent* opened the browser: ACP's `authenticate`
+       * takes a method id and returns nothing at all, and Antigravity's
+       * server calls `webbrowser.open` on its own auth URL inside that call
+       * (#749). The flow is under way either way, and the only thing left is
+       * its completion; a shell with no URL says so instead of offering a
+       * link it has not got.
+       */
+      readonly url?: string
+    }
   | {
       readonly type: 'deviceCode'
       readonly loginId: string
@@ -131,6 +161,7 @@ export type LoginStart =
 
 /** What a runtime can do, so the UI can hide controls rather than fail calls. */
 export interface RuntimeCapabilities {
+  readonly sessionEnvironment: boolean
   readonly resume: boolean
   readonly fork: boolean
   readonly steer: boolean
@@ -223,6 +254,7 @@ export interface RuntimeCapabilities {
  * process (an account answered by a CLI, say).
  */
 export const NO_CAPABILITIES: RuntimeCapabilities = {
+  sessionEnvironment: false,
   resume: false,
   fork: false,
   steer: false,
@@ -378,6 +410,16 @@ export interface InstallInfo {
   readonly checkedAt: number
 }
 
+export interface CeilingSetting {
+  readonly option: string
+  readonly value: OptionValue
+}
+
+export interface CeilingControl {
+  readonly settings: readonly CeilingSetting[]
+  readonly how: string
+}
+
 export interface RuntimeInfo {
   readonly id: RuntimeId
   readonly name: string
@@ -405,7 +447,28 @@ export interface RuntimeInfo {
    */
   readonly install?: InstallInfo | null
   readonly capabilities: RuntimeCapabilities
+  readonly ceilings?: Readonly<Partial<Record<CeilingLevel, CeilingControl>>>
   readonly presentation: RuntimePresentation
+  /**
+   * Phase 12's stronger session contract: whether this runtime build can
+   * negotiate a scoped, per-Seat skill/server filter and prove what it
+   * loaded — never to be confused with the broad, always-on
+   * `RuntimeCapabilities.skills`/`.mcp` above. Absent (not merely `false`)
+   * for a runtime that has not been measured against this contract; decision
+   * 16 is explicit that the older capabilities never stand in for it.
+   */
+  readonly attachments?: AttachmentSupport
+  /**
+   * Which vendor's models this runtime's sessions reach, as its adapter
+   * resolved it from the agent's own configuration. Null when the adapter
+   * cannot tell — and always null when anything the person configured (an
+   * environment variable, a settings file, a gateway) could point the agent
+   * at another provider or base URL: a runtime built by one vendor can be
+   * calling another's models. Absent reads as null. Never a guess from the
+   * runtime's name; a step that must be independent of another refuses an
+   * unknown provider rather than assume one.
+   */
+  readonly provider?: string | null
   /**
    * `registry` when this runtime exists because the user's agent registry
    * names it — which is what makes it removable from the interface. Attached
@@ -845,6 +908,16 @@ export interface AgentRuntime {
    */
   readonly sessionStore?: string | null
 
+  /**
+   * `info.provider` for a session working in `cwd`, for an agent that also
+   * reads configuration kept in the project itself — which can point that
+   * folder's sessions somewhere else. Absent: `info.provider` holds for
+   * every folder. The project's files arrived with a clone, so they are read
+   * bounded, without blocking and refusing links; anything that cannot be
+   * read that way is unknown.
+   */
+  providerAt?(cwd: string): Promise<string | null>
+
   /** Bring the runtime up. Safe to call more than once. */
   start(): Promise<void>
   dispose(): Promise<void>
@@ -930,6 +1003,20 @@ export interface AgentRuntime {
 
   listModels(): Promise<readonly ModelInfo[]>
   /**
+   * The models, or **null when this runtime has never learned them** — for a
+   * caller that must not take "could not say" for "offers none", as seating an
+   * Agent must not: "does not offer" sends a person to change a spec that was
+   * right.
+   *
+   * Only for a runtime whose `listModels` answers an unread catalogue as empty
+   * rather than failing, because a picker would rather draw nothing than an
+   * error — the ACP adapter's, whose agents declare models only when a
+   * conversation opens. Empty here is an answer: the agent opened one and named
+   * no model. A runtime without this has no such difference to hide, and its
+   * `listModels` failing is its "could not say".
+   */
+  knownModels?(): Promise<readonly ModelInfo[] | null>
+  /**
    * Runtime-wide controls — feature flags, anything that is not per
    * conversation. Optional: most runtimes have none, and saying so by not
    * implementing it beats an empty list that looks like a failed call.
@@ -996,6 +1083,19 @@ export interface AgentRuntime {
   /** Bring an existing session back into memory so it can take turns again. */
   resumeSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession>
   forkSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession>
+
+  /**
+   * What this session actually loaded, in answer to the `attachments` this
+   * session (or its most recent recreate/resume/fork) was given — read back
+   * from the runtime itself, never assumed from what was requested.
+   *
+   * Optional, and its absence is exactly what `info.attachments` being unset
+   * already says: a runtime with no measured native contract implements
+   * neither. Only ever called for a session that was actually opened with a
+   * non-null `SessionOptions.attachments`; the host never asks a plain
+   * conversation to account for attachments it was never given.
+   */
+  attachmentReceipt?(session: SessionId): Promise<SessionAttachmentReceipt>
 }
 
 export interface AgentSession {
@@ -1003,8 +1103,21 @@ export interface AgentSession {
   readonly runtime: RuntimeId
   settings(): SessionSettings
 
-  /** Start a turn. Resolves once the runtime has accepted the input. */
-  send(input: readonly UserContent[]): Promise<TurnId>
+  /**
+   * Start a turn. Resolves once the runtime has accepted the input.
+   *
+   * `recordAs: 'notice'` is for text no person typed — an Agent's standing
+   * order, handed over once as the seat opens (`agentOrder`). The runtime
+   * still runs it as a real turn and the model still reads every word; only
+   * how *this* session remembers its own opening line changes, from a
+   * person's words to the runtime's own housekeeping. That is the same
+   * distinction `NoticeItem` already draws for a `/model` echo replayed off
+   * disk — "reaches the transcript because the agent records it as one", not
+   * because anyone said it — so a fresh seat's title and transcript are not
+   * drawn from a brief nobody typed. Omitted, or `'user'`, is the default and
+   * changes nothing.
+   */
+  send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId>
   /** Add to the turn already in flight without interrupting it. */
   steer(input: readonly UserContent[]): Promise<void>
   interrupt(): Promise<void>
@@ -1025,10 +1138,13 @@ export interface AgentSession {
   setMemoryMode?(enabled: boolean): Promise<void>
   /**
    * Reviews a set of changes. `inline` runs it in this conversation; `detached`
-   * on a side thread. What can be reviewed is the backend's to define; the
-   * shell passes a target through unread.
+   * in a new conversation set up like this one — its folder, model and
+   * permissions — which this one never hears about. Resolves with that new
+   * conversation, so the shell can open it, or with null when the review runs
+   * here. What can be reviewed is the backend's to define; the shell passes a
+   * target through unread.
    */
-  review?(target: ReviewRequest): Promise<void>
+  review?(target: ReviewRequest): Promise<AgentSession | null>
   updateSettings(patch: Partial<SessionSettings>): Promise<void>
   /**
    * The runtime's controls for this session, as of now. Changes arrive as a

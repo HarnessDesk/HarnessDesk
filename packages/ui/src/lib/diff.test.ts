@@ -11,6 +11,7 @@ import {
   parseDiff,
   splitByFile,
   splitHunks,
+  wholeTextDiff,
 } from './diff'
 
 describe('parseDiff', () => {
@@ -751,5 +752,37 @@ describe('the carriage returns the first round left behind (#250)', () => {
     // Only the line ending is the artefact; a bare CR in the middle is text.
     expect(asAdditions('a\rb\r\n').map((line) => line.text)).toEqual(['a\rb'])
     expect(splitHunks('@@ -1 +1 @@\r\n+a\rb\r\n')[0]?.text).toBe('@@ -1 +1 @@\n+a\rb')
+  })
+})
+
+describe('wholeTextDiff', () => {
+  test('keeps an untouched line as context rather than a remove-and-add pair', () => {
+    const diff = wholeTextDiff('keep\nold\nkeep2\n', 'keep\nnew\nkeep2\n')
+    const lines = parseDiff(diff)
+    expect(lines.map((line) => [line.kind, line.text])).toEqual([
+      ['hunk', '@@ -1,4 +1,4 @@'],
+      ['context', 'keep'],
+      ['remove', 'old'],
+      ['add', 'new'],
+      ['context', 'keep2'],
+      ['context', ''],
+    ])
+  })
+
+  test('a file rewritten in an unrelated format still round-trips through parseDiff', () => {
+    // The point is not a small diff — a legacy-to-v2 flow conversion rewrites
+    // almost every line — it is that parseDiff can read whatever comes out.
+    const before = '---\nname: Fix\npermission: read\n---\n\nfix it\n'
+    const after = 'version: 2\nname: "Fix"\nroles:\n  fixer:\n    kind: agent\n'
+    const diff = wholeTextDiff(before, after)
+    expect(countChanges(diff)).toEqual({ added: 5, removed: 6 })
+  })
+
+  test('bounded fallback for a pathologically large pair still produces a readable diff', () => {
+    const bigA = Array.from({ length: 2200 }, (_value, index) => `a${index}`).join('\n')
+    const bigB = Array.from({ length: 2200 }, (_value, index) => `b${index}`).join('\n')
+    const diff = wholeTextDiff(bigA, bigB)
+    expect(diff.startsWith('@@ -1,2200 +1,2200 @@')).toBe(true)
+    expect(countChanges(diff)).toEqual({ added: 2200, removed: 2200 })
   })
 })

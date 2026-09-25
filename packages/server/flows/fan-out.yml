@@ -1,0 +1,36 @@
+version: 2
+name: "Fan-out review"
+description: "Several reviewers read the same change at once; every one of them has to approve before it ships."
+inputs:
+  task:
+    label: "Task"
+roles:
+  build:
+    kind: agent
+    uses: [implementer]
+    grant: edit
+    independentOf: []
+  review:
+    kind: agent
+    uses: [code-reviewer]
+    count: 3
+    grant: read
+    independentOf: [build]
+  ship:
+    kind: person
+    outcomes: [shipped]
+seed: { role: build, title: "{{task}}" }
+rules:
+  - id: to-review
+    on: build
+    then: { role: review, title: "Review the change" }
+  - id: to-ship
+    on: review
+    when: { every: [approve] }
+    then: { role: ship, title: "Ship it — every reviewer approved" }
+messaging: board-only
+# How far a run may go before it stops for a person: closed rounds in all, and
+# closed rounds in a row that brought no new evidence. Raise it for longer loops.
+budget: { rounds: 3, without-progress: 2 }
+wait: 240
+layout: {"frontDoor":{"order":2,"contexts":["project"]}}

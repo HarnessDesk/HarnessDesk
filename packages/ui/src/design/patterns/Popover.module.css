@@ -23,7 +23,11 @@
   cursor: pointer;
   white-space: nowrap;
   max-width: 100%;
-  min-width: 0;
+  /* A floor rather than zero. The words shorten before the trigger overflows
+     its row — that is the rule below, and it is the `span`'s job — but a
+     trigger whose label is only a glyph has nothing to shorten, so `0` let
+     the box itself be squeezed to 21 against a 26-tall target. */
+  min-width: var(--hd-target-min); /* desk: 0 → 24, the target floor */
 }
 
 /* Words in a trigger shorten before the trigger overflows its row. */
@@ -68,14 +72,29 @@
   border-radius: var(--hd-radius);
   background: var(--hd-surface-fill);
   box-shadow:
-    0 8px 28px rgba(0, 0, 0, 0.18),
+    var(--hd-shadow), /* desk: 0 8px 28px rgba(0,0,0,.18) -> one floating rung */
     inset 0 0 0 1px var(--hd-border-strong);
 }
 
+.panel[data-limit='trigger'] {
+  max-height: 300px;
+}
+
+/* The row that opened it, unfolded: exactly the trigger's width, which Base
+   UI's positioner measures as `--anchor-width`. The panel's 180px floor
+   still holds, so a sidebar dragged to its narrowest keeps a readable menu
+   that overhangs the column rather than wrapping every label. */
+.panel[data-width='trigger'] {
+  width: var(--anchor-width, auto); /* desk: content width → the trigger's, for a menu opened from a full-width row */
+}
+
 .groupLabel {
-  padding: 8px 8px 4px;
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
+}
+
+.groupLabel[data-inset='true'] {
+  padding: 8px 8px 4px;
 }
 
 .option {
@@ -147,7 +166,7 @@
 .optionHint {
   display: block;
   font-size: var(--hd-text-sm);
-  line-height: 17px;
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
   color: var(--hd-muted-foreground);
 }
 
@@ -178,46 +197,4 @@
 .trigger[data-tone='warn']:hover,
 .trigger[data-tone='alert']:hover {
   background: var(--hd-hover);
-}
-
-/* Model reads as the subject, effort as its qualifier. */
-.strong {
-  font-weight: 500;
-  color: var(--hd-foreground);
-}
-
-.dim {
-  color: var(--hd-muted-foreground);
-}
-
-.filterInput {
-  margin: 6px 10px 4px;
-  width: calc(100% - 20px);
-  height: 26px;
-  padding: 0 8px;
-  border: 1px solid var(--hd-border);
-  border-radius: 6px;
-  background: var(--hd-background, var(--hd-card));
-  color: var(--hd-foreground);
-  font-size: var(--hd-text);
-  outline: none;
-}
-
-.filterInput:focus {
-  border-color: var(--hd-accent);
-}
-
-/* The update line under the build: a shade warmer than the note around it,
-   with the command set in the same mono the banners use. */
-.updateNote {
-  margin-top: 4px;
-  color: var(--hd-secondary-foreground);
-}
-
-.updateNote code {
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  padding: 1px 4px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-skeleton);
 }

@@ -35,68 +35,185 @@ SimSun from there.
 
 ### The sizes
 
-Four steps carry the entire interface, plus one heading step:
+The rule is a split: **13px is the chrome, 14px is what is read.** The counts
+are a different fact and worth keeping separate from it — by volume the app is
+12px and 13px, because a screen is nearly all furniture and most of the
+furniture is smaller than a row's own title.
 
-| token | value | what it carries |
-| --- | --- | --- |
-| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, small button labels |
-| `--hd-text-sm` | 13px | the line that supports a row, section headings, hints, notes, button labels |
-| `--hd-text` | **14px** | **the interface**: sidebar rows, project rows, nav, menu rows, settings rows, chips, inputs |
-| `--hd-text-lg` | 16px | the transcript, and the name of the thing on screen |
-| `--hd-heading` | 20px | the app's own name; a settings page's title |
+| token | value | what it carries | rules |
+| --- | --- | --- | --- |
+| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, the smallest button label, the hint under a form field | 217 |
+| `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, a form field's label, notes | 215 |
+| `--hd-text` | 14px | what is read: the transcript, the composer, inputs | 82 |
+| `--hd-text-lg` | 16px | a dialog's title | 16 |
+| `--hd-heading` | 20px | every page's title — a list page's and a detail page's alike — and the wordmark | 14 |
+| `--hd-title` | 24px | reserved; no page head wears it since the detail head joined the page title (#832). Markdown's h1 fallback | 0 |
+| `--hd-display` | 36px | a figure that fills a card | 1 |
 
-**14px is the default answer.** If a new surface or row shows text, it is 14px
-until there is a reason it is not. This was a claim before it was true: the app
-once had 115 rules at 12px and 102 at 13px against 51 at 14px, so the default
-answer was the rarest one on screen. A row is a thing you read, and interface
-rows are 14px; 12px was pushed back to what the table above says it carries —
-counts, badges, tags, timestamps — and to code, which keeps its own smaller
-measure. Buttons step down to 13px (`--hd-btn-text`) and 12px (`--hd-btn-text-sm`)
-to hold the proportion between their box and the cap height of the label inside.
-Most of the app is one size, and that is what makes the exceptions legible: a
-13px line reads as support because it sits under something bigger, and a 12px
-number reads as a count because everything around it is larger.
+The counts are measured, not aspirational. The sizes above 14 are rare because
+each names one thing — a dialog asks one question, a page has one title, a card
+carries one figure — and a step that names one thing is a step you can pick
+without thinking.
 
-**16px is for reading, not for chrome.** The transcript is the one column a
-person reads rather than scans, so it is a step above the furniture around it.
-The conversation's name in the pane header shares that step, because it names
-what you are reading. Nothing else does.
+**There is nothing below 12px.** Nine- and ten-pixel steps existed once and had
+three call sites between them; the one that looked as if it really needed nine
+was measured, and the string it was shrinking for fitted at twelve with three
+pixels to spare on each side. If something needs to feel smaller, it needs
+less prominence, not less type: change its ink, not its size.
+
+**The interface reads a step below the thing it is about.** A sidebar row, a
+settings row and a menu item are all 13px; the transcript and the composer are
+14. That is a step, not a whim: the furniture is scanned and the column is
+read, and one step is enough to say which is which without either of them
+shouting. Buttons are on the chrome side, at 13px (`--hd-btn-text`) and 12px
+(`--hd-btn-text-sm`), which is also what holds the proportion between a button's
+box and the cap height of the label inside it.
 
 Prose keeps its own scale, in `Markdown.module.css` rather than here, and it is
-the one place allowed to exceed this table. It is four ratios of the
-transcript's 16px body — 1.5, 1.25, 1.125, 1 — so `h1` is 24px, `h2` is 20px
-and lands on `--hd-heading` exactly, `h3` is 18px, and `h4` is the body's own
-size in semibold with no gap under it.
+the one place allowed off this table. It is four ratios of the transcript's own
+14px body — 1.5, 1.25, 1.125, 1 — so `h1` is 21px, `h2` is 17.5px, `h3` is
+15.75px, and `h4` is the body's own size in semibold with no gap under it.
+Multiplying rather than naming pixels is what keeps the ladder true if the body
+ever moves, which it has: the ladder followed the body down a step without a
+line of it being edited.
 
 Every prose heading is therefore at or above the body size. Anchoring the
-ladder's *top* rung on `--hd-heading` instead keeps the scale inside the
-interface's four steps, which reads as a tidy rule and produces a flat
-document: `##`, the heading an agent actually writes, comes out at 18px
-against a 16px body. Furniture stays inside the table; a document does not
-have to.
+ladder's *top* rung on a step of this table instead would keep the scale tidy
+and produce a flat document: `##`, the heading an agent actually writes, would
+come out barely above the paragraph under it. Furniture stays inside the table;
+a document does not have to.
 
 ### Line and row rhythm
 
+A size and its line are one decision, so every step names its pair and a surface
+picks the pair rather than the size. Before that rule the 13px step was set on
+eight different line-heights across the tree and the 12px step on five — ten
+line values serving six sizes, which is what an inconsistency looks like before
+anybody has counted it.
+
+The pair is the default, not the only legal answer, and the deviation that is
+allowed has a direction. **Text that wraps may take the next line up; nothing
+takes a line tighter than its own.** Counted today: 132 rules on the pair, 38 a
+step looser, none tighter. The 38 are almost all a 12px caption set on the 13px
+step's 18px line, which is the same trade prose makes at the other end of the
+scale and for the same reason — a paragraph needs air between its lines and a
+row does not. A tighter line is not a trade, it is a crush.
+
+There is a second rule, and leaving it unsaid is what let the first one be
+broken quietly. **A single line inside a box that already states its height
+sets `line-height: 1`** — a chip, a badge, a meter's caption, a figure in a
+stat tile. The box's padding is the rhythm and the line only has to be the
+glyph; anything above 1 is the box arguing with itself. Seventeen rules do
+this, and before it was written down they read as seventeen violations of the
+first rule, which is why nobody could tell them from the real ones.
+
+Both rules are counted off the same two spellings and no others: a
+`line-height` naming a `--hd-line-*` token, or Tailwind's `leading-(--hd-line-*)`.
+A ratio is neither. Twenty-one stylesheets and twenty-two components set their
+line as `1.15`, `1.4`, `leading-snug`, `leading-tight`, and every one of them
+was outside the count that reported none tighter — nine of them were. The
+ratios are gone and Tailwind's own steps now name their pair too, `text-xs`
+and `text-xl` included: those two agreed with the table by coincidence across
+a hundred and fifty call sites, and a coincidence does not follow a change.
+
+## Named text roles
+
+A size and a weight together name a *role*. A role describes what the words
+are doing; screens do not invent a new spelling for the same job:
+
+| role | spelling | what wears it |
+| --- | --- | --- |
+| wordmark | 20 / semibold | the product name beside its mark |
+| page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
+| group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
+| subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
+| row | 13 / medium | the title of a setting, and the word above a control |
+| navigation | 13 / normal | the name of one thing in a navigable list |
+| muted | 13 / normal | a description under a name, and chrome that labels rather than names |
+
+Counted before this rule was written down: eight. A dialog's title was 16/600
+in one pattern and 14/600 in another; a label above a field was 13/600 in three
+screens, 13 at whatever weight it inherited in three more, and 12 in a seventh.
+The design system's own head slots said 600 in five components and 500 in the
+sixth — so a screen that composed the system got a heavier title than a screen
+that drew its own, which is the opposite of what a design system is for.
+
+Nothing is 16 any more. A step between the subject and the page turned out to
+be a way of avoiding the choice between them: a dialog names one question and a
+page names a place, and 16 said neither.
+
+| step | line | ratio |
+| --- | --- | --- |
+| 12px | `--hd-line-xs` 16px | 1.33 |
+| 13px | `--hd-line-sm` 18px | 1.385 |
+| 14px | `--hd-line` 21px | 1.5 |
+| 16px | `--hd-line-lg` 24px | 1.5 |
+| 20px | `--hd-line-heading` 28px | 1.4 |
+| 24px | `--hd-line-title` 30px | 1.25 |
+| 36px | `--hd-line-display` 40px | 1.11 |
+
+Larger type wants a tighter ratio, which is why the column falls from 1.5 to
+1.11 rather than holding one number. Prose is the exception in the other
+direction: the transcript is set on 1.625, because a paragraph wraps and a row
+does not.
+
+Rows:
+
 | token | value | note |
 | --- | --- | --- |
-| `--hd-line` | 21px | 14px at 1.5 — the line height for interface text |
-| `--hd-line-sm` | 18px | the line for 13px support text: hints, blurbs, notes |
-| `--hd-row-h` | 30px | a one-line row: 21px of line plus 4–5px of padding |
-| `--hd-nav-h` | 31px | a nav row: carries an icon and no second line |
+| `--hd-row-h` | 30px | a one-line row |
+| `--hd-nav-h` | `calc(--hd-text * 1.5 + --hd-space-1 * 2)` | a navigation row — solved, not written |
 | `--hd-control-h` | 26px | dense toolbar targets and icon buttons |
 | `--hd-field-h` | 30px | inputs and selects: matches `--hd-btn-h` |
+| `--hd-bar-h` | 46px | the window's own bar, and a pane's |
 
-Support text has its own line (18px) because it is the thing that wraps. A hint
-under a label, a blurb under a page title and a note under a group heading are
-the same 13px doing the same job, so they share one line and stack to the same
-rhythm.
-
-A nav row is 31px (`--hd-nav-h`), one pixel taller than a list row, because it
-carries an icon and no second line. A list row that shows a supporting line
-grows; it does not shrink its title to fit.
+A navigation row's height is solved from **the reading size**, not from the size
+the row itself is set in: `--hd-text` times 1.5, plus one step of padding above
+and below. The row's own text is a step smaller than that, which is the point —
+every row in every column stands the same height whatever it happens to carry,
+and a row of 13px labels does not end up shorter than a row of 14px ones. It is
+also what lets the density or the reading size move every one of them without a
+second edit, and it is how the two heights that column used to have became one.
 
 Rows sit 2px apart. Without that gap a hover or selection pill reads as a band
 across the column rather than as one row.
+
+### One title, one group label
+
+There were two page titles and three group labels. A list page's `PageHead`
+said 20px semibold and a detail page's `DetailHead` said 24px regular, so the
+page you drilled into read lighter and less finished than the list you came
+from. The word over a group was 13px secondary in the sidebar, 13px in the
+faint ink over a settings card, and 12px tracked capitals in the room's rail,
+the trajectory's roles and the agent card.
+
+Now every page head is the page role, and every group heading is
+`GroupLabel`. The interfaces vary a label's weight and the air above a rail's
+group, never its size, its ink or its case. Capitals are counted: the design
+audit's `uppercaseLabel` finds every `text-transform: uppercase`, `uppercase`
+utility and inline `textTransform` outside a `Keycap`, and its ceiling may only
+fall. The screens still spelling them — the room's rail, the trajectory, the
+agent card and the transcript's small tags — are the burn-down.
+
+### Where a label lands
+
+One inset for a whole column or bar, and one derived place for the words in it.
+
+| token | value | what it is |
+| --- | --- | --- |
+| `--hd-bar-pad` | 8px | where a **boxed** control's edge sits |
+| `--hd-bar-ink` | `calc(--hd-bar-pad + --hd-nav-inset + --hd-border-width)` | where a **label** lands once a control has been composed |
+
+A control's glyph is at the inset, plus the control's own padding, plus the
+hairline it reserves whether or not it paints one. Anything with no box of its
+own — a wordmark, a section label, a page title — states the sum instead, and
+then everything in the column shares one x.
+
+Getting this wrong is not subtle and is easy to do: handing the box inset to
+things that have no box put the sidebar's wordmark, its section labels and the
+conversation's title nine pixels left of everything they were meant to line up
+with. An inset token is ambiguous unless it says *whose* edge it is, which is
+why there are two of them.
 
 ### Controls and buttons
 
@@ -132,20 +249,80 @@ do not remain as a second public vocabulary:
 
 | variant | where |
 | --- | --- |
-| `secondary` | the ordinary action (grey frame) |
+| `secondary` | the ordinary action (grey frame); drawn quiet in a dialog footer beside a filled act |
 | `default` | the one action a group exists for — at most one per group (ink fill) |
 | `outline` | bordered action on a transparent ground |
 | `ghost` | no frame until hover, for an action that repeats down a list |
-| `destructive` | does the irreversible thing, red on the label only |
+| `quiet` | the way out of a question — Keep, Cancel, Close — beside a filled act |
+| `destructive` | a remove action on a page or in a row, red on the label only |
+| `danger` | the act of a destructive confirm, filled red |
 
-Two rules keep `destructive` meaning something:
+Two rules keep red meaning something:
 
 1. A button that only opens a confirmation is ordinary — the red belongs on the
    step that cannot be taken back.
-2. Red is never a fill: a column of filled red buttons is a column nobody reads,
-   the same way a column of bold is a column of shouting. It is soft danger ink
-   on a transparent ground that fills on hover (`--hd-btn-danger-ink`,
-   `--hd-btn-danger-hover`).
+2. Red is a fill in exactly one place: the act of a destructive confirm
+   (`danger`, which `ConfirmDialog tone="destructive"` draws). By then the
+   question has been asked, and the red is what you came to do. Everywhere
+   else it is soft danger ink on a transparent ground that fills on hover
+   (`destructive`), because a column of filled red buttons is a column nobody
+   reads.
+
+**A dialog footer has one filled button.** Every footer has exactly one
+filled act: the confirm, `default`, or `danger` when it destroys — never none
+(three text buttons with no default) and never two. A lone button is that
+act, filled: a lone Close or Done in `secondary` was a frame the grey of the
+footer it stood on (245 on 245, 49 on 49 in dark) and read as a caption.
+Beside a filled act, `secondary` is drawn quiet (no
+fill, secondary ink; the footer reads the act's `data-filled`), or write
+`quiet` itself. `destructive` never stands in a footer. Write the proceeding
+action first: the footer is `row-reverse`, so it paints rightmost and is the
+first a Tab reaches.
+
+A disabled filled act — ink or red — is drawn one way: its fill kept at 16%
+over the footer's ground and its label in its own ink mixed into that ground,
+solved so both land just over 3:1 (`--hd-btn-disabled-*-share`,
+`--hd-btn-danger-disabled-ink-share`, `--hd-btn-{primary,danger}-disabled-*`).
+The red ink loses contrast on its pale fill faster than the ink does on grey,
+so it keeps 85% of itself where the ink keeps 60%. It stays the act, in its own
+hue, and is clearly weaker than enabled: measured, the label goes from 17.2:1
+to 3.2:1 on the ink button in light (10.5 → 3.1 dark) and from 4.9:1 to 3.2:1
+on the red one (4.9 → 3.3 dark). Half opacity mixed the button into whatever
+lay under it — a mid-grey slab on the grey footer.
+
+The design audit reads every `Dialog` footer as a syntax tree: both arms of
+each `?:`, with and without each `&&`, the `footerAside`, a hoisted `const`, a
+component written in the same file (read through to what it returns), and a
+control drawn with `buttonVariants(...)`. A component it cannot see into, a
+spread child, or a spread that can set a button's variant is reported as
+unread — never counted as an empty footer. All 54 footers in the app are
+read.
+
+### Dialog forms
+
+A dialog that asks for more than one thing is a form, and its body is already
+one (`design/patterns/DialogForm.tsx`): children 16px apart, a `Field`'s label
+6px over its control and its hint 6px under it at 12px, a `Fieldset` legend
+6px over its group. The Settings parts read the dialog around them, so a
+screen composes them without saying a number: `SectionHead` draws a legend,
+`FormStack`, `Note` and `Rows` drop their page spacing, and a `Rows` radio
+group made only of `RowChoice` rows draws as a `ChoiceList` — compact rows, a
+radio on the title's line, and every answer's description under its title in
+the hint step, so answers can be compared and choosing moves nothing. A radio
+group of anything else (New worktree's branch picker) keeps its card. The
+scope stops where the form does: a `flush` body is a list, and dialog and
+alert content, popovers and menus start outside any form, even when opened
+from a dialog's field (React context crosses portals).
+
+Which control a choice takes: `Segmented` or a `NativeSelect` for two to four
+short answers; `ChoiceList` when answers need a line; checkboxes for several
+members at once — never switches, which act the moment they flip. A field
+that may be left empty says `optional` at its label's end rather than in the
+label.
+
+A dialog, a confirm, a menu or a popover that holds focus never wears the
+focus ring round itself; the controls inside keep theirs. A dialog focuses its
+first field when it has one, and otherwise its own surface.
 
 `Segmented` is not a button. It is a piece of a segmented control — a choice
 between two or three words, one of which is on — and using it for actions is
@@ -156,8 +333,8 @@ what produced those thirty captions.
 | weight | where |
 | --- | --- |
 | 400 | everything, unless named below |
-| 500 | the app's name, a pane's title, a settings nav row, a settings row's title, button labels |
-| 600 | reserved — the sidebar's app name and a settings page's title only |
+| 500 | a pane's title, a settings nav row, a settings row's title, button labels |
+| 600 | reserved — the sidebar's app name and a page title only |
 
 A column of bold is a column of shouting. Selection is marked by a filled pill
 and a check, never by making one row heavier than its neighbours. Button labels
@@ -200,6 +377,15 @@ It is **not** for names that merely came from a machine. A branch, a folder, a
 file in a list of files is a name, and names are set in the interface's own font.
 A menu that mixes the two faces reads as two menus.
 
+Real code set inside a sentence — a flag like `--force`, a command, a key
+in a config file — is `CodeText`, and it takes its size from the sentence:
+`--hd-code-inline`, 0.92em with the 12px step as its floor. The monospace
+face's x-height is larger than the interface face's (0.547 against 0.530 of
+the em) and its glyphs are wider and evenly weighted, so at the same size a
+flag read a step larger than the words around it; at 0.92 it sits level with
+them. It adds no step to the scale — it lands on the step of whatever
+sentence holds it.
+
 So a skill's name, a hook's event, a plugin's id, a contribution, a workspace
 path, a worktree's branch and path, a route's endpoint and a changed file all
 read in the interface's face. They are names, whatever produced them.
@@ -207,7 +393,7 @@ read in the interface's face. They are names, whatever produced them.
 Two uses of the code face survive in components, and both are the rule rather
 than an exception to it:
 
-1. A JSON value in `SchemaForm` (rendered with the canonical `WireText` pattern),
+1. A JSON value in `SchemaForm` (`CodeText` in the `meta` text role),
    which is output.
 2. A slash command in `TriggerMenu` (`.nameMono`), which is something you type.
 
@@ -400,7 +586,7 @@ renderer applies to every select, in every runtime, on its own.
 | Reply here with X | hint | hover — the check mark already says it |
 | Hand off to X… (×N) | N identical hints | one `MenuNote` over the group |
 | Agent taglines (Start with) | hint on the one agent that had one | hover — a line only some rows have is a ragged edge, not a column |
-| Agent tagline (Settings › Agents card) | truncated line | hover — a definition of an agent you already installed; still shown in full in Add agent, first run and sign-in |
+| Runtime tagline (Settings › Runtimes card) | truncated line | hover — a definition of a runtime you already installed; still shown in full in Add a runtime, first run and sign-in |
 | HarnessDesk, in the account menu | truncated line | a **Local** chip — earned, but a word, not a sentence; the clause is on `title` and on Settings › Account |
 | Two entries of one agent in the desk survey | two identical rows | the second wears the name it was registered under; “Use this agent” stops being a coin toss |
 | Auto-compact · Output style · Reasoning effort (Claude Code) | a hint on the one or two rows that had one | hover — the same ragged edge, now caught by the renderer rather than by hand |
@@ -426,16 +612,86 @@ What stayed, and why:
 | Clear browsing data | Names its blast radius: this pane, not your browser. |
 | Every disabled row's reason | A tooltip on a disabled control is unreachable. |
 
+## A page: sections and summaries
+
+A page is a head and a column of sections, and a section is a label over one
+card. That was always the intent; what the pages had instead was a
+`SectionHead`, a free `Note` and a `Rows` card stacked by hand, each with its
+own margin and nothing owning the space between them. On the Agent page the
+label "Ceiling" sat 18px under the card above it and 20px over its own, so it
+named neither, and eight labels each over a card of one row read as a column of
+floating grey words.
+
+**`Section` owns the rhythm.** `<Section title description action>` renders
+`<section aria-label={title}>`, its label a `GroupLabel`, and spaces itself:
+
+| between | space | why |
+| --- | --- | --- |
+| the label and its card | 8px (`--hd-space-2`) | the label belongs to the card under it |
+| one section and the next | 32px (`--hd-space-8`) | four times the label's gap, so no label is ever nearer the card above it |
+| the page head and the first section | 32px | the head's 24px collapses into the section's own margin, so the first gap is every gap |
+| things inside one section | 8px | a card's or a note's own margin is dropped; a lone button keeps its width |
+
+The label sits on its card: an action beside it (the `sectionAction` slot, a
+small `outline` button) grows the head upward, so every label on a page is the
+same 8px above what it names — a `SectionHead`'s too, which used to stand
+centred in a 26px box 13px above its card. A screen composing sections writes no margin of
+its own. A `SectionHead` on a page keeps the same 32px — including one that
+opens a `<section>` wrapper, which used to lose its margin to `:first-child`
+and start 6px under the card before it — so a page half converted still reads
+as one page. A dialog keeps its tighter step.
+
+**The description is one sentence.** It says what the section is, muted,
+directly under the label. A paragraph of how it works is not a description:
+Project, Permissions and Triggers each opened every section with two or three
+lines of it under the page's own blurb, and the one warning that mattered read
+like the four around it.
+
+**Several facts about one thing are one card.** `SummaryList` is the key/value
+inspector drawn as a settings card — the `Rows` ground, edge and hairline — with
+a key column, a value that wraps as a sentence (`kind="path"` gives up its
+middle, `numeric` right-aligns tabular figures), an optional one-line `note`
+under the value, and an optional small action at the row's end. Once any row has
+an action every row stands as tall as one, so the card keeps one row height;
+narrow, each key rises over its value and the action keeps the end. An account's
+sign-in, plan, credential and default are one card; so should be an Agent's
+file, ceiling, skills, servers and brief.
+
+**A wrapped control lands by what it is.** When a row is too narrow for its
+control beside the title, the control drops under it. A compact control — a
+switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the
+row's end, in a plain `Row`
+exactly as in a `RowButton`, whose control travels with a chevron that cannot
+leave the end. A text answer (`RowValue`) takes its whole line and starts
+where the title starts: pushed to the end, a sentence narrower than the row
+began at whatever indent its length left. The row reads which from the
+control, so no caller has to remember.
+
+**Groups inside a section are sub-heads.** A `SectionHead` among a `Section`'s
+children sits 24px under the card above and 8px over its own — a step between
+the 8px of a label and the 32px of a section — so Permissions' twelve runtimes
+read as groups of Approvals, and a project's flows as its own, yours and the
+built-in ones, each under one label instead of a chip on every row.
+
+**The outline is real.** A page's title and a detail page's title are h1s;
+every section label, `Section` or `SectionHead`, is an h2, and a sub-head
+inside a `Section` is an h3. A detail head's
+owner is either text — a place, a path — that gives way at its end, or a mark
+such as a status chip that stays whole while the name wraps.
+
 ## Adding to the app
 
 When adding a control, row or surface to HarnessDesk:
 
-- Reach for `--hd-text` (14px) first, then justify anything else. Buttons and
-  form fields use `--hd-btn-text` (13px, `--hd-text-sm`) to preserve the
-  box-to-cap ratio (~3.2).
-- Never introduce a fifth size. If something needs to feel smaller, ask whether
-  it needs to be on screen at all; if it needs to feel bigger, it is probably a
-  title, and titles have a step already.
+- Chrome is 13px and what is read is 14px. A row, a menu item, a settings line
+  and a button label are furniture; the transcript, the composer and an input
+  are not. Reach for the side you are on and justify anything else.
+- Never add a step. There are seven and each names one thing; a new one is
+  either a step you already have or a sign that the thing wants less prominence
+  rather than less type — in which case change its ink.
+- Never pick a size without its line. Every step names its pair; take the next
+  line up when the text wraps, and never a tighter one. A size set on somebody
+  else's line is how the 13px step came to have eight of them.
 - Set an explicit `line-height` only when the row's height depends on it.
 - The code face marks a face, never a size. `.mono` sets `font-family` and
   nothing else, so a row whose title happens to be an identifier stays the size
@@ -469,12 +725,303 @@ changes.
 | All density, spacing, typography, radius, focus, and semantic colours | `packages/ui/src/design/foundation/tokens.css` |
 | Generic dialog mechanics and focus/portal behaviour | `packages/ui/src/design/ui/dialog.tsx` |
 | Modal, confirmation, approval and lightbox policy | `packages/ui/src/design/patterns/ModalDialog.tsx`, `ConfirmDialog.tsx`, `ApprovalDialog.tsx` and `Lightbox.tsx` |
+| A dialog's form rhythm, legend and choice list | `packages/ui/src/design/patterns/DialogForm.tsx` and its CSS module |
 | Disabled or refused actions and their focusable explanation | `packages/ui/src/design/patterns/RefusedAction.tsx` |
 | Menus and popovers | `packages/ui/src/design/patterns/Menu.tsx` and `Popover.tsx`, over `design/ui` |
 | CodeMirror and xterm theme integration | `packages/ui/src/design/adapters/` |
 | Public imports | `packages/ui/src/design/index.ts` |
 | The live component catalogue | `packages/ui/src/design/catalog/` and `packages/ui/src/design/explorer/` |
 
-`pnpm design` serves `/design.html`, where foundation, primitives, patterns and
-the product surfaces are all rendered from the production modules — so the page
-is the check on whether a change actually landed everywhere it claims to.
+| The stacking order, and which shadow a surface wears | the `--hd-z-*` and `--hd-shadow-*` ladders in `tokens.css` |
+| Mounting a shipped screen outside the app | `packages/ui/src/preview/harness.tsx`, used by both `/preview.html` and the catalogue's surfaces |
+
+### The catalogue shows the screen, not a picture of it
+
+`pnpm design` serves `/design.html`. Foundation, primitives and patterns render
+from the production modules, and so do the whole-screen surfaces: Conversation,
+Composer, Left bar, Git history, Group project, Browser · Terminal · Editor and
+Panels mount the shipped screens — `components/*`, and `panels/Workbench.tsx`
+— through `preview/harness.tsx`, the same store stub `/preview.html` uses.
+
+This is a rule rather than an arrangement, because the alternative was tried.
+Those surfaces used to be pages in `design/showcase` built to look like the
+screen — over 1,500 lines of CSS that shared nothing with the app but its shape.
+They were right on the day each was drawn and wrong every day after, and there
+was no way to tell by looking: the catalogue is exactly where you go *because*
+you do not already know what the screen looks like. Edit
+`components/Sidebar.module.css` now and the Left bar surface moves with it,
+because it is that sidebar.
+
+`script/check-ui-system.mjs` keeps it true. Every surface row in
+`design/catalog/manifest.ts` names the module it mounts and the one export in
+`design/surfaces/surfaces.tsx` that mounts it, and the check holds three things:
+that export reaches the module, the explorer tab for the row loads that exact
+export, and the app ships the module. The walk starts at the export, not the
+file — from the file, a surface that stopped mounting its screen passed on a
+sibling that mounts the same one. So a row naming something the app does not
+ship fails, a surface that quietly stops mounting what it claims fails, and
+two tabs that swap their screens fail.
+
+One surface is marked `catalogOnly`: Foundation propagation, a test rig built
+only from production implementations, which two browser specs drive. There is
+no shipped screen for it to point at, and its description says it is a rig.
+
+A real screen with no data does not fail — it renders something plausible. The
+git pane mounted with no repository drew an empty frame; the editor sat on
+"Loading…" for good. So the harness answers what the mounted screens read
+(`preview/git-fixture.ts`, typed as the protocol's result types), and each
+surface's description says what the tab shows *on this fixture* and names what
+it does not. A description written for a richer picture than the tab renders is
+the same misleading a drawing was, in words. The only check that has caught
+these is opening every tab in a browser.
+
+### What the audit refuses
+
+`pnpm design:audit --strict` holds nineteen categories at a baseline.
+Eighteen are at zero; `screenAppearance` sits at 656 declarations —
+appearance a screen still draws for itself instead of composing it, in
+whichever of three spellings it chose.
+
+Every ordinary property has to match one of two explicit tables after its
+vendor prefix is stripped, wherever it is spelled. `APPEARANCE_PROPERTIES`
+owns type, ink and ground, edges and the inner box; its open-ended families
+match by prefix, so `font-variant-numeric`, `background-image`,
+`border-image-source` and the next standards longhand do not slip past a
+remembered list. `LAYOUT_BEHAVIOUR_PROPERTIES` owns geometry, flow,
+interaction and motion. Height, minimum height and maximum height share one
+value rule: a non-zero fixed or token metric counts as appearance, while zero
+— the flex/grid shrink reset — percentages, intrinsic sizes and viewport or
+container-query shares remain layout. Custom properties define values rather
+than either side and remain outside the split. In a stylesheet, anything else
+is a `screenUnclassified` finding that names the property and sheet and fails
+the strict gate.
+
+`screenAppearance` is the appearance side of that total boundary, read in
+three spellings rather than one: a screen's own `.module.css`; a Tailwind
+utility in a `className` (or a `className:` key in an object literal, or a
+bare `cn`/`clsx`/`cx` call), resolved through a variant prefix, the important
+marker, a template literal, a ternary, an array joined with `.join(' ')`, or
+one hop through a named import to the `const` that actually declares it —
+`LibraryActions.tsx`'s `SWITCH_TRACK`, imported by `Library.tsx` too, counts
+once, at its definition, not once per file that reaches for it; and a key in
+an inline `style` object, including a `{ color }` shorthand, a `['color']`
+computed key, and a `satisfies CSSProperties` assertion, both branches of a
+conditional read. A class name cannot say whether `.head` is a title bar, a
+table header or a card heading, which is why `patternClass` could safely keep
+only `empty`; the declaration says what the screen actually owns. Markdown's
+prose ratio ladder and the diff viewer remain named specialized-renderer
+exemptions, in both the stylesheet and the `.tsx` that renders each.
+
+The same boundary reaches into `design/patterns/` — typed, product-specific
+composition contracts — but not into `design/ui/`, the shadcn-registry
+primitive layer. A pattern export whose every screen consumer sits in one
+screen area — one file, or a named multi-file family such as Git or the
+conversation transcript — is that screen's own appearance parked in the
+design folder rather than composed, so its CSS-module rules, its own
+Tailwind utilities and its own inline styles are charged to
+`screenAppearance` the same way a screen's are; an export two or more areas
+reach for stays uncharged, because moving it would break whichever area lost
+it. Consumers are resolved per exported name, not per file: one export used
+everywhere does not make a single-area sibling in the same module look
+shared, and a re-export — `export *`, a renamed named export, or a shim
+entirely outside `design/` forwarding a name back out — is followed to
+wherever the name is actually declared before its consumers are counted. A
+part imported by *another design part* inherits that part's own resolved
+reach, cycles guarded, rather than stopping at the design file that happens
+to import it directly — `RailSection` has one direct screen importer
+(Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+and `AppWindowRailScroll`, which the app's shared window shell mounts for
+Settings, the Agents window and more, so `RailSection` reads as several areas
+rather than Sidebar's alone. A CSS-module class is charged to a single-area
+export only when nothing else in the module — another export, or a local
+helper neither exports — also reaches for it: `Settings.tsx`'s `RowMark`
+alone draws `.rowMark`, but `Row` and `RowButton` in the same file draw it
+too, and those are used everywhere, so that class stays uncharged even
+though `RowMark` itself is genuinely SignIn's alone.
+
+Screen areas are not asserted by hand — a handful of named roots
+(Conversation, Settings, TeamRoomPane/TeamBoardPane, AgentsWindow, GitPane,
+Workbench) seed the closure, and every other screen file's area is the
+closure of single-host files: a screen imported by only one already-resolved
+family belongs to it too, iterated to a fixed point. `pnpm design:audit`'s
+own test suite holds this to an invariant — a single-host screen file that
+sits outside its host's family fails the gate — the same way every other
+category here is held to a check that has been made to fail once, not only
+to pass.
+
+`design/ui/`'s primitives — the chart kit, `Board`, `ToolPane`, `Card`,
+`Bar`, `KeyValue`, `Spark`, `Dialog`, `Breadcrumb`, `Delta` and the rest — are
+never charged to `screenAppearance` even when every screen that reaches for
+one sits in a single area today: a primitive is meant to exist before it has
+grown a second caller, the way a design system's own vocabulary always does,
+and charging one under `screenAppearance` for that would make that strict
+zero unreachable without inventing a pointless second caller. That does not
+make it nothing, though: `singleAreaPrimitive` is a burn-down ceiling of its
+own, so a single-area primitive is still held to "may only fall," and moving
+a genuine screen composition into `design/ui/` to dodge the
+`screenAppearance` charge just raises this one instead — it never zeroes the
+move out. `pnpm design:audit --verbose` lists each one by name.
+
+Both ledgers count *exports*, not declarations, which prices a move unevenly
+on purpose: `screenAppearance` charges every appearance-side declaration a
+single-area pattern's exports draw (a large composition can cost dozens),
+while `singleAreaPrimitive` charges one line per single-area export
+regardless of how much it draws (`ChannelMessage.tsx`'s ninety-nine
+declarations would cost `design/ui/` all of seven — one per export). A move
+that looks cheap by this count is not a loophole: the ceiling still moves,
+`--strict` still fails until it is re-recorded, and a reviewer reading
+`--verbose`'s named list sees exactly which export moved and can still ask
+whether it belongs there.
+
+The workbench dock is the one deliberate exception to all of this: there is
+exactly one workbench, by design, so `panels/Workbench.tsx`'s thirteen own
+`design/patterns/DockPanel.tsx` exports (`WorkbenchRail`, `DockPanel`, and
+the rest of the dock chrome) are a named, documented exemption, the same way
+Markdown's prose ladder and the diff viewer's own ink are — a second consumer
+to compose them generically for is never coming, so charging them asks for a
+fix with no destination. `RailSection`, DockPanel.tsx's other export, needs
+no such exemption: it is not single-area at all, for the reason above.
+
+Three of those categories spent a long time reporting zero while they were
+simply unable to see:
+
+- `screenAppearance` read only a screen's `.module.css`, so moving a
+  declaration into a Tailwind utility string or an inline `style` object —
+  exactly what the rest of the app had been doing — made it disappear from a
+  count that said it was clean. Reading a `className`'s literal text closed
+  most of that gap, but not all of it on the first pass: a plain string
+  constant, a ternary, an array joined with `.join(' ')`, and a `className`
+  written as an object key rather than a JSX attribute were all still
+  invisible, because none of them are literal text at the class site itself —
+  they are a name that only leads to one through its own `const`. A second
+  pass found a fifth miss going the other way: an unknown (non-literal)
+  `height` value was defaulting to a metric it could not actually read, an
+  over-count now decided explicitly as layout instead of assumed.
+
+- `rawColour` named five properties and `box-shadow` was not one of them, so ten
+  hand-written shadows sat outside a count that said there were none. It now
+  reads every declaration, whatever its property, through a scanner that reads
+  CSS the way the browser does — strings, comments, `url()` and escapes: a `;`,
+  a `/*` or a `)` inside a string ends nothing, `r\65 d` is `red` and `c\6f lor`
+  is `color`, and a URL's payload is never read as a colour; and it counts
+  a colour however it is spelled — hex, a colour function, or a name like
+  `red`. The exemptions are named rather than left out: masks, which read
+  alpha, and — for colour names only — the properties whose values are names
+  an author chose (`animation-name`, `grid-area`, counters, font families).
+- `rawZIndex` did not exist. The ladder in `tokens.css` had said in prose since
+  it was written that stacking "never writes a number", and twenty-four places
+  wrote a number. Single digits are ordering inside one component's own stacking
+  context and are not counted; from 10 up is the band two components can
+  genuinely collide in, and that is what the ladder is for. A number counts
+  however it is written — any CSS math function, escaped or not (`calc(5 + 5)`,
+  `abs(-12)`, `round(up, 10.1, 1)`), read with CSS's own tokens, so
+  `calc(5 +5)` is no number at all — or anything a `var()` in the value can
+  come to: a custom property's value, its fallback wherever the property can
+  be unset or invalid, an `@property` initial value, what a registered value
+  computes to. A rung may be named, chosen between (`min()`, `max()`,
+  `clamp()`, or `calc()` and parentheses around one), or nudged by a whole
+  number from 0 to 9 — `calc(var(--hd-z-sticky) + 1)`, the app's one such
+  case, moves with the ladder — and anything else done to a rung (`+ 60`,
+  `* 2`, `abs()`, `+ 9.9`) writes a plane of its own, and counts.
+
+  Which rules reach an element is the page's business, so the audit does not
+  guess. A property set for the same elements — the same selector under the
+  same conditions, a broader one outside any style rule (`.a` for
+  `.a:hover`), a rule it sits in through `&` or conditions only — is what the
+  rules here set it to. One set
+  on an element it descends from — a rule it is nested in through `& .b`, the
+  element of a pseudo-element, an unconditional `:root`, `html` or `*` — is
+  inherited from there when the property inherits. Any other may be
+  inherited from anywhere, set by another stylesheet, or not set at all. A
+  declaration the browser drops sets nothing, and a cycle is invalid in
+  whichever order the browser meets it. Where the audit cannot tell — a rule
+  under a condition, a selector list it does not wholly cover, a registration
+  it cannot prove, a registered value this stylesheet animates or
+  transitions, `if()` or `attr()`, a chain deeper than it follows — it keeps
+  every possibility, and reports what it cannot compute rather than assume
+  it small.
+
+- The single-consumer half of `screenAppearance` could not see four shapes of
+  its own use. `export *` — `design/ui`, `InspectorPanel`, `DockPanel` — hid
+  every part behind it entirely, because only a named `export { X } from 'y'`
+  was read. Only the Git surface was a named multi-file screen area, so the
+  conversation transcript's own files (Items, TurnWork, StepGroup, TurnFiles,
+  Trajectory, ConversationMap) read as four separate areas and a part spread
+  across any two of them looked cross-area. A module's exports were resolved
+  as one merged list of consumers rather than one list per export, so a
+  widely used export made a genuinely single-area sibling in the same file
+  look shared too. And a re-export shim entirely outside `design/`
+  (`components/Panel.tsx`, forwarding `GroupLine` and `PanelRow` back out
+  from `'../design'`) traced no consumer to `design/` at all. Following
+  `export *` and a shim however many hops deep, naming the conversation,
+  settings, agent-roster and room families, and resolving consumers per
+  export rather than per module closed all four.
+
+  The first pass over-corrected in two ways review caught before merge:
+  charging `design/ui/`'s primitives the same way as a `design/patterns/`
+  composition would have made the strict zero unreachable the moment any
+  generic primitive picked up a first caller, and stopping consumer
+  resolution at the nearest design file — rather than following it into
+  whatever *that* file's own exports reach — read `RailSection` as
+  Sidebar's alone when `AppWindow.tsx` also composes it into parts the
+  app's shared window shell mounts for Settings and the Agents window too.
+  Restricting the charge to `design/patterns/` and resolving through
+  design-to-design use, cycles guarded, closed both; the baseline rose from
+  480 to 607.
+
+  A second review round found the closure itself still asserted by hand
+  rather than derived, and a false positive in what it charged. Screen
+  families are now the closure of single-host files (above), which corrected
+  two wrong assumptions the hand-written version made: Trajectory's real host
+  is Details.tsx, not Conversation, and Branch/Changes/NewWorktree were never
+  Git's — each is reached from a different, unhosted screen or from
+  `app/App.tsx`, which is not a screen source at all. A type-only import
+  (`import type`, `{ type X }`) is skipped in both the screen host graph and
+  `designImportsOf`: `CommandPalette.tsx` and `Sidebar.tsx` both `import type
+  { Section } from './Settings'`, and counting that as importing Settings.tsx
+  made a pattern used only by Settings.tsx read as shared with either of
+  them. And a stylesheet class is now charged to a single-area export only
+  when no other declaration in the module also reaches for it — `RowMark`
+  alone draws `.rowMark`, but `Row` and `RowButton` in the same module do
+  too, and those are used everywhere; the six `Settings.module.css [settings]`
+  findings the first pass reported were entirely that false positive.
+  `design/ui/` gained its own ceiling (`singleAreaPrimitive`) rather than
+  only ever being watched, design-to-design reach was widened to `export
+  function` composers, local helpers, namespace and dynamic imports, and the
+  workbench dock's own chrome (thirteen `DockPanel.tsx` exports
+  `panels/Workbench.tsx` alone uses) became a named exemption rather than a
+  charge with nowhere to be composed to. `screenAppearance` settled at 820
+  (607 plus Settings.tsx's newly-correct `settings`-area exports, minus the
+  workbench exemption and the false-positive class charge; #924 has since
+  removed `AccessHeader`, one of the SignIn-area exports this rule counts).
+
+  A third review round found two more false positives, both from consumer
+  resolution stopping one hop too early. `panels/builtins.tsx` (the pane
+  registry) was skipped entirely as an importer, which correctly kept a
+  bare registry mount (GitPane, mounted nowhere else) from reading as
+  cross-area — but it also hid that `Approvals.tsx` is drawn in the
+  registry's own session view beside Conversation *and* docked by
+  TeamRoomPane, two different places, so it wrongly folded into `room`
+  (`ApprovalDialog.module.css [room]`, 48 findings). And composition within
+  one file was never followed at all: `Dialog` composes `DialogBody` and
+  `DialogSubhead` in the same `ModalDialog.tsx`, with no import needed, so
+  their reach read as SkillSheet.tsx's alone instead of the ~46 screens
+  `Dialog` itself reaches (`ModalDialog.module.css [settings]`, 9 findings).
+  A registry or `app/` mount now counts as its own host area, but only
+  alongside a real screen import, and a same-module composer's own reach is
+  now followed the same way a cross-file one already was. Family resolution
+  also moved from a DFS with a visiting set — which memoized a partial,
+  order-dependent result the moment it hit a cycle — to a monotone fixed
+  point, so the answer no longer depends on which file is visited first.
+  `screenAppearance` settled at 656 after also merging main past #920
+  (Agents and Goals brought onto shared design parts, which changed several
+  unrelated screen-appearance findings of its own).
+
+All four have the same shape as the line-height ratios before them: name the
+spellings you happen to remember, and everything else is invisible —
+confidently, at zero. When adding a rule, the question is not "does this catch
+the case I am thinking of" but "what spelling of this would it miss".
+
+A new category is only worth having if it can fail. Add it, then put the defect
+back and watch it go red; a check that has never been seen red is a check that
+has never been tested.

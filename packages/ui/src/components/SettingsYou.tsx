@@ -17,9 +17,12 @@ import {
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
 import {
   Button,
+  Card,
   DetailHead,
   Face,
   Input,
+  Keycap,
+  Note,
   RowValue,
   PageHead,
   Row,
@@ -28,6 +31,7 @@ import {
   Segmented,
   NativeSelect,
   Switch,
+  Text,
 } from '../design'
 import styles from './SettingsYou.module.css'
 
@@ -177,17 +181,18 @@ export const ProfileSection = () => {
         onChange={(avatar) => store.setProfile({ avatar })}
       />
       {keeps && (
-        <p id={noteId} className={styles.pageNote}>
+        <Note id={noteId} className={styles.pageNote}>
           Your profile holds a face this version of HarnessDesk cannot draw, so it shows as the house mark. It is kept
           as it is until you choose one here.
-        </p>
+        </Note>
       )}
     </>
   )
 }
 
 /**
- * Eight to a row: Default and the twenty-three faces make three even rows.
+ * Eight to a row: Default and the mark's six colourways fill the first row and
+ * a tile over, and the twenty-three whales run on to the end of the fourth.
  * The grid takes its column count from here (`--face-columns`), so the step
  * Up and Down take and the row the eye sees are one number.
  */
@@ -203,7 +208,7 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
 /**
  * Every face you could wear, as one radio group.
  *
- * One stop on the tab order, not twenty-four: Tab lands on the face you wear,
+ * One stop on the tab order, not thirty: Tab lands on the face you wear,
  * and the arrow keys walk the grid — across, and down a row of eight — the
  * way a radio group has always moved, choosing as they go. Home and End are
  * left out on purpose: in a group that chooses as it moves, a stray Home
@@ -213,7 +218,7 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
  * tile, holding a face this build keeps with nothing checked, a Left that
  * chose would be that same silent reset. Otherwise Left and Right run on
  * across the rows, in reading order. A face's name is its label and its description the
- * hover, because twenty-four captions under twenty-four pictures would turn a
+ * hover, because thirty captions under thirty pictures would turn a
  * glance into a read.
  *
  * A face this build cannot draw — one a later build stored — checks no tile at
@@ -253,14 +258,15 @@ const FacePicker = ({
   }
 
   return (
-    <div
-      className={styles.faces}
-      style={{ '--face-columns': FACE_COLUMNS } as CSSProperties}
-      role="radiogroup"
-      aria-label="Picture"
-      {...(describedBy ? { 'aria-describedby': describedBy } : {})}
-    >
-      {FACE_CHOICES.map((choice, index) => {
+    <Card spacing="compact" radius="lg">
+      <div
+        className={styles.faces}
+        style={{ '--face-columns': FACE_COLUMNS } as CSSProperties}
+        role="radiogroup"
+        aria-label="Picture"
+        {...(describedBy ? { 'aria-describedby': describedBy } : {})}
+      >
+        {FACE_CHOICES.map((choice, index) => {
         const on = index === current
         return (
           <Button
@@ -275,6 +281,7 @@ const FacePicker = ({
             title={`${choice.label} — ${choice.about}`}
             tabIndex={index === stop ? 0 : -1}
             variant="ghost" size="inline" className={styles.faceChoice}
+            data-swatch
             {...(on ? { 'data-on': '' } : {})}
             onClick={() => onChange(choice.id)}
             onKeyDown={(event) => {
@@ -292,8 +299,9 @@ const FacePicker = ({
             <Face avatar={choice.id} size={44} className={styles.faceTile} />
           </Button>
         )
-      })}
-    </div>
+        })}
+      </div>
+    </Card>
   )
 }
 
@@ -376,18 +384,16 @@ const AccentSwatches = () => {
           aria-label={entry.label}
           title={entry.label}
           variant="ghost" size="icon-circle"
-          data-swatch=""
           {...(accent === entry.value ? { 'data-on': '' } : {})}
-          style={{
-            background:
-              (dark ? entry.dark : entry.colour) ??
-              /* "Default" is the palette's own accent: the live token while it
-                 is the one in use, and the palette's recorded value otherwise
-                 — the token on `body` would report whichever accent is on. */
-              (accent === 'default'
-                ? 'var(--hd-accent)'
-                : (PALETTE_ACCENT[palette]?.[dark ? 1 : 0] ?? 'var(--hd-accent)')),
-          }}
+          swatch={
+            (dark ? entry.dark : entry.colour) ??
+            /* "Default" is the palette's own accent: the live token while it
+               is the one in use, and the palette's recorded value otherwise
+               — the token on `body` would report whichever accent is on. */
+            (accent === 'default'
+              ? 'var(--hd-accent)'
+              : (PALETTE_ACCENT[palette]?.[dark ? 1 : 0] ?? 'var(--hd-accent)'))
+          }
           onClick={() => store.setAccent(entry.value)}
         />
       ))}
@@ -673,10 +679,10 @@ export const NotificationsSection = () => {
                   {record ? (
                     <>
                       {' '}
-                      <span className={styles.putAway}>
+                      <Text role="meta">
                         Put away {record.count === 1 ? 'once' : `${record.count} times`}
                         {record.at > 0 ? `, last ${formatAge(record.at, now)}` : ''}.
-                      </span>
+                      </Text>
                     </>
                   ) : null}
                 </>
@@ -693,9 +699,9 @@ export const NotificationsSection = () => {
         })}
       </Rows>
 
-      <p className={styles.pageNote}>
+      <Note className={styles.pageNote}>
         A lost connection is not on this list: it is the one message the app must always make.
-      </p>
+      </Note>
     </>
   )
 }
@@ -713,7 +719,7 @@ const GROUPS: readonly Shortcut['group'][] = [...new Set(SHORTCUTS.map((s) => s.
 const ChordRow = ({ shortcut }: { shortcut: Shortcut }) => (
   <Row
     title={shortcut.label}
-    control={<kbd className={styles.chord}>{chordOf(shortcut)}</kbd>}
+    control={<Keycap className={styles.chord}>{chordOf(shortcut)}</Keycap>}
   />
 )
 
@@ -744,10 +750,10 @@ export const ShortcutsSection = () => (
 
     <SectionHead name="In the composer" />
     <Rows>
-      <Row title="Send" control={<kbd className={styles.chord}>↵</kbd>} />
-      <Row title="New line" control={<kbd className={styles.chord}>⇧↵</kbd>} />
-      <Row title="Commands" control={<kbd className={styles.chord}>/</kbd>} />
-      <Row title="Mention a file" control={<kbd className={styles.chord}>@</kbd>} />
+      <Row title="Send" control={<Keycap className={styles.chord}>↵</Keycap>} />
+      <Row title="New line" control={<Keycap className={styles.chord}>⇧↵</Keycap>} />
+      <Row title="Commands" control={<Keycap className={styles.chord}>/</Keycap>} />
+      <Row title="Mention a file" control={<Keycap className={styles.chord}>@</Keycap>} />
     </Rows>
   </>
 )

@@ -866,6 +866,21 @@ test('isSafeSkillRelativePath refuses Windows backslash, absolute, drive, UNC, a
   assert.equal(isSafeSkillRelativePath('//server/share/secret.txt'), false)
 })
 
+test('isSafeSkillRelativePath refuses a "." segment and a NUL byte, on either separator', () => {
+  // A `.` segment was previously let through — harmless to `path.join`, but
+  // a second, looser rule than the one `agent-files.ts`'s Agent-backup path
+  // check applies to the very same shape of input. `isSafePathSegment` is
+  // now the one rule both read a segment by.
+  assert.equal(isSafeSkillRelativePath('.'), false)
+  assert.equal(isSafeSkillRelativePath('notes/./bad.md'), false)
+  assert.equal(isSafeSkillRelativePath('notes\\.\\bad.md'), false)
+
+  // A NUL was not checked at all before.
+  assert.equal(isSafeSkillRelativePath('bad\0path.md'), false)
+  assert.equal(isSafeSkillRelativePath('notes/bad\0.md'), false)
+  assert.equal(isSafeSkillRelativePath('notes\\bad\0.md'), false)
+})
+
 test('skill extra files refuses Windows backslash path traversal (#458)', async () => {
   await withHome(async (home, libraryDir) => {
     const sourcePath = join(home, '.codex/skills/commit')

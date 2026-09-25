@@ -9,9 +9,34 @@ import {
   type KeyboardEvent,
 } from 'react'
 
-import { isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
+import { currentTurn, isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
 
-import { Button, Dialog, Input, Textarea } from '../design'
+import {
+  Attachment as AttachmentTile,
+  AttachmentMedia,
+  Button,
+  ComposerChip,
+  ComposerChips,
+  ComposerDropHint,
+  ComposerDock,
+  ComposerGap,
+  ComposerSend,
+  ComposerShell,
+  ComposerText,
+  ComposerTools,
+  Dialog,
+  IconTile,
+  Input,
+  Lightbox,
+  Popover,
+  PopoverGroupLabel,
+  PopoverOption,
+  PopoverOptionBody,
+  PopoverOptionHint,
+  PopoverOptionLabel,
+  PopoverOptionMark,
+  Text,
+} from '../design'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
 import { contributionsHere, scopeHere } from '../lib/contributions'
 import { opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
@@ -49,16 +74,6 @@ import {
 } from './Icons'
 import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
-import { Lightbox } from '../design'
-import {
-  Popover,
-  PopoverGroupLabel,
-  PopoverOption,
-  PopoverOptionBody,
-  PopoverOptionHint,
-  PopoverOptionLabel,
-  PopoverOptionMark,
-} from '../design'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import styles from './Composer.module.css'
 
@@ -208,8 +223,13 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const acceptsImages = runtime.capabilities.imageInput
   // Whether this agent can take a message into a turn already running. Only
   // some can; the ones that cannot say so by refusing, so the shortcut is
-  // offered by capability rather than tried and apologised for.
-  const canSteer = runtime.capabilities.steer
+  // offered by capability rather than tried and apologised for. A review is
+  // a turn nobody can add to — Codex refuses ("cannot steer a review turn"),
+  // and a refused steer has already emptied the box — so while one runs, a
+  // message waits for it like any other.
+  const reviewing =
+    busy && session !== null && (currentTurn(session)?.items.some((item) => item.type === 'review' && item.phase === 'entered') ?? false)
+  const canSteer = runtime.capabilities.steer && !reviewing
   const agentName = brandOf(runtime.name)
   const images = useMemo(() => attachments.filter((entry) => entry.kind === 'image'), [attachments])
   const addContext = useCallback((provider: (typeof chipProviders)[number], ref?: string) => {
@@ -910,20 +930,21 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         : undefined
 
   return (
-    <div className={styles.composer}>
+    <ComposerDock>
       <Slot name="composer.row" />
-      <div
-        className={`${styles.shell} ${styles.anchor}${dragging ? ` ${styles.dropping}` : ''}`}
+      <ComposerShell
+        className={`${styles.shell} ${styles.anchor}`}
+        {...(dragging ? { 'data-dropping': '' } : {})}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
         {dragging && (
-          <div className={styles.dropHint} aria-hidden>
+          <ComposerDropHint>
             <ImageIcon size={18} />
             {acceptsImages ? 'Drop images to attach' : `${agentName} does not accept images`}
-          </div>
+          </ComposerDropHint>
         )}
         {menuOpen && (
           <TriggerMenu
@@ -937,12 +958,12 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         )}
 
         {images.length > 0 && (
-          <div className={styles.tiles} role="list" aria-label="Attached images">
+          <ComposerChips className={styles.tiles} role="list" aria-label="Attached images">
             {images.map((image, index) => (
-              <div
+              <AttachmentTile
                 key={image.id}
                 role="listitem"
-                className={styles.tile}
+                orientation="tile"
                 title={acceptsImages ? image.name : `${image.name} — ${agentName} does not accept images`}
               >
                 <Button
@@ -952,7 +973,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                   aria-label={`View ${image.name}`}
                   onClick={() => setPreview(index)}
                 >
-                  <img className={styles.thumb} src={image.path} alt={image.name} draggable={false} />
+                  <AttachmentMedia variant="image">
+                    <img className={styles.thumb} src={image.path} alt={image.name} draggable={false} />
+                  </AttachmentMedia>
                 </Button>
                 <Button
                   type="button"
@@ -963,21 +986,22 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                   <CrossIcon size={11} />
                 </Button>
                 {!acceptsImages && (
-                  <span className={styles.tileBadge}>
+                  <IconTile tone="warning" size="xs" shape="round" className={styles.tileBadge}>
                     <AlertIcon size={11} />
-                  </span>
+                  </IconTile>
                 )}
-              </div>
+              </AttachmentTile>
             ))}
-          </div>
+          </ComposerChips>
         )}
 
         {(attachments.length > images.length || handoff) && (
-          <div className={styles.attachments}>
+          <ComposerChips>
             {handoff && (
-              <span
-                className={`${styles.chip} ${styles.chipHandoff}`}
+              <ComposerChip
                 title={`${CARRY_LABEL[handoff.carry]} of “${handoff.title}” will be sent first. Click to read the original — the hand-off waits for the next new conversation.`}
+                removeLabel="Remove the hand-off"
+                onRemove={() => store.clearDraftHandoff()}
               >
                 <Button
                   type="button"
@@ -988,22 +1012,18 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                   <span className={styles.chipText}>
                     From {brandOf(handoff.agentName)} — {handoff.title}
                   </span>
-                  <span className={styles.chipMeta}>{CARRY_LABEL[handoff.carry]}</span>
+                  <Text role="meta">{CARRY_LABEL[handoff.carry]}</Text>
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost" size="icon-sm" className={styles.chipRemove}
-                  aria-label="Remove the hand-off"
-                  onClick={() => store.clearDraftHandoff()}
-                >
-                  <CrossIcon size={10} />
-                </Button>
-              </span>
+              </ComposerChip>
             )}
             {attachments.filter((entry) => entry.kind !== 'image').map((attachment) => (
-              <span
+              <ComposerChip
                 key={attachment.id}
-                className={styles.chip}
+                tone="brand"
+                removeLabel={`Remove ${attachment.name}`}
+                onRemove={() =>
+                  setAttachments((current) => current.filter((entry) => entry.id !== attachment.id))
+                }
                 title={
                   attachment.kind === 'context'
                     ? 'Resolved by its plugin when you send.'
@@ -1022,24 +1042,13 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                   <FileIcon size={12} />
                 )}
                 <span className={styles.chipText}>{attachment.name}</span>
-                <Button
-                  type="button"
-                  variant="ghost" size="icon-sm" className={styles.chipRemove}
-                  aria-label={`Remove ${attachment.name}`}
-                  onClick={() =>
-                    setAttachments((current) => current.filter((entry) => entry.id !== attachment.id))
-                  }
-                >
-                  <CrossIcon size={10} />
-                </Button>
-              </span>
+              </ComposerChip>
             ))}
-          </div>
+          </ComposerChips>
         )}
 
-        <Textarea
+        <ComposerText
           ref={textarea}
-          variant="composer" controlSize="composer" className={styles.input}
           value={text}
           rows={1}
           placeholder={placeholder}
@@ -1061,7 +1070,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           spellCheck
         />
 
-        <div className={styles.toolbar}>
+        <ComposerTools>
           <Input
             ref={filePicker}
             type="file"
@@ -1178,7 +1187,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           <PermissionControl />
           <ModeControl />
           <Slot name="composer.action" />
-          <span className={styles.spacer} />
+          <ComposerGap />
           <MoreControl />
           <ContextUsage />
           <ModelControl />
@@ -1194,9 +1203,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               Two saturated coins side by side read as two competing primary
               buttons, which is what this replaces. */}
           {(!busy || canSend) && (
-            <Button
+            <ComposerSend
               type="button"
-              variant="action" size="icon-circle" className="flex-none"
               data-when={!canSend ? 'nothing' : deferred ? 'later' : 'now'}
               disabled={!canSend}
               onClick={() => void submit()}
@@ -1204,21 +1212,20 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               {...(sendTitle ? { title: sendTitle } : {})}
             >
               <SendIcon size={15} />
-            </Button>
+            </ComposerSend>
           )}
           {busy && (
-            <Button
+            <ComposerSend
               type="button"
-              variant="action" size="icon-circle" className={styles.send}
               onClick={() => void store.interrupt(key)}
               aria-label="Stop"
               title="Stop this turn"
             >
               <StopIcon size={12} />
-            </Button>
+            </ComposerSend>
           )}
-        </div>
-      </div>
+        </ComposerTools>
+      </ComposerShell>
       {preview != null && images[preview] && (
         <Lightbox
           images={images.map((image) => ({ url: image.path, name: image.name }))}
@@ -1239,7 +1246,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           }}
         />
       )}
-    </div>
+    </ComposerDock>
   )
 }
 

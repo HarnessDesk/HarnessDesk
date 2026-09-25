@@ -13,7 +13,7 @@ curl https://cursor.com/install -fsS | bash
 
 **Codex** is spoken natively. **Claude Code** and **Cursor** arrive through the
 ACP adapter, using the bridges in this repository — both are one click in
-Settings › Agents › **Add agent**, as is **Gemini CLI**. Every other agent the
+Settings › Runtimes › **Add a runtime**, as is **Gemini CLI**. Every other agent the
 [public ACP registry](https://agentclientprotocol.com) lists (~40 of them) is
 one click in the same dialog and on the sign-in page: HarnessDesk reads the
 registry, says which entries can run on your machine, and adding one either
@@ -41,10 +41,10 @@ not know is the custom-command form in the same dialog, or one entry in
 ] }
 ```
 
-`account` is what lets Settings › Agents show who is signed in and sign in for
+`account` is what lets Settings › Runtimes show who is signed in and sign in for
 you; `executable` matters when the command is a bridge that embeds its own copy
 of the agent, pointing the bridge at the newest installed CLI on your machine.
-Details in [agents.md](agents.md) and [interface.md](interface.md).
+Details in [runtimes.md](runtimes.md) and [interface.md](interface.md).
 
 ### DeepSeek Harness
 
@@ -241,7 +241,7 @@ is not shareable and is regenerated on every launch.
 
 ## Sign in
 
-Settings › Agents signs in each agent through its own flow. For Codex the
+Settings › Runtimes signs in each agent through its own flow. For Codex the
 first-run screen offers
 **Sign in with ChatGPT** (opens your browser) or **Sign in with a code** (for a
 machine whose browser cannot reach localhost). Codex runs the flow and keeps the
@@ -253,7 +253,7 @@ codex login
 ```
 
 For Claude Code and Cursor, sign in through their CLIs or the button in
-Settings › Agents:
+Settings › Runtimes:
 
 ```bash
 claude auth login
@@ -261,7 +261,7 @@ cursor-agent login
 ```
 
 Agents requiring an API key (such as Gemini CLI or DeepSeek Harness) accept it in
-Settings › Agents or from their environment variables. HarnessDesk stores
+Settings › Runtimes or from their environment variables. HarnessDesk stores
 pasted keys in the host credential broker (backed by macOS Keychain in the
 desktop app) and passes them to the agent environment at startup.
 

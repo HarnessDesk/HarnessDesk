@@ -4,18 +4,38 @@ import { isAbsolute, join } from 'node:path'
 
 import { sessionKey } from '@harnessdesk/protocol'
 import type {
+  EvidenceRecord,
+  FindingId,
+  FindingOverride,
+  FindingSeries,
   Flow,
   FlowCheck,
+  FlowExecution,
+  FlowRoundState,
+  FlowThen,
   FlowEvent,
   FlowFile,
   FlowRole,
   FlowRound,
   FlowRun,
+  FlowPermission,
   FlowSeat,
   FlowSeatRecord,
   Intent,
+  ReviewCandidate,
+  ReviewInput,
+  RuntimeId,
+  SeatId,
+  SeatRecord,
 } from '@harnessdesk/protocol'
 
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
+import { FlowCatalog } from './flow-catalog.js'
+import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type RunDecisionOps, type StoredFlowExecution, type TriggerStartRequest } from './flow-execution.js'
+import type { FlowReview } from './flow-evidence.js'
+import type { FindingJournal } from './findings/journal.js'
+import type { PublicationJournal } from './findings/publication.js'
+import { executionOf, legacyCheckUncertain, legacyRunOf, legacySeatsMapped, recoveryOf } from './flow-recovery.js'
 import {
   cardVars,
   orderVars,
@@ -26,7 +46,7 @@ import {
   seatAt,
   validateFlow,
 } from './flow.js'
-import type { Team, TeamFlows } from './team.js'
+import type { Team, TeamCallScope, TeamFlows } from './team.js'
 
 /**
  * Running a flow: seating it, handing out its orders, and opening the round
@@ -54,18 +74,18 @@ export const FLOW_DIR = '.harnessdesk/flows'
 
 /** What this needs from the host: opening conversations, folders, and a shell. */
 export interface FlowPort {
-  /**
-   * Opens a conversation on an agent, in a folder, with the model and effort
-   * the seat asked for — and reports what it is *actually* running.
-   *
-   * Reported rather than assumed because a runtime drops a pick it declines
-   * rather than failing, and a seat that believes it is running at an effort
-   * it is not is a seat with an unchecked claim on it.
-   */
-  seat(
-    seat: FlowSeat,
-    where: { readonly cwd: string; readonly title: string },
-  ): Promise<{ readonly runtime: string; readonly sessionId: string; readonly label: string }>
+  /** Opens and durably records a legacy role before its first standing-order turn. */
+  openLegacySeat(input: {
+    goal: string
+    spec: FlowSeat
+    permission: FlowPermission
+    role: string
+    isolate: boolean
+    title: string
+    lane?: string
+  }): Promise<SeatRecord>
+  /** Closes only the Goal Seat this failed flow opened, after its turn has stopped. */
+  releaseGoalSeat(goal: string, seat: SeatId): Promise<void>
   /** Hands a seat its standing order. One turn, and the whole job is inside it. */
   order(runtime: string, sessionId: string, text: string): Promise<void>
   /**
@@ -95,18 +115,45 @@ export interface FlowPort {
    * an agent that ignored its tools and one that never got a turn at all.
    */
   turnFailure?(runtime: string, sessionId: string): string | null
-  /** Puts a conversation in a room. */
-  join(room: string, runtime: string, sessionId: string): Promise<void>
-  /** A worktree of its own, on a branch of its own, for a role that isolates. */
-  isolate(root: string, name: string): Promise<string>
-  /** Runs a check's command. Resolves with its exit status, or null if it ran over. */
+  /**
+   * Refuses the folder a room works in unless it is in a folder or a
+   * repository the desk has open.
+   *
+   * Asked once, by `start`, before anything is seated. Not per seat: a seat
+   * is a conversation the desk holds, and the desk counts the folder of every
+   * conversation it holds as open, so once one seat sat in the room's folder
+   * the question would answer itself. And not again while the run goes on:
+   * nothing after seating cuts a worktree, and its seats are conversations
+   * like any other, which keep working in a folder somebody has since closed.
+   */
+  confine(folder: string): Promise<void>
+  /** Refuses a new run before it opens Seats or writes cards. */
+  canMutateBoard?(goal: string): { ok: true } | { ok: false; reason: string }
+  /**
+   * Runs a check's command. Resolves with its exit status, or null if it ran
+   * over. `card` says which card and round it is for, so the desk can record
+   * what it observed as that card's check evidence.
+   */
   run(
     command: string,
-    where: { readonly cwd: string; readonly timeoutSec: number },
+    where: {
+      readonly cwd: string
+      readonly timeoutSec: number
+      readonly card?: { readonly room: string; readonly intent: number; readonly name: string; readonly round: number }
+    },
   ): Promise<{ readonly status: number | null }>
   /** One room's runs, to every window. */
   changed(room: string, runs: readonly FlowRun[]): void
   log(message: string, details?: Readonly<Record<string, unknown>>): void
+  /**
+   * What a restart needs to decide whether an old run may go on: its Goal,
+   * whether that Goal can run work, and the Seats kept on it. Read after the
+   * Goal store and the Seat book are restored, before any run is resumed.
+   */
+  recovery: {
+    goal(room: string): { readonly exists: boolean; readonly writable: boolean }
+    seats(room: string): readonly SeatRecord[]
+  }
 }
 
 /** A run as it is kept on disk. */
@@ -204,6 +251,7 @@ export class Flows implements TeamFlows {
   readonly #dir: string
   readonly #port: FlowPort
   readonly #team: Team
+  readonly #catalogue: FlowCatalog
   #runs = new Map<string, StoredRun>()
   /**
    * One advance at a time per run.
@@ -222,11 +270,41 @@ export class Flows implements TeamFlows {
   /** Seats that have exhausted their re-arm budget, so 'stopped answering' is recorded once per seat. */
   #stoppedSeats = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
+  /**
+   * Why the runs this desk keeps could not be read at launch, or null when
+   * they could.
+   *
+   * Held, because the failure outlives `load`. A desk that cannot read its
+   * runs cannot say which are still going, and answering "none" would let a
+   * second flow start in a room whose first is live on disk — two runs opening
+   * cards into one board, neither able to tell which are its own. So asking
+   * what a room is running, and starting a flow, both raise this instead,
+   * until a launch can read the folder again.
+   */
+  #unreadable: Error | null = null
+  /**
+   * Old runs that are live on disk but may not go on, with the reason — a
+   * missing Goal, unmatched Seats, a check that may have run. Kept out of
+   * `#runs` so nothing advances, re-arms or re-runs them; their files are
+   * left exactly as they were.
+   */
+  #held = new Map<string, { readonly run: StoredRun; readonly reason: string }>()
+  /** Rooms whose stored run file is broken: no flow starts on them until it is restored. */
+  #blocked = new Map<string, string>()
+  /** Set when a stored run names no room at all: no flow starts anywhere. */
+  #corrupt: string | null = null
+  /** Runs on Goals: every new run, and the only engine that seats Agents. */
+  readonly #executions: FlowExecutions | null
+  /** Structured review: candidates and record, host-scoped through the caller's own claimed card. */
+  readonly #review: FlowReview | null
 
-  constructor(dir: string, team: Team, port: FlowPort) {
+  constructor(dir: string, team: Team, port: FlowPort, catalogue?: FlowCatalog, executions?: FlowExecutions, review?: FlowReview) {
     this.#dir = dir
     this.#team = team
     this.#port = port
+    this.#catalogue = catalogue ?? new FlowCatalog({ confine: async () => {}, legacyStrict: true })
+    this.#executions = executions ?? null
+    this.#review = review ?? null
   }
 
   /** Waits out the write chain — a disposer's courtesy, and the tests'. */
@@ -235,6 +313,349 @@ export class Flows implements TeamFlows {
     this.#watching.clear()
     await Promise.all([...this.#turning.values()])
     await this.#writes
+    await this.#executions?.idle()
+  }
+
+  // ------------------------------------------------------------ runs on Goals
+
+  /** A new run on a new Goal. The legacy `start({ room })` route stays for old callers only. */
+  async startGoal(request: FlowStartRequest): Promise<FlowExecution> {
+    if (this.#unreadable) throw this.#unreadable
+    if (this.#corrupt) throw new Error(this.#corrupt)
+    if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#executions.startGoal(request)
+  }
+
+  /** True only once every card of that round is finished and the round's close is on disk. */
+  roundClosed(run: string, round: number): boolean {
+    return this.#executions?.roundClosed(run, round) ?? false
+  }
+
+  /** New durable facts on a Goal: re-read its guards. Messages never come through here. */
+  async wakeEvidence(goal: string): Promise<void> {
+    await this.#executions?.wakeEvidence(goal)
+  }
+
+  openRound(run: string, then: FlowThen, cause: { key: string; evidence: readonly string[] }): Promise<FlowRoundState> {
+    if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#executions.openRound(run, then, cause)
+  }
+
+  /** Phase 8, host-only: a trigger firing's run on its own reserved Goal, dispatch held. See `FlowExecutions.startTriggered`. */
+  async startTriggered(request: TriggerStartRequest): Promise<FlowExecution> {
+    if (this.#unreadable) throw this.#unreadable
+    if (this.#corrupt) throw new Error(this.#corrupt)
+    if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#executions.startTriggered(request)
+  }
+
+  /** Phase 8, host-only: a later firing's round on a trigger's run, dispatch held. */
+  againTriggered(run: string, key: string, evidence: readonly string[]): Promise<FlowRoundState> {
+    if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#executions.againTriggered(run, key, evidence)
+  }
+
+  /** Phase 8, host-only: a trigger's run may dispatch — its firing is recorded and its gates allow it. */
+  resumeTriggered(run: string): Promise<void> {
+    if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#executions.resumeTriggered(run)
+  }
+
+  /** Phase 8, host-only: a new head stops the old one's work. See `FlowExecutions.supersedeTriggered`. */
+  supersedeTriggered(run: string, why: string, next: 'round' | 'person'): Promise<void> {
+    if (!this.#executions) throw new Error('Trigger runs are not available on this desk.')
+    return this.#executions.supersedeTriggered(run, why, next)
+  }
+
+  /** Phase 8, host-only: a pause or the daily cap holds a trigger's run. See `FlowExecutions.holdTriggered`. */
+  holdTriggered(run: string, why: string): Promise<void> {
+    if (!this.#executions) throw new Error('Trigger runs are not available on this desk.')
+    return this.#executions.holdTriggered(run, why)
+  }
+
+  /** Phase 8, host-only: a firing of a trigger's run was set aside for the person. See `FlowExecutions.setAsideTriggered`. */
+  setAsideTriggered(run: string, why: string): Promise<void> {
+    if (!this.#executions) throw new Error('Trigger runs are not available on this desk.')
+    return this.#executions.setAsideTriggered(run, why)
+  }
+
+  /** Stops every check running on a Goal now, each left uncertain for a person. See `FlowExecutions.interruptChecks`. */
+  interruptChecks(goal: string): void {
+    this.#executions?.interruptChecks(goal)
+  }
+
+  /** Every run on this Goal, as execution state. */
+  executionsFor(goal: string): FlowExecution[] {
+    return this.#executions?.runs(goal) ?? []
+  }
+
+  /** A stored v2 run's own frozen source and inputs — never re-read from a path — for a check retry's exact-equality check. */
+  storedRun(run: string): { readonly source: string; readonly vars: Readonly<Record<string, string>> } | null {
+    const stored = this.#executions?.stored(run)
+    return stored ? { source: stored.source, vars: stored.vars } : null
+  }
+
+  /** One run's current execution state, by id alone — the wire read `flow/execution` answers. */
+  executionOf(run: string): FlowExecution | null {
+    const stored = this.#executions?.stored(run)
+    return stored ? this.#executions!.runs(stored.goal).find((one) => one.id === run) ?? null : null
+  }
+
+  /** Runs an interrupted check again, once a person has reviewed it. The only way a v2 check ever runs a second time. */
+  retryCheck(run: string, card: number): Promise<FlowExecution> {
+    if (!this.#executions) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.retryCheck(run, card)
+  }
+
+  /**
+   * A person's Stop. What the run had released but not yet sent is skipped by
+   * the listeners (`onRunStopped`); a comment already on its way is read
+   * back, never rolled back. The wrap barrier (`stopGoal`) is not a Stop: a
+   * wrap waits for its findings' posting instead.
+   */
+  async stopRun(id: string, why?: string): Promise<FlowExecution> {
+    if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
+    const stopped = await this.#executions.stop(id, why)
+    for (const listener of this.#runStopped) await listener(id)
+    return stopped
+  }
+
+  /**
+   * One person decision on a run inside its queue (`FlowExecutions.withDecision`).
+   * A Drop inside it stops the run there; the stop's listeners are told once
+   * the step has let the queue go, exactly as `stopRun` tells them.
+   */
+  async withDecision<T>(id: string, step: (ops: RunDecisionOps) => Promise<T>): Promise<T> {
+    if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
+    let stopped = false
+    const result = await this.#executions.withDecision(id, (ops) => step({
+      ...ops,
+      stop: async (why) => { await ops.stop(why); stopped = true },
+    }))
+    if (stopped) for (const listener of this.#runStopped) await listener(id)
+    return result
+  }
+
+  readonly #runStopped = new Set<(run: string) => Promise<void>>()
+
+  /** Told after a person stops a run on a Goal, awaited before the Stop answers. */
+  onRunStopped(listener: (run: string) => Promise<void>): () => void {
+    this.#runStopped.add(listener)
+    return () => this.#runStopped.delete(listener)
+  }
+
+  /** The wrap barrier: every run on this Goal stops dispatching before the Goal's receipt is taken. */
+  async stopGoal(goal: string, why = 'the Goal is being wrapped'): Promise<void> {
+    await this.#executions?.stopGoal(goal, why)
+    for (const run of [...this.#runs.values()]) {
+      if (run.room === goal && (run.state === 'running' || run.state === 'stalled')) this.stop(run.id, why)
+    }
+    await this.#writes
+  }
+
+  bindingOf(room: string, intent: number): { readonly session: { readonly runtime: string; readonly sessionId: string } | null } | null {
+    return this.#executions?.bindingOf(room, intent) ?? null
+  }
+
+  /** The host's own assignment path asks this too: a card whose Seat is still opening may be claimed by that opening. */
+  bindingFor(room: string, intent: number): ReturnType<FlowExecutions['bindingOf']> {
+    return this.#executions?.bindingOf(room, intent) ?? null
+  }
+
+  messagingLocked(room: string): string | null {
+    return this.#executions?.messagingLocked(room) ?? null
+  }
+
+  /** A finished round's evidence subjects, forwarded so the host's evidence-guard wiring never reaches `FlowExecutions` around this. */
+  subjectsOf(goal: string, round: FlowRoundState): ReturnType<FlowExecutions['subjectsOf']> {
+    return this.#executions?.subjectsOf(goal, round) ?? Promise.resolve([])
+  }
+
+  /** What a review call binds to on this Goal: forwarded to the host's `FlowReviewPort` wiring, never resolved twice. */
+  reviewBindingFor(
+    goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string },
+  ): ReturnType<FlowExecutions['reviewBinding']> {
+    return this.#executions?.reviewBinding(goal, card, caller) ?? Promise.resolve(null)
+  }
+
+  /** The card a finding command is bound to, forwarded so the findings plane never reaches `FlowExecutions` around this. */
+  findingBinding(goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string }): ReturnType<FlowExecutions['findingBinding']> {
+    return this.#executions?.findingBinding(goal, card, caller) ?? null
+  }
+
+  /** One finding command inside its run's queue, with the run's own journal. */
+  withFindingJournal<T>(run: string, step: (journal: FindingJournal) => Promise<T>): Promise<T> {
+    if (!this.#executions?.stored(run)) return Promise.reject(new Error(`There is no flow run ${run}.`))
+    return this.#executions.withFindingJournal(run, step)
+  }
+
+  /** One publication step inside its run's queue, with the run's own publication journal. */
+  withPublicationJournal<T>(run: string, step: (journal: PublicationJournal) => Promise<T>): Promise<T> {
+    if (!this.#executions?.stored(run)) return Promise.reject(new Error(`There is no flow run ${run}.`))
+    return this.#executions.withPublicationJournal(run, step)
+  }
+
+  publicationRuns(): ReturnType<FlowExecutions['publicationRuns']> {
+    return this.#executions?.publicationRuns() ?? []
+  }
+
+  publicationOf(run: string): ReturnType<FlowExecutions['publicationOf']> {
+    return this.#executions?.publicationOf(run) ?? null
+  }
+
+  publicationEntry(key: string): ReturnType<FlowExecutions['publicationEntry']> {
+    return this.#executions?.publicationEntry(key) ?? null
+  }
+
+  /** Runs whose finding commands a restart has to settle. */
+  pendingFindings(): ReturnType<FlowExecutions['pendingFindings']> {
+    return this.#executions?.pendingFindings() ?? []
+  }
+
+  /**
+   * Subscribes to round closes (`FindingFlowHooks`): the listener schedules
+   * work and returns; no later round opens until the close is recorded
+   * through `recordRoundClose`. A desk with no flows on Goals never calls it.
+   */
+  onRoundClosed(listener: (run: string, round: number) => void | Promise<void>): () => void {
+    return this.#executions?.onRoundClosed(listener) ?? (() => {})
+  }
+
+  attachFindingsGate(gate: Parameters<FlowExecutions['attachFindingsGate']>[0]): void {
+    this.#executions?.attachFindingsGate(gate)
+  }
+
+  attachReviewPackets(packets: Parameters<FlowExecutions['attachReviewPackets']>[0]): void {
+    this.#executions?.attachReviewPackets(packets)
+  }
+
+  findingRun(run: string): ReturnType<FlowExecutions['findingRun']> {
+    return this.#executions?.findingRun(run) ?? null
+  }
+
+  recordRoundClose(run: string, round: number, next: Parameters<FlowExecutions['recordRoundClose']>[2]): Promise<void> {
+    return this.#executions?.recordRoundClose(run, round, next) ?? Promise.resolve()
+  }
+
+  /** A person's "Another round": one more transition past a recorded stop, never a budget reset. */
+  authorizeExtraRound(run: string, round: number, reason: string): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.authorizeExtraRound(run, round, reason)
+  }
+
+  /** A person admitting or declining a pending regression or security exception. */
+  recordExceptionDecision(run: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.recordExceptionDecision(run, findings, admit)
+  }
+
+  /** A person's recorded merge-anyway disagreement: never a merge by itself. */
+  recordOverride(run: string, override: FindingOverride): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.recordOverride(run, override)
+  }
+
+  /** The last `finding/decide` this run actually applied, so a resubmitted stamp replays rather than refuses. */
+  recordDecisionStamp(run: string, stamp: string, key: string): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.recordDecisionStamp(run, stamp, key)
+  }
+
+  /** Every review series across every run this Goal has had, unioned by role and checkout: what "currently blocking" reads against. */
+  seriesOfGoal(goal: string): readonly FindingSeries[] {
+    return this.#executions?.seriesOfGoal(goal) ?? []
+  }
+
+  /** Every person override this Goal has recorded, across every run: what a wrap freezes into its receipt. */
+  overridesOfGoal(goal: string): readonly FindingOverride[] {
+    return this.#executions?.overridesOfGoal(goal) ?? []
+  }
+
+  /** The open blind review rounds on a Goal, for the board's reads and the channel's refusals. */
+  embargoedRounds(room: string): ReturnType<FlowExecutions['embargoedRounds']> {
+    return this.#executions?.embargoedRounds(room) ?? []
+  }
+
+  blindRounds(room: string): ReturnType<FlowExecutions['blindRounds']> {
+    return this.#executions?.blindRounds(room) ?? []
+  }
+
+  /** Whether nobody is watching this conversation's questions: it is a Seat of a running run. */
+  unattended(runtime: string, sessionId: string): boolean {
+    return this.#executions?.unattended(runtime, sessionId) ?? false
+  }
+
+  stopForQuestion(runtime: string, sessionId: string, reason: string): Promise<boolean> {
+    return this.#executions?.stopForQuestion(runtime, sessionId, reason) ?? Promise.resolve(false)
+  }
+
+  /** A candidate this process minted for this caller's card, still current. */
+  heldCandidate(candidate: string, intent: number, scope: TeamCallScope): ReturnType<FlowReview['held']> {
+    return this.#review?.held(candidate, intent, scope) ?? Promise.resolve(null)
+  }
+
+  /** Observed predecessor subjects this caller's own claimed card may judge. */
+  async reviewCandidates(intent: number, scope: TeamCallScope): Promise<readonly ReviewCandidate[]> {
+    return (await this.#review?.candidates(intent, scope)) ?? []
+  }
+
+  /** Records one structured verdict. Throws the refusal — there is no evidence record to hand back otherwise. */
+  async recordReview(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord> {
+    if (!this.#review) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#review.record(input, scope)
+  }
+
+  /**
+   * Why `complete_claim` may not finish this card yet: its role declares
+   * `produces: review` and this caller's Seat has not recorded one. `null`
+   * for every card no v2 run bound, and for one whose role asks nothing of
+   * the kind — the common case, checked first so it costs nothing there.
+   */
+  async refuseCompletion(room: string, intent: Intent, caller: TeamCallScope): Promise<string | null> {
+    if (!this.#executions?.requiresReview(room, intent.id)) return null
+    if (!this.#review || !caller.runtime || !caller.sessionId) {
+      return 'This card needs a structured review before it can complete. Ask for review candidates and record one first.'
+    }
+    const owed = await this.#review.owed(intent.id, { runtime: caller.runtime, sessionId: caller.sessionId })
+    return owed ? 'This card needs a structured review before it can complete. Ask for review candidates and record one first.' : null
+  }
+
+  /**
+   * An old run held because its check may already have run: the person has
+   * looked, and asks for it to run. The only way such a check runs again.
+   */
+  async runAgain(id: string): Promise<FlowRun> {
+    const held = this.#held.get(id)
+    if (!held) throw new Error(`There is no held flow run ${id}.`)
+    const again = recoveryOf({
+      terminal: false, ...this.#goalState(held.run.room), seatsMapped: legacySeatsMapped(held.run, this.#port.recovery.seats(held.run.room)),
+      uncertainCheck: false,
+    })
+    if (again !== 'resume') throw new Error(again)
+    this.#held.delete(id)
+    this.#runs.set(id, held.run)
+    await this.#runChecks(id)
+    return this.#save(id)
+  }
+
+  #modernCard(room: string, intent: number): boolean {
+    return this.#executions?.runs(room).some((run) => run.rounds.some((round) => round.cards.includes(intent))) ?? false
+  }
+
+  #goalState(room: string): { goalExists: boolean; goalWritable: boolean } {
+    const goal = this.#port.recovery.goal(room)
+    return { goalExists: goal.exists, goalWritable: goal.writable }
+  }
+
+  /** A seat governed by a flow that is still live; settled and stopped runs govern nothing. */
+  seatOf(runtime: string, sessionId: string): FlowSeatRecord | null {
+    const key = String(sessionKey(runtime as never, sessionId as never))
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running' && run.state !== 'stalled') continue
+      const seat = Array.isArray(run.seats) ? run.seats.find((one) => one.key === key) : undefined
+      if (seat) return seat
+    }
+    return null
   }
 
   // ------------------------------------------------------------------ reading
@@ -245,60 +666,62 @@ export class Flows implements TeamFlows {
    * A file that does not parse is listed *with its problem* rather than left
    * out: a flow that has gone missing from the picker because somebody
    * mistyped a line is the one failure a picker must not have.
+   *
+   * A folder that will not open is raised rather than listed as empty, for the
+   * same reason one level up: "no flows in this project yet" over a folder the
+   * desk was refused is that failure for every flow at once, and the error
+   * names the folder and the reason. Only a folder nobody has made, or a
+   * `.harnessdesk` somebody made a file, has none.
    */
   async list(root: string): Promise<FlowFile[]> {
-    let names: string[]
-    try {
-      names = await readdir(join(root, FLOW_DIR))
-    } catch {
-      return []
-    }
-    const files: FlowFile[] = []
-    for (const name of names.sort()) {
-      if (!name.endsWith('.yml') && !name.endsWith('.yaml')) continue
-      const path = `${FLOW_DIR}/${name}`
-      try {
-        const source = await readFile(join(root, path), 'utf8')
-        const { flow, problems } = parseFlow(source, name.replace(/\.ya?ml$/, ''))
-        const failed = problems.find((one) => one.level === 'error')
-        files.push({
-          path,
-          name: flow?.name ?? name.replace(/\.ya?ml$/, ''),
-          ...(flow?.description ? { description: flow.description } : {}),
-          ...(failed ? { problem: `${failed.at}: ${failed.text}` } : {}),
-        })
-      } catch (error) {
-        files.push({
-          path,
-          name: name.replace(/\.ya?ml$/, ''),
-          problem: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-    return files
+    return (await this.#catalogue.list(root)).map((entry) => ({
+      path: entry.path,
+      name: entry.name,
+      ...(entry.description ? { description: entry.description } : {}),
+      ...(entry.problem ? { problem: entry.problem } : {}),
+    }))
   }
 
   /** One flow's text, as it is on disk. */
   async source(root: string, path: string): Promise<string> {
-    if (!path.startsWith(`${FLOW_DIR}/`) || path.includes('..')) {
-      throw new Error(`A flow is read from ${FLOW_DIR}; "${path}" is somewhere else.`)
-    }
-    return readFile(join(root, path), 'utf8')
+    return this.#catalogue.read(root, path)
+  }
+
+  /** The v2 catalogue, whole: every layer's entries, shadows included. */
+  async catalog(root: string): Promise<readonly import('@harnessdesk/protocol').FlowEntry[]> {
+    return this.#catalogue.list(root)
+  }
+
+  /** One catalogue entry's text, by its bare id — never a path. */
+  async catalogSource(root: string, id: string, origin?: import('@harnessdesk/protocol').FlowOrigin): Promise<string> {
+    return this.#catalogue.readById(root, id, origin)
   }
 
   // ------------------------------------------------------------------ the runs
 
   /** Every run this room has had, oldest first. */
   runsFor(room: string): FlowRun[] {
-    return [...this.#runs.values()]
+    if (this.#unreadable) throw this.#unreadable
+    return this.#runsIn(room)
+  }
+
+  /**
+   * The same answer without the refusal, for pushing a change of a run this
+   * desk holds — which it only can once its runs were read.
+   */
+  #runsIn(room: string): StoredRun[] {
+    const held = [...this.#held.values()]
+      .filter((one) => one.run.room === room)
+      .map((one): StoredRun => ({ ...one.run, state: 'stalled', ended: one.reason }))
+    return [...this.#runs.values(), ...held]
       .filter((run) => run.room === room)
       .sort((a, b) => a.startedAt - b.startedAt)
   }
 
-  /** The run still going in this room, if any. A room runs one flow at a time. */
+  /** The run still going in this room, if any — a held one included. A room runs one flow at a time. */
   #liveIn(room: string): StoredRun | null {
     return (
-      [...this.#runs.values()].find(
+      [...this.#runs.values(), ...[...this.#held.values()].map((one) => one.run)].find(
         (run) => run.room === room && (run.state === 'running' || run.state === 'stalled'),
       ) ?? null
     )
@@ -312,11 +735,16 @@ export class Flows implements TeamFlows {
    * reach by pressing something.
    */
   async start(request: FlowStart): Promise<FlowRun> {
+    if (this.#unreadable) throw this.#unreadable
+    const corrupt = this.#corrupt ?? this.#blocked.get(request.room) ?? this.#executions?.refusal(request.room) ?? null
+    if (corrupt) throw new Error(corrupt)
     if (!this.#team.hasRoom(request.room)) {
       throw new Error(`There is no room ${request.room}.`)
     }
+    const allowed = this.#port.canMutateBoard?.(request.room)
+    if (allowed && !allowed.ok) throw new Error(allowed.reason)
     const board = this.#team.stateFor(request.room)
-    if (this.#liveIn(request.room)) {
+    if (this.#liveIn(request.room) || this.#executions?.runs(request.room).some((run) => run.state === 'running' || run.state === 'stalled')) {
       throw new Error(
         `${board.name} is already running a flow. Stop it first — a second one would open cards into the same board and neither could tell which were its own.`,
       )
@@ -329,6 +757,12 @@ export class Flows implements TeamFlows {
         `This flow will not run yet:\n${failed.map((one) => `• ${one.at}: ${one.text}`).join('\n')}`,
       )
     }
+    /* Where the seats open and what an isolating role's worktrees are cut
+       from, held to what is open before any of it happens. A room outlives
+       its folder being open: forgetting the folder leaves the room, and so
+       does every launch after it. */
+    const folder = board.cwd ?? board.root
+    await this.#port.confine(folder)
     const vars: Record<string, string> = {}
     for (const input of flow.inputs) vars[input.id] = request.vars?.[input.id] ?? input.default ?? ''
 
@@ -347,64 +781,65 @@ export class Flows implements TeamFlows {
        live, roled, and owned by no run — turns spent on members nothing would
        ever stand down. */
     const opened: FlowSeatRecord[] = []
+    const openedIds = new Map<string, SeatId>()
     /* Naming happens before a word is written about anybody. A room names its
        members *lazily* — on the first look at the roster — so an order
        rendered straight after seating called a seat by its label ("Cursor ·
        Gemini 3.8 Flash · High") while the room addressed it as "Gemini 3", and
        the order is the one place a seat is told what it is called. */
     const undo = async (why: string): Promise<void> => {
+      const failures: string[] = []
       for (const seat of opened) {
-        this.#team.setRole(request.room, seat.runtime, seat.sessionId, null)
         try {
-          this.#team.leaveRoom(request.room, seat.runtime as never, seat.sessionId)
-        } catch {
-          // A room that is already gone needs no leaving.
+          await this.#port.retire(seat.runtime, seat.sessionId)
+          const seatId = openedIds.get(`${seat.runtime}\u0000${seat.sessionId}`)
+          if (seatId) await this.#port.releaseGoalSeat(request.room, seatId)
+        } catch (error) {
+          failures.push(error instanceof Error ? error.message : String(error))
         }
-        await this.#port.retire(seat.runtime, seat.sessionId).catch(() => {})
       }
-      this.#port.log('a flow could not seat every role, so the ones it opened were closed', {
-        room: request.room,
-        opened: opened.length,
-        why,
+      this.#port.log('a flow could not seat every role, so its opened Seats were released', {
+        room: request.room, opened: opened.length, why, failures,
       })
+      if (failures.length > 0) {
+        throw new Error(`${why} Cleanup also failed: ${failures.join('; ')}. The partial conversations were kept.`)
+      }
     }
 
     try {
-    for (const role of flow.roles) {
-      if (role.kind !== 'agent') continue
-      for (let index = 0; index < role.count; index += 1) {
-        const spec = seatAt(role, index)
-        const targetCwd = board.cwd ?? board.root
-        const cwd = role.isolate
-          ? await this.#port.isolate(targetCwd, `${role.id}-${index + 1}-${id.slice(-4)}`)
-          : targetCwd
-        const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${board.name} · ${flow.name}`
-        const live = await this.#port.seat(spec, { cwd, title })
-        const held: FlowSeatRecord = {
-          /* Escaped, not the raw byte: a NUL in the source makes the whole
-             file binary to grep, and the string is identical either way. */
-          key: `${live.runtime}\u0000${live.sessionId}`,
-          role: role.id,
-          runtime: live.runtime,
-          sessionId: live.sessionId,
-          seat: live.label,
-          spec,
-          permission: role.permission,
-          cwd,
+      for (const role of flow.roles) {
+        if (role.kind !== 'agent') continue
+        for (let index = 0; index < role.count; index += 1) {
+          const spec = seatAt(role, index)
+          const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${board.name} · ${flow.name}`
+          const durable = await this.#port.openLegacySeat({
+            goal: request.room,
+            spec,
+            permission: role.permission,
+            role: role.id,
+            isolate: Boolean(role.isolate),
+            title,
+            lane: `${role.id}-${index + 1}-${id.slice(-4)}`,
+          })
+          openedIds.set(`${durable.session.runtime}\u0000${durable.session.sessionId}`, durable.id)
+          const held: FlowSeatRecord = {
+            key: `${durable.session.runtime}\u0000${durable.session.sessionId}`,
+            role: role.id,
+            runtime: durable.session.runtime,
+            sessionId: durable.session.sessionId,
+            seat: durable.seatLabel,
+            spec,
+            permission: role.permission,
+            cwd: durable.checkout.cwd,
+          }
+          seats.push(held)
+          opened.push(held)
+          record.push({
+            at: now(), kind: 'seated', role: role.id, seat: durable.seatLabel,
+            text: durable.checkout.cwd === board.root ? null : durable.checkout.cwd,
+          })
         }
-        seats.push(held)
-        opened.push(held)
-        await this.#port.join(request.room, live.runtime, live.sessionId)
-        this.#team.setRole(request.room, live.runtime, live.sessionId, role.id)
-        record.push({
-          at: now(),
-          kind: 'seated',
-          role: role.id,
-          seat: live.label,
-          text: cwd === board.root ? null : cwd,
-        })
       }
-    }
 
     /* The orders are inside the same transaction as the seating, and the run
        is published only once every one of them has landed.
@@ -454,7 +889,6 @@ export class Flows implements TeamFlows {
       startedAt: now(),
     }
     this.#runs.set(id, run)
-
     /* Past this line the run exists, so a failure is *stopped* rather than
        unwound: its seats have their orders and are already waiting, and a run
        that vanished from under them would leave four turns paid for and
@@ -483,6 +917,12 @@ export class Flows implements TeamFlows {
 
   /** Stops a run: the cards stay as the record, and every seat is told to stand down. */
   stop(id: string, why = 'the person stopped this flow'): FlowRun {
+    const held = this.#held.get(id)
+    if (held) {
+      // The person's own stop is the one write an old held run gets.
+      this.#held.delete(id)
+      this.#runs.set(id, held.run)
+    }
     const run = this.#runs.get(id)
     if (!run) throw new Error(`There is no flow run ${id}.`)
     if (run.state !== 'running' && run.state !== 'stalled') return run
@@ -512,6 +952,7 @@ export class Flows implements TeamFlows {
    * and the next round simply never opens.
    */
   refuseOutcome(room: string, intent: Intent, outcome: string | null): string | null {
+    if (this.#modernCard(room, intent.id)) return this.#executions!.refuseOutcome(room, intent, outcome)
     const run = this.#runFor(room, intent.id)
     if (!run) return null
     const role = run.flow.roles.find((one) => one.id === intent.role)
@@ -527,6 +968,10 @@ export class Flows implements TeamFlows {
 
   /** A card finished. Whether that finishes its round is the next question. */
   completed(room: string, intent: Intent): void {
+    if (this.#modernCard(room, intent.id)) {
+      this.#executions!.completed(room, intent.id)
+      return
+    }
     const run = this.#runFor(room, intent.id)
     if (!run || (run.state !== 'running' && run.state !== 'stalled')) return
     if (run.state === 'stalled') {
@@ -585,6 +1030,7 @@ export class Flows implements TeamFlows {
    * rather than quietly draining an account.
    */
   async reArm(runtime: string, sessionId: string): Promise<void> {
+    if (await this.#executions?.reArm(runtime, sessionId)) return
     const key = String(sessionKey(runtime as never, sessionId as never))
     const run = [...this.#runs.values()].find(
       (one) =>
@@ -859,6 +1305,7 @@ export class Flows implements TeamFlows {
 
   /** Stops every active flow run in a room that was deleted. */
   deleteRoom(room: string): void {
+    void this.#executions?.stopGoal(room, 'the room this flow ran in was deleted')
     for (const run of this.#runs.values()) {
       if (run.room === room && (run.state === 'running' || run.state === 'stalled')) {
         this.stop(run.id, 'the room this flow ran in was deleted')
@@ -868,7 +1315,11 @@ export class Flows implements TeamFlows {
 
   /** Why this seat should stop waiting — the one thing that may end its turn. */
   standDown(room: string, runtime: string, sessionId: string): string | null {
+    const modern = this.#executions?.standDown(room, runtime, sessionId) ?? null
+    if (modern) return modern
     const key = `${runtime}\u0000${sessionId}`
+    const held = [...this.#held.values()].find((one) => one.run.room === room && one.run.seats.some((seat) => seat.key === key))
+    if (held && ![...this.#runs.values()].some((one) => one.room === room && one.state === 'running')) return held.reason
     const runs = [...this.#runs.values()]
       .filter(
         (one) => one.room === room && Array.isArray(one.seats) && one.seats.some((seat) => seat.key === key),
@@ -1020,7 +1471,7 @@ export class Flows implements TeamFlows {
         ...(then.files && then.files.length > 0 ? { files: then.files } : {}),
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
         role: role.id,
-      })
+      }, { kind: 'user' })
       intents.push(card.id)
     }
     const round: FlowRound = {
@@ -1070,7 +1521,11 @@ export class Flows implements TeamFlows {
       if (!current || current.state !== 'running') return
       const card = board.intents.find((c) => c.id === intent)
       if (card && (card.state === 'done' || card.state === 'abandoned')) continue
-      const { status } = await this.#port.run(check.run, { cwd, timeoutSec: check.timeout })
+      const { status } = await this.#port.run(check.run, {
+        cwd,
+        timeoutSec: check.timeout,
+        card: { room: run.room, intent, name: role.id, round: round.n },
+      })
       const outcome = status === null ? check.otherwise : (check.exits[String(status)] ?? check.otherwise)
       const note =
         status === null
@@ -1145,64 +1600,66 @@ export class Flows implements TeamFlows {
    * forever. Asking the board is also what recovers a run whose round was
    * half opened, and it is the same question `#advance` asks in the ordinary
    * case — one code path, exercised on every launch.
+   *
+   * A folder of runs that will not open is raised, and kept — see
+   * `#unreadable` for why it outlives this call.
    */
   async load(): Promise<void> {
-    let names: string[] = []
+    let names: string[]
     try {
       names = await readdir(this.#dir)
-    } catch {
-      return
+    } catch (error) {
+      /* Nothing but `#save` writes this folder, so only a folder not made yet
+         is "no runs" — unlike a project's `.harnessdesk`, which is somebody
+         else's to make a file of. */
+      if (!NOTHING_YET.has(errnoOf(error))) {
+        this.#unreadable = new Error(
+          `The flow runs this desk keeps could not be read — ${
+            error instanceof Error ? error.message : String(error)
+          }. Until they can be, it cannot tell which flows are running, so it will not start another on top of one. Fix that folder, then restart HarnessDesk.`,
+          { cause: error },
+        )
+        throw error
+      }
+      names = []
     }
     for (const name of names) {
       if (!name.endsWith('.json')) continue
+      let raw: unknown = null
       try {
-        const raw = JSON.parse(await readFile(join(this.#dir, name), 'utf8')) as StoredRun
-        if (
-          !raw ||
-          typeof raw !== 'object' ||
-          typeof raw.id !== 'string' ||
-          !raw.id ||
-          typeof raw.room !== 'string' ||
-          !raw.room ||
-          typeof raw.flow !== 'object' ||
-          raw.flow === null ||
-          typeof raw.flow.name !== 'string' ||
-          !Array.isArray(raw.flow.roles) ||
-          !Array.isArray(raw.flow.rules) ||
-          !Array.isArray(raw.flow.inputs) ||
-          !Array.isArray(raw.rounds) ||
-          !Array.isArray(raw.seats) ||
-          !Array.isArray(raw.record)
-        ) {
-          throw new Error('run data is missing required fields or has non-array rounds, seats, or record')
-        }
-        this.#runs.set(raw.id, raw)
+        raw = JSON.parse(await readFile(join(this.#dir, name), 'utf8'))
+        const run = legacyRunOf(raw) as StoredRun
+        this.#runs.set(run.id, run)
       } catch (error) {
+        /* Kept on disk as it is. A broken file that still names its room
+           blocks that room; one that names nothing blocks every start. */
+        const room = typeof (raw as { room?: unknown } | null)?.room === 'string' && (raw as { room: string }).room
+          ? (raw as { room: string }).room : null
+        if (room) this.#blocked.set(room, CORRUPT_RUN)
+        else this.#corrupt = CORRUPT_RUN
         this.#port.log('a stored flow run could not be read', { file: name, error: String(error) })
       }
     }
     for (const run of [...this.#runs.values()]) {
       if (run.state !== 'running' && run.state !== 'stalled') continue
-      /* A room that no longer exists takes its run with it. */
-      let exists = false
+      /* Old runs answer to the Goal and the Seats phase 5 kept for them. One
+         that cannot be matched, or whose check may already have run, is held
+         with its reason: its file is not rewritten and nothing is re-run. */
+      let decision: string
       try {
-        exists = this.#team.hasRoom(run.room)
-      } catch {
-        exists = false
-      }
-      if (!exists) {
-        const record = Array.isArray(run.record) ? run.record : []
-        this.#runs.set(run.id, {
-          ...run,
-          state: 'stopped',
-          endedAt: now(),
-          ended: 'the room this flow ran in is gone',
-          record: [
-            ...record,
-            { at: now(), kind: 'stopped', text: 'the room this flow ran in is gone' },
-          ],
+        decision = recoveryOf({
+          terminal: false,
+          ...this.#goalState(run.room),
+          seatsMapped: legacySeatsMapped(run, this.#port.recovery.seats(run.room)),
+          uncertainCheck: legacyCheckUncertain(run, this.#team.hasRoom(run.room) ? this.#team.stateFor(run.room).intents : []),
         })
-        this.#save(run.id)
+      } catch (error) {
+        decision = `This run could not be matched to its Goal: ${error instanceof Error ? error.message : String(error)}`
+      }
+      if (decision !== 'resume') {
+        this.#runs.delete(run.id)
+        this.#held.set(run.id, { run, reason: decision })
+        await this.#sidecar(run, decision)
         continue
       }
       if (run.state === 'running') {
@@ -1215,6 +1672,27 @@ export class Flows implements TeamFlows {
           })
         }
       }
+    }
+    await this.#executions?.load(executionOf)
+  }
+
+  /**
+   * The recovery decision for an old run, beside it under `flows-v2/`: the old
+   * file stays exactly as it was, so undoing the decision is deleting this.
+   */
+  async #sidecar(run: StoredRun, reason: string): Promise<void> {
+    if (!this.#executions) return
+    const document = { format: 'legacy' as const, flow: run.flow }
+    const sidecar: StoredFlowExecution = {
+      version: 2, id: run.id, goal: run.room, document, state: 'stalled', rounds: [], operations: [],
+      legacyRun: run, reason, compiled: { document, bindings: [], problems: [] }, source: '', sourcePath: run.source ?? null,
+      vars: run.vars ?? {}, startedAt: run.startedAt, updatedAt: now(),
+      authorization: { sourceDigest: sourceDigest(''), commandDigest: sourceDigest(''), approvedAt: run.startedAt }, operationTimes: {},
+    }
+    try {
+      await new ExecutionFiles(join(this.#dir, '..', 'flows-v2')).save(sidecar)
+    } catch (error) {
+      this.#port.log('a held flow run could not record why', { run: run.id, error: error instanceof Error ? error.message : String(error) })
     }
   }
 
@@ -1237,17 +1715,21 @@ export class Flows implements TeamFlows {
    * has no seat to wake, so without `#runChecks` a run interrupted during a
    * check round stayed deadlocked on its open card forever (#437).
    */
-  async resume(): Promise<void> {
-    for (const run of [...this.#runs.values()]) {
-      if (run.state !== 'running') continue
-      await this.#armFor(run.id)
-      await this.#runChecks(run.id)
+  async resume(which: 'all' | 'person' | 'triggered' = 'all'): Promise<void> {
+    // Runs of the first engine are never a trigger's: they go with the person's.
+    if (which !== 'triggered') {
+      for (const run of [...this.#runs.values()]) {
+        if (run.state !== 'running') continue
+        await this.#armFor(run.id)
+        await this.#runChecks(run.id)
+      }
     }
+    await this.#executions?.resume(which)
   }
 
   #save(id: string): FlowRun {
     const run = this.#runs.get(id) as StoredRun
-    this.#port.changed(run.room, this.runsFor(run.room))
+    this.#port.changed(run.room, this.#runsIn(run.room))
     const file = join(this.#dir, `${encodeURIComponent(id)}.json`)
     /* Written whole and renamed into place, the way the board is: a reader
        that catches a half-written run is a run that reads as gone. */

@@ -6,7 +6,11 @@
  *   FAKE_CLI_STYLE  json | text        — how `status` speaks
  *   FAKE_CLI_STATE  in | out           — whether anyone is signed in
  *   FAKE_CLI_LOGIN  ok | fail | silent | hang — how `login` behaves
+ *   FAKE_CLI_TOUCH  <path>            — a file `logout` writes, so a test can
+ *                                       tell that this CLI ran and not ACP
  */
+import { writeFileSync } from 'node:fs'
+
 const [verb] = process.argv.slice(2)
 const style = process.env.FAKE_CLI_STYLE ?? 'json'
 const state = process.env.FAKE_CLI_STATE ?? 'in'
@@ -58,6 +62,7 @@ if (verb === 'login') {
     }, 250)
   }
 } else if (verb === 'logout') {
+  if (process.env.FAKE_CLI_TOUCH) writeFileSync(process.env.FAKE_CLI_TOUCH, 'out')
   process.stdout.write('Signed out.\n')
   process.exit(0)
 } else if (verb !== 'login') {

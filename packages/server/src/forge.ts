@@ -43,6 +43,14 @@ export interface ForgePort {
   record(runtime: string, sessionId: string, item: PublicationItem): boolean
   /** Whether the `pr_*` tools are registered right now — the instruction names them. */
   toolsOffered(): boolean
+  /** Why a conversation may not publish to a forge yet — a blind review round still open — or null. Absent: never embargoed. */
+  embargoOf?(runtime: string, sessionId: string): string | null
+  /**
+   * Something the desk posted reached the forge: told before anything else,
+   * whether or not the conversation can record it, so a trigger reading the
+   * forge back never answers the desk's own comment as a person's.
+   */
+  posted?(reference: ForgeReference): Promise<void>
 }
 
 export interface ForgePlaneOptions {
@@ -83,7 +91,7 @@ export const ghOnPath: GhRunner = async (args) => {
  * that already knows `gh` understands the trade.
  */
 export const FORGE_INSTRUCTION =
-  'Open, update and review pull requests with the HarnessDesk pr_create, pr_update and pr_review tools rather than gh: they sign the pull request for this seat and put it in the conversation.'
+  'Open, update, review and merge pull requests with the HarnessDesk pr_create, pr_update, pr_review and pr_merge tools rather than gh: they sign the pull request for this seat, put it in the conversation, and hold the seat to its ceiling.'
 
 const DEFAULT_IDENTITY_TTL_MS = 5 * 60_000
 
@@ -156,6 +164,19 @@ export class ForgePlane implements ForgeEngine {
     this.#identity = null
   }
 
+  /**
+   * Whether the calling conversation may put words on the forge now. An
+   * embargo, in addition to every permission and ceiling: a Seat reviewing in
+   * a blind round that has not closed publishes nothing — its findings go out
+   * with the round, together. A call that names no conversation cannot be a
+   * blind reviewer's, and is answered by the gates that already hold it.
+   */
+  async publicationAllowed(scope: ForgeScope): Promise<{ ok: true } | { ok: false; reason: string }> {
+    if (!scope.runtime || !scope.sessionId) return { ok: true }
+    const reason = this.port.embargoOf?.(scope.runtime, scope.sessionId) ?? null
+    return reason === null ? { ok: true } : { ok: false, reason }
+  }
+
   async publish(reference: ForgeReference, scope: ForgeScope): Promise<void> {
     if (!scope.runtime || !scope.sessionId) {
       throw new Error('A publication is recorded against a conversation, and this call named none.')
@@ -165,6 +186,7 @@ export class ForgePlane implements ForgeEngine {
     if (!isForgeReference(reference)) {
       throw new Error('The publication is not a forge reference: kind, repo, number, url and via are required, in their types.')
     }
+    await this.port.posted?.(reference).catch(() => {})
     const now = Date.now()
     const item: PublicationItem = {
       id: itemId(`publication-${randomUUID()}`),

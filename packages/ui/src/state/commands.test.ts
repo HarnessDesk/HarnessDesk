@@ -178,6 +178,33 @@ describe('availableCommands', () => {
     expect(deploy?.source).toBe('Deploy')
     expect(deploy?.kind.type).toBe('action')
   })
+
+  /**
+   * A skill is typed into the composer, so it waits like anything else typed
+   * there. `turn/send` starts a turn now and cannot wait — a `/skill` sent
+   * that way while the agent was working asked it two things at once, which
+   * the ACP adapter now refuses rather than answering both into one message.
+   */
+  test('an agent skill goes through the queue, like the composer’s own text', async () => {
+    const withSkill = snapshot({
+      skills: [{ name: 'review', description: 'Review the diff', enabled: true }],
+    })
+    const review = availableCommands(withSkill).find((command) => command.name === 'review')
+    expect(review?.kind.type).toBe('action')
+
+    const doors: string[] = []
+    const store = {
+      queue: async () => {
+        doors.push('queue')
+        return true
+      },
+      send: async () => {
+        doors.push('send')
+      },
+    } as unknown as AppStore
+    if (review?.kind.type === 'action') await review.kind.run(store, 'the diff')
+    expect(doors).toEqual(['queue'])
+  })
 })
 
 /**

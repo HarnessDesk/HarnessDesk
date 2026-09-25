@@ -3,19 +3,10 @@
 .goal {
   max-width: var(--hd-column);
   margin: 0 auto 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: var(--hd-space-2) 12px; /* desk: canonical One UI System scale */
-  border-radius: var(--hd-radius);
-  background: var(--hd-muted);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
-  font-size: var(--hd-text-sm);
 }
 
 .goalIcon {
   flex: none;
-  color: var(--hd-accent);
 }
 
 .goalText {
@@ -26,44 +17,13 @@
   white-space: nowrap;
 }
 
-.goalStatus {
-  flex: none;
-  height: 18px;
-  padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
-  border-radius: var(--hd-radius-md); /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-sm);
-  line-height: 18px;
-  background: var(--hd-accent-dim);
-  color: var(--hd-accent);
-}
-
-.goalStatus[data-status='complete'] {
-  background: color-mix(in srgb, var(--hd-success) 16%, transparent); /* desk: a forked literal → the token it was a copy of */
-  color: var(--hd-success);
-}
-
-.goalStatus[data-status='blocked'],
-.goalStatus[data-status='usageLimited'],
-.goalStatus[data-status='budgetLimited'] {
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-}
-
 .goalBudget {
   flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
 }
 
 .goalClear {
   flex: none;
-  display: inline-grid;
-  place-items: center;
-
   width: var(--hd-target-min); /* desk: canonical One UI System scale */
- /* desk: canonical One UI System scale */
-
 }
 
 /* --- jobs -------------------------------------------------------------- */
@@ -74,28 +34,19 @@
 .jobs {
   max-width: var(--hd-column);
   margin: 0 auto 8px;
-  padding: 0 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  color: var(--hd-secondary-foreground);
-}
-
-.jobsHead {
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
 }
 
 .job {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--hd-text-sm);
 }
 
 .jobIcon {
   flex: none;
-  color: var(--hd-muted-foreground);
 }
 
 .jobCommand {
@@ -104,31 +55,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
 }
 
 .jobElapsed {
   flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.spinner {
-  flex: none;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  border: 1.5px solid var(--hd-border-emphasis);
-  border-top-color: var(--hd-accent);
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* --- deliverables ------------------------------------------------------ */
@@ -140,8 +70,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
 }
 
 .deliverable {
@@ -149,13 +77,4 @@
   align-items: center;
   gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 
- /* desk: canonical One UI System scale */
-
-}
-
-.deliverableAdded {
-  color: var(--hd-success);
-}
-.deliverableRemoved {
-  color: var(--hd-danger);
 }

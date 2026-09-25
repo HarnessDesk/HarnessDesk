@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { test } from 'node:test'
 
-import { ExtensionKernel, hostAllowed, pathWithin, PermissionDenied, PermissionGate } from '../src/index.js'
+import { ExtensionKernel, hostAllowed, pathWithin, PermissionDenied, PermissionGate, setTeamEngine, type TeamEngine } from '../src/index.js'
 
 /**
  * The permission engine is the boundary between "plugin system" and "arbitrary
@@ -15,6 +15,50 @@ import { ExtensionKernel, hostAllowed, pathWithin, PermissionDenied, PermissionG
  */
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 60))
+
+test('await_member requires the team grant before the engine sees its host-stamped scope', async (t) => {
+  const calls: unknown[] = []
+  const engine = {
+    awaitMember: async (scope: unknown, options: unknown) => { calls.push({ scope, options }); return 'idle; cycle: 3' },
+  } as unknown as TeamEngine
+  setTeamEngine(engine)
+  t.after(() => setTeamEngine(null))
+  const plugin = (id: string, granted: boolean) => ({
+    manifest: { id, name: id, permissions: granted ? { team: true } : {} },
+    plugin: {
+      name: id,
+      inject: ['tools', 'team'],
+      apply(ctx: any) {
+        ctx.tools.register({
+          name: `wait_${id}`,
+          description: '',
+          inputSchema: { type: 'object', properties: {} },
+          execute: (_args: unknown, scope: unknown) => ctx.team.awaitMember(
+            { member: 'Reviewer', cycle: 2, blockMs: 1234 },
+            scope,
+          ),
+        })
+      },
+    },
+  })
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(plugin('denied', false) as any)
+  await kernel.load(plugin('granted', true) as any)
+  await settle()
+  const scope = { runtime: 'codex' as any, sessionId: 'one' as any }
+  const denied = await kernel.invokeTool(kernel.list('tool').find((tool) => tool.name === 'wait_denied')!.id, {}, scope)
+  assert.equal(denied.ok, false)
+  assert.match(denied.ok ? '' : denied.error, /Permission denied: team/)
+  assert.equal(calls.length, 0)
+  const allowed = await kernel.invokeTool(kernel.list('tool').find((tool) => tool.name === 'wait_granted')!.id, {}, scope)
+  assert.equal(allowed.ok, true)
+  assert.equal(calls.length, 1)
+  const call = calls[0] as { scope: { runtime: string; sessionId: string; invocation: string }; options: unknown }
+  assert.deepEqual({ runtime: call.scope.runtime, sessionId: call.scope.sessionId }, { runtime: 'codex', sessionId: 'one' })
+  assert.equal(typeof call.scope.invocation, 'string')
+  assert.deepEqual(call.options, { member: 'Reviewer', cycle: 2, blockMs: 1234 })
+})
 
 test('host matching allows exact names and one wildcard label', () => {
   assert.equal(hostAllowed(['api.example.com'], 'api.example.com'), true)
@@ -235,10 +279,10 @@ test('a plugin granted the workspace cannot read out of it through a symlink', a
   const fixture = await linkedFixture()
   if (!fixture) return t.skip('this filesystem does not make symlinks')
   const { base, root } = fixture
-  t.after(() => rm(base, { recursive: true, force: true }))
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(base, { recursive: true, force: true }))
   kernel.setWorkspace({ root, branch: null })
 
   await kernel.load({
@@ -278,11 +322,11 @@ test('a plugin granted the workspace cannot read out of it through a symlink', a
 
 test('a plugin without workspace permission cannot read the workspace', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-perm-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'secret.txt'), 'classified')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
 
   await kernel.load({
@@ -309,11 +353,11 @@ test('a plugin without workspace permission cannot read the workspace', async (t
 
 test('a plugin granted workspace read can read, but still cannot write', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-perm-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'notes.txt'), 'hello')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
 
   await kernel.load({
@@ -358,10 +402,10 @@ test('a plugin granted workspace read can read, but still cannot write', async (
 
 test('workspace permission does not extend outside the open folder', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-perm-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
 
   await kernel.load({

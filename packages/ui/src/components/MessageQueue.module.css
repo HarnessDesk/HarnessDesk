@@ -1,45 +1,10 @@
-/* The message queue — what the user has waiting, above the composer. */
-
 .queue {
   max-width: var(--hd-column);
-  margin: 0 auto 8px;
-  border-radius: var(--hd-radius);
-  background: var(--hd-muted);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
-  overflow: hidden;
-}
-
-/* Paused is amber, not red: nothing has failed here — the messages are still
-   safe, they are simply not going out until the user says so. */
-.queue[data-paused] {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hd-warning) 45%, transparent); /* desk: a forked literal → the token it was a copy of */
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 12px;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-secondary-foreground);
-}
-
-.queue[data-paused] .header {
-  background: color-mix(in srgb, var(--hd-warning) 10%, transparent); /* desk: a forked literal → the token it was a copy of */
-  color: var(--hd-foreground);
-}
-
-.headerIcon {
-  flex: none;
-  color: var(--hd-muted-foreground);
-}
-
-.queue[data-paused] .headerIcon {
-  color: var(--hd-warning);
+  margin: 0 auto var(--hd-space-2);
 }
 
 .headerText {
-  flex: 1;
+  /* desk: flex 1 → none, the toolbar's gap takes the free space and the words shrink into what is left */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -48,82 +13,13 @@
 
 .action {
   flex: none;
-
- /* desk: canonical One UI System scale */
-
- /* desk: canonical One UI System scale */
-
-}
-
-.list {
-  margin: 0;
-  padding: 0 0 4px;
-  list-style: none;
-}
-
-.row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px 4px 4px;
-  font-size: var(--hd-text-sm);
-}
-
-.row:hover {
-  background: var(--hd-hover);
-}
-
-/* The handle only appears under the pointer. A queue of three is usually read,
-   not rearranged, and a column of grips on every row is furniture for a thing
-   most people never do. */
-.grip {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 14px;
-  opacity: 0;
-  cursor: grab;
-  color: var(--hd-muted-foreground);
-}
-
-.row:hover .grip {
-  opacity: 1;
-}
-
-.grip:active {
-  cursor: grabbing;
-}
-
-/* The row being carried fades; the row it would land on shows the seam it
-   would land at. Neither moves until the host says so. */
-.row[data-dragging] {
-  opacity: 0.4;
-}
-
-.row[data-drop]::before {
-  content: '';
-  position: absolute;
-  left: 4px;
-  right: 8px;
-  top: -1px;
-  height: 2px;
-  border-radius: var(--hd-radius-2xs); /* desk: canonical One UI System scale */
-  background: var(--hd-accent);
-}
-
-.row[data-sending] {
-  color: var(--hd-muted-foreground);
 }
 
 .position {
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: 16px;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
+  width: var(--hd-space-4);
 }
 
 .text {
@@ -132,74 +28,4 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.carried {
-  flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-}
-
-/* When this one goes. "next" is worth the accent because it is the only row
-   the next keystroke can still change, and the strip around it is neutral
-   there. "held" is not: the paused header already carries the amber for
-   "nothing is moving", and repeating it down every row says one fact three
-   times in one card until the header's tint reads as decoration. One tinted
-   surface per stack; rows inside it stay quiet. */
-.when {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
-  border-radius: var(--hd-radius-md); /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-xs);
-  line-height: 1;
-  color: var(--hd-muted-foreground);
-  white-space: nowrap;
-}
-
-.when[data-tone='next'] {
-  color: var(--hd-accent);
-}
-
-/* No rule for data-tone="held" on purpose — it keeps the quiet default above.
-   The attribute stays as the semantic hook; the colour is the header's job. */
-
-/* The controls stay out of the way until the row is under the pointer; four
-   buttons on every row would read as more chrome than the message. */
-.controls {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  opacity: 0;
-}
-
-.row:hover .controls,
-.controls:focus-within {
-  opacity: 1;
-}
-
-.control {
-  display: inline-grid;
-  place-items: center;
-  width: var(--hd-target-min); /* desk: canonical One UI System scale */
- /* desk: canonical One UI System scale */
-
-}
-
-.spinner {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid var(--hd-border-emphasis);
-  border-top-color: var(--hd-accent);
-  animation: queue-spin 0.7s linear infinite;
-}
-
-@keyframes queue-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }

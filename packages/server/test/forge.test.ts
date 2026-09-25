@@ -191,9 +191,12 @@ test('a publication survives a restart and a read the backend answers with as mu
 
   const second = await start({ state: new StateStore(join(first.stateDir, 'state.json')) })
   t.after(() => stop(second))
-  t.after(() => rm(first.stateDir, { recursive: true, force: true }))
   const again = await Client.connect(second.server)
+  // Removed last: `second` writes into `first.stateDir` (the shared state
+  // file) right up until `stop(second)` disposes it, and removing first
+  // races that write and can leave `again.close()` unrun (#868).
   t.after(() => again.close())
+  t.after(() => rm(first.stateDir, { recursive: true, force: true }))
   // The backend's own account: the two items it streamed and one it stored
   // besides — as many as the host held, and no publication among them.
   second.runtime.stored.set(sessionId(session.id), [
@@ -269,6 +272,20 @@ test('gh’s refusals are states with a reason, never errors', async () => {
 test('the sentence is told only while the tools it names are offered', () => {
   assert.equal(new ForgePlane(port(true)).instructions(), FORGE_INSTRUCTION)
   assert.equal(new ForgePlane(port(false)).instructions(), '')
-  assert.match(FORGE_INSTRUCTION, /pr_create, pr_update and pr_review/)
+  assert.match(FORGE_INSTRUCTION, /pr_create, pr_update, pr_review and pr_merge/)
   assert.ok(!FORGE_INSTRUCTION.includes('\n'), 'one sentence, not a briefing')
+})
+
+/* Phase 7, named addition: the embargo a plugin asks before any forge mutation. */
+test('a conversation reviewing in a blind round may not publish; any other may, and so may an unnamed call', async () => {
+  const blind = new Set(['beta\u0000s-2'])
+  const plane = new ForgePlane({ ...port(true), embargoOf: (runtime, id) => (blind.has(`${runtime}\u0000${id}`) ? 'Refused: this Seat is reviewing in a blind round that has not closed.' : null) })
+  assert.deepEqual(await plane.publicationAllowed({ runtime: 'beta', sessionId: 's-2', plugin: 'git#1' }), {
+    ok: false, reason: 'Refused: this Seat is reviewing in a blind round that has not closed.',
+  })
+  assert.deepEqual(await plane.publicationAllowed({ runtime: 'beta', sessionId: 's-3', plugin: 'git#1' }), { ok: true })
+  assert.deepEqual(await plane.publicationAllowed({ plugin: 'git#1' }), { ok: true }, 'no conversation, no Seat to hold back: the other gates answer that call')
+  blind.clear()
+  assert.deepEqual(await plane.publicationAllowed({ runtime: 'beta', sessionId: 's-2', plugin: 'git#1' }), { ok: true })
+  assert.deepEqual(await new ForgePlane(port(true)).publicationAllowed({ runtime: 'beta', sessionId: 's-2' }), { ok: true })
 })

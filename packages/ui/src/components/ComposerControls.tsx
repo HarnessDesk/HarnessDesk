@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SelectOption } from '@harnessdesk/protocol'
+import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 import { optionsIn } from '@harnessdesk/protocol'
 
-import { Button, Dialog } from '../design'
+import { Button, CodeText, Dialog, RowChoice, Search, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -13,6 +13,7 @@ import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
 import { matchPreset, presetsFor } from '../state/presets'
 import { describeChecked, describeUpdate, describeVersion } from '../lib/versions'
 import { useActiveSession, useRuntime, useSnapshot, useStore } from '../state/context'
+import { useSeatAgent } from '../state/seat-agent'
 import {
   AlertIcon,
   BrainIcon,
@@ -42,7 +43,7 @@ import {
 import { ModelMark, RuntimeMark } from './BrandIcons'
 import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Submenu } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
-import { Popover, PopoverDim, PopoverFilterInput, PopoverStrong, PopoverUpdateNote } from '../design'
+import { Popover } from '../design'
 import sheet from './ComposerControls.module.css'
 
 /**
@@ -265,6 +266,9 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
  * keystrokes somewhere harmless to land while the menu is open, and Enter
  * picks the top match.
  */
+/** The keys a filter field keeps from the menu around it, beside any printable one. */
+const FIELD_KEYS = new Set(['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End'])
+
 const FilterableChoices = ({ option, close }: { option: SelectOption; close: () => void }) => {
   const store = useStore()
   const [query, setQuery] = useState('')
@@ -278,14 +282,29 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
     : option.choices
   return (
     <>
-      <PopoverFilterInput
+      {/* The list's filter is the one every list draws: the compact field, a
+          line among the menu's borderless rows rather than a form to fill in.
+          The margin sets it on the rows' own inset. */}
+      <Search
+        size="compact"
+        icon="filter"
+        className="mx-1 mt-1 mb-0.5"
         // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
         placeholder={`Type to filter ${option.choices.length} choices…`}
         value={query}
-        spellCheck={false}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={setQuery}
         onKeyDown={(event) => {
+          /* Editing keys are the field's, not the menu's. The menu jumps to
+             the row a typed letter starts, and takes the key to do it — so the
+             field, inside the menu, never received one: typing into it did
+             nothing. ← → Home End move the caret, where the menu would close
+             the flyout or jump to a row. ↑ ↓ Tab Escape and Enter stay the
+             menu's: they move between rows, leave, or pick. */
+          if (event.key.length === 1 || FIELD_KEYS.has(event.key)) {
+            event.stopPropagation()
+            return
+          }
           if (event.key !== 'Enter') return
           event.preventDefault()
           const first = filtered.find((choice) => !choice.disabled)
@@ -462,8 +481,9 @@ export const ModelControl = () => {
             ) : (
               <ModelIcon size={13} />
             )}
-            {!narrow && <PopoverStrong>{name}</PopoverStrong>}
-            {effort && !narrow && <PopoverDim>{effort}</PopoverDim>}
+            {/* The model reads as the subject, its effort as the qualifier. */}
+            {!narrow && <Text role="row">{name}</Text>}
+            {effort && !narrow && <Text ink="muted">{effort}</Text>}
             {!tight && <Chevron />}
           </>
         }
@@ -616,19 +636,19 @@ const RuntimeBuildNote = () => {
         {version && (
           <div data-testid="runtime-build">
             {version}
-            {checked && <PopoverDim> · {checked}</PopoverDim>}
+            {checked && ` · ${checked}`}
           </div>
         )}
         {update && (
-          <PopoverUpdateNote data-testid="runtime-update">
+          /* A shade warmer than the note around it. The command is the shared
+             command block — the muted plate Settings sets a command on — on a
+             line of its own, folding only when it is wider than the menu. */
+          <Text as="div" role="muted" className="mt-1" data-testid="runtime-update">
             {update.text}
             {update.command && (
-              <>
-                {' '}
-                <code>{update.command}</code>
-              </>
+              <CodeText as="pre" block ground="muted" wrap className="mt-1">{update.command}</CodeText>
             )}
-          </PopoverUpdateNote>
+          </Text>
         )}
       </MenuNote>
     </>
@@ -704,6 +724,46 @@ export const MoreControl = () => {
 }
 
 /**
+ * A consequence the seat label alone cannot carry: something this Agent
+ * declared did not load. Silent when everything loaded (nothing to earn a
+ * line over) and silent when nothing was ever declared — the plain path
+ * stays plain.
+ */
+const attachmentsHint = (record: SeatAttachmentsRecord | null): string | undefined => {
+  if (!record) return undefined
+  const notLoaded = record.declarations.length - record.results.filter((one) => one.status === 'loaded').length
+  if (notLoaded <= 0) return undefined
+  return notLoaded === 1 ? '1 attachment did not load' : `${notLoaded} attachments did not load`
+}
+
+/**
+ * What this seat's frozen attachments say, read by its own immutable Seat
+ * ID — never guessed from the session's current settings, which can outlive
+ * the seat that actually opened it. `null` throughout for a plain
+ * conversation, so it asks the store for nothing.
+ */
+const useSeatAttachmentsHint = (session: ReturnType<typeof useActiveSession>, seated: boolean): string | undefined => {
+  const store = useStore()
+  const runtime = session?.runtime ?? null
+  const id = session?.id ?? null
+  const [read, setRead] = useState<{ readonly key: string; readonly hint: string | undefined } | null>(null)
+  const key = runtime && id ? `${runtime}:${id}` : null
+  useEffect(() => {
+    if (!runtime || !id || !seated || !key) return
+    let live = true
+    store.seatRecord(runtime, id).then(
+      (record) => record && store.readSeatAttachments(record.id),
+      () => null,
+    ).then(
+      (attachments) => { if (live) setRead({ key, hint: attachmentsHint(attachments) }) },
+      () => { if (live) setRead({ key, hint: undefined }) },
+    )
+    return () => { live = false }
+  }, [store, runtime, id, seated, key])
+  return key && read?.key === key ? read.hint : undefined
+}
+
+/**
  * Who reads this message. For a conversation, that is the agent it belongs
  * to — every vendor owns its own threads — and the menu offers to hand the
  * conversation to another agent instead. For a draft, it is the agent the
@@ -714,10 +774,15 @@ export const AgentControl = () => {
   const snapshot = useSnapshot()
   const { ref, narrow, tight } = useNarrowToolbar()
   const session = useActiveSession()
+  const seated = useSeatAgent(session)
+  const attachmentsHintText = useSeatAttachmentsHint(session, seated !== null)
   const [handoff, setHandoff] = useState<RuntimeId | null>(null)
   const ownerId = session ? session.runtime : snapshot.activeRuntime
   const owner = snapshot.runtimes.find((entry) => entry.id === ownerId)
-  if (!owner || snapshot.runtimes.length < 2) return null
+  /* A conversation seated as an Agent says who it is and the seat it took even
+     on a desk with one runtime, where there is otherwise nothing to choose. */
+  if (!owner || (snapshot.runtimes.length < 2 && !seated)) return null
+  const seat = session?.settings?.seatLabel ?? owner.presentation.name
   const others = snapshot.runtimes.filter((entry) => entry.id !== owner.id)
   const target = handoff ? snapshot.runtimes.find((entry) => entry.id === handoff) ?? null : null
   // Two accounts of one agent are two entries here, and the agent's name
@@ -728,13 +793,19 @@ export const AgentControl = () => {
   return (
     <InToolbar refer={ref}>
       <Popover
-        title={session ? `This conversation is with ${owner.presentation.name}` : 'Which agent starts this conversation'}
+        title={
+          seated
+            ? `Seated as ${seated.name ?? 'an Agent'} on ${seat}`
+            : session
+              ? `This conversation is with ${owner.presentation.name}`
+              : 'Which agent starts this conversation'
+        }
         drop="up"
         align="left"
         label={
           <>
             <RuntimeMark runtime={owner} size={13} />
-            {!narrow && <PopoverStrong>{brandOf(owner.presentation.name)}</PopoverStrong>}
+            {!narrow && <Text role="row">{seated?.name ?? brandOf(owner.presentation.name)}</Text>}
             {!tight && <Chevron />}
           </>
         }
@@ -746,24 +817,34 @@ export const AgentControl = () => {
                 <MenuItem
                   icon={<RuntimeMark runtime={owner} />}
                   selected
-                  label={`Reply here with ${owner.presentation.name}`}
-                  title="This conversation belongs to it; replies continue it."
+                  label={seated ? `As ${seated.name ?? 'an Agent'}, on ${seat}` : `Reply here with ${owner.presentation.name}`}
+                  title={
+                    seated
+                      ? 'The seat it took, as read back when it opened. Replies continue it.'
+                      : 'This conversation belongs to it; replies continue it.'
+                  }
+                  hint={attachmentsHintText}
                   onSelect={() => undefined}
                 />
                 {/* What a hand-off does is said once, over the group, rather
                     than repeated under every agent in it: the sentence is the
                     same for all of them, so N copies of it are N times the
-                    height and none of the information. */}
-                <MenuLabel>Hand off</MenuLabel>
-                <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
-                {others.map((entry) => (
-                  <MenuItem
-                    key={entry.id}
-                    icon={<RuntimeMark runtime={entry} />}
-                    label={`Hand off to ${label(entry)}…`}
-                    onSelect={() => setHandoff(entry.id)}
-                  />
-                ))}
+                    height and none of the information. One runtime has
+                    nowhere to hand off to. */}
+                {others.length > 0 && (
+                  <>
+                    <MenuLabel>Hand off</MenuLabel>
+                    <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
+                    {others.map((entry) => (
+                      <MenuItem
+                        key={entry.id}
+                        icon={<RuntimeMark runtime={entry} />}
+                        label={`Hand off to ${label(entry)}…`}
+                        onSelect={() => setHandoff(entry.id)}
+                      />
+                    ))}
+                  </>
+                )}
               </>
             ) : (
               <>
@@ -815,7 +896,7 @@ export const AgentControl = () => {
 }
 
 /** What to carry across — the one decision a hand-off needs from the user. */
-const HandoffSheet = ({
+export const HandoffSheet = ({
   from,
   to,
   onCancel,
@@ -848,18 +929,12 @@ const HandoffSheet = ({
       </p>
       <div className={sheet.choices} role="radiogroup" aria-label="What to carry">
         {CARRY_OPTIONS.map((option) => (
-          <Button variant="ghost" size="sm"
+          <RowChoice
             key={option.id}
-            type="button"
-            role="radio"
-            aria-checked={carry === option.id}
-            className={sheet.choice}
-            {...(carry === option.id ? { 'data-selected': '' } : {})}
+            selected={carry === option.id}
             onClick={() => setCarry(option.id)}
-          >
-            <span className={sheet.choiceMark} aria-hidden="true" />
-            <span>
-              <div className={sheet.choiceLabel}>
+            title={
+              <span className={sheet.choiceLabel}>
                 {option.id === 'summary' ? (
                   <SummaryIcon size={13} />
                 ) : option.id === 'transcript' ? (
@@ -868,10 +943,11 @@ const HandoffSheet = ({
                   <DiffIcon size={13} />
                 )}
                 {option.label}
-              </div>
-              <div className={sheet.choiceHint}>{option.hint}</div>
-            </span>
-          </Button>
+              </span>
+            }
+            desc={option.hint}
+            wrapDesc
+          />
         ))}
       </div>
     </Dialog>
@@ -1006,13 +1082,17 @@ export const PlaceControl = () => {
         label={
           <>
             {armed ? (
-              <NewWorktreeIcon size={13} className={sheet.armed} />
+              <Text role="row" tone="brand"><NewWorktreeIcon size={13} /></Text>
             ) : tagged ? (
               <BranchIcon size={13} />
             ) : (
               <LocalIcon size={13} />
             )}
-            {!narrow && <PopoverStrong className={`${sheet.word} ${armed ? sheet.armed : ''}`}>{word}</PopoverStrong>}
+            {!narrow && (
+              armed
+                ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
+                : <Text role="row" className={sheet.word}>{word}</Text>
+            )}
             {!narrow && tagged && <Badge variant="secondary">worktree</Badge>}
             <Chevron />
           </>

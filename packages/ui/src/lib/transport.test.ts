@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { sentenceOf } from './transport'
+import { rejectionFor, sentenceOf } from './transport'
 
 describe('sentenceOf', () => {
   it('adds the reason the agent gave, because the message alone says nothing', () => {
@@ -40,6 +40,17 @@ describe('sentenceOf', () => {
         details: { object: true } as unknown as string,
       }),
     ).toBe('bad')
+  })
+})
+
+describe('rejectionFor', () => {
+  it('keeps what a failure carries for the interface beside its code and sentence', () => {
+    const candidates = [{ label: 'Claude · Opus 5 · High', state: 'passed' }]
+    const error = rejectionFor({ code: 'seatRefused', message: 'No seat could be opened for this Agent', data: { candidates } })
+    expect((error as Error & { code?: string }).code).toBe('seatRefused')
+    expect((error as Error & { data?: unknown }).data).toEqual({ candidates })
+    // And a failure with nothing more to say carries nothing more.
+    expect('data' in rejectionFor({ code: 'methodFailed', message: 'no' })).toBe(false)
   })
 })
 

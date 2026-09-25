@@ -25,10 +25,46 @@ export const SECTIONS = [
     'Use a step: --hd-text-xs/-sm/--hd-text/--hd-text-lg/--hd-heading. If the value you want is not a step, the answer is almost never a new step — 11px and 12.5px were each one screen deciding alone. This category is a burn-down: its ceiling may only fall.',
   ],
   [
+    'rawWeight',
+    'Type weights written out rather than named',
+    'The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it.',
+    'Use a rung: --hd-weight-normal/-medium/-semibold. A value between two rungs is a screen deciding alone — 550 and 650 each reached the tree that way, and the bundled face cannot draw above 600 at all.',
+  ],
+  [
     'patternClass',
     'Patterns re-declared in a screen stylesheet',
-    'Nineteen screens drawing their own header is why pages stop looking alike; the shared component already exists.',
+    'Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line.',
     'Compose the pattern instead of re-declaring it: Row/Rows, ListRow/ListRows, EmptyState, Section, PageHead/SectionHead, Note, Field — all exported from packages/ui/src/design. This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
+    'screenAppearance',
+    'Appearance a screen draws instead of composing it',
+    'A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen\'s own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design.',
+    'Compose the role from packages/ui/src/design: Row/Rows, PageHead/SectionHead, Search/Field, Alert, EmptyState, Chip, Card, KeyValue, Table, StatePill. Keep only layout in the screen sheet, className, or style, and add a component to the design system when the role has none. Markdown and Diff keep prose\'s ratio ladder and a diff viewer\'s specialized ink; both their `.module.css` and their `.tsx` are exempt, alongside the icon and data-geometry files the loose-icon rule already names. This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
+    'singleAreaPrimitive',
+    'Single-area design/ui/ primitives',
+    'A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen\'s own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever.',
+    'Nothing to fix by itself: read the listed export under `--verbose` and judge whether it is genuinely reusable vocabulary (leave it) or a screen\'s own composition that was placed in `design/ui/` rather than `design/patterns/` (move it, which moves the finding to `screenAppearance` instead). This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
+    'uppercaseLabel',
+    'Labels set in capitals',
+    'A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out.',
+    'Name the group with GroupLabel (13px, secondary ink, sentence case) from packages/ui/src/design, or write the words in sentence case. The only capitals the app keeps are printed on a Keycap. This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
+    'screenUnclassified',
+    'Properties outside the screen boundary',
+    'An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total.',
+    'Classify the property in APPEARANCE_PROPERTIES or LAYOUT_BEHAVIOUR_PROPERTIES in script/design-audit.mjs. A screen declaration must be on exactly one side of the boundary.',
+  ],
+  [
+    'visualKindUnion',
+    'Visual catalogues hidden behind a kind prop',
+    'One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role.',
+    'Split the catalogue into named components with real prop APIs. A visual kind prop is capped at eight values; domain-state unions are not kind props and are unaffected.',
   ],
   [
     'wrongVariant',
@@ -89,6 +125,12 @@ export const SECTIONS = [
     'Spacing off the scale',
     'Will not follow a density change.',
     'Use a --hd-space-* step.',
+  ],
+  [
+    'rawZIndex',
+    'Stacking written as a number',
+    'Two layers claim the same plane, and the one that wins is the one written later.',
+    'Use a --hd-z-* rung from design/foundation/tokens.css. Single digits are local ordering inside one component and are not counted; anything from 10 up is a plane the whole app shares.',
   ],
   [
     'rawColour',

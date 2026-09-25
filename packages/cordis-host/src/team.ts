@@ -1,8 +1,12 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 
-import type { ScopeQuery } from '@harnessdesk/protocol'
+import type {
+  DecideFindingInput, EvidenceRecord, FindingReadInput, FindingView, RaiseFindingInput, RepairFindingInput,
+  ReviewCandidate, ReviewInput, ScopeQuery,
+} from '@harnessdesk/protocol'
 
 import type { HostRuntime } from './runtime.js'
+import { currentBrowserIdentity, currentInvocationSignal } from './browser-scopes.js'
 
 /**
  * `ctx.team` — the shared board and inter-agent messages, driven as data.
@@ -43,6 +47,10 @@ export interface TeamEngine {
     scope: TeamScope,
     options: { readonly blockMs?: number; readonly cycle?: number },
   ): Promise<string>
+  awaitMember(
+    scope: TeamScope,
+    options: { readonly member: string; readonly cycle?: number; readonly blockMs?: number },
+  ): Promise<string>
   conflicts(paths: readonly string[], scope: TeamScope): Promise<string>
   complete(
     intent: number,
@@ -60,6 +68,23 @@ export interface TeamEngine {
     args: { readonly to: string; readonly text: string; readonly wake?: boolean },
     scope: TeamScope,
   ): Promise<string>
+  /**
+   * Structured data, not prose: the plugin tool words these for the calling
+   * model. `reviewCandidates` never throws — an empty list is "nothing to
+   * review yet" — but `recordReview` throws its refusal, since there is no
+   * evidence record to hand back when the call is refused.
+   */
+  reviewCandidates(intent: number, scope: TeamScope): Promise<readonly ReviewCandidate[]>
+  recordReview(input: ReviewInput, scope: TeamScope): Promise<EvidenceRecord>
+  /**
+   * The findings ledger, structured. Each throws its refusal; the host
+   * resolves which Seat, card and revision the caller speaks for, so an input
+   * that names any of them is refused, never believed.
+   */
+  raiseFinding(input: RaiseFindingInput, scope: TeamScope): Promise<FindingView>
+  repairFinding(input: RepairFindingInput, scope: TeamScope): Promise<FindingView>
+  decideFinding(input: DecideFindingInput, scope: TeamScope): Promise<FindingView>
+  listFindings(input: FindingReadInput, scope: TeamScope): Promise<readonly FindingView[]>
 }
 
 /** Which conversation a call is on behalf of; the serialisable half of a ScopeQuery. */
@@ -76,6 +101,10 @@ export interface TeamScope {
    * plugin somewhere in the process happens to be running.
    */
   readonly plugin?: string
+  /** Parent-issued identity for this live tool invocation; never accepted from tool arguments. */
+  readonly invocation?: string
+  /** Local-only host lifetime. It is deliberately non-enumerable across child IPC. */
+  readonly signal?: AbortSignal
 }
 
 /**
@@ -98,11 +127,18 @@ const engine = (): TeamEngine => {
 }
 
 /** Only what the host can verify travels; a turn id would be decoration here. */
-const asTeamScope = (scope: ScopeQuery | undefined, plugin?: string): TeamScope => ({
-  ...(scope?.runtime !== undefined ? { runtime: String(scope.runtime) } : {}),
-  ...(scope?.sessionId !== undefined ? { sessionId: String(scope.sessionId) } : {}),
-  ...(plugin !== undefined ? { plugin } : {}),
-})
+const asTeamScope = (scope: ScopeQuery | undefined, plugin?: string): TeamScope => {
+  const identity = currentBrowserIdentity()
+  const answer: TeamScope = {
+    ...(scope?.runtime !== undefined ? { runtime: String(scope.runtime) } : {}),
+    ...(scope?.sessionId !== undefined ? { sessionId: String(scope.sessionId) } : {}),
+    ...(plugin !== undefined ? { plugin } : {}),
+    ...(identity ? { invocation: identity.invocation } : {}),
+  }
+  const signal = currentInvocationSignal()
+  if (signal) Object.defineProperty(answer, 'signal', { value: signal, enumerable: false })
+  return answer
+}
 
 export class TeamService extends Service {
   static [Service.tracker] = { associate: 'team', property: 'ctx' }
@@ -161,6 +197,14 @@ export class TeamService extends Service {
     return engine().awaitWork(asTeamScope(scope, plugin), options)
   }
 
+  async awaitMember(
+    options: { readonly member: string; readonly cycle?: number; readonly blockMs?: number },
+    scope?: ScopeQuery,
+  ): Promise<string> {
+    const plugin = this.gate()
+    return engine().awaitMember(asTeamScope(scope, plugin), options)
+  }
+
   async conflicts(paths: readonly string[], scope?: ScopeQuery): Promise<string> {
     const plugin = this.gate()
     return engine().conflicts(paths, asTeamScope(scope, plugin))
@@ -200,5 +244,35 @@ export class TeamService extends Service {
   ): Promise<string> {
     const plugin = this.gate()
     return engine().send(args, asTeamScope(scope, plugin))
+  }
+
+  async reviewCandidates(intent: number, scope?: ScopeQuery): Promise<readonly ReviewCandidate[]> {
+    const plugin = this.gate()
+    return engine().reviewCandidates(intent, asTeamScope(scope, plugin))
+  }
+
+  async recordReview(input: ReviewInput, scope?: ScopeQuery): Promise<EvidenceRecord> {
+    const plugin = this.gate()
+    return engine().recordReview(input, asTeamScope(scope, plugin))
+  }
+
+  async raiseFinding(input: RaiseFindingInput, scope?: ScopeQuery): Promise<FindingView> {
+    const plugin = this.gate()
+    return engine().raiseFinding(input, asTeamScope(scope, plugin))
+  }
+
+  async repairFinding(input: RepairFindingInput, scope?: ScopeQuery): Promise<FindingView> {
+    const plugin = this.gate()
+    return engine().repairFinding(input, asTeamScope(scope, plugin))
+  }
+
+  async decideFinding(input: DecideFindingInput, scope?: ScopeQuery): Promise<FindingView> {
+    const plugin = this.gate()
+    return engine().decideFinding(input, asTeamScope(scope, plugin))
+  }
+
+  async listFindings(input: FindingReadInput, scope?: ScopeQuery): Promise<readonly FindingView[]> {
+    const plugin = this.gate()
+    return engine().listFindings(input, asTeamScope(scope, plugin))
   }
 }

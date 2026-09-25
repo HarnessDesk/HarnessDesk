@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode, type KeyboardEvent } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { dotTint, inkTone, softTone, type Tint, type Tone } from './tone'
+import { dotTint, dotTone, inkTone, softTone, type Tint, type Tone } from './tone'
 
 /**
  * The card around the chart, and the four marks that go in it.
@@ -70,7 +70,7 @@ const ChartCard = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
     data-slot="chart-card"
     className={cn(
-      'rounded-[calc(var(--hd-radius-lg)-var(--hd-space-0-5))] bg-(--hd-card) px-4 py-3',
+      'rounded-(--hd-radius-matted) bg-(--hd-card) px-4 py-3',
       className,
     )}
     {...props}
@@ -89,7 +89,7 @@ const ChartHead = ({ className, ...props }: React.ComponentProps<'div'>) => (
 const ChartTitle = ({ className, ...props }: React.ComponentProps<'h3'>) => (
   <h3
     data-slot="chart-title"
-    className={cn('text-sm leading-tight font-semibold', className)}
+    className={cn('text-sm leading-(--hd-line-sm) font-medium', className)}
     {...props}
   />
 )
@@ -200,21 +200,33 @@ const ChartAxis = ({
  *
  * Rendered inside the plot's own relative box, clamped so a tip on the first
  * or last column stays inside the card.
+ *
+ * Without `at`, the tip is only the plate, and whoever draws it places it.
+ * That is for a figure that is not a plot with columns: the conversation map
+ * offers a message's first words beside whichever dash the pointer is
+ * nearest, which is the same tip following a position — just down a rail
+ * rather than across an axis. A tip inside a control — the map's is inside
+ * the mark's button — is `as="span"`, because a button holds phrasing
+ * content and a `<div>` in one is invalid markup.
  */
 const ChartTip = ({
   className,
   at,
+  as: Element = 'div',
   children,
   ...props
 }: React.ComponentProps<'div'> & {
-  /** Where the tip points, 0..1 across the plot. */
-  at: number
+  /** Where the tip points, 0..1 across the plot. Omitted, the owner places the tip. */
+  at?: number
+  /** The element the tip is: a `span` where it sits inside a control. */
+  as?: 'div' | 'span'
 }) => (
-  <div
+  <Element
     data-slot="chart-tip"
     role="presentation"
+    {...(at === undefined ? { 'data-placement': 'owner' } : {})}
     className={cn(
-      'pointer-events-none absolute bottom-full z-10 mb-1.5 w-max max-w-56',
+      at !== undefined && 'pointer-events-none absolute bottom-full z-10 mb-1.5 w-max max-w-56',
       'rounded-(--hd-radius-sm) border border-(--hd-border) bg-(--hd-popover) px-2 py-1.5',
       'text-(--hd-popover-foreground) shadow-(--hd-shadow) text-xs',
       className,
@@ -226,11 +238,11 @@ const ChartTip = ({
        "centre with the class, nudge with the style", which meant every tip in
        the body of a chart lost its centring and sat with its left edge on the
        cursor, and a tip on the last column ran off the card entirely. */
-    style={{ left: `${(at * 100).toFixed(2)}%`, translate: `${tipShift(at)}% 0` }}
+    {...(at !== undefined ? { style: { left: `${(at * 100).toFixed(2)}%`, translate: `${tipShift(at)}% 0` } } : {})}
     {...props}
   >
     {children}
-  </div>
+  </Element>
 )
 
 /**
@@ -665,7 +677,7 @@ const DayColumns = ({
             >
               <div
                 className={cn(
-                  'flex w-full flex-col-reverse overflow-hidden rounded-t-[3px] transition-opacity',
+                  'flex w-full flex-col-reverse overflow-hidden rounded-t-(--hd-radius-2xs) transition-opacity',
                   active !== null && index !== active && 'opacity-45',
                 )}
                 style={{
@@ -706,22 +718,39 @@ const DayColumns = ({
 /* --- which series is which ------------------------------------------------ */
 
 /**
+ * A series' colour, as the one prop that says which vocabulary it is from.
+ *
+ * Most series identify — "which agent" — and take a `tint`. Some keys name a
+ * kind that already carries a judgement or a role of its own: the person's
+ * own messages are neutral, the agent's answer is the brand, an edit is a
+ * success and an error is a danger. Those take a `tone`, and the type refuses
+ * both at once, the way `IconTile` does.
+ */
+type SeriesColour = { tint: Tint; tone?: never } | { tone: Tone; tint?: never }
+
+const seriesFill = ({ tint, tone }: { tint?: Tint; tone?: Tone }): string =>
+  tone ? dotTone({ tone }) : dotTint({ tint: tint ?? 'blue' })
+
+/**
  * The mark that says "this one".
  *
  * Exported because the legend is rarely the only place a series is named: a
  * ranked table beside a doughnut is keyed by the same colours, and a screen
  * that draws its own dot for that has quietly forked the palette. One dot,
- * one size, one radius, everywhere a series appears.
+ * one size, one radius, everywhere a series appears — the Usage table's rows
+ * and the trajectory ledger's steps alike.
  */
 const SeriesDot = ({
   className,
   tint,
+  tone,
   ...props
-}: Omit<React.ComponentProps<'span'>, 'children'> & { tint: Tint }) => (
+}: Omit<React.ComponentProps<'span'>, 'children'> & SeriesColour) => (
   <span
     data-slot="series-dot"
+    {...(tone ? { 'data-tone': tone } : { 'data-tint': tint })}
     aria-hidden
-    className={cn('inline-block size-2 shrink-0 rounded-full', dotTint({ tint }), className)}
+    className={cn('inline-block size-2 shrink-0 rounded-full', seriesFill({ tint, tone }), className)}
     {...props}
   />
 )
@@ -747,15 +776,16 @@ const ChartKeys = ({ className, ...props }: React.ComponentProps<'ul'>) => (
 const ChartKey = ({
   className,
   tint,
+  tone,
   label,
   ...props
-}: Omit<React.ComponentProps<'li'>, 'children'> & { tint: Tint; label: ReactNode }) => (
+}: Omit<React.ComponentProps<'li'>, 'children'> & SeriesColour & { label: ReactNode }) => (
   <li
     data-slot="chart-key"
     className={cn('text-(--hd-muted-foreground) flex items-center gap-1.5 text-xs', className)}
     {...props}
   >
-    <SeriesDot tint={tint} />
+    {tone ? <SeriesDot tone={tone} /> : <SeriesDot tint={tint as Tint} />}
     {label}
   </li>
 )

@@ -498,7 +498,7 @@ export class AgentDirectory {
   readonly which?: (command: string) => string | null | Promise<string | null>
       /** The public ACP registry; without one, its requests say so. */
       readonly registry?: Pick<AcpRegistry, 'catalog' | 'resolve' | 'uninstall'> &
-        Partial<Pick<AcpRegistry, 'describe' | 'uninstallVersion'>>
+        Partial<Pick<AcpRegistry, 'describe' | 'uninstallVersion' | 'cachedAgents'>>
       /**
        * Every copy of an agent on this machine, and which one answers. With
        * it, a template says which copy it found and a registry entry whose
@@ -554,6 +554,22 @@ export class AgentDirectory {
       }),
     )
     return { ...catalog, agents }
+  }
+
+  /**
+   * The public registry's ids and the names it gave them, together, in the
+   * document it last fetched — its cached copy, never the network
+   * (`AcpRegistry.cachedAgents`), one read for both questions a caller judging
+   * an id it has not added asks: is it listed at all (`.has`), and what does
+   * it call it (`.get`). Two separate reads — one for "is it listed", another
+   * for "what is it called" — could straddle a refetch between them and give
+   * one candidate a fix from one document and a name from another; a caller
+   * that needs both takes one snapshot and asks it both questions. Empty when
+   * this host reads no registry, or has nothing cached from one.
+   */
+  registryNames(): ReadonlyMap<string, string> {
+    const agents = this.options.registry?.cachedAgents?.() ?? []
+    return new Map(agents.map((agent) => [agent.id, agent.name] as const))
   }
 
   /** The catalogue, computed against what is on this machine right now. */
@@ -628,7 +644,7 @@ export class AgentDirectory {
       if (!registry) throw new Error('This host reads no ACP registry.')
       // A copy already on the machine is preferred to anything the registry
       // would fetch: the row points at it, the download is deferred, and
-      // `agents/update` is the door to the registry's own build later. Only
+      // `acp/update` is the door to the registry's own build later. Only
       // agents whose CLI speaks ACP itself qualify — an adapter entry still
       // needs its adapter, which the registry provides.
       const known = knownAgent(request.registry.id)
@@ -790,5 +806,7 @@ export class AgentDirectory {
 
 export interface AgentUsageBinding {
   readonly meter?: import('./usage/meter.js').UsageMeter
-  readonly corpus?: 'codex' | 'claude'
+  readonly corpus?: import('./ledger/scan.js').CorpusKind
+  /** Where the corpus is, when the agent's own environment moved it. */
+  readonly root?: string
 }

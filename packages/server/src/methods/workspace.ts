@@ -1,4 +1,5 @@
 import * as gitService from '../git.js'
+import { within } from '../seat-reads.js'
 import { asText, browseDirectories, confine, sha256 } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 
@@ -7,19 +8,42 @@ import type { MethodsUnder } from './context.js'
  * workspace before anything reads it; a runtime's filesystem view is a view,
  * not a sandbox, and the confinement here is what makes that safe.
  */
+
+/** How long the most recent workspace's live `realpath` may take before its saved key answers instead (#939). */
+export const RECENT_REAL_PATH_TIMEOUT_MS = 1_000
+
 export const workspaceMethods = {
   'workspace/recent': async (ctx) => {
     // The most recent workspace is the one the renderer selects at
-    // startup, so it alone carries git info: one status call, not one
-    // per folder ever opened.
+    // startup, so it alone carries git info and a live `realPath`: one
+    // status call and one `realpath`, not one of each per folder ever
+    // opened.
+    //
+    // Every other entry's `realPath` is read straight off the stored record
+    // instead — `#openWorkspace` (host.ts) puts one there the moment a
+    // folder is opened — rather than resolved again here. Up to 50 entries
+    // are remembered, and a live resolve for every one of them, unbounded,
+    // let a single stale mount hold up the whole list; a comparison key that
+    // is a reload or two behind costs nothing worse than an extra row until
+    // the folder is opened again (#943). An entry from before this field
+    // existed simply has none yet, which is the same "no comparison key"
+    // state `ownPathOf` already tolerates.
+    //
+    // The latest entry's own live resolve is bounded the same way, and its
+    // saved key answers first: a stalled mount must not hold up the list it
+    // heads, and freshness here is a nicety a slow filesystem forfeits, never
+    // something worth blocking on (#939).
     const [latest, ...rest] = ctx.state.state.workspaces
     if (!latest) return []
-    const [git, repo] = await Promise.all([
+    const [git, repo, checkoutRoot, resolved] = await Promise.all([
       gitService.status(latest.path).catch(() => null),
       ctx.workspaces.repoOf(latest.path),
+      ctx.workspaces.topLevel(latest.path).catch(() => null),
+      within(() => ctx.workspaces.realPath(latest.path), RECENT_REAL_PATH_TIMEOUT_MS),
     ])
+    const latestReal = resolved.settled === 'value' ? resolved.value : (latest.realPath ?? latest.path)
     return [
-      { ...latest, git: git ? { branch: git.branch } : null, repo },
+      { ...latest, git: git ? { branch: git.branch } : null, repo, checkoutRoot, realPath: latestReal },
       ...rest.map((entry) => ({ ...entry, git: null })),
     ]
   },
@@ -58,7 +82,7 @@ export const workspaceMethods = {
   'workspace/browse': (ctx, params) => browseDirectories(ctx.runtimes.files(params.runtime), params.path),
 
   'workspace/readFile': async (ctx, params) => {
-    const path = confine(params.path, ctx.workspaces.openRoots())
+    const path = confine(params.path, ctx.workspaces.fileRoots('read'))
     const bytes = await ctx.runtimes.files(params.runtime).read(path)
     const hash = sha256(bytes)
     if (params.encoding === 'base64') {
@@ -68,17 +92,17 @@ export const workspaceMethods = {
   },
 
   'workspace/stat': (ctx, params) =>
-    ctx.runtimes.files(params.runtime).stat(confine(params.path, ctx.workspaces.openRoots())),
+    ctx.runtimes.files(params.runtime).stat(confine(params.path, ctx.workspaces.fileRoots('read'))),
 
   'preview/ticket': (ctx, params) => {
     // Confinement is checked at issue time and again at redemption, so a
     // workspace being closed between the two closes the window as well.
-    confine(params.path, ctx.workspaces.openRoots())
+    confine(params.path, ctx.workspaces.fileRoots('read'))
     return { ticket: ctx.workspaces.issuePreviewTicket(params.path, params.runtime) }
   },
 
   'file/save': async (ctx, params) => {
-    const path = confine(params.path, ctx.workspaces.openRoots())
+    const path = confine(params.path, ctx.workspaces.fileRoots('write'))
     const files = ctx.runtimes.files(params.runtime)
     if (!files.write) throw new Error('This runtime cannot write files from the interface.')
     // Compare before writing. Not atomic — no filesystem offers that

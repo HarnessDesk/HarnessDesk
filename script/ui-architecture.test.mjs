@@ -86,6 +86,22 @@ test('rejects text labels squeezed into icon-only Button sizes', () => {
   assert.equal(findings.length, 1)
 })
 
+test('keeps the box-less pattern Button size inside the design system', () => {
+  const screen = scanUiArchitecture([{ path: 'packages/ui/src/components/Example.tsx', source: `
+    <>
+      <Button variant="row" size="pattern">Open</Button>
+      <Button variant="row" size={dense ? 'pattern' : 'row'}>Open</Button>
+      <span className={buttonVariants({ variant: 'row', size: 'pattern' })} />
+      <Button variant="row" size="row">Open</Button>
+    </>
+  ` }])
+  assert.deepEqual(screen.map((finding) => finding.rule), ['screen-pattern-button', 'screen-pattern-button', 'screen-pattern-button'])
+  const pattern = scanUiArchitecture([{ path: 'packages/ui/src/design/patterns/Settings.tsx', source: `
+    <Button variant="row" size="pattern">Open</Button>
+  ` }])
+  assert.deepEqual(pattern, [])
+})
+
 test('rejects legacy Kit imports and non-Base headless primitives', () => {
   const findings = scanUiArchitecture([
     {

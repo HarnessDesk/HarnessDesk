@@ -6,7 +6,8 @@
  * one by hand and another person reads it in a diff. That is a small document:
  * maps, lists, scalars, and the block scalars a standing order needs. So this
  * reads exactly that and **refuses everything else by name** — anchors,
- * aliases, tags, multiple documents, tabs — rather than guessing.
+ * aliases, tags, multiple documents, tabs, a key called `__proto__` — rather
+ * than guessing.
  *
  * Refusing is the point. A hand-rolled parser that quietly mis-reads a
  * document is worse than no parser, and a flow that is mis-read is a room of
@@ -109,6 +110,40 @@ const scalar = (text: string, line: number): unknown => {
   return value
 }
 
+/**
+ * A map key, as it is about to be set — refused by name when it is
+ * `__proto__`, at every place a key is set.
+ *
+ * To JavaScript that is not a key. `map['__proto__'] = { permission: 'merge' }`
+ * writes no field: it swaps the map's prototype, and `merge` becomes the answer
+ * for every field the document leaves unset — with nothing in the result to
+ * show it came from anywhere. These documents arrive in a clone, so what a
+ * reviewer reads in the diff would not be what the reader applied. Kept as an
+ * ordinary key instead, it would be a trap for the next reader that copies one
+ * map into another by assignment, so it is refused.
+ */
+const keyOf = (key: string, line: number): string => {
+  if (key === '__proto__') {
+    throw new YamlError(
+      '"__proto__" is not read as a key — to the code reading this file it is not a field but a fallback for every field, so rename it',
+      line,
+    )
+  }
+  return key
+}
+
+/**
+ * Sets one key of an inline map, refusing a key the map already holds.
+ *
+ * A block map always refused a key written twice; an inline one kept the last,
+ * so `{ flow: safe, flow: unsafe }` read as `unsafe` while a reviewer's eye
+ * stopped at `safe`. The two spellings of a map now answer the same way.
+ */
+export function setYamlEntry(map: Record<string, unknown>, key: string, value: unknown, line: number): void {
+  if (Object.prototype.hasOwnProperty.call(map, key)) throw new YamlError(`"${key}" is set twice in the same block`, line)
+  map[key] = value
+}
+
 /** `[a, b]` and `{a: b, c: d}` on one line, nested. Everything else is a scalar. */
 const flowValue = (text: string, line: number): unknown => {
   const value = text.trim()
@@ -149,11 +184,11 @@ const flowValue = (text: string, line: number): unknown => {
       }
       for (;;) {
         skip()
-        const key = readPlain(':')
+        const key = keyOf(String(readPlain(':')), line)
         skip()
         if (value[at] !== ':') throw new YamlError('a {map} entry is missing its colon', line)
         at += 1
-        map[String(key)] = read()
+        setYamlEntry(map, key, read(), line)
         skip()
         if (value[at] === ',') {
           at += 1
@@ -320,8 +355,9 @@ export const parseYaml = (source: string): unknown => {
       if (pair) {
         const inner = line.text.indexOf(rest)
         const map: Record<string, unknown> = {}
+        const key = keyOf(pair.key, line.n)
         const value = readValue(pair.rest, at, inner, line.n)
-        map[pair.key] = value.value
+        map[key] = value.value
         at = value.at
         const more = parseMapInto(map, at, inner)
         list.push(map)
@@ -376,7 +412,7 @@ export const parseYaml = (source: string): unknown => {
         throw new YamlError(`"${body}" is not "key: value" — a map entry needs a colon`, line.n)
       }
       if (pair.key === '') throw new YamlError('a map entry has no key before its colon', line.n)
-      const key = String(scalar(pair.key, line.n))
+      const key = keyOf(String(scalar(pair.key, line.n)), line.n)
       if (Object.prototype.hasOwnProperty.call(map, key)) {
         throw new YamlError(`"${key}" is set twice in the same block`, line.n)
       }

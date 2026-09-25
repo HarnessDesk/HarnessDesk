@@ -49,6 +49,9 @@ const attachmentVariants = cva(
         /* Stacked: the picture is the label, so it goes above and the text
            under it. Only worth it when there is a real thumbnail. */
         vertical: 'w-28 flex-col items-stretch',
+        /* An attached image is already its own label. The composer needs the
+           picture as one square target, without a second title line below it. */
+        tile: 'size-20 shrink-0 flex-col items-stretch gap-0 overflow-hidden rounded-(--hd-radius-lg) border-0 bg-(--hd-card-raised) p-0 ring-1 ring-(--hd-border-strong) ring-inset',
       },
     },
     defaultVariants: { size: 'default', orientation: 'horizontal' },
@@ -118,7 +121,7 @@ const AttachmentMedia = ({
     className={cn(
       'flex shrink-0 items-center justify-center overflow-hidden rounded-(--hd-radius-sm) bg-(--hd-muted) text-(--hd-muted-foreground)',
       variant === 'image'
-        ? 'size-9 group-data-[orientation=vertical]/attachment:h-16 group-data-[orientation=vertical]/attachment:w-full [&_img]:size-full [&_img]:object-cover'
+        ? 'size-9 group-data-[orientation=vertical]/attachment:h-16 group-data-[orientation=vertical]/attachment:w-full group-data-[orientation=tile]/attachment:size-full group-data-[orientation=tile]/attachment:rounded-(--hd-radius-lg) [&_img]:size-full [&_img]:object-cover'
         : 'size-8 [&_svg]:size-4',
       className,
     )}
@@ -182,7 +185,7 @@ const AttachmentAction = ({
     type="button"
     data-slot="attachment-action"
     className={cn(
-      'inline-flex size-5 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3',
+      'inline-flex size-(--hd-icon-target) items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3',
       className,
     )}
     {...props}

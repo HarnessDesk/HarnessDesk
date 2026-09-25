@@ -8,7 +8,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { RuntimeMark } from './BrandIcons'
-import { CodeText, Rows, RowButton } from '../design'
+import { CodeText, IconTile, Monogram, Rows, RowButton, Text } from '../design'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../design'
 import { REACH_SENTENCE } from '../lib/reach-states'
 import type { LibraryColumn } from './LibraryActions'
@@ -103,20 +103,25 @@ const ReachFace = ({
     <Tooltip>
       <TooltipTrigger
         render={
-          <span
-            data-slot="skill-reach"
-            data-state={state}
+          /* The agent's mark on its round tile: the warning ground for a
+             problem, the neutral one where it loads, the same tile faded
+             for every other "not this one". */
+          <IconTile
+            size="xs"
+            shape="round"
+            tone={isReachProblem(state) ? 'warning' : 'neutral'}
+            data-reach={state}
             {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
-            aria-label={`${column.label}: ${sentence}`}
             role="img"
-            className={styles.face}
+            aria-label={`${column.label}: ${sentence}`}
+            className={state === 'reaches' || isReachProblem(state) ? undefined : 'opacity-40'}
           />
         }
       >
         {column.info ? (
           <RuntimeMark runtime={column.info} size={12} />
         ) : (
-          <span className={styles.initial}>{column.label[0]}</span>
+          <Monogram>{column.label[0]}</Monogram>
         )}
       </TooltipTrigger>
       <TooltipContent>
@@ -215,27 +220,34 @@ export const SkillRow = ({
       data-slot="skill-row"
       {...(entryHasProblem(entry) ? { 'data-problem': '' } : {})}
       onClick={onOpen}
-      mark={<span className={styles.monogram}>{monogramFor(entry.name)}</span>}
+      mark={<Monogram>{monogramFor(entry.name)}</Monogram>}
       title={
         <span className={styles.name}>
-          <span className={styles.label}>{entry.title ?? entry.name}</span>
+          {/* The row's title weight, as every other settings row's name. */}
+          <span className="min-w-0 truncate">{entry.title ?? entry.name}</span>
           {/* The name written the way it is typed. The identity a skill has on
               disk is the directory name; the identity it has in a composer is
               `/name`, and showing only the first leaves the second to
               guesswork. MCP servers get no slash — they are loaded, not
               invoked. */}
-          <CodeText as="code" className={styles.command}>
-            {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
-          </CodeText>
+          <Text role="muted" ink="muted">
+            <CodeText as="code" size="inherit">
+              {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
+            </CodeText>
+          </Text>
         </span>
       }
       desc={entry.description ?? 'No description in its frontmatter'}
       control={
         <>
           {finding && (
-            <span className={styles.finding} data-tone={finding.tone}>
+            <Text
+              role="muted"
+              ink="muted"
+              {...(finding.tone === 'warn' ? { tone: 'warning' as const } : {})}
+            >
               {finding.text}
-            </span>
+            </Text>
           )}
           <span className={styles.faces}>
             {entry.reach.map((reach, index) => {

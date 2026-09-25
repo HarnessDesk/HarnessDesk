@@ -74,18 +74,23 @@ export interface WriteContext {
 }
 
 /** Caps on what an install will carry: past these, a bundle is a project. */
-const MAX_BUNDLE_FILES = 200
+export const MAX_BUNDLE_FILES = 200
 const MAX_BUNDLE_BYTES = 20 * 1024 * 1024
 
-/** A name is a path segment. Anything that is not one segment is an attack. */
-const validName = (name: string): boolean =>
-  name.length > 0 &&
-  name.length <= 128 &&
-  name !== '.' &&
-  name !== '..' &&
-  !name.includes('/') &&
-  !name.includes('\\') &&
-  !name.includes('\0')
+/**
+ * Whether a string could ever be one path segment: never empty, never a
+ * climb (`.` or `..`), and never carrying a separator or a NUL a filesystem
+ * would refuse outright. Exported so a caller with its own length policy —
+ * a skill or MCP server's name here, an Agent backup's path segment in
+ * `agent-files.ts` — states that policy as one extra check on top of this,
+ * rather than a second near-identical rule that quietly disagrees with this
+ * one at an edge nobody is looking at.
+ */
+export const isSafePathSegment = (name: string): boolean =>
+  name !== '' && name !== '.' && name !== '..' && !name.includes('/') && !name.includes('\\') && !name.includes('\0')
+
+/** A name is a path segment, short enough for a skill or MCP server's own name. */
+const validName = (name: string): boolean => isSafePathSegment(name) && name.length <= 128
 
 interface Definition {
   /** The bundle directory or the flat file itself. */
@@ -963,21 +968,20 @@ const withLock = async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
  * `applyLibrary` catches per op.
  */
 /**
- * A skill bundle relative path must stay strictly inside the bundle:
- * no traversal segments (..), no empty segments, no absolute paths (POSIX or Windows),
- * no drive letters (C:), and no UNC prefixes (\\server\share).
+ * A skill bundle relative path must stay strictly inside the bundle: no
+ * traversal or `.` segments, no empty segments, no NUL, no absolute paths
+ * (POSIX or Windows), no drive letters (C:), and no UNC prefixes
+ * (\\server\share). A bundle may be authored on either platform, so both
+ * `/` and `\` are read as separators — the one difference from
+ * `isSafePathSegment`'s own callers, which is why this splits on both before
+ * handing each piece to that same one rule, rather than folding its own
+ * near-copy of it back in.
  */
 export const isSafeSkillRelativePath = (relative: string): boolean => {
-  if (
-    isAbsolute(relative) ||
-    /^[A-Za-z]:[\\/]/.test(relative) ||
-    relative.startsWith('\\\\') ||
-    relative.startsWith('//') ||
-    relative.split(/[/\\]/).some((part) => part === '..' || part === '')
-  ) {
+  if (isAbsolute(relative) || /^[A-Za-z]:[\\/]/.test(relative) || relative.startsWith('\\\\') || relative.startsWith('//')) {
     return false
   }
-  return true
+  return relative.split(/[/\\]/).every(isSafePathSegment)
 }
 
 const applyOne = async (

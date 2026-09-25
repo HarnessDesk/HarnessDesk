@@ -36,9 +36,11 @@
  * did not move Desk, and after it merges there is nothing left to hold.
  */
 import { execSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 
-import { resolveTokens } from './design-tokens.mjs'
+import { resolveTokens, TOKEN_SOURCES } from './design-tokens.mjs'
 
 const arg = process.argv.indexOf('--base')
 const BASE = arg > -1 ? process.argv[arg + 1] : 'origin/main'
@@ -55,6 +57,44 @@ const BASE = arg > -1 ? process.argv[arg + 1] : 'origin/main'
 const FACES = [
   ['light', resolveTokens({})],
   ['dark', resolveTokens({ dark: true })],
+]
+
+/**
+ * The base's own token table, because a rename is a change this check has to be
+ * able to express.
+ *
+ * Both sides used to resolve against the branch's tokens, so a declaration that
+ * merely changed which name it reads — `var(--a)` to `var(--b)`, same value —
+ * came back as *was nothing, is now something* for every reader of the renamed
+ * token. That is the check refusing a change on the grounds that it happened,
+ * and it made a hundred and fifty readers unreviewable to rename one token.
+ *
+ * Each side is resolved against the tokens that side had. The base's copies are
+ * read out of the object database rather than from a second checkout, so this
+ * costs one `git show` per token source and touches nothing on disk that the
+ * run does not own.
+ */
+const baseTokens = () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'hd-drift-base-'))
+  for (const source of TOKEN_SOURCES) {
+    let text
+    try {
+      text = execSync(`git show ${BASE}:${source}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    } catch {
+      continue // the file is new on this branch; the base simply had no tokens in it
+    }
+    const full = path.join(root, source)
+    mkdirSync(path.dirname(full), { recursive: true })
+    writeFileSync(full, text)
+  }
+  return root
+}
+
+const BASE_ROOT = baseTokens()
+process.on('exit', () => rmSync(BASE_ROOT, { recursive: true, force: true }))
+const BASE_FACES = [
+  ['light', resolveTokens({ root: BASE_ROOT })],
+  ['dark', resolveTokens({ root: BASE_ROOT, dark: true })],
 ]
 
 /** Follow `var()` to a literal the way the cascade does, honouring fallbacks. */
@@ -201,11 +241,11 @@ for (const file of files) {
       olds.forEach((old, index) => {
         if (news[index] === undefined) return
         checked++
-        for (const [face, tokens] of FACES) {
-          const before = resolve(old, tokens)
+        FACES.forEach(([face, tokens], side) => {
+          const before = resolve(old, BASE_FACES[side][1])
           const after = resolve(news[index], tokens)
           if (before !== after) findings.push({ file, face, property, before, after })
-        }
+        })
       })
     }
   }

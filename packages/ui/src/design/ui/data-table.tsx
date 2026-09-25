@@ -190,7 +190,7 @@ const DataTablePagination = ({
       aria-label="Previous page"
       disabled={page <= 1}
       onClick={onPrevious}
-      className="inline-flex size-5 items-center justify-center rounded-(--hd-radius-sm) hover:bg-(--hd-hover) hover:text-(--hd-foreground) disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-3"
+      className="inline-flex size-(--hd-icon-target) items-center justify-center rounded-(--hd-radius-sm) hover:bg-(--hd-hover) hover:text-(--hd-foreground) disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-3"
     >
       <ChevronIcon aria-hidden className="rotate-180" />
     </button>
@@ -199,7 +199,7 @@ const DataTablePagination = ({
       aria-label="Next page"
       disabled={page >= pages}
       onClick={onNext}
-      className="inline-flex size-5 items-center justify-center rounded-(--hd-radius-sm) hover:bg-(--hd-hover) hover:text-(--hd-foreground) disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-3"
+      className="inline-flex size-(--hd-icon-target) items-center justify-center rounded-(--hd-radius-sm) hover:bg-(--hd-hover) hover:text-(--hd-foreground) disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-3"
     >
       <ChevronIcon aria-hidden />
     </button>

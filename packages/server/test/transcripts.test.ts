@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -11,10 +11,12 @@ import {
   type AgentItem,
   type Session,
   type SessionUsage,
+  type TurnInsightContext,
   type Turn,
   wrapContext,
 } from '@harnessdesk/protocol'
 
+import { errnoOf } from '../src/errno.js'
 import { TranscriptStore } from '../src/transcripts.js'
 
 /**
@@ -46,6 +48,10 @@ const session = (turns: Turn[], itemsLoaded = true): Session => ({
 
 const tokens = { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 }
 const usage: SessionUsage = { total: tokens, last: tokens, contextUsed: 55_200, contextWindow: 272_000 }
+const insight = (turn: string): TurnInsightContext => ({
+  turn, startedAt: 1, endedAt: null, seat: 'seat-1', cause: { kind: 'person' }, parent: null,
+  before: null, after: null, generation: '', observedAt: 1, loaded: null,
+})
 
 const withStore = async (fn: (store: TranscriptStore, dir: string) => Promise<void>): Promise<void> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
@@ -72,6 +78,23 @@ test('a thinner read is filled in from the turns the host recorded', async () =>
     // The backend's own facts about the turn win.
     assert.equal(enriched.turns[0]?.durationMs, 120)
     assert.equal(enriched.turns[0]?.diff, 'd')
+  })
+})
+
+test('flush keeps pending Insight context during shutdown', async () => {
+  await withStore(async (store, dir) => {
+    store.record(session([turn('t1', [item('u', 'userMessage')])]), {
+      insight: [{
+        turn: 't1', startedAt: 1, endedAt: null, seat: 'seat-1', cause: { kind: 'person' }, parent: null,
+        before: null, after: null, generation: '', observedAt: 1, loaded: null,
+      }],
+    })
+    await store.flush()
+    const stored = JSON.parse(await readFile(join(dir, 'codex', 's1.json'), 'utf8')) as { insight?: readonly { readonly turn: string }[] }
+    assert.deepEqual(stored.insight, [{
+      turn: 't1', startedAt: 1, endedAt: null, seat: 'seat-1', cause: { kind: 'person' }, parent: null,
+      before: null, after: null, generation: '', observedAt: 1, loaded: null,
+    }])
   })
 })
 
@@ -128,6 +151,19 @@ test('a read that already knows as much is returned untouched', async () => {
     assert.equal(await store.enrich(same), same)
     const unknown = session([turn('t9', [item('u', 'userMessage')])])
     assert.equal(await store.enrich(unknown), unknown)
+  })
+})
+
+test('a cold fuller read keeps the host-recorded notice classification', async () => {
+  await withStore(async (store) => {
+    store.record(session([turn('t1', [item('opening', 'notice')])]), { now: true })
+    await store.flush()
+
+    const cold = session([
+      turn('t1', [item('opening', 'userMessage'), item('answer', 'assistantMessage')]),
+    ])
+    const enriched = await store.enrich(cold)
+    assert.deepEqual(enriched.turns[0]?.items.map((entry) => entry.type), ['notice', 'assistantMessage'])
   })
 })
 
@@ -434,6 +470,20 @@ test('forgetting a session cancels the write still queued for it', async () => {
   })
 })
 
+test('forgetting a session clears its retained Insight context before its key is reused', async () => {
+  await withStore(async (store) => {
+    const original = session([turn('t1', [item('first', 'assistantMessage')])])
+    store.record(original, { now: true, insight: [insight('t1')] })
+    await store.flush()
+    await store.forget(original.runtime, original.id)
+
+    store.record(session([turn('t2', [item('second', 'assistantMessage')])]), { now: true })
+    await store.flush()
+
+    assert.equal(await store.readInsight(original.runtime, original.id), null, 'a reused runtime/session key starts without deleted context')
+  })
+})
+
 test('dropping turns trims what the store kept from the end, after a write still waiting, and forgets one with none left (review of #236, round 1)', async () => {
   await withStore(async (store) => {
     const three = session([turn('t1', [item('a', 'assistantMessage')]), turn('t2', [item('b', 'assistantMessage')]), turn('t3', [item('c', 'assistantMessage')])])
@@ -446,6 +496,22 @@ test('dropping turns trims what the store kept from the end, after a write still
     assert.equal((await store.recover(three.runtime, three.id))?.turns.length, 2)
     await store.dropTurns(three.runtime, three.id, 2)
     assert.equal(await store.recover(three.runtime, three.id), null)
+  })
+})
+
+test('dropping queued turns keeps only Insight context for the retained transcript', async () => {
+  await withStore(async (store) => {
+    const three = session([
+      turn('t1', [item('a', 'assistantMessage')]),
+      turn('t2', [item('b', 'assistantMessage')]),
+      turn('t3', [item('c', 'assistantMessage')]),
+    ])
+    // The context and transcript are both still in the settle window.
+    store.record(three, { insight: [insight('t1'), insight('t2'), insight('t3')] })
+    await store.dropTurns(three.runtime, three.id, 1)
+
+    assert.deepEqual((await store.recover(three.runtime, three.id))?.turns.map((entry) => String(entry.id)), ['t1', 't2'])
+    assert.deepEqual((await store.readInsight(three.runtime, three.id))?.map((context) => context.turn), ['t1', 't2'])
   })
 })
 
@@ -556,4 +622,112 @@ test('importOne refuses malformed transcript turns that lack items array (#500)'
     const exported = await store.exportAll()
     assert.ok(exported.every((entry) => entry.id !== 'corrupt-turns'))
   })
+})
+
+/*
+ * A folder that cannot be opened is not a store with nothing in it.
+ *
+ * Both readers here answered every failure to open a folder with nothing:
+ * search with no hits, and the backup with fewer conversations — or none —
+ * under a count that read as complete. Only a store never written, and a
+ * stray file beside the runtime folders (Finder leaves `.DS_Store`), are
+ * nothing. The conditions are real rather than stubbed: a mode-000 folder,
+ * a 300-character name, and a folder that points at itself — ELOOP for any
+ * user, root included.
+ */
+
+const errno = (expected: string) => (error: unknown) => {
+  assert.equal(errnoOf(error) || errnoOf((error as Error).cause), expected)
+  return true
+}
+
+test('a store that cannot be opened is raised by search and by the backup, not read as empty', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new TranscriptStore(join(dir, 'n'.repeat(300)))
+  await assert.rejects(store.search('anything'), errno('ENAMETOOLONG'))
+  await assert.rejects(store.exportAll(), errno('ENAMETOOLONG'))
+})
+
+test('a store the mode refuses is raised the same way', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new TranscriptStore(dir)
+  store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]), { now: true })
+  await store.flush()
+  assert.equal((await store.exportAll()).length, 1, 'readable, the conversation is there')
+
+  await chmod(dir, 0o000)
+  try {
+    const readable = await readdir(dir).then(
+      () => true,
+      () => false,
+    )
+    // Modes do not apply to root, so there is no refusal here to observe.
+    if (readable) return t.skip('this user can read a directory with mode 000')
+
+    await assert.rejects(store.search('websocket'), errno('EACCES'))
+    await assert.rejects(store.exportAll(), errno('EACCES'))
+  } finally {
+    await chmod(dir, 0o700)
+  }
+})
+
+test('a backup refuses an agent’s folder it cannot open, rather than leaving that agent out', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new TranscriptStore(dir)
+  store.record(talk('codex', 'a', [['userMessage', 'kept']]), { now: true })
+  await store.flush()
+  const loop = join(dir, 'claude')
+  await symlink(loop, loop)
+
+  /* "Exported 3 agents and 12 conversations" over a folder of four hundred it
+     could not read is a backup somebody trusts and cannot restore from. */
+  await assert.rejects(store.exportAll(), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.equal(errnoOf(error.cause), 'ELOOP')
+    assert.ok(error.message.includes(loop), 'names the folder it could not read')
+    return true
+  })
+})
+
+test('search reads past an agent’s folder it cannot open, and says which', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const logged: string[] = []
+  const store = new TranscriptStore(dir, (message, details) =>
+    logged.push(`${message} ${JSON.stringify(details ?? {})}`),
+  )
+  store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]), { now: true })
+  await store.flush()
+  const loop = join(dir, 'claude')
+  await symlink(loop, loop)
+
+  // A palette search is a lookup, not a record: one folder it cannot open
+  // must not cost it the rest, but it is not passed over in silence either.
+  const hits = await store.search('websocket')
+  assert.equal(hits.length, 1, 'what could be read is still found')
+  assert.ok(
+    logged.some((line) => line.includes(JSON.stringify(loop).slice(1, -1)) && line.includes('ELOOP')),
+    'and the folder that could not be is named, with the reason',
+  )
+})
+
+test('a stray file beside the agents’ folders, and a store never written, are nothing', async (t) => {
+  // The control for the four above: these pass against the old catch-all too.
+  const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const logged: string[] = []
+  const store = new TranscriptStore(dir, (message) => logged.push(message))
+  store.record(talk('codex', 'a', [['userMessage', 'the flaky websocket test']]), { now: true })
+  await store.flush()
+  await writeFile(join(dir, '.DS_Store'), 'Finder was here', 'utf8')
+  assert.equal((await store.search('websocket')).length, 1)
+  assert.equal((await store.exportAll()).length, 1)
+  assert.deepEqual(logged, [], 'and a stray file is not worth a line')
+
+  const never = new TranscriptStore(join(dir, 'never-written'))
+  assert.deepEqual(await never.search('websocket'), [])
+  assert.deepEqual(await never.exportAll(), [])
 })

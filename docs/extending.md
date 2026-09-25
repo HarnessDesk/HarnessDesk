@@ -687,7 +687,7 @@ privileged path:
 
 | Plugin | Engine | What it adds |
 | --- | --- | --- |
-| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`, `issue_view` and `issue_comment` through `gh`, signed for the conversation's seat and recorded in it |
+| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`, `pr_merge`, `issue_view` and `issue_comment` through `gh`, signed for the conversation's seat and recorded in it |
 | files | `ctx.fs` | read and list within the workspace (read-only &mdash; see [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)) |
 | search | `ctx.fs` | content and filename search |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |
@@ -699,6 +699,13 @@ privileged path:
 | iOS simulator | `ctx.ios` (simctl) | devices, boot, install, launch, screenshot, tap, open URL |
 | Android | `ctx.android` (adb) | devices, install, launch, screenshot, tap, key, text, logcat |
 | tests | `ctx.shell` | `run_tests` with the framework detected, structured pass/fail; the `/test` command |
+
+`pr_merge` is deliberately head-bound. It requires the pull request `number`
+and the reviewed full `head` commit (40 or 64 lowercase hexadecimal characters),
+accepts an optional `method` of `squash`, `merge` or `rebase`, and defaults to
+`squash`. The forge call uses `--match-head-commit`, so it refuses instead of
+merging if the branch moved after review. Only a seat at the `merge` ceiling may
+reach the tool.
 
 ### What not to build
 

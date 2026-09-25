@@ -2,7 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { DayColumns, PaceBadge, SegmentMeter } from './chart'
+import { ChartKey, ChartKeys, ChartTip, DayColumns, PaceBadge, SegmentMeter, SeriesDot } from './chart'
 import { TINTS, tintFor, tintsFor } from './tone'
 
 /**
@@ -288,5 +288,60 @@ describe('tintsFor', () => {
     const keys = Array.from({ length: TINTS.length + 3 }, (_, index) => `series-${index}`)
     expect(tintsFor(keys)).toHaveLength(keys.length)
     expect(tintsFor(keys).every((tint) => TINTS.includes(tint))).toBe(true)
+  })
+})
+
+describe('series marks', () => {
+  it('names a kind by tone or by tint, with one dot for both', () => {
+    mount(
+      <>
+        <SeriesDot tint="violet" />
+        <SeriesDot tone="success" />
+        <ChartKeys>
+          <ChartKey tone="brand" label="Response" />
+          <ChartKey tint="orange" label="Command" />
+        </ChartKeys>
+      </>,
+    )
+    const dots = [...container.querySelectorAll<HTMLElement>('[data-slot="series-dot"]')]
+    expect(dots).toHaveLength(4)
+    expect(dots[0]?.dataset['tint']).toBe('violet')
+    expect(dots[0]?.className).toContain('bg-(--hd-tint-violet-ink)')
+    expect(dots[1]?.dataset['tone']).toBe('success')
+    expect(dots[1]?.className).toContain('bg-(--hd-success)')
+    expect(dots[2]?.dataset['tone']).toBe('brand')
+    expect(dots[3]?.dataset['tint']).toBe('orange')
+    /* One size and one shape, whichever vocabulary coloured it. */
+    for (const dot of dots) expect(dot.className).toContain('size-2')
+  })
+})
+
+describe('ChartTip', () => {
+  it('places itself along a plot, or leaves the placing to its owner', () => {
+    mount(
+      <>
+        <ChartTip at={0.5}>On the plot</ChartTip>
+        <ChartTip>Beside a rail</ChartTip>
+      </>,
+    )
+    const [plotted, owned] = [...container.querySelectorAll<HTMLElement>('[data-slot="chart-tip"]')]
+    expect(plotted?.style.left).toBe('50%')
+    expect(plotted?.className).toContain('bottom-full')
+    expect(owned?.dataset['placement']).toBe('owner')
+    expect(owned?.getAttribute('style')).toBeNull()
+    expect(owned?.className).not.toContain('bottom-full')
+    expect(plotted?.tagName).toBe('DIV')
+    /* The plate is the same either way. */
+    expect(owned?.className).toContain('bg-(--hd-popover)')
+    expect(owned?.className).toContain('shadow-(--hd-shadow)')
+  })
+})
+
+describe('ChartTip inside a control', () => {
+  it('is a span, so a button around it holds only phrasing content', () => {
+    mount(<button type="button"><ChartTip as="span">First words</ChartTip></button>)
+    const tip = container.querySelector('[data-slot="chart-tip"]')
+    expect(tip?.tagName).toBe('SPAN')
+    expect(container.querySelector('button div')).toBeNull()
   })
 })

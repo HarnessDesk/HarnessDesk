@@ -17,15 +17,23 @@
  * hue, converted to sRGB. That is the whole method, and it buys three things
  * the previous palette did not have:
  *
- *   One hue per ramp.   `neutral-bluish` used to drift from 240° to 286° and
- *                       lose its chroma entirely below step 800 — a ramp
- *                       named "bluish" whose dark half, which is the whole
- *                       of the dark theme, was flat grey. It now holds 258°
- *                       from white to near-black.
- *   An honest `neutral`. The other ramp is chroma 0 exactly. Two neutral
- *                       ramps only earn their keep if one is cool and the
- *                       other is not; before, both were slightly blue in
- *                       their middles and neither was reliably either.
+ *   A grey that is grey. `grey` is chroma 0 at every step. It was
+ *                       `neutral-bluish`, and it was named for a hue it only
+ *                       half had: it drifted from 240° to 286° across the
+ *                       light half and lost its chroma entirely below step
+ *                       800, so the dark theme — which is all of that half —
+ *                       was already flat. Every surface and every ink in the
+ *                       app reads this ramp.
+ *
+ *   Two ramps, one job   `neutral` is also chroma 0, on its own curve: at
+ *   each.                step 600 it is 93 where `grey` is 132, and it bottoms
+ *                       out at black where `grey` stops at 17. Nine
+ *                       declarations read it — scrollbars and multi-select —
+ *                       and they are the places where agreeing with the
+ *                       platform matters more than agreeing with the app.
+ *                       Merging the two would mean choosing one curve and
+ *                       moving colour on every surface that reads the loser.
+ *
  *   Two blues you can   The brand ramp sits at 268° and the informational
  *   tell apart.         blue at 248°. They used to be 3° apart, which is why
  *                       the trajectory ledger drew "thinking" and "tool call"
@@ -113,25 +121,25 @@ body {
   --hdp-static-neutral-800: rgb(43, 43, 43);
   --hdp-static-neutral-850: rgb(34, 34, 34);
   --hdp-static-neutral-900: rgb(18, 18, 18);
-  --hdp-static-neutral-bluish-00: rgb(255, 255, 255);
-  --hdp-static-neutral-bluish-1000: rgb(15, 17, 20);
-  --hdp-static-neutral-bluish-100: rgb(236, 237, 239);
-  --hdp-static-neutral-bluish-150: rgb(229, 231, 234);
-  --hdp-static-neutral-bluish-200: rgb(222, 224, 227);
-  --hdp-static-neutral-bluish-300: rgb(206, 208, 211);
-  --hdp-static-neutral-bluish-400: rgb(174, 176, 180);
-  --hdp-static-neutral-bluish-500: rgb(153, 155, 159);
-  --hdp-static-neutral-bluish-50: rgb(248, 249, 250);
-  --hdp-static-neutral-bluish-600: rgb(129, 132, 135);
-  --hdp-static-neutral-bluish-60: rgb(244, 245, 246);
-  --hdp-static-neutral-bluish-700: rgb(97, 99, 103);
-  --hdp-static-neutral-bluish-750: rgb(69, 71, 74);
-  --hdp-static-neutral-bluish-75: rgb(240, 242, 244);
-  --hdp-static-neutral-bluish-800: rgb(47, 49, 52);
-  --hdp-static-neutral-bluish-850: rgb(39, 40, 43);
-  --hdp-static-neutral-bluish-875: rgb(31, 33, 36);
-  --hdp-static-neutral-bluish-900: rgb(25, 27, 30);
-  --hdp-static-neutral-bluish-950: rgb(22, 24, 27);
+  --hdp-static-grey-00: rgb(255, 255, 255); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-1000: rgb(17, 17, 17); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-100: rgb(237, 237, 237); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-150: rgb(231, 231, 231); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-200: rgb(224, 224, 224); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-300: rgb(208, 208, 208); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-400: rgb(177, 177, 177); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-500: rgb(156, 156, 156); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-50: rgb(249, 249, 249); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-600: rgb(107, 107, 107); /* desk: tertiary text clears AA on every light ground */
+  --hdp-static-grey-60: rgb(245, 245, 245); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-700: rgb(100, 100, 100); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-750: rgb(71, 71, 71); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-75: rgb(242, 242, 242); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-800: rgb(49, 49, 49); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-850: rgb(41, 41, 41); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-875: rgb(33, 33, 33); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-900: rgb(27, 27, 27); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-950: rgb(24, 24, 24); /* desk: the grey ramp is neutral */
   --hdp-static-red-100: rgb(255, 227, 223);
   --hdp-static-red-400: rgb(238, 90, 80);
   --hdp-static-red-500: rgb(228, 68, 62);
@@ -189,25 +197,25 @@ body[data-hd-dark-theme] {
   --hdp-static-neutral-800: rgb(43, 43, 43);
   --hdp-static-neutral-850: rgb(34, 34, 34);
   --hdp-static-neutral-900: rgb(18, 18, 18);
-  --hdp-static-neutral-bluish-00: rgb(255, 255, 255);
-  --hdp-static-neutral-bluish-1000: rgb(15, 17, 20);
-  --hdp-static-neutral-bluish-100: rgb(236, 237, 239);
-  --hdp-static-neutral-bluish-150: rgb(229, 231, 234);
-  --hdp-static-neutral-bluish-200: rgb(222, 224, 227);
-  --hdp-static-neutral-bluish-300: rgb(206, 208, 211);
-  --hdp-static-neutral-bluish-400: rgb(174, 176, 180);
-  --hdp-static-neutral-bluish-500: rgb(153, 155, 159);
-  --hdp-static-neutral-bluish-50: rgb(248, 249, 250);
-  --hdp-static-neutral-bluish-600: rgb(129, 132, 135);
-  --hdp-static-neutral-bluish-60: rgb(244, 245, 246);
-  --hdp-static-neutral-bluish-700: rgb(97, 99, 103);
-  --hdp-static-neutral-bluish-750: rgb(69, 71, 74);
-  --hdp-static-neutral-bluish-75: rgb(240, 242, 244);
-  --hdp-static-neutral-bluish-800: rgb(47, 49, 52);
-  --hdp-static-neutral-bluish-850: rgb(39, 40, 43);
-  --hdp-static-neutral-bluish-875: rgb(31, 33, 36);
-  --hdp-static-neutral-bluish-900: rgb(25, 27, 30);
-  --hdp-static-neutral-bluish-950: rgb(22, 24, 27);
+  --hdp-static-grey-00: rgb(255, 255, 255); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-1000: rgb(17, 17, 17); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-100: rgb(237, 237, 237); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-150: rgb(231, 231, 231); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-200: rgb(224, 224, 224); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-300: rgb(208, 208, 208); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-400: rgb(177, 177, 177); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-500: rgb(156, 156, 156); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-50: rgb(249, 249, 249); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-600: rgb(107, 107, 107); /* desk: tertiary text clears AA on every light ground */
+  --hdp-static-grey-60: rgb(245, 245, 245); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-700: rgb(100, 100, 100); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-750: rgb(71, 71, 71); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-75: rgb(242, 242, 242); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-800: rgb(49, 49, 49); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-850: rgb(41, 41, 41); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-875: rgb(33, 33, 33); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-900: rgb(27, 27, 27); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-950: rgb(24, 24, 24); /* desk: the grey ramp is neutral */
   --hdp-static-red-100: rgb(255, 227, 223);
   --hdp-static-red-400: rgb(246, 113, 102);
   --hdp-static-red-500: rgb(228, 68, 62);
@@ -217,18 +225,18 @@ body[data-hd-dark-theme] {
 }
 
 body {
-  --hdp-alias-bg-base: var(--hdp-static-neutral-bluish-00);
-  --hdp-alias-bg-layer-1: var(--hdp-static-neutral-bluish-00);
-  --hdp-alias-bg-layer-2: var(--hdp-static-neutral-bluish-00);
-  --hdp-alias-bg-layer-3: var(--hdp-static-neutral-bluish-00);
+  --hdp-alias-bg-base: var(--hdp-static-grey-00);
+  --hdp-alias-bg-layer-1: var(--hdp-static-grey-00);
+  --hdp-alias-bg-layer-2: var(--hdp-static-grey-00);
+  --hdp-alias-bg-layer-3: var(--hdp-static-grey-00);
   --hdp-alias-bg-mask-1: rgba(7, 9, 14, 0.28);
   --hdp-alias-bg-mask-2: rgba(7, 9, 14, 0.14);
   --hdp-alias-bg-mask-3: rgba(7, 9, 14, 0.52);
   --hdp-alias-bg-mask-photo: rgba(7, 9, 14, 0.9); /* desk: the scrim is the palette’s own near-black, not pure black */
   --hdp-alias-bg-mask-drop: rgba(255, 255, 255, 0.72); /* desk: the scrim is the palette’s own near-black, not pure black */
-  --hdp-alias-bg-module-platform: var(--hdp-static-neutral-bluish-60);
-  --hdp-alias-bg-multi-select: var(--hdp-static-neutral-bluish-60);
-  --hdp-alias-bg-overlay: var(--hdp-static-neutral-bluish-150);
+  --hdp-alias-bg-module-platform: var(--hdp-static-grey-60);
+  --hdp-alias-bg-multi-select: var(--hdp-static-grey-60);
+  --hdp-alias-bg-overlay: var(--hdp-static-grey-150);
   --hdp-alias-bg-skeleton: rgba(9, 12, 17, 0.05); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
   --hdp-alias-border-inverted2: rgba(9, 12, 17, 0);
   --hdp-alias-border-inverted: rgba(9, 12, 17, 0); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
@@ -237,46 +245,46 @@ body {
   --hdp-alias-border-l2: rgba(9, 12, 17, 0.12); /* desk: measured against the Codex desktop app */
   --hdp-alias-border-l3: rgba(9, 12, 17, 0.14);
   --hdp-alias-border-l4: rgba(9, 12, 17, 0.2);
-  --hdp-alias-brand-primary-invert: var(--hdp-static-neutral-bluish-900); /* desk: measured against the Codex desktop app */
+  --hdp-alias-brand-primary-invert: var(--hdp-static-grey-900); /* desk: measured against the Codex desktop app */
   --hdp-alias-brand-primary-new-colorprimary-new-color: var(--hdp-static-accent-500); /* desk: a forked literal → the brand ramp it was a copy of */
-  --hdp-alias-brand-primary: var(--hdp-static-neutral-bluish-900); /* desk: measured against the Codex desktop app */
-  --hdp-alias-brand-text: var(--hdp-static-neutral-bluish-900); /* desk: measured against the Codex desktop app */
-  --hdp-alias-button-contrast-fill: var(--hdp-static-neutral-bluish-700);
-  --hdp-alias-button-elevated-fill: var(--hdp-static-neutral-bluish-00);
-  --hdp-alias-button-floating-fill: var(--hdp-static-neutral-bluish-00);
-  --hdp-alias-button-floating-hover: var(--hdp-static-neutral-bluish-75);
-  --hdp-alias-button-ghost-active-border: var(--hdp-static-neutral-bluish-500);
-  --hdp-alias-button-ghost-active-fill: var(--hdp-static-neutral-bluish-100);
-  --hdp-alias-button-ghost-active-hover: var(--hdp-static-neutral-bluish-150);
+  --hdp-alias-brand-primary: var(--hdp-static-grey-900); /* desk: measured against the Codex desktop app */
+  --hdp-alias-brand-text: var(--hdp-static-grey-900); /* desk: measured against the Codex desktop app */
+  --hdp-alias-button-contrast-fill: var(--hdp-static-grey-700);
+  --hdp-alias-button-elevated-fill: var(--hdp-static-grey-00);
+  --hdp-alias-button-floating-fill: var(--hdp-static-grey-00);
+  --hdp-alias-button-floating-hover: var(--hdp-static-grey-75);
+  --hdp-alias-button-ghost-active-border: var(--hdp-static-grey-500);
+  --hdp-alias-button-ghost-active-fill: var(--hdp-static-grey-100);
+  --hdp-alias-button-ghost-active-hover: var(--hdp-static-grey-150);
   --hdp-alias-button-info-fill: var(--hdp-static-accent-500); /* desk: the ramp this reads was renamed and rebuilt */
   --hdp-alias-button-info-hover: var(--hdp-static-accent-400); /* desk: the ramp this reads was renamed and rebuilt */
-  --hdp-alias-button-primary-dimmed: var(--hdp-static-neutral-bluish-100);
+  --hdp-alias-button-primary-dimmed: var(--hdp-static-grey-100);
   --hdp-alias-button-primary-fill: var(--hdp-alias-brand-primary);
-  --hdp-alias-button-primary-hover: var(--hdp-static-neutral-bluish-750);
+  --hdp-alias-button-primary-hover: var(--hdp-static-grey-750);
   --hdp-alias-button-tool-bar-fill-invisible: rgba(7, 9, 14, 0.38); /* desk: the scrim is the palette’s own near-black, not pure black */
   --hdp-alias-button-tool-bar-fill: rgba(7, 9, 14, 0.52); /* desk: the scrim is the palette’s own near-black, not pure black */
   --hdp-alias-button-tool-bar-hover: rgba(7, 9, 14, 0.62); /* desk: the scrim is the palette’s own near-black, not pure black */
   --hdp-alias-interactive-bg-active: rgba(9, 12, 17, 0.09); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
   --hdp-alias-interactive-bg-hover-accent: rgba(9, 12, 17, 0.13); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
   --hdp-alias-interactive-bg-hover-danger: rgba(215, 42, 42, 0.06); /* desk: the danger wash follows the rebuilt red */
-  --hdp-alias-interactive-bg-hover-solid: var(--hdp-static-neutral-bluish-75);
+  --hdp-alias-interactive-bg-hover-solid: var(--hdp-static-grey-75);
   --hdp-alias-interactive-bg-hover: rgba(9, 12, 17, 0.05); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
-  --hdp-alias-label-caption: var(--hdp-static-neutral-bluish-400);
-  --hdp-alias-label-dimmed: var(--hdp-static-neutral-bluish-200);
+  --hdp-alias-label-caption: var(--hdp-static-grey-400);
+  --hdp-alias-label-dimmed: var(--hdp-static-grey-200);
   --hdp-alias-label-primary-bluish: var(--hdp-static-blue-900);
-  --hdp-alias-label-primary-dimmed: var(--hdp-static-neutral-bluish-950);
-  --hdp-alias-label-primary-inverted: var(--hdp-static-neutral-bluish-00);
-  --hdp-alias-label-primary: var(--hdp-static-neutral-bluish-900); /* desk: measured against the Codex desktop app */
-  --hdp-alias-label-secondary: var(--hdp-static-neutral-bluish-700);
-  --hdp-alias-label-tertiary: var(--hdp-static-neutral-bluish-600);
-  --hdp-alias-markdown-citation: var(--hdp-static-neutral-bluish-100);
-  --hdp-alias-markdown-code-block-banner: var(--hdp-static-neutral-bluish-50);
-  --hdp-alias-markdown-code-block: var(--hdp-static-neutral-bluish-50);
-  --hdp-alias-markdown-code-segment-selected: var(--hdp-static-neutral-bluish-00);
-  --hdp-alias-markdown-code-segment-unselected: var(--hdp-static-neutral-bluish-75);
-  --hdp-alias-markdown-inline-code: var(--hdp-static-neutral-bluish-100);
-  --hdp-alias-markdown-placeholder: var(--hdp-static-neutral-bluish-60);
-  --hdp-alias-markdown-tag: var(--hdp-static-neutral-bluish-75);
+  --hdp-alias-label-primary-dimmed: var(--hdp-static-grey-950);
+  --hdp-alias-label-primary-inverted: var(--hdp-static-grey-00);
+  --hdp-alias-label-primary: var(--hdp-static-grey-900); /* desk: measured against the Codex desktop app */
+  --hdp-alias-label-secondary: var(--hdp-static-grey-700);
+  --hdp-alias-label-tertiary: var(--hdp-static-grey-600);
+  --hdp-alias-markdown-citation: var(--hdp-static-grey-100);
+  --hdp-alias-markdown-code-block-banner: var(--hdp-static-grey-50);
+  --hdp-alias-markdown-code-block: var(--hdp-static-grey-50);
+  --hdp-alias-markdown-code-segment-selected: var(--hdp-static-grey-00);
+  --hdp-alias-markdown-code-segment-unselected: var(--hdp-static-grey-75);
+  --hdp-alias-markdown-inline-code: var(--hdp-static-grey-100);
+  --hdp-alias-markdown-placeholder: var(--hdp-static-grey-60);
+  --hdp-alias-markdown-tag: var(--hdp-static-grey-75);
   --hdp-alias-scrollbar-bg-l1: var(--hdp-static-neutral-200);
   --hdp-alias-scrollbar-bg-l2: var(--hdp-static-neutral-200);
   --hdp-alias-scrollbar-hover-l1: var(--hdp-static-neutral-300);
@@ -292,34 +300,34 @@ body {
   --hdp-alias-state-warn-primary: var(--hdp-static-amber-500);
   --hdp-alias-state-warn-secondary: var(--hdp-static-amber-400);
   --hdp-alias-state-warn-tertiary: var(--hdp-static-amber-100);
-  --hdp-alias-toast-bg: var(--hdp-static-neutral-bluish-800);
-  --hdp-alias-tooltip-bg: var(--hdp-static-neutral-bluish-850);
+  --hdp-alias-toast-bg: var(--hdp-static-grey-800);
+  --hdp-alias-tooltip-bg: var(--hdp-static-grey-850);
   --hdp-specific-bubble-highlight: var(--hdp-static-accent-200); /* desk: the ramp this reads was renamed and rebuilt */
   --hdp-specific-bubble: var(--hdp-static-accent-50); /* desk: the ramp this reads was renamed and rebuilt */
-  --hdp-specific-input-major: var(--hdp-static-neutral-bluish-00);
-  --hdp-specific-login-input: var(--hdp-static-neutral-bluish-50);
+  --hdp-specific-input-major: var(--hdp-static-grey-00);
+  --hdp-specific-login-input: var(--hdp-static-grey-50);
   --hdp-specific-menu: var(--hdp-alias-bg-layer-3);
-  --hdp-specific-selector: var(--hdp-static-neutral-bluish-60);
-  --hdp-specific-sidebar-fill: var(--hdp-static-neutral-bluish-50);
+  --hdp-specific-selector: var(--hdp-static-grey-60);
+  --hdp-specific-sidebar-fill: var(--hdp-static-grey-50);
   --hdp-specific-sidebar-nav-item-active-accent: var(--hdp-static-accent-100); /* desk: the ramp this reads was renamed and rebuilt */
-  --hdp-specific-sidebar-nav-item-active: var(--hdp-static-neutral-bluish-100);
-  --hdp-specific-sidebar-nav-item-hover: var(--hdp-static-neutral-bluish-75);
-  --hdp-specific-tip: var(--hdp-static-neutral-bluish-60);
+  --hdp-specific-sidebar-nav-item-active: var(--hdp-static-grey-100);
+  --hdp-specific-sidebar-nav-item-hover: var(--hdp-static-grey-75);
+  --hdp-specific-tip: var(--hdp-static-grey-60);
 }
 
 body[data-hd-dark-theme] {
-  --hdp-alias-bg-base: var(--hdp-static-neutral-bluish-950);
-  --hdp-alias-bg-layer-1: var(--hdp-static-neutral-bluish-875);
-  --hdp-alias-bg-layer-2: var(--hdp-static-neutral-bluish-850);
-  --hdp-alias-bg-layer-3: var(--hdp-static-neutral-bluish-800);
+  --hdp-alias-bg-base: var(--hdp-static-grey-950);
+  --hdp-alias-bg-layer-1: var(--hdp-static-grey-875);
+  --hdp-alias-bg-layer-2: var(--hdp-static-grey-850);
+  --hdp-alias-bg-layer-3: var(--hdp-static-grey-800);
   --hdp-alias-bg-mask-1: rgba(7, 9, 14, 0.56);
   --hdp-alias-bg-mask-2: rgba(7, 9, 14, 0.24);
   --hdp-alias-bg-mask-3: rgba(7, 9, 14, 0.68);
   --hdp-alias-bg-mask-photo: rgba(7, 9, 14, 0.9); /* desk: the scrim is the palette’s own near-black, not pure black */
   --hdp-alias-bg-mask-drop: rgba(31, 34, 39, 0.72); /* desk: the scrim is the palette’s own near-black, not pure black */
-  --hdp-alias-bg-module-platform: var(--hdp-static-neutral-bluish-800);
+  --hdp-alias-bg-module-platform: var(--hdp-static-grey-800);
   --hdp-alias-bg-multi-select: var(--hdp-static-neutral-850);
-  --hdp-alias-bg-overlay: var(--hdp-static-neutral-bluish-700);
+  --hdp-alias-bg-overlay: var(--hdp-static-grey-700);
   --hdp-alias-bg-skeleton: rgba(255, 255, 255, 0.07); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
   --hdp-alias-border-inverted2: rgba(255, 255, 255, 0.08);
   --hdp-alias-border-inverted: rgba(255, 255, 255, 0.06); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
@@ -328,46 +336,46 @@ body[data-hd-dark-theme] {
   --hdp-alias-border-l2: rgba(255, 255, 255, 0.16); /* desk: measured against the Codex desktop app */
   --hdp-alias-border-l3: rgba(255, 255, 255, 0.2); /* desk: measured against the Codex desktop app */
   --hdp-alias-border-l4: rgba(255, 255, 255, 0.22);
-  --hdp-alias-brand-primary-invert: var(--hdp-static-neutral-bluish-150); /* desk: measured against the Codex desktop app */
+  --hdp-alias-brand-primary-invert: var(--hdp-static-grey-150); /* desk: measured against the Codex desktop app */
   --hdp-alias-brand-primary-new-colorprimary-new-color: var(--hdp-static-accent-450); /* desk: a forked literal → the brand ramp it was a copy of */
-  --hdp-alias-brand-primary: var(--hdp-static-neutral-bluish-150); /* desk: measured against the Codex desktop app */
-  --hdp-alias-brand-text: var(--hdp-static-neutral-bluish-150); /* desk: measured against the Codex desktop app */
-  --hdp-alias-button-contrast-fill: var(--hdp-static-neutral-bluish-150); /* desk: measured against the Codex desktop app */
-  --hdp-alias-button-elevated-fill: var(--hdp-static-neutral-bluish-750);
-  --hdp-alias-button-floating-fill: var(--hdp-static-neutral-bluish-850);
-  --hdp-alias-button-floating-hover: var(--hdp-static-neutral-bluish-800);
-  --hdp-alias-button-ghost-active-border: var(--hdp-static-neutral-bluish-600);
-  --hdp-alias-button-ghost-active-fill: var(--hdp-static-neutral-bluish-750);
-  --hdp-alias-button-ghost-active-hover: var(--hdp-static-neutral-bluish-700);
+  --hdp-alias-brand-primary: var(--hdp-static-grey-150); /* desk: measured against the Codex desktop app */
+  --hdp-alias-brand-text: var(--hdp-static-grey-150); /* desk: measured against the Codex desktop app */
+  --hdp-alias-button-contrast-fill: var(--hdp-static-grey-150); /* desk: measured against the Codex desktop app */
+  --hdp-alias-button-elevated-fill: var(--hdp-static-grey-750);
+  --hdp-alias-button-floating-fill: var(--hdp-static-grey-850);
+  --hdp-alias-button-floating-hover: var(--hdp-static-grey-800);
+  --hdp-alias-button-ghost-active-border: var(--hdp-static-grey-600);
+  --hdp-alias-button-ghost-active-fill: var(--hdp-static-grey-750);
+  --hdp-alias-button-ghost-active-hover: var(--hdp-static-grey-700);
   --hdp-alias-button-info-fill: var(--hdp-static-accent-400); /* desk: the ramp this reads was renamed and rebuilt */
   --hdp-alias-button-info-hover: var(--hdp-static-accent-500); /* desk: the ramp this reads was renamed and rebuilt */
-  --hdp-alias-button-primary-dimmed: var(--hdp-static-neutral-bluish-750);
+  --hdp-alias-button-primary-dimmed: var(--hdp-static-grey-750);
   --hdp-alias-button-primary-fill: var(--hdp-alias-brand-primary);
-  --hdp-alias-button-primary-hover: var(--hdp-static-neutral-bluish-100);
+  --hdp-alias-button-primary-hover: var(--hdp-static-grey-100);
   --hdp-alias-button-tool-bar-fill-invisible: rgba(7, 9, 14, 0.38); /* desk: the scrim is the palette’s own near-black, not pure black */
   --hdp-alias-button-tool-bar-fill: rgba(7, 9, 14, 0.52); /* desk: the scrim is the palette’s own near-black, not pure black */
   --hdp-alias-button-tool-bar-hover: rgba(7, 9, 14, 0.62); /* desk: the scrim is the palette’s own near-black, not pure black */
   --hdp-alias-interactive-bg-active: rgba(255, 255, 255, 0.13); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
   --hdp-alias-interactive-bg-hover-accent: rgba(255, 255, 255, 0.22); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
   --hdp-alias-interactive-bg-hover-danger: rgba(238, 94, 84, 0.16); /* desk: the danger wash follows the rebuilt red */
-  --hdp-alias-interactive-bg-hover-solid: var(--hdp-static-neutral-bluish-800);
+  --hdp-alias-interactive-bg-hover-solid: var(--hdp-static-grey-800);
   --hdp-alias-interactive-bg-hover: rgba(255, 255, 255, 0.07); /* desk: one ink at an alpha, so a wash and a hairline are the same family */
-  --hdp-alias-label-caption: var(--hdp-static-neutral-bluish-600);
-  --hdp-alias-label-dimmed: var(--hdp-static-neutral-bluish-750);
-  --hdp-alias-label-primary-bluish: var(--hdp-static-neutral-bluish-50);
-  --hdp-alias-label-primary-dimmed: var(--hdp-static-neutral-bluish-100);
-  --hdp-alias-label-primary-inverted: var(--hdp-static-neutral-bluish-800);
-  --hdp-alias-label-primary: var(--hdp-static-neutral-bluish-150); /* desk: measured against the Codex desktop app */
-  --hdp-alias-label-secondary: var(--hdp-static-neutral-bluish-300);
-  --hdp-alias-label-tertiary: var(--hdp-static-neutral-bluish-400);
-  --hdp-alias-markdown-citation: var(--hdp-static-neutral-bluish-800);
-  --hdp-alias-markdown-code-block-banner: var(--hdp-static-neutral-bluish-850);
-  --hdp-alias-markdown-code-block: var(--hdp-static-neutral-bluish-900);
-  --hdp-alias-markdown-code-segment-selected: var(--hdp-static-neutral-bluish-800);
-  --hdp-alias-markdown-code-segment-unselected: var(--hdp-static-neutral-bluish-900);
-  --hdp-alias-markdown-inline-code: var(--hdp-static-neutral-bluish-850);
-  --hdp-alias-markdown-placeholder: var(--hdp-static-neutral-bluish-850);
-  --hdp-alias-markdown-tag: var(--hdp-static-neutral-bluish-850);
+  --hdp-alias-label-caption: var(--hdp-static-grey-600);
+  --hdp-alias-label-dimmed: var(--hdp-static-grey-750);
+  --hdp-alias-label-primary-bluish: var(--hdp-static-grey-50);
+  --hdp-alias-label-primary-dimmed: var(--hdp-static-grey-100);
+  --hdp-alias-label-primary-inverted: var(--hdp-static-grey-800);
+  --hdp-alias-label-primary: var(--hdp-static-grey-150); /* desk: measured against the Codex desktop app */
+  --hdp-alias-label-secondary: var(--hdp-static-grey-300);
+  --hdp-alias-label-tertiary: var(--hdp-static-grey-400);
+  --hdp-alias-markdown-citation: var(--hdp-static-grey-800);
+  --hdp-alias-markdown-code-block-banner: var(--hdp-static-grey-850);
+  --hdp-alias-markdown-code-block: var(--hdp-static-grey-900);
+  --hdp-alias-markdown-code-segment-selected: var(--hdp-static-grey-800);
+  --hdp-alias-markdown-code-segment-unselected: var(--hdp-static-grey-900);
+  --hdp-alias-markdown-inline-code: var(--hdp-static-grey-850);
+  --hdp-alias-markdown-placeholder: var(--hdp-static-grey-850);
+  --hdp-alias-markdown-tag: var(--hdp-static-grey-850);
   --hdp-alias-scrollbar-bg-l1: var(--hdp-static-neutral-700);
   --hdp-alias-scrollbar-bg-l2: var(--hdp-static-neutral-600);
   --hdp-alias-scrollbar-hover-l1: var(--hdp-static-neutral-600);
@@ -383,17 +391,17 @@ body[data-hd-dark-theme] {
   --hdp-alias-state-warn-primary: var(--hdp-static-amber-500);
   --hdp-alias-state-warn-secondary: var(--hdp-static-amber-400);
   --hdp-alias-state-warn-tertiary: var(--hdp-static-amber-900);
-  --hdp-alias-toast-bg: var(--hdp-static-neutral-bluish-750);
-  --hdp-alias-tooltip-bg: var(--hdp-static-neutral-bluish-750);
-  --hdp-specific-bubble-highlight: var(--hdp-static-neutral-bluish-750); /* desk: the ramp this reads was renamed and rebuilt */
-  --hdp-specific-bubble: var(--hdp-static-neutral-bluish-850); /* desk: the ramp this reads was renamed and rebuilt */
-  --hdp-specific-input-major: var(--hdp-static-neutral-bluish-850);
-  --hdp-specific-login-input: var(--hdp-static-neutral-bluish-900);
+  --hdp-alias-toast-bg: var(--hdp-static-grey-750);
+  --hdp-alias-tooltip-bg: var(--hdp-static-grey-750);
+  --hdp-specific-bubble-highlight: var(--hdp-static-grey-750); /* desk: the ramp this reads was renamed and rebuilt */
+  --hdp-specific-bubble: var(--hdp-static-grey-850); /* desk: the ramp this reads was renamed and rebuilt */
+  --hdp-specific-input-major: var(--hdp-static-grey-850);
+  --hdp-specific-login-input: var(--hdp-static-grey-900);
   --hdp-specific-menu: var(--hdp-alias-bg-layer-3);
-  --hdp-specific-selector: var(--hdp-static-neutral-bluish-800);
-  --hdp-specific-sidebar-fill: var(--hdp-static-neutral-bluish-900);
-  --hdp-specific-sidebar-nav-item-active-accent: var(--hdp-static-neutral-bluish-800); /* desk: the ramp this reads was renamed and rebuilt */
-  --hdp-specific-sidebar-nav-item-active: var(--hdp-static-neutral-bluish-750);
-  --hdp-specific-sidebar-nav-item-hover: var(--hdp-static-neutral-bluish-850);
-  --hdp-specific-tip: var(--hdp-static-neutral-bluish-800);
+  --hdp-specific-selector: var(--hdp-static-grey-800);
+  --hdp-specific-sidebar-fill: var(--hdp-static-grey-900);
+  --hdp-specific-sidebar-nav-item-active-accent: var(--hdp-static-grey-800); /* desk: the ramp this reads was renamed and rebuilt */
+  --hdp-specific-sidebar-nav-item-active: var(--hdp-static-grey-750);
+  --hdp-specific-sidebar-nav-item-hover: var(--hdp-static-grey-850);
+  --hdp-specific-tip: var(--hdp-static-grey-800);
 }

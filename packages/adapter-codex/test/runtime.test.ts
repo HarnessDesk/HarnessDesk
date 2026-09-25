@@ -11,23 +11,28 @@ import {
   type Approval,
   runtimeId,
   type Session,
+  type SessionOptions,
   wrapContext,
 } from '@harnessdesk/protocol'
 import { ExtensionKernel } from '@harnessdesk/cordis-host'
 
 import { automaticContext } from '../src/capabilities.js'
-import { CodexRuntime } from '../src/index.js'
+import { CodexRuntime, type CodexRuntimeOptions } from '../src/index.js'
+import { CODEX_PROFILE_OPTION_ID } from '../src/profiles.js'
 import { nameFromMessage, mapSummary, stripContext } from '../src/mapping/session.js'
 
 /**
  * End-to-end through a real child process: spawn, handshake, thread start, turn
- * streaming, approval round-trip, interrupt, history paging.
+ * streaming, approval round-trip, interrupt, history.
  */
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
 
-const makeRuntime = (env: Readonly<Record<string, string>> = {}): CodexRuntime =>
-  new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env })
+const makeRuntime = (
+  env: Readonly<Record<string, string>> = {},
+  options: Omit<CodexRuntimeOptions, 'binaryPath' | 'clientName' | 'env'> = {},
+): CodexRuntime =>
+  new CodexRuntime({ ...options, binaryPath: FAKE, clientName: 'harnessdesk-test', env })
 
 /** Collects the event stream so assertions can look at ordering, not just state. */
 const recorder = (runtime: CodexRuntime) => {
@@ -60,6 +65,9 @@ const baseSession = (id = 'thread-e2e'): Session => ({
   turns: [],
   itemsLoaded: true,
 })
+
+const noticeMessages = (events: readonly AgentEvent[]): string[] =>
+  events.filter((event) => event.type === 'notice').map((event) => event.message)
 
 test('starting the runtime reports Codex as ready with a version', async (t) => {
   const runtime = makeRuntime()
@@ -156,7 +164,9 @@ test('browser sign-in returns a URL and finishes as an event, never a poll', asy
 
   const started = await runtime.login('chatgpt')
   assert.equal(started.type, 'browser')
-  assert.match(started.type === 'browser' ? started.url : '', /^https:\/\//)
+  // Codex always hands over its page; only an agent that opened the browser
+  // itself starts a `browser` flow with no URL (see `LoginStart`).
+  assert.match(started.type === 'browser' ? (started.url ?? '') : '', /^https:\/\//)
 
   await tape.until((events) => loginEvents(events).length > 0)
   const [completed] = loginEvents(tape.events)
@@ -352,15 +362,17 @@ test('deleteSession closes and removes live session from in-memory registry (#41
   )
 })
 
-test('reading a session pages through every turn item', async (t) => {
+test('reading a session brings every turn item', async (t) => {
   const runtime = makeRuntime()
   t.after(() => runtime.dispose())
   await runtime.start()
 
+  // The fake plays 0.149.0 here, whose threads are read whole; paged history
+  // is `history.test.ts`'s.
   const session = await runtime.readSession(sessionId('thread-e2e'))
   assert.equal(session.itemsLoaded, true)
   const items = allItems(session)
-  assert.equal(items.length, 2, 'both pages were fetched')
+  assert.equal(items.length, 2, 'both items of the stored turn')
   assert.deepEqual(
     items.map((item) => item.type),
     ['userMessage', 'assistantMessage'],
@@ -505,6 +517,39 @@ test('declining an approval is carried through to the runtime', async (t) => {
   // The command item *is* started — that is how the runtime says what it wants
   // to run. Started is not run; output and completion are.
   assert.ok(commandItems.size > 0, 'the command was proposed, so there is something to have declined')
+})
+
+test('a user verification (0.155.0) is answered cancel over the wire, and the person is told, not asked', async (t) => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const tape = recorder(runtime)
+
+  const session = await runtime.createSession({ cwd: '/w' })
+  const from = tape.events.length
+  await session.send([{ type: 'text', text: 'verify Confirm the transfer' }])
+  await tape.until((events) => events.slice(from).some((event) => event.type === 'turn/completed'))
+  const turn = tape.events.slice(from)
+
+  // The fake's agent repeats what reached it on the wire, so the answer is
+  // checked where it landed rather than where it was written.
+  const said = turn.flatMap((event) =>
+    event.type === 'item/completed' && event.item.type === 'assistantMessage' ? [event.item.text] : [],
+  )
+  assert.deepEqual(said, ['The verification came back "cancel" with nothing signed.'])
+  assert.deepEqual(
+    turn.filter((event) => event.type === 'notice'),
+    [
+      {
+        type: 'notice',
+        sessionId: session.id,
+        level: 'warning',
+        message:
+          'payments asked to verify it is you ("Confirm the transfer"). HarnessDesk cannot do that, so the request was cancelled.',
+      },
+    ],
+  )
+  assert.equal(turn.some((event) => event.type === 'approval/requested'), false, 'nobody is asked to sign anything')
 })
 
 test('answering an unknown approval fails loudly rather than silently', async (t) => {
@@ -764,6 +809,209 @@ test('defaultSessionOptions declares the next session before one exists', async 
   } finally {
     await runtime.dispose()
   }
+})
+
+test("a draft named no folder reads the home folder's configuration, not this process's", async (t) => {
+  const { mkdtempSync, readFileSync, rmSync } = await import('node:fs')
+  const { homedir, tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'codex-draft-'))
+  const folders = join(dir, 'folders.jsonl')
+  const runtime = makeRuntime({ FAKE_CODEX_FOLDERS: folders })
+  t.after(() => runtime.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  await runtime.start()
+  // Which folder each configuration read made for one draft was asked about.
+  const asked = async (cwd?: string): Promise<string[]> => {
+    const read = (): string[] => {
+      try {
+        return readFileSync(folders, 'utf8').split('\n').filter(Boolean)
+      } catch {
+        return []
+      }
+    }
+    const before = read().length
+    await runtime.defaultSessionOptions(cwd)
+    return read()
+      .slice(before)
+      .map((line) => JSON.parse(line) as { method: string; cwd: string | null })
+      .map((entry) => `${entry.method} ${entry.cwd}`)
+      .sort()
+  }
+  // The control: a folder named is the folder asked about.
+  assert.deepEqual(await asked('/tmp/repo'), ['config/read /tmp/repo', 'permissionProfile/list /tmp/repo'])
+  // Named none, the project layers are the home folder's — the same however
+  // the app was started — and never this process's working directory.
+  assert.notEqual(process.cwd(), homedir())
+  assert.deepEqual(await asked(), [`config/read ${homedir()}`, `permissionProfile/list ${homedir()}`])
+})
+
+test('Codex profiles are offered for new sessions while an unselected start stays plain', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  writeFileSync(
+    join(codexHome, 'sol.config.toml'),
+    'model = "gpt-5.6-sol"\nmodel_context_window = 872000\nmodel_auto_compact_token_limit = 550000\n',
+  )
+  const runtime = makeRuntime({ FAKE_CODEX_ECHO_STARTS: '1' }, { codexHome })
+  t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  await runtime.start()
+
+  const defaults = await runtime.defaultSessionOptions('/w')
+  const profile = defaults.find((option) => option.id === CODEX_PROFILE_OPTION_ID)
+  assert.equal(profile?.type, 'select')
+  assert.deepEqual(
+    profile?.type === 'select' ? profile.choices.map((choice) => [choice.value, choice.label]) : [],
+    [['', 'None'], ['sol', 'sol']],
+  )
+
+  const tape = recorder(runtime)
+  const session = await runtime.createSession({ cwd: '/w' })
+  await tape.until((events) => noticeMessages(events).some((message) => message.startsWith('STARTED ')))
+  const start = JSON.parse(
+    noticeMessages(tape.events).find((message) => message.startsWith('STARTED '))!.slice('STARTED '.length),
+  ) as Record<string, unknown>
+  assert.equal(start['config'], undefined, 'no profile leaves thread/start config alone')
+  assert.ok(!session.options().some((option) => option.id === CODEX_PROFILE_OPTION_ID), 'the unreported profile is start-only')
+})
+
+test('a selected profile reaches thread/start and the context window is read back from usage', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  writeFileSync(
+    join(codexHome, 'sol.config.toml'),
+    'model = "gpt-5.6-sol"\nmodel_context_window = 872000\nmodel_auto_compact_token_limit = 550000\n',
+  )
+  const runtime = makeRuntime(
+    {
+      FAKE_CODEX_ECHO_STARTS: '1',
+      FAKE_CODEX_ADDITIONAL_MODEL: 'gpt-5.6-sol',
+      FAKE_CODEX_ADDITIONAL_MODEL_NAME: 'GPT-5.6 Sol',
+    },
+    { codexHome },
+  )
+  t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  await runtime.start()
+
+  const selected = await runtime.defaultSessionOptions('/w', { [CODEX_PROFILE_OPTION_ID]: 'sol' })
+  assert.equal(selected.find((option) => option.id === CODEX_PROFILE_OPTION_ID)?.currentValue, 'sol')
+  assert.equal(selected.find((option) => option.id === 'model')?.currentValue, 'gpt-5.6-sol')
+
+  const tape = recorder(runtime)
+  const session = await runtime.createSession({
+    cwd: '/w',
+    options: { [CODEX_PROFILE_OPTION_ID]: 'sol' },
+  })
+  assert.equal(session.settings().model, 'gpt-5.6-sol', 'the model is read from thread/start response')
+  await tape.until((events) => noticeMessages(events).some((message) => message.startsWith('STARTED ')))
+  const start = JSON.parse(
+    noticeMessages(tape.events).find((message) => message.startsWith('STARTED '))!.slice('STARTED '.length),
+  ) as { config?: Record<string, unknown> }
+  assert.deepEqual(start.config, {
+    model_context_window: 872_000,
+    model_auto_compact_token_limit: 550_000,
+  })
+
+  await session.send([{ type: 'text', text: 'Report the active context window.' }])
+  await tape.until((events) => events.some((event) => event.type === 'approval/requested'))
+  const requested = tape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/requested' }> => event.type === 'approval/requested',
+  )
+  assert.ok(requested)
+  const approval = requested.approval as Approval
+  const allow = approval.type === 'command' ? approval.options[0] : undefined
+  await session.respondToApproval(approval.id, { type: 'option', optionId: allow?.id ?? 'opt-0' })
+  await tape.until((events) => events.some((event) => event.type === 'usage/updated'))
+  const usage = tape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'usage/updated' }> => event.type === 'usage/updated',
+  )?.usage
+  assert.equal(usage?.contextWindow, 872_000, 'the number is the fake app-server usage report')
+})
+
+test('a profile outside the bounded discovery set cannot be started by a retained selection', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  for (let index = 64; index >= 0; index -= 1) {
+    writeFileSync(join(codexHome, `p${String(index).padStart(2, '0')}.config.toml`), 'model = "gpt-profile"\n')
+  }
+  const runtime = makeRuntime({}, { codexHome })
+  t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  await runtime.start()
+
+  const selected = await runtime.defaultSessionOptions('/w', { [CODEX_PROFILE_OPTION_ID]: 'p64' })
+  const option = selected.find((entry) => entry.id === CODEX_PROFILE_OPTION_ID)
+  assert.match(
+    option?.type === 'select' ? (option.choices.find((choice) => choice.value === 'p64')?.disabled ?? '') : '',
+    /not available/,
+  )
+  await assert.rejects(
+    () => runtime.createSession({ cwd: '/w', options: { [CODEX_PROFILE_OPTION_ID]: 'p64' } }),
+    /not an available profile/,
+  )
+})
+
+test('start model precedence is route, ordinary option, legacy option, then profile', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  writeFileSync(join(codexHome, 'sol.config.toml'), 'model = "profile-model"\n')
+  const runtime = makeRuntime({ FAKE_CODEX_ECHO_STARTS: '1' }, { codexHome })
+  t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  await runtime.start()
+  const tape = recorder(runtime)
+  const profile = { [CODEX_PROFILE_OPTION_ID]: 'sol' }
+  const cases: readonly { readonly options: SessionOptions; readonly model: string }[] = [
+    { options: { cwd: '/w', options: profile }, model: 'profile-model' },
+    { options: { cwd: '/w', model: 'legacy-model', options: profile }, model: 'legacy-model' },
+    {
+      options: { cwd: '/w', model: 'legacy-model', options: { ...profile, model: 'ordinary-model' } },
+      model: 'ordinary-model',
+    },
+    {
+      options: {
+        cwd: '/w',
+        model: 'legacy-model',
+        options: { ...profile, model: 'ordinary-model' },
+        route: {
+          id: 'route-1',
+          name: 'Gateway',
+          endpoint: 'http://127.0.0.1:9/t/example',
+          wireProtocol: 'responses',
+          token: 'example',
+          model: 'route-model',
+        },
+      },
+      model: 'route-model',
+    },
+  ]
+
+  const starts: Record<string, unknown>[] = []
+  for (const entry of cases) {
+    const before = noticeMessages(tape.events).filter((message) => message.startsWith('STARTED ')).length
+    const session = await runtime.createSession(entry.options)
+    await tape.until(
+      (events) => noticeMessages(events).filter((message) => message.startsWith('STARTED ')).length > before,
+    )
+    starts.push(
+      JSON.parse(
+        noticeMessages(tape.events).filter((message) => message.startsWith('STARTED ')).at(-1)!.slice('STARTED '.length),
+      ) as Record<string, unknown>,
+    )
+    await session.close()
+  }
+  assert.deepEqual(starts.map((start) => start['model']), cases.map((entry) => entry.model))
+  assert.equal(starts.at(-1)?.['modelProvider'], 'harnessdesk_route')
 })
 
 test('the install command names the package manager that put this Codex here', async () => {

@@ -4,11 +4,28 @@ import { cn } from '@/lib/utils'
 
 /* Vendored from shadcn/ui (table), tightened one step for desktop density. */
 
-const Table = ({ className, ...props }: React.ComponentProps<'table'>) => (
-  <div data-slot="table-container" className="relative w-full overflow-x-auto">
+const Table = ({
+  className,
+  containerClassName,
+  variant = 'default',
+  ...props
+}: React.ComponentProps<'table'> & {
+  containerClassName?: string
+  variant?: 'default' | 'framed' | 'panel'
+}) => (
+  <div
+    data-slot="table-container"
+    data-variant={variant}
+    className={cn(
+      'relative w-full overflow-x-auto',
+      variant === 'framed' && 'rounded-(--hd-radius) shadow-(--hd-hairline)',
+      variant === 'panel' && 'rounded-(--hd-radius-sm) border border-(--hd-border)',
+      containerClassName,
+    )}
+  >
     <table
       data-slot="table"
-      className={cn('w-full caption-bottom border-collapse text-sm', className)}
+      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', className)}
       {...props}
     />
   </div>
@@ -26,45 +43,125 @@ const TableBody = ({ className, ...props }: React.ComponentProps<'tbody'>) => (
   />
 )
 
-const TableFooter = ({ className, ...props }: React.ComponentProps<'tfoot'>) => (
+const TableFooter = ({
+  className,
+  variant = 'default',
+  ...props
+}: React.ComponentProps<'tfoot'> & { variant?: 'default' | 'plain' }) => (
   <tfoot
     data-slot="table-footer"
-    className={cn('bg-muted/50 border-t font-medium [&>tr]:last:border-b-0', className)}
-    {...props}
-  />
-)
-
-const TableRow = ({ className, ...props }: React.ComponentProps<'tr'>) => (
-  <tr
-    data-slot="table-row"
-    className={cn('hover:bg-accent/50 data-[state=selected]:bg-muted border-b transition-colors', className)}
-    {...props}
-  />
-)
-
-const TableHead = ({ className, ...props }: React.ComponentProps<'th'>) => (
-  <th
-    data-slot="table-head"
+    data-variant={variant}
     className={cn(
-      'text-muted-foreground h-8 px-2 text-left align-middle text-xs font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0',
+      variant === 'default' && 'bg-muted/50 border-t font-medium',
+      variant === 'plain' && 'border-t border-(--hd-border)',
+      '[&>tr]:last:border-b-0',
       className,
     )}
     {...props}
   />
 )
 
-const TableCell = ({ className, ...props }: React.ComponentProps<'td'>) => (
-  <td
-    data-slot="table-cell"
-    className={cn('px-2 py-1.5 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0', className)}
+const TableRow = ({
+  className,
+  variant = 'default',
+  interactive = false,
+  ...props
+}: React.ComponentProps<'tr'> & {
+  variant?: 'default' | 'matrix' | 'panel'
+  interactive?: boolean
+}) => (
+  <tr
+    data-slot="table-row"
+    data-variant={variant}
+    {...(interactive ? { 'data-interactive': '' } : {})}
+    className={cn(
+      variant === 'default' && 'hover:bg-accent/50 data-[state=selected]:bg-muted',
+      variant === 'matrix' && 'group/matrix',
+      variant === 'matrix' && interactive && 'hover:bg-(--hd-hover) data-[state=selected]:bg-(--hd-hover)',
+      'border-b transition-colors',
+      className,
+    )}
     {...props}
   />
 )
 
-const TableCaption = ({ className, ...props }: React.ComponentProps<'caption'>) => (
+const TableHead = ({
+  className,
+  variant = 'default',
+  pinned = false,
+  align = 'start',
+  ...props
+}: Omit<React.ComponentProps<'th'>, 'align'> & {
+  variant?: 'default' | 'matrix' | 'row' | 'footer' | 'panel'
+  pinned?: boolean
+  align?: 'start' | 'center' | 'end'
+}) => (
+  <th
+    data-slot="table-head"
+    data-variant={variant}
+    data-align={align}
+    {...(pinned ? { 'data-pinned': '' } : {})}
+    className={cn(
+      variant === 'default' && 'text-muted-foreground h-8 px-2 text-left align-middle text-xs font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0',
+      variant === 'matrix' && 'bg-(--hd-background) px-2.5 py-2 text-left align-middle text-xs font-medium whitespace-nowrap text-(--hd-muted-foreground)',
+      variant === 'row' && 'bg-(--hd-background) p-0 text-left align-middle text-sm font-normal text-(--hd-foreground) group-hover/matrix:bg-(--hd-hover) group-data-[state=selected]/matrix:bg-(--hd-hover)',
+      variant === 'footer' && 'px-2.5 py-2 text-left text-xs font-medium whitespace-nowrap text-(--hd-muted-foreground)',
+      variant === 'panel' && 'sticky top-0 bg-(--hd-card) px-2 py-1 text-left align-middle text-xs font-semibold whitespace-nowrap text-(--hd-secondary-foreground)',
+      pinned && 'bg-(--hd-background)',
+      align === 'center' && 'text-center',
+      align === 'end' && 'text-right',
+      className,
+    )}
+    {...props}
+  />
+)
+
+/**
+ * `align` is the cell's half of the column's alignment, which `TableHead`
+ * already carries: a column the head sets flush right is a column of figures,
+ * so its cells are set flush right in tabular digits and line up under it.
+ */
+const TableCell = ({
+  className,
+  variant = 'default',
+  align = 'start',
+  ...props
+}: Omit<React.ComponentProps<'td'>, 'align'> & {
+  variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' | 'panel'
+  align?: 'start' | 'end'
+}) => (
+  <td
+    data-slot="table-cell"
+    data-variant={variant}
+    data-align={align}
+    className={cn(
+      variant === 'default' && 'px-2 py-1.5 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0',
+      variant === 'matrix' && 'p-0 text-center align-middle',
+      variant === 'flush' && 'bg-(--hd-background) p-0 align-middle',
+      variant === 'detail' && 'bg-(--hd-background) px-3 pt-2.5 pb-3 align-middle',
+      variant === 'footer' && 'px-1.5 py-2 text-center text-xs tabular-nums whitespace-nowrap text-(--hd-muted-foreground)',
+      variant === 'panel' && 'px-2 py-1 align-top whitespace-normal [overflow-wrap:anywhere]',
+      align === 'end' && 'text-right tabular-nums',
+      className,
+    )}
+    {...props}
+  />
+)
+
+const TableCaption = ({
+  className,
+  variant = 'default',
+  ...props
+}: React.ComponentProps<'caption'> & { variant?: 'default' | 'sr-only' | 'panel' }) => (
   <caption
     data-slot="table-caption"
-    className={cn('text-muted-foreground mt-2 text-sm', className)}
+    data-variant={variant}
+    className={cn(
+      variant === 'default' && 'text-muted-foreground mt-2 text-sm',
+      variant === 'sr-only' && 'sr-only',
+      variant === 'panel' && 'px-2 py-1 text-left text-xs text-(--hd-muted-foreground)',
+      className,
+    )}
     {...props}
   />
 )

@@ -14,6 +14,7 @@ import { respondToCrash } from './crash-policy.mjs'
 import { MARK, drawTrayMeter } from './meter.mjs'
 import { attachAppUpdates } from './app-updates.mjs'
 import { decide, relevant } from './notifications.mjs'
+import { createIntakeNotifier } from './intake-notifications.mjs'
 import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
@@ -74,15 +75,19 @@ const uiRoot = app.isPackaged
 
 /** Rendered from assets/brand/svgs by `pnpm run icons`; packaged alongside the shell. */
 const assetsDir = join(here, 'assets')
-const avatarRoot = app.isPackaged
-  ? join(process.resourcesPath, 'avatars', '128')
-  : resolve(here, '../../../assets/avatars/128')
+// A face goes on the Dock at the size the Dock draws: 128pt, doubled on a
+// Retina screen, so 384 — the avatars' master — rather than the 128 the
+// renderer bundles for a 44px tile. The mark's colourways come from the brand
+// folder, the whales from theirs (`packages/ui/src/lib/avatars.ts`).
+const avatarRoots = app.isPackaged
+  ? { marks: join(process.resourcesPath, 'faces', '384'), whales: join(process.resourcesPath, 'avatars', '384') }
+  : { marks: resolve(here, '../../../assets/brand/faces/384'), whales: resolve(here, '../../../assets/avatars/384') }
 const setDockIcon = createDockIconSetter({
   platform: process.platform,
   app,
   nativeImage,
-  avatarRoot,
-  defaultIcon: defaultIconPath({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, here }),
+  avatarRoots,
+  defaultIcon: defaultIconPath(assetsDir),
 })
 const sessionUrl = () => (running ? `${running.url}/?token=${running.token}` : null)
 
@@ -120,6 +125,11 @@ const pickDirectory = async () => {
 /** Finder, with the folder selected — what "Reveal in Finder" means on a Mac. */
 const revealPath = async (path) => {
   shell.showItemInFolder(path)
+}
+
+/** The Trash, where a removed Agent can be dragged back out — what "Move to Trash" means on a Mac. */
+const trashPath = async (path) => {
+  await shell.trashItem(path)
 }
 
 const createWindow = async (url) => {
@@ -161,7 +171,12 @@ const createWindow = async (url) => {
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
     webPreferences.sandbox = true
-    if (!/^(https?|file|about):/i.test(params.src ?? '')) event.preventDefault()
+    if (
+      !/^(https?|file|about):/i.test(params.src ?? '') ||
+      browserEngine.profileForPartition(params.partition) === undefined
+    ) {
+      event.preventDefault()
+    }
   })
 
   // Where a page's `target=_blank` goes. A guest is never allowed to open a
@@ -169,13 +184,20 @@ const createWindow = async (url) => {
   // what a browser does, and the reason the pane has tabs — or leaves for the
   // OS browser. The renderer keeps `linksInPane` and tells us on every change.
   window.webContents.on('did-attach-webview', (_event, guest) => {
+    const profile = browserEngine.profileOfSession(guest.session)
+    if (profile === undefined) {
+      guest.close()
+      return
+    }
     guest.setWindowOpenHandler(({ url: target }) => {
       if (!/^(https?|file):/i.test(target)) return { action: 'deny' }
-      if (browserLinksInPane) window.webContents.send('harnessdesk:browser-open-tab', { url: target })
+      if (browserLinksInPane) {
+        window.webContents.send('harnessdesk:browser-open-tab', { url: target, profile })
+      }
       else if (/^https?:/i.test(target)) void shell.openExternal(target)
       return { action: 'deny' }
     })
-    watchDownloads(guest.session)
+    watchDownloads(guest.session, profile)
   })
 
   // Nothing in this app should navigate away from the host, and nothing should
@@ -559,15 +581,13 @@ const sendShortcut = (name) => {
  * tools use — one attachment, not two.
  */
 const browserEngine = createInlineBrowserEngine({
+  allowedProfile: (profile) => host?.browserProfileAllowed(profile) === true,
   window: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
   show: async () => {
     await showMainWindow()
     return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
   },
 })
-
-/** The partition the browser pane's guests use when sessions are kept. */
-const BROWSER_PARTITION = 'persist:harnessdesk-browser'
 
 /** The renderer's `linksInPane` preference, mirrored here because the guest's
  *  window-open handler runs in this process. */
@@ -596,7 +616,7 @@ const downloadedPaths = new Set()
 const REMEMBERED_DOWNLOADS = 200
 /** Destinations handed out but not yet written — two `report.csv` at once must not share one. */
 const inFlightDownloads = new Set()
-const watchDownloads = (guestSession) => {
+const watchDownloads = (guestSession, profile) => {
   if (watchedSessions.has(guestSession)) return
   watchedSessions.add(guestSession)
   guestSession.on('will-download', (_event, item) => {
@@ -613,7 +633,9 @@ const watchDownloads = (guestSession) => {
       // The window of the moment, not the one the listener was made in: on
       // macOS the app outlives its window, and the session outlives both.
       const target = mainWindow
-      if (target && !target.isDestroyed()) target.webContents.send('harnessdesk:browser-download', outcome)
+      if (target && !target.isDestroyed()) {
+        target.webContents.send('harnessdesk:browser-download', { ...outcome, profile })
+      }
     })
   })
 }
@@ -639,6 +661,7 @@ const start = async () => {
     console: !app.isPackaged,
     pickDirectory,
     revealPath,
+    trashPath,
   })
   host = bootstrap.host
   logger = bootstrap.logger
@@ -701,6 +724,8 @@ const start = async () => {
                 runtime: plan.runtime,
                 sessionId: String(plan.sessionId),
               })
+            } else if (plan.goal && mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('harnessdesk:open-goal', { goal: String(plan.goal) })
             }
           })
         })
@@ -711,6 +736,32 @@ const start = async () => {
       }
     })()
   })
+
+  // Named waits on unattended work reach the person whether or not a window
+  // is open: subscribed to the host itself, tried once per wait, and the host
+  // told whether the OS showed it — never claimed when it did not.
+  const notifyIntake = createIntakeNotifier({
+    prefs: async () => (await host.call('app/state/get', {}))['systemNotifications'],
+    supported: () => Notification.isSupported(),
+    show: async ({ title, body, goal }) => {
+      const note = new Notification({ title, body })
+      note.on('click', () => {
+        void showMainWindow().then(() => {
+          if (goal && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('harnessdesk:open-goal', { goal: String(goal) })
+        })
+      })
+      note.show()
+    },
+    report: (id, status) => host.intakeNotified(id, status),
+  })
+  host.addBroadcaster((notification) => {
+    if (notification?.method !== 'trigger/attention') return
+    void notifyIntake(notification).catch((error) => {
+      logger?.debug('a trigger notification was not shown', { error: String(error) })
+    })
+  })
+  // Waits that were raised before this subscription — at start, before the shell listened — are replayed by id.
+  host.replayIntakeAttention()
 
   buildMenu()
   createTray()
@@ -759,7 +810,10 @@ const start = async () => {
  * reported, so this cannot be pointed at the app's own window. Returns the
  * path written, or null when the person cancelled the dialog.
  */
-ipcMain.handle('harnessdesk:browser-save-screenshot', async (_event, request) => {
+ipcMain.handle('harnessdesk:browser-save-screenshot', async (event, request) => {
+  if (event.sender !== mainWindow?.webContents) {
+    throw new Error('Only the desk can capture its browser.')
+  }
   const id = request?.id
   if (!Number.isInteger(id) || !browserEngine.knows(id)) throw new Error('That page is not open in the browser pane.')
   const png = await browserEngine.capture(id)
@@ -798,10 +852,13 @@ const ANNOTATE_WORLD = 1013
  * structural — the id must name a `<webview>` guest embedded in this app's
  * window, which only the browser pane creates.
  */
-ipcMain.handle('harnessdesk:browser-annotate', async (_event, request) => {
+ipcMain.handle('harnessdesk:browser-annotate', async (event, request) => {
+  if (event.sender !== mainWindow?.webContents) {
+    throw new Error('Only the desk can annotate its browser.')
+  }
   const id = request?.id
   const wc = Number.isInteger(id) ? webContents.fromId(id) : null
-  if (!wc || wc.isDestroyed() || wc.getType() !== 'webview' || !mainWindow || wc.hostWebContents !== mainWindow.webContents) {
+  if (!wc || !browserEngine.knows(id) || wc.isDestroyed() || wc.getType() !== 'webview' || !mainWindow || wc.hostWebContents !== mainWindow.webContents) {
     throw new Error('That page is not open in the browser pane.')
   }
   const code = typeof request?.code === 'string' ? request.code : ''
@@ -810,8 +867,12 @@ ipcMain.handle('harnessdesk:browser-annotate', async (_event, request) => {
 })
 
 /** Empties the pane's persistent partition — cookies, storage, caches. */
-ipcMain.handle('harnessdesk:browser-clear-data', async () => {
-  await session.fromPartition(BROWSER_PARTITION).clearStorageData()
+ipcMain.handle('harnessdesk:browser-clear-data', async (event, request) => {
+  if (event.sender !== mainWindow?.webContents) {
+    throw new Error('Only the desk can clear a browser profile.')
+  }
+  const partition = browserEngine.partition(request?.profile ?? null)
+  await session.fromPartition(partition).clearStorageData()
 })
 
 ipcMain.on('harnessdesk:open-external', (_event, url) => {

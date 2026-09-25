@@ -34,12 +34,19 @@
  */
 export {
   Dot,
+  Spinner,
+  type SpinnerProps,
   Chip,
+  type ChipProps,
   Search,
+  NavigationList,
+  Keycap,
+  NavigationGroupHeader,
   Field,
   type FieldControl,
   FormStack,
   Note,
+  NoteList,
   Segmented,
   PageHead,
   SectionHead,
@@ -54,19 +61,26 @@ export {
   FileButton,
   AccountMark,
   CodeText,
+  Monogram,
+  MetaList,
   DetailMark,
   PageDescription,
+  RowInput,
   RowMark,
   RowValue,
-  SectionToggle,
-  WireText,
+  Text,
+  TextMark,
+  type TextProps,
+  type TextRole,
 } from './patterns/Settings'
 export { Button, buttonVariants } from './ui/button'
+export { DisclosureChevron } from './ui/disclosure-chevron'
 export { Input } from './ui/input'
 export { Textarea } from './ui/textarea'
 export { Switch } from './ui/switch'
 export { NativeSelect } from './ui/native-select'
-export { Dialog } from './patterns/ModalDialog'
+export { Dialog, DialogBody, DialogHead, DialogSubhead } from './patterns/ModalDialog'
+export { ChoiceList, Fieldset } from './patterns/DialogForm'
 export {
   Dialog as DialogRoot,
   DialogClose,
@@ -84,10 +98,37 @@ export {
 export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives/Banner'
 
 export { ConfirmDialog } from './patterns/ConfirmDialog'
+export { ConversationEmptyState } from './patterns/ConversationEmptyState'
+export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
+export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
+export { ActionError } from './patterns/ActionError'
+export {
+  AppWindowPage,
+  AppWindowRail,
+  AppWindowRailScroll,
+  AppWindowRailTop,
+  AppWindowSurface,
+} from './patterns/AppWindow'
+export * from './patterns/InspectorPanel'
+export { ChangeStats, FileState, PatchHeader, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
 export {
+  TurnItem,
+  TurnWorkHeader,
+  TurnWorkHeaderLabel,
+  TurnWorkLive,
+  type TurnWorkState,
+} from './patterns/TurnWork'
+export {
+  ApprovalChoiceHint,
+  ApprovalCode,
   ApprovalDialog,
+  ApprovalFilePath,
+  ApprovalMeta,
+  ApprovalPermissionList,
+  ApprovalQuestionText,
+  ApprovalReason,
   type ApprovalDialogAction,
 } from './patterns/ApprovalDialog'
 export {
@@ -108,16 +149,13 @@ export {
   Popover,
   dismissOverlays,
   PopoverGroupLabel,
-  PopoverDim,
-  PopoverFilterInput,
   PopoverOption,
   PopoverOptionBody,
   PopoverOptionHint,
   PopoverOptionLabel,
   PopoverOptionLive,
   PopoverOptionMark,
-  PopoverStrong,
-  PopoverUpdateNote,
+  PopoverSurface,
   useDismissOverlays,
   useEscapeSurface,
   type DismissDetail,
@@ -127,10 +165,9 @@ export {
   ChannelMessage,
   ChannelNotice,
   ChannelSignal,
-  type ChannelDensity,
   type ChannelMessageProps,
   type ChannelState,
 } from './patterns/ChannelMessage'
-export { AgentCard, type AgentCardAction, type AgentCardSubject } from './patterns/AgentCard'
+export { AgentCard, CardBand, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
-export { KindGlyph, PublicationCard, StatePill, publicationVerb } from './patterns/PublicationCard'
+export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'

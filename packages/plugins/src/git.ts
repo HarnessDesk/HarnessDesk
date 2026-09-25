@@ -1,5 +1,5 @@
 import type { ForgeSeat, HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
-import type { ForgeReference, ScopeQuery } from '@harnessdesk/protocol'
+import { DESK_POST_MARKER, type ForgeReference, type ScopeQuery } from '@harnessdesk/protocol'
 
 /**
  * Git tools, available to every agent.
@@ -206,7 +206,23 @@ const DEFAULT_SHAPE = /(?:^|\n)🤖 Generated with \[HarnessDesk\]\([^)]*\)[^\n]
 const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** GitHub's text without the desk's mark, for a card and for an excerpt. */
-export const unmarked = (text: string): string => text.replace(/ ?<!-- harnessdesk:signature -->/g, '')
+export const unmarked = (text: string): string =>
+  text.replace(/ ?<!-- harnessdesk:signature -->/g, '').replace(/^<!-- harnessdesk:post -->(?:\n|$)/, '')
+
+/** A body with the desk's post marker taken off its first line, as an agent may pass a read back. */
+const unmarkedPost = (body: string): string =>
+  body.startsWith(`${DESK_POST_MARKER}\n`) ? body.slice(DESK_POST_MARKER.length + 1) : body === DESK_POST_MARKER ? '' : body
+
+/**
+ * A body the desk posts, opening with its marker (`DESK_POST_MARKER`) — once,
+ * whatever the body already opened with — so a trigger that reads the forge
+ * back never mistakes the desk's own words for a person's. An empty body
+ * stays empty.
+ */
+export const deskMarked = (body: string): string => {
+  const rest = body.startsWith(`${DESK_POST_MARKER}\n`) ? body.slice(DESK_POST_MARKER.length + 1) : body === DESK_POST_MARKER ? '' : body
+  return rest === '' ? '' : `${DESK_POST_MARKER}\n${rest}`
+}
 
 /** How much of a body the transcript card is given: the opening, as the forge holds it. */
 const EXCERPT_LIMIT = 600
@@ -462,6 +478,22 @@ export const gitPlugin: HarnessPlugin = {
         return rendered === '' ? { line: null, template: chosen, why: 'empty' } : { line: rendered, template: chosen, why: null }
       }
 
+      /**
+       * The embargo, asked before any words reach the forge: a Seat reviewing
+       * in a blind round that has not closed posts nothing, whatever its
+       * ceiling. A desk that cannot answer refuses too — posting on a guess
+       * is the one thing this exists to prevent.
+       */
+      const publicationAllowed = async (scope: ScopeQuery): Promise<void> => {
+        let answer: { ok: true } | { ok: false; reason: string }
+        try {
+          answer = await ctx.forge.publicationAllowed(scope)
+        } catch (error) {
+          throw new Error(`Refused: the desk could not say whether this may be posted now (${error instanceof Error ? error.message : String(error)}), so nothing was posted.`)
+        }
+        if (!answer.ok) throw new Error(answer.reason)
+      }
+
       const viaOf = async (scope: ScopeQuery): Promise<ForgeReference['via']> => {
         try {
           return (await ctx.forge.identity(scope)).via
@@ -631,7 +663,7 @@ export const gitPlugin: HarnessPlugin = {
           }
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
-          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', signBody(body, signed.line)]
+          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', deskMarked(signBody(body, signed.line))]
           if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
           if (args.draft === true) argv.push('--draft')
           const created = await gh(argv)
@@ -673,7 +705,7 @@ export const gitPlugin: HarnessPlugin = {
           if (typeof args.body === 'string') {
             // What the desk signed with last time is read off GitHub's own
             // copy, so a body passed back without the mark still loses it.
-            argv.push('--body', signBody(args.body, signed.line, previousSignature(current.body)))
+            argv.push('--body', deskMarked(signBody(unmarkedPost(args.body), signed.line, previousSignature(current.body))))
             changed += 1
           }
           if (typeof args.base === 'string' && args.base.trim() !== '') {
@@ -704,6 +736,56 @@ export const gitPlugin: HarnessPlugin = {
       })
 
       ctx.tools.register({
+        name: 'pr_merge',
+        description:
+          'Merge a pull request, through HarnessDesk, with the person’s own gh — only one you were asked to merge, and only at the commit that was reviewed: head is that commit, and GitHub refuses the merge if the branch has moved since. Squash unless told otherwise. Only a seat whose ceiling is merge may call this; the desk refuses it for any other.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            number: { type: 'number', description: 'The pull request number.' },
+            head: { type: 'string', description: 'The full commit the pull request must still be at — the one that was reviewed.' },
+            method: { type: 'string', enum: ['squash', 'merge', 'rebase'], description: 'How to merge it. Squash unless told otherwise.' },
+          },
+          required: ['number', 'head'],
+        },
+        execute: async (args: { number?: number; head?: string; method?: string }, scope) => {
+          const selector = selectorOf(args.number)
+          if (selector === null) throw new Error('Name the pull request to merge by its number.')
+          const head = String(args.head ?? '').trim()
+          if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head)) {
+            throw new Error('"head" must be the whole commit the pull request was reviewed at — 40 hex characters, or 64.')
+          }
+          const method = args.method ?? 'squash'
+          if (method !== 'squash' && method !== 'merge' && method !== 'rebase') {
+            throw new Error('method must be squash, merge or rebase.')
+          }
+          /* The commit message is the repository's to choose. Only when its
+             setting for this method uses the pull request's description is the
+             description given — without the desk's markers, which must never
+             reach history; otherwise, or when the setting cannot be read, no
+             body is passed and the repository's own message stands. */
+          let body: string | null = null
+          if (method !== 'rebase') {
+            const current = await viewPullRequest(selector)
+            let setting: unknown = null
+            try {
+              const answer = JSON.parse(await gh(['api', `repos/${repoOf(current.url)}`, '--jq', '{squash: .squash_merge_commit_message, merge: .merge_commit_message}'])) as Record<string, unknown>
+              setting = method === 'squash' ? answer['squash'] ?? answer['squash_merge_commit_message'] : answer['merge'] ?? answer['merge_commit_message']
+            } catch {
+              setting = null
+            }
+            if (setting === 'PR_BODY') body = unmarked(current.body ?? '').trim()
+          }
+          await gh(['pr', 'merge', selector, `--${method}`, '--match-head-commit', head, ...(body !== null ? ['--body', body] : [])])
+          const pr = await viewPullRequest(selector)
+          const note = await publish(referenceOf(pr, { kind: 'pullRequest', via: await viaOf(scope) }), scope)
+          return [`Merged pull request #${pr.number}: ${pr.title}`, pr.url, note]
+            .filter((line) => line !== null && line !== '')
+            .join('\n')
+        },
+      })
+
+      ctx.tools.register({
         name: 'pr_review',
         description:
           'Post a review on a pull request — approve, request changes, or comment — through HarnessDesk. The review opens with a line naming this conversation’s seat; do not add one. Names the pull request by number, or takes the one open for the current branch.',
@@ -728,11 +810,12 @@ export const gitPlugin: HarnessPlugin = {
           if (flag === null) throw new Error('event must be approve, request_changes or comment.')
           const body = String(args.body ?? '').trim()
           if (body === '' && flag !== '--approve') throw new Error('A review that is not an approval needs a body.')
+          await publicationAllowed(scope)
           const pr = await pullRequestFor(args.number)
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.reviewSignature, DEFAULT_REVIEW_SIGNATURE)
           const review = signed.line === null ? body : body === '' ? signed.line : `${signed.line}\n\n${body}`
-          await gh(['pr', 'review', String(pr.number), flag, '--body', review])
+          await gh(['pr', 'review', String(pr.number), flag, '--body', deskMarked(review)])
           // `gh pr review` prints no address for what it posted; the API knows.
           let url = pr.url
           try {
@@ -767,8 +850,9 @@ export const gitPlugin: HarnessPlugin = {
         execute: async (args: { number?: number; body: string }, scope) => {
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
+          await publicationAllowed(scope)
           const pr = await pullRequestFor(args.number)
-          const posted = await gh(['pr', 'comment', String(pr.number), '--body', body])
+          const posted = await gh(['pr', 'comment', String(pr.number), '--body', deskMarked(body)])
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? pr.url
           const note = await publish(referenceOf(pr, { kind: 'comment', action: 'posted', via: await viaOf(scope), url }), scope)
           return [`Commented on pull request #${pr.number}: ${pr.title}`, url, note]
@@ -842,7 +926,7 @@ export const gitPlugin: HarnessPlugin = {
           ].join('\n')
           const body = (issue.body ?? '').trim()
           const discussion = (issue.comments ?? [])
-            .map((comment) => `${comment.author?.login ?? 'someone'}${comment.createdAt ? ` (${comment.createdAt})` : ''}:\n${(comment.body ?? '').trim()}`)
+            .map((comment) => `${comment.author?.login ?? 'someone'}${comment.createdAt ? ` (${comment.createdAt})` : ''}:\n${unmarked(comment.body ?? '').trim()}`)
             .join('\n\n')
           return cap([head, body, discussion === '' ? '' : `Discussion:\n${discussion}`].filter((part) => part !== '').join('\n\n'))
         },
@@ -864,8 +948,10 @@ export const gitPlugin: HarnessPlugin = {
           if (selector === null) throw new Error('Which issue? Give its number.')
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
+          // An issue number may be the bound pull request's own conversation: the embargo holds here too.
+          await publicationAllowed(scope)
           const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', 'number,title,state,url,author'])) as GhIssue
-          const posted = await gh(['issue', 'comment', String(issue.number), '--body', body])
+          const posted = await gh(['issue', 'comment', String(issue.number), '--body', deskMarked(body)])
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? issue.url
           const note = await publish(
             {

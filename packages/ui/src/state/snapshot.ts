@@ -2,11 +2,14 @@ import type {
   AccountStatus,
   CapabilityContribution,
   PluginInstance,
+  AgentEntry,
   AgentError,
   BackgroundTask,
   Approval,
+  BoardEvidence,
   ConfigOption,
   EditorDocument,
+  MachineSeating,
   ModelInfo,
   NoticeLevel,
   OptionValue,
@@ -16,6 +19,9 @@ import type {
   RuntimeHealth,
   RuntimeId,
   RuntimeInfo,
+  SeatCandidate,
+  SeatFix,
+  SeatPlan,
   Session,
   SessionQueue,
   SkillInfo,
@@ -23,9 +29,18 @@ import type {
   SessionKey,
   SessionSummary,
   TeamState,
+  FindingRunView,
+  FlowExecution,
   FlowRun,
+  GoalView,
+  Lane,
+  LanePreferences,
+  TriggerAttention,
+  TriggerPreferences,
   Worktree,
   WorkspaceEntry,
+  FrontDoorPreview,
+  StartContext,
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefsMap } from '../lib/accounts'
@@ -36,6 +51,8 @@ import { DEFAULT_EDITOR_PREFS } from '../lib/editor-prefs'
 
 import type { GitColumnWidths } from '../lib/git-columns'
 
+import type { FindingsListState } from '../lib/findings'
+
 import type { Carry } from '../lib/handoff'
 
 import { emptyNoticePolicy, type NoticePolicy } from '../lib/notice-policy'
@@ -45,6 +62,32 @@ import type { PlanEdit } from '../lib/plan-edits'
 import type { ConnectionStatus } from '../lib/transport'
 
 import { emptyLayout, panes, type Layout } from './layout'
+
+/**
+ * An Agent that could not be seated, and why each seat it would take could
+ * not be — what the refusal sheet draws. Store state, like `newWorktreeFor`,
+ * because every door that starts an Agent can raise it and the door is
+ * usually gone by the time it is read.
+ */
+export interface SeatRefusal {
+  /** The Agent's id — where *Edit seats for this Mac* goes. */
+  readonly agent: string
+  readonly name: string
+  readonly candidates: readonly SeatCandidate[]
+  /**
+   * Why it could not be weighed at all, worded from its own entry
+   * (`blockedWords`, `lib/agents.ts`) — never the host's sentence, which
+   * starts with an absolute path. Null otherwise.
+   */
+  readonly blocked: string | null
+  /**
+   * Whether a seat actually opened before this failed. A dry-run refusal
+   * opens nothing, so this is always false there; a `seatRefused` from
+   * `agent/seat` may have opened, tried and closed or kept several seats
+   * first, so "Nothing was opened" would be false for it.
+   */
+  readonly opened: boolean
+}
 
 import { emptyWorkbench, type Workbench } from './workbench'
 
@@ -200,6 +243,22 @@ export type DraftPlace =
   | { readonly kind: 'existing'; readonly path: string; readonly branch: string | null }
 
 export interface AppSnapshot {
+  /** Per-project state of local, opt-in commit-to-Seat capture. */
+  readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
+  /** Latest host revision accepted for each capture-health entry. */
+  readonly provenanceRevision: ReadonlyMap<string, number>
+  /**
+   * This machine's consent revision for each project's `.harnessdesk/triggers.yml`,
+   * keyed by project root — invalidation only, from `trigger/changed` and from
+   * `trigger/list`'s own answer. `ProjectTriggers` re-reads when its project's
+   * entry moves; the armed state and history it reads stay the host's, never
+   * cached here.
+   */
+  readonly triggerRevisions: Readonly<Record<string, number>>
+  /** This machine's trigger pause and daily cap, or null until Settings has read it once. */
+  readonly triggerPreferences: TriggerPreferences | null
+  /** Every named wait on unattended work this window has been told about, by its durable id. */
+  readonly triggerAttention: Readonly<Record<string, TriggerAttention>>
   readonly status: ConnectionStatus
   readonly runtimes: readonly RuntimeInfo[]
   readonly activeRuntime: RuntimeId | null
@@ -231,6 +290,8 @@ export interface AppSnapshot {
    * username in full.
    */
   readonly home: string
+  /** Where this desk keeps its state — see `host/hello`. Empty until the handshake. */
+  readonly stateDir: string
   /** Who each runtime is signed in as — the sign-in page and the Agents card read this. */
   readonly accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
   /**
@@ -349,6 +410,21 @@ export interface AppSnapshot {
    * this map is only ever assigned, never merged.
    */
   readonly teams: ReadonlyMap<string, TeamState>
+  /** Durable Goals, keyed by Goal id; their embedded board is mirrored into `teams`. */
+  readonly goals: ReadonlyMap<string, GoalView>
+  readonly goalProblem: string | null
+  /**
+   * `finding/list`'s cache, keyed by Goal id. One filter's rows at a time —
+   * changing the filter reloads rather than keeping three lists — because the
+   * server pages the ledger it is actually showing, never all three at once.
+   */
+  readonly findings: ReadonlyMap<string, FindingsListState>
+  /** A run's findings, as a person reads and decides them (`finding/run`), keyed by run id. */
+  readonly findingRuns: ReadonlyMap<string, FindingRunView>
+  readonly goalMigrationPending: boolean
+  /** Machine-wide defaults for new isolated lanes, plus every durable descriptor. */
+  readonly lanePreferences: LanePreferences | null
+  readonly lanes: readonly Lane[]
   /**
    * The flow runs each room has had, keyed by room.
    *
@@ -357,6 +433,43 @@ export interface AppSnapshot {
    * which is every room that exists today — simply has no entry here.
    */
   readonly flowRuns: ReadonlyMap<string, readonly FlowRun[]>
+  /**
+   * Every v2 flow run this window has read or been pushed, keyed by its run
+   * id — `flow/execution`'s answer and `flow/execution-changed`'s push kept
+   * in the one place, so a run status surface reads whichever arrived last.
+   */
+  readonly flowExecutions: ReadonlyMap<string, FlowExecution>
+  /**
+   * `/race`'s dialog, open on the task it was typed with — or null. Store
+   * state because the command that opens it runs wherever the composer is,
+   * not inside whatever screen happens to be mounted; `App.tsx` renders
+   * `RaceStart` from this the same way it reads every other deep-linked
+   * request.
+   */
+  readonly raceStart: { readonly task: string } | null
+  /** What the desk observed on each room's cards, newest host read by stamp. */
+  readonly boardEvidence: ReadonlyMap<string, BoardEvidence>
+  /** Rooms whose first evidence read failed before any facts could be established. */
+  readonly boardEvidenceFailed: ReadonlySet<string>
+  /**
+   * The Agent roster for `agentsProject`: that project's own Agents, then this
+   * machine's, then the ones that ship, one per id, each carrying what it
+   * shadowed and anything wrong with its file. Null until a surface that lists
+   * Agents asks, so a window that never shows one never reads a file for it.
+   */
+  readonly agents: readonly AgentEntry[] | null
+  /** The folder the roster above was read for — the open workspace — or null for none. */
+  readonly agentsProject: string | null
+  /** Which seat each listed Agent would take here, by Agent id: one dry run of the whole roster. */
+  readonly agentPlans: ReadonlyMap<string, SeatPlan>
+  /**
+   * Whether the dry run for `agentsProject` failed outright, so a row that
+   * never got a plan can say its seats could not be checked, rather than
+   * "Checking seats…" forever for an answer that already isn't coming.
+   */
+  readonly agentPlansFailed: boolean
+  /** This machine's seats for its Agents, as the host read `seating.json` — null until a page asks. */
+  readonly seating: MachineSeating | null
   /**
    * The repository a new worktree is being set up for, or null.
    *
@@ -371,6 +484,36 @@ export interface AppSnapshot {
    * is two components away from the state that opens windows.
    */
   readonly settingsFor: string | null
+  /** The thing inside that page to open — an Agent's id, a runtime's, `add` — until the shell opens it. */
+  readonly settingsFocus: string | null
+  /** The refusal sheet, while it is up. */
+  readonly seatRefusal: SeatRefusal | null
+  /**
+   * A fix for a seat, asked for from somewhere deep — the refusal sheet, an
+   * Agent's page, a name card — until the shell, which holds the sign-in, the
+   * usage window and Settings, takes it where it is fixed.
+   */
+  readonly seatFix: { readonly fix: SeatFix; readonly agent: string } | null
+  /**
+   * The front door, open for one context and (when reusing one) one empty
+   * Goal — `AppStore.openFrontDoor`. `preview` is the live dry run for the
+   * shape and inputs last asked for; `AppStore.previewFrontDoor` bumps one
+   * generation on every call and writes here only when its own reply is
+   * still the newest one, so a reply that lands after a newer request
+   * already started can never revive an old token here and enable Start.
+   * Null when the front door is closed.
+   */
+  readonly frontDoor: {
+    readonly context: StartContext
+    readonly goal: { readonly id: string; readonly revision: number } | null
+    readonly preview: FrontDoorPreview | null
+  } | null
+  /**
+   * The Agent each seated conversation was seated as, read for the folder it
+   * works in, by `seatAgentKey(cwd, id)` — what its header, its row and its
+   * name card say about it. Null when no Agent by that id is there any more.
+   */
+  readonly seatAgents: ReadonlyMap<string, AgentEntry | null>
 
   readonly workspaces: readonly WorkspaceEntry[]
   readonly workspace: WorkspaceEntry | null
@@ -570,7 +713,7 @@ export interface AppSnapshot {
    * answer, so it lives here beside the theme.
    */
   readonly browserPrefs: {
-    /** Guests use a persistent partition, so logins survive a restart. */
+    /** Default-profile guests use a persistent partition when enabled; lane profiles are independently retained. */
     readonly persistSession: boolean
     /** A page's `target=_blank` opens a tab here rather than leaving for the OS browser. */
     readonly linksInPane: boolean
@@ -603,6 +746,11 @@ const EMPTY_WORKBENCH = emptyWorkbench()
  * way out is `emptySnapshot()`, which copies those fields fresh.
  */
 const EMPTY: AppSnapshot = {
+  captureHealth: new Map(),
+  provenanceRevision: new Map(),
+  triggerRevisions: {},
+  triggerPreferences: null,
+  triggerAttention: {},
   status: 'connecting',
   runtimes: [],
   catalogRefreshing: false,
@@ -614,6 +762,7 @@ const EMPTY: AppSnapshot = {
   // No tilde until the host says what to shorten against; `shortPath` leaves
   // a path whole rather than guess, which is the right way round.
   home: '',
+  stateDir: '',
   accountsByRuntime: {},
   accountPrefs: {},
   profile: {},
@@ -644,9 +793,30 @@ const EMPTY: AppSnapshot = {
   foldersGone: new Map(),
   worktrees: [],
   teams: new Map(),
+  goals: new Map(),
+  goalProblem: null,
+  findings: new Map(),
+  findingRuns: new Map(),
+  goalMigrationPending: false,
+  lanePreferences: null,
+  lanes: [],
   flowRuns: new Map(),
+  flowExecutions: new Map(),
+  raceStart: null,
+  boardEvidence: new Map(),
+  boardEvidenceFailed: new Set(),
+  agents: null,
+  agentsProject: null,
+  agentPlans: new Map(),
+  agentPlansFailed: false,
+  seating: null,
   newWorktreeFor: null,
   settingsFor: null,
+  settingsFocus: null,
+  seatRefusal: null,
+  seatFix: null,
+  frontDoor: null,
+  seatAgents: new Map(),
   workspaces: [],
   workspace: null,
   skills: [],
@@ -689,9 +859,20 @@ const EMPTY: AppSnapshot = {
 /** A blank snapshot, for tests that render a component against a made-up state. */
 export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
+  captureHealth: new Map(),
+  provenanceRevision: new Map(),
+  triggerRevisions: {},
+  triggerAttention: {},
   sessions: new Map(),
   queues: new Map(),
   tasks: new Map(),
   foldersGone: new Map(),
   loadingSessions: new Set(),
+  agentPlans: new Map(),
+  agentPlansFailed: false,
+  seating: null,
+  seatAgents: new Map(),
+  goals: new Map(),
+  findings: new Map(),
+  findingRuns: new Map(),
 })

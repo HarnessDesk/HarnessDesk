@@ -21,9 +21,9 @@
  *   table. They answer "what is a button here", and a screen that needed a
  *   different one would be wrong.
  *
- *   COMPOSITIONS are ours: Stat, Section, ListRow, Board, EmptyState, Field,
- *   Delta, IconTile, AvatarStack, KeyValue, Progress, Stepper, Sparkline, and
- *   the chart kit. They answer the question one step up — "what does a figure
+ *   COMPOSITIONS are ours: Bar, Stat, Section, ListRow, the sortable item, Board, EmptyState, Field,
+ *   Delta, IconTile, AvatarStack, KeyValue and SummaryList, GroupLabel,
+ *   Progress, Stepper, Sparkline, and the chart kit. They answer the question one step up — "what does a figure
  *   on a dashboard look like", "what does a titled region of a page look
  *   like" — which is the question every screen used to answer for itself,
  *   slightly differently, in a `<div className="flex flex-col gap-1">` that
@@ -87,21 +87,22 @@ export * from './avatar'
 export * from './attachment'
 export * from './avatar-stack'
 export * from './badge'
+export * from './bar'
 export * from './board'
 export * from './breadcrumb'
 export * from './button'
-export * from './browser-chrome'
 export * from './card'
 export * from './chart'
-export * from './commit'
 export * from './composer'
 export * from './data-table'
 export * from './checkbox'
 export * from './dialog'
 export * from './delta'
+export * from './disclosure-chevron'
 export * from './dropdown-menu'
 export * from './empty-state'
 export * from './field'
+export * from './group-label'
 export * from './hover-card'
 export * from './icon-tile'
 export * from './input'
@@ -114,12 +115,12 @@ export * from './native-select'
 export * from './popover'
 export * from './progress'
 export * from './radio-group'
-export * from './rail'
 export * from './resize-handle'
 export * from './scroll-area'
 export * from './section'
 export * from './select'
 export * from './separator'
+export * from './sortable-list'
 export * from './spark'
 export * from './stat'
 export * from './stepper'
@@ -131,5 +132,4 @@ export * from './toast'
 export * from './toggle-group'
 export * from './tool-pane'
 export * from './tone'
-export * from './turn'
 export * from './tooltip'

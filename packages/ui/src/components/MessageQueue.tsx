@@ -1,18 +1,21 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback } from 'react'
 
 import { useQueue, useSessionKey, useStore } from '../state/context'
 import { noteKey, wrapContext } from '../lib/context-envelope'
 import { describeQueued, queuedLabel } from '../lib/queue'
-import { Button } from '../design'
 import {
-  AlertIcon,
-  CrossIcon,
-  GripIcon,
-  MoveDownIcon,
-  MoveUpIcon,
-  PencilIcon,
-  QueueIcon,
-} from './Icons'
+  Alert,
+  Button,
+  SortableAnnouncer,
+  SortableHandle,
+  Spinner,
+  Text,
+  Toolbar,
+  ToolbarGap,
+  sortableItemClass,
+  useSortable,
+} from '../design'
+import { AlertIcon, CrossIcon, PencilIcon, QueueIcon } from './Icons'
 import styles from './MessageQueue.module.css'
 
 /**
@@ -71,59 +74,58 @@ export const MessageQueue = () => {
   )
 
   /**
-   * Dragging a message to a new place in the line.
+   * Arranging the line: a drag from the handle, or ⌥↑ / ⌥↓ from anywhere in
+   * the row (`useSortable`).
    *
-   * The order still belongs to the host — a drop is `moveQueued`, the same
-   * request the arrows make — so two windows on one conversation cannot
-   * disagree about what happens next. Nothing is reordered locally; the rows
-   * redraw when the queue event comes back.
-   *
-   * The drag starts from the grip only. The row carries `draggable` because
-   * the browser needs it there, but a drag that did not begin on the handle is
-   * cancelled, so the message text stays selectable.
-   *
-   * Which message is moving lives in a ref, not in state: the drag events of
-   * one gesture can arrive in a single task, and a handler reading state would
-   * still be looking at the render before the drag began. State carries only
-   * what is drawn.
+   * The order still belongs to the host — every move is `moveQueued` — so two
+   * windows on one conversation cannot disagree about what happens next.
+   * Nothing is reordered locally; the rows redraw when the queue event comes
+   * back, and the move is announced when it lands.
    */
-  const dragId = useRef<string | null>(null)
-  const grabbed = useRef(false)
-  const [drag, setDrag] = useState<{ id: string | null; over: number | null }>({
-    id: null,
-    over: null,
-  })
-
-  const drop = useCallback(
-    (index: number) => {
-      const moving = dragId.current
-      if (moving) void store.moveQueued(moving, index, key ?? undefined)
-      dragId.current = null
-      grabbed.current = false
-      setDrag({ id: null, over: null })
+  const messages = queue?.messages ?? []
+  const sortable = useSortable({
+    ids: messages.map((message) => message.id),
+    onMove: (id, to) => void store.moveQueued(id, to, key ?? undefined),
+    name: (id) => {
+      const message = messages.find((entry) => entry.id === id)
+      return message ? `“${queuedLabel(message)}”` : 'the message'
     },
-    [key, store],
-  )
+    movable: (id) => messages.find((entry) => entry.id === id)?.state === 'queued',
+  })
 
   if (!queue || queue.messages.length === 0) return null
   const paused = queue.status === 'paused'
   const count = queue.messages.length
 
-  /** Where a drop would land, so the list can show the gap before it happens. */
-  const dropAt = drag.over !== null && drag.id !== null ? drag.over : null
-
+  /*
+    The queue is a notice about this conversation, standing where the goal
+    does — so it is drawn as one: the soft alert, on the muted ground behind a
+    strong hairline, that turns to the warning tone while it is held. Its head
+    is a toolbar and its list the sortable list, both set on the alert's own
+    inset. A row takes no hover ground: pressing it does nothing, and a row
+    that lights up promises that it would (`ListRow`'s rule). Its actions
+    are the sortable item's to reveal, with the pointer or the focus.
+  */
   return (
-    <div className={styles.queue} data-paused={paused ? '' : undefined}>
-      <div className={styles.header}>
-        {paused ? <AlertIcon className={styles.headerIcon} size={13} /> : <QueueIcon className={styles.headerIcon} size={13} />}
-        <span className={styles.headerText}>
+    <Alert
+      variant="soft"
+      tone={paused ? 'warning' : 'neutral'}
+      data-queue={paused ? 'paused' : 'waiting'}
+      className={`${styles.queue} flex-col items-stretch gap-1.5`}
+    >
+      <Toolbar className="flex-nowrap">
+        <Text role="meta" {...(paused ? { tone: 'warning' as const } : { ink: 'muted' as const })}>
+          {paused ? <AlertIcon size={13} /> : <QueueIcon size={13} />}
+        </Text>
+        <Text role="meta" ink={paused ? 'primary' : 'secondary'} className={styles.headerText}>
           {paused
             ? `${queue.reason ?? 'The turn did not finish.'} ${count} message${count === 1 ? '' : 's'} waiting.`
             : `${count} message${count === 1 ? '' : 's'} waiting — sent when this turn ends`}
-        </span>
+        </Text>
+        <ToolbarGap />
         {paused && (
           <Button
-            variant="quiet" size="content" className={styles.action}
+            variant="quiet" size="sm" className={styles.action}
             onClick={() => void store.flushQueue(key ?? undefined)}
             title="Send the first waiting message now"
           >
@@ -131,91 +133,36 @@ export const MessageQueue = () => {
           </Button>
         )}
         <Button
-          variant="quiet" size="content" className={styles.action}
+          variant="quiet" size="sm" className={styles.action}
           onClick={() => void store.clearQueue(key ?? undefined)}
           title="Throw away everything waiting"
         >
           {count === 1 ? 'Discard' : 'Discard all'}
         </Button>
-      </div>
-      <ol className={styles.list}>
+      </Toolbar>
+      <ol aria-label="Waiting messages" className="flex flex-col gap-0.5">
         {queue.messages.map((message, index) => (
           <li
             key={message.id}
-            className={styles.row}
-            data-sending={message.state === 'sending' ? '' : undefined}
-            data-dragging={drag.id === message.id ? '' : undefined}
-            data-drop={dropAt === index && drag.id !== message.id ? '' : undefined}
-            draggable={message.state === 'queued'}
-            onDragStart={(event) => {
-              if (!grabbed.current) {
-                event.preventDefault()
-                return
-              }
-              event.dataTransfer.effectAllowed = 'move'
-              // Firefox refuses to start a drag with an empty data store.
-              event.dataTransfer.setData('text/plain', message.id)
-              dragId.current = message.id
-              setDrag({ id: message.id, over: index })
-            }}
-            onDragEnd={() => {
-              dragId.current = null
-              grabbed.current = false
-              setDrag({ id: null, over: null })
-            }}
-            onDragOver={(event) => {
-              if (dragId.current === null) return
-              event.preventDefault()
-              event.dataTransfer.dropEffect = 'move'
-              setDrag((state) => (state.over === index ? state : { ...state, over: index }))
-            }}
-            onDrop={(event) => {
-              event.preventDefault()
-              drop(index)
-            }}
+            data-slot="sortable-row"
+            {...(message.state === 'sending' ? { 'data-sending': '' } : {})}
+            {...sortable.row(message.id, index)}
+            className={`${sortableItemClass()} flex items-center gap-2`}
           >
-            <span
-              className={styles.grip}
-              aria-hidden
-              onMouseDown={() => {
-                grabbed.current = true
-              }}
-            >
-              <GripIcon size={12} />
-            </span>
-            <span className={styles.position} aria-hidden>
-              {message.state === 'sending' ? <span className={styles.spinner} /> : index + 1}
-            </span>
-            <span className={styles.text} title={queuedLabel(message)}>
+            <SortableHandle {...sortable.handle(message.id)} />
+            <Text role="meta" className={styles.position} aria-hidden>
+              {message.state === 'sending' ? <Spinner size="sm" tone="brand" /> : index + 1}
+            </Text>
+            <Text role="navigation" ink={message.state === 'sending' ? 'muted' : 'primary'} className={styles.text} title={queuedLabel(message)}>
               {queuedLabel(message)}
-            </span>
+            </Text>
             <Carried message={message} />
             <When paused={paused} index={index} state={message.state} />
             {message.state === 'queued' && (
-              <span className={styles.controls}>
+              <span data-slot="sortable-actions" className="flex shrink-0 items-center gap-px">
                 <Button
                   type="button"
-                  variant="ghost" size="icon-sm" className={styles.control}
-                  disabled={index === 0}
-                  aria-label="Move up"
-                  title="Send this one earlier"
-                  onClick={() => void store.moveQueued(message.id, index - 1, key ?? undefined)}
-                >
-                  <MoveUpIcon size={13} />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost" size="icon-sm" className={styles.control}
-                  disabled={index === count - 1}
-                  aria-label="Move down"
-                  title="Send this one later"
-                  onClick={() => void store.moveQueued(message.id, index + 1, key ?? undefined)}
-                >
-                  <MoveDownIcon size={13} />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost" size="icon-sm" className={styles.control}
+                  variant="ghost" size="icon-sm"
                   aria-label="Edit"
                   title="Put this back in the composer"
                   onClick={() => edit(message.id)}
@@ -224,7 +171,7 @@ export const MessageQueue = () => {
                 </Button>
                 <Button
                   type="button"
-                  variant="ghost" size="icon-sm" className={styles.control}
+                  variant="ghost" size="icon-sm"
                   aria-label="Remove"
                   title="Drop this message"
                   onClick={() => void store.unqueue(message.id, key ?? undefined)}
@@ -236,7 +183,8 @@ export const MessageQueue = () => {
           </li>
         ))}
       </ol>
-    </div>
+      <SortableAnnouncer message={sortable.announcement} />
+    </Alert>
   )
 }
 
@@ -257,21 +205,9 @@ const When = ({
   state: string
 }) => {
   if (state === 'sending') return null
-  if (paused) {
-    return (
-      <span className={styles.when} data-tone="held">
-        held
-      </span>
-    )
-  }
-  if (index === 0) {
-    return (
-      <span className={styles.when} data-tone="next">
-        next
-      </span>
-    )
-  }
-  if (index === 1) return <span className={styles.when}>then</span>
+  if (paused) return <Text role="meta">held</Text>
+  if (index === 0) return <Text role="meta" tone="brand">next</Text>
+  if (index === 1) return <Text role="meta">then</Text>
   return null
 }
 
@@ -285,5 +221,5 @@ const Carried = ({ message }: { message: Parameters<typeof queuedLabel>[0] }) =>
   if (files > 0) parts.push(`${files} file${files === 1 ? '' : 's'}`)
   if (view.context.length > 0) parts.push(`${view.context.length} context`)
   if (parts.length === 0) return null
-  return <span className={styles.carried}>{parts.join(' · ')}</span>
+  return <Text role="meta">{parts.join(' · ')}</Text>
 }

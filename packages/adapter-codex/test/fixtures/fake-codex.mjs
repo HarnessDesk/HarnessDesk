@@ -8,16 +8,25 @@
  */
 
 import readline from 'node:readline'
-import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 // A real file on disk, so the adapter's icon inlining is exercised rather than
 // mocked. Codex resolves an installed package's icon to an absolute path.
 const ICON = fileURLToPath(new URL('./plugin-icon.svg', import.meta.url))
 
-const version = process.env['FAKE_CODEX_VERSION'] ?? '0.149.0'
+/* The build this stand-in plays. `FAKE_CODEX_VERSION_FILE` names a file holding
+   the version, read each time the process starts: a rig upgrades "Codex" under
+   a desk that is already running — a process whose environment cannot change —
+   by writing the file, and the next `--version` and the next app-server are the
+   new build. Without the file, the variable; without either, 0.149.0. */
+const versionFile = process.env['FAKE_CODEX_VERSION_FILE']
+const installed = versionFile && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : ''
+const version = installed || (process.env['FAKE_CODEX_VERSION'] ?? '0.149.0')
 const mode = process.env['FAKE_CODEX_MODE'] ?? 'turn'
+/** Whether the release played is `0.<minor>.0` or later, for what arrived with one. */
+const since = (minor) => Number(version.split('.')[1]) >= minor
 
 if (process.argv.includes('--version')) {
   /* A test can hold this answer open, to put a shutdown inside the window
@@ -88,28 +97,50 @@ let TURN = 'turn-e2e'
 let threadCounter = 0
 const nextThreadId = () => (threadCounter++ === 0 ? 'thread-e2e' : `thread-e2e-${threadCounter}`)
 
-const thread = (overrides = {}) => ({
-  id: THREAD,
-  sessionId: THREAD,
-  forkedFromId: null,
-  preview: 'List the files here.',
-  ephemeral: false,
-  modelProvider: 'openai',
-  createdAt: 1_700_000_000,
-  updatedAt: 1_700_000_100,
-  status: { type: 'idle' },
-  path: '/tmp/rollout.jsonl',
-  cwd: '/w',
-  cliVersion: version,
-  source: 'vscode',
-  threadSource: null,
-  agentNickname: null,
-  agentRole: null,
-  gitInfo: { sha: 'abc123', branch: 'main', originUrl: 'git@example.com:me/repo.git' },
-  name: null,
-  turns: [],
-  ...overrides,
-})
+/**
+ * Each thread's own working folder, taken from its `cwd` at `thread/start`,
+ * or from the thread it was resumed or forked from — never shared between
+ * threads the way `settingsState` otherwise is. `settingsState.cwd` still
+ * holds whichever thread is currently being handled, for the code below that
+ * reads it mid-turn; `cwdByThread` is what lets a *different* thread's own
+ * folder survive that one being resolved and reasserted at the top of every
+ * `thread/start`, `thread/resume` and `thread/fork`, instead of the second
+ * thread's cwd silently overwriting the first's for the rest of the process.
+ */
+const cwdByThread = new Map()
+
+const thread = (overrides = {}) => {
+  // The thread this describes may not be the one currently being handled —
+  // `thread/read`'s fallback describes an arbitrary `params.threadId` this
+  // way — so its own folder comes from `cwdByThread`, keyed on whichever id
+  // wins below, and only a thread this process never started or resumed
+  // falls back to whatever `settingsState.cwd` currently holds.
+  const describedId = overrides.id ?? THREAD
+  const described = {
+    id: THREAD,
+    sessionId: THREAD,
+    forkedFromId: null,
+    preview: 'List the files here.',
+    ephemeral: false,
+    modelProvider: 'openai',
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_100,
+    status: { type: 'idle' },
+    path: '/tmp/rollout.jsonl',
+    cwd: cwdByThread.get(describedId) ?? settingsState.cwd,
+    cliVersion: version,
+    source: 'vscode',
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+    gitInfo: { sha: 'abc123', branch: 'main', originUrl: 'git@example.com:me/repo.git' },
+    name: null,
+    turns: [],
+    ...overrides,
+  }
+  // How Codex keeps this thread's history, which it reports on every thread.
+  return { historyMode: historyOf(described.id).mode, ...described }
+}
 
 /**
  * Thread settings, the way the real app-server keeps them (observed on
@@ -134,16 +165,47 @@ const settingsState = {
   approvalPolicy: 'on-request',
   approvalsReviewer: 'user',
   permissions: null,
-  sandboxType: 'workspaceWrite',
+  // With no profile active, the sandbox is a mode over the thread's
+  // `[sandbox_workspace_write]` configuration, or a policy set whole.
+  sandboxMode: 'workspace-write',
+  sandboxConfig: { writable_roots: ['/w'], network_access: false, exclude_tmpdir_env_var: false, exclude_slash_tmp: false },
+  sandboxPolicy: null,
   model: 'gpt-5.5',
   serviceTier: null,
-  effort: null,
+  // FAKE_CODEX_CONFIGURED_EFFORT is `model_reasoning_effort` in config.toml.
+  effort: process.env['FAKE_CODEX_CONFIGURED_EFFORT'] ?? null,
   mode: 'default',
+  modelProvider: 'openai',
+  contextWindow: 272000,
+  workspaceRoots: ['/w'],
 }
-const sandboxPolicy = () =>
-  settingsState.permissions
-    ? (SANDBOX_FOR_PROFILE[settingsState.permissions] ?? SANDBOX_FOR_PROFILE[':workspace'])
-    : { ':read-only': SANDBOX_FOR_PROFILE[':read-only'], workspaceWrite: SANDBOX_FOR_PROFILE[':workspace'], readOnly: SANDBOX_FOR_PROFILE[':read-only'], dangerFullAccess: SANDBOX_FOR_PROFILE[':danger-full-access'] }[settingsState.sandboxType]
+/**
+ * What the configuration gives a thread nobody said anything about. A new
+ * thread starts here, as a real one starts from `config.toml`, never from
+ * whatever the last thread was changed to — which is what lets a test tell
+ * a setting carried across from one that was never lost.
+ */
+const CONFIGURED = { ...settingsState }
+const ADDITIONAL_MODEL = process.env['FAKE_CODEX_ADDITIONAL_MODEL'] ?? null
+const sandboxPolicy = () => {
+  if (settingsState.permissions) return SANDBOX_FOR_PROFILE[settingsState.permissions] ?? SANDBOX_FOR_PROFILE[':workspace']
+  if (settingsState.sandboxPolicy) return settingsState.sandboxPolicy
+  const written = settingsState.sandboxConfig
+  switch (settingsState.sandboxMode) {
+    case 'read-only':
+      return { type: 'readOnly', networkAccess: false }
+    case 'danger-full-access':
+      return { type: 'dangerFullAccess' }
+    default:
+      return {
+        type: 'workspaceWrite',
+        writableRoots: [...written.writable_roots],
+        networkAccess: written.network_access,
+        excludeTmpdirEnvVar: written.exclude_tmpdir_env_var,
+        excludeSlashTmp: written.exclude_slash_tmp,
+      }
+  }
+}
 
 const threadSettings = () => ({
   cwd: settingsState.cwd,
@@ -152,7 +214,7 @@ const threadSettings = () => ({
   sandboxPolicy: sandboxPolicy(),
   activePermissionProfile: settingsState.permissions ? { id: settingsState.permissions, extends: null } : null,
   model: settingsState.model,
-  modelProvider: 'openai',
+  modelProvider: settingsState.modelProvider,
   serviceTier: settingsState.serviceTier,
   effort: settingsState.effort,
   summary: null,
@@ -163,6 +225,20 @@ const threadSettings = () => ({
   personality: 'pragmatic',
 })
 
+/**
+ * FAKE_CODEX_EFFORT_SETTLES=high:low settles an effort somewhere other than
+ * where it was asked to go — asked for high, the thread runs at low — and says
+ * so only where Codex says anything, in `thread/settings/updated`. The answer
+ * to the update is `{}` either way. Real Codex has not been seen doing this; a
+ * desk that reads back what it asked for would not notice if it did.
+ */
+const EFFORT_SETTLES = Object.fromEntries(
+  (process.env['FAKE_CODEX_EFFORT_SETTLES'] ?? '')
+    .split(',')
+    .filter(Boolean)
+    .map((pair) => pair.split(':')),
+)
+
 /** Applies thread-verb params (start/resume/fork) or settings-update params. Returns an error message or null. */
 const applySettings = (params, { sandboxKey }) => {
   if (params.permissions != null && params[sandboxKey] != null) {
@@ -172,19 +248,39 @@ const applySettings = (params, { sandboxKey }) => {
     return 'failed to load configuration: default_permissions requires a `[permissions]` table'
   }
   if (params.model != null) settingsState.model = params.model
+  if (params.modelProvider != null) settingsState.modelProvider = params.modelProvider
+  if (params.runtimeWorkspaceRoots != null) settingsState.workspaceRoots = [...params.runtimeWorkspaceRoots]
+  // `sandbox_workspace_write.*` keys in a thread verb's `config` stand in for
+  // config.toml's own, as they do in Codex.
+  for (const [key, value] of Object.entries(params.config ?? {})) {
+    if (key === 'model_context_window' && typeof value === 'number') settingsState.contextWindow = value
+    const field = /^sandbox_workspace_write\.(.+)$/.exec(key)?.[1]
+    if (field) settingsState.sandboxConfig = { ...settingsState.sandboxConfig, [field]: value }
+  }
   if (params.permissions != null) settingsState.permissions = params.permissions
-  if (params[sandboxKey] != null) {
+  if (sandboxKey === 'sandbox' && params.sandbox != null) {
     settingsState.permissions = null
-    const value = params[sandboxKey]
-    settingsState.sandboxType =
-      value === 'read-only' || value?.type === 'readOnly' ? 'readOnly'
-      : value === 'danger-full-access' || value?.type === 'dangerFullAccess' ? 'dangerFullAccess'
-      : 'workspaceWrite'
+    settingsState.sandboxMode = params.sandbox
+    settingsState.sandboxPolicy = null
+  }
+  if (sandboxKey === 'sandboxPolicy' && params.sandboxPolicy != null) {
+    /* Measured on 0.145.0 and 0.155.0: a workspace policy given to a thread
+       with no profile active gains the thread's configured writable roots,
+       first; any other policy, or one given over a profile, is taken as it
+       came. */
+    const given = params.sandboxPolicy
+    settingsState.sandboxPolicy =
+      given.type === 'workspaceWrite' && settingsState.permissions === null
+        ? { ...given, writableRoots: [...new Set([...settingsState.sandboxConfig.writable_roots, ...given.writableRoots])] }
+        : given
+    settingsState.permissions = null
   }
   if (params.approvalPolicy != null) settingsState.approvalPolicy = params.approvalPolicy
   if (params.approvalsReviewer != null) settingsState.approvalsReviewer = params.approvalsReviewer
   if (params.serviceTier !== undefined) settingsState.serviceTier = params.serviceTier
-  if (params.effort !== undefined) settingsState.effort = params.effort
+  if (params.effort !== undefined) {
+    settingsState.effort = Object.hasOwn(EFFORT_SETTLES, String(params.effort)) ? EFFORT_SETTLES[params.effort] : params.effort
+  }
   if (params.cwd != null) settingsState.cwd = params.cwd
   if (params.collaborationMode) {
     settingsState.mode = params.collaborationMode.mode
@@ -199,10 +295,10 @@ const startResponse = () => ({
   // it has been stored.
   thread: thread({ preview: '' }),
   model: settingsState.model,
-  modelProvider: 'openai',
+  modelProvider: settingsState.modelProvider,
   serviceTier: settingsState.serviceTier,
   cwd: settingsState.cwd,
-  runtimeWorkspaceRoots: ['/w'],
+  runtimeWorkspaceRoots: [...settingsState.workspaceRoots],
   instructionSources: [],
   approvalPolicy: settingsState.approvalPolicy,
   approvalsReviewer: settingsState.approvalsReviewer,
@@ -275,6 +371,18 @@ const startLogin = (type) => {
 const deletedThreads = new Set()
 
 /**
+ * The three purely canned rows below are never started or resumed by
+ * anything, so nothing in the per-thread bookkeeping above ever sets a
+ * folder of their own — without this, `thread()`'s fallback to
+ * `settingsState.cwd` would have them silently follow whatever thread this
+ * process most recently handled, in a listing of conversations that never
+ * happened in this process at all. Pinned to `/w`, the same folder
+ * `thread()`'s old, process-wide default always gave every thread, so they
+ * read exactly as they always have: a fixed history, not a live one.
+ */
+for (const id of ['thread-2', 'thread-3', 'thread-4']) cwdByThread.set(id, '/w')
+
+/**
  * What Codex has stored: what `thread/list` returns, and what `thread/read`
  * answers for each of them.
  */
@@ -297,6 +405,140 @@ const storedThreads = () => [
       '<context source="Git">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes">\nStatus: ## main\n</context>',
   }),
 ].filter((t) => !deletedThreads.has(t.id))
+
+/**
+ * What Codex has stored of each thread's history, kept the two ways Codex
+ * keeps one (the adapter's `history.ts`; measured on 0.145.0 and 0.155.0 with
+ * `script/probe/paginated-history.mjs`):
+ *
+ * - `paginated`, every thread Codex starts from 0.151.0: paged by
+ *   `thread/turns/list` and `thread/items/list`, undone by `thread/revert`
+ *   (from 0.148.0), refused `thread/rollback`, and read whole only with a
+ *   `deprecationNotice` — from 0.151.0; before, not at all;
+ * - `legacy`, every thread before 0.151.0: read whole, undone by
+ *   `thread/rollback`, refused `thread/items/list` and `thread/revert`.
+ *
+ * The four listed threads keep the one turn they have always read back as, in
+ * the mode the release played starts threads in. Two more are listed nowhere
+ * and read by id: `thread-paged`, three turns kept in pages, and
+ * `thread-legacy`, two kept whole — one conversation from each side of
+ * 0.151.0, whichever release this is. A thread started here has nothing
+ * stored, and nothing the fake plays on one is stored either: a test that
+ * reads, forks or undoes a history reads one of these.
+ */
+const NEW_HISTORY = since(151) ? 'paginated' : 'legacy'
+/** Codex's own words, for every client but its terminal (0.155.0 `thread_processor.rs`). */
+const DEPRECATED = {
+  rollback: 'thread/rollback is deprecated and will be removed soon',
+  read: 'Full-history hydration is deprecated for paginated threads; omit `includeTurns` or set it to `false`, then page with `thread/turns/list` and `thread/items/list`.',
+  resume: 'Full-history hydration is deprecated for paginated threads; use `excludeTurns: true`, then page with `thread/turns/list` and `thread/items/list`.',
+}
+const pastTurn = (id, items, startedAt) => ({ id, items, itemsView: 'full', status: 'completed', error: null, startedAt, completedAt: startedAt + 4, durationMs: 4000 })
+const asked = (id, text) => ({ type: 'userMessage', id, clientId: null, content: [{ type: 'text', text, text_elements: [] }] })
+const answered = (id, text) => ({ type: 'agentMessage', id, text, phase: null, memoryCitation: null, delivery: null })
+const histories = new Map([
+  ...['thread-e2e', 'thread-2', 'thread-3', 'thread-4'].map((id) => [
+    id,
+    { mode: NEW_HISTORY, stored: true, turns: [pastTurn('turn-old', [asked('old-1', 'first page'), answered('old-2', 'second page')], 1_700_000_000)] },
+  ]),
+  ['thread-paged', {
+    mode: 'paginated',
+    stored: true,
+    turns: [
+      pastTurn('turn-p1', [asked('p1-ask', 'What is in here?'), answered('p1-answer', 'A README and a src folder.')], 1_700_000_200),
+      pastTurn('turn-p2', [
+        asked('p2-ask', 'Run the tests.'),
+        { type: 'commandExecution', id: 'p2-run', command: 'npm test', cwd: '/w', processId: null, source: 'agent', status: 'completed', commandActions: [{ type: 'unknown', command: 'npm test' }], aggregatedOutput: '3 passing\n', exitCode: 0, durationMs: 900 },
+        answered('p2-answer', 'All three pass.'),
+      ], 1_700_000_300),
+      pastTurn('turn-p3', [asked('p3-ask', 'Write it up.'), answered('p3-answer', 'Done, in NOTES.md.')], 1_700_000_400),
+    ],
+  }],
+  ['thread-legacy', {
+    mode: 'legacy',
+    stored: true,
+    turns: [
+      pastTurn('turn-l1', [asked('l1-ask', 'Say hello.'), answered('l1-answer', 'Hello.')], 1_700_000_500),
+      pastTurn('turn-l2', [asked('l2-ask', 'Say goodbye.'), answered('l2-answer', 'Goodbye.')], 1_700_000_600),
+    ],
+  }],
+])
+/** A thread's history. A thread nothing is stored for yet — one started here — is empty. */
+const historyOf = (threadId) => {
+  if (!histories.has(threadId)) histories.set(threadId, { mode: NEW_HISTORY, stored: false, turns: [] })
+  return histories.get(threadId)
+}
+/**
+ * Codex's words for a thread with nothing stored, which has had no first
+ * message. 0.155.0 has two, measured: this, and — for a thread it holds live,
+ * depending on what its store already has — "list_turns is not supported
+ * yet", which FAKE_CODEX_UNSTORED=list_turns plays.
+ */
+const unmaterialized = (threadId, what) =>
+  process.env['FAKE_CODEX_UNSTORED'] === 'list_turns'
+    ? { code: -32601, message: 'list_turns is not supported yet' }
+    : { code: -32600, message: `thread ${threadId} is not materialized yet; ${what} is unavailable before first user message` }
+/**
+ * FAKE_CODEX_CHANGE_BETWEEN_LISTINGS plays another client writing the thread
+ * while it is being read, as the items of the whole thread start to be listed
+ * — after its turns were. Once per thread: `append` starts a turn (with its
+ * items), `revert` reverts the newest one away, `grow` gives the newest one
+ * another item. `append-always` starts a turn at every such listing, a
+ * history that never holds still for a read.
+ */
+const changedBetweenListings = new Set()
+let lateTurns = 0
+const changeBetweenListings = (threadId, history) => {
+  const change = process.env['FAKE_CODEX_CHANGE_BETWEEN_LISTINGS']
+  if (!change || (change !== 'append-always' && changedBetweenListings.has(threadId))) return
+  changedBetweenListings.add(threadId)
+  if (change === 'revert') {
+    history.turns = history.turns.slice(0, -1)
+  } else if (change === 'grow') {
+    const newest = history.turns.at(-1)
+    history.turns = [...history.turns.slice(0, -1), { ...newest, items: [...newest.items, answered(`${newest.id}-more`, 'And one more thing.')] }]
+  } else {
+    lateTurns += 1
+    history.turns = [...history.turns, pastTurn(`turn-late-${lateTurns}`, [asked(`late-${lateTurns}-ask`, 'One more thing.'), answered(`late-${lateTurns}-answer`, 'Done.')], 1_700_000_900 + lateTurns)]
+  }
+}
+/** FAKE_CODEX_FAIL_TURNS_LISTS=<n> refuses the first n turn listings, as a store that cannot be read does. */
+let turnListingsFailed = 0
+/**
+ * One page of a listing: at most `limit`, clamped as Codex clamps it and then
+ * to two, so every cursor gets followed; ordered by `sortDirection`, else by
+ * the listing's own default. The cursor is opaque to the client, as Codex's is.
+ */
+const pageOf = (entries, params, direction, scope) => {
+  const ordered = (params.sortDirection ?? direction) === 'desc' ? [...entries].reverse() : entries
+  const from = params.cursor ? JSON.parse(params.cursor).from : 0
+  const size = Math.min(Math.max(params.limit ?? 25, 1), 100, 2)
+  const data = ordered.slice(from, from + size)
+  return {
+    data,
+    nextCursor: from + size < ordered.length ? JSON.stringify({ scope, from: from + size }) : null,
+    backwardsCursor: data.length > 0 ? JSON.stringify({ scope, from, anchor: true }) : null,
+  }
+}
+/**
+ * What `thread/resume` and `thread/fork` do with a history before they answer.
+ * A fork keeps its source's history, kept the same way; a Codex before
+ * 0.151.0 cannot fork a paginated one at all. Either verb asked for the turns
+ * of a paginated thread says Codex has deprecated that — the turns themselves
+ * are not sent, since nothing here asks for them any more. Returns a refusal,
+ * or null.
+ */
+const historyVerb = (method, params) => {
+  const source = historyOf(params.threadId)
+  if (method === 'thread/fork') {
+    if (source.mode === 'paginated' && !since(151)) return { code: -32601, message: 'paginated_threads is not supported yet' }
+    histories.set(THREAD, { mode: source.mode, stored: source.stored, turns: source.turns.map((turn) => ({ ...turn })) })
+  }
+  if (!params.excludeTurns && source.mode === 'paginated' && since(151)) {
+    notify('deprecationNotice', { summary: DEPRECATED.resume, details: null })
+  }
+  return null
+}
 
 /** dynamicTools the client declared on thread/start, so the tool round trip is testable. */
 let declaredTools = []
@@ -336,29 +578,41 @@ const nextUsage = () => {
   }
   last.totalTokens = last.inputTokens + last.outputTokens
   for (const key of Object.keys(runningTotal)) runningTotal[key] += last[key]
-  return { total: { ...runningTotal }, last, modelContextWindow: 272000 }
+  return { total: { ...runningTotal }, last, modelContextWindow: settingsState.contextWindow }
 }
 
 let turnStartedAt = nowSeconds()
 
-const playTurn = () => {
-  turnStartedAt = nowSeconds()
-  notify('turn/started', {
-    threadId: THREAD,
-    turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null, startedAt: turnStartedAt },
-  })
-  notify('thread/status/changed', { threadId: THREAD, status: { type: 'active', activeFlags: [] } })
+const openingUserItem = () => ({
+  type: 'userMessage',
+  id: 'item-u1',
+  content:
+    Array.isArray(lastInput) && lastInput.length > 0
+      ? lastInput.map((part) => (part.type === 'text' ? { ...part, text_elements: part.text_elements ?? [] } : part))
+      : [{ type: 'text', text: 'List the files here.', text_elements: [] }],
+})
 
-  const userItem = {
-    type: 'userMessage',
-    id: 'item-u1',
-    content:
-      Array.isArray(lastInput) && lastInput.length > 0
-        ? lastInput.map((part) => (part.type === 'text' ? { ...part, text_elements: part.text_elements ?? [] } : part))
-        : [{ type: 'text', text: 'List the files here.', text_elements: [] }],
+const turnOpening = () => {
+  turnStartedAt = nowSeconds()
+  const userItem = openingUserItem()
+  return [
+    {
+      method: 'turn/started',
+      params: {
+        threadId: THREAD,
+        turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null, startedAt: turnStartedAt },
+      },
+    },
+    { method: 'thread/status/changed', params: { threadId: THREAD, status: { type: 'active', activeFlags: [] } } },
+    { method: 'item/started', params: { threadId: THREAD, turnId: TURN, item: userItem, startedAtMs: nowMs() } },
+    { method: 'item/completed', params: { threadId: THREAD, turnId: TURN, item: userItem, completedAtMs: nowMs() } },
+  ]
+}
+
+const playTurn = (openingAlreadySent = false) => {
+  if (!openingAlreadySent) {
+    for (const message of turnOpening()) send(message)
   }
-  notify('item/started', { threadId: THREAD, turnId: TURN, item: userItem, startedAtMs: nowMs() })
-  notify('item/completed', { threadId: THREAD, turnId: TURN, item: userItem, completedAtMs: nowMs() })
 
   const message = { type: 'agentMessage', id: 'item-a1', text: '', phase: 'commentary', memoryCitation: null }
   notify('item/started', { threadId: THREAD, turnId: TURN, item: message, startedAtMs: nowMs() })
@@ -371,15 +625,17 @@ const playTurn = () => {
     completedAtMs: nowMs(),
   })
 
+  // The thread's own folder, as the real app-server reports it — never a
+  // stand-in path, which a screenshot of the approval would print verbatim.
   const command = {
     type: 'commandExecution',
     id: 'call-c1',
     command: 'ls -la',
-    cwd: '/w',
+    cwd: settingsState.cwd,
     processId: null,
     source: 'agent',
     status: 'inProgress',
-    commandActions: [{ type: 'listFiles', command: 'ls -la', path: '/w' }],
+    commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
     aggregatedOutput: null,
     exitCode: null,
     durationMs: null,
@@ -399,8 +655,8 @@ const playTurn = () => {
       startedAtMs: nowMs(),
       reason: 'Needs to read the working directory',
       command: 'ls -la',
-      cwd: '/w',
-      commandActions: [{ type: 'listFiles', command: 'ls -la', path: '/w' }],
+      cwd: settingsState.cwd,
+      commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
       availableDecisions: ['accept', 'acceptForSession', 'decline'],
     },
   })
@@ -429,7 +685,7 @@ const startBackground = (command, { fails = false } = {}) => {
     type: 'commandExecution',
     id: itemId,
     command,
-    cwd: '/w',
+    cwd: settingsState.cwd,
     processId,
     source: 'unifiedExecStartup',
     commandActions: [{ type: 'unknown', command }],
@@ -448,7 +704,7 @@ const startBackground = (command, { fails = false } = {}) => {
       itemId,
       processId,
       command,
-      cwd: '/w',
+      cwd: settingsState.cwd,
       osPid: 40000 + backgroundCounter,
       cpuPercent: 1.5,
       rssKb: 20480,
@@ -461,6 +717,196 @@ const startBackground = (command, { fails = false } = {}) => {
     completedAtMs: nowMs(),
   })
   return processId
+}
+
+/**
+ * An inline review, notification for notification as 0.155.0 plays one
+ * (`script/probe/review-side-thread.mjs --shapes`; 0.145.0 is the same):
+ *
+ * - no `turn/started` for the review's own turn, whose id the answer, every
+ *   item and the `turn/completed` carry;
+ * - a `turn/started` under another id — the reviewer sub-agent's, forwarded —
+ *   which nothing names again;
+ * - an `agentMessage` the reviewer began, started and never completed,
+ *   because Codex withholds the reviewer's words for the findings it renders.
+ *
+ * FAKE_CODEX_REVIEW_MS holds the review open that long before its findings,
+ * for a caller that has to see it working, or stop it; 20 ms otherwise.
+ * Stopping one is Codex's way too: `turn/interrupt` has to name the
+ * reviewer's turn, or no turn at all, never the review's (`stopReview`).
+ * FAKE_CODEX_REVIEWER_MS holds back the reviewer's `turn/started` that long,
+ * and FAKE_CODEX_REVIEWER_FIRST=1 sends it before the review's first item —
+ * neither is what either Codex does, and the adapter must not care.
+ * FAKE_CODEX_REVIEWER_UNANNOUNCED=1 starts the reviewer without forwarding
+ * its `turn/started` at all, and FAKE_CODEX_NO_STARTUP_INTERRUPT=1 checks a
+ * stop naming no turn like any other: a Codex neither version is, which the
+ * adapter must still be able to stop.
+ */
+let reviews = 0
+/** Per thread, the review running on it: its turn, the reviewer's, and the timer that ends it. */
+const runningReviews = new Map()
+const playReview = (id, params) => {
+  reviews += 1
+  const threadId = params.threadId
+  const turnId = `review-turn-${reviews}`
+  const reviewerTurnId = `reviewer-turn-${reviews}`
+  const hint = params.target.type === 'uncommittedChanges' ? 'current changes' : params.target.type
+  const on = (method, item, at) => notify(method, { threadId, turnId, item, ...at })
+  send({
+    id,
+    result: {
+      turn: {
+        id: turnId,
+        items: [{ type: 'userMessage', id: turnId, clientId: null, content: [{ type: 'text', text: hint, text_elements: [] }] }],
+        itemsView: 'notLoaded',
+        status: 'inProgress',
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+      },
+      reviewThreadId: threadId,
+    },
+  })
+  const startedAtMs = nowMs()
+  const review = { turnId, reviewerTurnId, reviewerStarted: false, reviewerTimer: null, timer: null, reviews, startedAtMs }
+  const reviewerStarts = () => {
+    review.reviewerStarted = true
+    if (process.env['FAKE_CODEX_REVIEWER_UNANNOUNCED'] === '1') return
+    notify('turn/started', {
+      threadId,
+      turn: { id: reviewerTurnId, items: [], itemsView: 'notLoaded', status: 'inProgress', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: null, durationMs: null },
+    })
+  }
+  const first = process.env['FAKE_CODEX_REVIEWER_FIRST'] === '1'
+  if (first) reviewerStarts()
+  const entered = { type: 'enteredReviewMode', id: `entered-${reviews}`, review: hint }
+  on('item/started', entered, { startedAtMs: nowMs() })
+  on('item/completed', entered, { completedAtMs: nowMs() })
+  notify('thread/status/changed', { threadId, status: { type: 'active', activeFlags: [] } })
+  const lag = Number(process.env['FAKE_CODEX_REVIEWER_MS'] ?? 0)
+  if (!first && lag > 0) review.reviewerTimer = setTimeout(reviewerStarts, lag)
+  else if (!first) reviewerStarts()
+  const asked = {
+    type: 'userMessage',
+    id: `asked-${reviews}`,
+    clientId: null,
+    content: [{ type: 'text', text: 'Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings.', text_elements: [] }],
+  }
+  on('item/started', asked, { startedAtMs: nowMs() })
+  on('item/completed', asked, { completedAtMs: nowMs() })
+  on('item/started', { type: 'agentMessage', id: `withheld-${reviews}`, text: '', phase: null, memoryCitation: null, delivery: null, questions: null }, { startedAtMs: nowMs() })
+  review.timer = setTimeout(() => {
+    runningReviews.delete(threadId)
+    clearTimeout(review.reviewerTimer)
+    const findings = 'One cosmetic finding.\n\nReview comment:\n\n- [P2] Greeting lost its punctuation — README.md:1-1\n  The edit drops the full stop the other lines keep.'
+    const exited = { type: 'exitedReviewMode', id: `exited-${reviews}`, review: findings }
+    on('item/started', exited, { startedAtMs: nowMs() })
+    on('item/completed', exited, { completedAtMs: nowMs() })
+    const answer = { type: 'agentMessage', id: `findings-${reviews}`, text: findings, phase: null, memoryCitation: null, delivery: null, questions: null }
+    on('item/started', answer, { startedAtMs: nowMs() })
+    on('item/completed', answer, { completedAtMs: nowMs() })
+    notify('thread/status/changed', { threadId, status: { type: 'idle' } })
+    // Timed from the reviewer's start, as Codex times it.
+    notify('turn/completed', {
+      threadId,
+      turn: { id: turnId, items: [answer], itemsView: 'summary', status: 'completed', error: null, startedAt: Math.floor(startedAtMs / 1000), completedAt: nowSeconds(), durationMs: nowMs() - startedAtMs },
+    })
+  }, Number(process.env['FAKE_CODEX_REVIEW_MS'] ?? 20))
+  runningReviews.set(threadId, review)
+}
+
+/**
+ * `turn/interrupt` on a thread with a review running, measured on 0.145.0
+ * and 0.155.0: Codex checks a named turn against the one it holds as
+ * running — the reviewer's, and before the reviewer has started, none —
+ * while a stop naming no turn is its "startup interrupt" and is not checked.
+ * The refusals are Codex's words. The stopped review then ends under its own
+ * turn.
+ */
+const stopReview = (id, params) => {
+  const review = runningReviews.get(params.threadId)
+  const checked = params.turnId !== '' || process.env['FAKE_CODEX_NO_STARTUP_INTERRUPT'] === '1'
+  if (checked && !review.reviewerStarted) {
+    send({ id, error: { code: -32600, message: 'no active turn to interrupt' } })
+    return
+  }
+  if (checked && params.turnId !== review.reviewerTurnId) {
+    send({ id, error: { code: -32600, message: `expected active turn id ${params.turnId} but found ${review.reviewerTurnId}` } })
+    return
+  }
+  clearTimeout(review.timer)
+  clearTimeout(review.reviewerTimer)
+  runningReviews.delete(params.threadId)
+  send({ id, result: {} })
+  const on = (method, item, at) => notify(method, { threadId: params.threadId, turnId: review.turnId, item, ...at })
+  const exited = { type: 'exitedReviewMode', id: `exited-${review.reviews}`, review: 'Reviewer failed to output a response.' }
+  on('item/started', exited, { startedAtMs: nowMs() })
+  on('item/completed', exited, { completedAtMs: nowMs() })
+  const said = { type: 'agentMessage', id: `stopped-${review.reviews}`, text: 'Review was interrupted. Please re-run /review and wait for it to complete.', phase: null, memoryCitation: null, delivery: null, questions: null }
+  on('item/started', said, { startedAtMs: nowMs() })
+  on('item/completed', said, { completedAtMs: nowMs() })
+  notify('thread/status/changed', { threadId: params.threadId, status: { type: 'idle' } })
+  notify('turn/completed', {
+    threadId: params.threadId,
+    turn: { id: review.turnId, items: [], itemsView: 'notLoaded', status: 'interrupted', error: null, startedAt: Math.floor(review.startedAtMs / 1000), completedAt: nowSeconds(), durationMs: nowMs() - review.startedAtMs },
+  })
+}
+
+/**
+ * A user verification, the elicitation mode 0.155.0 added: an MCP server
+ * asking Codex to have the person sign a challenge with a key enrolled on the
+ * device. Real Codex routes one only to its own in-process terminal UI and
+ * cancels it for every other client; the fake asks anyone who says
+ * `verify <title>`, so the client's answer can be seen. The turn then ends
+ * with the agent saying what came back.
+ */
+const verifications = new Map()
+
+const askVerification = (title) => {
+  notify('turn/started', {
+    threadId: THREAD,
+    turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null, startedAt: nowSeconds() },
+  })
+  const asked = {
+    type: 'userMessage',
+    id: 'item-v0',
+    content: (lastInput ?? []).map((part) => (part.type === 'text' ? { ...part, text_elements: part.text_elements ?? [] } : part)),
+  }
+  notify('item/started', { threadId: THREAD, turnId: TURN, item: asked, startedAtMs: nowMs() })
+  notify('item/completed', { threadId: THREAD, turnId: TURN, item: asked, completedAtMs: nowMs() })
+  const id = ++approvalRequestId
+  verifications.set(id, THREAD)
+  send({
+    id,
+    method: 'mcpServer/elicitation/request',
+    params: {
+      threadId: THREAD,
+      turnId: TURN,
+      serverName: 'payments',
+      mode: 'openai/userVerification',
+      title,
+      description: 'Approve it with the key enrolled on this device.',
+      challenge: 'c2lnbi1tZQ',
+    },
+  })
+}
+
+const answerVerification = (message) => {
+  THREAD = verifications.get(message.id)
+  TURN = `turn-${THREAD}`
+  verifications.delete(message.id)
+  const outcome = message.error
+    ? `as error ${message.error.code}`
+    : `"${message.result?.action}" with ${message.result?.content == null ? 'nothing signed' : 'content'}`
+  const item = { type: 'agentMessage', id: 'item-v1', text: `The verification came back ${outcome}.`, phase: null, memoryCitation: null }
+  notify('item/started', { threadId: THREAD, turnId: TURN, item: { ...item, text: '' }, startedAtMs: nowMs() })
+  notify('item/completed', { threadId: THREAD, turnId: TURN, item, completedAtMs: nowMs() })
+  notify('turn/completed', {
+    threadId: THREAD,
+    turn: { id: TURN, items: [], itemsView: 'summary', status: 'completed', error: null },
+  })
+  notify('thread/status/changed', { threadId: THREAD, status: { type: 'idle' } })
 }
 
 const finishTurn = () => {
@@ -477,11 +923,11 @@ const finishTurn = () => {
       type: 'commandExecution',
       id: 'call-c1',
       command: 'ls -la',
-      cwd: '/w',
+      cwd: settingsState.cwd,
       processId: null,
       source: 'agent',
       status: 'completed',
-      commandActions: [{ type: 'listFiles', command: 'ls -la', path: '/w' }],
+      commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
       aggregatedOutput: 'README.md\n',
       exitCode: 0,
       durationMs: 12,
@@ -489,12 +935,20 @@ const finishTurn = () => {
     completedAtMs: nowMs(),
   })
   notify('thread/tokenUsage/updated', { threadId: THREAD, turnId: TURN, tokenUsage: nextUsage() })
+  const completedItems = process.env['FAKE_CODEX_FULLER_COMPLETION'] === '1'
+    ? [
+        openingUserItem(),
+        answered('item-a1', 'Running ls.'),
+        answered('item-a2', 'The command completed.'),
+        answered('item-a3', 'Done.'),
+      ]
+    : []
   notify('turn/completed', {
     threadId: THREAD,
     turn: {
       id: TURN,
-      items: [],
-      itemsView: 'summary',
+      items: completedItems,
+      itemsView: completedItems.length > 0 ? 'full' : 'summary',
       status: 'completed',
       error: null,
       startedAt: turnStartedAt,
@@ -502,6 +956,11 @@ const finishTurn = () => {
       durationMs: 5000,
     },
   })
+  if (process.env['FAKE_CODEX_PERSIST_TURN'] === '1') {
+    const history = historyOf(THREAD)
+    history.stored = true
+    history.turns = [pastTurn(TURN, completedItems.length > 0 ? completedItems : [openingUserItem()], turnStartedAt)]
+  }
   notify('thread/status/changed', { threadId: THREAD, status: { type: 'idle' } })
 }
 
@@ -522,6 +981,100 @@ const callDeclaredTool = () => {
       namespace: tool.namespace ?? null,
       tool: tool.name,
       arguments: { text: 'from codex' },
+    },
+  })
+}
+
+/** A child thread calls the first client-declared tool after naming its parent. */
+const callDeclaredToolAsChild = () => {
+  const tool = declaredTools[0]
+  if (!tool) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  const child = `${THREAD}-child`
+  notify('thread/started', { thread: thread({ id: child, parentThreadId: THREAD, preview: 'A sub-agent.' }) })
+  send({
+    id: ++approvalRequestId,
+    method: 'item/tool/call',
+    params: {
+      threadId: child,
+      turnId: 'turn-child',
+      callId: 'call-dyn-child',
+      namespace: tool.namespace ?? null,
+      tool: tool.name,
+      arguments: { text: 'from a sub-agent' },
+    },
+  })
+}
+
+/** Calls every declared tool as one child, optionally withholding its fresh registration. */
+const callDeclaredToolsAsChild = (announceChild) => {
+  if (declaredTools.length === 0) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  const child = `${THREAD}-child`
+  if (announceChild) {
+    notify('thread/started', { thread: thread({ id: child, parentThreadId: THREAD, preview: 'A sub-agent.' }) })
+  }
+  for (const tool of declaredTools) {
+    send({
+      id: ++approvalRequestId,
+      method: 'item/tool/call',
+      params: {
+        threadId: child,
+        turnId: 'turn-child',
+        callId: `call-dyn-child-${tool.name}`,
+        namespace: tool.namespace ?? null,
+        tool: tool.name,
+        arguments: { text: 'from a sub-agent' },
+      },
+    })
+  }
+}
+
+/**
+ * Before the simulated upgrade this establishes C -> R. The replacement
+ * process first calls C without naming it, then repeats with a fresh child
+ * registration, which exercises the adapter's epoch boundary.
+ */
+let restartEpochCalls = 0
+const callRestartEpochTools = () => {
+  if (!since(200)) {
+    callDeclaredToolAsChild()
+    return
+  }
+  restartEpochCalls += 1
+  callDeclaredToolsAsChild(restartEpochCalls > 1)
+}
+
+/** A deeply delegated child calls a declared tool after every parent is announced. */
+const callDeclaredToolAsDeepChild = (count) => {
+  const tool = declaredTools[0]
+  if (!tool) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  let parent = THREAD
+  let child = THREAD
+  for (let index = 0; index < count; index += 1) {
+    child = `${THREAD}-child-${index}`
+    notify('thread/started', { thread: thread({ id: child, parentThreadId: parent, preview: 'A sub-agent.' }) })
+    parent = child
+  }
+  send({
+    id: ++approvalRequestId,
+    method: 'item/tool/call',
+    params: {
+      // Once the bounded map has evicted its first association, exercise that
+      // original child rather than a still-retained descendant.
+      threadId: count > 2000 ? `${THREAD}-child-0` : child,
+      turnId: 'turn-child',
+      callId: 'call-dyn-child',
+      namespace: tool.namespace ?? null,
+      tool: tool.name,
+      arguments: { text: 'from a sub-agent' },
     },
   })
 }
@@ -638,6 +1191,12 @@ rl.on('line', (line) => {
       })
       return
     }
+    // Answered with a result or refused with an error, a verification ends
+    // its turn the same way; only what the agent says differs.
+    if (verifications.has(message.id)) {
+      answerVerification(message)
+      return
+    }
     answeredApprovals.push(message)
     const asked = askedBy.get(message.id)
     if (asked) {
@@ -657,6 +1216,44 @@ rl.on('line', (line) => {
   }
 
   const { id, method, params } = message
+  const laneEnvironment = params?.config?.['shell_environment_policy.set']
+  if (
+    process.env.FAKE_CODEX_LANE_ENV_LOG &&
+    ['thread/start', 'thread/resume', 'thread/fork'].includes(method) &&
+    laneEnvironment
+  ) {
+    const keys = [
+      'HARNESSDESK_GOAL_ID',
+      'HARNESSDESK_LANE_ID',
+      'HARNESSDESK_PORT_START',
+      'HARNESSDESK_PORT_END',
+      'HARNESSDESK_PORT_COUNT',
+      'PORT',
+    ]
+    const source = `process.stdout.write(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(key => [key, process.env[key]]))))`
+    const child = spawnSync(process.execPath, ['-e', source], {
+      env: { ...process.env, ...laneEnvironment },
+      encoding: 'utf8',
+    })
+    if (child.status !== 0) throw new Error('The lane fixture child failed.')
+    appendFileSync(
+      process.env.FAKE_CODEX_LANE_ENV_LOG,
+      `${JSON.stringify({ method, environment: laneEnvironment, child: JSON.parse(child.stdout) })}\n`,
+    )
+  }
+
+  // FAKE_CODEX_FOLDERS=<file> records which folder each configuration read was
+  // asked about, one JSON line each — null for one asked about none.
+  if (process.env['FAKE_CODEX_FOLDERS'] && (method === 'config/read' || method === 'permissionProfile/list')) {
+    appendFileSync(process.env['FAKE_CODEX_FOLDERS'], `${JSON.stringify({ method, cwd: params?.cwd ?? null })}\n`)
+  }
+
+  // FAKE_CODEX_CALLS=<file> records every method name asked of this fake, one
+  // per line — for a test proving a *negative*: that some flow never asks
+  // for something, which "the round trip still works" cannot show on its own.
+  if (process.env['FAKE_CODEX_CALLS']) {
+    appendFileSync(process.env['FAKE_CODEX_CALLS'], `${method}\n`)
+  }
 
   switch (method) {
     case 'initialize':
@@ -674,6 +1271,10 @@ rl.on('line', (line) => {
     case 'thread/start': {
       THREAD = nextThreadId()
       TURN = `turn-${THREAD}`
+      // Nothing stored yet, even under an id the fake has handed out before;
+      // kept the way this release keeps a new thread unless asked otherwise,
+      // and an ephemeral one is never paged.
+      histories.set(THREAD, { mode: params?.historyMode ?? (params?.ephemeral ? 'legacy' : NEW_HISTORY), stored: false, turns: [] })
       declaredTools = flattenDynamicTools(params?.dynamicTools ?? [])
       // Codex reserves these namespaces for its own Responses tools and
       // refuses the whole thread/start on a collision. Still true on 0.149.0,
@@ -689,17 +1290,31 @@ rl.on('line', (line) => {
         })
         return
       }
+      Object.assign(settingsState, CONFIGURED)
       const problem = applySettings(params ?? {}, { sandboxKey: 'sandbox' })
       if (problem) {
         send({ id, error: { code: -32600, message: problem } })
         return
       }
-      send({ id, result: startResponse() })
+      // This thread's own folder, from here on — never overwritten by a
+      // later thread/start's own cwd the way `settingsState.cwd` otherwise
+      // would be for every thread that shares it.
+      cwdByThread.set(THREAD, settingsState.cwd)
+      // A new thread is in the folder it was started in, as Codex reports it.
+      send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
       notify('thread/started', { thread: thread() })
       notify('warning', {
         threadId: THREAD,
         message: `TOOLS_DECLARED ${declaredTools.map((t) => (t.namespace ? `${t.namespace}/${t.name}` : t.name)).join(',') || '(none)'}`,
       })
+      // FAKE_CODEX_ECHO_STARTS=1 says what the thread was started with, the
+      // way a test reads a request. Off by default: it is a toast in the app.
+      if (process.env['FAKE_CODEX_ECHO_STARTS'] === '1') {
+        notify('warning', {
+          threadId: THREAD,
+          message: `STARTED ${JSON.stringify({ ...params, dynamicTools: undefined, developerInstructions: undefined })}`,
+        })
+      }
       return
     }
 
@@ -709,13 +1324,31 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: `thread ${params.threadId} not found` } })
         return
       }
+      // A resume or a fork picks its settings up where the thread it came
+      // from left them, not wherever the last *different* thread active in
+      // this process happened to leave `settingsState` — cwd most of all,
+      // the one setting a test routinely gives a fresh value at `thread/start`.
+      settingsState.cwd = cwdByThread.get(params.threadId) ?? settingsState.cwd
       THREAD = method === 'thread/resume' ? params.threadId : nextThreadId()
       TURN = `turn-${THREAD}`
+      const refused = historyVerb(method, params)
+      if (refused) {
+        send({ id, error: refused })
+        return
+      }
       const problem = applySettings(params ?? {}, { sandboxKey: 'sandbox' })
       if (problem) {
         send({ id, error: { code: -32600, message: problem } })
         return
       }
+      /* FAKE_CODEX_RESUMED_SANDBOX is a policy another client put the thread
+         under, which it is resumed in: JSON, as Codex reports one. */
+      const resumed = process.env['FAKE_CODEX_RESUMED_SANDBOX']
+      if (method === 'thread/resume' && resumed && params?.permissions == null && params?.sandbox == null) {
+        settingsState.permissions = null
+        settingsState.sandboxPolicy = JSON.parse(resumed)
+      }
+      cwdByThread.set(THREAD, settingsState.cwd)
       send({ id, result: startResponse() })
       notify('thread/started', { thread: thread() })
       return
@@ -726,10 +1359,62 @@ rl.on('line', (line) => {
       send({ id, result: {} })
       return
 
-    case 'thread/rollback':
-      notify('warning', { threadId: params.threadId, message: `ROLLBACK ${params.numTurns}` })
-      send({ id, result: { thread: thread() } })
+    case 'thread/rollback': {
+      // Said to every client but Codex's own terminal, before anything else.
+      notify('deprecationNotice', { summary: DEPRECATED.rollback, details: null })
+      const history = historyOf(params.threadId)
+      if (history.mode === 'paginated') {
+        send({ id, error: { code: -32600, message: 'paginated threads do not support thread/rollback' } })
+        return
+      }
+      if (!(params.numTurns >= 1)) {
+        send({ id, error: { code: -32600, message: 'numTurns must be >= 1' } })
+        return
+      }
+      if (!history.stored) {
+        send({ id, error: { code: -32600, message: 'failed to load thread history for rollback replay: invalid thread-store request: failed to resolve rollout path: file does not exist' } })
+        return
+      }
+      // More turns than there are drops them all.
+      history.turns = history.turns.slice(0, Math.max(0, history.turns.length - params.numTurns))
+      send({ id, result: { thread: thread({ id: params.threadId, turns: history.turns }) } })
       return
+    }
+
+    case 'thread/revert': {
+      if (!since(148)) {
+        // Codex's refusal lists every method it knows; the head of it is enough.
+        send({ id, error: { code: -32600, message: 'Invalid request: unknown variant `thread/revert`, expected one of `initialize`, `thread/start`, `thread/resume`, `thread/fork`, `thread/rollback`, `thread/read`, `thread/turns/list`, `thread/items/list`' } })
+        return
+      }
+      const history = historyOf(params.threadId)
+      if (history.mode !== 'paginated') {
+        send({ id, error: { code: -32600, message: 'thread/revert only supports paginated threads' } })
+        return
+      }
+      if (!history.stored) {
+        send({ id, error: { code: -32603, message: `failed to revert session: thread ${params.threadId} not found` } })
+        return
+      }
+      const at = history.turns.findIndex((turn) => turn.id === params.beforeTurnId)
+      if (at === -1) {
+        send({ id, error: { code: -32600, message: `turn not found: ${params.beforeTurnId}` } })
+        return
+      }
+      // The turn named and every one after it go; the thread is reloaded
+      // behind the call and answers with no turns of its own.
+      history.turns = history.turns.slice(0, at)
+      send({
+        id,
+        result: {
+          thread: thread({ id: params.threadId }),
+          turnsBackwardsCursor: history.turns.length > 0 ? JSON.stringify({ scope: 'turns', from: 0, anchor: true }) : null,
+          itemsBackwardsCursor: history.turns.length > 0 ? JSON.stringify({ scope: 'items', from: 0, anchor: true }) : null,
+        },
+      })
+      notify('thread/reverted', { threadId: params.threadId })
+      return
+    }
 
     case 'thread/compact/start':
       send({ id, result: {} })
@@ -737,15 +1422,64 @@ rl.on('line', (line) => {
       return
 
     case 'review/start':
-      send({ id, result: { turn: { id: 'review-turn', items: [], itemsView: 'full', status: 'inProgress', error: null }, reviewThreadId: 'review-1' } })
       notify('warning', { threadId: params.threadId, message: `REVIEW ${params.target.type} ${params.delivery ?? 'default'}` })
+      if (params.delivery === 'detached') {
+        /* 0.155.0's answer, measured: every detached review is deprecated out
+           loud, and one on a thread with paginated history — every thread
+           0.155.0 starts — is then refused. */
+        notify('deprecationNotice', {
+          summary: 'review/start with delivery "detached" is deprecated and will be removed in a future release.',
+          details:
+            'Use thread/start followed by review/start with delivery "inline" for a separate review thread, or thread/fork followed by turn/start with your own review instructions.',
+        })
+        send({ id, error: { code: -32600, message: 'paginated threads do not support detached review' } })
+        return
+      }
+      // Codex's own check, word for word (`review_request_from_target`).
+      if (params.target.type === 'baseBranch' && !params.target.branch.trim()) {
+        send({ id, error: { code: -32600, message: 'branch must not be empty' } })
+        return
+      }
+      playReview(id, params)
       return
 
     case 'thread/settings/update': {
+      const was = JSON.stringify(threadSettings())
       const problem = applySettings(params, { sandboxKey: 'sandboxPolicy' })
       if (problem) {
         send({ id, error: { code: -32600, message: problem } })
         return
+      }
+      // A `cwd` change here is this thread's own from now on — a later
+      // thread/read for it must answer with what this update actually set,
+      // not whatever it was given at thread/start.
+      cwdByThread.set(params.threadId, settingsState.cwd)
+      /* FAKE_CODEX_QUIET_NOOP=1 is real Codex's way, measured on 0.149.0: an
+         update that changes nothing is answered `{}` and never announced. */
+      if (process.env['FAKE_CODEX_QUIET_NOOP'] === '1' && JSON.stringify(threadSettings()) === was) {
+        send({ id, result: {} })
+        return
+      }
+      /* FAKE_CODEX_SETTINGS_ORDER is where the announcement falls against the
+         answer, since a reader must hold Codex's word whichever comes first:
+         `answer-first` (the answer alone, the announcement in a later read —
+         0.149.0 writes it a millisecond after), `one-chunk` (both in one write,
+         so one read hands over both) and `announce-first`. */
+      const said = {
+        method: 'thread/settings/updated',
+        params: { threadId: params.threadId, threadSettings: threadSettings() },
+      }
+      switch (process.env['FAKE_CODEX_SETTINGS_ORDER']) {
+        case 'answer-first':
+          send({ id, result: {} })
+          setTimeout(() => send(said), 100)
+          return
+        case 'one-chunk':
+          process.stdout.write(`${JSON.stringify({ id, result: {} })}\n${JSON.stringify(said)}\n`)
+          return
+        case 'announce-first':
+          process.stdout.write(`${JSON.stringify(said)}\n${JSON.stringify({ id, result: {} })}\n`)
+          return
       }
       send({ id, result: {} })
       notify('thread/settings/updated', { threadId: params.threadId, threadSettings: threadSettings() })
@@ -1070,7 +1804,8 @@ rl.on('line', (line) => {
         id,
         result: {
           data: [
-            { name: 'Plan', mode: 'plan', model: null, reasoning_effort: 'medium' },
+            // FAKE_CODEX_PLAN_EFFORT gives Plan an effort of its own other than the model's default.
+            { name: 'Plan', mode: 'plan', model: null, reasoning_effort: process.env['FAKE_CODEX_PLAN_EFFORT'] ?? 'medium' },
             { name: 'Default', mode: 'default', model: null, reasoning_effort: null },
           ],
         },
@@ -1146,64 +1881,69 @@ rl.on('line', (line) => {
       }
       // The thread that was asked for, as the app-server answers: a read and a
       // listing describe the same conversation, down to its stored preview.
-      // A thread the listing does not hold is one this process started.
-      const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread()
-      send({
-        id,
-        result: {
-          thread: {
-            ...stored,
-            turns: [
-              {
-                id: 'turn-old',
-                items: [],
-                // Force the adapter down the pagination path.
-                itemsView: 'notLoaded',
-                status: 'completed',
-                error: null,
-                startedAt: 1_700_000_000,
-                completedAt: 1_700_000_001,
-                durationMs: 1000,
-              },
-            ],
-          },
-        },
-      })
+      // A thread the listing does not hold is one this process started, or
+      // one of the unlisted histories.
+      const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread({ id: params.threadId, sessionId: params.threadId })
+      const history = historyOf(params.threadId)
+      if (!params.includeTurns) {
+        send({ id, result: { thread: { ...stored, turns: [] } } })
+        return
+      }
+      if (!history.stored) {
+        send({ id, error: unmaterialized(params.threadId, 'includeTurns') })
+        return
+      }
+      if (history.mode === 'paginated') {
+        if (!since(151)) {
+          send({ id, error: { code: -32600, message: 'paginated threads do not support thread/read(includeTurns=true)' } })
+          return
+        }
+        notify('deprecationNotice', { summary: DEPRECATED.read, details: null })
+      }
+      send({ id, result: { thread: { ...stored, turns: history.turns } } })
+      return
+    }
+
+    case 'thread/turns/list': {
+      // Either history lists its turns, newest first unless asked otherwise:
+      // without items, with a summary of them — the ask and the last answer —
+      // or with all of them.
+      const history = historyOf(params.threadId)
+      if (turnListingsFailed < Number(process.env['FAKE_CODEX_FAIL_TURNS_LISTS'] ?? 0)) {
+        turnListingsFailed += 1
+        send({ id, error: { code: -32603, message: 'failed to list thread history: database is locked' } })
+        return
+      }
+      if (!history.stored) {
+        send({ id, error: unmaterialized(params.threadId, 'thread/turns/list') })
+        return
+      }
+      const view = params.itemsView ?? 'summary'
+      const page = pageOf(history.turns, params, 'desc', 'turns')
+      const shown = (turn) =>
+        view === 'full'
+          ? turn.items
+          : view === 'summary'
+            ? [turn.items.find((item) => item.type === 'userMessage'), turn.items.findLast((item) => item.type === 'agentMessage')].filter(Boolean)
+            : []
+      send({ id, result: { ...page, data: page.data.map((turn) => ({ ...turn, items: shown(turn), itemsView: view })) } })
       return
     }
 
     case 'thread/items/list': {
-      // Two pages, so cursor handling is genuinely exercised. 0.149.0 wraps each
-      // item in an entry tagged with the turn it came from.
-      const entry = (item) => ({ turnId: params.turnId ?? TURN, item })
-      const page = params.cursor === 'page-2'
-        ? {
-            data: [
-              entry({
-                type: 'agentMessage',
-                id: 'old-2',
-                text: 'second page',
-                phase: null,
-                memoryCitation: null,
-                delivery: null,
-              }),
-            ],
-            nextCursor: null,
-            backwardsCursor: null,
-          }
-        : {
-            data: [
-              entry({
-                type: 'userMessage',
-                id: 'old-1',
-                clientId: null,
-                content: [{ type: 'text', text: 'first page', text_elements: [] }],
-              }),
-            ],
-            nextCursor: 'page-2',
-            backwardsCursor: null,
-          }
-      send({ id, result: page })
+      // A paginated thread's items, oldest first unless asked otherwise, each
+      // in an entry naming its turn (from 0.145.0). Only a paginated thread
+      // with something stored has any to page.
+      const history = historyOf(params.threadId)
+      if (history.mode !== 'paginated' || !history.stored) {
+        send({ id, error: { code: -32601, message: 'thread/items/list is not supported yet' } })
+        return
+      }
+      if (!params.cursor && params.turnId == null) changeBetweenListings(params.threadId, history)
+      const entries = history.turns
+        .filter((turn) => params.turnId == null || turn.id === params.turnId)
+        .flatMap((turn) => turn.items.map((item) => ({ turnId: turn.id, item })))
+      send({ id, result: pageOf(entries, params, 'asc', 'items') })
       return
     }
 
@@ -1233,6 +1973,29 @@ rl.on('line', (line) => {
               defaultServiceTier: null,
               isDefault: true,
             },
+            ...(ADDITIONAL_MODEL
+              ? [{
+                  id: ADDITIONAL_MODEL,
+                  model: ADDITIONAL_MODEL,
+                  upgrade: null,
+                  upgradeInfo: null,
+                  availabilityNux: null,
+                  displayName: process.env['FAKE_CODEX_ADDITIONAL_MODEL_NAME'] ?? ADDITIONAL_MODEL,
+                  description: 'Profile model',
+                  hidden: false,
+                  supportedReasoningEfforts: [
+                    { reasoningEffort: 'low', description: 'fast' },
+                    { reasoningEffort: 'high', description: 'deep' },
+                  ],
+                  defaultReasoningEffort: 'medium',
+                  inputModalities: ['text', 'image'],
+                  supportsPersonality: true,
+                  additionalSpeedTiers: [],
+                  serviceTiers: [],
+                  defaultServiceTier: null,
+                  isDefault: false,
+                }]
+              : []),
             {
               id: 'internal-only',
               model: 'internal-only',
@@ -1325,7 +2088,7 @@ rl.on('line', (line) => {
       THREAD = params.threadId
       TURN = `turn-${THREAD}`
       lastInput = params.input ?? null
-      send({ id, result: { turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null } } })
+      const response = { id, result: { turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null } } }
       const said = (params.input ?? [])
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
@@ -1333,6 +2096,7 @@ rl.on('line', (line) => {
         .trim()
       const background = /^(bg|failbg|endbg)\s+(.+)$/.exec(said)
       if (background) {
+        send(response)
         setImmediate(() => {
           notify('turn/started', {
             threadId: THREAD,
@@ -1348,8 +2112,31 @@ rl.on('line', (line) => {
         })
         return
       }
+      // The person's words, without the context blocks the desk puts in front
+      // of them, so a person typing `verify …` in the app reaches this too.
+      const words = said.replace(/<context source=[^>]*>[\s\S]*?<\/context>/g, '').trim()
+      const verify = /^verify\s+(.+)$/.exec(words)
+      /* FAKE_CODEX_TURN_START_ORDER=one-chunk reproduces a real app-server
+         stdout read that carries the turn/start answer, turn/started and both
+         opening-item notifications together. The client's synchronous decode
+         loop therefore sees every notification before an awaiting send() can
+         resume on its promise microtask. */
+      if (mode === 'turn' && !background && !verify && process.env['FAKE_CODEX_TURN_START_ORDER'] === 'one-chunk') {
+        process.stdout.write(`${[response, ...turnOpening()].map((message) => JSON.stringify(message)).join('\n')}\n`)
+        setImmediate(() => playTurn(true))
+        return
+      }
+      send(response)
+      if (verify) {
+        setImmediate(() => askVerification(verify[1]))
+        return
+      }
       if (mode === 'turn') setImmediate(playTurn)
       if (mode === 'dynamic-tools') setImmediate(callDeclaredTool)
+      if (mode === 'delegated-tools') setImmediate(callDeclaredToolAsChild)
+      if (mode === 'delegated-tools-deep') setImmediate(() => callDeclaredToolAsDeepChild(9))
+      if (mode === 'delegated-tools-evicted') setImmediate(() => callDeclaredToolAsDeepChild(2001))
+      if (mode === 'delegated-tools-restart-epoch') setImmediate(callRestartEpochTools)
       return
     }
 
@@ -1368,6 +2155,10 @@ rl.on('line', (line) => {
       return
 
     case 'turn/interrupt':
+      if (runningReviews.has(params.threadId)) {
+        stopReview(id, params)
+        return
+      }
       send({ id, result: {} })
       notify('turn/completed', {
         threadId: THREAD,
@@ -1391,7 +2182,7 @@ rl.on('line', (line) => {
 
     case 'thread/name/set':
       send({ id, result: {} })
-      notify('thread/name/updated', { threadId: THREAD, threadName: params.name })
+      notify('thread/name/updated', { threadId: params.threadId, threadName: params.name })
       return
 
     default:

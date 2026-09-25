@@ -69,7 +69,11 @@ const tabsListVariants = cva(
            of it. Reads as one object, so it belongs where it sits *beside*
            things — a card header, a toolbar. */
         default:
-          'rounded-(--hd-radius-sm) bg-(--hd-muted) p-0.5 group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
+          /* `p-px`: the tab inside is `h-full`, so this padding is the only
+             thing deciding how tall the pressable part is — 2 a side put it
+             at 22, under the target floor, and 1 puts it on the floor with
+             the strip unmoved. */
+          'rounded-(--hd-radius-sm) bg-(--hd-muted) p-px group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
         /* The underline: no track, an indicator under the active tab. Belongs
            where the tabs sit *above* what they switch — a pane, a page — and
            the rule under them is shared with the content's own top edge. */

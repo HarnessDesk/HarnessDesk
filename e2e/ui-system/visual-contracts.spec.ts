@@ -15,10 +15,15 @@ test('real sidebar footer fills its column and its menu is painted and clickable
     const gap = await trigger.evaluate(node => {
       const footer = node.parentElement!.parentElement!
       const box = footer.getBoundingClientRect(), row = node.getBoundingClientRect()
-      return { left: row.left - box.left, right: box.right - row.right }
+      // The column states one inset for every row it holds; the footer row is
+      // one of them, so read the number rather than repeating it here — a
+      // literal would have to be edited every time the column is re-spaced,
+      // and the claim is "level with its neighbours", not "four pixels".
+      const rail = parseFloat(getComputedStyle(node.closest('[class*="sidebar_"]')!).getPropertyValue('--rail'))
+      return { left: row.left - box.left, right: box.right - row.right, rail }
     })
     expect(gap.right).toBeCloseTo(gap.left, 0)
-    expect(gap.right).toBeLessThanOrEqual(4)
+    expect(gap.right).toBeCloseTo(gap.rail, 0)
   }
   await trigger.click()
   const popup = page.locator('[data-slot="popover-popup"]')
@@ -119,17 +124,80 @@ test('settings rows contain their labels, descriptions and marks', async ({ page
   }
 })
 
+test('a long tinted identity keeps its icon, edge and ellipsis inside the chip', async ({ page }) => {
+  await page.goto('/design.html?view=state')
+  const chip = page.locator('[data-tint="blue"][title="feat/promo-stacking-for-the-seasonal-storefront"]')
+  await expect(chip).toBeVisible()
+  const box = await chip.evaluate(node => {
+    const chipBox = node.getBoundingClientRect()
+    const iconBox = node.querySelector('svg')!.getBoundingClientRect()
+    const label = node.querySelector<HTMLElement>('[data-slot="chip-words"] > span')!
+    const labelBox = label.getBoundingClientRect()
+    return {
+      width: chipBox.width,
+      iconGap: labelBox.left - iconBox.right,
+      labelRight: labelBox.right,
+      chipRight: chipBox.right,
+      truncated: label.scrollWidth > label.clientWidth,
+      edge: getComputedStyle(node).boxShadow,
+    }
+  })
+  expect(box.width).toBeLessThanOrEqual(190)
+  expect(box.iconGap).toBeGreaterThanOrEqual(4)
+  expect(box.labelRight).toBeLessThan(box.chipRight)
+  expect(box.truncated).toBe(true)
+  expect(box.edge).not.toBe('none')
+})
+
+/**
+ * Selection is a fill, never weight (U014), for every role that can be chosen.
+ *
+ * Each chosen instance is compared with a resting instance of its own role,
+ * because a sidebar destination and a branch row start from different grounds
+ * and comparing across them proves nothing. A choice is chosen three ways —
+ * `data-selected`, `data-on`, or a radio's `aria-checked` — and each must fill.
+ * Pointing at an option must not look like choosing it: hover takes the plain
+ * hover fill, and a chosen option keeps its own fill under the pointer.
+ */
+test('every chosen row, destination and option is filled, and none changes weight', async ({ page }) => {
+  await page.goto('/design.html?view=propagation')
+  const section = page.getByTestId('selection-contracts')
+  await expect(section).toBeVisible()
+  const look = (name: string, role: 'button' | 'radio' = 'button') => section.getByRole(role, { name, exact: true })
+    .evaluate(node => { const style = getComputedStyle(node); return { fill: style.backgroundColor, weight: style.fontWeight } })
+  await page.mouse.move(0, 0)
+  type Role = 'button' | 'radio'
+  const pairs: [string, Role, string, Role][] = [
+    ['Resting page', 'button', 'Chosen page', 'button'],
+    ['Resting branch', 'button', 'Checked-out branch', 'button'],
+    ['Resting option', 'button', 'Option turned on', 'button'],
+    ['Resting option', 'button', 'Option checked', 'radio'],
+    // The settings list of answers, as RowChoice draws it.
+    ['Resting answer', 'radio', 'Chosen answer', 'radio'],
+  ]
+  for (const [resting, restingRole, chosen, chosenRole] of pairs) {
+    const [rest, pick] = [await look(resting, restingRole), await look(chosen, chosenRole)]
+    expect.soft(pick.fill, `${chosen} is filled`).not.toBe(rest.fill)
+    expect.soft(pick.weight, `${chosen} keeps the weight of ${resting}`).toBe(rest.weight)
+  }
+  const chosen = await look('Option turned on')
+  await section.getByRole('button', { name: 'Resting option', exact: true }).hover()
+  await expect.poll(() => look('Resting option').then(style => style.fill)).not.toBe(chosen.fill)
+  await section.getByRole('button', { name: 'Option turned on', exact: true }).hover()
+  await expect.poll(() => look('Option turned on').then(style => style.fill)).toBe(chosen.fill)
+  const answer = await look('Chosen answer', 'radio')
+  await section.getByRole('radio', { name: 'Chosen answer', exact: true }).hover()
+  await expect.poll(() => look('Chosen answer', 'radio').then(style => style.fill)).toBe(answer.fill)
+})
+
 test('canonical controls retain selected, drop, icon and deferred-send states', async ({ page }) => {
   await page.goto('/design.html?view=propagation')
   const states = page.getByTestId('state-contracts')
   await expect(states).toBeVisible()
-  await states.evaluate(node => node.style.setProperty('--hd-nav-weight-selected', '600'))
-  await expect.soft(states.getByRole('button', { name: 'Selected page' })).toHaveCSS('font-weight', '600')
   await expect.soft(states.getByRole('button', { name: 'Drop target' })).not.toHaveCSS('box-shadow', 'none')
   expect.soft(await states.getByRole('textbox', { name: 'Icon input' }).evaluate(node => parseFloat(getComputedStyle(node).paddingLeft))).toBeGreaterThanOrEqual(24)
   await expect(states.getByRole('button', { name: 'Avatar mark' }).locator('svg')).toHaveCSS('width', '32px')
   await expect.soft(states.getByRole('button', { name: 'Avatar mark' })).toHaveCSS('box-shadow', 'none')
-  await expect(states.getByRole('button', { name: 'Current branch' })).toHaveCSS('font-weight', '600')
   await expect.soft(states.getByRole('button', { name: 'Background tasks' })).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect.soft(states.getByRole('button', { name: 'Transcript step' })).toHaveCSS('padding-left', '2px')
   await expect.soft(states.getByRole('button', { name: 'Transcript step' })).toHaveCSS('padding-right', '6px')
@@ -137,4 +205,24 @@ test('canonical controls retain selected, drop, icon and deferred-send states', 
   const normal = await send.evaluate(node => getComputedStyle(node).backgroundColor)
   await send.hover()
   await expect.poll(() => send.evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe(normal)
+})
+
+/**
+ * A tool row outside a turn's work fold draws on the shared `Card
+ * variant="plate"`, with its default `gap-4`/`py-4` zeroed back to the
+ * app's one-line rung (`Items.tsx`'s `Row`). That override is a class name a
+ * unit test can read without a browser, but the height it is supposed to
+ * hold only a layout engine can confirm — a lost override still shows the
+ * right class and a ~62px row. This measures the rendered row itself, so it
+ * fails the day the rung grows back.
+ */
+test('a tool row outside the work fold keeps the app\'s one-line rung', async ({ page }) => {
+  await page.goto('/design.html?view=code')
+  const sample = page.getByTestId('inline-diff-sample')
+  await expect(sample).toBeVisible()
+  const row = sample.locator('[data-slot="card"][data-variant="plate"]')
+  await expect(row).toHaveCount(1)
+  const height = await row.locator('button').first().evaluate(node => node.getBoundingClientRect().height)
+  expect(height).toBeGreaterThanOrEqual(24)
+  expect(height).toBeLessThanOrEqual(32)
 })

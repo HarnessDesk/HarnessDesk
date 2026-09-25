@@ -1,18 +1,38 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 
-import { Button, Input } from '..'
+import { Boundary } from '../../preview/boundary'
+import { PropagationPage } from '../showcase/PropagationPage'
+
+import { Button, GroupLabel, Input } from '..'
 import { CATALOG_ENTRIES } from '../catalog/manifest'
 import { BOARDS } from './boards'
 import { COMPOSITION_BOARDS } from './boards-compositions'
-import { ComposerBoard } from '../showcase/ComposerBoard'
-import { ConversationPage } from '../showcase/ConversationPage'
-import { GitHistoryPage } from '../showcase/GitHistoryPage'
-import { GroupProject } from '../showcase/GroupProject'
-import { PanelPlayground } from '../showcase/PanelPlayground'
-import { PropagationPage } from '../showcase/PropagationPage'
-import { RailBoard } from '../showcase/RailBoard'
-import { Showcase } from '../showcase/Showcase'
-import { ToolsPage } from '../showcase/ToolsPage'
+
+/**
+ * The whole-screen surfaces, behind a split.
+ *
+ * They mount the app's own screens, so they drag in the store, the layout
+ * model and every component a screen reaches for. Loading that eagerly would
+ * put it in the same chunk as the primitive boards and quietly retire the one
+ * thing this entry proves by building at all: that a primitive needs none of
+ * it. Split here, the proof survives and the surfaces still show the shipped
+ * screen rather than a drawing of one.
+ *
+ * Each handle writes its own `import(…).then((m) => m.X)` rather than sharing
+ * a helper that returns the import. Vite emits one chunk either way; what
+ * differs is what `script/ui-catalog.mjs` can read. This shape names the one
+ * export a tab loads, which is what lets the catalogue check that the tab for
+ * a row mounts that row's screen — a shared helper hides the export, and
+ * every tab then looks like it loads all of them.
+ */
+const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
+const DashboardSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.DashboardSurface })))
+const ConversationSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationSurface })))
+const GitSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GitSurface })))
+const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GroupSurface })))
+const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
+const RailSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RailSurface })))
+const ToolsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ToolsSurface })))
 import { FOUNDATIONS, TOKEN_GROUPS, useResolvedTokens } from './foundation'
 import styles from './explorer.module.css'
 
@@ -82,73 +102,76 @@ const DIALS = [
  * The surface pages: whole screens rather than component matrices.
  *
  * A component board asks "is this piece right in all its states". These ask the
- * question a board cannot: "does the set of pieces make a screen". They are
- * listed here rather than in `BOARDS` because they render a page and take the
- * body's whole width, and because none of them is a component anyone imports.
+ * question a board cannot: "does the set of pieces make a screen". Each one
+ * mounts a screen the app ships (`design/surfaces/surfaces.tsx`), so the
+ * `about` under it describes what that screen shows *on this page's fixture*
+ * — which is less than every state the screen has. Say what is on the page,
+ * and name what is not: a description written for a richer picture than the
+ * tab renders is the same lie as a drawing, in words.
  */
 const SURFACES = [
   {
-    id: 'showcase',
+    id: 'dashboard',
     title: 'Dashboard',
     about:
-      'A page that does not exist, built only out of parts that do. Every board here shows a component against a plain ground with its states beside it, which is the right way to check one and a poor way to judge one: a stat tile that looks confident alone can be illegible in a row of four. The knobs below change the composition; the bar above changes the design underneath it.',
-    render: Showcase,
+      "The shipped Dashboard — what is left on each plan, what it cost and where it went — as ⌘U opens it, on the preview's four agents. It is a window of its own, so it sits in a window-sized frame here.",
+    render: DashboardSurface,
   },
   {
     id: 'group',
     title: 'Group project',
     about:
-      'Several harnesses on one goal, with a board between them. Three claims the layout is built to make true: a group project is a project rather than a mode, so it stands in the workspace list beside ordinary sessions under its own mark; the agents are deliberately not alike, so the harness mark appears wherever a member does; and the board, the agent and the conversation are one triangle — a task names the harness holding it, pressing that harness opens its conversation, and the conversation names the task and offers the way back. Press a harness on a card, or Claim with on an unclaimed one.',
-    render: GroupProject,
+      'The team board and the room it belongs to, side by side — the shipped `TeamBoardPane` and `TeamRoomPane` on the preview\'s Checkout rewrite room: five columns of work, the claimed card naming the agent session that holds it, and the room\'s chat and members beside. Where the room stands in the workspace list is on the Left bar tab.',
+    render: GroupSurface,
   },
   {
     id: 'conversation',
     title: 'Conversation',
     about:
-      'One transcript carrying every kind of thing a transcript can carry — prose, thinking, a published plan, nine tool calls with one of them refused and one failed, a diff, attachments, an approval that stops you, a compaction, and a turn still running. Not a tidy sample: the grading only proves itself under all of it at once, in one column, at the width the app actually gives it.',
-    render: ConversationPage,
+      'The shipped conversation — header, transcript and composer — on the preview\'s Worktree Management session: a question, the agent\'s thinking, one command, one file change, and the answer. It does not yet show an approval, a refused or failed tool call, a plan, attachments, a compaction or a turn still running: the fixture has no session in those states, and this tab shows the fixture.',
+    render: ConversationSurface,
   },
   {
     id: 'composer',
     title: 'Composer',
     about:
-      'The one component a user touches on every turn, in the five states it is really in — resting, carrying attachments, running, queueing behind a turn, and nearly out of context. All five are the same shell; what differs is what is inside it, which is the test that the shell is right.',
-    render: ComposerBoard,
+      'The shipped composer alone, at the width the conversation gives it, resting on an idle session. Its other states — carrying attachments, running, queued behind a turn, nearly out of context — need a session in that state, and the fixture has none yet.',
+    render: ComposerSurface,
   },
   {
     id: 'rail',
     title: 'Left bar',
     about:
       'The sidebar at the density it actually stands at, inside a frame the width of a window — because the whole question about a rail is how much attention it takes from the work beside it, and a rail alone on a white page always looks fine.',
-    render: RailBoard,
+    render: RailSurface,
   },
   {
     id: 'git',
     title: 'Git history',
     about:
-      'The repository as history rather than status: a graph that answers what happened, a detail pane that answers what exactly, and lanes coloured by identity rather than by judgement. Click a row.',
-    render: GitHistoryPage,
+      'The shipped repository pane on a small fixture history: a feature branch merged back, one still open, a tag, a remote a commit ahead, and a stash, with lanes coloured by identity rather than by judgement. Click a row for the commit.',
+    render: GitSurface,
   },
   {
     id: 'panels',
     title: 'Panels',
     about:
-      'The panel system, driven by nothing but itself: the real chrome over the real model, with `useState` where the app has a store and coloured stubs where the app has features. That is the argument, made by construction — if docking, resizing, collapsing and expanding all work with no store, no socket and no agent, then the model owes nothing to the features and a feature owes nothing to its position. Drag a tab onto another area; only the areas that view declares will light up. Press Expand twice. Collapse the bottom panel and note that its tabs stay, because that is the way back.',
-    render: PanelPlayground,
-  },
-  {
-    id: 'propagation',
-    title: 'Foundation propagation',
-    about:
-      'The deterministic browser-integration surface: real Settings furniture, Composer, portal dialog, menu, board, CodeMirror, and the xterm option bridge under one test-only token scope.',
-    render: PropagationPage,
+      'The workbench the window renders — sidebar, main area, Changes and Trajectory in the right dock, a terminal in the bottom — on a store of its own so its docks start full; the app itself opens with them empty. Its controls are real: switching a tab, hiding a dock, moving, splitting and resizing run the same functions the app\'s store runs. Press Hide this panel.',
+    render: PanelsSurface,
   },
   {
     id: 'tools',
     title: 'Browser · Terminal · Editor',
     about:
-      'Every tool in the frame they share. What differs between the panes is only what a terminal genuinely is versus what a browser genuinely is; everything else — the header, the mark, the subject line, the tab strip, whether the body pads or bleeds — is one component, which is what stops five panes drifting into five layouts.',
-    render: ToolsPage,
+      'The shipped browser, editor and terminal panes, in the frame they share. What differs between them is only what each tool genuinely is; the header, the mark, the subject line, the tab strip and whether the body pads or bleeds are one component. On this page the browser can only plan pages, the editor shows the real source of `lib/brands.ts`, and the terminal redraws a fixture\'s scrollback with no shell behind it — nothing new arrives, and typing goes nowhere.',
+    render: ToolsSurface,
+  },
+  {
+    id: 'propagation',
+    title: 'Foundation propagation',
+    about:
+      'Not a screen — a test rig, kept on this page because two browser specs drive it. Every part of it is a production implementation (Settings furniture, Composer, a portal dialog, a menu, a board, CodeMirror, the xterm option bridge) gathered under one test-only token scope, so that one token change can be shown reaching all of them at once.',
+    render: PropagationPage,
   },
 ] as const
 
@@ -282,13 +305,13 @@ export const Explorer = () => {
           placeholder="Find components"
           aria-label="Find components"
         />
-        <div className={styles.section}>Foundation</div>
+        <GroupLabel as="div" className={styles.section}>Foundation</GroupLabel>
         <NavItem
           title="Foundation"
           selected={boardId === 'foundation'}
           onClick={() => setBoardId('foundation')}
         />
-        <div className={styles.section}>Primitives</div>
+        <GroupLabel as="div" className={styles.section}>Primitives</GroupLabel>
         {primitiveBoards.map((one) => (
           <NavItem
             key={one.id}
@@ -297,7 +320,7 @@ export const Explorer = () => {
             onClick={() => setBoardId(one.id)}
           />
         ))}
-        <div className={styles.section}>Patterns</div>
+        <GroupLabel as="div" className={styles.section}>Patterns</GroupLabel>
         {patternBoards.map((one) => (
           <NavItem
             key={one.id}
@@ -306,7 +329,7 @@ export const Explorer = () => {
             onClick={() => setBoardId(one.id)}
           />
         ))}
-        <div className={styles.section}>Product Surfaces</div>
+        <GroupLabel as="div" className={styles.section}>Product Surfaces</GroupLabel>
         {productSurfaces.map((one) => (
           <NavItem
             key={one.id}
@@ -315,7 +338,7 @@ export const Explorer = () => {
             onClick={() => setBoardId(one.id)}
           />
         ))}
-        <div className={styles.section}>Coverage</div>
+        <GroupLabel as="div" className={styles.section}>Coverage</GroupLabel>
         <NavItem title="Manifest" selected={boardId === 'coverage'} onClick={() => setBoardId('coverage')} />
       </nav>
       <main className={styles.main}>
@@ -371,13 +394,24 @@ export const Explorer = () => {
             <>
               <h1 className={styles.boardTitle}>{surface.title}</h1>
               <p className={styles.boardAbout}>{surface.about}</p>
-              <surface.render />
+              <Boundary key={surface.id}>
+                <Suspense fallback={<p className={styles.boardAbout}>Mounting the screen…</p>}>
+                  <surface.render />
+                </Suspense>
+              </Boundary>
             </>
           ) : board ? (
             <>
               <h1 className={styles.boardTitle}>{board.title}</h1>
               <p className={styles.boardAbout}>{board.about}</p>
-              <board.render />
+              {/* One board's crash is one board's crash. Without this an
+                  uncaught render error unmounts the whole explorer, and every
+                  tab after the broken one disappears with it — which is how a
+                  bad icon board once took thirty tabs down with it. Keyed so a
+                  latched error clears when you move to another board. */}
+              <Boundary key={board.id}>
+                <board.render />
+              </Boundary>
             </>
           ) : (
             <FoundationBoard />
@@ -425,7 +459,7 @@ const FoundationBoard = () => {
       </p>
       {TOKEN_GROUPS.map((group) => (
         <section key={group.title}>
-          <div className={styles.section}>{group.title}</div>
+          <GroupLabel as="div" className={styles.section}>{group.title}</GroupLabel>
           <div className={styles.tokens}>
             {tokens
               .filter((token) => group.match(token.name))

@@ -1,45 +1,7 @@
-.body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-4);
-}
-
 .field {
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-1);
-}
-
-.label {
-  display: flex;
-  align-items: baseline;
-  gap: var(--hd-space-2);
-  font-size: var(--hd-text-sm);
-  font-weight: 600;
-  color: var(--hd-foreground);
-}
-
-/* A greyed control is an explanation, so the reason sits beside the name
-   rather than in a tooltip nobody opens. */
-.why {
-  font-weight: 400;
-  color: var(--hd-muted-foreground);
-}
-
-.note {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  margin: 0;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-.problem {
-  margin: 0;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-danger-ink);
 }
 
 /* --- which agent -------------------------------------------------------- */
@@ -65,43 +27,12 @@
 
 .count {
   margin-left: auto;
-  color: var(--hd-muted-foreground);
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
 }
 
 .picker {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 220px;
+  max-block-size: 220px;
   overflow-y: auto;
-}
-
-.candidate {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  padding: var(--hd-space-2);
-  border-radius: var(--hd-radius-sm);
-  cursor: pointer;
-}
-
-.candidate:hover {
-  background: var(--hd-hover);
-}
-
-.candidateName {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--hd-foreground);
-}
-
-.candidateAgent {
-  flex: none;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
 }

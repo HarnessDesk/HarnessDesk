@@ -33,13 +33,44 @@ export interface AcpAgentCapabilities {
     readonly audio?: boolean
     readonly embeddedContext?: boolean
   }
-  /** Observed live from Claude Code 0.16.2: presence of a key means support. */
+  /**
+   * Observed live from Claude Code 0.16.2: an object means support.
+   *
+   * `null` is spelled out because it is on the wire and means the same as an
+   * omission — see `auth` below, where admitting it was a defect. Every read
+   * of these is a `Boolean(…)` or a `!…`, which answers `null` correctly.
+   */
   readonly sessionCapabilities?: {
-    readonly list?: object
-    readonly resume?: object
-    readonly fork?: object
+    readonly list?: object | null
+    readonly resume?: object | null
+    readonly fork?: object | null
+  }
+  /**
+   * Sign-out, the protocol's own. Read off Google Antigravity's ACP server
+   * 1.1.1, which answers `initialize` with `"auth":{"logout":{}}` beside an
+   * `authMethods` list — the one agent the desk drives that has no CLI able
+   * to sign it out (#749).
+   *
+   * **`{}` is the only yes.** ACP v1: "If `agentCapabilities.auth.logout` is
+   * omitted or `null`, the Agent does not support `logout`", and a client
+   * **MUST NOT** call it in either case. The two spellings are not
+   * interchangeable and `null` is not "present", which is why the type says
+   * so rather than leaving a reader to infer it from `?`.
+   */
+  readonly auth?: {
+    readonly logout?: object | null
   }
 }
+
+/** ACP's sign-out request, declared by `agentCapabilities.auth.logout`. */
+export const ACP_LOGOUT = 'logout'
+
+/**
+ * ACP's sign-in request: `{ methodId }`, one of `initialize`'s `authMethods`.
+ * It answers nothing — the agent does whatever signing in means for it, a
+ * browser it opens itself included, and the reply is the flow's completion.
+ */
+export const ACP_AUTHENTICATE = 'authenticate'
 
 /** One row of `session/list`, as Claude Code 0.16.2 serves it. */
 export interface AcpSessionRow {
@@ -122,6 +153,58 @@ export const ACP_SESSION_DELETE_CAPABILITY = 'deleteSession'
  * into the conversation. Duplicated in the bridges for the reason above.
  */
 export const ACP_INSTRUCTIONS_CAPABILITY = 'instructions'
+
+/**
+ * Phase 12's attachment-loading extension, client side.
+ *
+ * Declared in `initialize`'s `_meta.harnessdesk.attachments` — an object,
+ * not a boolean, because the client needs three separate facts before it can
+ * trust an agent with a Seat's filter at all: whether skills and MCP servers
+ * can each be scoped, and whether the agent can suppress its own unapproved
+ * auto-loading of repository content. `version` is checked exactly equal to
+ * `1`; a missing extension, a wrong version or a non-boolean field all mean
+ * unsupported, never a guess from which agent this happens to be.
+ *
+ * `session/new` and `session/load` carry the host's isolated input the same
+ * way `ACP_INSTRUCTIONS_CAPABILITY` carries the standing instruction: under
+ * `_meta.harnessdesk.attachments`, here shaped `{version, input}`. The one
+ * extension request, `_harnessdesk/attachment_receipt`, asks what was
+ * actually loaded; the agent answers, the client never accepts one it did
+ * not ask for and never trusts a key that does not match what it prepared.
+ *
+ * The names are duplicated in `@harnessdesk/claude-acp`, the agent half,
+ * which has no HarnessDesk dependency by design. Change one, change the other.
+ */
+export const ACP_ATTACHMENTS_CAPABILITY = 'attachments'
+export const ACP_ATTACHMENT_RECEIPT = '_harnessdesk/attachment_receipt'
+
+/** What an agent declares under `_meta.harnessdesk.attachments` in `initialize`'s result. */
+export interface AcpAttachmentCapability {
+  readonly version: 1
+  readonly skills: boolean
+  readonly mcp: boolean
+  readonly suppressUnapproved: boolean
+}
+
+/** The isolated input carried under `_meta.harnessdesk.attachments` on `session/new`/`session/load`. */
+export interface AcpAttachmentInput {
+  readonly key: string
+  readonly skills: readonly { readonly name: string; readonly digest: string; readonly path: string }[] | null
+  readonly mcp: readonly { readonly name: string; readonly digest: string; readonly endpoint: string }[] | null
+}
+
+/** `_harnessdesk/attachment_receipt`'s params: which session, and the exact prepared key it must match. */
+export interface AcpAttachmentReceiptParams {
+  readonly sessionId: string
+  readonly key: string
+}
+
+/** `_harnessdesk/attachment_receipt`'s result: what the agent says it actually loaded. */
+export interface AcpAttachmentReceiptResult {
+  readonly key: string
+  readonly loaded: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly digest: string }[]
+  readonly refused: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly reason: string }[]
+}
 
 /**
  * What a bridge reports having removed, so the app can say so honestly.
@@ -322,6 +405,7 @@ export interface AcpModelState {
 }
 
 export interface AcpNewSessionResult {
+  readonly _meta?: Readonly<Record<string, unknown>>
   readonly sessionId: string
   readonly modes?: AcpSessionModeState | null
   /** Observed live from Claude Code 0.16.2: the agent's model picker. */
@@ -542,6 +626,8 @@ export class AcpError extends Error {
      * sentence nobody could act on.
      */
     readonly details?: string,
+    /** The child process exit code, when the failure came from process exit. */
+    readonly exitCode?: number,
   ) {
     super(message)
     this.name = 'AcpError'
@@ -551,16 +637,27 @@ export class AcpError extends Error {
 /**
  * `error.data`, flattened to a line worth showing.
  *
- * Agents put a string here, or an object with `details` (Claude Code does);
- * anything else is kept as JSON rather than dropped, because a clue that
- * reads badly still beats no clue at all.
+ * Agents put a string here, or an object with `details` (Claude Code does)
+ * or `message` (Antigravity's server does — its `auth_required` carries
+ * `{"message":"No authentication method selected. Call `authenticate` with
+ * one of: …"}`); anything else is kept as JSON rather than dropped, because
+ * a clue that reads badly still beats no clue at all.
+ *
+ * `message` was the shape that fell through to the JSON branch, and the
+ * account pane showed the brace: the sign-in offer under each of
+ * Antigravity's four methods read `Authentication required: {"message":"No
+ * authentication method selected.` — cut mid-record, because the sentence it
+ * is trimmed to ended inside the JSON (#749). `said` is the error's own
+ * message, so a `data.message` that only repeats it is not said twice.
  */
-const detailOf = (data: unknown): string | undefined => {
+const detailOf = (data: unknown, said?: string): string | undefined => {
   if (data === null || data === undefined) return undefined
   if (typeof data === 'string') return data.trim() || undefined
   if (typeof data === 'object') {
-    const details = (data as { details?: unknown })['details']
-    if (typeof details === 'string' && details.trim()) return details.trim()
+    for (const key of ['details', 'message'] as const) {
+      const value = (data as Record<string, unknown>)[key]
+      if (typeof value === 'string' && value.trim() && value.trim() !== said?.trim()) return value.trim()
+    }
   }
   try {
     const json = JSON.stringify(data)
@@ -926,6 +1023,9 @@ export class AcpConnection {
       this.#failAll(
         new AcpError(
           `The agent exited${code !== null ? ` (code ${code})` : ''} while requests were waiting.`,
+          undefined,
+          undefined,
+          code ?? undefined,
         ),
       )
       this.#options.onExit?.(code)
@@ -1083,7 +1183,8 @@ export class AcpConnection {
       this.#pending.delete(id)
       if ('error' in message && message['error']) {
         const error = message['error'] as { message?: string; code?: number; data?: unknown }
-        pending.reject(new AcpError(error.message ?? 'agent error', error.code, detailOf(error['data'])))
+        const said = error.message ?? 'agent error'
+        pending.reject(new AcpError(said, error.code, detailOf(error['data'], said)))
       } else {
         pending.resolve(message['result'])
       }

@@ -11,7 +11,15 @@ import { ltr } from './ToolPaneHeader'
 import { useTheme } from '../state/theme'
 import { PlusIcon } from './Icons'
 import { terminalAppearance } from '../design/adapters/terminal'
-import { Button } from '../design'
+import {
+  Button,
+  CodeText,
+  Text,
+  ToolPane,
+  ToolPaneBar,
+  ToolPaneBody,
+  ToolPaneNotice,
+} from '../design'
 import styles from './ToolPanes.module.css'
 
 /**
@@ -54,18 +62,18 @@ export const TerminalSurface = () => {
   if (!view) return null
   const runtime = snapshot.runtimes.find((entry) => entry.id === view.runtime)
   return (
-    <div className={styles.terminalView}>
-      <div
-        className={styles.terminalBar}
+    <ToolPane variant="integrated">
+      <ToolPaneBar
+        variant="terminal"
         title={
           runtime
             ? `Runs inside ${runtime.presentation.name}'s sandbox${view.session ? ', with this conversation’s permissions' : ''}.`
             : undefined
         }
       >
-        <span className={styles.subtitle} title={view.cwd}>
-          {ltr(view.cwd)}
-        </span>
+        <Text role="meta" truncate className="min-w-0 [direction:rtl]" title={view.cwd}>
+          <CodeText size="inherit">{ltr(view.cwd)}</CodeText>
+        </Text>
         <span style={{ flex: 1 }} />
         <Button
           variant="ghost"
@@ -80,9 +88,9 @@ export const TerminalSurface = () => {
             live at the end of it rather than in a strip above saying
             "Terminal" over a bar that already says where the shell is. */}
         <PanelActions />
-      </div>
+      </ToolPaneBar>
       <TerminalScreen view={view} />
-    </div>
+    </ToolPane>
   )
 }
 
@@ -181,10 +189,14 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
 
   return (
     <>
-      <div className={styles.terminalHost} ref={host} />
+      {/* The pane's own body keeps the inset, so the element xterm measures
+          to fit its rows and columns is exactly the room it has. */}
+      <ToolPaneBody className={styles.terminalBody}>
+        <div className={styles.terminalHost} ref={host} />
+      </ToolPaneBody>
       {(exitCode !== null || error) && (
-        <div className={styles.exited}>
-          <span>
+        <ToolPaneNotice placement="bottom">
+          <span className="flex-1">
             {error
               ? error
               : exitCode === 0
@@ -200,7 +212,7 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
           <Button variant="outline" size="sm" onClick={() => store.closeTerminal(view.terminalId)}>
             Close
           </Button>
-        </div>
+        </ToolPaneNotice>
       )}
     </>
   )
