@@ -31,14 +31,15 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
-import { HOME, WORK, SHOT_ENV } from './config.mjs'
+import { HOME, NATIVE_CODEX, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { runScene } from './scene.mjs'
+import { startStaticServer } from './static-server.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 /**
@@ -81,6 +82,8 @@ const PROVENANCE_SHOTS = (() => {
   const file = join(HOME, 'provenance-shots.json')
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return [] }
 })()
+
+requireSeeded()
 
 const busy = await deskInUse(HOME)
 if (busy) {
@@ -196,16 +199,35 @@ try {
   const audit = (name) => refuseUnpublishable(cdp, {
     name, user: USER, vouched: VOUCHED,
     roots: REPOS.map(repo => join(WORK, repo.dir)),
-    nativeCodex: process.env['HD_SHOTS_NATIVE_CODEX'] === '1',
+    nativeCodex: NATIVE_CODEX,
+    // The one guest address this take can vouch for: `browserServer` is
+    // declared below and only ever set while the `browser` scene's own
+    // static server is up, so every other scene asks with no origin at all —
+    // which is right, because no other scene opens a guest pane a real
+    // address could belong to (#928 review, P2).
+    rigOrigin: browserServer?.url ?? null,
   })
 
   /** Hide this machine's home, the one substitution a frame is allowed. */
   const tildify = async () => {
     await cdp.eval(TILDIFY(homedir()))
-    // Native verification repositories may live in a unique temporary root.
-    // Normalize that synthetic path too so concurrency-safe random suffixes
-    // never become public screenshot content.
-    await cdp.eval(TILDIFY(WORK))
+    // `WORK` itself is never shortened: it is a "person" folder nested one
+    // level inside the staged home (`config.mjs`), and shortening `WORK`
+    // outright would collapse `~/work/storefront` down to `~/storefront`.
+    // Its *parent* — the "person" folder, or a native-verification run's own
+    // temporary root — is what the drivers give a home's worth of meaning, so
+    // that is what is hidden, leaving `work/<repo>` standing underneath it.
+    await cdp.eval(TILDIFY(dirname(WORK)))
+    // The desk's own home (`HARNESSDESK_HOME`, this rig's `HOME`) is a
+    // different folder from the "person" one above, and an Agent file the app
+    // reads from directly under it — not under `person/work` — never sat in
+    // either substitution above, so its full path (an OS temp path, on this
+    // machine) stood in a title on hover (#928 review). A real desk reads
+    // this path as `~/.harnessdesk/…`, so that is what it is mapped to here,
+    // after the more specific `WORK` substitution, so a repository under
+    // `HOME/person/work` still reads `~/work/<repo>` rather than
+    // `~/.harnessdesk/person/work/<repo>`.
+    await cdp.eval(TILDIFY(HOME, '~/.harnessdesk'))
     await sleep(150)
   }
 
@@ -270,7 +292,7 @@ try {
         }
         return output
       })()`)
-      metrics.provenance = { runtimeIds: Object.fromEntries(CAST.map(agent => [agent.id, rigRuntimeId(agent.id)])), nativeCodex: process.env['HD_SHOTS_NATIVE_CODEX'] === '1' }
+      metrics.provenance = { runtimeIds: Object.fromEntries(CAST.map(agent => [agent.id, rigRuntimeId(agent.id)])), nativeCodex: NATIVE_CODEX }
       writeFileSync(`${OUT}/${name}.metrics.json`, JSON.stringify(metrics, null, 2) + '\n')
     }
     if (has('assert-layout')) {
@@ -364,6 +386,14 @@ try {
       if (faults.length) throw new Error(name + ': ' + faults.join('; '))
     }
     const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+    /* Asked again after the capture, because the substitution above does not
+       hold: a React-controlled field (the browser pane's address bar) writes
+       its real value back on its next render, which can land between the
+       audit and the capture. A frame taken across that render would carry the
+       real path, so the window is re-read and the frame is discarded unless
+       it is still publishable. A render that lands after the capture only
+       costs a take. */
+    await audit(name)
     writeFileSync(`${OUT}/${name}.png`, Buffer.from(data, 'base64'))
     say(`✓ ${name}.png`)
   }
@@ -422,6 +452,34 @@ try {
   }
 
   /**
+   * Like `click`, but scrolls the target into view first.
+   *
+   * The New session chooser can list a dozen Agent rows above its plain
+   * choices — tall enough on this rig that the row a scene wants sits past
+   * the dialog's own fold. `click`'s coordinate is the unscrolled layout's,
+   * so it can center below the visible surface even though
+   * `getBoundingClientRect` reports a real, positive size there; dispatching
+   * a mouse event at that point lands on the dialog's own overlay instead of
+   * the row, which reads as a click that silently closed the dialog. Scrolled
+   * here, then handed to `click`, which recomputes the coordinate against
+   * wherever the scroll actually left it.
+   */
+  const clickScrolled = async (text, within = null) => {
+    await cdp.eval(`(() => {
+      const scope = ${within ? `document.querySelector(${q(within)})` : 'document'}
+      if (!scope) return false
+      const wanted = ${q(text)}
+      const hits = [...scope.querySelectorAll('button, a, [role="button"], [role="tab"], [role="menuitem"], [role="radio"], li, summary')]
+        .filter((e) => (e.textContent ?? '').trim().startsWith(wanted) && !e.matches(':disabled, [aria-disabled="true"]'))
+      const el = hits.sort((a, b) => (a.textContent ?? '').length - (b.textContent ?? '').length)[0]
+      el?.scrollIntoView({ block: 'center' })
+      return Boolean(el)
+    })()`)
+    await sleep(200)
+    return click(text, within)
+  }
+
+  /**
    * Four agents seated in one room, built once.
    *
    * `makeRoom` joins *sessions*, not runtimes, so each member has to be seated
@@ -446,7 +504,7 @@ inputs:
 roles:
   fixer:
     kind: agent
-    seat: ${process.env['HD_SHOTS_NATIVE_CODEX'] === '1' ? `${rigRuntimeId('claude-code')}=opus` : 'codex=gpt-5.6-sol'}
+    seat: ${NATIVE_CODEX ? `${rigRuntimeId('claude-code')}=opus` : 'codex=gpt-5.6-sol'}
     permission: publish
     outcomes: [published, cannot]
     order: |
@@ -501,7 +559,7 @@ rules:
     // a conversation outside its project. Use four of the camera rig's ACP
     // agents for room scenes while the native run reserves Codex for the
     // conversation and integrated-terminal checks.
-    const roomRuntimes = process.env['HD_SHOTS_NATIVE_CODEX'] === '1'
+    const roomRuntimes = NATIVE_CODEX
       ? ['claude-code', 'gemini-cli', 'copilot', 'antigravity']
       : ['codex', 'claude-code', 'gemini-cli', 'copilot']
     for (const runtime of roomRuntimes) {
@@ -571,6 +629,9 @@ rules:
    * same staged state — re-running the setup per theme would send a second
    * turn and photograph a different conversation each time.
    */
+  /** The `browser` scene's loopback server, open only while that scene runs. */
+  let browserServer = null
+
   const SCENES = {
     ...(PROVENANCE_SHOTS.length === 2 ? {
       'provenance-history': {
@@ -655,7 +716,7 @@ rules:
       // Native Codex remains available for the terminal smoke. Its adapter
       // fixture plays every turn in /w, so the camera conversation uses ACP
       // and the real staged repository instead.
-      const runtime = process.env['HD_SHOTS_NATIVE_CODEX'] === '1' ? rigRuntimeId('claude-code') : 'codex'
+      const runtime = NATIVE_CODEX ? rigRuntimeId('claude-code') : 'codex'
       const key = await seat(cdp, { work: REPO, runtime, picks: {} })
       await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
       // Long enough for the scripted turn to reach its summary.
@@ -706,7 +767,7 @@ rules:
       const path = join(REPO, 'package.json')
       const content = readFileSync(path, 'utf8')
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
-      if (process.env['HD_SHOTS_NATIVE_CODEX'] === '1') {
+      if (NATIVE_CODEX) {
         await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
         // fake-codex serves an in-memory filesystem, not host disk. Copy only
         // the rig-authored file through its ordinary save/read protocol.
@@ -730,7 +791,7 @@ rules:
     /** xterm behind the canonical terminal option bridge. */
     terminal: { leaveOverlay: true, run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
-      if (process.env['HD_SHOTS_NATIVE_CODEX'] === '1') await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+      if (NATIVE_CODEX) await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
       // Use the system's plain POSIX shell rather than the runner's configured
       // interactive shell. The latter may print a personal prompt from a real
       // dotfile; `/bin/sh -i` still exercises the process and xterm bridges
@@ -765,7 +826,7 @@ rules:
     } },
 
     /** The same room, as a room: several agents' turns side by side. */
-    room: { leaveOverlay: true, expect: 'AGENTS', run: async () => {
+    room: { leaveOverlay: true, expect: 'Agents', run: async () => {
       await stageRoom()
       await cdp.eval(`${STORE}.openTeamRoom(${q(roomId)}); true`)
       await sleep(2200)
@@ -777,15 +838,128 @@ rules:
     flow: { expect: 'Checkout hardening', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
-      if (!(await click('New'))) throw new Error('no New button in the title bar')
+      // Scoped to the sidebar's own action row: a Goal staged by an earlier
+      // scene (`board`, `room`) leaves its "New job" button standing in the
+      // sidebar's Goal group for as long as this desk runs, and `click`
+      // prefers the *shortest* matching text — "New job" is shorter than
+      // "New session" — so an unscoped search silently opened the board's own
+      // composer instead of the session/Goal chooser this scene means to
+      // drive. Scoping to the one row that actually holds the sidebar's own
+      // trigger is what makes this scene independent of whatever an earlier
+      // scene left behind (#928 review).
+      if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
+        throw new Error('no New session button in the sidebar')
+      }
       await sleep(700)
       await pressKey('Tab')
       await pressKey('Enter')
       await waitForSnapshot(() => cdp.eval(`document.querySelector('input[aria-label="What finishes this?"]') !== null`), Boolean)
       if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no Goal sentence field')
       if (!(await click('Create Goal'))) throw new Error('no Create Goal button')
-      await sleep(2500)
+      // A fixed sleep here is a bet on how long creating and loading the Goal
+      // takes, and a bet that lost silently left the frame short of what its
+      // own filename claims — `shoot()`'s own text check would then be the
+      // first thing to notice, several steps after the actual wait ran out.
+      // Waiting for the sentence itself is the fixed stage: it holds exactly
+      // as long as the Goal actually takes to finish loading, on this machine,
+      // on this run (#928 review).
+      await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Checkout hardening')`), Boolean)
       await sleep(700)
+    } },
+
+    /**
+     * Starting a shipped shape through the front door itself — "Start with a
+     * team" in the New session chooser, a shape from the catalogue this
+     * project ships (never a project's own file or a person's), its own
+     * input filled in, and Start — reaching the Goal page the held start
+     * actually opens (#927).
+     *
+     * Every Seat a front-door start asks for needs a held ceiling, and an ACP
+     * fixture can never report holding one — documented in
+     * `docs/agent-capabilities.md` — so a camera-only desk refused every seat
+     * here before #927. `implementer` (`prefer: [claude-code, codex,
+     * cursor]`) reaches its one seatable candidate on the built-in Codex
+     * adapter instead, on by default since #927 (`NATIVE_CODEX`,
+     * `config.mjs`), answering over the same `fake-codex.mjs` fixture every
+     * `adapter-codex` test already runs against.
+     */
+    'front-door': { expect: 'Ship it once every specialist approves', run: async () => {
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      await sleep(1200)
+      if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
+        throw new Error('no New session button in the sidebar')
+      }
+      const chooser = '[role="dialog"][aria-label="What are you starting?"]'
+      await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
+      // Two shapes of the same door, read rather than assumed: today a plain
+      // row, "Start with a team"; a redesign in flight (not yet merged) turns
+      // the chooser into a radiogroup, a "Team" radio beside a "Continue"
+      // button. Asking which is actually on screen, by its role and label,
+      // is what keeps this scene working across that redesign rather than
+      // pinned to whichever layout happened to be current when it was written.
+      const hasTeamRadio = await cdp.eval(`(() => {
+        const root = document.querySelector(${q(chooser)})
+        if (!root) return false
+        return [...root.querySelectorAll('[role="radio"]')].some((one) => (one.textContent ?? '').trim().startsWith('Team'))
+      })()`)
+      if (hasTeamRadio) {
+        if (!(await clickScrolled('Team', chooser))) throw new Error('no "Team" radio in the New session dialog')
+        if (!(await clickScrolled('Continue', chooser))) throw new Error('no "Continue" button in the New session dialog')
+      } else if (!(await clickScrolled('Start with a team', chooser))) {
+        throw new Error('no "Start with a team" choice in the New session dialog')
+      }
+      // The front door itself, whichever door it came through: no shape is
+      // chosen yet, so its dialog is titled "Start a team".
+      await waitForSnapshot(
+        () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
+        Boolean,
+      )
+      // "Independent review" is a plain-project shape this repository ships
+      // (`packages/server/flows/independent-review.yml`) whose seed role,
+      // `implementer`, is the exact Agent the native-Codex seating in #927's
+      // own regression proves holds. Any other project-context shipped shape
+      // would seat the same way; this one is first in the catalogue's own
+      // order.
+      if (!(await clickScrolled('Independent review', '[role="dialog"][aria-label="Start a team"]'))) {
+        throw new Error('no "Independent review" shape in the front door catalogue')
+      }
+      // The chosen shape's own dry run reads its file and previews it before
+      // "Task" (its one input) exists to fill — waited for by name rather than
+      // by a fixed pause, the same reason `click` itself waits.
+      await waitForSnapshot(
+        () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'Task')`),
+        Boolean,
+      )
+      if (!(await fill('Task', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
+      if (!(await fill('What finishes this?', 'Ship it once every specialist approves'))) {
+        throw new Error('no sentence field in the front door')
+      }
+      // Start is refused until the dry run this fill just changed comes back
+      // held with no error — the same seating #927's own regression proves.
+      await waitForSnapshot(
+        () => cdp.eval(`(() => {
+          const button = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Start')
+          return Boolean(button) && !button.disabled
+        })()`),
+        Boolean,
+      )
+      if (!(await click('Start', '[role="dialog"][aria-label="Start Independent review"]'))) {
+        throw new Error('no enabled Start button in the front door')
+      }
+      await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Ship it once every specialist approves')`), Boolean)
+      // The seated Implementer starts its own scripted turn the moment it
+      // holds the seat, and settles on the approval it asks for a moment
+      // after the Goal page itself is on screen — long enough that a
+      // photograph taken right on `waitForSnapshot`'s own success can still
+      // catch it mid-turn. Waited out here so both themes photograph the same
+      // settled state, the reason `scene.mjs` stages once for both to share.
+      await sleep(3000)
+      // The fixture reports its own bookkeeping (`TOOLS_DECLARED …`) as a
+      // notice over the pane, the same way it does for every other scene on
+      // the native Codex adapter — dismissed here as `review` and the
+      // approval scenes do, so the frame shows the app, not the fixture's
+      // own echo of what it was asked (#946 review).
+      await dismissFixtureEchoes()
     } },
 
     /**
@@ -822,15 +996,28 @@ rules:
       await sleep(2400)
     } },
 
-    /** The browser pane — a real `<webview>`, driven by the agent's tools. */
+    /**
+     * The browser pane — a real `<webview>`, driven by the agent's tools.
+     *
+     * Its page is served over loopback HTTP, never opened as a `file://`
+     * URL. A `file://` address always carries this machine's directory
+     * layout — the real home before this rig kept its own, an anonymous OS
+     * temp path after — and the address bar is a React-controlled input
+     * that writes its "real" value back mid-take (`audit.mjs`), so a `TILDIFY`
+     * substitution over the DOM cannot be trusted to survive to the
+     * screenshot. `http://127.0.0.1:<port>/…` (`static-server.mjs`) never
+     * carries a filesystem path at all, so there is nothing left to leak.
+     */
     browser: { leaveOverlay: true, run: async () => {
-      const fixture = join(WORK, 'browser-fixture.html')
-      writeFileSync(fixture, `<!doctype html>
+      const browseDir = join(WORK, 'browse')
+      mkdirSync(browseDir, { recursive: true })
+      writeFileSync(join(browseDir, 'index.html'), `<!doctype html>
 <meta charset="utf-8">
 <title>HarnessDesk browser fixture</title>
 <style>body{font:16px system-ui;margin:4rem;color:#253047;background:#f7f9fc}h1{font-size:2rem}</style>
 <h1>Storefront preview</h1><p>A deterministic local page inside the production Electron webview.</p>`)
-      const url = pathToFileURL(fixture).href
+      browserServer = await startStaticServer(browseDir)
+      const url = `${browserServer.url}/index.html`
       await cdp.eval(`${STORE}.openBrowser(${q(url)}); true`)
       let title = ''
       for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -844,6 +1031,18 @@ rules:
       if (!opened || title !== 'HarnessDesk browser fixture') {
         throw new Error(`the inline browser did not load its local fixture (title ${q(title)})`)
       }
+    }, finish: async () => {
+      // Left docked, this pane's webview stays mounted and visible for every
+      // scene that follows in the same process — and once the server below
+      // closes, its address can never be vouched for again, so a later scene
+      // (settings-agents, say) would find a guest on screen it has no way to
+      // accept and no way it staged itself (#928 review, follow-up). Closing
+      // the pane is what a person leaving this scene actually does, and it is
+      // what makes any scene order safe rather than only "browser last".
+      await cdp.eval(`${STORE}.closeBrowser(); true`).catch(() => {})
+      await sleep(300)
+      await browserServer?.close()
+      browserServer = null
     } },
   }
 
@@ -918,8 +1117,8 @@ rules:
     await sleep(250)
   }
   const stageCodexComposer = async () => {
-    if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') {
-      throw new Error('this scene needs HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, offers reasoning levels and a build to update')
+    if (!NATIVE_CODEX) {
+      throw new Error('this scene needs the native Codex adapter (HD_SHOTS_NATIVE_CODEX unset or 1): only the built-in Codex adapter, on its fixture, offers reasoning levels and a build to update')
     }
     await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
     await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
@@ -1140,7 +1339,7 @@ rules:
    */
   let reviewed = null
   const stageReview = async () => {
-    if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') throw new Error('the review scenes need HD_SHOTS_NATIVE_CODEX=1')
+    if (!NATIVE_CODEX) throw new Error('the review scenes need the native Codex adapter (HD_SHOTS_NATIVE_CODEX unset or 1)')
     // One conversation for both scenes, put back on screen for the second.
     if (reviewed) {
       await cdp.eval(`${STORE}.openSession(${q(splitKey(reviewed).sessionId)}, { runtime: 'codex' })`, 60_000)
@@ -1301,7 +1500,7 @@ rules:
    * every answer under the scrim.
    */
   const askApproval = async () => {
-    if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') throw new Error('the approval scenes need HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, asks')
+    if (!NATIVE_CODEX) throw new Error('the approval scenes need the native Codex adapter (HD_SHOTS_NATIVE_CODEX unset or 1): only the built-in Codex adapter, on its fixture, asks')
     await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
     await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
     const key = await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
@@ -1526,6 +1725,31 @@ rules:
     }
   } }
 
+  /** One account's page: Settings › Runtimes › Codex › its account. */
+  SCENES['settings-account-detail'] = { leaveOverlay: true, expect: 'Primary usage window', run: async () => {
+    await cdp.eval(`${STORE}.askSettings('agents'); true`)
+    await sleep(1200)
+    await cdp.eval(`document.querySelector('button[aria-label^="Show the accounts under"]')?.click(); true`)
+    await sleep(400)
+    /* A trusted press, as for the agent page above: the account is a
+       `RowButton`, and a synthetic click on its words opens nothing. */
+    const spot = await cdp.json(`(() => {
+      const rows = [...document.querySelectorAll('button')].filter((node) => /dev@example\\.com/.test(node.textContent ?? ''))
+      const row = rows.at(0)
+      if (!row) return false
+      const rect = row.getBoundingClientRect()
+      return { x: Math.round(rect.left + 60), y: Math.round(rect.top + rect.height / 2) }
+    })()`)
+    if (!spot) throw new Error('no account row to open in Settings › Runtimes')
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...spot })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...spot, button: 'left', clickCount: 1 })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...spot, button: 'left', clickCount: 1 })
+    await sleep(1200)
+    if (!await cdp.eval(`Boolean(document.querySelector('[class*="detailHead"]'))`)) {
+      throw new Error('the account page did not draw its detail head')
+    }
+  } }
+
   /* ------------------------------------ when an agent's own history is wrong */
 
   /**
@@ -1685,12 +1909,17 @@ rules:
       await sleep(1400)
     } },
 
-    /** The new-session dialog: Agents first, and the one that cannot be seated greyed with why. */
-    'new-session-agents': { leaveOverlay: true, expect: 'Windsurf is signed out', run: async () => {
+    /** The new-session dialog: four kinds, and the Agents under Session's "Run as". */
+    'new-session-agents': { leaveOverlay: true, expect: 'Run as', run: async () => {
       await openStorefront()
-      if (!(await click('New'))) throw new Error('no New button in the title bar')
+      // See the `flow` scene's own comment: scoped to the sidebar's action
+      // row so a Goal an earlier scene staged, and its shorter-text "New job"
+      // button, cannot win the match instead (#928 review).
+      if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
+        throw new Error('no New session button in the sidebar')
+      }
       await sleep(1200)
-      if (!(await cdp.eval(`document.body.innerText.includes('As an Agent')`))) throw new Error('the dialog lists no Agents')
+      if (!(await cdp.eval(`[...document.querySelectorAll('select option')].some((one) => one.textContent === 'Plain session')`))) throw new Error('the dialog offers no Run as')
     } },
 
     /** Command palette, through the sidebar's magnifier: an Agent to start as. */

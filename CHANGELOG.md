@@ -5,6 +5,293 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **A standing notice stays in its own pane.** The floating banner stack (a
+  Library import offer, an account warning) used to span the whole workbench,
+  so it could sit squarely over a room's Board row, cut through the top of
+  Chat, or spill into a docked browser pane's own toolbar and catch a click
+  meant for its reload button — all unclickable until the notice was
+  dismissed. A room now leaves room for whatever notice is showing, its rail
+  and reading side moving together. The notice itself rides the pane being
+  read — a panel zoomed to fill the window, or laid over a narrow one, takes
+  it along — never narrower than a card can be read at, and always below
+  that pane's toolbars rather than over them.
+
+- **An Agent can be started at a higher ceiling, and its MCP servers load.**
+  An Agent whose ceiling is publish or merge was always seated at edit from
+  the app, so an MCP server it declared — which needs a Seat that may merge
+  — never loaded. Its page now offers **Start at a higher ceiling…**: the
+  levels up to its own ceiling, each saying whether the runtime taking the
+  seat holds it or can only be asked to, with merge saying it loads the
+  Agent's servers. The plain Start still seats at edit. Approving a server whose
+  review shows a value only as set now asks you to confirm you know what
+  that value is, since a value that changes what the server does can hide
+  behind a name that looks like a credential. A Seat that falls back to
+  another agent says its content was approved for the first one, a server
+  that ignores being asked to stop no longer outlives a quick quit, and a
+  Seat the agent still held when it was reopened keeps its servers.
+
+- **Goal boards save whole, and a stuck Goal clears without a restart.** A
+  board change that rode along with an assignment could be reported saved
+  before its name, messaging and plans were written; they now land in the
+  same write. A Goal whose failed assignment could not be set aside
+  retries that once the next board save lands, instead of waiting for a
+  relaunch. A legacy flow's member roles survive a Goal being read back.
+
+- **A Goal's work survives a relaunch.** Quitting while a Goal's agent was
+  working, or waiting for you to approve a command, used to leave the Goal
+  reading "Running" after the next launch while nothing ran and the approval
+  was gone. Now the desk reopens that agent's conversation and hands it its
+  card again, so it picks the work back up and asks again; one that cannot
+  be reopened stops the run and says why. A Goal's Findings pane now shows
+  the run that is going on, not an older stopped one that shares its Goal.
+
+- **A Goal or room now has one header, and it says what it should.** A Goal's
+  page used to stack two headers naming it — its own, then the room's, one
+  of them running its full folder path across two lines — and named the
+  person as a card's author when a trigger's own run had opened it
+  unattended. Now there is one row: the Goal or room's name, its state as a
+  chip, the project's short name (its full path a hover away, never the raw
+  folder), who is here, and — for a Goal a trigger opened — where it came
+  from. Messaging is a plain icon toggle instead of the words "board-only"
+  or "messaging on". The sidebar names every Goal by its own sentence
+  instead of leaving it bare beside a status chip, gives each "Needs you"
+  row a reason so two conversations under the same agent's name no longer
+  read as one row twice, and a project reached through a macOS symlink
+  (temporary folders behind `/var` → `/private/var`) is one row, not two.
+  Every Agent's ceiling chip now reads in the same neutral tone; "asked" is
+  the ordinary state for a runtime with no control that holds one, not a
+  warning.
+
+- **Starting a team is two clicks, from files you can edit or write yourself** —
+  New session gains **Start with a team**, alongside the solo and room
+  choices: a catalogue of shapes — Fan out, Review, Compare, Relay,
+  Investigate, Align, and a seventh, unordered custom starting point — each an
+  ordinary file, none of them a special case in the app itself. Choosing one
+  reads its populated dry run before anything opens: every Seat it would
+  take, every command verbatim, the rules a round moves through, and whether
+  independence from the author is known. Every Seat a front-door run opens
+  must actually hold its ceiling — a runtime that can only be asked shows an
+  honest refusal and its fix rather than starting under a weaker policy, so a
+  fresh install with one ready runtime still gets exactly what it asked for.
+  The same door opens from a branch's own menu, a pull request's row, ⌘K, and
+  an empty Goal's board, prefilled with what that place already knows. A
+  **Review…** of a branch, a pull request or a diff runs three read-only
+  specialists at the commit it resolved — each in a checkout of its own cut
+  from that commit, whatever you have checked out — and never offers a shape
+  that starts by editing.
+  **Your own shape…**, the catalogue's last row, is an ordered editor for
+  Agents, checks and person steps and the rules between them — no YAML to
+  write — with the exact file shown and updated as you go, a graph view of
+  the same steps and rules for a shape that branches or loops, and a save to
+  the project or to yourself, previewed first; starting needs no save at all.
+  **Every time…**, on a shape or on an Agent's own page, composes a disarmed
+  trigger — a pull request, an issue or a schedule — and saves it to the
+  working tree; it is never itself consent; the existing Triggers preview and
+  an explicit Arm, bound to what is actually committed, are what let it run
+  unattended.
+- **The Agent page is now an editor, and Agents can be made from nothing** —
+  a name, description, answers and produces are each edited in place, with
+  the exact line the change would write shown before Save; a hand-written
+  comment and the rest of the file survive untouched, and a value that spans
+  lines refuses with a route to the file rather than being flattened. **New
+  Agent** starts from a shipped Agent or from a blank draft — nothing is
+  written while typing, and only an explicit Create or Save writes anything.
+  An interrupted save is listed with Resume or Discard, never resumed on its
+  own.
+- **A project can open bounded work on its own, and you decide exactly what that means before it ever runs** —
+  a project's own `.harnessdesk/triggers.yml` declares what opens work: a
+  pull request, an issue, or a schedule. A project's page now has a Triggers
+  section listing each one as a sentence — "When a pull request opens or is
+  pushed, open review-pr, at most 4 at once" — with what last happened,
+  including a skipped firing and why. Turning one on opens the exact arming
+  review before anything is armed: the committed file it reads, every Seat it
+  would open and every candidate passed over, each trusted command verbatim
+  with its folder and timeout, how firings group into one Goal, what a later
+  push does, whether a fork is ever run, the total budget, and the daily
+  reservation it would take — closable only by an explicit Arm or Cancel,
+  never by a stray click or a held Return. History pages every firing, newest
+  first, and always names an exact duplicate rather than a second round.
+  An issue trigger that reads comments fires only on the armed account's own
+  comments unless it says `from: collaborators` or `from: anyone` (which the
+  review warns about), and nothing the desk posts itself ever fires one. A
+  runtime that is down or a sign-in that blinks never consumes a firing: it
+  waits and starts once it can. Settings › Workspaces adds "Triggers on this
+  Mac": pause every trigger on this machine at once — which stops watching
+  and holds the work triggers started, and resuming continues it — and a
+  daily cap in USD, shown against what is reserved and charged today; zero
+  means no new paid work, and an unreadable charge reads as unknown, never
+  zero. Permissions › Ceilings adds a second policy,
+  answering what a Goal a trigger opened does when a runtime cannot hold a
+  ceiling — refuse by default, or an explicit choice to seat it and say so —
+  kept apart from the existing choice for a conversation you are watching. A
+  Goal a trigger opened now says where it came from ("from PR #12", "from
+  issue #7", "from a schedule") in its own header and in the sidebar's room
+  row, and every wait on it — a held message or action, a question nobody
+  answered, a person's card, a stopped run, an unreadable source — shows
+  plainly as Needs you, named and with a working way to resolve it; a Goal's
+  receipt keeps that same origin and stop reason once it wraps. macOS
+  notifications gain two kinds of their own: unattended work that needs you,
+  and a trigger that was skipped, each individually silenceable the same way
+  every other kind already is. Nothing about this is a promise of an exact
+  invoice — arming and Settings both say so — and nothing runs unattended
+  until a person on that machine has explicitly armed it.
+- **An Agent can carry skills, MCP servers and its own notes.** Its file
+  declares them by name — `skills:`/`mcp:`, editable from the Agent page,
+  with an empty list read as "Runtime defaults" rather than "None" — and a
+  Seat freezes exactly what loaded at open, never picking up a later edit or
+  approval. Agent-local content (a `skills/` folder beside the Agent's file)
+  is untrusted until a person reviews the exact bytes and approves them, once
+  per repository, Agent, runtime build and effective ceiling; loading an
+  unapproved bundle is refused rather than substituting a different runtime
+  or silently skipping it. An external MCP server is classified `merge` by
+  default and reached only through the desk's own gateway, never a direct
+  unmediated connection, and runs only when a Seat that may merge lists or
+  calls its tools. The bundled Claude Code bridge, and any ACP peer that
+  negotiates the extension, honor a scoped filter; Codex reports it
+  unsupported. The host stages exactly what was approved and hands a runtime
+  that copy, and a Seat's filter is re-applied when its conversation is
+  resumed or its agent restarts (forking such a conversation is refused).
+  `NOTES.md` beside an Agent's file is private working context the Agent page
+  reads and clears, never system instructions, and is not loaded onto a Seat
+  in this release.
+- **A Seat's name card and the Library show what actually loaded** — an
+  Agent's page, its name card and a project's Library page each show
+  declared skills and servers next to what a Seat's runtime build actually
+  reported back, with "declared, not loaded" distinguished from "not
+  recorded" (an Agent with nothing declared, or a Seat opened before this
+  shipped) so neither reads as a fabricated success. The Library's Agent
+  filter narrows to what one Agent declares without changing the measured
+  reach every other row already showed.
+- **A Goal can cite committed project memory that outlives the Goal that
+  made it.** A person picks a wrapped source Goal and one of its project's
+  committed `.harnessdesk/memory/*.md` files, at an exact revision, and
+  confirms "Cite in this Goal" — the exact bytes, the source Goal's receipt
+  and the Seats that were there are retained immediately, before the
+  citation is saved, so a later reader still sees the original text even
+  after the source Goal, its Git history or the whole desk that made it is
+  gone. Every honest gap says so: "Source Goal unavailable; retained copy",
+  "Original revision unavailable", or, for a citation made before this
+  shipped, "The original source was not retained" — never a guess dressed up
+  as the real thing. Opening a citation only ever displays it; it starts no
+  turn and grants nothing.
+- **Backup and restore now carry this history too** — every retained
+  citation and every Seat's attachment record round-trip through the same
+  backup file, restored as history a person can read, never as a live grant:
+  an imported Seat attachment epoch is always marked restored, and an
+  imported citation can satisfy only the one dependency edge it created, never
+  authorize new work. One damaged entry in an otherwise-good backup is
+  refused and counted; it does not stop the rest of that history from coming
+  back.
+- **A paused or uncertain finding posting is yours to settle, and nothing is
+  posted twice** — the Goal's Findings pane lists each closed-round posting
+  that needs you with the reason: *Post again* reads the pull request back
+  before anything is sent, *Skip* asks why and puts that on the receipt, and
+  rounds kept on the desk before a pull request was bound are posted only
+  after you preview and confirm them. A wrapped Goal's receipt opens each
+  finding's history and carries unresolved ones into another open Goal, and a
+  finding's history lets you withdraw it or accept or reject a claimed repair
+  yourself, with a reason. Fixed along the way: wrapping could hang while a
+  flow seated a card; a decision made while a round was closing could be
+  lost; a reviewer in a blind round could read a sibling's verdict or reach it
+  through a new card; two submissions of one decision could both apply;
+  *Merge anyway* was greyed whenever nothing had been posted; and `review-pr`
+  stopped before its referee after one repair.
+- **The findings ledger has a home in the Goal rail, and a stopped run asks you directly** —
+  Findings joins Board and Chat on a Goal's own rail: filter All, Open or
+  Blocking; a row shows a claimed repair honestly ("Repair claimed · awaiting
+  review", never "Verified") and whether it is currently blocking or
+  advisory; opening one shows its full history — the original claim, every
+  later repair and verdict with who recorded it, and where it was actually
+  posted — and the raising Agent's own historical record, even if that
+  session has since moved on. A run that stopped for you — its round budget
+  reached, too many rounds without progress, or a repair rejected twice —
+  says so on the Goal, with the choice to authorise one more round, merge
+  anyway with the exact unresolved findings on record, or drop it; none of
+  these edits a check, review or finding to passing, and merging still goes
+  through the existing confirmation. A wrapped Goal's receipt now shows the
+  findings it owned when it wrapped and any such override, and you can carry
+  an unresolved one into a later open Goal by reference — the same id, the
+  same original Agent, the wrapped receipt untouched. Starting a review flow
+  now shows its effective round budget up front, and that a review round's
+  reviewers cannot message or post anything — not each other, not the pull
+  request — until every reviewer has finished and the round closes together.
+  A new shipped flow, `review-pr`, is the ordinary example: a fixer, two
+  independent reviewers, a mechanical check, and a person referee gated on
+  the pull request still being the one that was reviewed.
+- **Review findings are recorded once and followed to the end** — a reviewer
+  raises each finding as its own record, a repair is a claim until the
+  reviewer that raised it confirms it in a later round, and a finding keeps
+  its identity when a person carries it into a later Goal. A flow run now
+  stops for you after its round budget (three by default), after two rounds
+  that brought no new evidence, or when a finding's repair is rejected twice;
+  several reviewers judging at once no longer see each other's findings or
+  messages until the round closes, and a later review is handed the exact
+  change since the last one. When the round closes, its findings and reviews
+  are posted to the Goal's pull request together, each saying which Agent
+  made the claim and at which revision; a repair lands on its finding's own
+  comment or thread. Nothing is posted twice: a comment whose answer was lost
+  is read back from the pull request, and one the desk cannot confirm waits
+  for you, and is written into the receipt as a gap only when you say so.
+  A reviewer can no longer post to the pull request itself while its round
+  is blind. Without a bound pull request, or with posting off, rounds stay
+  on the desk.
+- **A reviewer's finished card no longer goes back to "claimed".** If
+  another Seat opened on the same Goal while a reviewer was completing its
+  card, the reviewer was told the card was done, but the board kept it
+  claimed. The flow then sent the reviewer the same card again, or waited on
+  it indefinitely. A completion is now saved. A completion whose card was
+  released or reassigned while its review was being checked is now refused.
+- **Assigning a card just after adding it no longer leaves the Goal stuck.**
+  If the card's save was still queued, the assignment used to be refused and
+  stayed half-done, so the Goal then refused every later save. Relaunching
+  didn't help, because the desk failed to start while it tried to finish the
+  assignment. An assignment or release that can't finish is now set aside:
+  the Seat it opened is closed, and the Goal says what happened. A patch
+  applied with `git am`, or a cherry-pick committed after a conflict, now
+  counts as a step's own work. A wrap receipt lists any card that recovery
+  set aside, with the reason. A change refused because its save failed no
+  longer leaves its line in the Goal's channel.
+- **A project's Flows are visible, previewable and updatable** — a project
+  page now lists the flows it can start, layered from the project's own
+  files down to the ones that ship, with what a nearer file shadows called
+  out rather than hidden. Starting one previews the honest dry run first:
+  every round, seat and evidence guard it would open, before anything runs.
+  *Update…* converts an old project flow file to the current format as one
+  reviewable diff, covering every Agent file it would also write, resumable
+  if interrupted partway. Starting a flow from a new session now offers a
+  single Goal the same way an ordinary conversation does.
+- **`/race` is now an ordinary flow, not a second execution path** — racing
+  two seats substitutes them into a shipped flow's own designated role and
+  runs it exactly like any other flow, so its progress, checks and evidence
+  show up the same way. A run's status is visible on its Goal, including a
+  failed check's retry.
+- **Evidence guards are satisfied by the facts the desk records** — a check,
+  a structured review, an observed diff, CI or pull request now speaks for
+  the revision it names wherever in the run's dependency chain it was filed,
+  and every new fact re-reads a waiting rule, so a guarded step no longer
+  waits forever. A diff counts what a step committed since it began, straight
+  onto the default branch included, and a run waiting on evidence says what
+  for. The comparison flow's merge card names the exact revision the judge
+  picked.
+- **An independent step is judged on the vendor an agent really calls** —
+  each runtime now reports which vendor's models it reaches, read from the
+  agent's own configuration, and says it cannot tell whenever a provider or
+  base URL is overridden or the account pays through a gateway. A step that
+  must be independent of an earlier one is refused rather than seated on a
+  runtime whose vendor is unknown, whatever that runtime is called.
+- **A check without an explicit checkout now runs once per predecessor
+  subject** — each competitor's own isolated work is checked on its own,
+  rather than one command picking a single subject to stand in for all of
+  them. Naming a checkout explicitly keeps the old single-command behaviour.
+- Fix the whole app quitting on the first line it logged after the terminal
+  or script that started it had gone away — usually a refused Wrap, Seat or
+  check run. The refusal is now shown, and the host log says its console went
+  away.
+- Add source-qualified, read-only Insight transport for historical usage,
+  receipt cost summaries, project usage, and local Agent-seat ordering review.
+
 ## 0.2.4 — 2026-09-18
 
 - **Projects can now hold finite Goals** — create a Goal without changing the

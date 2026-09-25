@@ -903,6 +903,29 @@ export const unzoom = (workbench: Workbench): Workbench =>
 /** Whether an area is the one currently given the room. */
 export const zoomedArea = (workbench: Workbench, area: AreaId): boolean => workbench.zoom?.area === area
 
+/** Whether the right panel draws a panel at all, rather than only its drop zone. */
+export const rightPanelDrawn = (workbench: Workbench): boolean =>
+  dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
+
+/**
+ * The area the desk's floating notices ride (#896): the one being read at
+ * full size, never one a zoom or an overlay has taken off the screen.
+ *
+ * The main area, normally — where, inside the split tree, the expanded pane
+ * if there is one and the first pane otherwise hosts them. A dock zoomed to
+ * take the room takes the notices with it, since the main area it would
+ * otherwise have ridden has no box; so does a right panel a narrow window
+ * lays over the whole main area. `null` is a zoomed sidebar, which is no
+ * place for a desk-wide card: the stack then falls back to the whole
+ * content area, and its placement keeps it clear of every toolbar there.
+ */
+export const noticeArea = (workbench: Workbench, narrow: boolean): 'main' | 'right' | 'bottom' | null => {
+  const zoom = workbench.zoom
+  if (zoom !== null && zoom.area !== 'main') return zoom.area === 'sidebar' ? null : zoom.area
+  if (narrow && rightPanelDrawn(workbench)) return 'right'
+  return 'main'
+}
+
 // ------------------------------------------------------------- invariants
 
 /**

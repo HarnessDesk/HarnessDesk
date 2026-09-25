@@ -43,7 +43,7 @@ test('agent/list answers the roster', async () => {
 test('agent/read answers one, by id', async () => {
   const ctx = await ctxWith()
   const one = await agentMethods['agent/read'](ctx, { id: 'reviewer' })
-  assert.equal(one?.definition?.permission, 'read')
+  assert.equal(one?.definition?.ceiling, 'edit')
 })
 
 test('agent/read answers null for an id nobody defined', async () => {

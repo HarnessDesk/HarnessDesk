@@ -5,7 +5,7 @@ import type {
   ToolSpec,
   UiSpec,
 } from './services.js'
-import type { EditorEdit, EditorEvent, ScopeQuery, UiDecoration,
+import type { DecideFindingInput, EditorEdit, EditorEvent, EvidenceRecord, FindingReadInput, FindingView, RaiseFindingInput, RepairFindingInput, ReviewCandidate, ReviewInput, ScopeQuery, UiDecoration,
   ForgeReference,
 } from '@harnessdesk/protocol'
 
@@ -164,6 +164,8 @@ export interface HarnessContext {
     seat(scope?: ScopeQuery): Promise<ForgeSeat | null>
     identity(scope?: ScopeQuery): Promise<ForgeIdentity>
     publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void>
+    /** Whether this invocation's conversation may put words on the forge now: asked before every forge mutation. */
+    publicationAllowed(scope?: ScopeQuery): Promise<{ ok: true } | { ok: false; reason: string }>
   }
   readonly team: {
     board(scope?: ScopeQuery): Promise<string>
@@ -219,6 +221,24 @@ export interface HarnessContext {
       args: { readonly to: string; readonly text: string; readonly wake?: boolean },
       scope?: ScopeQuery,
     ): Promise<string>
+    /**
+     * Observed predecessor subjects this conversation's own claimed card may
+     * judge — structured, never prose; empty when it holds no such card.
+     */
+    reviewCandidates(intent: number, scope?: ScopeQuery): Promise<readonly ReviewCandidate[]>
+    /**
+     * Records one structured verdict against an observed candidate. Throws
+     * the refusal rather than returning a sentence; the caller words it.
+     */
+    recordReview(input: ReviewInput, scope?: ScopeQuery): Promise<EvidenceRecord>
+    /** Raises a finding against a candidate this card was offered. Throws the refusal. */
+    raiseFinding(input: RaiseFindingInput, scope?: ScopeQuery): Promise<FindingView>
+    /** Claims a finding repaired at this Seat's committed head. Throws the refusal. */
+    repairFinding(input: RepairFindingInput, scope?: ScopeQuery): Promise<FindingView>
+    /** The raising Agent's verdict on its own finding, from a later review. Throws the refusal. */
+    decideFinding(input: DecideFindingInput, scope?: ScopeQuery): Promise<FindingView>
+    /** This Goal's findings, bounded, for the card this Seat holds. */
+    listFindings(input: FindingReadInput, scope?: ScopeQuery): Promise<readonly FindingView[]>
   }
   /** The iOS Simulator, via simctl. Requires the `ios` permission. */
   readonly ios: {

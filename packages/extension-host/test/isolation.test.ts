@@ -346,6 +346,10 @@ test('a team call rides its own invocation or is refused: the child cannot imper
       return 'status ok'
     },
     send: async () => 'x',
+    reviewCandidates: async () => [],
+    recordReview: async () => ({}) as never,
+    // Phase 7's finding verbs: present on every engine, unused here.
+    raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
@@ -385,6 +389,9 @@ test('a child member wait remains invocation-bound and cancellation aborts the h
     board: async () => 'x', addIntent: async () => 'x', claim: async () => 'x', claimNext: async () => 'x',
     awaitWork: async () => 'x', conflicts: async () => 'x', complete: async () => 'x', release: async () => 'x',
     handoff: async () => 'x', status: async () => 'x', send: async () => 'x',
+    reviewCandidates: async () => [], recordReview: async () => ({}) as never,
+    // Phase 7's finding verbs: present on every engine, unused here.
+    raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
     awaitMember: async (scope) => {
       pending++
       seenInvocation = scope.invocation ?? ''
@@ -400,7 +407,10 @@ test('a child member wait remains invocation-bound and cancellation aborts the h
   const store = join(dir, 'plugins')
   await cp(join(FIXTURES, 'plugin-teamish'), join(store, 'teamish'), { recursive: true })
   const host = new SupervisedExtensionHost(new ExtensionKernel(), {
-    invokeTimeoutMs: 150,
+    // This crosses two processes before it reaches the blocking engine. Keep
+    // the test deadline consistent with the other child-process tests: 150ms
+    // is scheduler-sensitive when the full Node suite is concurrently busy.
+    invokeTimeoutMs: 1500,
     env: { HARNESSDESK_PLUGINS: store },
     teamEngine: engine,
   })
@@ -449,6 +459,10 @@ test('a plugin without the grant cannot ride a granted sibling’s armed scope',
       return 'status ok'
     },
     send: async () => 'x',
+    reviewCandidates: async () => [],
+    recordReview: async () => ({}) as never,
+    // Phase 7's finding verbs: present on every engine, unused here.
+    raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
@@ -506,6 +520,7 @@ test('a forge call rides its own invocation or is refused; the identity needs no
     },
     identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }),
     publish: async () => {},
+    publicationAllowed: async () => ({ ok: true }),
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
@@ -574,6 +589,10 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
     handoff: async () => 'x',
     status: async () => 'status ok',
     send: async () => 'x',
+    reviewCandidates: async () => [],
+    recordReview: async () => ({}) as never,
+    // Phase 7's finding verbs: present on every engine, unused here.
+    raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
   }
   const forge: ForgeEngine = {
     seat: async (callScope) => {
@@ -585,6 +604,7 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
       return { via: 'gh', login: 'octocat', available: true, reason: null }
     },
     publish: async () => {},
+    publicationAllowed: async () => ({ ok: true }),
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')

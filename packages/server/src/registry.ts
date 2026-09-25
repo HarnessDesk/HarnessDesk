@@ -1,6 +1,7 @@
 import {
   emptyQueue,
   mergeRead,
+  permissionOfCeiling,
   preserveNoticeItems,
   reduceSession,
   sessionKey,
@@ -9,16 +10,17 @@ import {
   type Approval,
   type ApprovalId,
   type BackgroundTask,
-  type FlowPermission,
   type QueuedMessage,
   type RuntimeId,
   type SeatCandidate,
   type SeatCeiling,
+  type SeatId,
   type Session,
   type SessionId,
   type SessionKey,
   type SessionQueue,
   type SessionSettings,
+  type StandingOrder,
   type Turn,
   type TurnId,
   type UserContent,
@@ -99,6 +101,17 @@ export interface SessionRecord {
    * laid back over the settings on every fold (`seatedSession`).
    */
   seatedAs: SeatedAs | null
+  /**
+   * The Seat this conversation's attachments were frozen under, when it has
+   * one — kept beside the session for the same reason `seatedAs` is: a
+   * runtime re-announcing its settings has never heard of it, and folding a
+   * fresh read must not lose the desk's own record of what this conversation
+   * was scoped to. `null` for a plain conversation, and for one seated before
+   * this field existed. This is the tool gateway's own way to resolve a live
+   * caller token back to the Seat whose frozen server list it may reach —
+   * never laid over `session.settings`, unlike `seatedAs`.
+   */
+  attachmentSeat: SeatId | null
 }
 
 /**
@@ -115,7 +128,8 @@ export interface SeatedAs {
    */
   readonly name: string
   readonly briefDigest: string
-  readonly permission: FlowPermission
+  /** The order in the vocabulary its Agent file used. */
+  readonly standing: StandingOrder
   readonly seatLabel: string
   readonly passedOver: readonly SeatCandidate[]
   /**
@@ -125,6 +139,7 @@ export interface SeatedAs {
    * surface draws it, and how, is phase 3's.
    */
   readonly ceiling: SeatCeiling | null
+  readonly ceilingNote: string | null
 }
 
 /**
@@ -140,24 +155,35 @@ export interface SeatedAs {
  */
 export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | null): SessionSettings => {
   if (seated) {
-    return settings.agent === seated.agent &&
+    if (
+      settings.agent === seated.agent &&
       settings.briefDigest === seated.briefDigest &&
-      settings.permission === seated.permission &&
+      settings.ceiling === (seated.ceiling ?? undefined) &&
+      settings.ceilingNote === (seated.ceilingNote ?? undefined) &&
+      settings.permission === permissionOfCeiling(seated.ceiling?.level ?? 'read') &&
       settings.seatLabel === seated.seatLabel &&
       settings.passedOver === seated.passedOver
-      ? settings
-      : {
-          ...settings,
-          agent: seated.agent,
-          briefDigest: seated.briefDigest,
-          permission: seated.permission,
-          seatLabel: seated.seatLabel,
-          passedOver: seated.passedOver,
-        }
+    ) {
+      return settings
+    }
+    const { ceiling: _theirCeiling, ceilingNote: _theirCeilingNote, permission: _theirPermission, ...rest } = settings
+    const permission = permissionOfCeiling(seated.ceiling?.level ?? 'read')
+    return {
+      ...rest,
+      agent: seated.agent,
+      briefDigest: seated.briefDigest,
+      ...(seated.ceiling ? { ceiling: seated.ceiling } : {}),
+      ...(seated.ceilingNote ? { ceilingNote: seated.ceilingNote } : {}),
+      ...(permission ? { permission } : {}),
+      seatLabel: seated.seatLabel,
+      passedOver: seated.passedOver,
+    }
   }
   if (
     settings.agent === undefined &&
     settings.briefDigest === undefined &&
+    settings.ceiling === undefined &&
+    settings.ceilingNote === undefined &&
     settings.permission === undefined &&
     settings.seatLabel === undefined &&
     settings.passedOver === undefined
@@ -167,6 +193,8 @@ export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | nul
   const {
     agent: _agent,
     briefDigest: _briefDigest,
+    ceiling: _ceiling,
+    ceilingNote: _ceilingNote,
     permission: _permission,
     seatLabel: _seatLabel,
     passedOver: _passedOver,
@@ -271,6 +299,7 @@ export class SessionRegistry {
       queue: emptyQueue(),
       tasks: [],
       seatedAs: this.#restore?.(session.runtime, session.id) ?? null,
+      attachmentSeat: null,
     }
     record.session = seatedSession(this.#settle(record, inherited), record.seatedAs)
     this.#records.set(sessionKey(session.runtime, session.id), record)
@@ -490,6 +519,28 @@ export class SessionRegistry {
     const settings = record.session.settings ?? record.live?.settings()
     record.session = seatedSession(settings ? { ...record.session, settings } : record.session, seated)
     return record
+  }
+
+  /**
+   * Records which Seat this conversation's attachments were frozen under —
+   * called once, after phase 12's transaction durably opens the Seat. Kept
+   * beside the session, like `seatedAs`, so a runtime re-announcing its
+   * settings (`upsert`, `reduceSession`) can never make the desk forget it.
+   */
+  recordAttachmentSeat(runtime: RuntimeId, id: SessionId, seat: SeatId): void {
+    const record = this.get(runtime, id)
+    if (!record) throw new Error(`No conversation ${id} is open to record a Seat's attachments for.`)
+    record.attachmentSeat = seat
+  }
+
+  /**
+   * The Seat this live conversation's attachments were frozen under, or
+   * `null` for a plain conversation, one seated before this field existed, or
+   * one no longer open at all. The tool gateway's own way to resolve a live
+   * caller token to the Seat whose frozen server list it may reach.
+   */
+  attachmentSeatOf(runtime: RuntimeId, id: SessionId): SeatId | null {
+    return this.get(runtime, id)?.attachmentSeat ?? null
   }
 
   /**

@@ -176,6 +176,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-control-h` | `<cycle>` |
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
+| `--hd-history-detail-min-h` | `160px` |
 | `--hd-field-h` | `30px` |
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-chip-h` | `22px` |
@@ -193,6 +194,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-composer-max` | `320px` |
 | `--hd-composer-line` | `20px` |
 | `--hd-composer-radius` | `28px` |
+| `--hd-dialog-max-height` | `calc(100dvh - 2 * 24px)` |
 | `--hd-scrollbar-width` | `8px` |
 | `--hd-scrollbar-inset` | `2px` |
 | `--hd-scrollbar-inset-hover` | `1px` |
@@ -254,6 +256,7 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-z-sheet` | `60` |
 | `--hd-z-dialog` | `100` |
 | `--hd-z-toast` | `200` |
+| `--hd-notice-inset` | `0px` |
 
 ### The solid
 
@@ -319,7 +322,7 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 
 ### The section label
 
-The word over a group of rows — "Workspaces", "Capabilities", "Agents". Desk sets it at the rows' own 13px size in sentence case, regular weight and muted ink, so it names the group quietly. Studio sets it at 12px in uppercase medium with tracking, so the group reads distinctly without a rule beneath it.
+The word over a group of rows — "Workspaces", "Capabilities", "Agents". There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Studio sets the same label in the medium weight with more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
 
 ### The card
 
@@ -334,6 +337,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-seg-text` | `12px` |
 | `--hd-chip-radius` | `9999px` |
 | `--hd-chip-fill` | `rgb(245, 245, 245)` |
+| `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
 | `--hd-toggle-knob` | `rgb(255, 255, 255)` |
 | `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-toggle-track` | `rgba(9, 12, 17, 0.14)` |
@@ -346,15 +350,9 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-surface-radius` | `14px` |
 | `--hd-surface-shadow` | `0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)` |
 | `--hd-scrim` | `rgba(7, 9, 14, 0.28)` |
-| `--hd-lightbox-scrim` | `rgba(0, 0, 0, 0.78)` |
-| `--hd-lightbox-canvas` | `rgb(255, 255, 255)` |
-| `--hd-lightbox-foreground` | `rgba(255, 255, 255, 0.92)` |
-| `--hd-lightbox-muted` | `rgba(255, 255, 255, 0.6)` |
-| `--hd-lightbox-control` | `rgba(255, 255, 255, 0.12)` |
-| `--hd-lightbox-control-hover` | `rgba(255, 255, 255, 0.24)` |
-| `--hd-lightbox-shadow` | `0 24px 60px rgba(0, 0, 0, 0.5)` |
 | `--hd-external-canvas` | `rgb(255, 255, 255)` |
 | `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
+| `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
 | `--hd-shadow-xs` | `0 1px 2px rgba(0, 0, 0, 0.05)` |
 | `--hd-tint-blue-ink` | `rgb(69, 99, 198)` |
 | `--hd-tint-green-ink` | `rgb(18, 125, 52)` |
@@ -375,11 +373,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-nav-h-group` | `calc(14px * 1.5 + 4px * 2)` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-inset` | `8px` |
-| `--hd-label-size` | `` |
 | `--hd-label-weight` | `` |
-| `--hd-label-tracking` | `` |
-| `--hd-label-transform` | `` |
-| `--hd-label-ink` | `` |
 | `--hd-label-space` | `` |
 | `--hd-card-fill` | `` |
 | `--hd-card-border` | `` |
@@ -462,11 +456,19 @@ having written the judgement down.
 
 ### `secondary`
 
-**Use** — An ordinary action inside something that already encloses it — a dialog footer, a card, a row.
+**Use** — An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet whenever a filled act stands beside it, so the confirm is the one filled button. Never alone in a footer: a lone footer button is the act, `default`.
 
 **Not** — In a page or section head. It is the same grey as the surfaces around it and disappears into them.
 
-**Why** — The enclosure supplies the separation, so the control does not have to. It is the app's most common button and the one an unqualified `Btn` has always drawn.
+**Why** — The enclosure supplies the separation, so the control does not have to. It is the app's most common button and the one an unqualified `Btn` has always drawn. In a footer that holds a filled act the footer decides its look (`:has()` on the footer slot), so a screen writes `secondary` and gets the quiet way out. A lone footer button is the act and is filled, which the audit holds.
+
+### `quiet`
+
+**Use** — The way out of a question — Keep, Cancel, Close — when the act beside it is filled.
+
+**Not** — As the only action on a surface, or for the act itself: a quiet button is the answer that changes nothing.
+
+**Why** — A footer with two equally weighted buttons has no default. The quiet one is still a button — it takes the hover fill and the ring — but the eye lands on the filled one first.
 
 ### `ghost`
 
@@ -478,11 +480,19 @@ having written the judgement down.
 
 ### `destructive`
 
-**Use** — An action that removes something a person cannot get back.
+**Use** — A remove action set among others on a page or in a row — the door to a confirm, not the confirm.
 
-**Not** — For an action that merely closes, cancels or hides. Those are ordinary.
+**Not** — For an action that merely closes, cancels or hides (those are ordinary), and never in a dialog footer: the act of a destructive confirm is `danger`, filled, and the audit refuses the soft red there.
 
-**Why** — It is soft in this app — danger ink on nothing, filling on hover — rather than a solid red. A red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.
+**Why** — It is soft — danger ink on nothing, filling on hover — rather than a solid red. On a page a red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.
+
+### `danger`
+
+**Use** — The act of a destructive confirm: Delete, Remove worktree, Discard — the one filled button in that footer. `ConfirmDialog tone="destructive"` draws it.
+
+**Not** — Beside another filled button, or on a page. Anywhere but the answer to "are you sure?" it is `destructive`.
+
+**Why** — In the confirm the question has already been asked, so the red is no longer competing with what you came to do — it is what you came to do. A red-text act beside a plain-text Keep was two equal ghosts with no default.
 
 ### Everything else with a rule
 
@@ -526,6 +536,38 @@ having written the judgement down.
 
 **Why** — A button and the chip beside it were the same shape, so a row of controls read as a row of labels. One rung apart is what separates them.
 
+### `Segmented · NativeSelect · ChoiceList · Checkbox`
+
+**Use** — One answer among two to four short ones: `Segmented`, or a `NativeSelect` when the words are long or the list may grow. One answer that needs a line to explain it: `ChoiceList` — compact radio rows, each with its description under its title in the hint step, so answers can be compared and choosing moves nothing. Several members at once (which Agents to seat, which files to take): checkboxes.
+
+**Not** — A switch for picking a member — a switch acts the moment it is flipped, and ticking who comes along is not an action. Nor a card of 60px settings rows for four words in a dialog; inside a dialog a `Rows` radio group made only of `RowChoice` rows already draws as a `ChoiceList` (a group of anything else keeps its card).
+
+**Why** — A choice is read before it is made, so every answer shows what it means — in the hint step, a size below its title, so the titles still scan as a list. A description shown only on the chosen answer moved the rows under the pointer and hid what a person needed to compare.
+
+### `Field · Fieldset · FormStack`
+
+**Use** — Anything a dialog asks for. A label sits 6px over its control, the next field starts 16px below, a group of controls takes a `Fieldset` legend the way a field takes a label, and a field that may be left empty says `optional` at its label's end.
+
+**Not** — Spacing a dialog's fields by hand, or a page's `SectionHead` as a group label: inside a dialog the body is already the form stack and a `SectionHead` already draws as a legend.
+
+**Why** — A form is scanned by its labels. When every label is the same distance from its control and every field the same distance from the next, the eye stops measuring and reads; the "toy dialog" was one where each of those distances was a different accident.
+
+### `Row · RowInput · Switch`
+
+**Use** — Settings pages never show a Save button; values apply as you change them. A switch applies as it is flipped; a typed value is a `RowInput` in the row's control slot — as wide as the value it holds — and applies on Enter or when the field is left. A value the host refuses stays in its field, marked, with a `Note` under the card saying why.
+
+**Not** — A page `Field` stretched across the column with a Save button under it, or any button in a `FormStack` stretched to the column: the stack lets a button keep its own width.
+
+**Why** — Settings › Workspaces once held two 715px number inputs and a 715px black Save bar under three switches that applied instantly — the heaviest object on any Settings page, for a five-digit port, and a page with two rules for when a change takes effect.
+
+### `useSortable · sortableItemClass · SortableHandle`
+
+**Use** — Items whose order the person sets — a queue, seats, tabs. Order is shown by position; an item moves by a drag from the handle that appears on hover (a tab is its own handle), by ⌥↑/⌥↓ from anywhere in it but a text field, or by Space on its handle to pick it up and the arrows to carry it; the line shows where it will land, and every move is announced once the owner of the order has answered. Removal is the row's own `⋯` menu or hover ×. Every item draws its move with `sortableItemClass`.
+
+**Not** — "Move up" / "Move down" buttons on each row — three controls a row to say what its place already says — or a list that reorders itself before the owner of the order has answered.
+
+**Why** — Reordering is silent by nature and the order often belongs to the host: one part that asks, waits for the answer, then says where the row went keeps the keyboard, the drag and a reader on the same list.
+
 ### `--hd-surface-*`
 
 **Use** — A dialog, a command palette, a sheet — something that takes the window.
@@ -533,6 +575,174 @@ having written the judgement down.
 **Not** — A popover or a hover card. Those are the popover's lighter surface, and they match each other rather than the dialog.
 
 **Why** — A hover card that wore a dialog's shadow would claim the window's attention for something the pointer merely passed over.
+
+### `warning`
+
+**Use** — The person must act now — sign in, approve, free a limit — and the thing cannot go on without them. Chip, Badge, Note and Banner all read it this way.
+
+**Not** — For a default or a normal state: a permission that is "asked" by default, an open finding, a shadowed copy, a limit working as designed. Those are neutral or carry no chip.
+
+**Why** — The Permissions page once drew 48 identical amber chips for the default. Amber on every row is how the one row that does need someone stops being found.
+
+### `danger`
+
+**Use** — Something is broken, or will be lost: a failed check, a missing executable, an action that deletes.
+
+**Not** — For a stop the person asked for. "The agent was stopped." after pressing Stop is neutral — it is the outcome they chose.
+
+**Why** — Red is the loudest thing a screen can say. Spent on an outcome the reader chose, it teaches them to look past the red that matters.
+
+### `neutral`
+
+**Use** — Every default, every normal state and every fact that asks nothing of the reader — or no chip at all.
+
+**Not** — Promoted to a colour to make a row look busier. A tone is a claim about what the reader should do.
+
+**Why** — Most of what a desk reports is fine. Neutral is what lets the exceptions be seen.
+
+### `one line`
+
+**Use** — Always. A chip never wraps: it stops at its box (at most 240px), ellipsises, and names itself whole in `title` while it is cut. The Chip enforces this.
+
+**Not** — Forced into two lines by a caller. A fact that needs a second line is a row's description or a dialog's, not a chip.
+
+**Why** — A pill with two lines in it is a card pretending to be a mark — the board's wrapped evidence chips were the loudest thing on every card that carried one.
+
+### `stale`
+
+**Use** — A fact recorded before what is there now. Pass `stale`: the Chip leads with the history glyph and says "stale" to a screen reader; a stale pass drops to neutral and muted ink, while a stale failure keeps its danger ink.
+
+**Not** — A strikethrough. Struck text reads as "wrong", and a stale fact was right when it was recorded.
+
+**Why** — Muted with a glyph keeps the fact legible for what it was, and still says it is no longer current.
+
+### `count`
+
+**Use** — A chip that counts something takes `count`, and a zero draws nothing. `showZero` is for the rare set where zero is itself the finding.
+
+**Not** — A row of zero-count chips, or "+0 −0 in 0 files" on every card: a chip that counts none has nothing to say.
+
+**Why** — A zero draws the eye exactly as much as a seven, and it asks nothing.
+
+### `earned`
+
+**Use** — A chip says something the row does not already say. A chip that is identical on every row of a group belongs in the group's heading, once.
+
+**Not** — Repeating the row's own title ("Healthy" beside a row titled Healthy), or the state a control beside it already shows ("Off" beside a switch that is off).
+
+**Why** — Every chip costs the row some of its name. One that repeats the title or the control is paid for twice and says nothing.
+
+### `panel`
+
+**Use** — Nothing yet on a page, a pane or a dialog body that exists to hold it: centred icon, title, sentence and the ways to fill it. `tight` inside a card.
+
+**Not** — With its own ink action when the header above already has the primary. The empty state's action is then secondary — two ink buttons is two primaries, which is none.
+
+**Why** — The empty Goal board once had "New job" in its header and "Add the first job" under it, both black.
+
+### `inline`
+
+**Use** — Nothing in a list, a column or a pane that already says what it is: one muted line, no icon, no heading.
+
+**Not** — Under a node of a navigation tree. An empty node has no children and at most a count; only a whole list with nothing in it at all may carry one inline line.
+
+**Why** — A sentence under every empty Goal in the sidebar made the tree twice as tall and said the same thing four times.
+
+### `row`
+
+**Use** — Nothing in a `Rows` card: a row with the Row's own padding and hairline, its title a step quieter so it is never read as an item.
+
+**Not** — A hand-drawn `Row` titled "No … yet", or a bold title in a card of its own. Both were how the app came to have five empty layouts.
+
+**Why** — The card keeps its shape whether it holds nothing or twelve things, so the page does not jump when the first one arrives.
+
+### `one step`
+
+**Use** — Every page head, a list page's `PageHead` and a drilled-into `DetailHead` alike: the page-title step, 20px semibold — the wordmark's own type.
+
+**Not** — A second size for a detail page. What tells a detail page apart is its mark and its owner chip, never a bigger or lighter name.
+
+**Why** — At 24px regular a drilled-into page read lighter and less finished than the list it came from, and the sidebar's wordmark beside it. The owner settled it in #832: page titles match the wordmark.
+
+### `GroupLabel`
+
+**Use** — The word over any group — a card of rows, a rail's list, a section of a page: 13px, the secondary ink, sentence case. `SectionHead`, `Section`, `NavigationGroupHeader` and the catalogue rail all draw it.
+
+**Not** — Capitals. No label outside a `Keycap` is set in uppercase, tracked or not; the design audit counts every one (`uppercaseLabel`) and its ceiling may only fall.
+
+**Why** — The app had three group-label styles and a column of six 12px tracked capitals read as shouted — the one group that needed finding stopped standing out. A key is the exception because it is a physical thing with printing on it.
+
+### `page`
+
+**Use** — Any part of a page: `<Section title description action>` around its card. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children's own margins.
+
+**Not** — A `SectionHead`, a free `Note` and a `Rows` stacked by hand, or a screen margin between sections. The label then belongs to neither card and every page spaces itself.
+
+**Why** — On the Agent page the label "Ceiling" sat 18px under the card above it and 20px over its own, so it named neither. A section that owns its spacing cannot drift that way, and a page composing sections writes no margin at all.
+
+### `description`
+
+**Use** — One muted sentence under the label saying what the section is, when the label alone cannot.
+
+**Not** — A paragraph of how it works. Two or three lines under every label is a page that explains itself before it shows anything; the explanation belongs on the row it explains, or nowhere.
+
+**Why** — Project, Permissions and Triggers each opened every section with a 2–3 line paragraph under the page's own blurb. The one warning that mattered read like the four around it.
+
+### `summary`
+
+**Use** — Several facts about one object on a page — a file, a ceiling, what it loads — as `SummaryList` inside one `Section`: a key, a value, an optional note under it and an optional small action at the row's end.
+
+**Not** — A stack of one-row cards, each under its own label. Five facts about one Agent are one card of five rows.
+
+**Why** — Eight label-plus-one-row-card sections made the Agent page a column of floating grey words. One card of facts is read top to bottom like an inspector, with the actions in one column at the end.
+
+### `wrapped control`
+
+**Use** — A control too wide to share a narrow row with its title drops under it. A compact control — a switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the row's end; a text answer (`RowValue`) takes its whole line and starts where the title starts. The row reads which from the control, so no caller says.
+
+**Not** — A sentence pushed to the row's end on its own line: narrower than the row, it starts at whatever indent its length leaves and lines up with nothing.
+
+**Why** — A row button's control travels with a chevron that cannot leave the end, and a card's trailing edge is the column every control is found in. Words are read from the left, so words that have their own line start at the left.
+
+### `sub-head`
+
+**Use** — Groups inside one section — one runtime's approvals among twelve, one layer of flows: a `SectionHead` among a `Section`'s children, 24px above it and 8px over its card, and an h3 under the section's h2.
+
+**Not** — A top-level section per group. Twelve 32px steps under one heading read as twelve sections and hide the one that heads them.
+
+**Why** — The step between a section (32px) and a label-to-card (8px) is what says "part of the section above".
+
+### `outline`
+
+**Use** — A page's or a detail page's title is its h1; every section label on it, `Section` or `SectionHead`, is an h2. A detail head's owner is text that gives way at its end, or a mark (a chip) that stays whole while the name wraps.
+
+**Not** — A title in a div, or a chip owner that ellipsises: a status read "Nee…" beside a long Goal.
+
+**Why** — Heading navigation is how a screen reader skims a page, and a page whose labels are spans cannot be skimmed.
+
+### `default`
+
+**Use** — Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.
+
+**Not** — Right-aligning a sentence. A ragged left edge cannot be scanned, and a three-line "Declares" set flush right was the worst line in its dialog.
+
+**Why** — The eye runs down the keys and across to the value; a value that starts at the same x every time is the thing it lands on.
+
+### `numeric`
+
+**Use** — A count, a total, money — a value a reader compares by place. The row says `numeric`, and only then is it right-aligned on tabular figures.
+
+**Not** — On a row that holds words, or as the list's default. Right alignment is a claim that the digits line up.
+
+**Why** — A totals column that lines up by place is read in one glance; the same alignment on a sentence is read in none.
+
+### `path`
+
+**Use** — A file or folder path as a value: `kind="path"` (or `MiddleTruncate` elsewhere) gives up the middle, keeps the last segment, and names the whole in its title while cut.
+
+**Not** — A bare path in a value: it has no break opportunities, so it either runs past the container or loses the file name at the end.
+
+**Why** — A path's informative ends are whose it is and what it names. The middle is what every path in the list shares.
 
 ### The slots a gate holds
 
@@ -544,8 +754,8 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 | slot | what it is | may be | rung | ink actions | why |
 | --- | --- | --- | --- | --- | --- |
 | `pageAction` | the `actions` of a `PageHead` | `outline`, `default`, `primary`, `destructive`, `danger` | `--hd-btn-h` | one | It sits on the page's own ground with nothing enclosing it, so it needs an edge or a fill. The unqualified grey and `ghost` both vanish there — which is exactly how one settings window came to carry four different treatments of one slot. |
-| `sectionAction` | the `action` of a `SectionHead` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
-| `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `destructive`, `danger`, `outline` | `--hd-btn-h` | one | The dialog encloses them, so `secondary` is the ordinary answer and the confirm is the one `default`. `ghost` is not: a footer button with no edge reads as a link in a place where every choice should look equally pressable. |
+| `sectionAction` | the `action` of a `SectionHead` or a titled `Section` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
+| `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `quiet`, `danger`, `outline` | `--hd-btn-h` | one | Every footer has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is that act, filled: a lone `secondary` is a frame the grey of the footer under it. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page's remove action, not a confirm's act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`. |
 
 ## Primitives
 
@@ -560,6 +770,18 @@ makes the user read both before they can ignore it.
 
 ## Patterns
 
+### `CardBand`
+
+`packages/ui/src/design/patterns/AgentCard.tsx`
+
+A band, drawn only because its caller had something to put in it.
+
+Not `AgentCard`'s alone: `Publication.tsx`'s forge card is built on the same
+anatomy — crest, bands, verbs — for the reason its own doc comment gives,
+and its bands were redrawing this one privately (their own `border-t
+border-(--hd-border-strong) px-3 py-2`, a hairline off this one's `py-2.5`).
+Exported so both compose the one band rather than two close drawings of it.
+
 ### `AppWindowSurface`
 
 `packages/ui/src/design/patterns/AppWindow.tsx`
@@ -567,6 +789,18 @@ makes the user read both before they can ignore it.
 The full-window destination shell shared by Settings and Dashboard.
 Base UI still owns focus and modality; this pattern owns the window ground
 and the two plates that meet inside it.
+
+### `AppWindowRailTop`
+
+`packages/ui/src/design/patterns/AppWindow.tsx`
+
+The window rail's head, under the window buttons: the system's rail section.
+
+### `AppWindowRailScroll`
+
+`packages/ui/src/design/patterns/AppWindow.tsx`
+
+The window rail's scrolling list: the system's rail section.
 
 ### `ApprovalReason`
 
@@ -585,6 +819,10 @@ Verbatim command, input or schema text inside an approval.
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
 
 A compact labelled value that locates an approved action.
+
+`kind="folder"` is a place, not something a shell reads: it is set in the
+interface's own type, the way every other branch, folder and file name in
+the app is (`docs/design.md`), and only a command keeps the code face.
 
 ### `ApprovalFilePath`
 
@@ -618,13 +856,22 @@ The pane-local approval surface. Base UI owns focus containment, Escape,
 dismissal semantics, and screen-reader dialog behavior; this pattern keeps
 the safety policy explicit and keeps the portal inside its conversation.
 
+`placement="docked"` is the same question in a composer's slot instead: a
+card in normal flow, as wide as the composer it stands in for, with the
+thread above it left fully readable — no scrim, no blur, no portal, not a
+dialog. A room is where this happens: a member waiting on a person takes
+the room's composer rather than covering the conversation everyone else in
+it is reading. It has exactly one filled act, the plain approve, like any
+footer in the app; every other answer is quiet, and its number still works.
+
 ### `ChannelSignal`
 
 `packages/ui/src/design/patterns/ChannelMessage.tsx`
 
 A board event — claimed, completed, released. The spine the messages hang
 off: one line, quiet, never a slab, because thirty of them is a normal
-afternoon and they are read as a sequence rather than one at a time.
+afternoon and they are read as a sequence rather than one at a time. The
+transcript's light register, like a step inside a turn's work.
 
 ### `ChannelNotice`
 
@@ -632,7 +879,7 @@ afternoon and they are read as a sequence rather than one at a time.
 
 A row about a member rather than from one: its turn ended without an answer.
 
-Shaped like a signal — the same rail, the same aside voice — because it is
+Shaped like a signal — the same spine, the same aside voice — because it is
 the room narrating rather than somebody speaking. It carries a chip, though,
 because the difference between "still reading" and "ran out of its window
 forty minutes ago" is the whole reason the row exists, and a grey sentence
@@ -681,6 +928,76 @@ this layer has no store — so it is handed back rather than dropped. A row
 that stays shown while the tick is up hears about it through
 `onCopiedChange`.
 
+### `DialogFormScope`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+Marks everything inside as a dialog's form. `Dialog` puts its body in one.
+
+### `useDialogForm`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+Whether this part is drawn inside a dialog's body.
+
+### `dialogStackClass`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+The class a dialog's body and an in-dialog `FormStack` share.
+
+### `FieldsetLegend`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+The name over a group, as a `Field` names its control. `SectionHead` draws
+this inside a dialog, so a group label written for a page lands attached
+to the group it names.
+
+### `Fieldset`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+A legend over a group of controls — checkboxes, a `ChoiceList`, two fields
+that belong together. The group is announced by its legend, and the legend
+sits on the group at a label's distance.
+
+### `stepRadio`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+Arrow keys, Home and End move the answer within the nearest radio group,
+the way a native radio group does: one Tab stop, and the arrows choose.
+
+### `ChoiceRow`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+One answer in a `ChoiceList`: a radio on the title's line and, under the
+title, the answer's description in the hint step. Every answer shows its
+description, so answers can be compared before one is chosen, and choosing
+moves nothing — a row's height is its content's, never its state's. The
+whole row is the target. It reaches 8px past its column on either side, so
+the radio lines up with the labels above it and the hover still has a
+corner to round, wherever the row is placed.
+
+### `choiceListClass`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+The container a dialog's `Rows role="radiogroup"` becomes.
+
+### `ChoiceList`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+One answer among a few that each need a line of explanation, in a dialog.
+
+Compact rows, a radio beside each title and every description under its
+title in the hint step, so nothing moves when the answer changes. For two to
+four answers a word each, use `Segmented` or a `NativeSelect`; for several
+members at once, checkboxes.
+
 ### `WorkbenchCanvas`
 
 `packages/ui/src/design/patterns/DockPanel.tsx`
@@ -692,6 +1009,31 @@ The grounded canvas the split tree and docks share.
 `packages/ui/src/design/patterns/DockPanel.tsx`
 
 The navigation plate down the workbench's side.
+
+### `RailSection`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+A navigation rail's two stretches: the short column of places at its head,
+and the long list that scrolls under it.
+
+One part for both rails the app has — the workbench's sidebar and the
+rail down the side of a full window (Settings, the dashboard, Agents). Both
+hold their rows on a gutter, close the head with a short step before the
+list's first label, keep a hair of air under that label, and leave a longer
+step after the last row so it can be scrolled clear of what sits below.
+
+`density` is the one way they differ, and it is the rail's own density, the
+word the window rail already carries as `data-hd-density`: `compact` is the
+sidebar, whose rows stand on the bars' gutter (`--hd-bar-pad`) so their ink
+lines up with the bars above them; `comfortable` is the window rail, whose
+rows carry a second line and take a wider gutter and longer steps.
+
+`corner` puts the head below the band the native window buttons sit in,
+for a rail that owns the window's top-left corner with no bar of its own.
+`ruled` is for a head that sits directly under a bar's rule — a pane's
+own rail, under the pane's header — and opens with the same short step it
+closes with, so its first row's ground never meets the line.
 
 ### `WorkbenchScrim`
 
@@ -816,9 +1158,20 @@ back where it started.
 
 `packages/ui/src/design/patterns/Lightbox.tsx`
 
-The canonical full-window image viewer. Base UI owns the modal lifecycle,
-focus containment/return, outside press, portal and topmost Escape policy;
-this pattern owns gallery navigation and image metadata.
+The canonical image viewer: a picture opened to the size of the window.
+
+It is a dialog showing an image, and it is drawn as one — the dialog's own
+surface, scrim and close, the picture's name as the dialog's title and its
+size as the dialog's description, and the gallery's steps as the floating
+buttons every control over content wears. Nothing here draws a look of its
+own. The version this replaces set a black scrim, white words and
+translucent white buttons in a stylesheet of its own, and the dialog's
+utilities outranked every one of them: in the light theme the name, the
+size and both arrows were white on a white sheet.
+
+Base UI owns the modal lifecycle, focus containment and return, outside
+press, portal and topmost Escape policy; this owns the gallery's position
+and the picture's facts.
 
 ### `Menu`
 
@@ -841,11 +1194,40 @@ it after the last.
 
 A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
 
-### `MessageQueueFrame`
+### `DialogHead`
 
-`packages/ui/src/design/patterns/MessageQueue.tsx`
+`packages/ui/src/design/patterns/ModalDialog.tsx`
 
-The messages held between the transcript and the composer.
+The head every dialog wears: its mark, its name, and the way out.
+
+`Dialog` draws it, and so does a sheet that lays out its own body — the
+skill sheet — so a dialog's name is one step, one inset and one rule under
+it whichever of them is open. The name is the subject step (14/21, medium):
+a dialog names one question or one thing, and a page names a place.
+
+`aside` sits on the name's own line (a kind badge); `children` are the lines
+under it — an identifier, the sentence saying what the thing is — and the
+head then aligns to its top, so the mark and the way out stay beside the
+name rather than drifting to the middle of a paragraph.
+
+### `DialogSubhead`
+
+`packages/ui/src/design/patterns/ModalDialog.tsx`
+
+Under the head, above the body, and outside the scroll: a breadcrumb, or
+the view switch of a document, still there after the body has scrolled.
+
+### `DialogBody`
+
+`packages/ui/src/design/patterns/ModalDialog.tsx`
+
+A dialog's body, which scrolls and is inset the dialog's step.
+
+`form` (what `Dialog` draws unless it is `flush`) is the form stack: its
+children are 16px apart, a `SectionHead` in it is a legend, and a `Rows`
+radio group is a compact `ChoiceList`. `flush` is a list whose rows reach
+the edges. `reading` is inset like a form and is not one — a document, or
+the facts beside it — so its parts keep their own rhythm.
 
 ### `Dialog`
 
@@ -854,6 +1236,12 @@ The messages held between the transcript and the composer.
 The application dialog pattern: Base UI owns focus, dismissal, stacking,
 the portal and accessibility; this layer owns HarnessDesk's header, body,
 footer and measured sizes.
+
+The body is a form stack (`DialogForm`) unless it is `flush`: its children
+are 16px apart, a `SectionHead` in it is a legend on the group it names,
+and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
+Nothing in the body needs spacing of its own. A `flush` body is a list and
+is not a form, so it keeps the page's parts.
 
 ### `useDismissOverlays`
 
@@ -906,94 +1294,20 @@ The glyph for what was published: a pull request, a review, a comment, an issue.
 
 A pull request's state in a word, toned as the judgement it is: merged is good news, closed without merging is not.
 
-### `PublicationCard`
+### `Dot`
 
-`packages/ui/src/design/patterns/PublicationCard.tsx`
+`packages/ui/src/design/patterns/Settings.tsx`
 
-Something on the forge, as a card: a pull request, a review, a comment.
-
-Built on the agent card's anatomy — crest, bands, verbs — because the reader
-has learnt it there and a second anatomy for a second kind of thing would
-cost them the learning twice. What differs is the subject: a pull request
-has a state that is a judgement (merged is good news, closed without merging
-is not), so its pill takes a tone where an agent's tile takes a tint.
-
-The text on it is the forge's own. The card shows the pull request's title
-and the opening of its description exactly as GitHub holds them, which is
-how the signature at the end of a short description appears here — as part
-of the text, not as a claim the desk makes about it.
+A state as a light. `presence` is a member's light on the corner of its
+tile — place the dot inside the tile's own positioned wrapper — ringed in
+the `ground` the tile stands on, so it reads as cut out of the tile rather
+than stuck on it.
 
 ### `Spinner`
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
 A running operation whose words live beside it.
-
-### `StateStrip`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-A compact whole-roster reading: one segment per agent, in readiness order.
-
-### `StatusSummary`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-One operation or account state: judged mark, title, and the reason beneath it.
-
-### `AccessHeader`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The horizontal title band of an account-access sheet.
-
-### `AccessRail`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The roster column of an account-access sheet.
-
-### `AccessDetail`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The scrolled work pane beside an access roster.
-
-### `AccessFact`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-A labelled path or consequence in an account-access flow.
-
-### `AccessCode`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-A one-time code: verbatim, selectable, and visually separate from prose.
-
-### `LibraryReachMark`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-One state in the Library matrix, distinguished by shape before colour.
-
-### `LibraryReachFace`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-An agent's identity mark, with reach expressed only by the plate around it.
-
-### `LibraryOperationList`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The list's floor keeps a one-change plan reading as a composed preview.
-
-### `LibraryOperationMark`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-One planned operation or result, using the glyph the Library already taught.
 
 ### `Chip`
 
@@ -1003,6 +1317,32 @@ A compact state, said out loud. Readiness keeps its dot and default word;
 a judged fact takes a semantic `tone`, while an identity takes a `tint`.
 The emphatic brand tone marks the current fact in a set. Stale and unknown
 facts keep those meanings distinct in both ink and their accessible names.
+
+**Grammar.** A chip is a mark, not a sentence:
+
+- **One line, always.** It never wraps: it stops at its box (at most 240px,
+  less when its container is narrower), ellipsises, and says itself whole
+  in `title` while it is cut. A fact that needs two lines is a row's
+  description, not a chip.
+- **Stale is marked, never struck.** A stale fact leads with a history
+  glyph, and the word "stale" is there for a screen reader. A stale *pass*
+  drops to the neutral fill and muted ink — it no longer vouches for what
+  is there now. A stale failure or warning keeps its tone: it is still the
+  last word, and hiding it would make a broken branch read as fine. A
+  strikethrough reads as "wrong", and a stale fact was right when it was
+  recorded.
+- **Zero draws nothing.** Give counts as `count`; zero renders no chip
+  unless `showZero` says zero is itself the finding.
+- **A chip earns its place.** It never repeats the row's own title, nor the
+  state a control beside it already shows (an "Off" chip by an off switch).
+  A chip that is identical on every row of a group says something about the
+  group: it belongs in the group's heading, once.
+
+**Tone.** `warning` means the person must act now; `danger` means
+something is broken or will be lost. A default or normal state is
+`neutral` or has no chip at all, and a stop the person asked for is
+neutral. Colour on every row is noise that hides the one row that needs
+someone. See `design/usage.ts`, family `tone`.
 
 ### `Search`
 
@@ -1026,12 +1366,6 @@ The inset around a list of destination rows.
 
 A keyboard name shown as a physical key rather than explanatory copy.
 
-### `SearchMatch`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The exact part of a search result that matched the query.
-
 ### `Field`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1048,17 +1382,30 @@ hears with it; the caller spreads the whole object onto the control rather
 than picking the id out of it, which is how that wiring stops being a thing
 anyone has to remember.
 
+The label sits 6px over its control and the hint 6px under it, one step
+smaller than the label, so a hint never reads as large as what you type. A
+field that may be left empty says so with `optional` — a quiet word at the
+label's end — rather than a qualifier appended to the label, which read as
+one long label ("Detail optional").
+
 ### `FormStack`
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
 Fields, stacked — the body of a dialog that asks for more than one thing.
+Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
+between fields, a legend 6px over its group.
 
 ### `Note`
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
 The short paragraph that belongs to a group of rows rather than to one of them.
+
+Tone follows the one contract (`design/usage.ts`, family `tone`): `warn`
+only when the person must act now, `bad` only when something is broken or
+will be lost. Ordinary information — including a stop the person asked for,
+or a limit that is simply how the thing works — is an untoned note.
 
 ### `NoteList`
 
@@ -1098,6 +1445,18 @@ The page's 20px semibold name, matching the wordmark, one line saying what it is
 
 The interface's named text roles, including dashboard readouts.
 
+### `TextMark`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The mark at the head of a line of text — a bullet, a task's check.
+
+It is set in the text's own role and is one of that text's lines tall (a
+zero-width space is the line's strut), with the mark centred in it; the
+row lays the two out on their first baseline, so the mark sits on the
+middle of the label's first line however many lines the label wraps to and
+whatever box the label is drawn in. `role` is the label's.
+
 ### `NavigationGroupHeader`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1110,11 +1469,24 @@ The label line above navigation rows, including the controls that act on that li
 
 A card of rows. Every settings page is made of these and nothing else.
 
+A card with nothing in it is not drawn: an empty list left a stray 2px
+rule in the middle of a form. Inside a dialog, a card that is a radio group
+of `RowChoice` rows and nothing else is a `ChoiceList` — no card, and each
+row a compact radio row. A radio group of anything else (a branch picker of
+row buttons) keeps its card, its edge and its ground.
+
 ### `RowButton`
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
 The same row, when the whole line opens something.
+
+With a `fold`, the row is two targets on one line: the button that opens,
+and at its end a fold that shows or hides what the row holds, wearing the
+trailing disclosure mark — down while folded, up while open — so it never
+reads as the drill-in chevron. The row keeps its inset and its one rule
+around both: the rule is the pair's, drawn under it unless it is its card's
+last row, as any row's is.
 
 ### `RowChoice`
 
@@ -1125,6 +1497,11 @@ A row that is one of several answers to the same question.
 The tick sits on the left, where a list of choices reads as a list rather
 than as a column of unrelated switches — and the chosen row is the only one
 carrying ink, so the answer is findable without reading all of them.
+
+Inside a dialog it is a compact radio row instead (`ChoiceRow`): a radio on
+the title's line and the description under it in the hint step — unless it
+stands in a card of rows, where it stays the settings row the card is
+built for.
 
 ### `BackLink`
 
@@ -1168,6 +1545,58 @@ sessions run as …"), so the title is decided as the pointer arrives, from
 whether the text overflows its box right then. The ellipsis is the
 caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
 
+### `RowValue`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A row's answer in words. A wrapped text answer takes its line under the
+title; a `numeric` one — money, a count — is compact: it keeps the row's
+end on tabular figures, where a column of them lines up by place.
+
+### `RowInput`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A value typed into a settings row — a port, a count, a daily cap — as
+compact as the switch beside it, and applied the way the switch is.
+
+Settings pages never show a Save button: a switch applies as it is flipped,
+and this applies when the typing is done — on Enter, or when focus leaves
+the field for somewhere else in the window. Escape puts back what is stored
+(and only then lets Escape close the window around it), and says so with
+`onRestore`. Nothing is sent while the text still reads as stored, so
+tabbing through the page writes nothing.
+
+Leaving the window is not finishing: Cmd-Tab away mid-number blurs the
+field, and applying "1" of "10" there would be a guess. So a blur while the
+document has lost focus keeps the draft, and the next real blur or Enter
+applies it. A field that goes away mid-edit (the page closing) drops its
+draft rather than applying it on the way out: an unmount cannot show a
+refusal, and a write the person cannot see fail is worse than one they did
+not finish.
+
+The row owns the name (`aria-label` repeats the row's title for a reader),
+the field owns only the value, at the width of the value it holds: a
+five-digit port in a 715px field said the field was the subject of the page.
+A value the caller refuses stays in the field, marked `invalid`, with the
+caller's `Note` saying why, so the person can mend what they typed rather
+than type it again.
+
+### `CodeText`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Code and output in the code face.
+
+`block` is text set as a block — laid out line for line, at the code step
+and its leading, inset from the box it fills: a file's text standing in a
+card where an editor would be (a plugin panel's code block), a raw envelope
+a message was sent in, the detail of an Agent that could not be read.
+`ground="muted"` gives the block a plate of its own, on the muted ground at
+the small corner and in the secondary ink, for one that sits among
+sentences rather than filling a card. `wrap` folds long lines instead of
+scrolling them, for text read as prose rather than aligned as code.
+
 ### `Monogram`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1191,8 +1620,10 @@ list only goes down, except when the audit learns to see something it was blind 
 | --- | --- | --- |
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
-| `patternClass` | 1 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 12 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
+| `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
+| `screenAppearance` | 51 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
+| `singleAreaPrimitive` | 44 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
+| `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |

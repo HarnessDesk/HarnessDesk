@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { Goal, GoalReceipt, WrapChoices, WrapPreview } from '@harnessdesk/protocol'
+import type { FindingReceipt, Goal, GoalReceipt, WrapChoices, WrapPreview } from '@harnessdesk/protocol'
 
 import { Serial } from './assignments.js'
 
@@ -14,17 +14,36 @@ export interface WrapInput {
   flow: boolean
   pending: boolean
   seats: GoalReceipt['seats']
+  members: NonNullable<GoalReceipt['members']>
   evidence: GoalReceipt['evidence']
+  evidenceSeats: NonNullable<GoalReceipt['evidenceSeats']>
   answers: GoalReceipt['answers']
   lanes: GoalReceipt['lanes']
   citations: GoalReceipt['citations']
   gaps: GoalReceipt['gaps']
   revisions: GoalReceipt['revisions']
+  /**
+   * The findings the Goal owns, frozen: their event ids and the views they
+   * fold to. Part of the stamp, so a finding raised, carried, posted or
+   * overridden after a preview makes the wrap stale. Absent on a desk that
+   * records none.
+   */
+  findings?: FindingReceipt
+  /**
+   * Publications of the Goal's findings that posting could not settle — an
+   * uncertain send, a paused one — each said as a sentence. A wrap records
+   * them as gaps only when the person says so (`WrapChoices.publicationGaps`).
+   */
+  publication?: readonly string[]
+  /** This Goal's trigger-origin projection, read through Intake just before freezing. Absent: not a trigger Goal. */
+  intake?: GoalReceipt['intake']
 }
 
 export type { WrapChoices } from '@harnessdesk/protocol'
 
 export interface WrapPort {
+  /** Refuses every change to the Goal's board until the answer is called: set before the board is read. */
+  hold?(goal: string): () => void
   read(goal: string): Promise<WrapInput>
   stage(goal: string, receipt: GoalReceipt, stamp: string): Promise<void>
   closeSeats(goal: string, ids: readonly string[]): Promise<void>
@@ -49,6 +68,10 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       input.cards.some((card) => !resolutions.has(card.id))) {
     throw new Error('Review every card once before wrapping.')
   }
+  if ((input.publication?.length ?? 0) > 0 && choices.publicationGaps !== 'record') {
+    const count = input.publication!.length
+    throw new Error(`${count === 1 ? 'One posting' : `${count} postings`} of this Goal's findings could not be confirmed on the pull request. Look at the pull request, then wrap recording ${count === 1 ? 'it' : 'them'} as a gap.`)
+  }
   for (const card of input.cards) {
     const resolution = resolutions.get(card.id)!
     if ((resolution.resolution === 'dropped' || card.state !== 'done') && !resolution.reason?.trim()) {
@@ -64,12 +87,16 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       summary: choices.summary.trim(),
       cards: choices.cards,
       seats: input.seats,
+      members: input.members,
       evidence: input.evidence,
+      evidenceSeats: input.evidenceSeats,
       answers: input.answers,
       lanes: input.lanes,
       citations: input.citations,
       revisions: input.revisions,
       gaps: input.gaps,
+      ...(input.findings ? { findings: input.findings } : {}),
+      ...(input.intake ? { intake: input.intake } : {}),
     }),
   }
 }
@@ -80,20 +107,30 @@ export class Wraps {
   commit(goal: string, stamp: string, choices: WrapChoices, id: string, at: number): Promise<GoalReceipt> {
     const approved = structuredClone(choices)
     return this.serial.run(async () => {
-      const input = await this.port.read(goal)
-      if (wrapStamp(input, approved) !== stamp) {
-        throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+      // Nothing joins the board from here: what the receipt reviews is all there is to wrap.
+      const release = this.port.hold?.(goal) ?? (() => {})
+      try {
+        return await this.#commit(goal, stamp, approved, id, at)
+      } finally {
+        release()
       }
-      const ready = previewWrap(input, approved)
-      const receipt: GoalReceipt = { ...ready.receipt, id, wrappedAt: at }
-      if (Buffer.byteLength(JSON.stringify(receipt), 'utf8') > 8 * 1024 * 1024) {
-        throw new Error('This receipt is too large to store. Shorten the summary or card reasons and review it again.')
-      }
-      await this.port.stage(goal, receipt, stamp)
-      await this.port.closeSeats(goal, receipt.seats)
-      await this.port.finish(goal, receipt)
-      return receipt
     })
+  }
+
+  async #commit(goal: string, stamp: string, approved: WrapChoices, id: string, at: number): Promise<GoalReceipt> {
+    const input = await this.port.read(goal)
+    if (wrapStamp(input, approved) !== stamp) {
+      throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+    }
+    const ready = previewWrap(input, approved)
+    const receipt: GoalReceipt = { ...ready.receipt, id, wrappedAt: at }
+    if (Buffer.byteLength(JSON.stringify(receipt), 'utf8') > 8 * 1024 * 1024) {
+      throw new Error('This receipt is too large to store. Shorten the summary or card reasons and review it again.')
+    }
+    await this.port.stage(goal, receipt, stamp)
+    await this.port.closeSeats(goal, receipt.seats)
+    await this.port.finish(goal, receipt)
+    return receipt
   }
 }
 

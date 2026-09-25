@@ -1,14 +1,12 @@
 import { useState } from 'react'
 
-import type { FlowPermission, Session } from '@harnessdesk/protocol'
+import { CEILING_LEVELS, type CeilingLevel, type Session } from '@harnessdesk/protocol'
 
-import { Button, Dialog, Field, FormStack, Input, Note, RowChoice, Rows, SectionHead } from '../design'
+import { Button, Dialog, Field, Input, Note, RowChoice, Rows, SectionHead } from '../design'
 import { ceilingMeaning, ceilingWords, projectName, seatOf, seatWordsOf } from '../lib/agents'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { BriefIcon } from './Icons'
-
-const CEILINGS: readonly FlowPermission[] = ['read', 'publish', 'merge']
 
 /**
  * *Save as an Agent…*: this conversation's seat, kept under a name, with what
@@ -24,7 +22,7 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
   const snapshot = useSnapshot()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [permission, setPermission] = useState<FlowPermission>('read')
+  const [ceiling, setCeiling] = useState<CeilingLevel>('read')
   const [to, setTo] = useState<'user' | 'project'>(snapshot.workspace ? 'project' : 'user')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -40,7 +38,7 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
       const entry = await store.saveAsAgent({
         name: name.trim(),
         description: description.trim(),
-        permission,
+        ceiling,
         seat: seatOf(session),
         to,
       })
@@ -52,15 +50,19 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
     }
   }
 
+  const nameNeeded = name.trim() === ''
+
   return (
     <Dialog
       title="Save as an Agent"
       icon={<BriefIcon size={15} />}
       size="md"
+      tall
       onClose={onClose}
+      footerAside={nameNeeded ? 'Name it first.' : undefined}
       footer={
         <>
-          <Button variant="default" disabled={busy || name.trim() === ''} onClick={() => void save()}>
+          <Button variant="default" disabled={busy || nameNeeded} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save and open the brief'}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
@@ -69,36 +71,38 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
         </>
       }
     >
-      <FormStack>
-        <Note>{`Its first seat is the one this conversation is on: ${words}.`}</Note>
-        <Field label="Name">
-          {(control) => (
-            <Input
-              {...control}
-              autoFocus
-              value={name}
-              placeholder="Checkout reviewer"
-              onChange={(event) => setName(event.target.value)}
-            />
-          )}
-        </Field>
-        <Field label="What it is for" hint="One line. The roster shows it under the name.">
-          {(control) => (
-            <Input {...control} value={description} maxLength={120} onChange={(event) => setDescription(event.target.value)} />
-          )}
-        </Field>
+      <Note>{`Its first seat is the one this conversation is on: ${words}.`}</Note>
+      <Field label="Name">
+        {(control) => (
+          <Input
+            {...control}
+            autoFocus
+            value={name}
+            placeholder="Checkout reviewer"
+            onChange={(event) => setName(event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="What it is for" hint="One line. The roster shows it under the name.">
+        {(control) => (
+          <Input {...control} value={description} maxLength={120} onChange={(event) => setDescription(event.target.value)} />
+        )}
+      </Field>
+      <section aria-label="The most it may do">
         <SectionHead name="The most it may do" />
         <Rows role="radiogroup" aria-label="The most it may do">
-          {CEILINGS.map((one) => (
+          {CEILING_LEVELS.map((one) => (
             <RowChoice
               key={one}
               title={ceilingWords(one)}
               desc={<span className="whitespace-normal">{ceilingMeaning(one)}</span>}
-              selected={permission === one}
-              onClick={() => setPermission(one)}
+              selected={ceiling === one}
+              onClick={() => setCeiling(one)}
             />
           ))}
         </Rows>
+      </section>
+      <section aria-label="Where it is kept">
         <SectionHead name="Where it is kept" />
         <Rows role="radiogroup" aria-label="Where it is kept">
           {snapshot.workspace && (
@@ -120,8 +124,8 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
             onClick={() => setTo('user')}
           />
         </Rows>
-        {problem && <Note tone="bad">{problem}</Note>}
-      </FormStack>
+      </section>
+      {problem && <Note tone="bad">{problem}</Note>}
     </Dialog>
   )
 }

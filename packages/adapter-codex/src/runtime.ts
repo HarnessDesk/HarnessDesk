@@ -49,6 +49,7 @@ import {
   type UserMessageItem,
 } from '@harnessdesk/protocol'
 
+import { codexAttachmentSupport } from './attachments.js'
 import { automaticContext, contextPreamble, ToolProjection, toCodexToolResponse } from './capabilities.js'
 import { CodexCatalog, catalogWarningIn } from './catalog.js'
 import { CodexFiles } from './files.js'
@@ -67,6 +68,7 @@ import { loginParamsFor, mapAccount, mapLoginStart, signInMethods } from './mapp
 import { mapThrown } from './mapping/errors.js'
 import { mapNotification, mapRateLimits } from './mapping/notifications.js'
 import {
+  CODEX_CEILINGS,
   effortLabel,
   featureNameOf,
   overlayDraftValues,
@@ -88,6 +90,7 @@ import { CodexSession } from './session.js'
 import { ApprovalRouter } from './approvals.js'
 import { holderOf, isBusyRefusal, sessionStoreOf } from './writer-lock.js'
 import { codexEnvironmentConfig } from './lane-environment.js'
+import { codexProvider } from './provider.js'
 
 /**
  * `AgentRuntime` over `codex app-server`.
@@ -246,6 +249,10 @@ export class CodexRuntime implements AgentRuntime {
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
   readonly #environments = new Map<string, Readonly<Record<string, string>>>()
+  /** Child thread id to the thread that spawned it. */
+  readonly #parents = new Map<string, string>()
+  /** A bounded thread association was lost, so an otherwise unknown child is unsafe. */
+  #delegationUncertain = false
   /** Codex's inline reviews, made to open and close their turns; see `ReviewTurns`. */
   readonly #reviewTurns = new ReviewTurns()
   readonly #eventListeners = new Set<(event: AgentEvent) => void>()
@@ -264,6 +271,11 @@ export class CodexRuntime implements AgentRuntime {
   readonly #codexHome: string | null
   /** Resolved once and refreshed on start; see `AgentRuntime.sessionStore`. */
   #sessionStore: string
+  /** What Codex is started with, for reading which provider its sessions reach. */
+  readonly #launch: { readonly env: Readonly<Record<string, string | undefined>>; readonly overrides: readonly string[] }
+  /** Resolved on construction and refreshed on start, unknown until then; see `RuntimeInfo.provider`. */
+  #provider: string | null = null
+  #providerRead: Promise<void>
 
   constructor(options: CodexRuntimeOptions = {}) {
     this.#id = options.id ?? CODEX_RUNTIME_ID
@@ -272,6 +284,8 @@ export class CodexRuntime implements AgentRuntime {
     this.#settleMs = options.settleMs
     this.#codexHome = options.codexHome ?? null
     this.#sessionStore = sessionStoreOf(this.#codexHome)
+    this.#launch = { env: { ...process.env, ...options.env }, overrides: options.configOverrides ?? [] }
+    this.#providerRead = this.#readProvider()
     this.#binaryPath = options.binaryPath ?? null
     this.#logger = options.logger
     this.#capabilities = options.capabilities ?? null
@@ -338,6 +352,10 @@ export class CodexRuntime implements AgentRuntime {
         : this.#sharesHistory
           ? { ...CAPABILITIES, listHistory: false, searchHistory: false }
           : CAPABILITIES,
+      ...(this.#everStarted ? { ceilings: CODEX_CEILINGS } : {}),
+      // Observations, not defaults, the same rule `capabilities` above
+      // follows: nothing is claimed before the app-server has answered.
+      ...(this.#everStarted ? { attachments: codexAttachmentSupport(this.#version ?? '') } : {}),
       presentation: {
         ...PRESENTATION,
         install: {
@@ -345,6 +363,7 @@ export class CodexRuntime implements AgentRuntime {
           command: installCommandFor(this.#server.installation?.path),
         },
       },
+      provider: this.#provider,
       // Codex ≥0.135.0 refuses `wire_api = "chat"` outright (probed; see
       // script/probe/README.md), so Responses is the whole truth here.
       supportedWireProtocols: ['responses'],
@@ -362,8 +381,31 @@ export class CodexRuntime implements AgentRuntime {
     return this.#sessionStore
   }
 
+  /**
+   * OpenAI's, from Codex's own configuration, or unknown when anything it is
+   * started with could point it elsewhere — a `-c` override naming a
+   * provider or base URL included. See `codexProvider`.
+   */
+  async #resolveProvider(cwd?: string): Promise<string | null> {
+    if (this.#launch.overrides.some((one) => /model_provider|base_url/.test(one))) return null
+    return codexProvider(this.#codexHome, this.#launch.env, cwd)
+  }
+
+  #readProvider(): Promise<void> {
+    return this.#resolveProvider().then((provider) => { this.#provider = provider }, () => { this.#provider = null })
+  }
+
+  /** `AgentRuntime.providerAt`: a project's own `.codex/config.toml` can point its sessions elsewhere. */
+  async providerAt(cwd: string): Promise<string | null> {
+    await this.#providerRead
+    return this.#provider === null ? null : this.#resolveProvider(cwd)
+  }
+
   async start(): Promise<void> {
+    // Read beside the spawn, never ahead of it: a quit must find the start where it always did.
+    this.#providerRead = this.#readProvider()
     await this.#spawnServer()
+    await this.#providerRead
     // The links a slot's home is made of are relaid on every start, and a home
     // that had never held a thread now has a `sessions` directory to resolve.
     this.#sessionStore = sessionStoreOf(this.#codexHome)
@@ -1246,6 +1288,22 @@ export class CodexRuntime implements AgentRuntime {
    */
   #track(notification: CodexProtocol.ServerNotification): void {
     switch (notification.method) {
+      case 'thread/started': {
+        const { id, parentThreadId } = notification.params.thread
+        if (parentThreadId && parentThreadId !== id) {
+          const root = this.#rootOf(parentThreadId)
+          if (root === null) this.#delegationUncertain = true
+          else this.#parents.set(id, root)
+          if (this.#parents.size > 2000) {
+            const oldest = this.#parents.keys().next().value
+            if (oldest !== undefined) {
+              this.#parents.delete(oldest)
+              this.#delegationUncertain = true
+            }
+          }
+        }
+        return
+      }
       case 'thread/settings/updated':
         this.#sessions
           .get(notification.params.threadId)
@@ -1322,6 +1380,21 @@ export class CodexRuntime implements AgentRuntime {
     return { ...event, item: noticeFromUserMessage(event.item) }
   }
 
+  /** Walk an announced child thread to the conversation the desk opened. */
+  #rootOf(threadId: string): string | null {
+    let at = threadId
+    const seen = new Set<string>()
+    for (let depth = 0; depth < 8; depth += 1) {
+      if (this.#sessions.has(at)) return at
+      if (seen.has(at)) return null
+      seen.add(at)
+      const parent = this.#parents.get(at)
+      if (parent === undefined) return this.#delegationUncertain ? null : at
+      at = parent
+    }
+    return this.#sessions.has(at) ? at : null
+  }
+
   #onServerRequest(
     request: CodexProtocol.ServerRequest,
     responder: ServerRequestResponder,
@@ -1356,8 +1429,14 @@ export class CodexRuntime implements AgentRuntime {
     responder: ServerRequestResponder,
   ): Promise<void> {
     const registry = this.#capabilities
-    const session = this.#sessions.get(params.threadId)
+    const root = this.#rootOf(params.threadId)
     const label = `${params.namespace ?? ''}/${params.tool}`
+
+    if (root === null) {
+      responder.respond(toCodexToolResponse({ ok: false, error: 'Delegated tool call refused: its root conversation could not be confirmed.' }))
+      return
+    }
+    const session = this.#sessions.get(root)
 
     if (!registry) {
       responder.respond(
@@ -1367,7 +1446,7 @@ export class CodexRuntime implements AgentRuntime {
     }
 
     const scope = {
-      sessionId: makeSessionId(params.threadId),
+      sessionId: makeSessionId(root),
       turnId: turnIdOf(params.turnId),
       runtime: this.#id,
       ...(session ? { workspaceRoot: session.settings().cwd } : {}),
@@ -1422,13 +1501,17 @@ export class CodexRuntime implements AgentRuntime {
 
   #onStateChange(state: ConnectionState): void {
     if (state.type === 'ready') this.#version = state.installation.version
-    if (state.type === 'restarting' || state.type === 'failed') {
+    if (state.type !== 'ready') {
       // A restarted app-server has no memory of live threads or watches. Drop
       // the handles so the host resumes rather than sending turns into a dead
       // session, and so a watcher is not left waiting for changes that will
       // never arrive. The catalogue goes too: the new process asks its vendor
       // afresh, and may be answered differently — or be a different binary.
       this.#sessions.clear()
+      // A child id can be reused by the next app-server. Its parent came from
+      // the old process, so it is not evidence that this epoch delegated it.
+      this.#parents.clear()
+      this.#delegationUncertain = true
       this.#reviewTurns.clear()
       this.tasks.dispose()
       this.#catalog.invalidate()

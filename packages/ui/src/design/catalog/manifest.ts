@@ -1,6 +1,6 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench'
-export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary'
+export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
 export type CatalogEntry = {
@@ -56,27 +56,31 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   alert: 'packages/ui/src/components/WorktreeAlerts.tsx',
-  badge: 'packages/ui/src/components/Channel.tsx',
+  badge: 'packages/ui/src/components/GitPane.tsx',
   board: 'packages/ui/src/components/TeamBoardPane.tsx',
+  bar: 'packages/ui/src/components/Sidebar.tsx',
   button: 'packages/ui/src/components/SignIn.tsx',
   chart: 'packages/ui/src/components/Usage.tsx',
   composer: 'packages/ui/src/components/RoomComposer.tsx',
   checkbox: 'packages/ui/src/components/AddWork.tsx',
   dialog: 'packages/ui/src/components/Composer.tsx',
   delta: 'packages/ui/src/components/Usage.tsx',
+  'disclosure-chevron': 'packages/ui/src/components/TurnWork.tsx',
   'dropdown-menu': 'packages/ui/src/components/TeamBoardPane.tsx',
   'empty-state': 'packages/ui/src/components/Library.tsx',
   field: 'packages/ui/src/components/Settings.tsx',
+  'group-label': 'packages/ui/src/components/Settings.tsx',
   'hover-card': 'packages/ui/src/components/AgentCards.tsx',
   'icon-tile': 'packages/ui/src/components/SkillSheet.tsx',
   input: 'packages/ui/src/components/SignIn.tsx',
-  label: 'packages/ui/src/components/Library.tsx',
+  label: 'packages/ui/src/components/Settings.tsx',
   'list-row': 'packages/ui/src/components/TeamRoomPane.tsx',
   'native-select': 'packages/ui/src/components/PluginsSection.tsx',
   popover: 'packages/ui/src/components/ComposerControls.tsx',
   'radio-group': 'packages/ui/src/components/AddMember.tsx',
   'resize-handle': 'packages/ui/src/components/Panes.tsx',
   separator: 'packages/ui/src/components/Channel.tsx',
+  'sortable-list': 'packages/ui/src/components/MessageQueue.tsx',
   spark: 'packages/ui/src/components/Usage.tsx',
   switch: 'packages/ui/src/components/PluginsSection.tsx',
   tabs: 'packages/ui/src/components/Extensions.tsx',
@@ -94,6 +98,10 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      in for every feature — so the handle was documented against a drawing of
      the thing it drags. */
   'resize-handle': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  /* Its example is the queue's own rows, which are a sortable list. */
+  'sortable-list': 'packages/ui/src/design/explorer/boards.tsx',
+  /* The catalogue's own rail heads its groups with it. */
+  'group-label': 'packages/ui/src/design/explorer/Explorer.tsx',
   badge: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   card: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'hover-card': 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -112,15 +120,15 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
    exemptions are for compound anatomy whose state is already exercised by
    the named interactive board but is not expressed as CVA axes. */
 const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
-  'alert-dialog', 'avatar', 'avatar-stack', 'board',
+  'alert-dialog', 'avatar', 'avatar-stack', 'bar', 'board',
   'breadcrumb', 'card', 'chart', 'checkbox', 'composer',
-  'data-table', 'delta', 'dialog', 'dropdown-menu', 'empty-state', 'field',
+  'data-table', 'delta', 'dialog', 'disclosure-chevron', 'dropdown-menu', 'empty-state', 'field', 'group-label',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
-  'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
+  'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator', 'sortable-list',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
-  'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
-  'Popover', 'MessageQueue', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
-  'InspectorPanel',
+  'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
+  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -137,7 +145,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   badge: ['default', 'secondary', 'destructive', 'outline'],
   board: ['default'],
   breadcrumb: ['default'],
-  button: ['default', 'outline', 'secondary', 'ghost', 'floating', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
+  button: ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
   card: ['default', 'muted', 'flush'],
   chart: ['default'],
   checkbox: ['default'],
@@ -146,14 +154,16 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'data-table': ['default'],
   delta: ['default'],
   dialog: ['default'],
+  'disclosure-chevron': ['default', 'warning'],
   'dropdown-menu': ['default'],
-  'empty-state': ['default'],
+  'empty-state': ['panel', 'inline', 'row'],
   field: ['default'],
+  'group-label': ['default'],
   'hover-card': ['default'],
   'icon-tile': ['default'],
   input: ['default', 'quiet', 'filled', 'chrome', 'code'],
   'input-group': ['default'],
-  'key-value': ['default', 'panel'],
+  'key-value': ['default', 'panel', 'summary'],
   label: ['default'],
   'list-row': ['default'],
   marker: ['default', 'border', 'separator'],
@@ -164,16 +174,18 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   rail: ['default'],
   'resize-handle': ['default', 'line'],
   'scroll-area': ['default'],
-  section: ['card', 'plain', 'quiet', 'panel'],
+  section: ['card', 'plain', 'quiet', 'panel', 'page'],
   select: ['default'],
   separator: ['horizontal', 'vertical'],
+  'sortable-list': ['default'],
+  bar: ['default'],
   spark: ['default'],
   stat: ['plain', 'bordered', 'tinted'],
   stepper: ['default'],
   switch: ['default'],
   table: ['default', 'framed', 'panel'],
   tabs: ['default', 'line'],
-  textarea: ['default', 'editor', 'inline', 'composer'],
+  textarea: ['default', 'editor', 'code', 'inline', 'composer'],
   toast: ['default'],
   'toggle-group': ['default', 'outline'],
   'tool-pane': ['default', 'integrated'],
@@ -182,12 +194,12 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   tooltip: ['default'],
   Settings: ['default', 'sticky'],
   ModalDialog: ['default'],
+  DialogForm: ['default'],
   ApprovalDialog: ['default'],
   ConfirmDialog: ['default'],
   Lightbox: ['default'],
   Menu: ['default'],
   Popover: ['default'],
-  MessageQueue: ['default'],
   ChannelMessage: ['default'],
   AgentCard: ['default'],
   CodeBlock: ['default'],
@@ -199,6 +211,8 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   Change: ['default'],
   RefusedAction: ['default'],
   InspectorPanel: ['default'],
+  ConversationEmptyState: ['default'],
+  TurnWork: ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -219,9 +233,11 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   'data-table': ['loading', 'empty', 'populated', 'selected'],
   delta: ['default', 'success', 'warning', 'error'],
   dialog: ['closed', 'open'],
+  'disclosure-chevron': ['collapsed', 'expanded'],
   'dropdown-menu': ['closed', 'open', 'selected', 'disabled'],
   'empty-state': ['empty', 'loading', 'error'],
   field: ['default', 'focus-visible', 'disabled', 'error'],
+  'group-label': ['default'],
   'hover-card': ['closed', 'open'],
   'icon-tile': ['default', 'hover', 'selected'],
   input: ['default', 'focus-visible', 'disabled', 'error'],
@@ -240,6 +256,8 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   section: ['expanded', 'collapsed'],
   select: ['closed', 'open', 'selected', 'disabled'],
   separator: ['default'],
+  'sortable-list': ['default', 'hover', 'focus-visible', 'active'],
+  bar: ['default'],
   spark: ['default', 'success', 'warning', 'error'],
   stat: ['default', 'loading', 'error'],
   stepper: ['default', 'active', 'success', 'error'],
@@ -255,12 +273,12 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   tooltip: ['closed', 'open'],
   Settings: ['default', 'loading', 'error', 'stale', 'unknown'],
   ModalDialog: ['closed', 'open'],
+  DialogForm: ['default', 'selected', 'unselected', 'focus-visible', 'disabled', 'error'],
   ApprovalDialog: ['closed', 'open', 'loading', 'error'],
   ConfirmDialog: ['closed', 'open', 'loading', 'error'],
   Lightbox: ['closed', 'open'],
   Menu: ['closed', 'open', 'selected', 'disabled'],
   Popover: ['closed', 'open'],
-  MessageQueue: ['default', 'warning', 'active'],
   DockPanel: ['expanded', 'collapsed'],
   ChannelMessage: ['default', 'loading', 'success', 'error'],
   AgentCard: ['default', 'active', 'inactive', 'loading'],
@@ -272,6 +290,8 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Change: ['default', 'selected', 'warning', 'error'],
   RefusedAction: ['disabled', 'focus-visible'],
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
+  ConversationEmptyState: ['empty'],
+  TurnWork: ['default', 'expanded'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -279,11 +299,12 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
-  button: ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
+  button: ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
   card: ['default', 'compact'],
   input: ['default', 'compact', 'bare'],
   attachment: ['sm', 'default', 'lg'],
   'icon-tile': ['xs', 'sm', 'default', 'lg'],
+  'disclosure-chevron': ['xs', 'sm', 'default', 'lg'],
   'native-select': ['default', 'compact'],
   switch: ['default', 'sm'],
   textarea: ['default', 'compact', 'composer'],
@@ -293,12 +314,12 @@ Object.assign(SIZES, {
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   Settings: 'packages/ui/src/components/Settings.tsx',
   ModalDialog: 'packages/ui/src/components/Settings.tsx',
+  DialogForm: 'packages/ui/src/components/SaveAsAgent.tsx',
   ApprovalDialog: 'packages/ui/src/components/Approvals.tsx',
   ConfirmDialog: 'packages/ui/src/components/Settings.tsx',
   Lightbox: 'packages/ui/src/components/Items.tsx',
   Menu: 'packages/ui/src/components/ComposerControls.tsx',
   Popover: 'packages/ui/src/components/ComposerControls.tsx',
-  MessageQueue: 'packages/ui/src/components/MessageQueue.tsx',
   ChannelMessage: 'packages/ui/src/components/Channel.tsx',
   AgentCard: 'packages/ui/src/components/AgentCards.tsx',
   CodeBlock: 'packages/ui/src/components/Items.tsx',
@@ -310,6 +331,8 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   Change: 'packages/ui/src/components/GitPane.tsx',
   RefusedAction: 'packages/ui/src/components/Archive.tsx',
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
+  ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
+  TurnWork: 'packages/ui/src/components/TurnWork.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -319,8 +342,8 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      in for every feature. */
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
+  DialogForm: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
-  MessageQueue: 'packages/ui/src/design/explorer/boards.tsx',
   Popover: 'packages/ui/src/design/explorer/boards.tsx',
   ChannelMessage: 'packages/ui/src/design/explorer/boards.tsx',
   AgentCard: 'packages/ui/src/design/explorer/boards.tsx',
@@ -332,6 +355,8 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   Change: 'packages/ui/src/design/explorer/boards.tsx',
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
+  TurnWork: 'packages/ui/src/components/TurnWork.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -384,7 +409,7 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
 export const CANONICAL_UI_MODULES = [
   ['alert', 'banner', 'Status and notification anatomy'],
   ['alert-dialog', 'dialog', 'Consequential question semantics'],
-  ['avatar', 'face', 'Identity image primitive'],
+  ['avatar', 'list', 'Identity image primitive'],
   ['attachment', 'adopted', 'File attachment states'],
   ['avatar-stack', 'adopted', 'Overlapping identity group'],
   ['badge', 'badge', 'Compact categorical state'],
@@ -398,14 +423,16 @@ export const CANONICAL_UI_MODULES = [
   ['checkbox', 'adopted', 'Multiple-choice control'],
   ['dialog', 'dialog', 'Base UI dialog parts and portal policy'],
   ['delta', 'delta', 'Signed change indicator'],
+  ['disclosure-chevron', 'conversation', 'Open or closed mark of an in-place disclosure'],
   ['dropdown-menu', 'propagation', 'Base UI dropdown-menu parts'],
   ['empty-state', 'empty', 'Empty and unavailable states'],
   ['field', 'field', 'Label, help and validation anatomy'],
+  ['group-label', 'section', 'The one group heading: 13px, secondary, sentence case'],
   ['hover-card', 'adopted', 'Preview-card behavior'],
   ['icon-tile', 'tile', 'Icon and mark plate'],
   ['input', 'field', 'Single-line text input'],
   ['input-group', 'adopted', 'Affixed text input'],
-  ['key-value', 'readings', 'Measured fact rows'],
+  ['key-value', 'readings', 'Measured fact rows, and SummaryList: facts about one object as a card'],
   ['label', 'field', 'Native form label'],
   ['list-row', 'list', 'Generic selectable list row'],
   ['marker', 'adopted', 'Status marker'],
@@ -415,9 +442,11 @@ export const CANONICAL_UI_MODULES = [
   ['radio-group', 'control', 'Single-choice radio behavior'],
   ['resize-handle', 'panels', 'Keyboard-accessible resize seam'],
   ['scroll-area', 'adopted', 'Themed scroll container'],
-  ['section', 'section', 'Titled content region'],
+  ['section', 'section', 'Titled content region, and the page section that owns its spacing'],
   ['select', 'adopted', 'Custom Base UI select'],
   ['separator', 'adopted', 'Semantic divider'],
+  ['sortable-list', 'queue', 'Orders the person sets: drag handle, ⌥↑/⌥↓ (⌥←/⌥→ on a strip), announced moves'],
+  ['bar', 'panels', 'Bar-height row: title bars, filter rows, facts lines'],
   ['spark', 'spark', 'Inline quantitative marks'],
   ['stat', 'stat', 'Primary reading tile'],
   ['stepper', 'stepper', 'Ordered progress steps'],
@@ -435,12 +464,12 @@ export const CANONICAL_UI_MODULES = [
 export const CANONICAL_PATTERN_MODULES = [
   ['Settings', 'row', 'Settings pages, sections, rows and form layouts'],
   ['ModalDialog', 'dialog', 'Application reading and form dialog'],
+  ['DialogForm', 'dialog', 'Dialog form rhythm, fieldset legend and compact choice list'],
   ['ApprovalDialog', 'conversation', 'Pane-local consequential approval policy'],
   ['ConfirmDialog', 'dialog', 'Safe confirmation policy'],
   ['Lightbox', 'dialog', 'Full-window image gallery and modal policy'],
   ['Menu', 'propagation', 'Menu, context menu and submenu policy'],
   ['Popover', 'propagation', 'HarnessDesk anchored action popover'],
-  ['MessageQueue', 'queue', 'Queued-message frame, rows and timing states'],
   ['ChannelMessage', 'channel', 'Room and channel message anatomy'],
   ['AgentCard', 'group', 'Agent, account and member card anatomy'],
   ['CodeBlock', 'code', 'Verbatim command and output plate'],
@@ -452,6 +481,8 @@ export const CANONICAL_PATTERN_MODULES = [
   ['Change', 'git', 'File state, change counts and patch anatomy'],
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
+  ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
+  ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

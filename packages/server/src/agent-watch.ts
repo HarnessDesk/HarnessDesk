@@ -17,6 +17,30 @@ export type WatchFn = (
   listener: (event: string, filename: string | Buffer | null) => void,
 ) => FSWatcher
 
+/** A timer handle this module can cancel; a fake clock's handle need not be a real one. */
+export interface ClockTimer {
+  readonly unref?: () => void
+}
+
+/**
+ * The one shape this module ever schedules a delay through: every settle
+ * timer (`#poke`, `#scheduleRescan`) and the retry backoff (`#retry`) go
+ * through this rather than calling `setTimeout`/`clearTimeout` directly, so a
+ * test can hold time still while a real burst of filesystem events lands —
+ * however unevenly a loaded machine spaces them out — and then move it
+ * forward itself, in one step, to settle the burst on its own terms instead
+ * of racing a real window against real load.
+ */
+export interface Clock {
+  readonly setTimeout: (callback: () => void, ms: number) => ClockTimer
+  readonly clearTimeout: (timer: ClockTimer) => void
+}
+
+const realClock: Clock = {
+  setTimeout: (callback, ms) => setTimeout(callback, ms),
+  clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
+}
+
 /**
  * The roster, watched: when a file under one of its roots changes, the desk
  * says so, and every listing and dry run drawn from the roster is asked again.
@@ -79,6 +103,12 @@ export interface AgentWatchOptions {
   /** Test-only: replaces `node:fs`'s `watch`. The host never passes this. */
   readonly watchFn?: WatchFn
   /**
+   * Test-only: replaces every `setTimeout`/`clearTimeout` this watch
+   * schedules — both settle timers and the retry backoff. The host never
+   * passes this; it defaults to the real clock.
+   */
+  readonly clock?: Clock
+  /**
    * Test-only: called the moment `#follow` has confirmed its scope is still
    * live, synchronously and before its own first `await` — the single point
    * from which a project closed a moment later races every await between
@@ -97,6 +127,17 @@ const SETTLE_MS = 150
 /** The backoff a failed watch is retried on: doubling from here, capped below, for as long as it keeps failing. */
 const RETRY_MS = 200
 const RETRY_MAX_MS = 5_000
+/**
+ * The first wait of a walk-up's own backoff of re-checks, doubling from here
+ * up to `RETRY_MAX_MS` and then repeating at that cap — see `#follow`'s own
+ * comment where this is used (#938). `node:fs`'s `watch` gives no "now
+ * listening" signal to wait for, so this stands in for one: a native
+ * listener that proves itself with an event of its own stops the backoff at
+ * once (one last check, then nothing further needed), and one that never
+ * does is still bounded to a check every `RETRY_MAX_MS` for as long as the
+ * name it wants keeps not being there.
+ */
+const READY_MS = 100
 
 /** One root the watch follows: whose it is, where it is, and what it must stay inside. */
 interface Follow {
@@ -175,7 +216,8 @@ export class AgentWatch {
   readonly #watchers = new Map<string, { readonly scope: string | null; readonly close: () => void }>()
   /** A root's own top-level links, watched at their target: keyed under the root's own key (`linksOf`). */
   readonly #links = new Map<string, { readonly scope: string | null; readonly target: string; readonly close: () => void }>()
-  readonly #timers = new Map<string | null, ReturnType<typeof setTimeout>>()
+  readonly #clock: Clock
+  readonly #timers = new Map<string | null, ClockTimer>()
   /**
    * A root's own re-scan of its top-level links, still pending: reset on
    * every accepted event from its recursive watch, so it runs once per
@@ -184,9 +226,21 @@ export class AgentWatch {
    * share `scope: null` between them, and each root's rescan settles on its
    * own.
    */
-  readonly #rescanTimers = new Map<string, { readonly scope: string | null; readonly timer: ReturnType<typeof setTimeout> }>()
+  readonly #rescanTimers = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
   /** A watch that could not be made, waiting on its backoff to retry through `#follow`. */
-  readonly #retries = new Map<string, { readonly scope: string | null; readonly timer: ReturnType<typeof setTimeout> }>()
+  readonly #retries = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
+  /**
+   * A walk-up's own backoff of re-checks (`READY_MS`, doubling), waiting to
+   * run its next step — see `#follow`'s own comment on why this exists
+   * (#938). Cancelled everywhere `#retries` is, and also the moment the
+   * watcher it backs proves itself with a native event: the follow it was
+   * checking for may have moved on (found through an event, refollowed, or
+   * dropped) before it ever fires, and a stale check is merely wasted work —
+   * `#alive` guards every path it can still reach — but never left to run
+   * past a follow's own life, or past the point its watcher stopped needing
+   * help, on purpose.
+   */
+  readonly #readyTimers = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
   /**
    * A run of failures, per root: how long the wait before its latest retry
    * was. Present from a failure until a watch for that root proves healthy —
@@ -203,6 +257,7 @@ export class AgentWatch {
 
   constructor(options: AgentWatchOptions) {
     this.#options = options
+    this.#clock = options.clock ?? realClock
     for (const root of options.roots) void this.#follow({ scope: null, target: root, within: null })
   }
 
@@ -234,12 +289,14 @@ export class AgentWatch {
     this.#watchers.clear()
     for (const one of this.#links.values()) one.close()
     this.#links.clear()
-    for (const timer of this.#timers.values()) clearTimeout(timer)
+    for (const timer of this.#timers.values()) this.#clock.clearTimeout(timer)
     this.#timers.clear()
-    for (const one of this.#rescanTimers.values()) clearTimeout(one.timer)
+    for (const one of this.#rescanTimers.values()) this.#clock.clearTimeout(one.timer)
     this.#rescanTimers.clear()
-    for (const one of this.#retries.values()) clearTimeout(one.timer)
+    for (const one of this.#retries.values()) this.#clock.clearTimeout(one.timer)
     this.#retries.clear()
+    for (const one of this.#readyTimers.values()) this.#clock.clearTimeout(one.timer)
+    this.#readyTimers.clear()
     this.#runs.clear()
     this.#rescans.clear()
   }
@@ -262,18 +319,23 @@ export class AgentWatch {
     }
     for (const [key, one] of [...this.#retries]) {
       if (one.scope !== scope) continue
-      clearTimeout(one.timer)
+      this.#clock.clearTimeout(one.timer)
       this.#retries.delete(key)
     }
     for (const [key, one] of [...this.#rescanTimers]) {
       if (one.scope !== scope) continue
-      clearTimeout(one.timer)
+      this.#clock.clearTimeout(one.timer)
       this.#rescanTimers.delete(key)
+    }
+    for (const [key, one] of [...this.#readyTimers]) {
+      if (one.scope !== scope) continue
+      this.#clock.clearTimeout(one.timer)
+      this.#readyTimers.delete(key)
     }
     for (const [key, one] of [...this.#runs]) if (one.scope === scope) this.#runs.delete(key)
     for (const [key, one] of [...this.#rescans]) if (one.scope === scope) this.#rescans.delete(key)
     const timer = this.#timers.get(scope)
-    if (timer) clearTimeout(timer)
+    if (timer) this.#clock.clearTimeout(timer)
     this.#timers.delete(scope)
   }
 
@@ -285,8 +347,8 @@ export class AgentWatch {
   #poke(scope: string | null): void {
     if (!this.#alive(scope)) return
     const pending = this.#timers.get(scope)
-    if (pending) clearTimeout(pending)
-    const timer = setTimeout(() => {
+    if (pending) this.#clock.clearTimeout(pending)
+    const timer = this.#clock.setTimeout(() => {
       this.#timers.delete(scope)
       if (!this.#disposed) this.#options.changed(scope)
     }, this.#options.settleMs ?? SETTLE_MS)
@@ -311,8 +373,8 @@ export class AgentWatch {
     if (!this.#alive(follow.scope)) return
     const key = keyOf(follow)
     const pending = this.#rescanTimers.get(key)
-    if (pending) clearTimeout(pending.timer)
-    const timer = setTimeout(() => {
+    if (pending) this.#clock.clearTimeout(pending.timer)
+    const timer = this.#clock.setTimeout(() => {
       this.#rescanTimers.delete(key)
       void this.#rescanLinks(follow)
     }, this.#options.settleMs ?? SETTLE_MS)
@@ -320,10 +382,36 @@ export class AgentWatch {
     this.#rescanTimers.set(key, { scope: follow.scope, timer })
   }
 
+  /**
+   * `noticeIfThere`, run again on a backoff from `delay` (`READY_MS` the
+   * first time, doubling, capped at `RETRY_MAX_MS` and repeating there) —
+   * see the long comment where this is first called, in `#follow`'s walk-up
+   * (#938). Each firing checks once, then reschedules itself at the next
+   * step unless `isLive` now says the watcher has proved itself with a
+   * native event of its own — in which case this step's check was the last
+   * one needed, and nothing further is scheduled. Replaces any check
+   * already waiting for this key rather than piling up beside it, the same
+   * way `#scheduleRescan` replaces its own pending timer.
+   */
+  #scheduleReady(follow: Follow, noticeIfThere: () => void, isLive: () => boolean, delay: number = READY_MS): void {
+    if (!this.#alive(follow.scope)) return
+    const key = keyOf(follow)
+    this.#cancelReady(key)
+    const timer = this.#clock.setTimeout(() => {
+      this.#readyTimers.delete(key)
+      noticeIfThere()
+      if (isLive()) return
+      this.#scheduleReady(follow, noticeIfThere, isLive, Math.min(delay * 2, RETRY_MAX_MS))
+    }, delay)
+    timer.unref?.()
+    this.#readyTimers.set(key, { scope: follow.scope, timer })
+  }
+
   /** Stops whatever follows this root now, its links with it, and follows it again from wherever it can be seen. */
   #refollow(follow: Follow): void {
     const key = keyOf(follow)
     this.#cancelRetry(key)
+    this.#cancelReady(key)
     this.#watchers.get(key)?.close()
     this.#watchers.delete(key)
     this.#closeLinks(key)
@@ -332,8 +420,15 @@ export class AgentWatch {
 
   #cancelRetry(key: string): void {
     const pending = this.#retries.get(key)
-    if (pending) clearTimeout(pending.timer)
+    if (pending) this.#clock.clearTimeout(pending.timer)
     this.#retries.delete(key)
+  }
+
+  /** Cancels a walk-up's own pending `READY_MS` re-check for this key, if one is still waiting. */
+  #cancelReady(key: string): void {
+    const pending = this.#readyTimers.get(key)
+    if (pending) this.#clock.clearTimeout(pending.timer)
+    this.#readyTimers.delete(key)
   }
 
   /**
@@ -370,6 +465,7 @@ export class AgentWatch {
   #retry(follow: Follow, error: unknown, upFor: number): void {
     const key = keyOf(follow)
     this.#cancelRetry(key)
+    this.#cancelReady(key)
     this.#watchers.get(key)?.close()
     this.#watchers.delete(key)
     this.#closeLinks(key)
@@ -388,7 +484,7 @@ export class AgentWatch {
       })
     }
     this.#runs.set(key, { scope: follow.scope, delay })
-    const timer = setTimeout(() => {
+    const timer = this.#clock.setTimeout(() => {
       this.#retries.delete(key)
       void this.#follow(follow)
     }, delay)
@@ -433,24 +529,87 @@ export class AgentWatch {
       const seen = await reach(above, follow.within)
       if (seen !== null) {
         const next = join(above, name)
-        this.#watch(follow, seen, false, (filename) => {
-          if (filename !== null && filename !== name) return
-          /* A bare name match is not proof that anything worth a notice
-             happened: watching a folder that already holds an entry of this
-             name — a link leading out, most of all — can report one on its
-             own the moment the watch attaches, nothing having changed at all.
-             So the name is looked at again, and only a *real* transition —
-             it now there, and read by the roster's rule — is a notice and a
-             reason to follow afresh. `next`, not `follow.target`: a walk more
-             than one level up asks about the name this ancestor is watching
-             for, not the final target several names further down, which a
-             real transition here need not have reached yet. */
+        /* A bare name match is not proof that anything worth a notice
+           happened: watching a folder that already holds an entry of this
+           name — a link leading out, most of all — can report one on its
+           own the moment the watch attaches, nothing having changed at all.
+           So the name is looked at again, and only a *real* transition —
+           it now there, and read by the roster's rule — is a notice and a
+           reason to follow afresh. `next`, not `follow.target`: a walk more
+           than one level up asks about the name this ancestor is watching
+           for, not the final target several names further down, which a
+           real transition here need not have reached yet. */
+        const noticeIfThere = (): void => {
           void reach(next, follow.within).then((now) => {
             if (now === null) return
+            /* `next` can be `follow.target` itself — a walk exactly one hop
+               above it, most of all — in which case "it resolves" is not
+               automatically "notice this": the walk-up was chosen precisely
+               because that same resolution covers the Agents folder from
+               above (a committed `.harnessdesk/agents -> ..`, chief among
+               them), and nothing about that has changed. Re-following an
+               unchanged refusal forever — once for every accepted event, and
+               once more for every `#follow` it starts — is exactly what a
+               bare "it resolves" check causes here; `#follow`'s own gate,
+               asked again, catches it the same way it did the first time. */
+            if (next === follow.target && coversAgentsFolder(now, follow)) return
             this.#poke(follow.scope)
             this.#refollow(follow)
           })
+        }
+        /* Whether this walk-up's own watch has proved itself: any native
+           event at all, whether or not its name is the one being waited for
+           — a sibling touched in `above` is just as much proof the listener
+           is live as the name itself arriving. Local to this one watch
+           attempt: a fresh `#follow` for this key (`#refollow`, a retry)
+           starts a fresh attempt with its own proof, never inheriting an
+           earlier one's. */
+        let live = false
+        this.#watch(follow, seen, false, (filename) => {
+          if (!live) {
+            // The first event of any kind: proof enough that the backoff
+            // below no longer has to guess when the listener started
+            // working, so it stops here — after one more look, in case the
+            // very event that proved it arrived under a name the filter
+            // just below would otherwise have thrown away.
+            live = true
+            this.#cancelReady(keyOf(follow))
+            noticeIfThere()
+          }
+          if (filename !== null && filename !== name) return
+          noticeIfThere()
         })
+        /* The same look, run once right away: `next` can appear in the gap
+           between the `reach` above and this watcher actually attaching — a
+           concurrent `mkdir -p` landing there, most of all — and a fresh
+           watcher only ever reports a *future* event, never one that already
+           happened by the time it starts listening. Without this, a project
+           opened while something else is still creating its own
+           `.harnessdesk/agents` never gets picked up at all: the ancestor
+           watch is armed, the name it wants appears in the window it could
+           not see, and nothing after that ever tells it so. */
+        noticeIfThere()
+        /* And again, on a backoff, for as long as the watch above has not
+           yet proved itself (#938): `#watch`, just above, calls `node:fs`'s
+           own `watch` synchronously, but a watcher made is not the same
+           promise as a watcher listening — on a loaded machine the native
+           listener behind it can take a moment longer to actually start
+           reporting than this call takes to return, and `node:fs` gives no
+           "now listening" signal to wait for instead. A name that lands in
+           that gap is invisible to both the watcher (which never proves it
+           saw a change it missed; it only ever reports a future one) and to
+           the look just above (which already ran, and found nothing, before
+           the name existed). `#scheduleReady` keeps checking — 100ms,
+           200ms, 400ms and on, capped and then repeating at `RETRY_MAX_MS`
+           — until either it finds the name itself, or `live` above says the
+           watch no longer needs the help: a creation after that proof
+           raises its own event, and one from before it is caught by the
+           check the proof itself runs. `#refollow`, `#retry` and `#drop`
+           cancel this the same way they cancel a pending retry, so a follow
+           that has moved on before it next fires — the name already found
+           some other way, or the project closed — never re-checks a name
+           that is no longer this key's concern. */
+        this.#scheduleReady(follow, noticeIfThere, () => live)
         return
       }
       if (above === follow.within || dirname(above) === above) return
@@ -466,6 +625,7 @@ export class AgentWatch {
     this.#watchers.get(key)?.close()
     this.#watchers.delete(key)
     this.#cancelRetry(key)
+    this.#cancelReady(key)
     /* A project closed while this follow's own awaits were pending gets no
        watcher, and any made a moment ago (above) is already closed: every
        await between here and `#follow`'s start can race `watchProjects`

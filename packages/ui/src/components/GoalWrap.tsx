@@ -21,13 +21,24 @@ export const choicesOf = (draft: WrapDraft): WrapChoices | null => {
   return { summary: draft.summary.trim(), cards }
 }
 
+type Card = GoalView['board']['intents'][number]
+
+/** What a card starts as in the draft: finished when done, dropped (with its note) when abandoned, else unchosen. */
+const firstChoice = (intent: Card): { readonly resolution: 'finished' | 'dropped' | null; readonly reason: string } => ({
+  resolution: intent.state === 'done' ? 'finished' : intent.state === 'abandoned' ? 'dropped' : null,
+  reason: intent.state === 'abandoned' ? (intent.note ?? '') : '',
+})
+
 export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly onClose: () => void }) => {
   const store = useStore()
-  const initial = useMemo(() => new Map(view.board.intents.map((intent) => [intent.id, {
-    resolution: intent.state === 'done' ? 'finished' as const : intent.state === 'abandoned' ? 'dropped' as const : null,
-    reason: intent.state === 'abandoned' ? (intent.note ?? '') : '',
-  }])), [view.board.intents])
-  const [draft, setDraft] = useState<WrapDraft>({ summary: '', cards: initial })
+  const [edited, setDraft] = useState<WrapDraft>(() => ({ summary: '', cards: new Map(view.board.intents.map((intent) => [intent.id, firstChoice(intent)])) }))
+  /* The cards are the Goal's as they are now: one added while this is open —
+     the wrap is refused as unreviewed then — is one more to choose for, and
+     one gone from the board is no longer asked about. */
+  const draft = useMemo<WrapDraft>(() => ({
+    summary: edited.summary,
+    cards: new Map(view.board.intents.map((intent) => [intent.id, edited.cards.get(intent.id) ?? firstChoice(intent)])),
+  }), [edited, view.board.intents])
   const [preview, setPreview] = useState<WrapPreview | null>(null)
   const [busy, setBusy] = useState(false)
   const pending = useRef(false)
@@ -36,7 +47,8 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
 
   const changeCard = (id: number, patch: Partial<{ resolution: 'finished' | 'dropped' | null; reason: string }>): void => {
     const cards = new Map(draft.cards)
-    cards.set(id, { ...cards.get(id)!, ...patch })
+    const intent = view.board.intents.find((one) => one.id === id)
+    cards.set(id, { ...(cards.get(id) ?? (intent ? firstChoice(intent) : { resolution: null, reason: '' })), ...patch })
     setDraft({ ...draft, cards })
     setPreview(null)
   }
@@ -86,7 +98,7 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
           </Field>
           <Rows>
             {view.board.intents.map((intent) => {
-              const choice = draft.cards.get(intent.id)!
+              const choice = draft.cards.get(intent.id) ?? firstChoice(intent)
               return (
                 <Row
                   key={intent.id}

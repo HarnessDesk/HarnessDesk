@@ -1,6 +1,7 @@
 import { createElement, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 
 import { cn } from '../../lib/utils'
+import { Bar } from '../ui/bar'
 import { Button, buttonVariants } from '../ui/button'
 import { ChangeStats } from './Change'
 import { Chip, Dot, Search, Text } from './Settings'
@@ -22,12 +23,9 @@ const PanelFrame = ({ children, testId }: { children: ReactNode; testId?: string
 )
 
 const PanelTools = ({ children }: { children: ReactNode }) => (
-  <div
-    data-slot="inspector-tools"
-    className="flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border) px-(--hd-bar-pad)"
-  >
+  <Bar data-slot="inspector-tools" rule="bottom">
     {children}
-  </div>
+  </Bar>
 )
 
 const PanelBody = ({ children }: { children: ReactNode }) => (
@@ -36,30 +34,32 @@ const PanelBody = ({ children }: { children: ReactNode }) => (
   </div>
 )
 
+/** The quiet facts line under the list: a bar whose two readings are the meta role. */
 const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => (
-  <div
-    data-slot="inspector-footer"
-    className="flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-t border-(--hd-border) px-(--hd-bar-pad) text-xs leading-(--hd-line-xs) text-(--hd-muted-foreground)"
-  >
-    {left}<span className="flex-1" />{right}
-  </div>
+  <Bar data-slot="inspector-footer" rule="top">
+    <Text role="meta">{left}</Text>
+    <span className="flex-1" />
+    <Text role="meta">{right}</Text>
+  </Bar>
 )
 
-/** A count on the left, and a fact about the whole group on the right. */
-const GroupLine = ({ left, right }: { left: ReactNode; right?: ReactNode }) => (
-  <div data-slot="inspector-group" className="flex items-center gap-2 px-2 pt-2 pb-1">
+/**
+ * A count on the left, and a fact about the whole group on the right.
+ *
+ * `sticky` keeps the line at the top of the list while its rows scroll under
+ * it, on the panel's own ground, for a list long enough that a row can be read
+ * without the heading that says which group it is in — a turn of a
+ * trajectory, say.
+ */
+const GroupLine = ({ left, right, sticky = false }: { left: ReactNode; right?: ReactNode; sticky?: boolean }) => (
+  <div
+    data-slot="inspector-group"
+    {...(sticky ? { 'data-sticky': '' } : {})}
+    className={cn('flex items-center gap-2 px-2 pt-2 pb-1', sticky && 'sticky top-0 z-1 bg-(--hd-background)')}
+  >
     <Text role="muted" ink="secondary">{left}</Text>
     <span className="flex-1" />
     {right != null && <Text role="meta">{right}</Text>}
-  </div>
-)
-
-const DayLabel = ({ children }: { children: ReactNode }) => (
-  <div
-    data-slot="inspector-day"
-    className="px-2 pt-2.5 pb-1 text-sm leading-(--hd-line-sm) text-(--hd-secondary-foreground)"
-  >
-    {children}
   </div>
 )
 
@@ -70,6 +70,7 @@ const PanelEmpty = ({ children }: { children: ReactNode }) => (
 )
 
 const PanelRow = ({
+  lead,
   mark,
   title,
   sub,
@@ -82,6 +83,12 @@ const PanelRow = ({
   tooltip,
   onClick,
 }: {
+  /**
+   * A word before the mark that says who or what produced the row — the
+   * trajectory's "You", "Shell", "Thinking". Set at the meta step in sentence
+   * case: a column of capitals is a column shouting its own heading.
+   */
+  lead?: ReactNode
   mark?: ReactNode
   title: ReactNode
   sub?: ReactNode
@@ -96,6 +103,9 @@ const PanelRow = ({
 }) => {
   const content = (
     <>
+      {lead != null ? (
+        <Text role="meta" className="shrink-0">{lead}</Text>
+      ) : null}
       {mark ? (
         <span
           data-slot="inspector-row-mark"
@@ -169,25 +179,45 @@ const PanelFilter = ({
   />
 )
 
+/**
+ * A filter you press, beside a list's search: the one drawing for it, in the
+ * inspectors and in the Library's counts alike.
+ *
+ * It is a control, not a status, and each state says so. At rest it is a pill
+ * on the chip ground; under the pointer the ground takes a step toward the
+ * ink (`--hd-chip-fill-hover`, a longer step in the dark theme, where a short
+ * one reads as none) and the words go to full ink;
+ * focused from the keyboard it takes the app's one focus ring; pressed, it is
+ * lit in the accent — `pressed` (or the older `data-on`) sets that, and says
+ * it to assistive technology as `aria-pressed`.
+ *
+ * `as="span"` is the other thing a pill can be, and the only status here: a
+ * fact about the list ("this week") that nothing presses, drawn as a `Chip`.
+ */
 const PanelPill = ({
   as = 'button',
+  pressed,
   children,
   ...props
 }: {
   as?: 'button' | 'span'
+  pressed?: boolean
   children: ReactNode
 } & ButtonHTMLAttributes<HTMLButtonElement> & HTMLAttributes<HTMLSpanElement>) => {
   if (as === 'span') return <Chip tone="neutral" className="min-h-(--hd-target-min) bg-(--hd-chip-fill) text-(--hd-secondary-foreground)">{children}</Chip>
-  const selected = 'data-on' in props
+  const selected = pressed ?? 'data-on' in props
+  const { 'data-on': _on, ...rest } = props as typeof props & { 'data-on'?: string }
   return createElement(
     Button,
     {
-      ...props,
+      ...rest,
+      ...(selected ? { 'data-on': '' } : {}),
+      'aria-pressed': selected,
       variant: 'ghost',
       size: 'chip',
       type: props.type ?? 'button',
       className: cn(
-        'bg-(--hd-chip-fill) text-(--hd-secondary-foreground) hover:bg-(--hd-chip-fill) hover:text-(--hd-foreground)',
+        'bg-(--hd-chip-fill) text-(--hd-secondary-foreground) hover:bg-(--hd-chip-fill-hover) hover:text-(--hd-foreground)',
         selected && 'bg-(--hd-accent-dim) text-(--hd-accent) hover:bg-(--hd-accent-dim) hover:text-(--hd-accent)',
         props.className,
       ),
@@ -198,7 +228,6 @@ const PanelPill = ({
 
 export {
   Counts,
-  DayLabel,
   GroupLine,
   PanelBody,
   PanelEmpty,

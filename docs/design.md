@@ -42,12 +42,12 @@ furniture is smaller than a row's own title.
 
 | token | value | what it carries | rules |
 | --- | --- | --- | --- |
-| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, the smallest button label | 217 |
-| `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, hints and notes | 215 |
+| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, the smallest button label, the hint under a form field | 217 |
+| `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, a form field's label, notes | 215 |
 | `--hd-text` | 14px | what is read: the transcript, the composer, inputs | 82 |
 | `--hd-text-lg` | 16px | a dialog's title | 16 |
-| `--hd-heading` | 20px | a section's own name, a page's title, the wordmark | 13 |
-| `--hd-title` | 24px | the reserved top interface step; Markdown's h1 fallback | 1 |
+| `--hd-heading` | 20px | every page's title — a list page's and a detail page's alike — and the wordmark | 14 |
+| `--hd-title` | 24px | reserved; no page head wears it since the detail head joined the page title (#832). Markdown's h1 fallback | 0 |
 | `--hd-display` | 36px | a figure that fills a card | 1 |
 
 The counts are measured, not aspirational. The sizes above 14 are rare because
@@ -124,7 +124,8 @@ are doing; screens do not invent a new spelling for the same job:
 | role | spelling | what wears it |
 | --- | --- | --- |
 | wordmark | 20 / semibold | the product name beside its mark |
-| page | 20 / semibold | the name of a place — a settings page, a review; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it |
+| page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
+| group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | row | 13 / medium | the title of a setting, and the word above a control |
 | navigation | 13 / normal | the name of one thing in a navigable list |
@@ -176,6 +177,23 @@ second edit, and it is how the two heights that column used to have became one.
 
 Rows sit 2px apart. Without that gap a hover or selection pill reads as a band
 across the column rather than as one row.
+
+### One title, one group label
+
+There were two page titles and three group labels. A list page's `PageHead`
+said 20px semibold and a detail page's `DetailHead` said 24px regular, so the
+page you drilled into read lighter and less finished than the list you came
+from. The word over a group was 13px secondary in the sidebar, 13px in the
+faint ink over a settings card, and 12px tracked capitals in the room's rail,
+the trajectory's roles and the agent card.
+
+Now every page head is the page role, and every group heading is
+`GroupLabel`. The interfaces vary a label's weight and the air above a rail's
+group, never its size, its ink or its case. Capitals are counted: the design
+audit's `uppercaseLabel` finds every `text-transform: uppercase`, `uppercase`
+utility and inline `textTransform` outside a `Keycap`, and its ceiling may only
+fall. The screens still spelling them — the room's rail, the trajectory, the
+agent card and the transcript's small tags — are the burn-down.
 
 ### Where a label lands
 
@@ -231,20 +249,80 @@ do not remain as a second public vocabulary:
 
 | variant | where |
 | --- | --- |
-| `secondary` | the ordinary action (grey frame) |
+| `secondary` | the ordinary action (grey frame); drawn quiet in a dialog footer beside a filled act |
 | `default` | the one action a group exists for — at most one per group (ink fill) |
 | `outline` | bordered action on a transparent ground |
 | `ghost` | no frame until hover, for an action that repeats down a list |
-| `destructive` | does the irreversible thing, red on the label only |
+| `quiet` | the way out of a question — Keep, Cancel, Close — beside a filled act |
+| `destructive` | a remove action on a page or in a row, red on the label only |
+| `danger` | the act of a destructive confirm, filled red |
 
-Two rules keep `destructive` meaning something:
+Two rules keep red meaning something:
 
 1. A button that only opens a confirmation is ordinary — the red belongs on the
    step that cannot be taken back.
-2. Red is never a fill: a column of filled red buttons is a column nobody reads,
-   the same way a column of bold is a column of shouting. It is soft danger ink
-   on a transparent ground that fills on hover (`--hd-btn-danger-ink`,
-   `--hd-btn-danger-hover`).
+2. Red is a fill in exactly one place: the act of a destructive confirm
+   (`danger`, which `ConfirmDialog tone="destructive"` draws). By then the
+   question has been asked, and the red is what you came to do. Everywhere
+   else it is soft danger ink on a transparent ground that fills on hover
+   (`destructive`), because a column of filled red buttons is a column nobody
+   reads.
+
+**A dialog footer has one filled button.** Every footer has exactly one
+filled act: the confirm, `default`, or `danger` when it destroys — never none
+(three text buttons with no default) and never two. A lone button is that
+act, filled: a lone Close or Done in `secondary` was a frame the grey of the
+footer it stood on (245 on 245, 49 on 49 in dark) and read as a caption.
+Beside a filled act, `secondary` is drawn quiet (no
+fill, secondary ink; the footer reads the act's `data-filled`), or write
+`quiet` itself. `destructive` never stands in a footer. Write the proceeding
+action first: the footer is `row-reverse`, so it paints rightmost and is the
+first a Tab reaches.
+
+A disabled filled act — ink or red — is drawn one way: its fill kept at 16%
+over the footer's ground and its label in its own ink mixed into that ground,
+solved so both land just over 3:1 (`--hd-btn-disabled-*-share`,
+`--hd-btn-danger-disabled-ink-share`, `--hd-btn-{primary,danger}-disabled-*`).
+The red ink loses contrast on its pale fill faster than the ink does on grey,
+so it keeps 85% of itself where the ink keeps 60%. It stays the act, in its own
+hue, and is clearly weaker than enabled: measured, the label goes from 17.2:1
+to 3.2:1 on the ink button in light (10.5 → 3.1 dark) and from 4.9:1 to 3.2:1
+on the red one (4.9 → 3.3 dark). Half opacity mixed the button into whatever
+lay under it — a mid-grey slab on the grey footer.
+
+The design audit reads every `Dialog` footer as a syntax tree: both arms of
+each `?:`, with and without each `&&`, the `footerAside`, a hoisted `const`, a
+component written in the same file (read through to what it returns), and a
+control drawn with `buttonVariants(...)`. A component it cannot see into, a
+spread child, or a spread that can set a button's variant is reported as
+unread — never counted as an empty footer. All 54 footers in the app are
+read.
+
+### Dialog forms
+
+A dialog that asks for more than one thing is a form, and its body is already
+one (`design/patterns/DialogForm.tsx`): children 16px apart, a `Field`'s label
+6px over its control and its hint 6px under it at 12px, a `Fieldset` legend
+6px over its group. The Settings parts read the dialog around them, so a
+screen composes them without saying a number: `SectionHead` draws a legend,
+`FormStack`, `Note` and `Rows` drop their page spacing, and a `Rows` radio
+group made only of `RowChoice` rows draws as a `ChoiceList` — compact rows, a
+radio on the title's line, and every answer's description under its title in
+the hint step, so answers can be compared and choosing moves nothing. A radio
+group of anything else (New worktree's branch picker) keeps its card. The
+scope stops where the form does: a `flush` body is a list, and dialog and
+alert content, popovers and menus start outside any form, even when opened
+from a dialog's field (React context crosses portals).
+
+Which control a choice takes: `Segmented` or a `NativeSelect` for two to four
+short answers; `ChoiceList` when answers need a line; checkboxes for several
+members at once — never switches, which act the moment they flip. A field
+that may be left empty says `optional` at its label's end rather than in the
+label.
+
+A dialog, a confirm, a menu or a popover that holds focus never wears the
+focus ring round itself; the controls inside keep theirs. A dialog focuses its
+first field when it has one, and otherwise its own surface.
 
 `Segmented` is not a button. It is a piece of a segmented control — a choice
 between two or three words, one of which is on — and using it for actions is
@@ -299,6 +377,15 @@ It is **not** for names that merely came from a machine. A branch, a folder, a
 file in a list of files is a name, and names are set in the interface's own font.
 A menu that mixes the two faces reads as two menus.
 
+Real code set inside a sentence — a flag like `--force`, a command, a key
+in a config file — is `CodeText`, and it takes its size from the sentence:
+`--hd-code-inline`, 0.92em with the 12px step as its floor. The monospace
+face's x-height is larger than the interface face's (0.547 against 0.530 of
+the em) and its glyphs are wider and evenly weighted, so at the same size a
+flag read a step larger than the words around it; at 0.92 it sits level with
+them. It adds no step to the scale — it lands on the step of whatever
+sentence holds it.
+
 So a skill's name, a hook's event, a plugin's id, a contribution, a workspace
 path, a worktree's branch and path, a route's endpoint and a changed file all
 read in the interface's face. They are names, whatever produced them.
@@ -306,7 +393,7 @@ read in the interface's face. They are names, whatever produced them.
 Two uses of the code face survive in components, and both are the rule rather
 than an exception to it:
 
-1. A JSON value in `SchemaForm` (rendered with the canonical `WireText` pattern),
+1. A JSON value in `SchemaForm` (`CodeText` in the `meta` text role),
    which is output.
 2. A slash command in `TriggerMenu` (`.nameMono`), which is something you type.
 
@@ -525,6 +612,73 @@ What stayed, and why:
 | Clear browsing data | Names its blast radius: this pane, not your browser. |
 | Every disabled row's reason | A tooltip on a disabled control is unreachable. |
 
+## A page: sections and summaries
+
+A page is a head and a column of sections, and a section is a label over one
+card. That was always the intent; what the pages had instead was a
+`SectionHead`, a free `Note` and a `Rows` card stacked by hand, each with its
+own margin and nothing owning the space between them. On the Agent page the
+label "Ceiling" sat 18px under the card above it and 20px over its own, so it
+named neither, and eight labels each over a card of one row read as a column of
+floating grey words.
+
+**`Section` owns the rhythm.** `<Section title description action>` renders
+`<section aria-label={title}>`, its label a `GroupLabel`, and spaces itself:
+
+| between | space | why |
+| --- | --- | --- |
+| the label and its card | 8px (`--hd-space-2`) | the label belongs to the card under it |
+| one section and the next | 32px (`--hd-space-8`) | four times the label's gap, so no label is ever nearer the card above it |
+| the page head and the first section | 32px | the head's 24px collapses into the section's own margin, so the first gap is every gap |
+| things inside one section | 8px | a card's or a note's own margin is dropped; a lone button keeps its width |
+
+The label sits on its card: an action beside it (the `sectionAction` slot, a
+small `outline` button) grows the head upward, so every label on a page is the
+same 8px above what it names — a `SectionHead`'s too, which used to stand
+centred in a 26px box 13px above its card. A screen composing sections writes no margin of
+its own. A `SectionHead` on a page keeps the same 32px — including one that
+opens a `<section>` wrapper, which used to lose its margin to `:first-child`
+and start 6px under the card before it — so a page half converted still reads
+as one page. A dialog keeps its tighter step.
+
+**The description is one sentence.** It says what the section is, muted,
+directly under the label. A paragraph of how it works is not a description:
+Project, Permissions and Triggers each opened every section with two or three
+lines of it under the page's own blurb, and the one warning that mattered read
+like the four around it.
+
+**Several facts about one thing are one card.** `SummaryList` is the key/value
+inspector drawn as a settings card — the `Rows` ground, edge and hairline — with
+a key column, a value that wraps as a sentence (`kind="path"` gives up its
+middle, `numeric` right-aligns tabular figures), an optional one-line `note`
+under the value, and an optional small action at the row's end. Once any row has
+an action every row stands as tall as one, so the card keeps one row height;
+narrow, each key rises over its value and the action keeps the end. An account's
+sign-in, plan, credential and default are one card; so should be an Agent's
+file, ceiling, skills, servers and brief.
+
+**A wrapped control lands by what it is.** When a row is too narrow for its
+control beside the title, the control drops under it. A compact control — a
+switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the
+row's end, in a plain `Row`
+exactly as in a `RowButton`, whose control travels with a chevron that cannot
+leave the end. A text answer (`RowValue`) takes its whole line and starts
+where the title starts: pushed to the end, a sentence narrower than the row
+began at whatever indent its length left. The row reads which from the
+control, so no caller has to remember.
+
+**Groups inside a section are sub-heads.** A `SectionHead` among a `Section`'s
+children sits 24px under the card above and 8px over its own — a step between
+the 8px of a label and the 32px of a section — so Permissions' twelve runtimes
+read as groups of Approvals, and a project's flows as its own, yours and the
+built-in ones, each under one label instead of a chip on every row.
+
+**The outline is real.** A page's title and a detail page's title are h1s;
+every section label, `Section` or `SectionHead`, is an h2, and a sub-head
+inside a `Section` is an h3. A detail head's
+owner is either text — a place, a path — that gives way at its end, or a mark
+such as a status chip that stays whole while the name wraps.
+
 ## Adding to the app
 
 When adding a control, row or surface to HarnessDesk:
@@ -571,6 +725,7 @@ changes.
 | All density, spacing, typography, radius, focus, and semantic colours | `packages/ui/src/design/foundation/tokens.css` |
 | Generic dialog mechanics and focus/portal behaviour | `packages/ui/src/design/ui/dialog.tsx` |
 | Modal, confirmation, approval and lightbox policy | `packages/ui/src/design/patterns/ModalDialog.tsx`, `ConfirmDialog.tsx`, `ApprovalDialog.tsx` and `Lightbox.tsx` |
+| A dialog's form rhythm, legend and choice list | `packages/ui/src/design/patterns/DialogForm.tsx` and its CSS module |
 | Disabled or refused actions and their focusable explanation | `packages/ui/src/design/patterns/RefusedAction.tsx` |
 | Menus and popovers | `packages/ui/src/design/patterns/Menu.tsx` and `Popover.tsx`, over `design/ui` |
 | CodeMirror and xterm theme integration | `packages/ui/src/design/adapters/` |
@@ -622,31 +777,126 @@ these is opening every tab in a browser.
 
 ### What the audit refuses
 
-`pnpm design:audit --strict` holds eighteen categories at a baseline. Sixteen
-are at zero; `patternClass` sits at 3, which is three screens still drawing
-their own empty state, and `screenAppearance` sits at 2,783 declarations.
+`pnpm design:audit --strict` holds nineteen categories at a baseline.
+Eighteen are at zero; `screenAppearance` sits at 656 declarations —
+appearance a screen still draws for itself instead of composing it, in
+whichever of three spellings it chose.
 
-Every ordinary property in a screen sheet has to match one of two explicit
-tables after its vendor prefix is stripped. `APPEARANCE_PROPERTIES` owns type,
-ink and ground, edges and the inner box; its open-ended families match by
-prefix, so `font-variant-numeric`, `background-image`, `border-image-source`
-and the next standards longhand do not slip past a remembered list.
-`LAYOUT_BEHAVIOUR_PROPERTIES` owns geometry, flow, interaction and motion.
-Height, minimum height and maximum height share one value rule: a non-zero
-fixed or token metric counts as appearance, while zero — the flex/grid shrink
-reset — percentages, intrinsic sizes and viewport or container-query shares
-remain layout. Custom properties define values rather than either side and
-remain outside the split. Anything else is a `screenUnclassified` finding that
-names the property and sheet and fails the strict gate.
+Every ordinary property has to match one of two explicit tables after its
+vendor prefix is stripped, wherever it is spelled. `APPEARANCE_PROPERTIES`
+owns type, ink and ground, edges and the inner box; its open-ended families
+match by prefix, so `font-variant-numeric`, `background-image`,
+`border-image-source` and the next standards longhand do not slip past a
+remembered list. `LAYOUT_BEHAVIOUR_PROPERTIES` owns geometry, flow,
+interaction and motion. Height, minimum height and maximum height share one
+value rule: a non-zero fixed or token metric counts as appearance, while zero
+— the flex/grid shrink reset — percentages, intrinsic sizes and viewport or
+container-query shares remain layout. Custom properties define values rather
+than either side and remain outside the split. In a stylesheet, anything else
+is a `screenUnclassified` finding that names the property and sheet and fails
+the strict gate.
 
-`screenAppearance` is the appearance side of that total boundary. A class name
-cannot say whether `.head` is a title bar, a table header or a card heading,
-which is why `patternClass` could safely keep only `empty`; the declaration
-says what the screen actually owns. Markdown's prose ratio ladder and the diff
-viewer remain named specialized-renderer exemptions.
+`screenAppearance` is the appearance side of that total boundary, read in
+three spellings rather than one: a screen's own `.module.css`; a Tailwind
+utility in a `className` (or a `className:` key in an object literal, or a
+bare `cn`/`clsx`/`cx` call), resolved through a variant prefix, the important
+marker, a template literal, a ternary, an array joined with `.join(' ')`, or
+one hop through a named import to the `const` that actually declares it —
+`LibraryActions.tsx`'s `SWITCH_TRACK`, imported by `Library.tsx` too, counts
+once, at its definition, not once per file that reaches for it; and a key in
+an inline `style` object, including a `{ color }` shorthand, a `['color']`
+computed key, and a `satisfies CSSProperties` assertion, both branches of a
+conditional read. A class name cannot say whether `.head` is a title bar, a
+table header or a card heading, which is why `patternClass` could safely keep
+only `empty`; the declaration says what the screen actually owns. Markdown's
+prose ratio ladder and the diff viewer remain named specialized-renderer
+exemptions, in both the stylesheet and the `.tsx` that renders each.
 
-Two of those categories spent a long time reporting zero while they were simply
-unable to see:
+The same boundary reaches into `design/patterns/` — typed, product-specific
+composition contracts — but not into `design/ui/`, the shadcn-registry
+primitive layer. A pattern export whose every screen consumer sits in one
+screen area — one file, or a named multi-file family such as Git or the
+conversation transcript — is that screen's own appearance parked in the
+design folder rather than composed, so its CSS-module rules, its own
+Tailwind utilities and its own inline styles are charged to
+`screenAppearance` the same way a screen's are; an export two or more areas
+reach for stays uncharged, because moving it would break whichever area lost
+it. Consumers are resolved per exported name, not per file: one export used
+everywhere does not make a single-area sibling in the same module look
+shared, and a re-export — `export *`, a renamed named export, or a shim
+entirely outside `design/` forwarding a name back out — is followed to
+wherever the name is actually declared before its consumers are counted. A
+part imported by *another design part* inherits that part's own resolved
+reach, cycles guarded, rather than stopping at the design file that happens
+to import it directly — `RailSection` has one direct screen importer
+(Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+and `AppWindowRailScroll`, which the app's shared window shell mounts for
+Settings, the Agents window and more, so `RailSection` reads as several areas
+rather than Sidebar's alone. A CSS-module class is charged to a single-area
+export only when nothing else in the module — another export, or a local
+helper neither exports — also reaches for it: `Settings.tsx`'s `RowMark`
+alone draws `.rowMark`, but `Row` and `RowButton` in the same file draw it
+too, and those are used everywhere, so that class stays uncharged even
+though `RowMark` itself is genuinely SignIn's alone.
+
+Screen areas are not asserted by hand — a handful of named roots
+(Conversation, Settings, TeamRoomPane/TeamBoardPane, AgentsWindow, GitPane,
+Workbench) seed the closure, and every other screen file's area is the
+closure of single-host files: a screen imported by only one already-resolved
+family belongs to it too, iterated to a fixed point. `pnpm design:audit`'s
+own test suite holds this to an invariant — a single-host screen file that
+sits outside its host's family fails the gate — the same way every other
+category here is held to a check that has been made to fail once, not only
+to pass.
+
+`design/ui/`'s primitives — the chart kit, `Board`, `ToolPane`, `Card`,
+`Bar`, `KeyValue`, `Spark`, `Dialog`, `Breadcrumb`, `Delta` and the rest — are
+never charged to `screenAppearance` even when every screen that reaches for
+one sits in a single area today: a primitive is meant to exist before it has
+grown a second caller, the way a design system's own vocabulary always does,
+and charging one under `screenAppearance` for that would make that strict
+zero unreachable without inventing a pointless second caller. That does not
+make it nothing, though: `singleAreaPrimitive` is a burn-down ceiling of its
+own, so a single-area primitive is still held to "may only fall," and moving
+a genuine screen composition into `design/ui/` to dodge the
+`screenAppearance` charge just raises this one instead — it never zeroes the
+move out. `pnpm design:audit --verbose` lists each one by name.
+
+Both ledgers count *exports*, not declarations, which prices a move unevenly
+on purpose: `screenAppearance` charges every appearance-side declaration a
+single-area pattern's exports draw (a large composition can cost dozens),
+while `singleAreaPrimitive` charges one line per single-area export
+regardless of how much it draws (`ChannelMessage.tsx`'s ninety-nine
+declarations would cost `design/ui/` all of seven — one per export). A move
+that looks cheap by this count is not a loophole: the ceiling still moves,
+`--strict` still fails until it is re-recorded, and a reviewer reading
+`--verbose`'s named list sees exactly which export moved and can still ask
+whether it belongs there.
+
+The workbench dock is the one deliberate exception to all of this: there is
+exactly one workbench, by design, so `panels/Workbench.tsx`'s thirteen own
+`design/patterns/DockPanel.tsx` exports (`WorkbenchRail`, `DockPanel`, and
+the rest of the dock chrome) are a named, documented exemption, the same way
+Markdown's prose ladder and the diff viewer's own ink are — a second consumer
+to compose them generically for is never coming, so charging them asks for a
+fix with no destination. `RailSection`, DockPanel.tsx's other export, needs
+no such exemption: it is not single-area at all, for the reason above.
+
+Three of those categories spent a long time reporting zero while they were
+simply unable to see:
+
+- `screenAppearance` read only a screen's `.module.css`, so moving a
+  declaration into a Tailwind utility string or an inline `style` object —
+  exactly what the rest of the app had been doing — made it disappear from a
+  count that said it was clean. Reading a `className`'s literal text closed
+  most of that gap, but not all of it on the first pass: a plain string
+  constant, a ternary, an array joined with `.join(' ')`, and a `className`
+  written as an object key rather than a JSX attribute were all still
+  invisible, because none of them are literal text at the class site itself —
+  they are a name that only leads to one through its own `const`. A second
+  pass found a fifth miss going the other way: an unknown (non-literal)
+  `height` value was defaulting to a metric it could not actually read, an
+  over-count now decided explicitly as layout instead of assumed.
 
 - `rawColour` named five properties and `box-shadow` was not one of them, so ten
   hand-written shadows sat outside a count that said there were none. It now
@@ -691,8 +941,84 @@ unable to see:
   every possibility, and reports what it cannot compute rather than assume
   it small.
 
-Both failures have the same shape as the line-height ratios before them: name
-the spellings you happen to remember, and everything else is invisible —
+- The single-consumer half of `screenAppearance` could not see four shapes of
+  its own use. `export *` — `design/ui`, `InspectorPanel`, `DockPanel` — hid
+  every part behind it entirely, because only a named `export { X } from 'y'`
+  was read. Only the Git surface was a named multi-file screen area, so the
+  conversation transcript's own files (Items, TurnWork, StepGroup, TurnFiles,
+  Trajectory, ConversationMap) read as four separate areas and a part spread
+  across any two of them looked cross-area. A module's exports were resolved
+  as one merged list of consumers rather than one list per export, so a
+  widely used export made a genuinely single-area sibling in the same file
+  look shared too. And a re-export shim entirely outside `design/`
+  (`components/Panel.tsx`, forwarding `GroupLine` and `PanelRow` back out
+  from `'../design'`) traced no consumer to `design/` at all. Following
+  `export *` and a shim however many hops deep, naming the conversation,
+  settings, agent-roster and room families, and resolving consumers per
+  export rather than per module closed all four.
+
+  The first pass over-corrected in two ways review caught before merge:
+  charging `design/ui/`'s primitives the same way as a `design/patterns/`
+  composition would have made the strict zero unreachable the moment any
+  generic primitive picked up a first caller, and stopping consumer
+  resolution at the nearest design file — rather than following it into
+  whatever *that* file's own exports reach — read `RailSection` as
+  Sidebar's alone when `AppWindow.tsx` also composes it into parts the
+  app's shared window shell mounts for Settings and the Agents window too.
+  Restricting the charge to `design/patterns/` and resolving through
+  design-to-design use, cycles guarded, closed both; the baseline rose from
+  480 to 607.
+
+  A second review round found the closure itself still asserted by hand
+  rather than derived, and a false positive in what it charged. Screen
+  families are now the closure of single-host files (above), which corrected
+  two wrong assumptions the hand-written version made: Trajectory's real host
+  is Details.tsx, not Conversation, and Branch/Changes/NewWorktree were never
+  Git's — each is reached from a different, unhosted screen or from
+  `app/App.tsx`, which is not a screen source at all. A type-only import
+  (`import type`, `{ type X }`) is skipped in both the screen host graph and
+  `designImportsOf`: `CommandPalette.tsx` and `Sidebar.tsx` both `import type
+  { Section } from './Settings'`, and counting that as importing Settings.tsx
+  made a pattern used only by Settings.tsx read as shared with either of
+  them. And a stylesheet class is now charged to a single-area export only
+  when no other declaration in the module also reaches for it — `RowMark`
+  alone draws `.rowMark`, but `Row` and `RowButton` in the same module do
+  too, and those are used everywhere; the six `Settings.module.css [settings]`
+  findings the first pass reported were entirely that false positive.
+  `design/ui/` gained its own ceiling (`singleAreaPrimitive`) rather than
+  only ever being watched, design-to-design reach was widened to `export
+  function` composers, local helpers, namespace and dynamic imports, and the
+  workbench dock's own chrome (thirteen `DockPanel.tsx` exports
+  `panels/Workbench.tsx` alone uses) became a named exemption rather than a
+  charge with nowhere to be composed to. `screenAppearance` settled at 820
+  (607 plus Settings.tsx's newly-correct `settings`-area exports, minus the
+  workbench exemption and the false-positive class charge; #924 has since
+  removed `AccessHeader`, one of the SignIn-area exports this rule counts).
+
+  A third review round found two more false positives, both from consumer
+  resolution stopping one hop too early. `panels/builtins.tsx` (the pane
+  registry) was skipped entirely as an importer, which correctly kept a
+  bare registry mount (GitPane, mounted nowhere else) from reading as
+  cross-area — but it also hid that `Approvals.tsx` is drawn in the
+  registry's own session view beside Conversation *and* docked by
+  TeamRoomPane, two different places, so it wrongly folded into `room`
+  (`ApprovalDialog.module.css [room]`, 48 findings). And composition within
+  one file was never followed at all: `Dialog` composes `DialogBody` and
+  `DialogSubhead` in the same `ModalDialog.tsx`, with no import needed, so
+  their reach read as SkillSheet.tsx's alone instead of the ~46 screens
+  `Dialog` itself reaches (`ModalDialog.module.css [settings]`, 9 findings).
+  A registry or `app/` mount now counts as its own host area, but only
+  alongside a real screen import, and a same-module composer's own reach is
+  now followed the same way a cross-file one already was. Family resolution
+  also moved from a DFS with a visiting set — which memoized a partial,
+  order-dependent result the moment it hit a cycle — to a monotone fixed
+  point, so the answer no longer depends on which file is visited first.
+  `screenAppearance` settled at 656 after also merging main past #920
+  (Agents and Goals brought onto shared design parts, which changed several
+  unrelated screen-appearance findings of its own).
+
+All four have the same shape as the line-height ratios before them: name the
+spellings you happen to remember, and everything else is invisible —
 confidently, at zero. When adding a rule, the question is not "does this catch
 the case I am thinking of" but "what spelling of this would it miss".
 

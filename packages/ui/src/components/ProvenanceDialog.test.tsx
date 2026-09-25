@@ -24,3 +24,11 @@ it('reads the exact immutable Seat id rather than a current session', async () =
   await act(async () => root.render(<StoreProvider store={store}><ProvenanceDialog root="/work/project" seat="seat-17" onClose={() => {}} /></StoreProvider>))
   expect(store.readProvenanceSeat).toHaveBeenCalledWith('/work/project', 'seat-17')
 })
+
+/** The host's own reason is said once — never followed by the generic sentence it already answers. */
+it('says why a record is unavailable once, not the specific reason and then the generic one', async () => {
+  await act(async () => root.render(<StoreProvider store={store}><ProvenanceDialog root="/work/project" seat="seat-17" onClose={() => {}} /></StoreProvider>))
+  await act(async () => {})
+  expect(document.body.textContent).toContain('Gone.')
+  expect(document.body.textContent).not.toContain('The historical Seat record is unavailable.')
+})

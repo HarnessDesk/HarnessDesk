@@ -1,4 +1,6 @@
 import type { SeatCandidate } from './agent.js'
+import type { SessionAttachments } from './attachments.js'
+import type { SeatCeiling } from './evidence.js'
 import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
 import type { AgentItem, UserContent } from './items.js'
@@ -46,18 +48,11 @@ export interface SessionSettings {
    * like `agent`, by the host alone.
    */
   readonly briefDigest?: string
-  /**
-   * What the conversation was told it may do to the checkout it works in: the
-   * narrower of its Agent's ceiling and what the seating granted, which is
-   * `read` unless the seating said otherwise. Held like `agent`, by the host
-   * alone.
-   *
-   * Told, and not enforced. It reaches the conversation as the rule in its
-   * standing order — the sentence a flow seat of the same permission is handed
-   * — and nothing at the tool surface holds it to that rule yet, so a runtime
-   * that delegates hands its child none of it. That enforcement is a later
-   * phase; until then this records the instruction, not a guarantee.
-   */
+  /** The ceiling this conversation runs under and whether its runtime holds it. */
+  readonly ceiling?: SeatCeiling
+  /** How the runtime holds it, or why its declared control did not take. */
+  readonly ceilingNote?: string
+  /** Legacy readback for permission-based Agent files; derived by the host from the authoritative ceiling. */
   readonly permission?: FlowPermission
   /**
    * What the seat runs, as the desk said it when the seat was kept — read
@@ -110,6 +105,16 @@ export type SessionOptions = Partial<SessionSettings> & {
    * half-applies is worse than one that fails.
    */
   readonly options?: Readonly<Record<string, OptionValue>>
+  /**
+   * Phase 12's frozen, isolated skill/server filter for this Seat — host-only,
+   * exactly like `route` above: the host computes it from trust and ceiling
+   * before a session exists, and it is never accepted from a public
+   * session-creation payload. `null` (the default, via `undefined`) is a
+   * plain conversation with no Agent attachments; do not set it to `null`
+   * explicitly to mean "native defaults" — omit the field instead, the same
+   * way a plain seat omits `route`.
+   */
+  readonly attachments?: SessionAttachments
 }
 
 /**

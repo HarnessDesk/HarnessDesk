@@ -91,6 +91,16 @@ const rig = (
     loadHistory: vi.fn(),
     resumeSession: vi.fn(),
     readSeatAgent: vi.fn(),
+    // Not recorded — these fixtures never made any Agent declare an attachment.
+    seatRecord: vi.fn(async () => null),
+    readSeatAttachments: vi.fn(async () => null),
+    // The front door the ready empty pane opens, once its own project (this
+    // session's folder) is known — an empty catalogue is enough to mount it.
+    openFrontDoor: vi.fn(),
+    closeFrontDoor: vi.fn(),
+    flowCatalog: vi.fn(async () => []),
+    agentsIn: vi.fn(async () => []),
+    openGoal: vi.fn(),
   } as unknown as AppStore
   return { store }
 }
@@ -162,6 +172,21 @@ it('with no session at all, offers the opening pitch rather than a failure', () 
 
   expect(container.textContent).not.toContain('Nothing to show')
   expect(container.textContent).not.toContain('restore')
+})
+
+it('a ready, empty pane whose folder is known offers to start with a team there', async () => {
+  const { store } = rig(session())
+  render(store)
+
+  const start = [...container.querySelectorAll('button')].find((one) => one.textContent?.trim().startsWith('Start with a team'))!
+  await act(async () => start.click())
+
+  expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'project', root: '/repo' }, undefined)
+})
+
+it('with no session at all — no folder to read a catalogue from — offers no team action', () => {
+  render(rig(null).store, null)
+  expect([...container.querySelectorAll('button')].some((one) => one.textContent?.trim().startsWith('Start with a team'))).toBe(false)
 })
 
 it('carries the window’s own controls whenever the sidebar is not standing beside it', () => {
@@ -307,8 +332,8 @@ it('leaves the composer alone when the folder is where it always was', () => {
 })
 
 it('a conversation seated as an Agent is headed by it — once, while its title is the Agent’s name', () => {
-  const settings = { cwd: '/repo', model: 'gpt-5.6-sol', agent: 'code-reviewer', briefDigest: 'd', permission: 'read' as const, seatLabel: 'Codex', passedOver: [] }
-  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } } as AgentEntry
+  const settings = { cwd: '/repo', model: 'gpt-5.6-sol', agent: 'code-reviewer', briefDigest: 'd', ceiling: { level: 'edit' as const, hold: 'asked' as const }, seatLabel: 'Codex', passedOver: [] }
+  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } } as AgentEntry
   const over = { seatAgents: new Map([[seatAgentKey('/repo', 'code-reviewer'), entry]]) }
   const header = (): string => container.querySelector('header')?.textContent ?? ''
 
@@ -325,6 +350,25 @@ it('a plain conversation’s header is unchanged, and asks nothing about an Agen
   render(store)
   expect(container.querySelector('header')?.textContent).toContain('Checkout review')
   expect(store.readSeatAgent).not.toHaveBeenCalled()
+})
+
+it('a conversation seated as an Agent carries its ceiling beside its title — held or asked — and a plain one carries none', () => {
+  render(
+    rig(
+      session({
+        settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'reviewer', ceiling: { level: 'read', hold: 'held' }, ceilingNote: 'Read-only sandbox; anything past it asks you' },
+      }),
+    ).store,
+  )
+  const chip = container.querySelector('header [data-ceiling]') as HTMLElement | null
+  expect(chip?.textContent).toBe('Read · held')
+  expect(chip?.title).toMatch(/Held: Read-only sandbox/)
+
+  render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
+  expect(container.querySelector('header [data-ceiling]')?.getAttribute('data-hold')).toBe('asked')
+
+  render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6' } })).store)
+  expect(container.querySelector('[data-ceiling]')).toBeNull()
 })
 
 it('the conversation’s menu offers Save as an Agent…', () => {

@@ -147,6 +147,26 @@ describe('BackgroundTasksView', () => {
     expect(container.textContent).toContain('No conversation')
   })
 
+  it('turns the system spinner while a task runs, and only then', () => {
+    mount([running('t1', 'Watch the tests'), done('t2', 'Ran the build')])
+    const [live, over] = cards()
+    const spinner = live?.querySelector('[data-slot="spinner"]')
+    expect(spinner?.getAttribute('data-size')).toBe('sm')
+    expect(spinner?.getAttribute('data-tone')).toBe('success')
+    expect(over?.querySelector('[data-slot="spinner"]')).toBeNull()
+  })
+
+  it('names each plate’s copy button for its own task', () => {
+    mount([
+      running('t1', 'Watch the tests', { command: 'pnpm test --watch' }),
+      running('t2', 'Serve the site', { command: 'pnpm dev' }),
+    ])
+    const names = [...container.querySelectorAll('[data-slot="code-block-command"] button')].map((one) =>
+      one.getAttribute('aria-label'),
+    )
+    expect(names).toEqual(['Copy the command for Watch the tests', 'Copy the command for Serve the site'])
+  })
+
   it('draws every task as a card, running work first', () => {
     mount([done('t2', 'Ran the build'), running('t1', 'Watch the tests')])
     expect(cards().map((card) => card.dataset['state'])).toEqual(['running', 'completed'])
@@ -159,7 +179,7 @@ describe('BackgroundTasksView', () => {
     // nowhere to go but a notice in the transcript.
     mount([done('t1', 'Run the test suite', { command: 'node --test test/', output: 'ℹ tests 1\nℹ pass 1\n' })])
     expect(container.textContent).toContain('node --test test/')
-    expect(container.querySelector('[data-slot="task-output"]')?.textContent).toContain('ℹ pass 1')
+    expect(container.querySelector('[data-slot="task-card"] [data-slot="code-block-body"]')?.textContent).toContain('ℹ pass 1')
   })
 
   it('says the kind and the state in words, with the duration', () => {
@@ -170,7 +190,9 @@ describe('BackgroundTasksView', () => {
   it('does not pretend a running task printed nothing yet is silence', () => {
     mount([running('t1', 'Watch the tests', { command: 'pnpm test --watch' })])
     expect(container.textContent).toContain('Nothing printed yet')
-    expect(container.querySelector('[data-slot="task-output"]')).toBeNull()
+    // The plate says so a step quieter than output, and prints nothing that
+    // could be read as what the task wrote.
+    expect(container.querySelector('[data-slot="code-block-body"]')?.textContent).toBe('Nothing printed yet.')
   })
 
   it('tells "still fetching" from "never found" on a finished task with no output', () => {

@@ -132,7 +132,7 @@ export const AddWork = ({
           )}
         </Field>
 
-        <Field label={<>Detail <Text role="muted" ink="muted">optional</Text></>}>
+        <Field label="Detail" optional>
           {(control) => (
             <Textarea
               {...control}
@@ -167,7 +167,8 @@ export const AddWork = ({
 
         <div className={styles.pair}>
           <Field
-            label={<>Ask someone <Text role="muted" ink="muted">optional</Text></>}
+            label="Ask someone"
+            optional
             hint={peers.length === 0
               ? 'Nobody is in the room yet.'
               : 'Posts a message. The claim is still theirs to take.'}
@@ -193,20 +194,23 @@ export const AddWork = ({
 
         {blockers.length > 0 && (
           <Field
-            label={<>Waits for <Text role="muted" ink="muted">optional</Text></>}
+            label="Waits for"
+            optional
             hint="It sits in Waiting until those are done, then opens on its own."
           >
             {(control) => <Card {...control} spacing="compact" radius="sm" className={styles.deps}>
               {blockers.map((one) => (
-                <label key={one.id} className={styles.dep}>
-                  <Checkbox
-                    aria-label={`Waits for #${one.id}`}
-                    checked={dependsOn.includes(one.id)}
-                    onCheckedChange={() => toggle(one.id)}
-                  />
-                  <Text role="meta" numeric>#{one.id}</Text>
-                  <Text role="muted" ink="secondary" truncate className={styles.depTitle}>{one.title}</Text>
-                </label>
+                <Checkbox
+                  key={one.id}
+                  checked={dependsOn.includes(one.id)}
+                  onCheckedChange={() => toggle(one.id)}
+                  label={
+                    <>
+                      <Text role="meta" numeric>#{one.id}</Text>{' '}
+                      <Text role="muted" ink="secondary" truncate className={styles.depTitle}>{one.title}</Text>
+                    </>
+                  }
+                />
               ))}
             </Card>}
           </Field>

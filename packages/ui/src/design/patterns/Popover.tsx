@@ -1,4 +1,4 @@
-import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, type Ref } from 'react'
 
 import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
 import {
@@ -8,7 +8,9 @@ import {
   PopoverPositioner,
   PopoverTrigger,
 } from '../ui/popover'
-import { Input } from '../ui/input'
+import { cn } from '@/lib/utils'
+
+import { buttonVariants } from '../ui/button'
 
 import styles from './Popover.module.css'
 
@@ -99,7 +101,10 @@ export const Popover = ({
   sideOffset = 6,
   tone = 'calm',
   fullWidth = false,
+  panelWidth = 'content',
   triggerClassName,
+  triggerVariant,
+  triggerRef,
   onOpenChange,
   children,
 }: {
@@ -107,8 +112,23 @@ export const Popover = ({
   title?: string
   /** Replaces the default trigger look, for a button that already has one. */
   triggerClassName?: string
+  /**
+   * A trigger that is a button of the system's own, drawn exactly as `Button`
+   * draws that variant and size — its classes merged the way `Button` merges
+   * them, so an outline keeps its edge. `triggerClassName` passes a class
+   * through untouched, for the triggers that already carry a look of their own.
+   */
+  triggerVariant?: Parameters<typeof buttonVariants>[0]
+  /** The trigger itself, for a caller that sends focus back to it. */
+  triggerRef?: Ref<HTMLButtonElement>
   /** Fill a row or column instead of shrinking the trigger to its label. */
   fullWidth?: boolean
+  /**
+   * `trigger` draws the panel exactly as wide as the row that opened it, so a
+   * menu opened from a full-width row reads as that row unfolding rather than
+   * as a card set down beside it.
+   */
+  panelWidth?: 'content' | 'trigger'
   onOpenChange?: (open: boolean) => void
   /** Colours the trigger by risk, for controls where neutral would mislead. */
   tone?: 'calm' | 'warn' | 'alert'
@@ -171,9 +191,13 @@ export const Popover = ({
     >
       <div className={`${styles.anchor} hd-no-drag`} data-drop={drop} data-align={align} data-full-width={fullWidth || undefined}>
         <PopoverTrigger
-          ref={trigger}
+          ref={(node: HTMLButtonElement | null) => {
+            trigger.current = node
+            if (typeof triggerRef === 'function') triggerRef(node)
+            else if (triggerRef) triggerRef.current = node
+          }}
           id={triggerId}
-          className={triggerClassName ?? styles.trigger}
+          className={triggerVariant ? cn(buttonVariants(triggerVariant)) : (triggerClassName ?? styles.trigger)}
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
           title={title}
@@ -203,12 +227,17 @@ export const Popover = ({
             align={sideAlign ?? (align === 'left' ? 'start' : 'end')}
             sideOffset={sideOffset}
             collisionPadding={8}
+            /* A row unfolded may flip to the row's other side, never off to a
+               third one: short of room it scrolls under `--available-height`,
+               the way Base UI's own dropdowns do. */
+            {...(panelWidth === 'trigger' ? { collisionAvoidance: { fallbackAxisSide: 'none' as const } } : {})}
             className={styles.positioner}
           >
             <PopoverPopup
               ref={panel}
               aria-labelledby={triggerId}
               className={styles.panel}
+              data-width={panelWidth === 'trigger' ? 'trigger' : undefined}
               initialFocus={false}
               finalFocus={() => {
                 const requested = externalReturnFocus.current
@@ -298,20 +327,4 @@ export const PopoverOptionHint = ({ children, className }: { children: ReactNode
 
 export const PopoverOptionLive = ({ label = 'Live' }: { label?: string }) => (
   <span className={styles.optionLive} aria-label={label} />
-)
-
-export const PopoverStrong = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={`${styles.strong}${className ? ` ${className}` : ''}`}>{children}</span>
-)
-
-export const PopoverDim = ({ children }: { children: ReactNode }) => (
-  <span className={styles.dim}>{children}</span>
-)
-
-export const PopoverFilterInput = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
-  <Input {...props} className={`${styles.filterInput}${props.className ? ` ${props.className}` : ''}`} />
-)
-
-export const PopoverUpdateNote = ({ children, ...props }: HTMLAttributes<HTMLDivElement>) => (
-  <div {...props} className={`${styles.updateNote}${props.className ? ` ${props.className}` : ''}`}>{children}</div>
 )

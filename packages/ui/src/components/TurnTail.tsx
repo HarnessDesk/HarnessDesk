@@ -6,7 +6,7 @@ import { cacheHealthOf } from '../lib/cache-health'
 import { instant } from '../lib/clock'
 import { formatTokens } from '../lib/context-usage'
 import { delegatedIn } from '../lib/turn-summary'
-import { ActionError, Alert, AlertContent, AlertDescription, Tooltip, TooltipContent, TooltipTrigger } from '../design'
+import { ActionError, Alert, AlertContent, AlertDescription, Text, Tooltip, TooltipContent, TooltipTrigger } from '../design'
 import { AlertIcon } from './Icons'
 import { MessageActions } from './MessageActions'
 import styles from './Conversation.module.css'
@@ -19,7 +19,8 @@ import styles from './Conversation.module.css'
  * did not report is absent rather than guessed at.
  */
 
-const formatDuration = (ms: number): string =>
+/** A duration, in the shortest unit that still reads as one figure — "496ms", "1.2s", "3m". Shared with any live line that reads the same clock. */
+export const formatDuration = (ms: number): string =>
   ms < 1000 ? `${Math.round(ms)}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 60_000)}m`
 
 /** Items that represent work, as opposed to the prose describing it. */
@@ -119,7 +120,7 @@ export const TurnTail = ({
         </ActionError>
       )}
       {(actions || when !== null) && (
-        <div className={`${styles.turnTail} text-xs text-(--hd-muted-foreground) tabular-nums`}>
+        <Text as="div" role="meta" numeric className={styles.turnTail}>
           {actions && <MessageActions text={answer} />}
           <span className={styles.turnTailSpacer} />
           {when !== null && figures.length > 0 ? (
@@ -142,7 +143,7 @@ export const TurnTail = ({
           ) : when !== null ? (
             <span className={styles.turnTailTime} data-testid="turn-time">{when}</span>
           ) : null}
-        </div>
+        </Text>
       )}
     </>
   )

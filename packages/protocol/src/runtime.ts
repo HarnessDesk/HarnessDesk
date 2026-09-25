@@ -1,5 +1,7 @@
 import type { ApprovalDecision } from './approval.js'
+import type { AttachmentSupport, SessionAttachmentReceipt } from './attachments.js'
 import type { AgentEvent } from './events.js'
+import type { CeilingLevel } from './evidence.js'
 import type { ApprovalId, RuntimeId, SessionId, TurnId } from './ids.js'
 import type { UserContent } from './items.js'
 import type { ConfigOption, OptionValue } from './options.js'
@@ -106,6 +108,13 @@ export interface AccountStatus {
   readonly accounts: readonly Account[]
   /** How to sign in from here. Empty when the runtime has nothing it can drive. */
   readonly signInMethods: readonly AuthMethod[]
+  /**
+   * What the agent said when it refused to work signed out, as one sentence.
+   * It is said once for the whole account, not once per method: every way in
+   * answers the same refusal, and appending it to each method's description
+   * printed the same sentence under every one of them.
+   */
+  readonly refusal?: string
 }
 
 /**
@@ -401,6 +410,16 @@ export interface InstallInfo {
   readonly checkedAt: number
 }
 
+export interface CeilingSetting {
+  readonly option: string
+  readonly value: OptionValue
+}
+
+export interface CeilingControl {
+  readonly settings: readonly CeilingSetting[]
+  readonly how: string
+}
+
 export interface RuntimeInfo {
   readonly id: RuntimeId
   readonly name: string
@@ -428,7 +447,28 @@ export interface RuntimeInfo {
    */
   readonly install?: InstallInfo | null
   readonly capabilities: RuntimeCapabilities
+  readonly ceilings?: Readonly<Partial<Record<CeilingLevel, CeilingControl>>>
   readonly presentation: RuntimePresentation
+  /**
+   * Phase 12's stronger session contract: whether this runtime build can
+   * negotiate a scoped, per-Seat skill/server filter and prove what it
+   * loaded — never to be confused with the broad, always-on
+   * `RuntimeCapabilities.skills`/`.mcp` above. Absent (not merely `false`)
+   * for a runtime that has not been measured against this contract; decision
+   * 16 is explicit that the older capabilities never stand in for it.
+   */
+  readonly attachments?: AttachmentSupport
+  /**
+   * Which vendor's models this runtime's sessions reach, as its adapter
+   * resolved it from the agent's own configuration. Null when the adapter
+   * cannot tell — and always null when anything the person configured (an
+   * environment variable, a settings file, a gateway) could point the agent
+   * at another provider or base URL: a runtime built by one vendor can be
+   * calling another's models. Absent reads as null. Never a guess from the
+   * runtime's name; a step that must be independent of another refuses an
+   * unknown provider rather than assume one.
+   */
+  readonly provider?: string | null
   /**
    * `registry` when this runtime exists because the user's agent registry
    * names it — which is what makes it removable from the interface. Attached
@@ -868,6 +908,16 @@ export interface AgentRuntime {
    */
   readonly sessionStore?: string | null
 
+  /**
+   * `info.provider` for a session working in `cwd`, for an agent that also
+   * reads configuration kept in the project itself — which can point that
+   * folder's sessions somewhere else. Absent: `info.provider` holds for
+   * every folder. The project's files arrived with a clone, so they are read
+   * bounded, without blocking and refusing links; anything that cannot be
+   * read that way is unknown.
+   */
+  providerAt?(cwd: string): Promise<string | null>
+
   /** Bring the runtime up. Safe to call more than once. */
   start(): Promise<void>
   dispose(): Promise<void>
@@ -1033,6 +1083,19 @@ export interface AgentRuntime {
   /** Bring an existing session back into memory so it can take turns again. */
   resumeSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession>
   forkSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession>
+
+  /**
+   * What this session actually loaded, in answer to the `attachments` this
+   * session (or its most recent recreate/resume/fork) was given — read back
+   * from the runtime itself, never assumed from what was requested.
+   *
+   * Optional, and its absence is exactly what `info.attachments` being unset
+   * already says: a runtime with no measured native contract implements
+   * neither. Only ever called for a session that was actually opened with a
+   * non-null `SessionOptions.attachments`; the host never asks a plain
+   * conversation to account for attachments it was never given.
+   */
+  attachmentReceipt?(session: SessionId): Promise<SessionAttachmentReceipt>
 }
 
 export interface AgentSession {

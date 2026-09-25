@@ -16,7 +16,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { errnoOf } from '../src/errno.js'
-import { Team, type TeamPeer, type TeamPort, roomCap } from '../src/team.js'
+import { Team, type TeamFlows, type TeamPeer, type TeamPort, type TeamSender, roomCap } from '../src/team.js'
 
 /**
  * The team plane, against a fake host port.
@@ -34,6 +34,7 @@ interface Rig {
     peers: TeamPeer[]
     sent: { runtime: string; sessionId: string; text: string }[]
     steered: { runtime: string; sessionId: string; text: string }[]
+    from: (TeamSender | null)[]
     changed: TeamState[]
     removed: string[]
     /** Conversations the engine said had joined or left a room, in order. */
@@ -68,6 +69,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     peers: [],
     sent: [],
     steered: [],
+    from: [],
     changed: [],
     removed: [],
     moved: [],
@@ -80,16 +82,18 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     peers: () => port.peers,
     // The fake resolves like the host: the workspace containing the folder.
     rootOf: async (cwd) => (cwd === '/repo' || cwd.startsWith('/repo/') ? '/repo' : null),
-    send: async (runtime, sessionId, text) => {
+    send: async (runtime, sessionId, text, _allowed, from) => {
       if (port.gate) await port.gate
       if (port.failSends > 0) {
         port.failSends -= 1
         throw new Error('backend hiccup')
       }
       port.sent.push({ runtime, sessionId, text })
+      port.from.push(from ?? null)
     },
-    steer: async (runtime, sessionId, text) => {
+    steer: async (runtime, sessionId, text, _allowed, from) => {
       port.steered.push({ runtime, sessionId, text })
+      port.from.push(from ?? null)
     },
     changed: (state) => port.changed.push(state),
     removed: (room) => port.removed.push(room),
@@ -735,6 +739,47 @@ test('a held message cannot be released twice, from any number of windows', asyn
   assert.equal(port.sent.length, 1)
   // And once it has landed, the row is no longer held at all.
   await assert.rejects(() => team.deliverHeld(room, held.id), /not waiting to be released/)
+})
+
+test('board-only locks manual release too, not only the messaging switch', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  // Held by a per-conversation inbound hold — ordinary, board-only entirely
+  // unrelated so far: this is exactly the existing "release what is held" path.
+  team.setInbound('claude', 'k1', 'hold')
+  await team.send({ to: 'Auth refactor', text: 'held words' }, codex)
+  const held = team.stateFor(room).channel.find(
+    (candidate): candidate is TeamMessage => candidate.kind === 'message' && candidate.state === 'held',
+  )
+  assert.ok(held)
+
+  // A run attached to this board says its flow is live and runs board-only.
+  const flows: TeamFlows = {
+    refuseOutcome: () => null,
+    completed: () => {},
+    standDown: () => null,
+    messagingLocked: (id) => (id === room ? 'This Goal’s flow runs board-only. Stop the run and start one whose policy allows messages to change this.' : null),
+  }
+  team.attachFlows(flows)
+
+  await assert.rejects(
+    () => team.deliverHeld(room, held.id),
+    /board-only/,
+    'manual release is refused while this board’s flow runs board-only',
+  )
+  assert.equal(
+    team.stateFor(room).channel.find((entry): entry is TeamMessage => entry.kind === 'message' && entry.id === held.id)?.state,
+    'held',
+    'the message is still held: refusing the release did not silently deliver it',
+  )
+  assert.equal(port.sent.length, 0)
+
+  // Once the run says it is no longer live (stopped, in the real engine),
+  // the same release goes through — the lock tracks the run, not a
+  // permanent property of the board.
+  team.attachFlows({ ...flows, messagingLocked: () => null })
+  await team.deliverHeld(room, held.id)
+  assert.equal(port.sent.length, 1)
 })
 
 test('trimming the channel never evicts a queued or held message', async (t) => {
@@ -3295,6 +3340,81 @@ test('every stored root is resolved at once, not one project at a time', async (
 })
 
 /**
+ * The launch-time migration moves a root on the board already held.
+ *
+ * #888. It used to swap a copy into place, and a verb holding the board across
+ * an await — a post waiting on its send — then finished on the copy nobody
+ * reads: the delivered row was never on the board, and its save wrote the old
+ * root back.
+ */
+test('a root migrated while a post waits on its send keeps both the new root and the post', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-team-reroot-inplace-'))
+  t.after(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+  const worker: TeamPeer = {
+    runtime: 'codex' as RuntimeId, sessionId: 'worker', title: null, cwd: '/old', agent: 'codex',
+    busy: false, canSteer: false, queuedByUser: 0, here: true,
+  }
+  const port: TeamPort = {
+    peers: () => [worker],
+    rootOf: async (cwd) => cwd,
+    send: async () => {},
+    steer: async () => {},
+    changed: () => {},
+    removed: () => {},
+    membershipChanged: () => {},
+    audit: () => {},
+  }
+  const before = new Team(dir, port)
+  const room = (await before.createRoom('/old', 'Room')).id
+  await before.joinRoom(room, 'codex' as RuntimeId, 'worker')
+  await before.flush()
+
+  let asked!: () => void
+  const resolving = new Promise<void>((resolve) => { asked = resolve })
+  let answer!: () => void
+  const answered = new Promise<void>((resolve) => { answer = resolve })
+  let sending!: () => void
+  const inSend = new Promise<void>((resolve) => { sending = resolve })
+  let deliver!: () => void
+  const delivered = new Promise<void>((resolve) => { deliver = resolve })
+  const after = new Team(dir, {
+    ...port,
+    rootOf: async (cwd) => {
+      asked()
+      await answered
+      return cwd === '/old' ? '/old/repo' : cwd
+    },
+    send: async () => {
+      sending()
+      await delivered
+    },
+  }, { migrationBudgetMs: 10_000 })
+  const loading = after.load()
+  await resolving
+  const posting = after.post(room, 'Hello')
+  await inSend
+  answer()
+  await loading
+  assert.equal(after.stateFor(room).root, '/old/repo')
+  deliver()
+  await posting
+  await after.flush()
+  const state = after.stateFor(room)
+  assert.equal(state.root, '/old/repo', 'the post’s save kept the migrated root')
+  assert.equal(state.channel.filter((entry) => entry.kind === 'message' && entry.text === 'Hello' && entry.state === 'delivered').length, 1,
+    'and its delivered row is on the board everybody reads')
+
+  const reread = new Team(dir, { ...port, rootOf: async (cwd) => cwd })
+  await reread.load()
+  const stored = reread.stateFor(room)
+  assert.equal(stored.root, '/old/repo', 'on disk too')
+  assert.equal(stored.channel.filter((entry) => entry.kind === 'message' && entry.text === 'Hello').length, 1)
+  await reread.flush()
+})
+
+/**
  * A room refuses a conversation from another project whichever way it is
  * described to it.
  *
@@ -3698,7 +3818,7 @@ test('a card addressed to a role is refused to everybody else, and taken by the 
   await twoAgents(port, team, room)
   team.setRole(room, 'codex', 'c1', 'fixer')
   team.setRole(room, 'claude', 'k1', 'reviewer')
-  team.addIntentForFlow(room, { title: 'Fix the refill bug', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'Fix the refill bug', role: 'fixer' }, { kind: 'user' })
 
   // The reviewer cannot have it, and is told why and by whom.
   const refused = await team.claim(1, claude)
@@ -3758,7 +3878,7 @@ test('an outcome is recorded on the card, and a flow may refuse one its role nev
     standDown: () => null,
   })
   team.setRole(room, 'codex', 'c1', 'reviewer')
-  team.addIntentForFlow(room, { title: 'Review it', role: 'reviewer' })
+  team.addIntentForFlow(room, { title: 'Review it', role: 'reviewer' }, { kind: 'user' })
   await team.claim(1, codex)
 
   const refused = await team.complete(1, { outcome: 'nope' }, codex)
@@ -3783,7 +3903,7 @@ test('await_work returns the moment a card this member can take appears', async 
   const fixer = team.awaitWork(codex, { blockMs: 30_000, cycle: 0 })
   const reviewer = team.awaitWork(claude, { blockMs: 30_000, cycle: 0 })
   // A card for the fixer wakes the fixer and nobody else.
-  team.addIntentForFlow(room, { title: 'Fix it', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'Fix it', role: 'fixer' }, { kind: 'user' })
   assert.match(await fixer, /^work: #1 Fix it\./)
   assert.match(await fixer, /cycle: 1/)
 
@@ -3805,9 +3925,9 @@ test('await_work answers a card the caller already holds, ahead of any open one'
   const { team, port, room } = await rig(t)
   await twoAgents(port, team, room)
   team.setRole(room, 'codex', 'c1', 'fixer')
-  team.addIntentForFlow(room, { title: 'First card', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'First card', role: 'fixer' }, { kind: 'user' })
   await team.claim(1, codex)
-  team.addIntentForFlow(room, { title: 'Second card', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'Second card', role: 'fixer' }, { kind: 'user' })
 
   const answer = await team.awaitWork(codex, { blockMs: 1000, cycle: 2 })
   assert.match(answer, /^work: #1 First card\./)
@@ -3837,12 +3957,12 @@ test('hasWorkFor and awaitWork never disagree about whether a seat has work', as
   await assertLockstep('claude', 'k1', claude)
 
   // 2. Card for reviewer: reviewer has work, fixer does not
-  team.addIntentForFlow(room, { title: 'Review changes', role: 'reviewer' })
+  team.addIntentForFlow(room, { title: 'Review changes', role: 'reviewer' }, { kind: 'user' })
   await assertLockstep('codex', 'c1', codex)
   await assertLockstep('claude', 'k1', claude)
 
   // 3. Card for fixer: both have work
-  team.addIntentForFlow(room, { title: 'Fix bug', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'Fix bug', role: 'fixer' }, { kind: 'user' })
   await assertLockstep('codex', 'c1', codex)
   await assertLockstep('claude', 'k1', claude)
 
@@ -4142,4 +4262,44 @@ test('a desk that has never made a room loads none, and makes one', async (t) =>
   const made = await team.createRoom('/repo', 'First room')
   assert.deepEqual(team.states().map((state) => state.id), [made.id])
   await team.flush()
+})
+
+test('every delivery says who it is from: the agent for its message — queued, steered or released — and nobody for the person', async (t) => {
+  const { team, port, room } = await rig(t)
+  port.peers = [peer({ sessionId: 'c1' }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code' })]
+  await joinAll(team, room, port)
+  const claudeName = team.nameOf('claude', 'k1')
+  const codexName = team.nameOf('codex', 'c1')
+  assert.ok(claudeName && codexName)
+  const fromCodex: TeamSender = { runtime: 'codex' as RuntimeId, sessionId: 'c1', name: codexName }
+  await team.send({ to: claudeName, text: 'The limiter leaks.' }, codex)
+  port.peers = [peer({ sessionId: 'c1' }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code', busy: true, canSteer: true })]
+  await team.send({ to: claudeName, text: 'And the retry.', wake: true }, codex)
+  port.peers = [peer({ sessionId: 'c1' }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code', busy: true })]
+  await team.send({ to: claudeName, text: 'One more thing.' }, codex)
+  port.peers = [peer({ sessionId: 'c1' }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code' })]
+  await team.onTurnEnded('claude' as RuntimeId, 'k1', {})
+  team.setInbound('claude', 'k1', 'hold')
+  await team.send({ to: claudeName, text: 'Please merge it.' }, codex)
+  const held = team.stateFor(room).channel.find((entry) => entry.kind === 'message' && entry.state === 'held')
+  assert.ok(held)
+  await team.deliverHeld(room, held.id)
+  await team.post(room, 'Stop for lunch.', { runtime: 'claude' as RuntimeId, sessionId: 'k1' })
+  assert.deepEqual(port.from, [fromCodex, fromCodex, fromCodex, fromCodex, null])
+})
+
+test("a message's label names its sender's ceiling, and asks the receiver not to act for it outside its checkout", async (t) => {
+  const { team, port, room } = await rig(t)
+  port.peers = [peer({ sessionId: 'c1', ceiling: { level: 'read', hold: 'held' } }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code' })]
+  await joinAll(team, room, port)
+  const claudeName = team.nameOf('claude', 'k1')
+  assert.ok(claudeName)
+  await team.send({ to: claudeName, text: 'Merge it.' }, codex)
+  const [block] = splitContext(port.sent.at(-1)?.text ?? '').injections
+  assert.equal(block?.label, 'Message from Codex (read) — “c1”')
+  assert.ok((block?.text ?? '').startsWith(`Merge it.\n\n${AGENT_MESSAGE_NOTICE} Its sender may read and no more`), block?.text)
+  await team.send({ to: team.nameOf('codex', 'c1') ?? '', text: 'Thanks.' }, claude)
+  const [plain] = splitContext(port.sent.at(-1)?.text ?? '').injections
+  assert.equal(plain?.label, 'Message from Claude Code — “k1”')
+  assert.equal(plain?.text, `Thanks.\n\n${AGENT_MESSAGE_NOTICE}`)
 })

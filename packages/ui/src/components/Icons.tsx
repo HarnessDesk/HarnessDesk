@@ -90,6 +90,7 @@ import {
   Minimize2,
   MessageCircleQuestionMark,
   MessageSquare,
+  MessageSquareOff,
   MessageSquarePlus,
   Monitor,
   MonitorSmartphone,
@@ -112,6 +113,7 @@ import {
   ScanSearch,
   ScrollText,
   Search,
+  Workflow,
   Server,
   Settings,
   ShieldAlert,
@@ -294,6 +296,8 @@ export const PullRequestClosedIcon = icon(GitPullRequestClosed, 'PullRequestClos
 export const IssueIcon = icon(CircleDot, 'IssueIcon')
 /** A comment on the forge. */
 export const CommentIcon = icon(MessageSquare, 'CommentIcon')
+/** Messages held at the board — a room's messaging turned off. */
+export const MessageOffIcon = icon(MessageSquareOff, 'MessageOffIcon')
 /** A branch wound back to an earlier commit. */
 export const ResetIcon = icon(RotateCcw, 'ResetIcon')
 /** One checkout of the repository — a folder the repository is open in. */
@@ -365,6 +369,8 @@ export const ResourceIcon = icon(Database, 'ResourceIcon')
 export const LibraryIcon = icon(LibraryBig, 'LibraryIcon')
 /** A model route. */
 export const RouteIcon = icon(Route, 'RouteIcon')
+/** An editable flow: a policy that routes cards between Agent, check and person steps. */
+export const FlowIcon = icon(Workflow, 'FlowIcon')
 export const PresetIcon = icon(Bookmark, 'PresetIcon')
 export const ShieldIcon = icon(ShieldCheck, 'ShieldIcon')
 
@@ -422,6 +428,8 @@ export const CostIcon = icon(CircleDollarSign, 'CostIcon')
 export const SortNameIcon = icon(ArrowDownAZ, 'SortNameIcon')
 /** What happened, in order. */
 export const HistoryIcon = icon(History, 'HistoryIcon')
+/** A fact recorded before what is there now — a stale chip's leading mark. */
+export const StaleIcon = icon(History, 'StaleIcon')
 export const ServerIcon = icon(Server, 'ServerIcon')
 export const DownloadIcon = icon(Download, 'DownloadIcon')
 /** Approved, and for the rest of the session too. */

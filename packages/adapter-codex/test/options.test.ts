@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import type { CodexProtocol } from '@harnessdesk/codex'
+import { findOption, refuseOptionValue } from '@harnessdesk/protocol'
 
 import {
+  CODEX_CEILINGS,
   noteUnservedModel,
   overlayDraftValues,
   runtimeOptions,
@@ -18,6 +20,21 @@ import {
   type Catalog,
   type ThreadState,
 } from '../src/mapping/options.js'
+
+test("Codex holds read and edit with controls its own options accept, and every value it sets reads back through settingsUpdateFor", () => {
+  const options = sessionOptions(state, catalog)
+  for (const [level, control] of Object.entries(CODEX_CEILINGS)) {
+    for (const setting of control.settings) {
+      const option = findOption(options, setting.option)
+      assert.ok(option, `${level}: Codex declares ${setting.option}`)
+      assert.equal(refuseOptionValue(option, setting.value), null, `${level}: ${setting.option} takes ${String(setting.value)}`)
+      assert.notDeepEqual(settingsUpdateFor(setting.option, setting.value, state, catalog), {}, `${level}: ${setting.option}`)
+    }
+    assert.ok(control.settings.some((one) => one.option === 'approvalsReviewer' && one.value === 'user'), level)
+  }
+  assert.deepEqual(Object.keys(CODEX_CEILINGS).sort(), ['edit', 'read'])
+  assert.match(CODEX_CEILINGS.edit.how, /cannot commit/)
+})
 
 /**
  * The translation between Codex's settings and the capability surface, as

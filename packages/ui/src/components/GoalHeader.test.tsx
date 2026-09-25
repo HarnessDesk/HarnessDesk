@@ -17,15 +17,29 @@ const view = (patch: Partial<GoalView['goal']> = {}): GoalView => ({
   board: { id: 'g1', name: 'Ship it', root: '/repo', updatedAt: 2, members: [], messaging: true, intents: [], channel: [] }, receipt: null, problem: null,
 })
 
-it('opens dependencies and disables mutations for wrapped history', () => {
+it('opens dependencies and says why a wrapped Goal cannot be mutated', () => {
   const snapshot = emptySnapshot() as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openGoal: vi.fn(), updateGoal: vi.fn() } as unknown as AppStore
-  const onWrap = vi.fn()
-  act(() => root.render(<StoreProvider store={store}><GoalHeader view={view({ state: 'wrapped' })} onWrap={onWrap} /></StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}><GoalHeader view={view({ state: 'wrapped' })} /></StoreProvider>))
   expect(document.body.textContent).toContain('Prepare it')
   const dep = [...document.querySelectorAll('button')].find(one => one.textContent?.includes('Prepare it'))!
   act(() => dep.click())
   expect(store.openGoal).toHaveBeenCalledWith('g0')
-  expect([...document.querySelectorAll('button')].find(one => one.textContent === 'Wrap')?.hasAttribute('disabled')).toBe(true)
   expect(document.body.textContent).toContain('receipt is kept here')
+})
+
+/**
+ * A trigger Goal's own origin, budget and "Needs you" waits used to live
+ * here too, in `GoalIntake` (deleted with the owner's own design for the
+ * four body elements) — this body never asks Intake anything now, for any
+ * Goal, trigger-opened or not. `TeamRoomPane.test.tsx` covers the header's
+ * own origin chip and hover card, which is where that responsibility moved.
+ */
+it('never asks Intake for anything, trigger-opened or not', () => {
+  const snapshot = emptySnapshot() as AppSnapshot
+  const triggerGoal = vi.fn(async () => null)
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openGoal: vi.fn(), updateGoal: vi.fn(), triggerGoal } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><GoalHeader view={view({ origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' } })} /></StoreProvider>))
+  expect(triggerGoal).not.toHaveBeenCalled()
+  expect(document.body.querySelector('section[aria-label="Trigger origin"]')).toBeNull()
 })

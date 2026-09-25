@@ -1,7 +1,7 @@
 ---
 name: Performance reviewer
 description: Reads a change it did not write for what it costs in time, memory and I/O, and when that cost shows.
-permission: read
+ceiling: edit
 answers: [approve, request-changes]
 produces: [review]
 prefer: [claude-code, codex, cursor]

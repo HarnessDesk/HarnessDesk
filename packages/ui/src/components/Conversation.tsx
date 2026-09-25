@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { allItems, currentTurn, isBusy, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
@@ -39,7 +39,9 @@ import {
 } from './Icons'
 import { worktreeBranch } from '../lib/worktree-branch'
 import {
+  Bar,
   Button,
+  ConversationEmptyState,
   Menu,
   MenuItem,
   MenuLabel,
@@ -51,10 +53,16 @@ import {
   PopoverOptionLabel,
   PopoverOptionLive,
   PopoverOptionMark,
+  Separator,
+  Spinner,
   Submenu,
+  Text,
+  dotTone,
+  softTone,
+  type Tone,
 } from '../design'
 import { Badge } from '../design'
-import { STATUS_LABEL, paneStatus } from '../lib/pane-status'
+import { STATUS_LABEL, paneStatus, type PaneStatus } from '../lib/pane-status'
 import { splitTurn } from '../lib/turn-view'
 import { ItemView } from './Items'
 import { BranchSwitcher } from './BranchSwitcher'
@@ -67,6 +75,7 @@ import { MessageQueue } from './MessageQueue'
 import { RemoveWorktree } from './RemoveWorktree'
 import { BringHome } from './BringHome'
 import { FolderGone } from './FolderGone'
+import { FrontDoor } from './FrontDoor'
 import { SetupDesk } from './SetupDesk'
 import { TurnTail } from './TurnTail'
 import { describeLimits } from '../lib/limits'
@@ -83,8 +92,43 @@ import styles from './Conversation.module.css'
  *  floating composer. Composed here because padding is in the appearance family. */
 const SCROLL_PADDING = 'calc(8px + var(--hd-notice-inset, 0px)) 24px calc(var(--composer-h, 150px) + 16px)'
 const BARS_PADDING = '0 calc(24px + var(--hd-scrollbar-width, 8px))'
-const EMPTY_TITLE_CLASSES = 'font-(family-name:--hd-font-display) text-(length:--hd-heading) font-medium text-(--hd-foreground)'
-const EMPTY_BODY_CLASSES = 'max-w-[460px] text-base leading-(--hd-line)'
+
+/** An empty-state title, in the page role at its own weight. */
+const EmptyTitle = ({ children }: { children: ReactNode }) => (
+  <Text as="div" role="page" weight="medium">
+    {children}
+  </Text>
+)
+/** An empty-state sentence, in the reading role. */
+const EmptyBody = ({ children }: { children: ReactNode }) => (
+  <Text as="p" role="prose" className="m-0 max-w-[460px]">
+    {children}
+  </Text>
+)
+
+/** The dot's own tone: brand while a turn is running, so the one moving mark
+    is the one that says so. */
+const STATUS_TONE: Record<PaneStatus, Tone> = {
+  running: 'brand',
+  waiting: 'warning',
+  failed: 'danger',
+  idle: 'neutral',
+}
+
+/**
+ * The pill's own ground — its own judgement, not the dot's.
+ *
+ * Running is the most common live state, so its pill stays the neutral tone
+ * idle already wears; only the dot inside it turns brand. A pill that also
+ * went brand while running left the header shouting through most of a turn,
+ * and named only "failed" as worth a colour of its own.
+ */
+const STATUS_PILL_TONE: Record<PaneStatus, Tone> = {
+  running: 'neutral',
+  waiting: 'warning',
+  failed: 'danger',
+  idle: 'neutral',
+}
 
 /**
  * The transcript.
@@ -96,13 +140,14 @@ const EMPTY_BODY_CLASSES = 'max-w-[460px] text-base leading-(--hd-line)'
 
 const NEAR_BOTTOM_PX = 120
 
-const EmptyState = ({
+const ConversationEmpty = ({
   onSignIn,
   onOpenRuntimes,
 }: {
   onSignIn: (runtime?: RuntimeId) => void
   onOpenRuntimes: () => void
 }) => {
+  const store = useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
   // This pane's agent's own health and account. The singular slots are the
@@ -116,20 +161,21 @@ const EmptyState = ({
      draft's sentence in the wrong pane. */
   const session = useActiveSession()
   const folder = session?.cwd ? (session.cwd.split('/').filter(Boolean).pop() ?? null) : null
+  const [startingTeam, setStartingTeam] = useState(false)
 
   if (health && health.state === 'unavailable') {
     // Not just this agent's bad news: the whole desk, surveyed, with the one
     // next move per agent. A dead agent's empty pane is exactly where the
     // user is standing when they need to know what else would work.
     return (
-      <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
-        <div className={EMPTY_TITLE_CLASSES}>{words.name} isn’t available</div>
-        <p className={`${EMPTY_BODY_CLASSES} m-0`}>
+      <ConversationEmptyState>
+        <EmptyTitle>{words.name} isn’t available</EmptyTitle>
+        <EmptyBody>
           {health.message}
           {health.remediation ? ` ${health.remediation}` : ''}
-        </p>
+        </EmptyBody>
         <SetupDesk onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
-      </div>
+      </ConversationEmptyState>
     )
   }
 
@@ -139,12 +185,12 @@ const EmptyState = ({
     const driveable = account.signInMethods.some((method) => method.flow !== 'external')
     const external = account.signInMethods.find((method) => method.flow === 'external')
     return (
-      <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
-        <div className={EMPTY_TITLE_CLASSES}>Sign in to {words.name}</div>
-        <p className={`${EMPTY_BODY_CLASSES} m-0`}>
+      <ConversationEmptyState>
+        <EmptyTitle>Sign in to {words.name}</EmptyTitle>
+        <EmptyBody>
           HarnessDesk uses your existing {words.name} installation and never stores your
           credentials.
-        </p>
+        </EmptyBody>
         {driveable ? (
           /* This pane's agent, by name: an empty member column on another
              agent must not open the default's sign-in. */
@@ -152,14 +198,14 @@ const EmptyState = ({
             Sign in
           </Button>
         ) : (
-          <p className={`${EMPTY_BODY_CLASSES} m-0`}>
+          <EmptyBody>
             {external?.description ??
               (words.signIn?.command
                 ? `Run ${words.signIn.command} in a terminal; this window updates on its own.`
                 : `Sign in to ${words.name}; this window updates on its own.`)}
-          </p>
+          </EmptyBody>
         )}
-      </div>
+      </ConversationEmptyState>
     )
   }
 
@@ -171,38 +217,60 @@ const EmptyState = ({
       : null
   if (blocked) {
     return (
-      <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
-        <div className={EMPTY_TITLE_CLASSES}>{blocked.title}</div>
-        <p className={`${EMPTY_BODY_CLASSES} m-0`}>
+      <ConversationEmptyState>
+        <EmptyTitle>{blocked.title}</EmptyTitle>
+        <EmptyBody>
           {words.name} is signed in and healthy. {blocked.detail}
-        </p>
-      </div>
+        </EmptyBody>
+      </ConversationEmptyState>
     )
   }
 
   return (
-    <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
-      <div className={EMPTY_TITLE_CLASSES}>What should we build?</div>
-      <p className={`${EMPTY_BODY_CLASSES} m-0`}>
+    <ConversationEmptyState>
+      <EmptyTitle>What should we build?</EmptyTitle>
+      <EmptyBody>
         {folder
           ? `Describe what you want done in ${folder}.`
           : 'Pick a project folder and describe what you want done.'}
         {words.historySource
           ? ` Sessions you start in ${words.historySource} appear in the sidebar too.`
           : ''}
-      </p>
+      </EmptyBody>
+      {/* This pane already knows its folder — the front door reads the same
+          root. With none chosen yet there is no catalogue to read, so the
+          text above stays the whole of the pitch; opening a folder is what
+          the composer, ⌘O and the palette already offer. */}
+      {session?.cwd && (
+        <EmptyBody>
+          <Button type="button" variant="link" size="content" onClick={() => setStartingTeam(true)}>
+            Start with a team…
+          </Button>{' '}
+          to choose a shape this project ships instead.
+        </EmptyBody>
+      )}
       {snapshot.runtimes.length === 1 && (
         /* The one-agent desk is the first-run desk. Said here rather than
            left for settings to reveal: the other agents on this machine can
            join without anyone hand-editing a file. */
-        <p className={`${EMPTY_BODY_CLASSES} m-0`}>
+        <EmptyBody>
           {words.name} is the only runtime here.{' '}
           <Button type="button" variant="link" size="content" onClick={onOpenRuntimes}>
             Add another runtime…
           </Button>
-        </p>
+        </EmptyBody>
       )}
-    </div>
+      {startingTeam && session?.cwd && (
+        <FrontDoor
+          context={{ kind: 'project', root: session.cwd }}
+          onClose={() => setStartingTeam(false)}
+          onStarted={(execution) => {
+            store.openGoal(execution.goal)
+            setStartingTeam(false)
+          }}
+        />
+      )}
+    </ConversationEmptyState>
   )
 }
 
@@ -430,7 +498,7 @@ const TasksChip = () => {
       }`}
       onClick={() => store.showView('tasks')}
     >
-      {live ? <span className="size-2.5 rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-success) animate-[hd-spin_0.7s_linear_infinite]" aria-hidden="true" /> : <CheckIcon size={11} />}
+      {live ? <Spinner size="sm" tone="success" aria-hidden="true" /> : <CheckIcon size={11} />}
       <span className={styles.tasksLabel}>{tasksChipLabel(split)}</span>
     </Button>
   )
@@ -568,7 +636,7 @@ export const Conversation = ({
           itself, and that was wrong twice over — it indented this header when
           a tool pane was in the corner instead, and it left every other header
           in the app printing its title under the buttons. */}
-      <header className={`${styles.header} h-(--hd-titlebar-height) border-b border-(--hd-border) hd-drag`} style={{ padding: '0 var(--hd-bar-pad) 0 max(var(--hd-bar-ink), var(--titlebar-inset, 0px))' }}>
+      <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.header} hd-drag`}>
         {/* The window's own controls, whenever the sidebar is not standing
             beside this header to carry them: put away, or floating over the
             conversation in a narrow window. Only the middle's own header takes
@@ -577,25 +645,14 @@ export const Conversation = ({
         {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
           <WindowControls />
         )}
-        <HeaderTitle session={session} />
+        <HeaderTitle session={session} />        {session && <span className="hd-no-drag inline-flex flex-none"><HeaderCeiling session={session} /></span>}
         {session && (
           <span
-            className={`${styles.status} h-[22px] px-(--hd-space-2) rounded-(--hd-radius-md) text-base hd-no-drag ${
-              status === 'waiting' ? 'text-(--hd-warning-ink) bg-(--hd-warning-dim)'
-              : status === 'failed' ? 'text-(--hd-danger) bg-(--hd-danger-dim)'
-              : 'text-(--hd-secondary-foreground) bg-(--hd-muted)'
-            }`}
+            className={`${styles.status} h-[22px] px-(--hd-space-2) rounded-(--hd-radius-md) text-base hd-no-drag ${softTone({ tone: STATUS_PILL_TONE[status] })}`}
             data-status={status}
             title={STATUS_LABEL[status]}
           >
-            <span
-              className={`${styles.statusDot} h-[7px] rounded-full ${
-                status === 'running' ? 'bg-(--hd-accent) animate-[hd-pulse_1.2s_ease-in-out_infinite]'
-                : status === 'waiting' ? 'bg-(--hd-warning)'
-                : status === 'failed' ? 'bg-(--hd-danger)'
-                : 'bg-(--hd-muted-foreground)'
-              }`}
-            />
+            <span className={`${styles.statusDot} h-[7px] rounded-full ${dotTone({ tone: STATUS_TONE[status] })} ${status === 'running' ? 'animate-[hd-pulse_1.2s_ease-in-out_infinite]' : ''}`} />
             {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
           </span>
         )}
@@ -637,16 +694,16 @@ export const Conversation = ({
         )}
         {pane && session && <TerminalToggle folds />}
         {session && <ConversationMenu />}
-      </header>
+      </Bar>
 
       <div className={styles.body}>
         {/* Beside the transcript, not in it: the rail is a picture of the
             scroller and must not scroll with what it pictures. */}
         {session && <ConversationMap turns={session.turns} scroll={scroll} />}
         {loading && items.length === 0 ? (
-          <div className={`${styles.loading} p-10 text-base text-(--hd-muted-foreground)`}>
-            <span className="size-[13px] rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-accent) animate-[hd-spin_0.7s_linear_infinite]" />
-            Loading transcript…
+          <div className={`${styles.loading} p-10`}>
+            <Spinner size="sm" tone="brand" />
+            <Text role="prose" ink="muted">Loading transcript…</Text>
           </div>
         ) : session && items.length > 0 ? (
           <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
@@ -659,7 +716,7 @@ export const Conversation = ({
                 busy && turn.id === live?.id ? (turn.items[turn.items.length - 1]?.id ?? null) : null
               return (
                 <div key={turn.id} data-turn={turn.id}>
-                  {turnIndex > 0 && <div className={`${styles.turnDivider} h-px bg-(--hd-border)`} />}
+                  {turnIndex > 0 && <Separator className={styles.turnDivider} />}
                   {/* The two halves are marked separately because the rail on the
                       left has a dash for each, and a dash that previews the answer
                       has to land on the answer rather than on the top of the turn
@@ -709,18 +766,18 @@ export const Conversation = ({
           // the pitch below is the honest answer, and `updatedAt` moving past
           // `createdAt` is what separates the two.
           <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
-            <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
-              <div className={EMPTY_TITLE_CLASSES}>Nothing to show</div>
-              <p className={`${EMPTY_BODY_CLASSES} m-0`}>
+            <ConversationEmptyState>
+              <EmptyTitle>Nothing to show</EmptyTitle>
+              <EmptyBody>
                 {snapshot.runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The agent'}{' '}
                 couldn’t restore this conversation’s messages. Sending a message continues the
                 same session.
-              </p>
-            </div>
+              </EmptyBody>
+            </ConversationEmptyState>
           </div>
         ) : (
           <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
-            <EmptyState onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
+            <ConversationEmpty onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
           </div>
         )}
 
@@ -882,7 +939,7 @@ export const GitControl = ({
             <FolderIcon size={13} />
           )}
           <span className={styles.gitWords}>
-            <span className={`${styles.gitLabel} text-sm`}>{branch ?? folder}</span>
+            <Text as="span" role="navigation" className={styles.gitLabel}>{branch ?? folder}</Text>
             {linked && (
               <Badge variant="secondary" className={styles.gitBadge}>
                 worktree
@@ -976,6 +1033,17 @@ export const GitControl = ({
   )
 }
 
+import { CeilingChip } from './CeilingChip'
+import { seatCeilingOf } from '../lib/ceilings'
+
+/** The ceiling governing this conversation, or nothing on the plain path. */
+const HeaderCeiling = ({ session }: { readonly session: Session }) => {
+  const snapshot = useSnapshot()
+  const runs = useMemo(() => [...snapshot.flowRuns.values()].flat(), [snapshot.flowRuns])
+  const shown = seatCeilingOf(session.settings, runs, String(session.runtime), String(session.id))
+  return shown ? <CeilingChip ceiling={shown.ceiling} note={shown.note} /> : null
+}
+
 /**
  * What the header calls the conversation. A fresh session has no stored
  * preview until the list is re-read, so the first thing the user wrote stands
@@ -1002,5 +1070,5 @@ const titleOf = (session: Session | null): string => {
 /** The header's title: the conversation's own, led by the Agent it was seated as. */
 const HeaderTitle = ({ session }: { readonly session: Session | null }) => {
   const seated = useSeatAgent(session)
-  return <span className={`${styles.title} font-medium text-base leading-(--hd-line)`}>{ledBy(seated?.name ?? null, titleOf(session))}</span>
+  return <Text as="span" role="subject" className={styles.title}>{ledBy(seated?.name ?? null, titleOf(session))}</Text>
 }

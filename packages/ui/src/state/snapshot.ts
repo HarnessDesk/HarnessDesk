@@ -29,12 +29,18 @@ import type {
   SessionKey,
   SessionSummary,
   TeamState,
+  FindingRunView,
+  FlowExecution,
   FlowRun,
   GoalView,
   Lane,
   LanePreferences,
+  TriggerAttention,
+  TriggerPreferences,
   Worktree,
   WorkspaceEntry,
+  FrontDoorPreview,
+  StartContext,
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefsMap } from '../lib/accounts'
@@ -44,6 +50,8 @@ import type { Profile } from '../lib/profile'
 import { DEFAULT_EDITOR_PREFS } from '../lib/editor-prefs'
 
 import type { GitColumnWidths } from '../lib/git-columns'
+
+import type { FindingsListState } from '../lib/findings'
 
 import type { Carry } from '../lib/handoff'
 
@@ -239,6 +247,18 @@ export interface AppSnapshot {
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
   /** Latest host revision accepted for each capture-health entry. */
   readonly provenanceRevision: ReadonlyMap<string, number>
+  /**
+   * This machine's consent revision for each project's `.harnessdesk/triggers.yml`,
+   * keyed by project root — invalidation only, from `trigger/changed` and from
+   * `trigger/list`'s own answer. `ProjectTriggers` re-reads when its project's
+   * entry moves; the armed state and history it reads stay the host's, never
+   * cached here.
+   */
+  readonly triggerRevisions: Readonly<Record<string, number>>
+  /** This machine's trigger pause and daily cap, or null until Settings has read it once. */
+  readonly triggerPreferences: TriggerPreferences | null
+  /** Every named wait on unattended work this window has been told about, by its durable id. */
+  readonly triggerAttention: Readonly<Record<string, TriggerAttention>>
   readonly status: ConnectionStatus
   readonly runtimes: readonly RuntimeInfo[]
   readonly activeRuntime: RuntimeId | null
@@ -393,6 +413,14 @@ export interface AppSnapshot {
   /** Durable Goals, keyed by Goal id; their embedded board is mirrored into `teams`. */
   readonly goals: ReadonlyMap<string, GoalView>
   readonly goalProblem: string | null
+  /**
+   * `finding/list`'s cache, keyed by Goal id. One filter's rows at a time —
+   * changing the filter reloads rather than keeping three lists — because the
+   * server pages the ledger it is actually showing, never all three at once.
+   */
+  readonly findings: ReadonlyMap<string, FindingsListState>
+  /** A run's findings, as a person reads and decides them (`finding/run`), keyed by run id. */
+  readonly findingRuns: ReadonlyMap<string, FindingRunView>
   readonly goalMigrationPending: boolean
   /** Machine-wide defaults for new isolated lanes, plus every durable descriptor. */
   readonly lanePreferences: LanePreferences | null
@@ -405,6 +433,20 @@ export interface AppSnapshot {
    * which is every room that exists today — simply has no entry here.
    */
   readonly flowRuns: ReadonlyMap<string, readonly FlowRun[]>
+  /**
+   * Every v2 flow run this window has read or been pushed, keyed by its run
+   * id — `flow/execution`'s answer and `flow/execution-changed`'s push kept
+   * in the one place, so a run status surface reads whichever arrived last.
+   */
+  readonly flowExecutions: ReadonlyMap<string, FlowExecution>
+  /**
+   * `/race`'s dialog, open on the task it was typed with — or null. Store
+   * state because the command that opens it runs wherever the composer is,
+   * not inside whatever screen happens to be mounted; `App.tsx` renders
+   * `RaceStart` from this the same way it reads every other deep-linked
+   * request.
+   */
+  readonly raceStart: { readonly task: string } | null
   /** What the desk observed on each room's cards, newest host read by stamp. */
   readonly boardEvidence: ReadonlyMap<string, BoardEvidence>
   /** Rooms whose first evidence read failed before any facts could be established. */
@@ -452,6 +494,20 @@ export interface AppSnapshot {
    * usage window and Settings, takes it where it is fixed.
    */
   readonly seatFix: { readonly fix: SeatFix; readonly agent: string } | null
+  /**
+   * The front door, open for one context and (when reusing one) one empty
+   * Goal — `AppStore.openFrontDoor`. `preview` is the live dry run for the
+   * shape and inputs last asked for; `AppStore.previewFrontDoor` bumps one
+   * generation on every call and writes here only when its own reply is
+   * still the newest one, so a reply that lands after a newer request
+   * already started can never revive an old token here and enable Start.
+   * Null when the front door is closed.
+   */
+  readonly frontDoor: {
+    readonly context: StartContext
+    readonly goal: { readonly id: string; readonly revision: number } | null
+    readonly preview: FrontDoorPreview | null
+  } | null
   /**
    * The Agent each seated conversation was seated as, read for the folder it
    * works in, by `seatAgentKey(cwd, id)` — what its header, its row and its
@@ -692,6 +748,9 @@ const EMPTY_WORKBENCH = emptyWorkbench()
 const EMPTY: AppSnapshot = {
   captureHealth: new Map(),
   provenanceRevision: new Map(),
+  triggerRevisions: {},
+  triggerPreferences: null,
+  triggerAttention: {},
   status: 'connecting',
   runtimes: [],
   catalogRefreshing: false,
@@ -736,10 +795,14 @@ const EMPTY: AppSnapshot = {
   teams: new Map(),
   goals: new Map(),
   goalProblem: null,
+  findings: new Map(),
+  findingRuns: new Map(),
   goalMigrationPending: false,
   lanePreferences: null,
   lanes: [],
   flowRuns: new Map(),
+  flowExecutions: new Map(),
+  raceStart: null,
   boardEvidence: new Map(),
   boardEvidenceFailed: new Set(),
   agents: null,
@@ -752,6 +815,7 @@ const EMPTY: AppSnapshot = {
   settingsFocus: null,
   seatRefusal: null,
   seatFix: null,
+  frontDoor: null,
   seatAgents: new Map(),
   workspaces: [],
   workspace: null,
@@ -797,6 +861,8 @@ export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
   captureHealth: new Map(),
   provenanceRevision: new Map(),
+  triggerRevisions: {},
+  triggerAttention: {},
   sessions: new Map(),
   queues: new Map(),
   tasks: new Map(),
@@ -807,4 +873,6 @@ export const emptySnapshot = (): AppSnapshot => ({
   seating: null,
   seatAgents: new Map(),
   goals: new Map(),
+  findings: new Map(),
+  findingRuns: new Map(),
 })

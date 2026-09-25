@@ -1,0 +1,27 @@
+version: 2
+name: "Investigation"
+description: "A researcher answers a question and commits its answer where the diff itself is the evidence a person reads before closing it out."
+inputs:
+  question:
+    label: "Question"
+roles:
+  research:
+    kind: agent
+    uses: [researcher]
+    grant: edit
+    independentOf: []
+  close:
+    kind: person
+    outcomes: [closed]
+seed: { role: research, title: "{{question}}" }
+rules:
+  - id: to-close
+    on: research
+    when: { every: [gathered], evidence: [{ diff: true }] }
+    then: { role: close, title: "Read the committed answer" }
+messaging: board-only
+# How far a run may go before it stops for a person: closed rounds in all, and
+# closed rounds in a row that brought no new evidence. Raise it for longer loops.
+budget: { rounds: 3, without-progress: 2 }
+wait: 240
+layout: {"frontDoor":{"order":5,"contexts":["project"]}}

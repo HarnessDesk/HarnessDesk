@@ -1,6 +1,9 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 
-import type { ScopeQuery } from '@harnessdesk/protocol'
+import type {
+  DecideFindingInput, EvidenceRecord, FindingReadInput, FindingView, RaiseFindingInput, RepairFindingInput,
+  ReviewCandidate, ReviewInput, ScopeQuery,
+} from '@harnessdesk/protocol'
 
 import type { HostRuntime } from './runtime.js'
 import { currentBrowserIdentity, currentInvocationSignal } from './browser-scopes.js'
@@ -65,6 +68,23 @@ export interface TeamEngine {
     args: { readonly to: string; readonly text: string; readonly wake?: boolean },
     scope: TeamScope,
   ): Promise<string>
+  /**
+   * Structured data, not prose: the plugin tool words these for the calling
+   * model. `reviewCandidates` never throws — an empty list is "nothing to
+   * review yet" — but `recordReview` throws its refusal, since there is no
+   * evidence record to hand back when the call is refused.
+   */
+  reviewCandidates(intent: number, scope: TeamScope): Promise<readonly ReviewCandidate[]>
+  recordReview(input: ReviewInput, scope: TeamScope): Promise<EvidenceRecord>
+  /**
+   * The findings ledger, structured. Each throws its refusal; the host
+   * resolves which Seat, card and revision the caller speaks for, so an input
+   * that names any of them is refused, never believed.
+   */
+  raiseFinding(input: RaiseFindingInput, scope: TeamScope): Promise<FindingView>
+  repairFinding(input: RepairFindingInput, scope: TeamScope): Promise<FindingView>
+  decideFinding(input: DecideFindingInput, scope: TeamScope): Promise<FindingView>
+  listFindings(input: FindingReadInput, scope: TeamScope): Promise<readonly FindingView[]>
 }
 
 /** Which conversation a call is on behalf of; the serialisable half of a ScopeQuery. */
@@ -224,5 +244,35 @@ export class TeamService extends Service {
   ): Promise<string> {
     const plugin = this.gate()
     return engine().send(args, asTeamScope(scope, plugin))
+  }
+
+  async reviewCandidates(intent: number, scope?: ScopeQuery): Promise<readonly ReviewCandidate[]> {
+    const plugin = this.gate()
+    return engine().reviewCandidates(intent, asTeamScope(scope, plugin))
+  }
+
+  async recordReview(input: ReviewInput, scope?: ScopeQuery): Promise<EvidenceRecord> {
+    const plugin = this.gate()
+    return engine().recordReview(input, asTeamScope(scope, plugin))
+  }
+
+  async raiseFinding(input: RaiseFindingInput, scope?: ScopeQuery): Promise<FindingView> {
+    const plugin = this.gate()
+    return engine().raiseFinding(input, asTeamScope(scope, plugin))
+  }
+
+  async repairFinding(input: RepairFindingInput, scope?: ScopeQuery): Promise<FindingView> {
+    const plugin = this.gate()
+    return engine().repairFinding(input, asTeamScope(scope, plugin))
+  }
+
+  async decideFinding(input: DecideFindingInput, scope?: ScopeQuery): Promise<FindingView> {
+    const plugin = this.gate()
+    return engine().decideFinding(input, asTeamScope(scope, plugin))
+  }
+
+  async listFindings(input: FindingReadInput, scope?: ScopeQuery): Promise<readonly FindingView[]> {
+    const plugin = this.gate()
+    return engine().listFindings(input, asTeamScope(scope, plugin))
   }
 }

@@ -1,0 +1,96 @@
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, expect, it } from 'vitest'
+import type { InsightMetric, InsightReport, InsightSource } from '@harnessdesk/protocol'
+
+import { InsightCost } from './InsightCost'
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+let container: HTMLDivElement
+let root: Root
+beforeEach(() => {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+})
+afterEach(() => {
+  act(() => root.unmount())
+  container.remove()
+})
+
+const source: InsightSource = {
+  id: 'source-1', kind: 'corpus', label: 'Recorded usage', observedAt: 0, checkedAt: 60_000,
+  stale: true, problem: null,
+}
+const metric = (value: number | null, quality: InsightMetric['quality'], coverage: InsightMetric['coverage'] = 'complete'): InsightMetric => ({
+  value, quality, coverage, unit: 'usd', basis: 'listPrice', sourceIds: ['source-1'], missing: coverage === 'partial' ? ['One source did not report cache writes.'] : [],
+})
+const report = (): InsightReport => ({
+  id: 'report', generatedAt: 60_000, query: { root: '/repo', from: 0, to: 60_000 }, goals: [], seats: [], goal: 'goal-1', receipt: 'receipt-1',
+  totals: { usd: metric(3, 'estimate', 'partial'), tokens: { ...metric(4, 'floor'), unit: 'tokens', basis: 'observed' }, activeMs: { ...metric(null, 'unknown'), unit: 'milliseconds', basis: 'unknown' }, turns: { ...metric(1, 'exact'), unit: 'count', basis: 'observed' } },
+  elapsedMs: { ...metric(null, 'unknown'), unit: 'milliseconds', basis: 'unknown' },
+  breakdowns: [
+    { dimension: 'seat', rows: [{ key: 'seat-1', label: 'Seat one', amounts: { usd: metric(0, 'exact'), tokens: { ...metric(null, 'unknown'), unit: 'tokens', basis: 'observed' }, activeMs: { ...metric(null, 'unknown'), unit: 'milliseconds', basis: 'unknown' }, turns: { ...metric(1, 'exact'), unit: 'count', basis: 'observed' } }, seat: 'seat-1', goal: 'goal-1', session: null, message: null, note: null, elapsedMs: { ...metric(null, 'unknown'), unit: 'milliseconds', basis: 'unknown' } }], unattributed: { usd: metric(null, 'unknown', 'none'), tokens: { ...metric(null, 'unknown'), unit: 'tokens', basis: 'observed', coverage: 'none' }, activeMs: { ...metric(null, 'unknown'), unit: 'milliseconds', basis: 'unknown' }, turns: { ...metric(null, 'unknown'), unit: 'count', basis: 'observed' } }, reason: 'No unique historical Seat could be established.' },
+    { dimension: 'agent', rows: [{ key: 'agent-1', label: 'Agent one', amounts: { usd: metric(2, 'floor'), tokens: { ...metric(null, 'unknown'), unit: 'tokens', basis: 'observed' }, activeMs: { ...metric(null, 'unknown'), unit: 'milliseconds', basis: 'unknown' }, turns: { ...metric(1, 'exact'), unit: 'count', basis: 'observed' } }, seat: null, goal: 'goal-1', session: null, message: null, note: 'Streaming usage remains a floor.', elapsedMs: { ...metric(null, 'unknown'), unit: 'milliseconds', basis: 'unknown' } }], unattributed: { usd: metric(null, 'unknown', 'none'), tokens: { ...metric(null, 'unknown'), unit: 'tokens', basis: 'observed', coverage: 'none' }, activeMs: { ...metric(null, 'unknown'), unit: 'milliseconds', basis: 'unknown' }, turns: { ...metric(null, 'unknown'), unit: 'count', basis: 'observed' } }, reason: null },
+  ],
+  sources: [source], recordedSpend: [], provenance: { state: 'unavailable', note: 'Commit associations are unavailable.' }, gaps: [],
+})
+
+it('keeps total fixed while alternate views retain zero, floor, estimate and unknown qualification', () => {
+  act(() => root.render(<InsightCost report={report()} loading={false} problem={null} onRefresh={() => {}} onSeat={() => {}} onSession={() => {}} onMessage={() => {}} />))
+  expect(container.textContent).toContain('$3.00')
+  expect(container.textContent).toContain('Estimate')
+  expect(container.textContent).toContain('Estimated known subtotal')
+  expect(container.textContent).toContain('$0.00')
+  expect(container.textContent).toContain('Unknown')
+  const agent = [...container.querySelectorAll('button')].find((button) => button.textContent === 'By Agent')
+  expect(agent).toBeTruthy()
+  act(() => agent?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(container.textContent).toContain('$3.00')
+  expect(container.textContent).toContain('Agent one')
+  expect(container.textContent).toContain('At least')
+  expect(container.textContent).toContain('Recorded usage')
+  expect(container.textContent).toContain('minutes since observation')
+})
+
+it('leaves receipt rows inert when no navigation handler exists', () => {
+  act(() => root.render(<InsightCost report={report()} loading={false} problem={null} onRefresh={() => {}} />))
+  const title = [...container.querySelectorAll('[class*="_rowTitle_"]')].find((node) => node.textContent === 'Seat one')
+  const seat = title?.closest('div[class*="_row_"]')
+  expect(seat).toBeTruthy()
+  expect(() => act(() => seat?.dispatchEvent(new MouseEvent('click', { bubbles: true })))).not.toThrow()
+})
+
+it('labels vendor-metered costs distinctly from list-price estimates', () => {
+  const base = report()
+  const vendor = { ...base, totals: { ...base.totals, usd: { ...base.totals.usd, basis: 'vendorMetered' as const, quality: 'exact' as const } } }
+  act(() => root.render(<InsightCost report={vendor} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.textContent).toContain('Vendor-metered cost')
+})
+
+it('does not call a mixed subtotal vendor-and-list-priced when another portion is unknown', () => {
+  const base = report()
+  const mixedPartial = {
+    ...base,
+    totals: { ...base.totals, usd: { ...base.totals.usd, basis: 'mixed' as const, quality: 'floor' as const, coverage: 'partial' as const } },
+  }
+  act(() => root.render(<InsightCost report={mixedPartial} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.textContent).toContain('Vendor- or list-price cost; another portion is unknown')
+  expect(container.textContent).not.toContain('Vendor-metered and list-price cost')
+})
+
+it('keeps safe source read status when its observation time is unknown', () => {
+  const unreadable = {
+    ...report(),
+    sources: [{ ...source, observedAt: null, stale: true, problem: 'Recorded usage source could not be discovered.' }],
+  }
+  act(() => root.render(<InsightCost report={unreadable} loading={false} problem={null} onRefresh={() => {}} />))
+  const sources = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Sources')
+  act(() => sources?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+  expect(document.body.textContent).toContain('Observation time unknown')
+  expect(document.body.textContent).toContain(`Read ${new Date(source.checkedAt).toLocaleString()}`)
+  expect(document.body.textContent).toContain('Stale')
+  expect(document.body.textContent).toContain('Recorded usage source could not be discovered.')
+})

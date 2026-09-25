@@ -85,25 +85,33 @@ const wire = (): string | null => container.querySelector('[data-role="wire-name
 const outputs = (): string[] => [
   ...container.querySelectorAll('[data-slot="code-block-body"]'),
 ].map((el) => el.textContent ?? '')
-const json = (): string[] => [...container.querySelectorAll('[data-role="json"]')].map((el) => el.textContent ?? '')
 const diffText = (): string[] =>
   [...container.querySelectorAll('td[class*="_code_"]')].map((cell) => cell.childNodes[1]?.textContent ?? '')
 
 describe('an opened tool step', () => {
-  it('keeps an expanded non-bare body inside its row surface instead of drawing a second card', () => {
+  it('keeps an expanded body inside its row surface instead of drawing a second card', () => {
     open(call({ tool: 'search_files', args: { query: 'row surface' } }))
 
     const row = byClass('row')[0]
-    const body = byClass('rowBody')[0]
-    expect(row?.className).toContain('bg-(--hd-card)')
-    expect(row?.className).toContain('shadow-(--hd-hairline)')
-    expect(body?.className).toContain('pt-(--hd-space-2)')
-    expect(body?.className).not.toContain('rounded-(--hd-radius)')
-    expect(body?.className).not.toContain('bg-(--hd-card)')
-    expect(body?.className).not.toContain('shadow-(--hd-hairline)')
+    const body = container.querySelector('[data-slot="list-row-detail"]')
+    // The row itself is the shared `Card variant="plate"` surface, with its
+    // default gap/padding zeroed: this is a dense conversation row, not a
+    // section's boxed content, so the row's own header rung (30px) and the
+    // body's own inset supply the only spacing — not a Tailwind utility
+    // repeated at the call site.
+    expect(row?.getAttribute('data-slot')).toBe('card')
+    expect(row?.getAttribute('data-variant')).toBe('plate')
+    expect(row?.className).toContain('!gap-0')
+    expect(row?.className).toContain('!py-0')
+    expect(body?.getAttribute('data-slot')).not.toBe('card')
+    // The step body is the shared `ListRowDetail`, not a bare div of the
+    // row's own: `inset="title"` is the step that lands under the header's
+    // icon and title, the same part a list uses to hang a row's own detail
+    // under it.
+    expect(body?.getAttribute('data-inset')).toBe('title')
   })
 
-  it('keeps a normal bare command body aligned under its disclosure title', () => {
+  it('keeps a command body aligned the same way any other step body is, through the shared list-row-detail part', () => {
     open({
       id: 'command-1',
       type: 'command',
@@ -115,8 +123,16 @@ describe('an opened tool step', () => {
       output: 'all clear',
     } as unknown as AgentItem)
 
-    expect(byClass('rowBodyBare')[0]).toBeTruthy()
-    expect(itemsCss).toMatch(/(?:^|\n)\.rowBodyBare\s*\{[^}]*margin:\s*var\(--hd-space-0-5\)\s+0\s+var\(--hd-space-1-5\)\s+var\(--hd-space-6\)/s)
+    const body = container.querySelector('[data-slot="list-row-detail"]')
+    expect(body).toBeTruthy()
+    expect(body?.getAttribute('data-inset')).toBe('title')
+    // A command's body draws its own plate (`CodeBlock`), so it keeps the
+    // step's left indent and drops the part's own right padding — its own
+    // edge is the row's, not a padded box a step further in.
+    expect(body?.className).toContain('pe-0')
+    // Retired along with the CSS class it lived in: the shared part now
+    // owns the alignment every step body used to redraw its own margin for.
+    expect(itemsCss).not.toMatch(/\.rowBody\b/)
   })
 
   it('draws a two-line Write with one marker, not a second + in the file text', () => {
@@ -253,16 +269,26 @@ describe('an opened tool step', () => {
     expect(wire()).toBe('search_files')
   })
 
+  it.each(['claim_work', 'complete_claim', 'claim_next'])(
+    'keeps a board worker tool name exact, for a person copying it into a permission rule: %s',
+    (tool) => {
+      open(call({ tool, args: { intent: 'card-482' } }))
+      expect(wire()).toBe(tool)
+      // The card id an agent has to echo back verbatim, not reformatted or
+      // truncated by the panel that shows it.
+      expect(container.querySelector('[data-role="arguments"] dd')?.textContent).toBe('card-482')
+    },
+  )
+
   it('reads a JSON string result as output, not as its own source code', () => {
     const shell = 'PID  TIME\n511  "01:20"\n'
     open(call({ tool: 'Bash', result: [{ type: 'json', value: shell }] }))
     expect(outputs()).toEqual([shell])
-    expect(json()).toEqual([])
   })
 
-  it('leaves a JSON object a document', () => {
+  it('renders a JSON object result as output, the same plate as a text result', () => {
     open(call({ tool: 'Bash', result: [{ type: 'json', value: { ok: true } }] }))
-    expect(json()).toEqual(['{\n  "ok": true\n}'])
+    expect(outputs()).toEqual(['{\n  "ok": true\n}'])
   })
 
   it('names a result part it cannot draw as an image, instead of drawing a broken one', () => {
@@ -339,6 +365,22 @@ describe('a user bubble', () => {
     expect(link?.getAttribute('href')).toBe(url)
     act(() => link?.click())
     expect(opened).toHaveBeenCalledWith(url)
+  })
+
+  it('opens the Lightbox from an attached image thumbnail', async () => {
+    const item = {
+      id: 'u2',
+      type: 'userMessage',
+      content: [{ type: 'image', url: 'data:image/png;base64,AA==', name: 'shot.png' }],
+    } as unknown as AgentItem
+    render(item)
+    const thumb = container.querySelector<HTMLButtonElement>('button[aria-label="View shot.png"]')
+    expect(thumb).not.toBeNull()
+    await act(async () => {
+      thumb!.click()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+    expect(document.querySelector('[data-lightbox]')).not.toBeNull()
   })
 
   it('offers expansion only when twelve rendered lines do not hold the message', () => {

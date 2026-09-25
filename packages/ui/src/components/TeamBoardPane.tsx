@@ -10,14 +10,16 @@ import {
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
-import { Dialog, Input } from '../design'
+import { Dialog, Field, Input, Note, Text } from '../design'
 import { runtimeTint } from '../lib/accounts'
-import { FACT_COLUMNS, flowRoleOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
+import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
+import { shortSha } from '../lib/git-refs'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
 import { EvidenceChips } from './EvidenceChips'
 import { RunCheck } from './RunCheck'
+import { FrontDoor } from './FrontDoor'
 import { HandOut } from './HandOut'
 import { GoalAssign } from './GoalAssign'
 import { SessionHoverCard } from './AgentCards'
@@ -30,6 +32,7 @@ import {
   MoreIcon,
   PlanIcon,
   PlusIcon,
+  TeamIcon,
 } from './Icons'
 import {
   Board,
@@ -229,6 +232,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const [stopping, setStopping] = useState<Intent | null>(null)
   const [asking, setAsking] = useState<{ readonly card: number; readonly unseen: CheckUnseen } | null>(null)
   const [starting, setStarting] = useState(false)
+  const [startingTeam, setStartingTeam] = useState(false)
 
   /* Boards are keyed by room, so a room that has gone — deleted, or named by
      a layout written before it existed — simply has no entry, which is the
@@ -237,6 +241,11 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const goal = snapshot.goals.get(room)
   const intents = board?.intents ?? []
   const openCards = intents.filter((one) => one.state === 'open' && !one.claim).length
+  /* The front door's own reusable-empty-Goal rule: no Seats yet. A Goal
+     already carrying one is a live effort, not a blank slate — reusing it
+     from here would start a second, unrelated run beside it rather than
+     the fresh one this button promises. */
+  const emptyGoal = goal !== undefined && goal.members.length === 0 ? goal : null
 
   /* Membership changes when a conversation opens or closes, and when somebody
      is added to or taken out of the room — that last one takes neither a new
@@ -326,13 +335,17 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const flowRun = (snapshot.flowRuns.get(room) ?? []).find(
     (one) => one.state === 'running' || one.state === 'stalled',
   )
+  const executions = useMemo(
+    () => [...snapshot.flowExecutions.values()].filter((one) => one.goal === room),
+    [snapshot.flowExecutions, room],
+  )
   const placed = useMemo(() => {
     const out = new Map<number, Placement>()
     for (const intent of intents) {
       // A completed card's column is an evidence verdict. Until the first
       // read succeeds, omitting it is honest; “nothing checked” is not.
       if (intent.state === 'done' && evidence === undefined) continue
-      const role = flowRoleOf(intent, flowRun)
+      const role = flowStepOf(intent, flowRun, executions)
       out.set(
         intent.id,
         placeCard({
@@ -347,7 +360,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
       )
     }
     return out
-  }, [intents, evidence, now, attached, waiting, flowRun])
+  }, [intents, evidence, now, attached, waiting, flowRun, executions])
   const byColumn = useMemo(() => {
     const out = new Map<FactColumn, Intent[]>()
     for (const column of COLUMNS) out.set(column.id, [])
@@ -432,7 +445,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        whatever the room's rail left over. The header's tally is the first
        thing to go — the columns are counted anyway — and the button that adds
        work keeps its label to the last. */
-    <ToolPane className="@container/board size-full rounded-none border-0">
+    <ToolPane variant="integrated" className="@container/board">
       <ToolPaneHeader
         icon={<PlanIcon />}
         title="Board"
@@ -506,11 +519,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         }
       />
       <ToolPaneBody>
-        {trouble && (
-          <p className="mb-2 text-xs text-(--hd-danger-ink)" role="alert">
-            {trouble}
-          </p>
-        )}
+        {trouble && <Note tone="bad">{trouble}</Note>}
         {waitingForEvidence && (
           <Banner
             tone={evidenceFailed ? 'danger' : 'info'}
@@ -541,6 +550,12 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
               <PlusIcon />
               Add the first job
             </Button>
+            {emptyGoal && (
+              <Button size="sm" variant="secondary" className="self-center" onClick={() => setStartingTeam(true)}>
+                <TeamIcon />
+                Start with a team
+              </Button>
+            )}
           </EmptyState>
         ) : (
           <Board wrap derived>
@@ -617,6 +632,18 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           onTrouble={setTrouble}
         />
       )}
+      {startingTeam && emptyGoal && (
+        <FrontDoor
+          context={{ kind: 'project', root: emptyGoal.goal.root }}
+          goal={{ id: emptyGoal.goal.id, revision: emptyGoal.goal.revision }}
+          onClose={() => setStartingTeam(false)}
+          onStarted={() => {
+            // The same Goal, mid-start already — nothing here to navigate to
+            // that this pane is not already showing.
+            setStartingTeam(false)
+          }}
+        />
+      )}
     </ToolPane>
   )
 }
@@ -657,31 +684,34 @@ const StopWork = ({
         </>
       }
     >
-      <div className="flex flex-col gap-2">
-        <p className="text-sm text-(--hd-muted-foreground)">
-          “{intent.title}” goes to Blocked. Any claim on it is released, and a finished dependency
-          will not start it again — only a deliberate reopen will.
-        </p>
-        <Input
-          autoFocus
-          aria-label="Why it is stopped"
-          value={reason}
-          placeholder="Waiting on the rename"
-          onChange={(event) => setReason(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') onStop(reason)
-          }}
-        />
-        {/* Allowed through empty, and told what that costs. Refusing would put
-            a modal between a person and a board they are allowed to change;
-            saying nothing about it would produce the silent card this field
-            exists to prevent. */}
-        <p className="text-xs text-(--hd-muted-foreground)">
-          {reason.trim()
-            ? 'The card will say this, and so will the room.'
-            : 'Without a reason the card says only that you stopped it.'}
-        </p>
-      </div>
+      <p>
+        “{intent.title}” goes to Blocked. Any claim on it is released, and a finished dependency
+        will not start it again — only a deliberate reopen will.
+      </p>
+      {/* Allowed through empty, and told what that costs. Refusing would put
+          a modal between a person and a board they are allowed to change;
+          saying nothing about it would produce the silent card this field
+          exists to prevent. */}
+      <Field
+        label="Why it is stopped"
+        optional
+        hint={reason.trim()
+          ? 'The card will say this, and so will the room.'
+          : 'Without a reason the card says only that you stopped it.'}
+      >
+        {(control) => (
+          <Input
+            {...control}
+            autoFocus
+            value={reason}
+            placeholder="Waiting on the rename"
+            onChange={(event) => setReason(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') onStop(reason)
+            }}
+          />
+        )}
+      </Field>
     </Dialog>
   )
 }
@@ -694,6 +724,9 @@ const StopWork = ({
  * the column *cannot* say: who holds it, why it stopped, how long it has been
  * sitting there, and what it is waiting on.
  */
+import { seatCeilingOf } from '../lib/ceilings'
+import { CeilingChip } from './CeilingChip'
+
 const IntentCard = ({
   intent,
   room,
@@ -732,13 +765,14 @@ const IntentCard = ({
      the card has always drawn. */
   const role = useMemo(
     () =>
-      flowRoleOf(
+      flowStepOf(
         intent,
         (snapshot.flowRuns.get(room) ?? []).find(
           (one) => one.state === 'running' || one.state === 'stalled',
         ),
+        [...snapshot.flowExecutions.values()].filter((one) => one.goal === room),
       ),
-    [intent, room, snapshot.flowRuns],
+    [intent, room, snapshot.flowRuns, snapshot.flowExecutions],
   )
 
   const runtime = intent.claim
@@ -764,18 +798,45 @@ const IntentCard = ({
   const holderTint = intent.claim
     ? runtimeTint(intent.claim.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)
     : 'blue'
+  const holderCeiling = intent.claim
+    ? seatCeilingOf(session?.settings, snapshot.flowRuns.get(room) ?? [], intent.claim.runtime, intent.claim.sessionId)
+    : null
+
+  /**
+   * A later review round's repair delta, read off the same frozen reference
+   * `finding/run` exposes — ids and revisions only, never a copy of a
+   * finding's own body into a second, mutable card field. `dispatch` is the
+   * host's own `<run>:<round>:<slot>` key for a card a flow opened; a card a
+   * person or an agent added carries none, and reads as no lead.
+   */
+  const repairLead = useMemo(() => {
+    const run = intent.dispatch?.split(':')[0]
+    const round = intent.dispatch?.split(':')[1]
+    const view = run ? snapshot.findingRuns.get(run) : undefined
+    if (!view?.repair || String(view.round) !== round) return null
+    return view.repair
+      .map((lead) => {
+        const claimed = lead.claimed.length > 0 ? lead.claimed.join(', ') : 'none'
+        const unresolved = lead.unresolved.length > 0 ? lead.unresolved.join(', ') : 'none'
+        return `Repair delta ${shortSha(lead.from)} → ${shortSha(lead.to)} — claims to close ${claimed}; still open ${unresolved}`
+      })
+      .join(' ')
+  }, [intent.dispatch, snapshot.findingRuns])
 
   /**
    * The one line under the title, and the order is the order a reader needs it.
    *
    * Why it stopped outranks what it is: a card in Blocked that does not say
    * what blocked it sends the reader to the channel, which is the trip the
-   * board exists to save. A finished card's note is the completion note the
-   * next agent will read. Only when neither exists does the card fall back to
-   * its own description.
+   * board exists to save. A repair lead outranks the card's own detail and any
+   * completion note: what changed since the last review is what a reseated
+   * reviewer needs first, never a stale full transcript of the earlier round.
+   * Only when none of these exist does the card fall back to its own
+   * description.
    */
   const note =
     intent.blockedReason ??
+    repairLead ??
     (intent.state === 'done' || intent.state === 'abandoned' ? intent.note : null) ??
     intent.detail ??
     null
@@ -857,9 +918,7 @@ const IntentCard = ({
     <BoardCard
       title={
         <>
-          <span className="font-(family-name:--hd-font-code) text-xs text-(--hd-muted-foreground)">
-            #{intent.id}
-          </span>{' '}
+          <Text role="meta">#{intent.id}</Text>{' '}
           {intent.title}
         </>
       }
@@ -917,9 +976,11 @@ const IntentCard = ({
                   the only split that cannot produce that: when either is short
                   the other takes the slack, and when both are long they lose
                   the same amount. */}
-              <span className="min-w-0 flex-1 basis-1/2 truncate text-xs font-medium">
+              {/* The card's key fact — who holds it — in a row's name role,
+                  the weight a name on a row is set in. */}
+              <Text role="row" truncate className="min-w-0 flex-1 basis-1/2">
                 {holderName}
-              </span>
+              </Text>
               {/* The conversation's own title, when it is not already the name
                   on the left. Compared against what is *drawn*, not against the
                   nickname: with no nickname the left falls back to the title,
@@ -938,12 +999,16 @@ const IntentCard = ({
                    neither of the two things it was trying to say. The column is
                    the container that decides, because the pane's width is not
                    the card's width on a board of five. */
-                <span
-                  className="hidden min-w-0 flex-1 basis-1/2 truncate text-right text-xs text-(--hd-muted-foreground) @[13rem]/board-column:inline"
+                <Text
+                  role="meta"
+                  align="end"
+                  truncate
+                  className="hidden min-w-0 flex-1 basis-1/2 @[13rem]/board-column:inline"
                 >
                   {session.title}
-                </span>
+                </Text>
               )}
+              {holderCeiling && <CeilingChip ceiling={holderCeiling.ceiling} note={holderCeiling.note} />}
             </SessionHoverCard>
           </Button>
         ) : undefined
@@ -973,20 +1038,20 @@ const IntentCard = ({
       }
       meta={
         <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 whitespace-nowrap">
-          <EvidenceChips id={intent.id} title={intent.title} card={evidence} />
+          <EvidenceChips id={intent.id} title={intent.title} card={evidence} finished={intent.state === 'done'} />
           {/* How long since anything happened to it. The number a person is
               actually after on a board is "how long has that been sitting
               there", and until now the card could not answer it at all. */}
           <span
-            className="inline-flex items-center gap-1 [&_svg]:size-3.5"
+            className="inline-flex items-center gap-1"
             title={`Last changed ${new Date(intent.updatedAt).toLocaleString()}`}
           >
-            <ClockIcon />
-            <span className="tabular-nums">{describeAge(now - intent.updatedAt)}</span>
+            <ClockIcon size={14} />
+            <Text role="meta" numeric>{describeAge(now - intent.updatedAt)}</Text>
           </span>
           {intent.role && intent.files.length > 0 && (
             <span
-              className="inline-flex min-w-0 items-center gap-1 [&_svg]:size-3.5"
+              className="inline-flex min-w-0 items-center gap-1"
               title={`Owns ${intent.files.join(', ')} while claimed`}
             >
               <span className="truncate">{intent.files.join(', ')}</span>
@@ -994,11 +1059,11 @@ const IntentCard = ({
           )}
           {intent.dependsOn.length > 0 && (
             <span
-              className="inline-flex items-center gap-1 [&_svg]:size-3.5"
+              className="inline-flex items-center gap-1"
               title={`Waits for ${intent.dependsOn.map((one) => `#${one}`).join(', ')}`}
             >
-              <BranchIcon />
-              <span className="tabular-nums">{intent.dependsOn.length}</span>
+              <BranchIcon size={14} />
+              <Text role="meta" numeric>{intent.dependsOn.length}</Text>
             </span>
           )}
           {/* A finished job that left a context package says so, because the
@@ -1006,10 +1071,10 @@ const IntentCard = ({
               next agent reads instead of asking. */}
           {intent.handoff && (
             <span
-              className="inline-flex items-center gap-1 [&_svg]:size-3.5"
+              className="inline-flex items-center gap-1"
               title={intent.handoff}
             >
-              <HandoffIcon />
+              <HandoffIcon size={14} />
               <span>handoff</span>
             </span>
           )}

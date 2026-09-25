@@ -1,9 +1,12 @@
 import { basename, dirname, isAbsolute, join } from 'node:path'
 
+import { digestOf } from '@harnessdesk/agent-inventory'
+
 import {
   AGENT_DESCRIPTION_LIMIT,
   AGENT_NAME_LIMIT,
   BriefNotHandedOverError,
+  isCeilingLevel,
   isBlocked,
   remainingOf,
   SeatRefusedError,
@@ -12,6 +15,7 @@ import {
   type AgentId,
   type AgentOrigin,
   type AgentRuntime,
+  type CeilingLevel,
   type FlowSeat,
   type HostMethods,
   type MachineSeating,
@@ -20,11 +24,18 @@ import {
   type SeatPlan,
   type SeatGrant,
   type SeatId,
+  type SeatLeft,
   type SeatRecord,
+  type SessionAttachmentReceipt,
+  type SessionAttachments,
   type UsageReport,
+  runtimeId,
+  sessionId as makeSessionId,
 } from '@harnessdesk/protocol'
+import { receiptFrom, type AttachmentSubject, type PreparedAttachments } from '../attachments/plane.js'
 
-import { parseAgentDefinition } from '../agent-def.js'
+import { ceilingEdit, parseAgentDefinition } from '../agent-def.js'
+import { incarnationOf } from '../evidence/seen.js'
 import type { SeatedAs } from '../registry.js'
 import {
   agentIdOf,
@@ -32,23 +43,30 @@ import {
   copyAgentFolder,
   createAgentFolder,
   projectAgentDir,
+  projectAgentFolder,
   readAgentSource,
   rollbackCreatedAgent,
+  userAgentFolder,
 } from '../agent-files.js'
 import { isReservedId, reservedIdText } from '../agent-seating-file.js'
+import { HeldRefusal, keepHeldSeat } from '../ceilings/held-seat.js'
+import { unattendedPolicy, unheldPolicy } from '../ceilings/policy.js'
 import {
   agentOrder,
   blockedPlan,
   candidateOf,
+  ceilingWithin,
   chooseSeat,
   describeSeat,
   differencesOf,
   effortWord,
   explainRefusal,
+  grantOf,
   leftOnFailure,
   passedFor,
-  permissionWithin,
   planSeats,
+  standingOf,
+  type CeilingNeed,
   type PassedOver,
   type SeatOffer,
   type SeatWords,
@@ -94,12 +112,18 @@ export const agentMethods = {
   'agent/seat/dry': async (ctx, params) => {
     const roster = await ctx.agents.list(await projectOf(ctx, params.project))
     const machine = await ctx.seating.read()
+    const unheld = unheldPolicy(ctx.state.state.preferences)
     const ids = params.ids ?? roster.map((one) => one.id)
     const weighed = ids.map((id): Weighed => {
       const entry = roster.find((one) => one.id === id)
       if (!entry) return { plan: blockedPlan(id, `No Agent called “${id}”.`) }
       if (!entry.definition || entry.digest === null) return { plan: blockedPlan(id, unusable(entry)) }
-      return { id, list: candidatesFor(entry.definition, machine), prefer: entry.definition.prefer }
+      return {
+        id,
+        list: candidatesFor(entry.definition, machine),
+        prefer: entry.definition.prefer,
+        need: { level: ceilingWithin(entry.definition.ceiling, grantOf(undefined)), unheld },
+      }
     })
     // Every runtime either list names, read once: the Agent's own list is only weighed beside this Mac's.
     const desk = await readDesk(
@@ -109,12 +133,12 @@ export const agentMethods = {
     const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
     return weighed.map((one): SeatPlan => {
       if ('plan' in one) return one.plan
-      const own = () => planSeats(one.id, one.prefer, desk.offers, words, 'prefer').candidates
+      const own = () => planSeats(one.id, one.prefer, desk.offers, words, 'prefer', one.need).candidates
       if ('refused' in one.list) return { ...blockedPlan(one.id, one.list.refused, 'machine'), own: own() }
       if (one.list.from === 'machine') {
-        return { ...planSeats(one.id, one.list.seats, desk.offers, words, 'machine'), own: own() }
+        return { ...planSeats(one.id, one.list.seats, desk.offers, words, 'machine', one.need), own: own() }
       }
-      return planSeats(one.id, one.list.seats, desk.offers, words, 'prefer')
+      return planSeats(one.id, one.list.seats, desk.offers, words, 'prefer', one.need)
     })
   },
 
@@ -234,7 +258,7 @@ export const agentMethods = {
     const source = agentSource({
       name: params.name,
       description: params.description ?? null,
-      permission: params.permission,
+      ceiling: params.ceiling,
       prefer,
     })
     if (Buffer.byteLength(source, 'utf8') > AGENT_FILE_LIMIT) {
@@ -248,7 +272,7 @@ export const agentMethods = {
     const unreadable = parsed.problems.find((one) => one.level === 'error')
     if (unreadable) throw new Error(`“${params.name}” cannot be saved: ${unreadable.at} — ${unreadable.text}`)
     const mismatched = parsed.agent
-      ? savedFieldMismatch(parsed.agent, params.name, params.description ?? null, params.permission, prefer)
+      ? savedFieldMismatch(parsed.agent, params.name, params.description ?? null, params.ceiling, prefer)
       : 'definition'
     if (mismatched) {
       throw new Error(`“${params.name}” cannot be saved because its ${mismatched} does not read back exactly as given.`)
@@ -313,6 +337,27 @@ export const agentMethods = {
     }
     ctx.push({ method: 'agent/changed', params: { project: params.to === 'project' ? (project ?? null) : null } })
     return found(await ctx.agents.read(id, project), { id, origin: params.to, path: created.path })
+  },
+
+  'agent/ceiling/preview': async (ctx, params) => {
+    const { path, folder } = await updatable(ctx, params)
+    const source = await readAgentSource(join(folder, 'AGENT.md'))
+    const edit = ceilingEdit(source, params.level)
+    if ('refused' in edit) throw new Error(`${path} cannot be updated: ${edit.refused}.`)
+    return { path, digest: digestOf(source), line: edit.line, before: edit.before, after: edit.after, diff: edit.diff }
+  },
+
+  'agent/ceiling/write': async (ctx, params) => {
+    const { path, project } = await updatable(ctx, params)
+    // The one writer of Agent files: its queue, its unfinished-save refusal, its synced compare-then-rename.
+    await ctx.authoring.rewriteAgent({ origin: params.origin, id: params.id, ...(project ? { root: project } : {}) }, (source) => {
+      if (digestOf(source) !== params.digest) throw new Error(staleUpdate(path))
+      const edit = ceilingEdit(source, params.level)
+      if ('refused' in edit) throw new Error(`${path} cannot be updated: ${edit.refused}.`)
+      return edit.next
+    }, staleUpdate(path))
+    ctx.push({ method: 'agent/changed', params: { project: params.origin === 'project' ? (project ?? null) : null } })
+    return found(await ctx.agents.read(params.id, project), { id: params.id, origin: params.origin, path })
   },
 
   /**
@@ -398,6 +443,78 @@ export interface AgentSeatContext {
   environment?: Readonly<Record<string, string>>
   openingId?: SeatId
   grant?: SeatGrant
+  /**
+   * Set by the Goal plane from a Goal's persisted trigger origin, never by a
+   * wire caller: the Seat is unattended, so this machine's unattended
+   * unheld-ceiling policy — refuse unless a person chose otherwise — applies.
+   */
+  unattended?: boolean
+  /**
+   * Set by the Goal plane from a front-door run's own stored policy, never by
+   * a wire caller: this Seat is kept only once its ceiling reads back held at
+   * exactly the level it was seated at; any other candidate is closed before
+   * its brief and passed over.
+   */
+  requireHeld?: true
+}
+
+/**
+ * Resolves, checks trust and ceiling, and builds the isolated input a
+ * candidate's runtime session is created with — called before that session
+ * exists, so `SessionOptions.attachments` can actually carry what this
+ * function decides rather than describe a session already running unscoped.
+ *
+ * A refusal here (an unsuppressed unapproved default, most notably) is never
+ * caught and retried against the next candidate: decision "refuse, never
+ * substitute" means a runtime that cannot honor this Seat's declarations
+ * fails the whole seating, in this candidate's own words, rather than
+ * silently seating on a different runtime nobody announced.
+ */
+async function prepareAttachments(
+  attachments: NonNullable<HostContext['attachments']>,
+  subject: AttachmentSubject,
+): Promise<PreparedAttachments> {
+  return attachments.prepare(subject)
+}
+
+/**
+ * Reads back what the runtime actually loaded and durably freezes it — or
+ * writes nothing at all. An Agent with no `skills:`/`mcp:` declared resolves
+ * to zero declarations, and this is never called for it: the plain path
+ * stays plain, with no sidecar file and no input ever computed for it.
+ *
+ * The receipt comes from the runtime's own `attachmentReceipt`, read back
+ * after the session exists — never assumed from what was requested. A
+ * runtime with no such method, one that throws, or one that answers a key
+ * that does not match what this Seat was actually prepared with, is treated
+ * exactly like a runtime that loaded nothing: honest, never optimistic.
+ */
+async function finishAttachments(
+  attachments: NonNullable<HostContext['attachments']>,
+  runtime: AgentRuntime | undefined,
+  sessionId: string,
+  prepared: PreparedAttachments,
+  record: SeatRecord,
+): Promise<void> {
+  if (prepared.declarations.length === 0) return
+  // A readback that failed, or answered for another key, is "not loaded", never "loaded".
+  await attachments.record(record, prepared, await receiptFrom(runtime, makeSessionId(sessionId), prepared.input.key))
+}
+
+/**
+ * The runtime `seatAgent` would seat this Agent on by default — the same
+ * candidate list, the same desk read and the same `chooseSeat` at the same
+ * default ceiling — without opening anything. `attachment/review` asks this
+ * so a person approves loading for the runtime (and build) the Seat will
+ * actually check the approval against, never merely the first runtime that
+ * happens to support attachments at all. `null` when no candidate would seat.
+ */
+export async function defaultSeatRuntime(ctx: HostContext, definition: AgentDefinition): Promise<string | null> {
+  const list = candidatesFor(definition, await ctx.seating.read())
+  if ('refused' in list) return null
+  const desk = await readDesk(ctx, list.seats)
+  const need: CeilingNeed = { level: ceilingWithin(definition.ceiling, grantOf(undefined)), unheld: unheldPolicy(ctx.state.state.preferences) }
+  return chooseSeat(list.seats, desk.offers, need).seat?.runtime ?? null
 }
 
 /** The one seating operation used by a plain Agent and by Goal staffing. */
@@ -407,19 +524,28 @@ export async function seatAgent(
   context: AgentSeatContext,
 ): Promise<{ session: HostMethods['agent/seat']['result']; record: SeatRecord }> {
   if (!isAbsolute(params.cwd)) throw new Error(`${params.cwd} is not an absolute path.`)
-  if (context.environment !== undefined) {
-    throw new Error('This runtime cannot pass a lane environment to a session yet. Choose a shared checkout for this Seat.')
-  }
-  if (context.grant?.kind === 'ceiling') {
-    throw new Error('This build cannot hold a ceiling grant yet. Use an Agent with a permission standing order.')
-  }
-  const entry = await ctx.agents.read(params.id, await projectOf(ctx, params.project))
+  const project = await projectOf(ctx, params.project)
+  const entry = await ctx.agents.read(params.id, project)
   if (!entry) throw new Error(`No Agent called “${params.id}”.`)
   const { definition, digest } = entry
   if (!definition || digest === null) throw new Error(unusable(entry))
 
   const requested = context.grant?.kind === 'permission' ? context.grant.permission : params.permission
-  const permission = permissionWithin(definition.permission, requested ?? 'read')
+  const level = ceilingWithin(
+    definition.ceiling,
+    context.grant?.kind === 'ceiling' ? context.grant.level : grantOf(requested),
+  )
+  const preferences = ctx.state.state.preferences
+  const strict = context.requireHeld === true
+  const need: CeilingNeed = strict
+    ? { level, unheld: 'refuse', required: true }
+    : { level, unheld: context.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences) }
+  // Its repository's identity on disk, not its path: computed once, the same
+  // way `evidence/seen.ts` binds a command approval, so a repository deleted
+  // and cloned again at the same path is a new incarnation and inherits
+  // nothing. Only when this build is wired for attachments at all — an
+  // unwired host has no trust store for the identity to matter to.
+  const incarnation = ctx.attachments ? await incarnationOf(project ?? params.cwd) : ''
   const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
   if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
   const candidates = list.seats
@@ -429,28 +555,60 @@ export async function seatAgent(
   const said = (values: readonly PassedOver[]) => values.map((one) => candidateOf(one, words))
   const passed: PassedOver[] = []
   for (let rest = candidates; ; ) {
-    const chosen = chooseSeat(rest, offers)
+    const chosen = chooseSeat(rest, offers, need)
     passed.push(...chosen.passed)
     if (!chosen.seat) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
     const selected = chosen.seat
     rest = rest.slice(chosen.passed.length + 1)
-    const opened = await openAsAsked(ctx, selected, { cwd: params.cwd, title: definition.name })
+    // Prepared before this candidate's session exists — never after — so a
+    // capable runtime is actually handed the isolated filter at
+    // `createSession`, instead of a native, unscoped session being asked
+    // after the fact to account for attachments it was never given. A thrown
+    // refusal here (an unsuppressed unapproved default) is deliberately not
+    // caught: it fails the whole seating on this candidate's own runtime,
+    // never falling through to try another one it never announced.
+    const prepared: PreparedAttachments | undefined = ctx.attachments
+      ? await prepareAttachments(ctx.attachments, {
+          project: project ?? params.cwd,
+          incarnation,
+          agent: definition.id,
+          origin: entry.origin,
+          agentDigest: digest,
+          runtime: selected.runtime,
+          build: ctx.runtimes.get(selected.runtime)?.info.version ?? '',
+          ceiling: level,
+        })
+      : undefined
+    const attachmentsInput: SessionAttachments | undefined =
+      prepared && prepared.declarations.length > 0 ? prepared.input : undefined
+    const opened = await openAsAsked(ctx, selected, {
+      cwd: params.cwd, title: definition.name,
+      ...(context.environment ? { environment: context.environment } : {}),
+      ...(attachmentsInput ? { attachments: attachmentsInput } : {}),
+    })
     if ('reason' in opened) {
       passed.push(opened)
       continue
     }
 
+    const held = await ctx.seats.hold(opened.runtime, opened.sessionId, level)
+    if (!strict && held.ceiling.hold !== 'held' && need.unheld === 'refuse') {
+      const left = await ctx.seats.discard(opened.runtime, opened.sessionId)
+      passed.push({ ...passedFor(selected, { kind: 'unheld', level, detail: held.why }), left })
+      continue
+    }
     const seated: SeatedAs = {
       agent: definition.id,
       name: definition.name,
       briefDigest: digest,
-      permission,
+      standing: standingOf(definition.ceilingFrom, level),
       seatLabel: opened.label,
       passedOver: said(passed),
-      ceiling: null,
+      ceiling: held.ceiling,
+      ceilingNote: held.how ?? held.why,
     }
-    let record: SeatRecord
-    try {
+    let record!: SeatRecord
+    const keep = async (): Promise<void> => {
       if (context.openingId !== undefined) {
         throw new Error('A fixed Goal opening must be staged by the Goal assignment journal.')
       }
@@ -460,21 +618,76 @@ export async function seatAgent(
         seat: selected,
         seatLabel: seated.seatLabel,
         passedOver: seated.passedOver,
-        standing: { kind: 'permission', permission },
+        standing: seated.standing,
         ceiling: seated.ceiling,
         cwd: params.cwd,
         session: { runtime: opened.runtime, sessionId: opened.sessionId },
         board: context.board,
         role: context.role,
       })
-    } catch (error) {
-      await ctx.seats.retire(opened.runtime, opened.sessionId)
-      throw new Error(
-        `${definition.name} was seated on ${describeSeat(selected, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
-      )
+    }
+    const unrecorded = (error: unknown): Error => new Error(
+      `${definition.name} was seated on ${describeSeat(selected, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
+    )
+    if (strict) {
+      /* Held-only admission: the candidate is provisional until its readback
+         says held at exactly this level, and its Seat is durable; anything
+         else closes it before a brief, a tool or a card reaches it, and the
+         next candidate is tried — never the same one at a weaker ceiling. */
+      let left: SeatLeft | null = null
+      let unkept: unknown = null
+      try {
+        await keepHeldSeat({
+          open: async () => opened,
+          ceiling: () => held.ceiling,
+          keep: async () => {
+            try { await keep() } catch (error) { unkept = error; throw error }
+          },
+          close: async (seat) => {
+            if (unkept !== null) await ctx.seats.retire(seat.runtime, seat.sessionId)
+            else left = await ctx.seats.discard(seat.runtime, seat.sessionId)
+          },
+        }, level)
+      } catch (error) {
+        if (error instanceof HeldRefusal) {
+          const detail = held.ceiling.hold === 'held' && held.ceiling.level !== level
+            ? `it reads back holding ${held.ceiling.level}, not ${level}`
+            : held.why
+          passed.push({ ...passedFor(selected, { kind: 'unheld', level, detail, required: true }), left })
+          continue
+        }
+        if (error instanceof AggregateError) {
+          throw Object.assign(new Error(`${definition.name} was refused on ${describeSeat(selected, words)}, and closing that conversation failed. Stop it from the Goal before retrying.`), {
+            session: { runtime: opened.runtime, sessionId: opened.sessionId },
+          })
+        }
+        throw unrecorded(error)
+      }
+    } else {
+      try {
+        await keep()
+      } catch (error) {
+        await ctx.seats.retire(opened.runtime, opened.sessionId)
+        throw unrecorded(error)
+      }
+    }
+    if (ctx.attachments && prepared) {
+      try {
+        await finishAttachments(ctx.attachments, ctx.runtimes.get(opened.runtime), opened.sessionId, prepared, record)
+        // Beside the session, the same way `seatedAs` is: the tool gateway
+        // resolves a live caller token to this Seat through the registry,
+        // never by re-deriving it, so a re-announced session cannot forget it.
+        ctx.registry.recordAttachmentSeat(runtimeId(opened.runtime), makeSessionId(opened.sessionId), record.id)
+      } catch (error) {
+        await ctx.evidence.seats.closeId?.(record.id, 'deleted').catch(() => {})
+        await ctx.seats.retire(opened.runtime, opened.sessionId)
+        throw new Error(
+          `${definition.name} was seated on ${describeSeat(selected, words)}, and its attachment record could not be written, so the conversation was closed: ${messageOf(error)}`,
+        )
+      }
     }
     try {
-      await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, permission, params.cwd))
+      await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, level, params.cwd))
     } catch (error) {
       await ctx.evidence.seats.closeId?.(record.id, 'deleted').catch(() => {})
       await ctx.seats.retire(opened.runtime, opened.sessionId)
@@ -510,7 +723,7 @@ export async function seatAgent(
  * A folder inside a checkout is read as that checkout's top (`topLevel`),
  * because that is where a project keeps its Agents.
  */
-const projectOf = async (ctx: HostContext, project: string | undefined): Promise<string | undefined> => {
+export const projectOf = async (ctx: HostContext, project: string | undefined): Promise<string | undefined> => {
   if (project === undefined) return undefined
   if (!isAbsolute(project)) throw new Error(`${project} is not an absolute path.`)
   const confined = await ctx.workspaces.confineGitRoot(project)
@@ -524,7 +737,7 @@ const projectOf = async (ctx: HostContext, project: string | undefined): Promise
 }
 
 /** Why an entry cannot be seated: its first error, where it is, in the file's own terms. */
-const unusable = (entry: AgentEntry): string => {
+export const unusable = (entry: AgentEntry): string => {
   const problem = entry.problems.find((one) => one.level === 'error')
   return `${entry.path} cannot be used: ${problem ? `${problem.at} — ${problem.text}` : 'it could not be read'}`
 }
@@ -573,7 +786,7 @@ const RANK: Readonly<Record<AgentOrigin, number>> = { project: 0, user: 1, built
 
 const exactSeat = (seat: FlowSeat): boolean => Boolean(seat.model || seat.effort || seat.thinking)
 
-const originAgent = (origin: AgentOrigin): string =>
+export const originAgent = (origin: AgentOrigin): string =>
   origin === 'builtin' ? 'built-in' : origin === 'user' ? 'personal' : 'project'
 
 const originCopy = (origin: AgentOrigin): string =>
@@ -588,7 +801,7 @@ const shadowedText = (to: 'user' | 'project', winner: AgentOrigin, id: string): 
 const copyAt = (entry: AgentEntry, origin: AgentOrigin): string | null =>
   entry.origin === origin ? entry.path : (entry.shadows.find((one) => one.origin === origin)?.path ?? null)
 
-type ListedAgentPath =
+export type ListedAgentPath =
   | { readonly at: 'found'; readonly path: string }
   | { readonly at: 'missing' }
   | { readonly at: 'invalid' }
@@ -599,7 +812,7 @@ type ListedAgentPath =
  * other path. Neither becomes a copy, Trash target or reveal merely because it
  * appeared in the roster.
  */
-const listedAgentPath = (
+export const listedAgentPath = (
   ctx: HostContext,
   entry: AgentEntry,
   origin: AgentOrigin,
@@ -618,6 +831,26 @@ const listedAgentPath = (
           : null
   if (!root || path !== join(root, entry.id, 'AGENT.md')) return { at: 'invalid' }
   return { at: 'found', path }
+}
+
+/** Why a one-line update was refused when its file moved on since it was shown. */
+export const staleUpdate = (path: string): string =>
+  `${path} has changed since the update was shown to you. Open Update… again to see what it would change now.`
+
+export const updatable = async (
+  ctx: HostContext,
+  params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string },
+): Promise<{ readonly path: string; readonly folder: string; readonly project: string | undefined }> => {
+  const project = await projectOf(ctx, params.project)
+  const entry = await ctx.agents.read(params.id, project)
+  const looked = entry ? listedAgentPath(ctx, entry, params.origin, project) : ({ at: 'missing' } as const)
+  if (looked.at === 'missing') throw new Error(`There is no ${originAgent(params.origin)} Agent called “${params.id}” to update.`)
+  if (looked.at === 'invalid') throw new Error(`“${params.id}” is not a real Agent folder, so it cannot be updated.`)
+  const folder =
+    params.origin === 'project'
+      ? await projectAgentFolder(project ?? '', params.id)
+      : await userAgentFolder(ctx.agents.roots.user, params.id)
+  return { path: looked.path, folder, project }
 }
 
 /** Where a new or copied Agent goes: this machine's roster, or the project's own, made inside it. */
@@ -645,12 +878,12 @@ const savedFieldMismatch = (
   definition: AgentDefinition,
   name: string,
   description: string | null,
-  permission: AgentDefinition['permission'],
+  ceiling: AgentDefinition['ceiling'],
   prefer: readonly FlowSeat[],
-): 'name' | 'description' | 'permission' | 'preferred seats' | null => {
+): 'name' | 'description' | 'ceiling' | 'preferred seats' | null => {
   if (definition.name !== name) return 'name'
   if ((definition.description ?? null) !== description) return 'description'
-  if (definition.permission !== permission) return 'permission'
+  if (definition.ceiling !== ceiling) return 'ceiling'
   if (definition.prefer.length !== prefer.length) return 'preferred seats'
   if (!definition.prefer.every((seat, index) => sameSeat(seat, prefer[index]!))) return 'preferred seats'
   return null
@@ -671,6 +904,7 @@ type Weighed =
       readonly id: AgentId
       readonly list: CandidateList | { readonly refused: string }
       readonly prefer: readonly FlowSeat[]
+      readonly need: CeilingNeed
     }
 
 /**
@@ -730,7 +964,12 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 const openAsAsked = async (
   ctx: HostContext,
   seat: FlowSeat,
-  where: { readonly cwd: string; readonly title: string },
+  where: {
+    readonly cwd: string
+    readonly title: string
+    readonly environment?: Readonly<Record<string, string>>
+    readonly attachments?: SessionAttachments
+  },
 ): Promise<OpenedSeat | PassedOver> => {
   let opened: OpenedSeat
   try {
@@ -954,6 +1193,7 @@ export const offerOf = async (
       signedIn,
       spent: report ? isBlocked(report) : false,
       spentModels: report ? spentScopesOf(report) : [],
+      holds: Object.keys(ctx.runtimes.infoOf(runtime).ceilings ?? {}).filter(isCeilingLevel),
     },
     catalogue,
   }
@@ -986,4 +1226,44 @@ const spentScopesOf = (report: UsageReport): readonly string[] =>
 const catalogueOf = async (runtime: AgentRuntime, deadline: number): Promise<readonly ModelInfo[] | null> => {
   const read = await within(() => (runtime.knownModels ? runtime.knownModels() : runtime.listModels()), deadline)
   return read.settled === 'value' ? (read.value ?? null) : null
+}
+
+/**
+ * One Agent's seat plan, for a flow's dry run: the same reads and the same
+ * chooser `agent/seat/dry` uses for the whole roster, narrowed to one Agent
+ * and the exact seats and grant a flow role names — a role's own `seats:`
+ * when it lists any, its machine entry or `prefer` otherwise, held to the
+ * narrower of the Agent's ceiling and the role's `grant:`.
+ *
+ * A new phase-6 extraction: `agent/seat/dry`'s own batched loop is
+ * unchanged, kept for the many-Agents-at-once read it was built for; this is
+ * the same primitives (`candidatesFor`, `planSeats`, `readDesk`, `wordsFor`)
+ * called once per role, which is what a dry run's own bounded roster costs.
+ */
+export const previewAgent = async (
+  ctx: HostContext,
+  root: string,
+  agent: string,
+  seats: readonly FlowSeat[],
+  grant: CeilingLevel,
+  options: { readonly unattended?: boolean; readonly requireHeld?: true } = {},
+): Promise<SeatPlan> => {
+  const project = await projectOf(ctx, root)
+  const entry = await ctx.agents.read(agent, project)
+  if (!entry) return blockedPlan(agent, `No Agent called “${agent}”.`)
+  if (!entry.definition || entry.digest === null) return blockedPlan(agent, unusable(entry))
+  const machine = await ctx.seating.read()
+  // A trigger's arm previews its Seats exactly as its Goal will seat them: under the unattended policy.
+  const preferences = ctx.state.state.preferences
+  // A front-door start requires a held ceiling whatever this Mac's own preference says: a runtime that cannot hold is passed over here, before Start.
+  const unheld = options.requireHeld ? 'refuse' : options.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences)
+  const list = candidatesFor(entry.definition, machine, seats.length ? seats : undefined)
+  const need: CeilingNeed = { level: ceilingWithin(entry.definition.ceiling, grant), unheld, ...(options.requireHeld ? { required: true as const } : {}) }
+  if ('refused' in list) return blockedPlan(agent, list.refused, 'machine')
+  const desk = await readDesk(ctx, [...list.seats, ...entry.definition.prefer])
+  const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
+  // A role's own explicit `seats:` reads like `prefer` here: `SeatPlan.from` tells
+  // a person "the machine" or "the Agent" chose this list, and a role's own list is
+  // the flow author's choice, presented the way an Agent's own `prefer` is.
+  return planSeats(agent, list.seats, desk.offers, words, list.from === 'seats' ? 'prefer' : list.from, need)
 }

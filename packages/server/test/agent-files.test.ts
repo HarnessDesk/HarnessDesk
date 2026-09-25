@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import {
+  CEILING_LEVELS,
   parseClientMessage,
   ValidationError,
   type AgentEntry,
@@ -40,7 +41,7 @@ test('a new AGENT.md reads back as what was saved, a model the spec cannot carry
   const source = agentSource({
     name: 'Careful "reviewer"',
     description: 'Reads twice.',
-    permission: 'read',
+    ceiling: 'edit',
     prefer: [
       { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
       { runtime: 'cursor', model: 'vendor/model-1' },
@@ -50,7 +51,8 @@ test('a new AGENT.md reads back as what was saved, a model the spec cannot carry
   assert.deepEqual(problems, [])
   assert.equal(agent?.name, 'Careful "reviewer"')
   assert.equal(agent?.description, 'Reads twice.')
-  assert.equal(agent?.permission, 'read')
+  assert.equal(agent?.ceiling, 'edit')
+  assert.equal(agent?.ceilingFrom, 'ceiling')
   assert.deepEqual(agent?.prefer, [
     { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
     { runtime: 'cursor', model: 'vendor/model-1' },
@@ -72,7 +74,7 @@ test('an effort holding the compact grammar’s own “+” is written the long 
   const source = agentSource({
     name: 'Odd effort',
     description: null,
-    permission: 'read',
+    ceiling: 'edit',
     prefer: [{ runtime: 'claude-code', effort: 'high+extra' }],
   })
   const { agent, problems } = parseAgentDefinition(source, 'odd-effort')
@@ -84,7 +86,7 @@ test('a runtime holding the compact grammar’s own “=” is written the long 
   const source = agentSource({
     name: 'Odd runtime',
     description: null,
-    permission: 'read',
+    ceiling: 'edit',
     prefer: [{ runtime: 'weird=runtime', model: 'm' }],
   })
   const { agent, problems } = parseAgentDefinition(source, 'odd-runtime')
@@ -487,6 +489,25 @@ const desk = async (t: TestContext) => {
   return { stateDir, client, project, trashed, revealed }
 }
 
+test('Save as an Agent writes ceiling:, never permission:, and every level reads back as it was saved', async (t) => {
+  const { client } = await desk(t)
+  for (const level of CEILING_LEVELS) {
+    const saved = (await client.call('agent/create', { name: `Saved ${level}`, ceiling: level, seat, to: 'user' })) as AgentEntry
+    assert.equal(saved.definition?.ceiling, level)
+    assert.equal(saved.definition?.ceilingFrom, 'ceiling')
+    const source = await readFile(saved.path, 'utf8')
+    assert.match(source, new RegExp(`^ceiling: ${level}$`, 'm'))
+    assert.doesNotMatch(source, /^permission:/m)
+  }
+})
+
+test('the wire refuses a ceiling off the ladder, and a Save that names only the old key', () => {
+  const request = (params: unknown) => ({ id: 1, method: 'agent/create', params })
+  assert.throws(() => parseClientMessage(request({ name: 'Scout', ceiling: 'owner', seat, to: 'user' })), ValidationError)
+  assert.throws(() => parseClientMessage(request({ name: 'Scout', permission: 'read', seat, to: 'user' })), ValidationError)
+  assert.doesNotThrow(() => parseClientMessage(request({ name: 'Scout', ceiling: 'read', seat, to: 'user' })))
+})
+
 const seat = { runtime: 'claude-code', model: 'opus-5', effort: 'high' }
 
 /** A handler-only context, for failures that must be injectable between the folder write and its rollback. */
@@ -516,7 +537,7 @@ test('the wire and the handler both refuse an Agent name over 80 characters and 
   const request = (name: string, description: string) => ({
     id: 1,
     method: 'agent/create',
-    params: { name, description, permission: 'read' as const, seat, to: 'user' as const },
+    params: { name, description, ceiling: 'edit' as const, seat, to: 'user' as const },
   })
   assert.throws(() => parseClientMessage(request('x'.repeat(81), 'short')), /at most 80/)
   assert.throws(() => parseClientMessage(request('Scout', 'x'.repeat(501))), /at most 500/)
@@ -531,7 +552,7 @@ test('the wire validates every Agent file verb before a handler can see it', () 
   const refused = [
     request('agent/remove', { id: 'scout', origin: 'builtin' }),
     request('agent/copy', { id: 'scout', from: 'builtin', to: 'builtin' }),
-    request('agent/create', { name: 42, permission: 'read', seat, to: 'user' }),
+    request('agent/create', { name: 42, ceiling: 'edit', seat, to: 'user' }),
     request('agent/copy', { id: 42, from: 'builtin', to: 'user' }),
     request('agent/remove', { id: 'scout', origin: 'user', project: 42 }),
     request('agent/reveal', { id: 'scout', origin: 42 }),
@@ -562,7 +583,7 @@ test('the entry returned after a write must have a definition, the requested ori
 test('through the host: Save refuses fields that do not read back exactly and a source the roster would not read, before making a folder', async (t) => {
   const { stateDir, client, project } = await desk(t)
   await assert.rejects(
-    client.call('agent/create', { name: ' Checker ', permission: 'read', seat, to: 'project', project }),
+    client.call('agent/create', { name: ' Checker ', ceiling: 'edit', seat, to: 'project', project }),
     /name does not read back exactly/,
   )
   assert.equal(
@@ -575,7 +596,7 @@ test('through the host: Save refuses fields that do not read back exactly and a 
     client.call('agent/create', {
       name: 'Too much',
       description: 'x'.repeat(140_000),
-      permission: 'read',
+      ceiling: 'edit',
       seat,
       to: 'user',
     }),
@@ -586,7 +607,7 @@ test('through the host: Save refuses fields that do not read back exactly and a 
   await assert.rejects(
     client.call('agent/create', {
       name: 'Huge seat',
-      permission: 'read',
+      ceiling: 'edit',
       seat: { runtime: 'x'.repeat(300_000) },
       to: 'user',
     }),
@@ -603,7 +624,7 @@ test('the reserved id constructor is refused before the project root or seating 
     throw new Error('the seating writer must not be called')
   })
   await assert.rejects(
-    () => agentMethods['agent/create'](ctx, { name: 'Constructor', permission: 'read', seat, to: 'project', project }),
+    () => agentMethods['agent/create'](ctx, { name: 'Constructor', ceiling: 'edit', seat, to: 'project', project }),
     /not read as an Agent id/,
   )
   assert.equal(sets, 0)
@@ -616,7 +637,7 @@ test('a failed seat write removes the Agent this call made, without a recursive 
     throw new Error('seat write failed')
   })
   await assert.rejects(
-    () => agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
     /seat write failed/,
   )
   assert.equal(await lstat(join(project, PROJECT_AGENT_DIR, 'scratch')).then(() => true, () => false), false)
@@ -630,7 +651,7 @@ test('rollback treats an already-removed Agent file as done and preserves the se
     throw new Error('seat write failed')
   })
   await assert.rejects(
-    () => agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
     (error: unknown) => {
       assert.equal((error as Error).message, 'seat write failed')
       return true
@@ -648,7 +669,7 @@ test('rollback reports an unlink refusal without replacing the seating error', a
   })
   try {
     await assert.rejects(
-      () => agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+      () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
       /seat write failed.*left in place.*could not be removed/,
     )
   } finally {
@@ -664,7 +685,7 @@ test('rollback removes only its AGENT.md when another file appeared in the folde
     throw new Error('seat write failed')
   })
   await assert.rejects(
-    () => agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
     /left in place.*changed/,
   )
   assert.equal(await readFile(join(folder, 'precious.txt'), 'utf8'), 'keep')
@@ -683,7 +704,7 @@ test('rollback leaves a replacement folder untouched', async () => {
     throw new Error('seat write failed')
   })
   await assert.rejects(
-    () => agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
     /left in place.*replaced/,
   )
   assert.equal(await readFile(join(folder, 'AGENT.md'), 'utf8'), 'replacement')
@@ -703,7 +724,7 @@ test('rollback rechecks the project walk and never follows an Agents root swappe
     throw new Error('seat write failed')
   })
   await assert.rejects(
-    () => agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
     /left in place.*link/,
   )
   assert.equal(await readFile(join(outside, 'scratch', 'precious.txt'), 'utf8'), 'keep')
@@ -715,7 +736,7 @@ test('through the host: an Agent is saved to you with its seat, or to a project 
   const mine = (await client.call('agent/create', {
     name: 'Careful reviewer',
     description: 'Reads twice.',
-    permission: 'read',
+    ceiling: 'edit',
     seat,
     to: 'user',
   })) as AgentEntry
@@ -725,7 +746,7 @@ test('through the host: an Agent is saved to you with its seat, or to a project 
 
   const theirs = (await client.call('agent/create', {
     name: 'Release checker',
-    permission: 'publish',
+    ceiling: 'publish',
     seat,
     to: 'project',
     project,
@@ -737,7 +758,7 @@ test('through the host: an Agent is saved to you with its seat, or to a project 
   assert.deepEqual(machine.entries, [{ id: 'release-checker', seats: [seat] }], '…and this Mac keeps the exact seat')
 
   await assert.rejects(
-    client.call('agent/create', { name: 'Careful reviewer', permission: 'read', seat, to: 'user' }),
+    client.call('agent/create', { name: 'Careful reviewer', ceiling: 'edit', seat, to: 'user' }),
     /already an Agent called “careful-reviewer”/,
   )
 })
@@ -776,7 +797,7 @@ test('through the host: Save refuses without writing outside when its temporary 
   })
 
   const failure = await client.call('agent/create', {
-    name: 'Scout', permission: 'read', seat, to: 'project', project,
+    name: 'Scout', ceiling: 'edit', seat, to: 'project', project,
   }).then(() => null, (error: unknown) => error)
   assert.ok(swapped, 'the swap this test depends on actually fired')
   const escaped = await readFile(join(outside, 'AGENT.md'), 'utf8').catch((error: NodeJS.ErrnoException) => {
@@ -798,9 +819,9 @@ test('through the host: Save refuses without writing outside when its temporary 
  */
 test('through the host: Save as an Agent never writes a copy the project would immediately shadow', async (t) => {
   const { client, project } = await desk(t)
-  await client.call('agent/create', { name: 'Scout', permission: 'read', seat, to: 'project', project })
+  await client.call('agent/create', { name: 'Scout', ceiling: 'edit', seat, to: 'project', project })
   await assert.rejects(
-    client.call('agent/create', { name: 'Scout', permission: 'read', seat, to: 'user', project }),
+    client.call('agent/create', { name: 'Scout', ceiling: 'edit', seat, to: 'user', project }),
     /would be shadowed/,
   )
   const listed = (await client.call('agent/list', { project })) as AgentEntry[]
@@ -813,7 +834,7 @@ test('through the host: Save may shadow a built-in Agent, and answers the user f
   const { stateDir, client } = await desk(t)
   const saved = (await client.call('agent/create', {
     name: 'Code reviewer',
-    permission: 'read',
+    ceiling: 'edit',
     seat,
     to: 'user',
   })) as AgentEntry
@@ -831,7 +852,7 @@ test('through the host: Save refuses this Mac’s older seats, before writing a 
   await assert.rejects(
     client.call('agent/create', {
       name: 'Checker',
-      permission: 'read',
+      ceiling: 'edit',
       seat: { runtime: 'claude-code', model: 'opus-5' },
       to: 'user',
     }),
@@ -866,7 +887,7 @@ test('through the host: a project Save with an exact seat never overwrites this 
   await assert.rejects(
     client.call('agent/create', {
       name: 'Code reviewer',
-      permission: 'read',
+      ceiling: 'edit',
       seat: { runtime: 'fake', model: 'fake-1' },
       to: 'project',
       project,
@@ -883,7 +904,7 @@ test('through the host: a project Save with an exact seat never overwrites this 
 
 test('through the host: a project Save with an exact seat never overwrites this Mac’s seats for a user Agent of the same id', async (t) => {
   const { stateDir, client, project } = await desk(t)
-  await client.call('agent/create', { name: 'Reviewer', permission: 'read', seat, to: 'user' })
+  await client.call('agent/create', { name: 'Reviewer', ceiling: 'edit', seat, to: 'user' })
   await client.call('agent/seating/set', {
     id: 'reviewer',
     seats: [{ runtime: 'claude-code', model: 'opus-5', effort: 'high' }],
@@ -892,7 +913,7 @@ test('through the host: a project Save with an exact seat never overwrites this 
   await assert.rejects(
     client.call('agent/create', {
       name: 'Reviewer',
-      permission: 'read',
+      ceiling: 'edit',
       seat: { runtime: 'fake', model: 'fake-1' },
       to: 'project',
       project,
@@ -910,13 +931,13 @@ test('through the host: a project Save with an exact seat never overwrites this 
 test('through the host: a project Save with an exact seat that already matches this Mac’s kept entry is not refused', async (t) => {
   const { stateDir, client, project } = await desk(t)
   const exact = { runtime: 'fake', model: 'fake-1' }
-  await client.call('agent/create', { name: 'Code reviewer', permission: 'read', seat: exact, to: 'project', project })
+  await client.call('agent/create', { name: 'Code reviewer', ceiling: 'edit', seat: exact, to: 'project', project })
   const before = await readFile(join(stateDir, SEATING_FILE), 'utf8')
   const secondProject = tempDir('hd-agent-files-project-')
   await client.call('workspace/open', { path: secondProject })
   const saved = (await client.call('agent/create', {
     name: 'Code reviewer',
-    permission: 'read',
+    ceiling: 'edit',
     seat: exact,
     to: 'project',
     project: secondProject,
@@ -975,7 +996,7 @@ test('through the host: a project Save is refused, and rolls back its folder, wh
   })
 
   await assert.rejects(
-    () => client.call('agent/create', { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    () => client.call('agent/create', { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
     /This Mac already has seats for “scratch”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
   )
   assert.equal(
@@ -1003,7 +1024,7 @@ test('through the host: a project Save refuses, and rolls back its folder, when 
   // reads back as an entry at all — only as a problem.
   await writeFile(join(stateDir, SEATING_FILE), JSON.stringify({ scratch: null }), 'utf8')
   await assert.rejects(
-    client.call('agent/create', { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    client.call('agent/create', { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
     /This Mac already has seats for “scratch”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
   )
   assert.equal(
@@ -1028,7 +1049,7 @@ test('a stale-seat refusal does not read runtimes, accounts, catalogues or usage
     [{ id: 'checker', seats: [{ runtime: 'fake', model: 'fake-1', effort: 'high' }] }],
   )
   await assert.rejects(
-    () => agentMethods['agent/create'](ctx, { name: 'Checker', permission: 'read', seat, to: 'user' }),
+    () => agentMethods['agent/create'](ctx, { name: 'Checker', ceiling: 'edit', seat, to: 'user' }),
     /This Mac already has seats for “checker”, and they would win/,
   )
 })
@@ -1043,7 +1064,7 @@ test("through the host: a seating.json this machine cannot read refuses to keep 
   const { stateDir, client, project } = await desk(t)
   await writeFile(join(stateDir, SEATING_FILE), '{ not json')
   await assert.rejects(
-    client.call('agent/create', { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    client.call('agent/create', { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
     /cannot be read/,
   )
   assert.equal(
@@ -1074,7 +1095,7 @@ test('through the host: Customize copies an Agent to where the copy shadows it, 
 
 test('through the host: Customize refuses when the actual winner outranks the destination', async (t) => {
   const { stateDir, client, project } = await desk(t)
-  await client.call('agent/create', { name: 'Judge', permission: 'read', seat: { runtime: 'fake' }, to: 'project', project })
+  await client.call('agent/create', { name: 'Judge', ceiling: 'edit', seat: { runtime: 'fake' }, to: 'project', project })
   await assert.rejects(
     client.call('agent/copy', { id: 'judge', from: 'builtin', to: 'user', project }),
     /would be shadowed by the project “judge” already there/,
@@ -1086,7 +1107,7 @@ test("through the host: Customize to a project refuses model-specific seats and 
   const { client, project } = await desk(t)
   await client.call('agent/create', {
     name: 'Careful reviewer',
-    permission: 'read',
+    ceiling: 'edit',
     seat: { runtime: 'fake', model: 'fake-1', effort: 'high' },
     to: 'user',
   })
@@ -1096,7 +1117,7 @@ test("through the host: Customize to a project refuses model-specific seats and 
   )
   assert.equal(await lstat(join(project, PROJECT_AGENT_DIR, 'careful-reviewer')).then(() => true, () => false), false)
 
-  await client.call('agent/create', { name: 'Portable', permission: 'read', seat: { runtime: 'fake' }, to: 'user' })
+  await client.call('agent/create', { name: 'Portable', ceiling: 'edit', seat: { runtime: 'fake' }, to: 'user' })
   const portable = (await client.call('agent/copy', { id: 'portable', from: 'user', to: 'project', project })) as AgentEntry
   assert.equal(portable.origin, 'project')
   assert.equal(portable.path, join(await realpath(project), PROJECT_AGENT_DIR, 'portable', 'AGENT.md'))
@@ -1125,7 +1146,7 @@ test('a project Save that writes this Mac’s exact seat announces both changes'
     seating: { ...machine, entries: [{ id, seats: seats ?? [] }] },
     wrote: true,
   }))
-  await agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project })
+  await agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project })
   assert.deepEqual(pushed, [
     { method: 'agent/changed', params: { project: null, revision: 0 } },
     { method: 'agent/changed', params: { project: await realpath(project) } },
@@ -1134,7 +1155,7 @@ test('a project Save that writes this Mac’s exact seat announces both changes'
 
 test('through the host: Remove sends a folder to the Trash, and a built-in one cannot be removed', async (t) => {
   const { client, trashed } = await desk(t)
-  const mine = (await client.call('agent/create', { name: 'Scratch', permission: 'read', seat, to: 'user' })) as AgentEntry
+  const mine = (await client.call('agent/create', { name: 'Scratch', ceiling: 'edit', seat, to: 'user' })) as AgentEntry
   await client.call('agent/remove', { id: 'scratch', origin: 'user' })
   assert.deepEqual(trashed, [dirname(mine.path)])
   await assert.rejects(client.call('agent/remove', { id: 'code-reviewer', origin: 'builtin' } as never), /cannot be removed/)
@@ -1241,7 +1262,7 @@ test("through the host: an Agent's file opens in the desk's editor, and only thi
     client.call('file/save', { path: shipped, content: 'x', expectedHash: read.hash }),
     /outside every open workspace/,
   )
-  const mine = (await client.call('agent/create', { name: 'Scout', permission: 'read', seat, to: 'user' })) as AgentEntry
+  const mine = (await client.call('agent/create', { name: 'Scout', ceiling: 'edit', seat, to: 'user' })) as AgentEntry
   const before = (await client.call('workspace/readFile', { path: mine.path })) as { content: string; hash: string }
   const saved = (await client.call('file/save', {
     path: mine.path,

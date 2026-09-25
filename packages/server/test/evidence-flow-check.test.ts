@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { chmod } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -11,7 +12,10 @@ import { tempDir } from './scratch.js'
 
 /*
  * A flow's check step leaves check evidence on its card, as a named check does:
- * every run the desk makes leaves a fact without being asked.
+ * every run the desk makes leaves a fact without being asked. The legacy
+ * `flowCheck` path (below) stays best-effort, for old phase-4 callers; the v2
+ * path (`runFlowCheck`) is the durable gate: a card is never marked done on a
+ * fact that did not actually reach disk.
  */
 
 test("a flow's check is recorded on its card, in its round, bound to the commit it started at", async () => {
@@ -58,6 +62,56 @@ test("a flow's check is recorded on its card, in its round, bound to the commit 
   // A check step for no card — the flow engine's own runner, asked directly — leaves nothing.
   await plane.flowCheck('pnpm test', { cwd: repo.dir, timeoutSec: 60 }, async () => ({ status: 0 }))
   assert.equal((await plane.store.read(await canonical(repo.dir), 'evidence')).lines.length, 1)
+})
+
+test('runFlowCheck (v2): the exact command result is kept whether or not its evidence could be saved, and a storage failure never leaves a silent success', async () => {
+  const repo = await makeRepo()
+  const state = tempDir('hd-flow-check-v2-state-')
+  const heard: WireNotification[] = []
+  const plane = new EvidencePlane(
+    { dir: join(state, 'evidence'), seenFile: join(state, 'seen.json'), now: () => 99 },
+    {
+      board: (room) => (room === 'goal-1' ? ({ id: 'goal-1', root: repo.dir, intents: [] } as unknown as TeamState) : null),
+      cwdOf: () => null,
+      push: (notification) => void heard.push(notification),
+      log: () => {},
+    },
+  )
+  const head = await repo.git('rev-parse', 'HEAD')
+
+  // The healthy path: the exact command result, plus a durable fact, before this resolves.
+  const ok = await plane.runFlowCheck(
+    'true',
+    { cwd: repo.dir, timeoutSec: 5 },
+    { goal: 'goal-1', card: 5, name: 'gate', round: 2 },
+  )
+  assert.equal(ok.problem, null)
+  assert.ok(ok.evidence, 'a fact id is returned once it is durable')
+  assert.equal(ok.result.exit, 0)
+  const facts = (await plane.store.read(await canonical(repo.dir), 'evidence')).lines
+  assert.equal(facts.length, 1)
+  assert.ok(facts[0]?.type === 'evidence' && facts[0].record.fact.kind === 'check' && facts[0].record.fact.at === head)
+
+  // Storage refuses the append (the project's own evidence file is made
+  // read-only): the command's own exact result is still reported — never
+  // discarded — but `problem` is set and `evidence` is null, so a caller must
+  // not mark the card done on this.
+  const project = await canonical(repo.dir)
+  const factsFile = join(plane.store.folderOf(project), 'evidence.ndjson')
+  await chmod(factsFile, 0o400)
+  try {
+    const failed = await plane.runFlowCheck(
+      'true',
+      { cwd: repo.dir, timeoutSec: 5 },
+      { goal: 'goal-1', card: 5, name: 'gate', round: 2 },
+    )
+    assert.equal(failed.result.exit, 0, 'the command still ran and its exact result is reported')
+    assert.equal(failed.evidence, null, 'no fact id: nothing durable was produced')
+    assert.match(failed.problem ?? '', /evidence could not be saved/)
+    assert.equal((await plane.store.read(project, 'evidence')).lines.length, 1, 'no half-written or extra line was left behind')
+  } finally {
+    await chmod(factsFile, 0o600)
+  }
 })
 
 const GATE = `

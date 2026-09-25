@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentEntry, RuntimeInfo, SeatCandidate, SeatLeft, SeatPlan, SeatReason, Session } from '@harnessdesk/protocol'
+import type { AgentEntry, CeilingLevel, RuntimeInfo, SeatCandidate, SeatLeft, SeatPlan, SeatReason, Session } from '@harnessdesk/protocol'
 
 import {
   anyBroken,
@@ -8,6 +8,7 @@ import {
   blockedWords,
   bySection,
   ceilingWords,
+  ceilingMeaning,
   copyTargets,
   fileWords,
   firstParagraph,
@@ -26,6 +27,7 @@ import {
   seatOf,
   seatWordsOf,
   seatCautions,
+  seatCeilingWords,
   seatTaken,
   shadowWords,
   stateWords,
@@ -77,10 +79,12 @@ const entry = (id: string, over: Partial<AgentEntry> = {}): AgentEntry => ({
     id,
     name: id,
     description: null,
-    permission: 'read',
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
     answers: [],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude-code' }],
     brief: 'First.\n\nSecond.',
   },
@@ -92,6 +96,7 @@ const plan = (over: Partial<SeatPlan> = {}): SeatPlan => ({
   from: 'prefer',
   winner: 1,
   blocked: null,
+  ceiling: { level: 'edit', hold: 'asked' },
   candidates: [
     {
       seat: { runtime: 'cursor' },
@@ -107,10 +112,46 @@ const plan = (over: Partial<SeatPlan> = {}): SeatPlan => ({
 })
 
 describe('agents in words', () => {
-  it('says every ceiling is asked, because nothing holds one yet', () => {
-    expect(ceilingWords('read')).toBe('Read · asked')
-    expect(ceilingWords('publish')).toBe('Publish · asked')
-    expect(ceilingWords('merge')).toBe('Merge · asked')
+  it("says an Agent's ceiling as its word on the ladder, and a seat's with whether its runtime holds it", () => {
+    expect(['read', 'edit', 'publish', 'merge'].map((level) => ceilingWords(level as CeilingLevel))).toEqual([
+      'Read',
+      'Edit',
+      'Publish',
+      'Merge',
+    ])
+    expect(seatCeilingWords({ level: 'read', hold: 'held' })).toBe('Read · held')
+    expect(seatCeilingWords({ level: 'edit', hold: 'asked' })).toBe('Edit · asked')
+    expect(ceilingMeaning('read')).toBe('Changes nothing: it reads, searches and reports.')
+    expect(ceilingMeaning('edit')).toBe('May change files and commit in its own checkout, and never push.')
+  })
+
+  it('says a runtime that cannot hold a ceiling, and where that is decided', () => {
+    expect(reasonWords({ kind: 'unheld', level: 'read', detail: null }, 'Claude')).toBe(
+      'Claude cannot hold read, and this Mac refuses a seat whose ceiling is only asked',
+    )
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: 'Sandbox reads back as Full access' }, 'Codex')).toBe(
+      'Codex cannot hold edit: Sandbox reads back as Full access, and this Mac refuses a seat whose ceiling is only asked',
+    )
+    expect(fixWords({ kind: 'ceilings' }, 'Claude')).toBe('Change what happens when a ceiling cannot be held')
+  })
+
+  it('says the front-door case truly: a required hold is not this Mac’s own setting, and never names a runtime id', () => {
+    // A required hold means the runtime is running but does not hold the
+    // level, or reads back holding a different one — never "not running",
+    // and never this Mac's own setting, which is not what refused it here.
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: null, required: true }, 'Codex')).toBe(
+      'Codex cannot hold edit, and a start from here needs every Seat to hold its ceiling',
+    )
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: 'reads back holding read, not edit', required: true }, 'Codex')).toBe(
+      'Codex cannot hold edit: reads back holding read, not edit, and a start from here needs every Seat to hold its ceiling',
+    )
+    expect(fixWords({ kind: 'seats' }, 'Codex')).toBe('Edit seats for this Mac')
+  })
+
+  it('never throws on a level this file does not recognize — shown as written, not indexed', () => {
+    expect(reasonWords({ kind: 'unheld', level: 'omniscient' as CeilingLevel, detail: null }, 'Claude')).toBe(
+      'Claude cannot hold omniscient, and this Mac refuses a seat whose ceiling is only asked',
+    )
   })
 
   it('heads each section by where it was found, the project by its name', () => {
@@ -336,6 +377,20 @@ describe('agents in words', () => {
     }
     // Never the error's own message: that is the host's sentence, with a runtime id and a seat spec in it.
     expect(refusalOf({ code: 'seatRefused', message: 'seat cursor=opus-5 refused', data: { candidates: [good] } })).toEqual([good])
+  })
+
+  it('reads an "unheld" reason rather than dropping the candidate it is on', () => {
+    const heldCandidate = {
+      seat: { runtime: 'codex' },
+      label: 'Codex',
+      runtimeName: 'Codex',
+      state: 'passed',
+      reason: { kind: 'unheld', level: 'edit', detail: null, required: true },
+      fix: { kind: 'seats' },
+    }
+    expect(refusalOf({ code: 'seatRefused', data: { candidates: [heldCandidate] } })).toEqual([heldCandidate])
+    const withoutRequired = { ...heldCandidate, reason: { kind: 'unheld', level: 'read', detail: 'Sandbox reads back as Full access' } }
+    expect(refusalOf({ code: 'seatRefused', data: { candidates: [withoutRequired] } })).toEqual([withoutRequired])
   })
 
   /*

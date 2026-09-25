@@ -4,7 +4,7 @@
 }
 
 .headerText {
-  flex: 1;
+  /* desk: flex 1 → none, the toolbar's gap takes the free space and the words shrink into what is left */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

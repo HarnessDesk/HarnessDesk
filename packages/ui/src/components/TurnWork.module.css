@@ -21,14 +21,6 @@
 
 }
 
-.work:not([data-trouble]) .head:hover .headLabel {
-  color: var(--hd-secondary-foreground);
-}
-
-.headLabel {
-  flex: none;
-}
-
 /* What the turn amounted to, on the same line as how long it took. It is the
    half of a folded turn a reader is actually looking for, so it shortens
    before the duration does. */
@@ -45,18 +37,8 @@
   white-space: nowrap;
 }
 
-/* Receipt ink is composed at the element. */
-
-.chevron {
-  flex: none;
-  transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
-}
-
-.chevron[data-open] {
-  transform: rotate(90deg);
-}
-
-/* The hairline that runs from the label to the column's edge. */
+/* The hairline that runs from the label to the column's edge: the system's
+   separator, stretched to fill what the label leaves. */
 .rule {
   flex: 1;
   margin-left: 6px;
@@ -66,11 +48,4 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-/* --- the live line -------------------------------------------------------- */
-
-.live {
-  display: flex;
-  align-items: center;
 }

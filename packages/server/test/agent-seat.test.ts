@@ -43,19 +43,23 @@ import {
   type UsageReport,
   type UserContent,
   type MachineSeating,
+  type CeilingLevel,
+  ceilingOfPermission,
+  permissionOfCeiling,
 } from '@harnessdesk/protocol'
 
 import { AcpRegistry } from '../src/acp-registry.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
-import { chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
+import { agentOrder, chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
 import { Agents, PROJECT_AGENT_DIR } from '../src/agents.js'
-import { GIT_RULES, renderFlowTemplate } from '../src/flow.js'
 import { Host, type OpenedSeat } from '../src/host.js'
 import { knownAgent } from '../src/installs/known-agents.js'
 import { Logger } from '../src/log.js'
 import { agentMethods, offerOf, readDesk } from '../src/methods/agents.js'
+import type { HostContext } from '../src/methods/context.js'
 import type { SeatOpeningInput } from '../src/evidence/seats.js'
+import type { SeatHold } from '../src/ceilings/hold.js'
 import type { SeatedAs } from '../src/registry.js'
 import { SEAT_READ_DEADLINE_MS } from '../src/seat-reads.js'
 import { StateStore } from '../src/state.js'
@@ -558,11 +562,11 @@ const agentFile = (prefer: string, permission: FlowPermission = 'read'): string 
 
 /**
  * What a seat on this Agent is handed, working in `cwd`: the brief as written,
- * then the rule of the permission it holds — the flow's own sentence for it,
- * `GIT_RULES`, filled in as a flow seat's is.
+ * then the rule of the ceiling it holds, rendered by the same host helper as
+ * every other held seat.
  */
 const orderFor = (permission: FlowPermission, cwd: string): string =>
-  `Read the diff.\n\n${renderFlowTemplate(GIT_RULES[permission], { repo: cwd })}`
+  agentOrder('Read the diff.', ceilingOfPermission(permission), cwd)
 
 /** What one runtime on the pretend desk says about itself. Honest and ready unless a test says otherwise. */
 interface Pretend {
@@ -602,6 +606,8 @@ interface Pretend {
   readonly modelsHang?: boolean
   /** Bumped every time this runtime's account is read, so a test can count how many times a dry run or a seating asked it. */
   readonly asks?: { account: number }
+  /** It declares a control that can hold these ceilings (phase 10's held-only cases). */
+  readonly holds?: readonly CeilingLevel[]
 }
 
 const pretendRuntime = (id: string, pretend: Pretend) => {
@@ -613,6 +619,7 @@ const pretendRuntime = (id: string, pretend: Pretend) => {
       id: runtimeId(id),
       capabilities: { account: pretend.keepsOwnAccount !== true },
       presentation: { name: pretend.name ?? id },
+      ...(pretend.holds ? { ceilings: Object.fromEntries(pretend.holds.map((level) => [level, { settings: [], how: 'A sandbox' }])) } : {}),
     },
     health: (): RuntimeHealth => {
       if (pretend.healthThrows) throw new Error(pretend.healthThrows)
@@ -673,6 +680,8 @@ const rig = async (
     readonly directory?: AgentDirectory
     /** What `seating.json` holds on this machine, written before the seating; no file when absent. */
     readonly machine?: string
+    /** What holding a ceiling reads back as, per runtime; asked, with a reason, unless a test says otherwise (phase 10). */
+    readonly hold?: (runtime: string, level: CeilingLevel) => SeatHold
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
@@ -704,6 +713,7 @@ const rig = async (
   const runtimes = new Map(Object.entries(desk).map(([id, pretend]) => [id, pretendRuntime(id, pretend)]))
 
   const ctx = {
+    state: { state: { preferences: {} } },
     evidence: {
       seats: {
         opened: async (input: SeatOpeningInput) => {
@@ -769,6 +779,11 @@ const rig = async (
         if (options.orderFails) throw new Error(options.orderFails)
         ordered.push(text)
       },
+      hold: async (runtime: string, _sessionId: string, level: CeilingLevel): Promise<SeatHold> => options.hold?.(runtime, level) ?? {
+        ceiling: { level, hold: 'asked' },
+        how: null,
+        why: 'this test runtime does not expose a ceiling control',
+      },
       retire: async (runtime: string, id: string) => {
         await new Promise((resolve) => setImmediate(resolve))
         alive -= 1
@@ -783,6 +798,8 @@ const rig = async (
       },
       recordAgent: (runtime: string, id: string, seated: SeatedAs): Session => {
         recorded.push(seated)
+        const { ceiling, ceilingNote, standing: _standing, ...settings } = seated
+        const permission = permissionOfCeiling(ceiling?.level ?? 'read')
         return {
           id: sessionId(id),
           runtime: runtimeId(runtime),
@@ -790,7 +807,12 @@ const rig = async (
           status: { type: 'idle' },
           createdAt: 0,
           updatedAt: 0,
-          settings: { cwd: '/tmp/x', model: 'opus-5', ...seated },
+          settings: {
+            cwd: '/tmp/x', model: 'opus-5', ...settings,
+            ...(ceiling ? { ceiling } : {}),
+            ...(ceilingNote ? { ceilingNote } : {}),
+            ...(permission ? { permission } : {}),
+          },
           turns: [],
           itemsLoaded: true,
         }
@@ -830,14 +852,12 @@ test('it seats the first candidate this machine can offer', async () => {
   assert.deepEqual(titles, ['Reviewer'], 'the conversation is named for the Agent')
 })
 
-test('the brief is handed over as the standing order, once, with the rule of the permission it holds', async () => {
+test('the brief is handed over as the standing order, once, with the held ceiling rule', async () => {
   const { ctx, ordered } = await rig('claude=opus-5/high')
   await agentMethods['agent/seat'](ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.equal(ordered.length, 1)
   assert.match(ordered[0] ?? '', /^Read the diff\.\n\n/, 'the brief as written, first')
-  // The flow's own sentence for `read`, filled with where the seat works — not
-  // a second wording of it.
-  assert.match(ordered[0] ?? '', /- Stay inside \/tmp\/x\. .*never push, never merge/)
+  assert.match(ordered[0] ?? '', /- Your ceiling is edit: you may change files and commit/)
   assert.equal(ordered[0], orderFor('read', '/tmp/x'))
 })
 
@@ -869,10 +889,11 @@ test("the seat is told the narrower of the Agent's ceiling and the seating's gra
           agent: 'reviewer',
           name: 'Reviewer',
           briefDigest: digestOf(seen.source),
-          permission: held,
+          standing: { kind: 'permission', permission: held },
           seatLabel: 'claude',
           passedOver: [],
-          ceiling: null,
+          ceiling: { level: ceilingOfPermission(held), hold: 'asked' },
+          ceilingNote: 'this test runtime does not expose a ceiling control',
         },
       ],
       said,
@@ -1104,6 +1125,61 @@ test('a brief that could not be handed over stops the seating there: no later se
   assert.equal(seen.alive(), 0)
 })
 
+test('a failed sidecar write blocks the first turn: the Seat is closed, the runtime is stopped, and no brief is sent', async () => {
+  const seen = await rig('claude=opus-5/high')
+  // This Agent now declares an attachment, so there is something for phase
+  // 12's transaction to prepare and record — a plain Agent (nothing
+  // declared) never reaches `record` at all, by design, and so could never
+  // exercise this guard.
+  await writeFile(
+    join(seen.root, 'user', 'reviewer', 'AGENT.md'),
+    '---\nname: Reviewer\npermission: read\nprefer: [claude=opus-5/high]\nmcp: [reviewer-tools]\n---\nRead the diff.\n',
+    'utf8',
+  )
+  let recordCalls = 0
+  ;(seen.ctx as unknown as { attachments: HostContext['attachments'] }).attachments = {
+    prepare: async (subject) => ({
+      subject,
+      input: { key: 'k', skills: null, mcp: [{ name: 'reviewer-tools', digest: 'd', endpoint: 'e' }] },
+      declarations: [
+        {
+          kind: 'mcp',
+          name: 'reviewer-tools',
+          identity: { kind: 'mcp', name: 'reviewer-tools', digest: 'd', source: 'library', pathLabel: '~/reviewer-tools' },
+          problem: null,
+        },
+      ],
+      servers: new Map(),
+    }),
+    record: async () => {
+      recordCalls += 1
+      throw new Error('injected sidecar write failure')
+    },
+    trust: {
+      preview: async () => { throw new Error('not used by this test') },
+      approve: async () => { throw new Error('not used by this test') },
+    },
+    seatRecord: async () => null,
+    declarations: async () => ({ declarations: [], resolved: [] }),
+    carriesFilter: async () => false,
+    forkRefusal: async () => null,
+  }
+  await assert.rejects(
+    // A real directory, unlike every other test's `/tmp/x`: phase 12's Seat
+    // transaction now binds trust to the project's actual repository
+    // incarnation (`evidence/seen.ts`'s `incarnationOf`, the same call a
+    // command approval makes), which realpaths its `cwd` — a fictitious path
+    // would refuse before ever reaching the injected `record` failure below.
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: seen.root }),
+    /Reviewer was seated on claude · opus-5 · High, and its attachment record could not be written, so the conversation was closed: injected sidecar write failure$/,
+  )
+  assert.equal(recordCalls, 1, 'record was attempted exactly once')
+  assert.deepEqual(seen.ordered, [], 'no brief was ever sent — the first-turn counter is zero')
+  assert.deepEqual(seen.retired, ['claude s1'], 'the runtime conversation this Seat opened was stopped')
+  assert.deepEqual(seen.recorded, [], 'a Seat whose attachment record failed is never recorded as kept')
+  assert.equal(seen.durable.length, 1, 'the historical Seat-opening record from before the failure still exists')
+})
+
 /** One account's standing, a weekly lane for each figure given — the account's own, or one model's. */
 const reportFor = (runtime: string, lanes: readonly { usedPercent: number; scope?: string }[]): UsageReport => ({
   runtime: runtimeId(runtime),
@@ -1213,7 +1289,7 @@ test('beside a runtime this desk has, an id nothing could add is still its own r
   ]
   const { offers } = await readDesk(seen.ctx, candidates)
   assert.deepEqual(offers, [
-    { runtime: 'codex', models: ['gpt-5.5'], efforts: null, signedIn: false, spent: false, spentModels: [] },
+    { runtime: 'codex', models: ['gpt-5.5'], efforts: null, signedIn: false, spent: false, spentModels: [], holds: [] },
     { runtime: 'claude', unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false },
   ])
   assert.deepEqual(fixesFor(candidates, offers), [
@@ -1775,7 +1851,7 @@ test('a seat that runs another effort than asked is closed, and the next candida
       agent: 'reviewer',
       name: 'Reviewer',
       briefDigest: digestOf(seen.source),
-      permission: 'read',
+      standing: { kind: 'permission', permission: 'read' },
       seatLabel: 'claude',
       passedOver: [
         {
@@ -1788,7 +1864,8 @@ test('a seat that runs another effort than asked is closed, and the next candida
           fix: { kind: 'seats' },
         },
       ],
-      ceiling: null,
+      ceiling: { level: 'edit', hold: 'asked' },
+      ceilingNote: 'this test runtime does not expose a ceiling control',
     },
   ])
   assert.deepEqual(seen.overlaps, [], 'never two seats at once')
@@ -2937,6 +3014,7 @@ test('the dry run says which seat would win here and why not the ones above it, 
       from: 'prefer',
       winner: 1,
       blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
       candidates: [
         {
           seat: { runtime: 'cursor', model: 'gemini-3.8-flash', effort: 'high' },
@@ -2984,7 +3062,7 @@ test('no ids is every Agent in force; one that cannot be weighed says why; one n
     ],
   )
   assert.deepEqual(await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['ghost'] }), [
-    { id: 'ghost', from: 'prefer', candidates: [], winner: null, blocked: 'No Agent called “ghost”.' },
+    { id: 'ghost', from: 'prefer', candidates: [], winner: null, blocked: 'No Agent called “ghost”.', ceiling: null },
   ])
   untouched(seen)
 })
@@ -3263,7 +3341,7 @@ test('an entry this machine cannot read refuses the seating — never the prefer
   untouched(seen)
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
   const { own, ...rest } = plan!
-  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why, ceiling: null })
   // The list it replaced here is still weighed, for the Agent's page.
   assert.deepEqual(own?.map((one) => one.label), ['claude · opus-5'])
 })
@@ -3294,6 +3372,9 @@ const writeProjectReviewer = async (project: string, prefer: string): Promise<vo
 test("through the host: this Mac's seats are set and cleared by one verb, and every window is told of each", async (t) => {
   const { harness, client, work } = await desk(t)
   await writeProjectReviewer(work, 'seatfake=big/high')
+  // This write is watched too, and told on its own settle timer, but
+  // `machineNotices` below counts only `project: null` — never this write's
+  // own `project: work` — so nothing here needs to wait it out first.
   const set = (await client.call('agent/seating/set', {
     id: 'reviewer',
     seats: [{ runtime: 'seatfake', model: 'small' }],
@@ -3313,8 +3394,10 @@ test("through the host: this Mac's seats are set and cleared by one verb, and ev
   assert.deepEqual(cleared.entries, [])
   assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { $revision: 2 })
   assert.equal(machineNotices(client), 2, 'the clear told every window once more')
+  // The machine's own notices only: writing the project's reviewer above is
+  // a `project: work` notice of the watch's own, landing whenever it settles.
   assert.deepEqual(
-    client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed'),
+    client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed' && one.params.project === null),
     [
       { method: 'agent/changed', params: { project: null, revision: 1 } },
       { method: 'agent/changed', params: { project: null, revision: 2 } },
@@ -3526,7 +3609,7 @@ test('a seating.json that cannot be read at all refuses the seating in one sente
   untouched(seen)
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
   const { own, ...rest } = plan!
-  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why, ceiling: null })
   // A whole-file problem still leaves this Agent's own prefer weighed, exactly
   // as one entry that alone cannot be read does — nobody can tell whether the
   // file would have replaced it, so it is treated as if it would.
@@ -3721,4 +3804,43 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
   assert.equal(summary?.preview, request, 'the normal turn supplies the live session opening')
   // `agent/seat` names the conversation before handing over its silent order,
   // so this seated session cannot be renamed by a later opening message.
+})
+
+// Added in phase 10 (Task 3): held-only admission on the ordinary seating path, as a front-door run asks for it.
+test('held-only seating passes over a runtime that cannot hold before opening it, whatever this Mac says', async () => {
+  const { seatAgent } = await import('../src/methods/agents.js')
+  const seen = await rig('asker=opus-5, holder=opus-5', { asker: { models: ['opus-5'] }, holder: { models: ['opus-5'], holds: ['edit'] } }, {
+    hold: (runtime, level) => runtime === 'holder' ? { ceiling: { level, hold: 'held' }, how: 'A sandbox', why: null } : { ceiling: { level, hold: 'asked' }, how: null, why: 'no control' },
+  })
+  // This Mac's own watched setting is the default, seat: a held-only seating refuses asked all the same.
+  const seated = await seatAgent(seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }, { board: 'goal-1', role: null, requireHeld: true })
+  assert.deepEqual(seen.created, [{ runtime: 'holder', model: 'opus-5', cwd: '/tmp/x' }], 'the runtime that cannot hold is never opened')
+  assert.deepEqual(seen.recorded[0]?.ceiling, { level: 'edit', hold: 'held' })
+  assert.deepEqual(seen.recorded[0]?.passedOver?.map((one) => one.reason), [{ kind: 'unheld', level: 'edit', detail: null, required: true }])
+  assert.equal(seen.ordered.length, 1, 'the held Seat is briefed once it is kept')
+  assert.ok(seated.record)
+})
+
+test('held-only seating closes a candidate whose readback is asked before its brief, and never keeps it', async () => {
+  const { seatAgent } = await import('../src/methods/agents.js')
+  const { SeatRefusedError } = await import('@harnessdesk/protocol')
+  const seen = await rig('holder=opus-5', { holder: { models: ['opus-5'], holds: ['edit'] } }, {
+    hold: (_runtime, level) => ({ ceiling: { level, hold: 'asked' }, how: null, why: 'the sandbox reads back as full access' }),
+  })
+  await assert.rejects(seatAgent(seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }, { board: 'goal-1', role: null, requireHeld: true }), (error: unknown) => {
+    assert.ok(error instanceof SeatRefusedError)
+    assert.deepEqual((error as InstanceType<typeof SeatRefusedError>).wireData.candidates.map((one) => one.reason), [{ kind: 'unheld', level: 'edit', detail: 'the sandbox reads back as full access', required: true }])
+    return true
+  })
+  assert.equal(seen.created.length, 1, 'it was opened, provisionally')
+  assert.deepEqual(seen.discarded, ['holder s1'], 'and closed before anything was sent to it')
+  assert.deepEqual(seen.ordered, [])
+  assert.deepEqual(seen.durable, [])
+  assert.deepEqual(seen.recorded, [])
+  // The same seating without the requirement keeps phase 3's watched behaviour: seated, and said to be asked.
+  const watched = await rig('holder=opus-5', { holder: { models: ['opus-5'], holds: ['edit'] } }, {
+    hold: (_runtime, level) => ({ ceiling: { level, hold: 'asked' }, how: null, why: 'the sandbox reads back as full access' }),
+  })
+  await seatAgent(watched.ctx, { id: 'reviewer', cwd: '/tmp/x' }, { board: 'goal-1', role: null })
+  assert.deepEqual(watched.recorded[0]?.ceiling, { level: 'edit', hold: 'asked' })
 })

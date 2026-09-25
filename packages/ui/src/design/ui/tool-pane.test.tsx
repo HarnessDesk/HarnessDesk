@@ -1,8 +1,11 @@
 import { act } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import {
+  ToolPaneGuest,
+  ToolPaneStage,
   ToolPane,
   ToolPaneActivity,
   ToolPaneActivityMark,
@@ -92,4 +95,57 @@ it('owns the bars, messages, document tabs, activity and footer anatomy', () => 
   expect(container.querySelector('[data-slot="tool-pane-tab-viewport"]')?.hasAttribute('data-more-end')).toBe(true)
   expect(container.querySelector('[data-slot="tool-pane-notice"]')?.getAttribute('data-placement')).toBe('bottom')
   expect(container.querySelector('button')?.textContent).toBe('Reload')
+})
+
+it('grounds a guest page on the white a page assumes, whatever the theme', () => {
+  const guest = renderToStaticMarkup(<ToolPaneGuest title="page" src="about:blank" />)
+  expect(guest).toMatch(/^<iframe/)
+  expect(guest).toContain('bg-(--hd-external-canvas)')
+  expect(guest).not.toContain('bg-(--hd-card)')
+  expect(guest).not.toContain('data-framed')
+  expect(guest).not.toContain('shadow-(--hd-hairline)')
+
+  const framed = renderToStaticMarkup(<ToolPaneGuest as="webview" framed src="about:blank" />)
+  expect(framed).toMatch(/^<webview/)
+  expect(framed).toContain('data-framed')
+  expect(framed).toContain('rounded-(--hd-radius-sm)')
+  expect(framed).toContain('shadow-(--hd-hairline)')
+})
+
+it('sets a device-sized guest on the muted stage, and leaves an unframed stage bare', () => {
+  const bare = renderToStaticMarkup(<ToolPaneStage>guest</ToolPaneStage>)
+  expect(bare).not.toContain('bg-(--hd-muted)')
+  expect(bare).not.toContain('data-framed')
+
+  const framed = renderToStaticMarkup(<ToolPaneStage framed>guest</ToolPaneStage>)
+  expect(framed).toContain('data-framed')
+  expect(framed).toContain('bg-(--hd-muted)')
+  expect(framed).toContain('justify-center')
+})
+
+it('stands a bar of the tool’s own controls on the find bar’s rung as a floor, and wraps them, so a narrow row grows instead of clipping', () => {
+  const tools = renderToStaticMarkup(<ToolPaneBar variant="tools" role="toolbar" aria-label="Repository actions">verbs</ToolPaneBar>)
+  expect(tools).toContain('role="toolbar"')
+  expect(tools).toContain('data-variant="tools"')
+  // A floor, not a height: the caller's controls may take a second line.
+  expect(tools).toContain('min-h-9')
+  expect(tools).not.toMatch(/(?<![\w-])h-9(?![\w-])/)
+  // It wraps: a narrow pane's controls take a second line and the bar grows.
+  expect(tools).toMatch(/(?<![\w-])flex-wrap(?![\w-])/)
+  // The same rung, edge and ground as the find bar it stands beside.
+  const find = renderToStaticMarkup(<ToolPaneBar variant="find">find</ToolPaneBar>)
+  expect(find).toMatch(/(?<![\w-])h-9(?![\w-])/)
+  for (const bar of [tools, find]) {
+    expect(bar).toContain('border-b')
+    expect(bar).toContain('bg-(--hd-card)')
+  }
+})
+
+it('draws a document tab’s part in a reorder with the sortable part’s own mark', async () => {
+  const { sortableItemClass } = await import('./sortable-list')
+  const { ToolPaneDocumentTab } = await import('./tool-pane')
+  const host = document.createElement('div')
+  host.innerHTML = renderToStaticMarkup(<ToolPaneDocumentTab data-drop="before">Docs</ToolPaneDocumentTab>)
+  const classes = host.firstElementChild?.className.split(' ') ?? []
+  for (const token of sortableItemClass('horizontal').split(' ')) expect(classes).toContain(token)
 })

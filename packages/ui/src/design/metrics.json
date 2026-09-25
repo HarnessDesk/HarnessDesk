@@ -103,6 +103,14 @@
     "pad": "6 10 6 10",
     "radius": 8
   },
+  "adopted/textarea/variant/code": {
+    "h": 32,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
   "adopted/textarea/variant/composer": {
     "h": 44,
     "text": 14,
@@ -287,6 +295,14 @@
     "pad": "16 16 16 16",
     "radius": 8
   },
+  "button/button/size/pattern": {
+    "h": 21,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "button/button/size/row": {
     "h": 29,
     "text": 13,
@@ -320,6 +336,14 @@
     "radius": 8
   },
   "button/button/variant/choice": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
+  "button/button/variant/danger": {
     "h": 30,
     "text": 13,
     "weight": "500",
@@ -599,8 +623,16 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
+  "list/avatar/size/default": {
+    "h": 24,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
   "readings/key-value/variant/default": {
-    "h": 108,
+    "h": 121,
     "text": 14,
     "weight": "400",
     "line": 21,
@@ -614,6 +646,14 @@
     "line": 18,
     "pad": "0 0 0 0",
     "radius": 0
+  },
+  "readings/summary-card/variant/summary": {
+    "h": 273,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 0 0 0",
+    "radius": 14
   },
   "row/page-title-case/size/page": {
     "h": 26,
@@ -638,6 +678,14 @@
     "line": 21,
     "pad": "0 0 0 0",
     "radius": 10
+  },
+  "section/section/variant/page": {
+    "h": 173,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
   },
   "section/section/variant/panel": {
     "h": 111,

@@ -1,7 +1,7 @@
 ---
 name: Code reviewer
 description: Reads a change it did not write and reports every problem it finds, blocking or not.
-permission: read
+ceiling: read
 answers: [approve, request-changes]
 produces: [review]
 prefer: [claude-code, codex, cursor]

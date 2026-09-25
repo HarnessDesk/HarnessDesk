@@ -30,7 +30,20 @@ export interface AssignmentPort {
   known(runtime: string, session: string): Promise<{ project: string; busy: boolean } | null>
   claimable(goal: string, card: number, session: SessionPointer): boolean
   commit(goal: string, card: number, session: SessionPointer): Promise<SeatRecord>
+  /**
+   * Whether this already-live conversation's attachment loading was ever
+   * observed — a prior Seat on this exact session whose sidecar this desk
+   * actually wrote. A "loose" session assigned straight into a Goal's card
+   * never went through the prepare/open/read transaction at all, so its
+   * native load set is opaque; adopting it into a Seat would let whatever it
+   * happened to load on its own stand in for what this Agent's declarations
+   * would have approved. Optional so a caller with nothing to say about
+   * attachments (a host not yet wired for phase 12) keeps today's behavior.
+   */
+  attachmentsObserved?(session: SessionPointer): Promise<boolean>
 }
+
+export const UNOBSERVED_LOADING_REFUSAL = 'Start a new Seat to apply this Agent’s attachments.'
 
 export class Assignments {
   constructor(private readonly port: AssignmentPort, private readonly serial = new Serial()) {}
@@ -58,6 +71,9 @@ export class Assignments {
       }
       if (!this.port.claimable(id, card, session)) {
         throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
+      }
+      if (this.port.attachmentsObserved && !(await this.port.attachmentsObserved(session))) {
+        throw new Error(UNOBSERVED_LOADING_REFUSAL)
       }
       return this.port.commit(id, card, session)
     })

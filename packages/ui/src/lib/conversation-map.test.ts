@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Turn } from '@harnessdesk/protocol'
 
-import { buildMarks, PREVIEW_MAX, shouldRenderMap } from './conversation-map'
+import { buildMarks, PREVIEW_MAX, RAIL_HYSTERESIS, railFit, shouldRenderMap } from './conversation-map'
 
 const turn = (id: string, items: Turn['items']): Turn =>
   ({ id, items, startedAt: 0 }) as unknown as Turn
@@ -65,5 +65,56 @@ describe('the conversation map', () => {
     expect(shouldRenderMap({ marks: 1, overflows: true })).toBe(false)
     // A transcript on one screen has nothing to navigate.
     expect(shouldRenderMap({ marks: 9, overflows: false })).toBe(false)
+  })
+})
+
+describe('railFit', () => {
+  const tokens = { gap: 4, step: 8, stroke: 12 }
+
+  it('keeps the full push where the gutter is wide', () => {
+    expect(railFit({ gutter: 335, ...tokens })).toEqual({ fit: 'roomy', reach: 12, cap: null })
+    // Exactly enough: three insets, a 24px peak and the gap.
+    expect(railFit({ gutter: 24 + 24 + 4, ...tokens })).toEqual({ fit: 'roomy', reach: 12, cap: null })
+  })
+
+  it('moves to the edge and cuts the push to what fits before the text', () => {
+    // A 640 pane: the column starts 32px in.
+    expect(railFit({ gutter: 32, ...tokens })).toEqual({ fit: 'tight', reach: 8, cap: 20 })
+    // One pixel short of roomy.
+    expect(railFit({ gutter: 51, ...tokens })).toEqual({ fit: 'tight', reach: 12, cap: 39 })
+  })
+
+  it('measures from where the dash is drawn, the hairline of a mark included', () => {
+    // A 1px border inside the mark moves every dash a pixel right.
+    expect(railFit({ gutter: 32, ...tokens, inset: 9 })).toEqual({ fit: 'tight', reach: 7, cap: 19 })
+    expect(railFit({ gutter: 52, ...tokens, inset: 9 })).toEqual({ fit: 'tight', reach: 12, cap: 39 })
+    expect(railFit({ gutter: 53, ...tokens, inset: 9 })).toEqual({ fit: 'roomy', reach: 12, cap: null })
+  })
+
+  it('holds even a resting prompt short of the text, and draws nothing when an answer cannot fit', () => {
+    expect(railFit({ gutter: 22, ...tokens })).toEqual({ fit: 'tight', reach: 0, cap: 10 })
+    expect(railFit({ gutter: 19, ...tokens })).toBeNull()
+  })
+
+  it('guesses the drawn inset, a step and a hairline, before there is a mark to read it from', () => {
+    const drawn = railFit({ gutter: 32, ...tokens, inset: 9, shown: true })
+    expect(railFit({ gutter: 32, ...tokens, hairline: 1 })).toEqual(drawn)
+  })
+
+  it('does not flip on and off around the threshold: it needs a band either side', () => {
+    // Hidden: exactly enough for an answer is not enough to appear.
+    const edge = 8 + 9 + 4 // a resting answer, the inset, the gap
+    expect(railFit({ gutter: edge, ...tokens, hairline: 1 })).toBeNull()
+    expect(railFit({ gutter: edge + RAIL_HYSTERESIS, ...tokens, hairline: 1 })).not.toBeNull()
+    // Shown: it stays through the same pixel, and a band below it.
+    expect(railFit({ gutter: edge, ...tokens, hairline: 1, shown: true })).not.toBeNull()
+    expect(railFit({ gutter: edge - RAIL_HYSTERESIS, ...tokens, hairline: 1, shown: true })).not.toBeNull()
+    expect(railFit({ gutter: edge - RAIL_HYSTERESIS - 1, ...tokens, hairline: 1, shown: true })).toBeNull()
+    // A measure that disagrees with the guess by a pixel settles, whichever it starts from.
+    let fit = railFit({ gutter: edge, ...tokens, hairline: 1 })
+    for (let round = 0; round < 4; round += 1) {
+      fit = railFit({ gutter: edge, ...tokens, ...(fit ? { inset: 10, shown: true } : { hairline: 1 }) })
+    }
+    expect(fit).toBeNull()
   })
 })

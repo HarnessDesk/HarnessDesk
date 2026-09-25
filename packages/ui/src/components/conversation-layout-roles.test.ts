@@ -3,6 +3,7 @@ import { expect, it } from 'vitest'
 import mapCss from './ConversationMap.module.css?raw'
 import filesCss from './TurnFiles.module.css?raw'
 import workCss from './TurnWork.module.css?raw'
+import turnWorkPattern from '../design/patterns/TurnWork.tsx?raw'
 import conversationCss from './Conversation.module.css?raw'
 import itemsCss from './Items.module.css?raw'
 import trajectoryCss from './Trajectory.module.css?raw'
@@ -36,6 +37,6 @@ it('keeps the conversation shell, transcript items, and trajectory appearance in
 })
 
 it('does not let a work-header hover erase trouble ink', () => {
-  expect(workCss).toMatch(/\.work:not\(\[data-trouble\]\)\s+\.head:hover\s+\.headLabel\s*\{[^}]*color:\s*var\(--hd-secondary-foreground\)/s)
+  expect(turnWorkPattern).toMatch(/quietHover/)
   expect(workCss).not.toMatch(/^\.head:hover\s+\.headLabel\s*\{/m)
 })

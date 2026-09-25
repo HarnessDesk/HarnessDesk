@@ -38,14 +38,16 @@ export const ProvenanceDialog = ({ root, seat, onClose }: { readonly root: strin
       setOpenFailed(true)
     } finally { setOpening(false) }
   }
-  return <Dialog title="Seat record" onClose={onClose} footer={<Button variant="secondary" disabled={!current?.value || Boolean(unavailable) || opening} onClick={() => void open()}>Open conversation</Button>}>
+  return <Dialog title="Seat record" onClose={onClose} footer={<Button variant="default" disabled={!current?.value || Boolean(unavailable) || opening} onClick={() => void open()}>Open conversation</Button>}>
     {snapshot.status !== 'open' ? <Note>The Seat record is unavailable while disconnected.</Note>
       : !current ? <Note>Reading Seat record…</Note>
       : current.failed ? <Note>The Seat record could not be read.</Note>
       : current.value?.seat ? <SeatRecordView seat={current.value.seat} />
+      // The specific reason, when the host gave one, said once — never
+      // followed by the generic sentence it already answers.
+      : current.value?.unavailable ? <Note>{current.value.unavailable}</Note>
       : <Note>The historical Seat record is unavailable.</Note>}
     {current?.value?.seat && <Note>The recorded brief has an identity, but its text is not retained. The Agent may have changed since this Seat was kept.</Note>}
-    {current?.value?.unavailable && <Note>{current.value.unavailable}</Note>}
     {openFailed && <Note>The original conversation could not be opened.</Note>}
   </Dialog>
 }

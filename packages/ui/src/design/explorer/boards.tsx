@@ -2,10 +2,11 @@ import { useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, GripIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
+import { PublicationCard } from '../../components/Publication'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
@@ -16,14 +17,6 @@ import {
   Banner,
   BannerAction,
   ActionError,
-  AccessCode,
-  AccessDetail,
-  AccessFact,
-  AccessHeader,
-  AccessRail,
-  AccessRailFooter,
-  AccessRailHeader,
-  AccessRailList,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -37,8 +30,10 @@ import {
   ApprovalMeta,
   ApprovalReason,
   ChannelMessage,
+  ChannelNotice,
   ChannelSignal,
   Chip,
+  ChoiceList,
   ComposerChip,
   ComposerDropHint,
   ComposerShell,
@@ -48,6 +43,8 @@ import {
   ConfirmDialog,
   DetailHead,
   Face,
+  Field,
+  Fieldset,
   FileState,
   Input,
   Keycap,
@@ -56,44 +53,35 @@ import {
   NativeSelect,
   PageHead,
   PatchHeader,
-  PatchSection,
   Row,
   RowButton,
+  Checkbox,
   RowChoice,
   Rows,
   Lightbox,
-  LibraryOperationList,
-  LibraryOperationMark,
-  LibraryReachFace,
-  LibraryReachMark,
   MetaList,
   Monogram,
-  MessageQueueActions,
-  MessageQueueFrame,
-  MessageQueueGrip,
-  MessageQueueHeader,
-  MessageQueueList,
-  MessageQueueRow,
-  MessageQueueTiming,
   NavigationGroupHeader,
   Note,
   NoteList,
-  PublicationCard,
   PopoverSurface,
   RefusedAction,
   SectionHead,
-  SearchMatch,
   Segmented,
   StatePill,
   Spinner,
-  StateStrip,
-  StatusSummary,
   Text,
+  TextMark,
   Switch,
   SwitchShape,
   ToggleGroup,
   ToggleGroupItem,
   stateTone,
+  SortableAnnouncer,
+  SortableHandle,
+  Toolbar,
+  sortableItemClass,
+  useSortable,
 } from '..'
 import styles from './explorer.module.css'
 
@@ -127,8 +115,8 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
-const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
-const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
+const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
+const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
 const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare'] as const
@@ -244,6 +232,18 @@ const StateBoard = () => (
         <Chip tone="danger" unknown />
         <Chip tone="warning" unknown>Last checked</Chip>
       </Case>
+      <Case label="one line, in a narrow card">
+        <div className="flex w-44 flex-wrap gap-1 rounded-(--hd-radius-md) border border-(--hd-border) p-2">
+          <Chip tone="success">verify ✓ @a1b2c3d</Chip>
+          <Chip tone="neutral" stale>verify ✓ @a1b2c3d — 2 commits since</Chip>
+          <Chip tone="neutral" stale>+120 −30 in 6 files — 2 commits since</Chip>
+        </div>
+      </Case>
+      <Case label="counts, zero draws nothing">
+        <Chip tone="neutral" count={5}>never fired</Chip>
+        <Chip tone="warning" count={2}>copies differ</Chip>
+        <Chip tone="warning" count={0}>reach none</Chip>
+      </Case>
       <Case label="pull request states">
         {(['open', 'draft', 'merged', 'closed'] as const).map((state) => (
           <StatePill key={state} state={state} />
@@ -258,45 +258,10 @@ const StateBoard = () => (
       <Case label="running operation">
         <Spinner size="sm" tone="brand" aria-label="Loading" />
       </Case>
-      <Case label="account-access status">
-        <div className="flex w-full flex-col gap-3">
-          <StateStrip states={['ready', 'signin', 'limit', 'broken']} />
-          <StatusSummary
-            tone="success"
-            icon={<CheckIcon size={16} />}
-            title="Account connected"
-            description="Ready to start a conversation."
-          />
-        </div>
-      </Case>
-      <Case label="account-access sheet anatomy">
-        <div className="grid w-full grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
-          <AccessRail aria-label="Agents">
-            <AccessRailHeader>Your agents</AccessRailHeader>
-            <AccessRailList>Agent rows</AccessRailList>
-            <AccessRailFooter>Credentials stay local.</AccessRailFooter>
-          </AccessRail>
-          <AccessDetail>
-            <AccessHeader>Sign in</AccessHeader>
-            <AccessFact label="Credential" value="~/.agent">Kept on this machine.</AccessFact>
-            <AccessCode>ABCD-EFGH</AccessCode>
-          </AccessDetail>
-        </div>
-      </Case>
-      <Case label="library reach">
-        <LibraryReachMark state="reaches" label="Reaches" placement="cell" />
-        <LibraryReachMark state="off" label="Switched off" />
-        <LibraryReachMark state="unscanned" label="Not scanned" />
-        <LibraryReachMark state="hollow" label="Empty on disk" />
-        <LibraryReachFace state="reaches" label="Agent A: reaches">A</LibraryReachFace>
-        <LibraryReachFace state="hollow" label="Agent B: empty on disk">B</LibraryReachFace>
-      </Case>
-      <Case label="library operations">
-        <LibraryOperationList>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="planned" />Planned</div>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="done" />Done</div>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="failed" />Failed</div>
-        </LibraryOperationList>
+      <Case label="text marks">
+        <span className="flex items-baseline gap-2"><TextMark role="row"><TodoPendingIcon size={12} /></TextMark><Text role="row">Planned</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="success"><CheckIcon size={12} /></TextMark><Text role="row">Done</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="warning"><CrossIcon size={12} /></TextMark><Text role="row">Failed</Text></span>
       </Case>
       <Case label="library row facts">
         <Monogram>CR</Monogram>
@@ -407,6 +372,8 @@ const ControlBoard = () => {
 
 const RowBoard = () => {
   const [choice, setChoice] = useState('ask')
+  const [folded, setFolded] = useState(true)
+  const [picked, setPicked] = useState(false)
   return (
     <>
       <div className={styles.stack}>
@@ -442,6 +409,24 @@ const RowBoard = () => {
             onClick={() => {}}
           />
         </Rows>
+
+        <SectionHead name="A row that opens and folds" />
+        <Rows data-catalog-case="row-fold">
+          <RowButton
+            mark={<TerminalIcon size={15} />}
+            title={<Text role="subject">Codex</Text>}
+            chevron={false}
+            onClick={() => {}}
+            fold={{ open: !folded, onToggle: () => setFolded((was) => !was), label: `${folded ? 'Show' : 'Hide'} the accounts under Codex` }}
+          />
+          {!folded && <RowButton title="dev" desc="dev@example.com" onClick={() => {}} />}
+        </Rows>
+        <Checkbox
+          data-catalog-case="checkbox-label"
+          checked={picked}
+          onCheckedChange={(next) => setPicked(next === true)}
+          label={<Text role="navigation">Install for Codex</Text>}
+        />
 
         <SectionHead name="When an agent asks to run something" />
         <Rows>
@@ -565,11 +550,11 @@ const BannerBoard = () => (
       <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
       <Card variant="flush">
         <PatchHeader>packages/ui/src/components/GitPane.tsx</PatchHeader>
-        <PatchSection className="flex items-center gap-2 px-3 py-2">
+        <section className="flex items-center gap-2 px-3 py-2">
           <FileState state="modified" />
           <span>One implementation for repository presentation</span>
           <ChangeStats added={12} removed={3} className="ml-auto" />
-        </PatchSection>
+        </section>
       </Card>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
@@ -622,31 +607,58 @@ const BannerBoard = () => (
   </>
 )
 
+/**
+ * A sortable list: drag from the handle, or ⌥↑/⌥↓ from a row, and the move is
+ * announced. This owner answers at once; the app's message queue — the one
+ * consumer drawn here — answers when the host does.
+ */
+const QueueRows = () => {
+  const [ids, setIds] = useState(['Run the focused tests again', 'Then write the release note', 'Open a pull request'])
+  const sortable = useSortable({
+    ids,
+    name: (id) => `“${id}”`,
+    onMove: (id, to) => setIds((was) => {
+      const rest = was.filter((one) => one !== id)
+      return [...rest.slice(0, to), id, ...rest.slice(to)]
+    }),
+  })
+  return (
+    <>
+      <ol aria-label="Waiting messages" data-catalog-case="sortable-list" className="flex flex-col gap-0.5">
+        {ids.map((id, index) => (
+          <li key={id} data-slot="sortable-row" {...sortable.row(id, index)} className={`${sortableItemClass()} flex items-center gap-2`}>
+            <SortableHandle {...sortable.handle(id)} />
+            <Text role="meta">{index + 1}</Text>
+            <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
+            {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
+            <span data-slot="sortable-actions" className="flex shrink-0 items-center">
+              <Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <SortableAnnouncer message={sortable.announcement} />
+    </>
+  )
+}
+
 const QueueBoard = () => (
   <>
     <div className={styles.stack}>
-      <MessageQueueFrame paused>
-        <MessageQueueHeader>
+      <Alert variant="soft" tone="warning" className="flex-col items-stretch gap-1.5">
+        <Toolbar className="flex-nowrap">
           <Text role="meta" tone="warning"><AlertIcon size={13} /></Text>
           <Text role="meta" ink="primary" className="flex-1">The turn did not finish. Two messages waiting.</Text>
           <Button variant="quiet" size="sm">Send now</Button>
-        </MessageQueueHeader>
-        <MessageQueueList>
-          <MessageQueueRow>
-            <MessageQueueGrip><GripIcon size={12} /></MessageQueueGrip>
-            <Text role="meta">1</Text>
-            <Text role="navigation" className="min-w-0 flex-1 truncate">Run the focused tests again</Text>
-            <MessageQueueTiming tone="next">next</MessageQueueTiming>
-            <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
-          </MessageQueueRow>
-        </MessageQueueList>
-      </MessageQueueFrame>
+        </Toolbar>
+        <QueueRows />
+      </Alert>
       <PopoverSurface limit="trigger">
         <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
         <Button variant="navigation" size="navigation" className="w-full">/review</Button>
       </PopoverSurface>
       <Text role="muted" as="div">
-        Press <Keycap>esc</Keycap> to close; “Set<SearchMatch>tings</SearchMatch>” shows the matched text.
+        Press <Keycap>esc</Keycap> to close; “Set<Text as="b" role="meta" ink="primary" weight="semibold">tings</Text>” shows the matched text at full ink and weight.
       </Text>
       <NoteList><li>A short supporting fact keeps its list anatomy.</li></NoteList>
       <ComposerShell className="relative min-h-20">
@@ -741,12 +753,15 @@ const CodeBoard = () => (
 )
 
 const DialogBoard = () => {
-  const [open, setOpen] = useState<null | 'plain' | 'confirm' | 'approval' | 'lightbox'>(null)
+  const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'lightbox'>(null)
+  const [name, setName] = useState('')
+  const [ceiling, setCeiling] = useState<'read' | 'edit' | 'publish' | 'merge'>('read')
   return (
     <>
       <div className={styles.matrix}>
         <Case label="open one">
           <Button variant="secondary" onClick={() => setOpen('plain')}>Dialog</Button>
+          <Button variant="secondary" onClick={() => setOpen('form')}>Form dialog</Button>
           <Button variant="destructive" onClick={() => setOpen('confirm')}>
             Delete conversation
           </Button>
@@ -772,10 +787,50 @@ const DialogBoard = () => {
           Sessions you start in this folder are grouped under it, and worktrees are cut from it.
         </Dialog>
       )}
+      {open === 'form' && (
+        /* The form grammar: the body is the form stack, a Field's label sits
+           on its control, a Fieldset's legend on its group, and a ChoiceList
+           explains only the answer that holds. The primary stays disabled
+           until the name is written. */
+        <Dialog
+          title="Save as an Agent"
+          size="md"
+          onClose={() => setOpen(null)}
+          footer={
+            <>
+              <Button variant="default" disabled={name.trim() === ''} onClick={() => setOpen(null)}>
+                Save
+              </Button>
+              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+            </>
+          }
+        >
+          <Field label="Name">
+            {(control) => <Input {...control} value={name} placeholder="Checkout reviewer" onChange={(event) => setName(event.target.value)} />}
+          </Field>
+          <Field label="What it is for" optional hint="One line. The roster shows it under the name.">
+            {(control) => <Input {...control} />}
+          </Field>
+          <Fieldset legend="The most it may do">
+            <ChoiceList
+              label="The most it may do"
+              value={ceiling}
+              onChange={setCeiling}
+              options={[
+                { value: 'read', title: 'Read', description: 'Changes nothing: it reads, searches and reports.' },
+                { value: 'edit', title: 'Edit', description: 'May change files and commit in its own checkout, and never push.' },
+                { value: 'publish', title: 'Publish', description: 'May push its own branch and open a pull request, and never merge.' },
+                { value: 'merge', title: 'Merge', description: 'May merge what it is asked to merge.' },
+              ]}
+            />
+          </Fieldset>
+        </Dialog>
+      )}
       {open === 'confirm' && (
         <ConfirmDialog
           title="Delete conversation"
           confirmLabel="Delete"
+          tone="destructive"
           onConfirm={() => setOpen(null)}
           onCancel={() => setOpen(null)}
         >
@@ -843,6 +898,13 @@ const DialogBoard = () => {
         <code>Cancel</code>. Someone reading quickly sees two verbs and picks one;{' '}
         <code>Cancel</code> beside <code>Delete</code> reads as two ways to stop.
       </p>
+      <p className={styles.rule}>
+        A footer has one filled button: the act, in ink — or filled red (<code>danger</code>) when it
+        destroys — and a quiet way out. A disabled act keeps its own hue, dimmed, so it still reads as
+        the act. A form dialog&rsquo;s body keeps one rhythm: a label 6px over its control, the next
+        field 16px down, a legend on its group the way a label sits on its field, and a choice list
+        that explains only the answer that holds.
+      </p>
     </>
   )
 }
@@ -853,10 +915,8 @@ const DialogBoard = () => {
  * verdict — including the refusal the host issued when Cursor addressed a
  * conversation by a name nobody has.
  *
- * Shown at both densities, because the same channel is read in two places
- * that are not the same size: the 360px Team panel, where it is a glance, and
- * the room pane, where it *is* the conversation and should read like every
- * chat window the reader has ever used.
+ * One density: the channel is read in the room, where it *is* the
+ * conversation, and it is built from the transcript's own parts.
  */
 const ChannelBoard = () => (
   <div className={styles.stack}>
@@ -897,49 +957,23 @@ const ChannelBoard = () => (
       </div>
     </Case>
 
-    <Case label="room density — the same channel, at the size it is the conversation">
-      <div className={styles.channelRoom}>
-        <ChannelSignal
-          by="You"
-          said="added #1 — verify never builds the renderer · script/verify.mjs"
-          at="03:29 PM"
-          density="room"
-        />
-        <ChannelSignal
-          by="Reviewer"
-          said="claimed #1 — verify never builds the renderer"
-          at="03:30 PM"
-          density="room"
+    <Case label="a notice, and a message with its envelope">
+      <div className={styles.channel}>
+        <ChannelNotice
+          about="Opus"
+          cause="limit"
+          text="You've hit your usage limit. It resets at 3:20 PM."
+          at="03:36 PM"
         />
         <ChannelMessage
           from="Builder"
           brand="cursor"
           tint="violet"
           to="Reviewer"
-          at="03:34 PM"
+          at="03:37 PM"
           state="delivered"
-          density="room"
           envelope={'Message from Builder — “Review the verify fix”\n\nThe verify fix looks right.'}
           text="The verify fix looks right — root build, then the suites. One thing: the fixture copy runs before the renderer build, so a changed fixture needs two runs to land."
-        />
-        <ChannelMessage
-          from="Reviewer"
-          brand="codex"
-          tint="green"
-          at="03:35 PM"
-          state="delivered"
-          density="room"
-          text="Understood — taking the CI parity point as the headline in the commit message."
-        />
-        <ChannelMessage
-          from="Reviewer"
-          brand="codex"
-          tint="green"
-          at="03:35 PM"
-          state="delivered"
-          grouped
-          density="room"
-          text="Nothing else is open on my side."
         />
       </div>
     </Case>
@@ -980,15 +1014,13 @@ const ChannelBoard = () => (
     </Case>
 
     <p className={styles.rule}>
-      Two densities, one implementation. The panel is a glance in 360px: a 24px
-      mark, 13px type, and the time and delivery state floated right, where a
-      long name cannot push them off. The room is the conversation at full pane
-      width: a 36px mark, 14px body, and the attribution as one run at the left
-      &mdash; name, who it reached, when, and how it went &mdash; with a
-      full-bleed highlight under the row the pointer is on. Both come from one{' '}
-      <code>DENSITY</code> table in <code>ChannelMessage</code>; the envelope is
-      held back until the pointer or the keyboard arrives, because it is a
-      diagnostic rather than part of reading.
+      One density, and the transcript&rsquo;s parts. Each row is a transcript
+      item &mdash; a grouped message and a board event are its light register
+      &mdash; the face is the room&rsquo;s identity tile on the sender&rsquo;s
+      tint, the attribution is one run of facts at the left (name, who it
+      reached, when, and how it went), and trouble is a chip in the tone it is.
+      The envelope is held back until the pointer or the keyboard arrives,
+      because it is a diagnostic rather than part of reading.
     </p>
   </div>
 )
@@ -1006,7 +1038,7 @@ One-line fix, right target, no regressions. Ship it.`
 export const BOARDS: Board[] = [
   {
     id: 'queue',
-    title: 'MessageQueue · Trigger picker',
+    title: 'Sortable list · Trigger picker',
     about: 'Work waiting beside the composer, and the list that inserts into it.',
     render: QueueBoard,
   },

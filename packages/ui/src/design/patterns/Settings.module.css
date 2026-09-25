@@ -65,17 +65,49 @@
   50% { opacity: 0.35; }
 }
 
+/* A member's presence: the light that hangs off the corner of its tile, cut
+   out of the tile by a ring of the ground it stands on — the room's rail, a
+   column's head and the name card all draw the same one. The navigation
+   dot's size, because it is read in the same glance. */
+.dot[data-variant='presence'] {
+  position: absolute;
+  right: calc(-1 * var(--hd-space-0-5));
+  bottom: calc(-1 * var(--hd-space-0-5));
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 2px var(--hd-background);
+}
+
+.dot[data-variant='presence'][data-ground='popover'] {
+  box-shadow: 0 0 0 2px var(--hd-popover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot[data-pulse] {
+    animation: none;
+  }
+}
+
 .chip {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* One line, bounded: a chip stops at its box and ellipsises rather than
+     wrapping inside its pill. The container's width wins when it is the
+     narrower, so a chip in a card never runs past the card. */
+  max-width: min(100%, 240px);
   height: var(--hd-chip-h);
   padding: 0 var(--hd-space-2) 0 var(--hd-space-2);
   border-radius: var(--hd-chip-radius);
   font-size: var(--hd-text-xs);
   line-height: 1;
   white-space: nowrap;
+}
+
+/* The stale mark rides in front of the words and never shrinks away. */
+.chipGlyph {
+  flex: none;
 }
 
 .chip[data-size='sm'] {
@@ -107,15 +139,12 @@
   padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-bar-pad) var(--hd-space-1) var(--hd-bar-ink);
 }
 
+/* The label's type is `GroupLabel`'s (design/ui/group-label.tsx), the one
+   group heading: 13px, secondary ink, sentence case. Only its place in the
+   header is said here. */
 .navigationGroupLabel {
   flex: none;
   white-space: nowrap;
-  font-size: var(--hd-label-size, var(--hd-text-sm));
-  line-height: var(--hd-line-sm);
-  font-weight: var(--hd-label-weight, var(--hd-weight-normal));
-  letter-spacing: var(--hd-label-tracking, 0);
-  text-transform: var(--hd-label-transform, none);
-  color: var(--hd-label-ink, var(--hd-secondary-foreground));
 }
 
 .navigationGroupHeader[data-filtering] .navigationGroupLabel {
@@ -216,9 +245,17 @@
   background: currentColor;
 }
 
-.chip[data-stale] .chipWords {
+/* Stale is marked rather than struck: the history glyph in front, and — for
+   a fact that no longer judges anything (a stale pass goes neutral) — muted
+   ink for the mark and the words. A stale failure keeps its tone's ink. A
+   strikethrough says "wrong", and a stale fact was right when it was
+   recorded. */
+.chip[data-stale]:is([data-tone='neutral'], :not([data-tone])) {
   color: var(--hd-muted-foreground);
-  text-decoration: line-through;
+}
+
+.chip[data-stale] .chipWords {
+  text-decoration: none; /* desk: line-through → none, stale reads as a glyph, never struck */
 }
 
 /* --- controls ------------------------------------------------------------ */
@@ -501,25 +538,27 @@
   color: var(--hd-muted-foreground);
 }
 
-.searchMatch {
-  padding: 0 1px;
-  border-radius: var(--hd-radius-2xs);
-  background: var(--hd-hover-solid);
-  color: var(--hd-foreground);
-}
-
 /* A form: fields stacked with a step of air between them. */
 .formStack {
   display: flex;
   flex-direction: column;
+  align-items: flex-start; /* desk: stretch → flex-start, a button in a form keeps its own width */
   gap: var(--hd-space-3);
+}
+
+/* What a form is made of — fields, cards of rows, notes, banners — still
+   takes the column. A button does not: a 715px black Save bar was the
+   heaviest object on its page. `:where` keeps this a default any
+   child's own alignment outranks. */
+.formStack > :where(:not([data-slot='button'])) {
+  align-self: stretch;
 }
 
 /* A form's field: the name over the control, one line under it. */
 .formField {
   display: flex;
   flex-direction: column;
-  gap: var(--hd-space-1);
+  gap: var(--hd-space-1-5); /* desk: 4 → 6, the label gap a dialog's legend shares */
   min-width: 0;
 }
 
@@ -529,21 +568,44 @@
   width: 100%;
 }
 
+/* The label names the field in the structure ink; its weight, not its size,
+   separates it from the hint under the control. */
 .formLabel {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
+  font-weight: var(--hd-weight-medium); /* desk: normal → medium, the name is what a form is scanned by */
   color: var(--hd-secondary-foreground);
 }
 
-.formHint {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
+/* A label with "Optional" at its end. */
+.formLabelRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+/* A fact about the field rather than its name: the faint ink, the hint's step. */
+.formOptional {
+  flex: none;
+  font-size: var(--hd-text-xs); /* desk: new, 12 — the hint's step */
+  line-height: var(--hd-line-xs); /* desk: new, 16 — the line the 12px step is set on */
   color: var(--hd-muted-foreground);
 }
 
+/* The one line under a field, a step below the label so it never reads as
+   large as what is typed above it. Explanation is secondary ink, not the
+   faint one (docs/design.md, ink levels). */
+.formHint {
+  font-size: var(--hd-text-xs); /* desk: 13 → 12, the hint step */
+  line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
+  color: var(--hd-secondary-foreground); /* desk: muted → secondary, explanation is not a fact */
+}
+
 .formError {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
+  font-size: var(--hd-text-xs); /* desk: 13 → 12, the error takes the hint's place and its step */
+  line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
   color: var(--hd-danger-ink);
 }
 
@@ -577,6 +639,11 @@
 
 .formStack + .note {
   margin-top: var(--hd-space-3);
+}
+
+/* In a dialog the form stack spaces its notes. */
+.note[data-context='dialog'] {
+  margin: 0;
 }
 
 .note[data-tone='warn'] {
@@ -684,6 +751,7 @@
 /* A page title and the app's own name carry the same role: one 20px semibold
    heading, rather than the page outsizing the wordmark that leads to it. */
 .pageTitle {
+  margin: 0; /* desk: new — it is an h1 now, and keeps the box the div had */
   font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, a page title matches the wordmark rather than outsizing it */
   line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, a page title matches the wordmark rather than outsizing it */
   font-weight: var(--hd-weight-semibold); /* desk: --hd-weight-normal → --hd-weight-semibold, a page title matches the wordmark rather than outsizing it */
@@ -708,11 +776,14 @@
   padding-top: 4px;
 }
 
+/* The label sits on its card, as a `Section`'s does: the head is as tall as
+   its label unless an action makes it taller, and then the action grows it
+   upward, so every label on a page is the same 8px above what it names. It
+   stood centred in a 26px box, 13px above its card beside a Section's 8. */
 .sectionHead {
   display: flex;
-  align-items: center;
+  align-items: flex-end; /* desk: center → flex-end, the label sits on its card */
   gap: 10px;
-  min-height: var(--hd-control-h);
   margin: var(--hd-space-5) 0 var(--hd-space-2); /* desk: 26/10 → 20/8, the section rhythm */
 }
 
@@ -720,7 +791,22 @@
   margin-top: 0;
 }
 
+/* On a page, a section head keeps the page's one section rhythm — the 32px a
+   `Section` owns — so a page half composed of `Section`s and half of
+   `SectionHead`s reads as one page, and a label sits nearer its own card than
+   the card above it. That includes a head that opens a `<section>` of its
+   own: `:first-child` above zeroed it, so a wrapped section started 6px under
+   the card before it and its label named neither card. The margin now
+   collapses through the wrapper and spaces the section itself. A dialog keeps
+   the tighter step it had, and so does the Dashboard's sticky band, which is a
+   page heading with its own padding rather than a label over a card. */
+[data-slot='app-window-page'] .sectionHead:not([data-sticky]) {
+  margin-top: var(--hd-space-8); /* desk: 20 (0 as a section's first child) → 32 on a page, the Section rhythm */
+}
+
 .sectionHead[data-sticky] {
+  align-items: center;
+  min-height: var(--hd-control-h); /* desk: the band keeps the control-height box every head had */
   padding: var(--usage-strip, 0) 0 var(--hd-space-2);
   background: var(--hd-card);
 }
@@ -734,14 +820,11 @@
   min-width: 0;
 }
 
-/* The word over a settings card is a group label, not another page title. */
+/* The word over a settings card is a group label, not another page title: it
+   is drawn by `GroupLabel`, and only its place in the head is said here. */
 .sectionName {
   flex: none;
   margin: 0;
-  font-size: var(--hd-text-sm); /* desk: --hd-heading → --hd-text-sm, card groups return to their label role */
-  line-height: var(--hd-line-sm); /* desk: --hd-line-heading → --hd-line-sm, the line follows the label step */
-  font-weight: var(--hd-weight-normal); /* desk: --hd-weight-semibold → --hd-weight-normal, a group label does not compete with the page title */
-  color: var(--hd-secondary-foreground); /* desk: primary → secondary ink, the rows remain the reading subject */
 }
 
 /* A page band opts into the one larger role SectionHead supports. */
@@ -780,14 +863,23 @@
   margin-bottom: var(--hd-space-1-5);
 }
 
+/* In a dialog the form stack spaces its cards. */
+.rows[data-context='dialog'] {
+  margin-bottom: 0;
+}
+
 /* The divider between rows. It is its own token because the two interfaces
    need different answers: on Desk's white card `--hd-border` at 4% black is
    exactly right, and on Studio's tinted one the same line disappeared — three
    settings rows ran together into a single block of text. */
 .row {
   display: flex;
+  /* A control too wide to sit beside a readable title drops under it rather
+     than squeezing the title to a letter a line (#885). Wrapping only happens
+     when the two cannot share a line, so a row that fits is unchanged. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--hd-space-6); /* desk: 18 → 24, the gap between a row's words and its control */
+  gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
   padding: var(--hd-space-3) var(--hd-card-padding); /* desk: 14 → 12, a 58px row where there was a 68 */
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
 }
@@ -805,17 +897,91 @@
   border-radius: 0;
   border: none;
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+  /* The row's ink is this sheet's to say, once: the Button's `pattern` size
+     brings no colour. Its alignment and cursor are the Button's (`text-left`,
+     `cursor-pointer`), so they are not said here a second time. */
   color: inherit;
   font: inherit;
-  text-align: left;
-  cursor: pointer;
+}
+
+/* A row that opens and also folds (`RowButton fold`): the button and the fold
+   share the row's line, its inset and its one rule. The rule is the pair's,
+   so it runs under the fold too, and a card's last row draws none. */
+.rowFolding {
+  display: flex;
+  align-items: stretch;
+  border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+}
+
+.rowFolding:last-child {
+  border-bottom: none;
+}
+
+.rowFolding > .rowButton {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+  padding-inline-end: var(--hd-space-6); /* desk: var(--hd-card-padding) → var(--hd-space-6), the gap a row keeps between its control and its chevron */
+}
+
+/* Under the pointer the pair reads as one row: the hover ground is the
+   pair's, edge to edge, so it takes the card's corners at both ends. Lit
+   alone, the opener's ground stopped square a fold's width before the card's
+   edge while its other end kept the card's round corner. The fold keeps its
+   own hover on top of the row's, a step deeper, so the second target still
+   shows where it is. */
+.rowFolding:hover {
+  background: var(--hd-hover); /* desk: none → --hd-hover, the pair is one row under the pointer */
+}
+
+.rowFolding > .rowButton:hover {
+  background: transparent; /* desk: --hd-hover → transparent, the pair draws the row's hover */
+}
+
+/* Each target's focus ring is drawn inside its own box: outside it, the
+   card's clipped edge and the fold beside the opener cut the ring to a line.
+   Rounded while it shows, so the opener's square corner does not meet the
+   card's round one. */
+.rowFolding > .rowButton:focus-visible,
+.rowFolding .rowFold:focus-visible {
+  outline-offset: calc(-1 * var(--hd-ring-width)); /* desk: --hd-ring-offset → minus the ring width, the ring inside the target */
+  border-radius: var(--hd-radius-md); /* desk: 0 → --hd-radius-md, a round ring inside a round card */
+}
+
+.rowFoldEnd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-inline-end: var(--hd-card-padding);
+}
+
+/* The fold is a toggle, not a menu: the row's hover, and no fill for open —
+   its mark already says which way it is. It takes the chevron's width in the
+   row's layout and bleeds its target equally either side, so its mark is
+   centred on the column the drill-in chevrons of the rows under it stand in
+   (`--row-chevron`, set by the part from the chevron's own size). */
+.rowFold {
+  display: inline-grid;
+  grid-template-columns: 1fr;
+  place-items: center;
+  width: var(--hd-btn-h);
+  height: var(--hd-btn-h);
+  margin-inline: calc((var(--row-chevron) - var(--hd-btn-h)) / 2);
+  border: none;
+  border-radius: var(--hd-btn-radius);
+  color: inherit;
 }
 
 /* Column, not row: the title and its description are two lines, and a flex
    parent would otherwise set them side by side. */
 .rowText {
-  flex: 1;
-  min-width: 0;
+  /* It takes the free space on its line; a text control beside it grows by
+     one part in a thousand, which is how a text control that wraps comes to
+     fill its own line (below) while it stays at its content width here. */
+  flex: 1000 1 0%; /* desk: 1 → 1000 1 0%, the title outgrows a text control that shares its line */
+  /* The title's floor: about a dozen characters, or the whole row when the
+     row is narrower than that. Below it the control wraps instead. */
+  min-width: min(100%, 10em); /* desk: 0 → min(100%, 10em), a title never shrinks to a letter a line */
   display: flex;
   flex-direction: column;
 }
@@ -853,11 +1019,58 @@
   overflow-wrap: anywhere;
 }
 
+/* Beside the title the control keeps its own width, as before: the title
+   takes the free space and nothing has to shrink. Once it has wrapped onto its
+   own line it may narrow to that line, so a sentence wraps inside it rather
+   than running off the card — names truncate, sentences wrap.
+
+   Where a wrapped control lands depends on what it is, and the row reads that
+   from the control itself, so no caller has to say:
+
+   - A compact control — a switch, a button, a chip, a select, a `numeric`
+     value — keeps the
+     row's end. A row button's control travels with its chevron, which cannot
+     leave the end, and a card's trailing edge is the column the eye runs down
+     to find every control on it.
+   - A text answer (`RowValue`, not `numeric`) that wraps takes its whole line and starts
+     where the title starts. Pushed to the end, a sentence narrower than the
+     row began at whatever indent its length left, lining up with nothing
+     (#911's review). Beside the title it still ends the row, because the
+     title outgrows it (`.rowText`). */
 .rowCtl {
-  flex: none;
+  flex: 0 1 auto; /* desk: none → 0 1 auto, it only shrinks once alone on a line */
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto; /* desk: 0 → auto, a wrapped compact control keeps the row's end, as a row button's does */
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.rowCtl:has(> .rowFixed:only-child:not([data-numeric])) {
+  flex-grow: 1; /* desk: 0 → 1, a wrapped text answer takes its line */
+  margin-inline-start: 0; /* desk: auto → 0, and starts under the title */
+}
+
+/* A row button's trailing item: its control and its chevron, which wrap as
+   one and stay at the row's end whether they sit beside the title or under
+   it. The gap between them is the row's own, so a row that fits is drawn
+   exactly as when they were two items of the row. */
+.rowEnd {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-6);
+}
+
+/* A row button whose control is a text answer: the answer takes the line and
+   the chevron keeps the end, as in a plain row. */
+.rowEnd:has(> .rowCtl > .rowFixed:only-child:not([data-numeric])) {
+  flex-grow: 1; /* desk: 0 → 1, a wrapped text answer takes its line */
+  margin-inline-start: 0; /* desk: auto → 0, and starts under the title */
 }
 
 /* A row that answers with a word instead of a control, because there is
@@ -937,20 +1150,55 @@
   min-width: min(16rem, 100%); /* desk: 0 → min(16rem, 100%), keep the measure inside a narrow head */
 }
 
+/* One title step for every page head. A detail page names its subject in the
+   page title's own type — 20px semibold, the wordmark's — and tells itself
+   apart by its mark and its owner chip, not by a second size: at 24px regular
+   the drilled-into page read lighter and less finished than the list it came
+   from (#832). */
 .detailName {
   display: flex;
   align-items: baseline;
   gap: var(--hd-space-2);
-  font-size: var(--hd-title); /* desk: 20 → 24, the canonical page spelling */
-  line-height: var(--hd-line-title); /* desk: 28 → 30, with the size */
-  font-weight: var(--hd-weight-normal); /* desk: semibold → regular, names do not shout */
-  letter-spacing: -0.02em; /* desk: -0.01em → -0.02em, the 24px title tracking */
+  min-width: 0; /* desk: auto → 0, the name wraps inside the head rather than widening it */
+  font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, one title step for every page head (24 → 20) */
+  line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, with the size (30 → 28) */
+  font-weight: var(--hd-weight-semibold); /* desk: --hd-weight-normal → --hd-weight-semibold, the page title's weight */
+  letter-spacing: -0.01em; /* desk: -0.02em → -0.01em, the page title's tracking */
 }
 
+/* The name is the h1 and the item that gives way first: it wraps. */
+.detailTitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  font: inherit; /* desk: new — the h1 takes the head's type rather than the browser's */
+  letter-spacing: inherit; /* desk: new — the name keeps the page title's tracking */
+  overflow-wrap: anywhere;
+}
+
+/* Who it belongs to, or where it lives. A text owner (a place, a path) keeps
+   its width until the name has wrapped, then gives way at its end; a mark (a
+   status chip) stays whole — a chip that ellipsised to "N" said nothing. */
 .detailOwner {
+  flex: none;
+  max-width: 100%;
   font-size: var(--hd-text-sm);
   font-weight: var(--hd-weight-normal);
+  letter-spacing: normal; /* desk: the title's tracking, inherited → normal, the owner is 13px text, not the title */
   color: var(--hd-muted-foreground);
+}
+
+.detailOwner[data-owner='text'] {
+  /* It gives way before the name wraps: it starts from nothing and takes only
+     the room the whole name leaves (a basis of 0 that grows), down to a few
+     words' floor, and 60% of the line is its ceiling. As a shrinking item it
+     kept its capped width and the name wrapped instead. */
+  flex: 1 1 0%;
+  min-width: min(6em, 100%);
+  max-width: 60%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .detailBlurb {
@@ -968,26 +1216,46 @@
   max-width: 100%;
   align-items: center;
   gap: 10px;
-  padding-top: 6px;
+  padding-top: 4px; /* desk: 6 → 4, the page head's own offset now that the two titles are one line height */
 }
 
 /* --- odds and ends the pages share -------------------------------------- */
 
-.sectionToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-}
-
 .mono {
   font-family: var(--hd-font-code);
-  font-size: 12.5px;
+  font-size: var(--hd-code-inline); /* desk: 12.5px → 0.92em of its sentence (12px floor), the code face follows the words around it */
 }
 
 .monoInherit {
   font-size: inherit;
+}
+
+.monoBlock {
+  display: block;
+  margin: 0;
+  padding: var(--hd-space-2);
+  overflow-x: auto;
+  white-space: pre;
+  font-size: var(--hd-code-text);
+  line-height: var(--hd-code-line);
+}
+
+.monoBlock[data-ground='muted'] {
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
+}
+
+.monoBlock[data-wrap] {
+  white-space: pre-wrap;
+}
+
+/* Spaced code sets the spacing on the words it holds too, so a text role
+   inside it (a one-time code at the page step) does not take its own
+   tracking back. */
+.mono[data-spaced],
+.mono[data-spaced] * {
+  letter-spacing: var(--hd-code-tracking-spaced);
 }
 
 .monogram {
@@ -1009,14 +1277,6 @@
 .metaList > :not(:first-child)::before {
   content: '·';
   margin-inline: var(--hd-space-2);
-  color: var(--hd-muted-foreground);
-}
-
-/* A tool's wire name. It is what you need to write a permission rule and not
-   what you need to read a history, so it appears only where it is the answer. */
-.wire {
-  font-family: var(--hd-font-code);
-  font-size: 12px;
   color: var(--hd-muted-foreground);
 }
 
@@ -1091,6 +1351,15 @@
   height: 44px;
 }
 
+/* A mark that is a control — one ring of a picker — is the same plate: the
+   platform's button edge and inset are not part of it, and a screen used to
+   take them off itself. */
+.avatarButton {
+  padding: 0; /* desk: 1px 6px (the platform's) → 0, the plate has no inset */
+  border: 0; /* desk: 2px outset (the platform's) → 0, the plate's edge is its inset ring */
+  cursor: pointer;
+}
+
 .avatarSm {
   width: 22px;
   height: 22px;
@@ -1110,7 +1379,6 @@
 .avatar[data-shape='square'][data-size='m'] {
   border-radius: var(--hd-radius);
 }
-
 
 /* In a box someone else drew: its size, and its corner. */
 .avatar[data-fill] {
@@ -1145,4 +1413,20 @@
   place-items: center;
   width: 16px;
   color: var(--hd-accent);
+}
+
+/* An empty row is a sentence about the card, not one more item in it: its
+   title steps down a weight and an ink, and its note one more, so it never
+   reads as a row you could open. The padding and hairline stay the Row's. */
+.row[data-slot='empty-state'] .rowTitle {
+  font-weight: var(--hd-weight-normal);
+  color: var(--hd-secondary-foreground);
+}
+
+.row[data-slot='empty-state'] .rowDesc {
+  color: var(--hd-muted-foreground);
+}
+
+.row[data-slot='empty-state'] .rowMark {
+  color: var(--hd-muted-foreground);
 }

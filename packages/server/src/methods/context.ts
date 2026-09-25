@@ -1,11 +1,26 @@
 import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
+  AgentEntry,
   AgentRuntime,
   AgentSession,
+  ApprovalDecision,
+  AttachmentReview,
+  CeilingLevel,
   ArchiveFilter,
   BackupFile,
   BackupReport,
+  CarryFindingsInput,
+  FindingDecisionAction,
+  FindingDetailPage,
+  FindingId,
+  FindingPage,
+  FindingRunView,
+  FindingPublicationsView,
+  FindingPublishAction,
+  FindingView,
   FlowSeat,
+  GoalId,
+  GoalView,
   HostMethodName,
   HostParams,
   HostResult,
@@ -15,9 +30,14 @@ import type {
   RuntimeFiles,
   RuntimeId,
   RuntimeInfo,
+  SeatAttachmentsRecord,
+  SeatId,
   SeatLeft,
+  SeatRecord,
   SecretReload,
   Session,
+  SessionAttachmentReceipt,
+  SessionAttachments,
   SessionBusyError,
   SessionId,
   SessionSummary,
@@ -29,6 +49,7 @@ import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 
 import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { Agents } from '../agents.js'
+import type { SeatHold } from '../ceilings/hold.js'
 import type { SessionArchive } from '../archive.js'
 import type { AuditLog } from '../audit.js'
 import type { CatalogRefresher } from '../catalog-refresher.js'
@@ -43,6 +64,9 @@ import type { Logger } from '../log.js'
 import type { SessionNames } from '../names.js'
 import type { SeatedAs, SessionRecord, SessionRegistry } from '../registry.js'
 import type { StateStore } from '../state.js'
+import type { AuthoringPlane } from '../authoring/plane.js'
+import type { FlowPreviews } from '../flow-preview.js'
+import type { FlowUpdates } from '../flow-update.js'
 import type { Flows } from '../flows.js'
 import type { GoalPlane } from '../goals/plane.js'
 import type { Team } from '../team.js'
@@ -51,6 +75,10 @@ import type { TranscriptStore } from '../transcripts.js'
 import type { UsageMeter } from '../usage/meter.js'
 import type { UsageService } from '../usage/service.js'
 import type { Worktrees } from '../worktree.js'
+import type { InsightPlane } from '../insight/plane.js'
+import type { IntakePlane } from '../intake/plane.js'
+import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
+import type { AttachmentResolution, ResolvedAttachment } from '../attachments/catalog.js'
 
 /**
  * What a wire method may reach.
@@ -83,6 +111,23 @@ export interface HostContext {
   readonly worktrees: Worktrees
   readonly team: Team
   readonly flows: Flows
+  /** Previews a flow, non-executing, and mints the one token `flow/start-goal` redeems. */
+  readonly flowPreviews: FlowPreviews
+  /** Previewed, journaled conversion of a legacy flow to the Agent format, or a customization into the project. */
+  readonly flowUpdates: FlowUpdates
+  /**
+   * Authoring saves: an Agent, a flow or a project's triggers, previewed
+   * whole and written in one journaled transaction on the queue flow updates
+   * share. Narrowed to the verbs the wire has.
+   */
+  readonly authoring: Pick<
+    AuthoringPlane,
+    'read' | 'patch' | 'preview' | 'apply' | 'pending' | 'resume' | 'discard' | 'renderShape' | 'triggerDraft' | 'renderTriggers' | 'rewriteAgent'
+  >
+  /** A front-door start's dry run: its context resolved on the host, its token strict and bound to that target. */
+  readonly frontDoor: {
+    preview(input: import('@harnessdesk/protocol').FrontDoorPreviewInput): Promise<import('@harnessdesk/protocol').FrontDoorPreview>
+  }
   readonly goals: GoalPlane
   readonly lanes: import('../goals/lanes.js').LaneAllocator
   readonly laneSettings: {
@@ -108,6 +153,65 @@ export interface HostContext {
    * the usage ledger (`ledger()`).
    */
   readonly evidence: EvidencePlane
+  /**
+   * Phase 12's attachment freeze — optional so a build that has not wired it
+   * yet keeps today's behavior exactly: `seatAgent` skips every attachment
+   * step entirely when this is absent, the same as it does when an Agent
+   * declares nothing. When present, `prepare` must be called before a
+   * runtime session is created and `record` once (and only once) after it
+   * answers back; neither is ever called for an Agent with no declarations.
+   */
+  readonly attachments?: {
+    prepare(subject: AttachmentSubject): Promise<PreparedAttachments>
+    record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt): Promise<SeatAttachmentsRecord>
+    /** Task 5's own two person-facing verbs on Task 1's trust store — a preview names exact bytes, an approval names exactly the token that preview minted. */
+    readonly trust: {
+      preview(subject: AttachmentSubject, entries: readonly ResolvedAttachment[], options?: { readonly runtimeName?: string }): Promise<AttachmentReview>
+      approve(token: string, options?: { readonly acknowledgeHidden?: boolean }): Promise<void>
+    }
+    /** A Seat's frozen attachment history, by immutable Seat id — Task 3's own durable receipts, read back for the Agent page and the Library. */
+    seatRecord(seat: SeatId): Promise<SeatAttachmentsRecord | null>
+    /**
+     * Task 1's catalog for one Agent, against this desk's own Library home —
+     * the one read every attachment surface shares, so the Agent page, a
+     * review and a Seat's preparation never resolve a name two ways.
+     */
+    declarations(entry: AgentEntry, root: string): Promise<AttachmentResolution>
+    /**
+     * Whether this conversation's Seat carries — or should carry — a filter
+     * (a frozen one, one that was lost, or an Agent that now declares
+     * attachments): such a conversation is reopened only through the host's
+     * shared reopen (`sessions.live`), which applies it or refuses.
+     */
+    carriesFilter(runtime: RuntimeId, sessionId: SessionId): Promise<boolean>
+    /** Why forking this conversation is refused — a fork would run with no filter — or null. */
+    forkRefusal(runtime: RuntimeId, sessionId: SessionId): Promise<string | null>
+  }
+  /**
+   * The findings ledger, read and decided by a person. Narrower than the
+   * findings plane itself: a Seat's own scoped read and its raise/repair/
+   * verdict tools stay behind the Team capability (`Team.attachFindings`),
+   * never reachable through a wire method.
+   */
+  readonly findings: {
+    list(input: { readonly goal: GoalId; readonly cursor?: string; readonly filter?: 'all' | 'open' | 'blocking' }): Promise<FindingPage>
+    read(input: { readonly goal: GoalId; readonly finding: FindingId; readonly cursor?: string }): Promise<FindingDetailPage>
+    carry(input: CarryFindingsInput): Promise<readonly FindingView[]>
+    setPublication(goal: GoalId, revision: number, enabled: boolean): Promise<GoalView>
+    run(input: { readonly goal: GoalId; readonly run: string }): Promise<FindingRunView>
+    decide(input: {
+      readonly goal: GoalId
+      readonly run: string
+      readonly round: number
+      readonly stamp: string
+      readonly action: FindingDecisionAction
+      readonly reason: string
+    }): Promise<FindingRunView>
+    /** A run's postings a person has to look at, and what a backfill would post now. */
+    publications(input: { readonly goal: GoalId; readonly run: string }): Promise<FindingPublicationsView>
+    /** Post again, skip or backfill, on a run of this Goal. */
+    publish(input: { readonly goal: GoalId; readonly run: string; readonly action: FindingPublishAction }): Promise<FindingPublicationsView>
+  }
   readonly provenance: Pick<ProvenancePlane, 'read' | 'status' | 'setCapture' | 'retry' | 'seat'>
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
@@ -117,6 +221,14 @@ export interface HostContext {
   usage(): UsageService
   ledger(): Ledger
   libraryUsage(): LibraryUsageReader
+  /** Read-only Insight reports plus the explicitly reviewed local seating action. */
+  readonly insight: Pick<InsightPlane, 'goal' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
+  /**
+   * Intake: a project's committed triggers as this machine stands on them,
+   * and the person's own controls. The only way a handler reaches triggers;
+   * every mutation here is a person's, and none is ever an Agent's tool.
+   */
+  readonly intake: Pick<IntakePlane, 'list' | 'preview' | 'arm' | 'disarm' | 'rebaseline' | 'preferences' | 'setPreferences' | 'history' | 'goal'>
 
   /** The extension kernel, or a refusal that names the build. */
   extensions(): ExtensionHost
@@ -195,10 +307,14 @@ export interface HostContext {
         readonly cwd: string
         readonly title: string
         readonly environment?: Readonly<Record<string, string>>
+        /** Phase 12's frozen, isolated skill/server filter, prepared before this call — never computed from the session it opens. */
+        readonly attachments?: SessionAttachments
       },
     ): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */
     order(runtime: string, sessionId: string, text: string): Promise<void>
+    /** Set the runtime's controls and read them back before the standing order runs. */
+    hold(runtime: string, sessionId: string, level: CeilingLevel): Promise<SeatHold>
     /**
      * Closes a conversation a seating opened and will not use, and lets the
      * host's handle on it go. Resolves once it is gone, so the next seat can
@@ -226,6 +342,10 @@ export interface HostContext {
      * (`SessionRecord.seatedAs`).
      */
     recordAgent(runtime: string, sessionId: string, seated: SeatedAs): Session
+  }
+
+  readonly ceilings: {
+    answerHeld(approvalId: string, decision: ApprovalDecision): boolean
   }
 
   readonly queue: {
@@ -286,6 +406,20 @@ export interface HostContext {
     confineProvenanceRoot(root: string): Promise<string>
     /** The top of the checkout a folder is in — a linked worktree's own — or null outside git. */
     topLevel(path: string): Promise<string | null>
+    /**
+     * `path`, with every symlink in it resolved — the same comparison key
+     * `#openWorkspace` (host.ts) puts on `WorkspaceEntry.realPath` (#907), and
+     * on the persisted `WorkspaceRecord` it stores (#943, `state.ts`) so a
+     * non-git folder opened through an alias still has something to compare
+     * its own sessions against once the open workspace it was opened with is
+     * replaced by a remembered entry — after a reload or a relaunch. A
+     * comparison key only: never a launch path, never an input to anything
+     * that reads or writes. `workspace/recent` calls this live only for the
+     * one entry that also carries fresh git facts; every other entry reads
+     * the key it was given when it was last opened, never resolving it again
+     * here.
+     */
+    realPath(path: string): Promise<string>
     /**
      * Refuses a folder for a room, where it works and where its flows are read
      * from, unless it is in a folder or a repository opened here, links

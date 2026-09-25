@@ -3,11 +3,12 @@ import { useEffect, useState } from 'react'
 import type { CeilingLevel, SeatRecord } from '@harnessdesk/protocol'
 
 import { KeyValue, KeyValueRow } from '../design'
-import { ceilingWords, originWords, passedWords } from '../lib/agents'
+import { ceilingWords, originWords, passedWords, seatCeilingWords } from '../lib/agents'
 import { shortSha } from '../lib/evidence'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { GroupLine, PanelEmpty } from './Panel'
+import { SeatAttachments } from './SeatAttachments'
 
 export const SeatRecordBlock = () => {
   const store = useStore()
@@ -80,12 +81,13 @@ export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
           <KeyValueRow label="Passed over">{seat.passedOver.map(passedWords).join('; ')}</KeyValueRow>
         )}
         <KeyValueRow label="Told it may">{orderWords(seat.standing)}</KeyValueRow>
+        {seat.ceiling && <KeyValueRow label="Ceiling">{seatCeilingWords(seat.ceiling)}</KeyValueRow>}
         <KeyValueRow label="Checkout">
           {seat.checkout.head
             ? `${seat.checkout.branch ?? 'a detached HEAD'} at ${shortSha(seat.checkout.head)}`
             : 'no commit yet'}
         </KeyValueRow>
-        <KeyValueRow label="Folder">{shortPath(seat.checkout.cwd, snapshot.home)}</KeyValueRow>
+        <KeyValueRow label="Folder" kind="path">{shortPath(seat.checkout.cwd, snapshot.home)}</KeyValueRow>
         {room && <KeyValueRow label="Board">{seat.role ? `${room} · as ${seat.role}` : room}</KeyValueRow>}
         <KeyValueRow label="Opened">{new Date(seat.openedAt).toLocaleString()}</KeyValueRow>
         {seat.closed && (
@@ -95,6 +97,7 @@ export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
           <KeyValueRow label="Restored">{`From a backup, ${new Date(seat.restored.at).toLocaleString()}. This desk did not keep this seat, so it says nothing about what this conversation is here.`}</KeyValueRow>
         )}
       </KeyValue>
+      <SeatAttachments seat={seat.id} historical={seat.closed !== null || seat.restored !== null} />
     </section>
   )
 }

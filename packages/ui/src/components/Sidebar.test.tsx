@@ -109,7 +109,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
 
   it('shows no sessions empty state rather than connect runtime when active runtime is ready', () => {
     mount()
-    const empty = container.querySelector('p[class*="empty"]')
+    const empty = container.querySelector('[data-slot="empty-state"]')
     expect(empty).not.toBeNull()
     expect(empty?.textContent).not.toContain('Connect a runtime to see your sessions.')
     expect(empty?.textContent).toContain('No sessions yet.')
@@ -134,7 +134,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(reasonId).not.toBeNull()
     expect(document.getElementById(reasonId!)?.textContent).toContain('Connect an agent')
 
-    const empty = container.querySelector('p[class*="empty"]')
+    const empty = container.querySelector('[data-slot="empty-state"]')
     expect(empty).not.toBeNull()
     expect(empty?.textContent).toContain('Connect a runtime to see your sessions.')
   })
@@ -162,7 +162,7 @@ describe('the Agents row', () => {
   it('counts the roster once something has read it, in force only', () => {
     mount({
       agents: [
-        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
+        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
         { id: 'b', origin: 'builtin', path: '/b/AGENT.md', digest: 'd', shadows: [], problems: [{ level: 'error', at: 'x', text: 'bad' }], definition: null },
       ],
     } as unknown as Partial<AppSnapshot>)
@@ -175,7 +175,7 @@ describe('the Agents row', () => {
   it('wears no warn tone when nothing is broken', () => {
     mount({
       agents: [
-        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
+        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
       ],
     } as unknown as Partial<AppSnapshot>)
     const row = agentsRow()

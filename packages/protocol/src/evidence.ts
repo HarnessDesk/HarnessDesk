@@ -1,4 +1,5 @@
 import type { AgentId, AgentOrigin, SeatCandidate } from './agent.js'
+import type { FindingDetail } from './findings.js'
 import type { FlowPermission, FlowSeat } from './flow.js'
 
 /**
@@ -211,6 +212,21 @@ export interface EvidenceCheckout {
   readonly branch: string | null
 }
 
+/**
+ * Which trigger firing a host-observed fact was recorded for (phase 8): the
+ * firing's stable key, which part of it (`pr` — the pull request at its head
+ * — or `ci`), and the Goal the firing opened or joined. `(firing, part)` is
+ * the fact's idempotency key: a recovery that observes the same part again
+ * finds this record rather than writing another. Only pull-request and CI
+ * facts the desk read itself carry it; issue, comment and schedule text is
+ * never evidence.
+ */
+export interface IntakeObservation {
+  readonly firing: string
+  readonly part: 'pr' | 'ci'
+  readonly goal: string
+}
+
 export interface EvidenceRecord {
   /** Minted by the host when the record is written; how a restore knows it already has one. */
   readonly id: string
@@ -231,6 +247,14 @@ export interface EvidenceRecord {
    * observes the same question again, and it never puts a card in *Ready*.
    */
   readonly restored?: Restored | null
+  /**
+   * Which event of which finding this is, on a `finding` fact the findings
+   * ledger wrote (`findings.ts`); absent or null on every other record, and on
+   * a bare finding fact that recorded no details.
+   */
+  readonly finding?: FindingDetail | null
+  /** The trigger firing this fact was observed for; absent or null on every fact no firing recorded. */
+  readonly intake?: IntakeObservation | null
 }
 // ----------------------------------------------------------- what is drawn
 

@@ -96,13 +96,14 @@ const button = (label: string): HTMLButtonElement => {
   return found
 }
 
-it('says the seat in words, each ceiling asked, and what saving to the project keeps on this Mac', () => {
+it('says the seat in words, each Agent ceiling, and what saving to the project keeps on this Mac', () => {
   mount()
   const text = document.body.textContent ?? ''
   expect(text).toContain('Claude · Opus 5 · High')
-  expect(text).toContain('Read · asked')
-  expect(text).toContain('Publish · asked')
-  expect(text).toContain('Merge · asked')
+  expect(choice('Read').textContent).toContain('Changes nothing: it reads, searches and reports.')
+  expect(choice('Edit').textContent).toContain('May change files and commit in its own checkout, and never push.')
+  expect(choice('Publish').textContent).toContain('May push its own branch and open a pull request, and never merge.')
+  expect(choice('Merge').textContent).toContain('May merge what it is asked to merge.')
   expect(choice('For storefront').textContent).toContain('seating.json')
   // Never the spec.
   expect(text).not.toContain('opus-5')
@@ -113,19 +114,57 @@ it('saves the conversation’s seat under a name, with a description and a ceili
   const { store, onClose, saveAsAgent } = mount()
   type('Name', 'Checkout reviewer')
   type('What it is for', 'Reads checkout changes against our rules.')
-  act(() => choice('Publish · asked').click())
+  act(() => choice('Publish').click())
   act(() => choice('For you').click())
   act(() => button('Save and open the brief').click())
   await act(async () => {})
   expect(saveAsAgent).toHaveBeenCalledWith({
     name: 'Checkout reviewer',
     description: 'Reads checkout changes against our rules.',
-    permission: 'publish',
+    ceiling: 'publish',
     seat: { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
     to: 'user',
   })
   expect(store.openFile).toHaveBeenCalledWith(SAVED.path)
   expect(onClose).toHaveBeenCalled()
+})
+
+it('bounds the dialog’s own height so a long choice list scrolls inside it, never taking the footer down with it', () => {
+  mount()
+  // `Dialog`'s own `tall` mechanism — a fixed floor and ceiling on the
+  // surface — is what keeps the footer in place while the body inside it
+  // scrolls; that is the same class the folder picker and other list bodies
+  // already carry, not a new one hand-rolled here.
+  const dialog = document.body.querySelector('[role="dialog"]')
+  expect(dialog?.className).toContain('62vh')
+  // The footer's own buttons are still reachable without first scrolling
+  // through the choice lists above them.
+  expect(button('Cancel')).toBeTruthy()
+})
+
+it('a group’s label is attached to its own list, not floating between it and its neighbours', () => {
+  mount()
+  const mayDo = [...document.body.querySelectorAll('section')].find((one) => one.textContent?.includes('The most it may do'))
+  expect(mayDo?.querySelector('[role="radiogroup"][aria-label="The most it may do"]')).not.toBeNull()
+
+  const kept = [...document.body.querySelectorAll('section')].find((one) => one.textContent?.includes('Where it is kept'))
+  expect(kept?.querySelector('[role="radiogroup"][aria-label="Where it is kept"]')).not.toBeNull()
+  // The two groups are not the same section.
+  expect(mayDo).not.toBe(kept)
+})
+
+it('the disabled primary Save keeps its primary styling, and says why beside it', () => {
+  mount()
+  const save = button('Save and open the brief')
+  expect(save.disabled).toBe(true)
+  expect(save.getAttribute('data-variant')).toBe('default')
+  // A visible reason sits beside it — never a plain grey slab with no
+  // explanation of what stands in the way.
+  expect(document.body.textContent).toContain('Name it first')
+
+  type('Name', 'Checkout reviewer')
+  expect(button('Save and open the brief').disabled).toBe(false)
+  expect(document.body.textContent).not.toContain('Name it first')
 })
 
 it('says why the host refused, and stays open', async () => {

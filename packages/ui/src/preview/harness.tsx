@@ -3,24 +3,42 @@ import type { ReactNode } from 'react'
 import {
   runtimeId,
   sessionKey,
+  type AgentAttachmentsView,
   type AgentEntry,
+  type CarryFindingsInput,
+  type FindingPublicationsView,
+  type CeilingLevel,
   type CheckUnseen,
+  type FindingDetailPage,
+  type FindingView,
+  type FlowEntry,
+  type FlowExecution,
+  type FlowPreview,
   type FlowSeat,
+  type FlowUpdatePreview,
+  type FlowUpdateResult,
+  type FrontDoorPreview,
+  type FrontDoorPreviewInput,
+  type GoalView,
   type MachineSeating,
   type ProjectChecks,
   type ModelInfo,
   type OptionValue,
   type RuntimeInfo,
   type SeatRecord,
+  type SeatCeiling,
   type SeatPlan,
   type Session,
   type SessionId,
   type SessionKey,
+  type StartContext,
   type TeamPeerInfo,
   type TeamState,
 } from '@harnessdesk/protocol'
 
 import { AppWindowMode } from '../components/AppWindow'
+import { EMPTY_FINDINGS_STATE, findingDetail, findingsListState } from './findings-fixture'
+import type { FindingFilter } from '../lib/findings'
 import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -59,7 +77,10 @@ import {
 import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_CHECKS, PREVIEW_SEAT, PREVIEW_UNSEEN } from './evidence-fixture'
 import { terminalAttach } from './terminal-fixture'
-import { PREVIEW_GOALS } from './goal-fixture'
+import { PREVIEW_GOAL, PREVIEW_GOALS, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
+import { FIX_PREVIEW, PREVIEW_FLOW_CUSTOMIZE, PREVIEW_FLOW_SOURCE, PREVIEW_FLOW_UPDATE, PREVIEW_FLOWS, previewFlowPreviewFor } from './flow-fixture'
+import { frontDoorPreviewFor } from './front-door-fixture'
+import { triggerArmPreview, triggerGoalStatus, triggerHistoryPage, triggerPreferences as triggerPreferencesFixture, triggerProjectView, triggerView } from './intake-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
    nothing here restates what the file says. Not a `design/ui` module on
@@ -94,6 +115,9 @@ export const runtime = (id: string, name: string): RuntimeInfo =>
 
 /** The conversation every frame below is scoped to. */
 export const PREVIEW_SESSION_KEY = sessionKey(runtimeId('codex'), 's1' as SessionId)
+
+/** A pane scoped to no session at all — the empty-conversation frame's key. */
+export const PREVIEW_EMPTY_SESSION_KEY = sessionKey(runtimeId('codex'), 'preview-empty' as SessionId)
 
 const now = Date.now()
 const yesterday = now - 26 * 60 * 60 * 1000
@@ -558,6 +582,13 @@ Review the working tree's diff at the requested effort level.
 Formatting the project's own linter would catch, and preferences the
 surrounding code has already decided against.
 
+## How to verify a finding
+
+1. Name the input that triggers it, and the line it reaches.
+2. Run the narrowest test that covers that line, or write one.
+3. Say what the test printed, not what you expected it to print.
+4. A finding no test can reach is a question for the author, not a defect.
+
 ## Output
 
 One finding per defect, most severe first, each with a concrete failure
@@ -613,8 +644,9 @@ const agentEntry = (
   name: string,
   origin: AgentEntry['origin'],
   description: string,
-  permission: 'read' | 'publish' = 'read',
+  ceiling: CeilingLevel = 'read',
   shadows: AgentEntry['shadows'] = [],
+  ceilingFrom: NonNullable<AgentEntry['definition']>['ceilingFrom'] = 'ceiling',
 ): AgentEntry => ({
   id,
   origin,
@@ -631,10 +663,12 @@ const agentEntry = (
     id,
     name,
     description,
-    permission,
-    answers: permission === 'read' ? ['approve', 'request-changes'] : [],
+    ceiling,
+    ceilingFrom,
+    answers: ceiling === 'read' ? ['approve', 'request-changes'] : [],
     produces: ['review'],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude' }, { runtime: 'codex' }, { runtime: 'cursor' }],
     brief: `You review a change somebody else wrote.\n\n## How to report\n\nEvery finding, then a verdict.\n\n## What you never do\n\nNever push.`,
   },
@@ -644,7 +678,7 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
   agentEntry('code-reviewer', 'Code reviewer', 'project', 'The storefront team’s reviewer: reads the diff against our checkout rules.', 'read', [
     { origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md' },
   ]),
-  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.'),
+  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.', 'edit'),
   agentEntry('implementer', 'Implementer', 'builtin', 'Builds the change it is given on its own branch, proves it with the project’s checks, and hands it over.', 'publish'),
   agentEntry('security-reviewer', 'Security reviewer', 'builtin', 'Reads a change it did not write for the ways it could be abused, and says how to close each one.'),
   {
@@ -658,11 +692,17 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
   },
 ]
 
-const takenOn = (id: string, runtime: string, label: string): SeatPlan => ({
+const takenOn = (
+  id: string,
+  runtime: string,
+  label: string,
+  ceiling: SeatCeiling = { level: 'read', hold: 'asked' },
+): SeatPlan => ({
   id,
   from: 'prefer',
   winner: 0,
   blocked: null,
+  ceiling,
   candidates: [{ seat: { runtime }, label, runtimeName: label.split(' · ')[0] ?? label, state: 'taken', reason: null, fix: null }],
 })
 
@@ -674,6 +714,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       from: 'machine',
       winner: 0,
       blocked: null,
+      ceiling: { level: 'read', hold: 'asked' },
       candidates: [
         {
           seat: { runtime: 'cursor', model: 'gamma-pro' },
@@ -701,8 +742,8 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       ],
     },
   ],
-  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol')],
-  ['implementer', takenOn('implementer', 'claude', 'Beta')],
+  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol', { level: 'edit', hold: 'held' })],
+  ['implementer', takenOn('implementer', 'claude', 'Beta', { level: 'edit', hold: 'asked' })],
   [
     'security-reviewer',
     {
@@ -710,6 +751,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       from: 'machine',
       winner: null,
       blocked: null,
+      ceiling: null,
       candidates: [
         { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
         { seat: { runtime: 'shipper' }, label: 'Delta', runtimeName: 'Delta', state: 'passed', reason: { kind: 'notInstalled', added: false }, fix: { kind: 'add', runtime: 'shipper' } },
@@ -723,7 +765,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       ],
     },
   ],
-  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', candidates: [] }],
+  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', ceiling: null, candidates: [] }],
 ])
 
 /** The smallest store the mounted screens call. */
@@ -742,7 +784,16 @@ class PreviewStore {
       workspace: previewWorkspace,
       workspaces: previewWorkspaces,
       runtimes: [
-        runtime('codex', 'Alpha'),
+        {
+          ...runtime('codex', 'Alpha'),
+          ceilings: {
+            read: { settings: [{ option: 'permissions', value: ':read-only' }], how: 'Read-only sandbox; anything past it asks you' },
+            edit: {
+              settings: [{ option: 'permissions', value: ':workspace' }],
+              how: 'Workspace sandbox: it changes files here, but cannot commit, reach the network or listen on a port; anything past it asks you',
+            },
+          },
+        } as RuntimeInfo,
         runtime('claude', 'Beta'),
         runtime('cursor', 'Gamma'),
       ],
@@ -900,7 +951,8 @@ class PreviewStore {
               agent: 'code-reviewer',
               // Not the roster's digest: the file has moved on since this was handed over.
               briefDigest: 'digest-when-it-started',
-              permission: 'read',
+              ceiling: { level: 'read', hold: 'held' },
+              ceilingNote: 'Read-only sandbox; anything past it asks you',
               seatLabel: 'Alpha · GPT-5.6 Sol',
               passedOver: [
                 { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
@@ -1095,7 +1147,67 @@ class PreviewStore {
   })
   seatRecord = async (runtime: string, sessionId: string): Promise<SeatRecord | null> =>
     sessionKey(runtime, sessionId) === PREVIEW_SESSION_KEY ? PREVIEW_SEAT : null
+  // Mirrors the real `attachment/agent` handler's own contract: a full view
+  // (even an empty one) for a readable Agent, never `undefined` — a
+  // resolved-but-missing view is exactly what crashed the Library roster
+  // read in #893, because nothing downstream expects that shape.
+  readAgentAttachments = async (id: string, origin: AgentEntry['origin']): Promise<AgentAttachmentsView> => {
+    const found = PREVIEW_AGENTS.find((one) => one.id === id && one.origin === origin)
+    if (!found?.definition || found.digest === null) {
+      throw new Error(`${found?.path ?? id} cannot be read as an Agent, so its attachments cannot be shown.`)
+    }
+    return {
+      agent: found.id,
+      origin: found.origin,
+      agentDigest: found.digest,
+      skillsMode: 'runtime-defaults',
+      mcpMode: 'runtime-defaults',
+      declarations: [],
+      support: [],
+    }
+  }
   projectChecks = async (): Promise<ProjectChecks> => PREVIEW_CHECKS
+
+  // --- intake ------------------------------------------------------------
+  projectTriggers = async (): Promise<import('@harnessdesk/protocol').TriggerProjectView> => triggerProjectView()
+  previewTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerArmPreview> => triggerArmPreview()
+  armTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: true, state: 'armed' })
+  disarmTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: false, state: 'off' })
+  triggerHistory = async (): Promise<import('@harnessdesk/protocol').TriggerHistoryPage> => triggerHistoryPage()
+  triggerPreferences = async (): Promise<import('@harnessdesk/protocol').TriggerPreferences> => triggerPreferencesFixture()
+  setTriggerPreferences = async (
+    _revision: number, paused: boolean, dailyUsd: number,
+  ): Promise<import('@harnessdesk/protocol').TriggerPreferences> => triggerPreferencesFixture({ paused, dailyUsd })
+  triggerGoal = async (goal: string): Promise<import('@harnessdesk/protocol').TriggerGoalStatus | null> =>
+    goal === PREVIEW_TRIGGER_GOAL.goal.id ? triggerGoalStatus({ goal }) : null
+  loadUnattendedCeilings = async (): Promise<'seat' | 'refuse'> => 'refuse'
+  setUnattendedCeilings = async (): Promise<void> => {}
+
+  // --- flows -----------------------------------------------------------
+  flowGeneration = (): number => 0
+  flowCatalog = async (): Promise<readonly FlowEntry[]> => PREVIEW_FLOWS
+  flowSource = async (_root: string, id: string): Promise<string> => PREVIEW_FLOW_SOURCE[id] ?? PREVIEW_FLOW_SOURCE['fix']!
+  previewFlow = async (_root: string, source: string): Promise<FlowPreview> => previewFlowPreviewFor(source)
+  startFlowGoal = async (): Promise<FlowExecution> => {
+    console.info('[preview] startFlowGoal')
+    throw new Error('Starting a flow is not wired up in the preview harness.')
+  }
+  previewFlowUpdate = async (_root: string, _id: string, mode: 'update' | 'customize'): Promise<FlowUpdatePreview> =>
+    mode === 'update' ? PREVIEW_FLOW_UPDATE : PREVIEW_FLOW_CUSTOMIZE
+  applyFlowUpdate = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: PREVIEW_FLOW_UPDATE.edits.map((edit) => edit.path), message: 'The flow update was applied.' })
+  readFlowExecution = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow execution to read here') }
+  previewFlowRetry = async (): Promise<FlowPreview> => ({ ...FIX_PREVIEW, token: null, problems: [{ level: 'error', at: 'run', text: 'This flow or its seating changed. Review the dry run again before starting.' }] })
+  retryFlowCheck = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow run to retry here') }
+
+  // --- the front door --------------------------------------------------
+  openFrontDoor = (context: StartContext, goal?: { readonly id: string; readonly revision: number }): void =>
+    this.patch({ frontDoor: { context, goal: goal ?? null, preview: null } })
+  closeFrontDoor = (): void => this.patch({ frontDoor: null })
+  previewFrontDoor = async (input: FrontDoorPreviewInput): Promise<FrontDoorPreview> => {
+    const preview = frontDoorPreviewFor(input)
+    if (this.#snapshot.frontDoor) this.patch({ frontDoor: { ...this.#snapshot.frontDoor, preview } })
+    return preview
+  }
 
   // --- the dials -----------------------------------------------------------
   setTheme = (theme: AppSnapshot['theme']): void => this.patch({ theme })
@@ -1401,6 +1513,35 @@ class PreviewStore {
   setUsageTracked = (): void => {}
   loadHooks = async () => []
   acpRegistry = async () => ({ agents: [], fetchedAt: null })
+
+  /**
+   * The findings ledger. Only the preview Goal (`PREVIEW_GOAL`) has one; any
+   * other room reads as empty — never the fallback proxy's silent `undefined`,
+   * which would leave `GoalFindings` reading "Reading findings…" forever.
+   */
+  loadFindings = async (goal: string, filter: FindingFilter = 'all'): Promise<void> => {
+    const state = goal === PREVIEW_GOAL.goal.id ? findingsListState(filter) : EMPTY_FINDINGS_STATE
+    this.patch({ findings: new Map(this.#snapshot.findings).set(goal, state) })
+  }
+
+  readFinding = async (_goal: string, finding: string): Promise<FindingDetailPage> => findingDetail(finding)
+
+  carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
+
+  readFindingPublications = async (goal: string, run: string): Promise<FindingPublicationsView> =>
+    ({ goal, run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
+
+  publishFinding = async (input: { goal: string; run: string }): Promise<FindingPublicationsView> =>
+    ({ goal: input.goal, run: input.run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
+
+  setFindingPublication = async (goal: string, revision: number, enabled: boolean): Promise<GoalView> => {
+    const current = this.#snapshot.goals.get(goal)
+    const next: GoalView = current
+      ? { ...current, goal: { ...current.goal, findingPublication: enabled, revision: revision + 1 } }
+      : PREVIEW_GOAL
+    this.patch({ goals: new Map(this.#snapshot.goals).set(goal, next) })
+    return next
+  }
 
   // --- the wire, method-aware ----------------------------------------------
   transport = {

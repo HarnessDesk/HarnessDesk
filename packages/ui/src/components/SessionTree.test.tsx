@@ -203,13 +203,15 @@ const treeWith = (
   live: readonly SessionSummary[] = [],
   prefs: Partial<AppSnapshot['listPrefs']> = {},
   /** The folder the desk has open, when it is not the plain repository root. */
-  open: { path: string; name: string; lastOpenedAt: number; repo?: unknown } = {
+  open: { path: string; name: string; lastOpenedAt: number; repo?: unknown; realPath?: string } = {
     path: '/repo',
     name: 'repo',
     lastOpenedAt: 1,
   },
   activeSessionKey: AppSnapshot['activeSessionKey'] = null,
   goals: ReadonlyMap<string, GoalView> = new Map(),
+  /** Extra store methods a test needs answered — `RoomOrigin`'s `triggerGoal`, say. */
+  storeOverrides: Partial<AppStore> = {},
 ): { container: HTMLElement; store: AppStore } => {
   const snapshot = {
     ...emptySnapshot(),
@@ -230,6 +232,8 @@ const treeWith = (
     setOthersOpen: vi.fn(),
     openTeamRoom: vi.fn(),
     openSession: vi.fn(),
+    triggerGoal: vi.fn(async () => null),
+    ...storeOverrides,
   } as unknown as AppStore
   act(() => {
     root.render(
@@ -335,6 +339,84 @@ const rowTitles = (where: HTMLElement): string[] =>
   [...where.querySelectorAll('button')]
     .map((one) => one.textContent?.trim() ?? '')
     .filter((text) => text.startsWith('session-'))
+
+/** A trigger's Goal, as `snapshot.goals` holds it, for a room of the same id. */
+const triggerGoalView = (board: TeamState, activity: GoalView['activity'] = 'working'): GoalView => ({
+  goal: {
+    id: board.id, root: '/repo', cwd: '/repo', sentence: board.name, state: 'open', revision: 1,
+    checkout: 'shared', dependsOn: [], origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' },
+    createdAt: 1, updatedAt: 4, receipt: null,
+  },
+  activity, waitingOn: [], members: [], board, receipt: null, problem: null,
+})
+
+/**
+ * Two Goals a trigger opened seat the same agent, so both conversations keep
+ * that agent's own name — "Triager", "Triager" — since neither was ever given
+ * a title of its own. Before this, both "Needs you" rows read only that name:
+ * two rows the sidebar could not tell apart. Each row is named by the Goal it
+ * works for now, with the kind of wait as a chip on the same line — one line,
+ * no sentence under it, and the trigger's own id nowhere.
+ */
+it('names each “Needs you” row by its Goal, with a short reason as a chip on the same line (#898)', () => {
+  const key1 = sessionKey('codex', sessionId('s1'))
+  const key2 = sessionKey('codex', sessionId('s2'))
+  const roomA = room({ id: 'g1', name: 'Issue #42, from trigger triage-issue', members: [key1] })
+  const roomB = room({ id: 'g2', name: 'Issue #43, from trigger triage-issue', members: [key2] })
+  const s1 = summary({ id: 's1', title: 'Triager' })
+  const s2 = summary({ id: 's2', title: 'Triager' })
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
+    workspaces: [{ path: '/repo', name: 'repo', lastOpenedAt: 1 }],
+    history: [s1, s2],
+    sessions: new Map([[key1, s1], [key2, s2]]),
+    teams: new Map([['g1', roomA], ['g2', roomB]]),
+    goals: new Map([['g1', triggerGoalView(roomA, 'needs-you')], ['g2', triggerGoalView(roomB, 'needs-you')]]),
+    approvals: [{ key: key1, approval: {} }, { key: key2, approval: {} }],
+  } as unknown as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+
+  const waiting = container.querySelector('[data-tone="waiting"]')
+  if (!waiting) throw new Error('no Needs you band rendered')
+  const rows = [...waiting.querySelectorAll<HTMLElement>('[class*="rowHead"]')]
+  expect(rows.map((one) => one.textContent)).toEqual(['Issue #42Approval', 'Issue #43Approval'])
+  expect(waiting.textContent).not.toContain('from trigger')
+  expect(waiting.textContent).not.toContain('Triager')
+  // One line: no second line under the name.
+  expect(waiting.querySelector('[class*="rowMeta"]')).toBeNull()
+  for (const row of rows) expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
+})
+
+/**
+ * A Goal's row is one line: its name, one state chip, then its counts. The
+ * origin used to take a second line ("from issue #43") under a name that
+ * already said "Issue #43", and the trigger's own id sat in the name itself.
+ * jsdom lays nothing out, so the overlap the floor caused is read from its
+ * shape: the chip and the counts are never inside the name's line box, and
+ * the name is the only thing given to fade.
+ */
+it('draws a trigger Goal’s row on one line: its subject and one state chip, nothing crowding the name', async () => {
+  const board = room({ id: 'g1', name: 'Issue #43, from trigger triage-issue', updatedAt: 4 })
+  const triggerGoal = vi.fn(async () => ({
+    goal: 'g1', trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43', url: null, budget: null, waits: [],
+  }))
+  const { container: tree } = treeWith([board], [], [], {}, undefined, null, new Map([['g1', triggerGoalView(board)]]), { triggerGoal })
+  await act(async () => { await Promise.resolve() })
+
+  const row = roomRow(tree, 'Issue #43')
+  const head = row.querySelector('[class*="rowHead"]')
+  expect(head?.textContent).toBe('Issue #43Working')
+  expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
+  expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
+  expect(row.textContent).not.toContain('from issue')
+  expect(row.textContent).not.toContain('triage-issue')
+  // Nothing beside the chip competes with the name for the row's width.
+  expect(row.querySelector('[class*="groupCount"], [class*="roomClaimed"]')).toBeNull()
+  expect(triggerGoal).not.toHaveBeenCalled()
+})
 
 it('a room is a row under its project, and its members hang off it', () => {
   const { container: tree } = treeWith(
@@ -540,6 +622,62 @@ it('a room in a project the tree was not already showing still gets a row', () =
   ).toBe(true)
 })
 
+/**
+ * The workspace list keeps the folder at the spelling it was opened at
+ * (never `realpath`'d), but its sessions are grouped by `repo.root`, which
+ * git resolves through a link. A project opened at its own top through one —
+ * macOS keeps its temporary folders behind `/var` → `/private/var` — used to
+ * be homed at the raw spelling while its own sessions and rooms grouped under
+ * the resolved one: the same folder, filed under two keys, showed up twice
+ * in the sidebar, one of them empty (#898).
+ */
+it('a project opened through a symlink is one row, not two', () => {
+  const real = '/private/var/folders/x/work/widgets'
+  const link = '/var/folders/x/work/widgets'
+  const { container: tree } = treeWith(
+    [],
+    [summary({ id: 'session-1', cwd: real, repo: { root: real, worktree: false } })],
+    [],
+    {},
+    { path: link, name: 'widgets', lastOpenedAt: 1, repo: { root: real, worktree: false } },
+  )
+  const widgetsRows = [...tree.querySelectorAll('button')].filter(
+    (one) => one.textContent?.includes('widgets'),
+  )
+  expect(widgetsRows).toHaveLength(1)
+})
+
+/**
+ * The public report (#907), for a folder no git repository names: opened
+ * through the same kind of alias, a non-git project also showed up as two
+ * rows, and folding it needed the host's own `realPath` (`WorkspaceEntry`
+ * now carries one for exactly this). But `realPath` is a comparison key,
+ * never something to act on — reopening at it instead of the spelling the
+ * person actually opened would have undone the fold this same row proves,
+ * the moment its own "+" ran (review of #931, round 3).
+ */
+it('starts a new session at the spelling the person opened, from a non-git alias row that folded to one (#907)', () => {
+  const real = '/private/var/folders/x/work/scratch'
+  const link = '/var/folders/x/work/scratch'
+  const startSessionIn = vi.fn()
+  const { container: tree } = treeWith(
+    [],
+    [summary({ id: 'session-1', cwd: real, repo: null })],
+    [],
+    {},
+    { path: link, name: 'scratch', lastOpenedAt: 1, realPath: real },
+    null,
+    new Map(),
+    { startSessionIn },
+  )
+  const scratchRows = [...tree.querySelectorAll('button')].filter((one) => one.textContent?.includes('scratch'))
+  expect(scratchRows).toHaveLength(1)
+  const plus = tree.querySelector('[aria-label^="New session in "]')
+  if (!plus) throw new Error('no "New session in" button on the folded row')
+  act(() => (plus as HTMLElement).click())
+  expect(startSessionIn).toHaveBeenCalledWith(link)
+})
+
 it('two rooms of one name in a project outside the tree are two rows', () => {
   /* The five that went missing shared a name, so a single key collapsing them
      would have looked like the same defect. It is the id that keys the row —
@@ -643,11 +781,19 @@ it('a room keyed at the repository belongs to the row homed at the subfolder you
   expect(roomRow(tree, 'Checkout rewrite')).toBeTruthy()
 })
 
-it('says a room is empty rather than looking broken', () => {
+/**
+ * A navigation tree never renders an empty-state sentence (taste survey G9):
+ * several freshly opened Goals, none seated yet, used to repeat "No agents in
+ * here yet — open it to add one." under every one of them, one Goal already
+ * reading "Working" at the same time. The row's own trailing count already
+ * says 0, which is what a tree shows for empty — nothing more.
+ */
+it('says a room is empty by its own count, never by a sentence in the tree', () => {
   const { container: tree } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
-  expect(roomRow(tree, 'Checkout rewrite').parentElement?.textContent).toContain(
-    'No agents in here yet',
-  )
+  const row = roomRow(tree, 'Checkout rewrite')
+  expect(row.parentElement?.textContent).not.toContain('No agents in here yet')
+  const count = row.querySelector('[class*="groupCount"]')
+  expect(count?.textContent).toBe('0')
 })
 
 it('lists a member the history has not caught up with', () => {
@@ -678,9 +824,11 @@ it('a filtered list does not smuggle a member back in through the live map', () 
     [fresh],
     { agent: runtimeId('codex') },
   )
-  const block = roomRow(tree, 'Checkout rewrite').parentElement
-  expect(block?.textContent).toContain('No agents in here yet')
+  const row = roomRow(tree, 'Checkout rewrite')
+  const block = row.parentElement
+  expect(block?.textContent).not.toContain('No agents in here yet')
   expect(block?.textContent).not.toContain('Filtered away')
+  expect(row.querySelector('[class*="groupCount"]')?.textContent).toBe('0')
 })
 
 it('a room says what each of its numbers counts', () => {

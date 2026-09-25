@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import { cardEvidence, checkView, ciView, diffView, factView, prView } from '../preview/evidence-fixture'
-import { byWords, cardChips, chipOf, ciVerdict, spokenChip, standingWords } from './evidence'
+import { byWords, cardChips, chipOf, chipWords, ciVerdict, spokenChip, standingWords } from './evidence'
 
 const RUN = { name: 'verify', state: 'passed' as const, url: null }
 
 describe('a fact, as its chip', () => {
   it('says what was observed, at which commit, and names its outcome in the system’s states', () => {
-    expect(chipOf(checkView())).toEqual({ key: 'check:verify', label: 'verify ✓ @a1b2c3d', outcome: 'passed', stale: false, unknown: false })
+    expect(chipOf(checkView())).toEqual({ key: 'check:verify', label: 'verify ✓ @a1b2c3d', since: null, outcome: 'passed', stale: false, unknown: false })
     expect([chipOf(checkView({ exit: 1 })).label, chipOf(checkView({ exit: 1 })).outcome]).toEqual(['verify ✗ @a1b2c3d', 'failed'])
     expect([chipOf(checkView({ exit: null, timedOut: true })).label, chipOf(checkView({ exit: null, timedOut: true })).outcome]).toEqual(['verify timed out @a1b2c3d', 'timed out'])
     expect([chipOf(checkView({ exit: null })).label, chipOf(checkView({ exit: null })).outcome]).toEqual(['verify did not start @a1b2c3d', null])
@@ -19,23 +19,24 @@ describe('a fact, as its chip', () => {
     expect([chipOf(diffView()).label, chipOf(diffView()).outcome]).toEqual(['+120 −30 in 6 files', null])
   })
 
-  it('a stale fact says how far behind it is, and is marked stale for the chip to strike through', () => {
+  it('a stale fact keeps its label to the fact, and says how far behind it is aloud and in its title', () => {
     const behind = chipOf(checkView({ freshness: { state: 'behind', commits: 2 } }))
-    expect(behind).toEqual({ key: 'check:verify', label: 'verify ✓ @a1b2c3d — 2 commits since', outcome: 'passed', stale: true, unknown: false })
-    expect(chipOf(checkView({ freshness: { state: 'moved' } })).label).toBe('verify ✓ @a1b2c3d — rewritten since')
+    expect(behind).toEqual({ key: 'check:verify', label: 'verify ✓ @a1b2c3d', since: '2 commits since', outcome: 'passed', stale: true, unknown: false })
+    expect(chipWords(chipOf(checkView({ freshness: { state: 'moved' } })))).toBe('verify ✓ @a1b2c3d — rewritten since')
+    expect(chipWords(behind)).toBe('verify ✓ @a1b2c3d — 2 commits since')
     expect(spokenChip(behind)).toBe('verify ✓ @a1b2c3d — 2 commits since (stale)')
   })
 
   it('an unknown fact is not stale and not a verdict: it is marked unknown, and the dialog says why', () => {
     const view = checkView({ freshness: { state: 'unknown', why: 'it came from a backup, and this desk has not observed it' } })
-    expect(chipOf(view)).toEqual({ key: 'check:verify', label: 'verify ✓ @a1b2c3d', outcome: 'passed', stale: false, unknown: true })
+    expect(chipOf(view)).toEqual({ key: 'check:verify', label: 'verify ✓ @a1b2c3d', since: null, outcome: 'passed', stale: false, unknown: true })
     expect(spokenChip(chipOf(view))).toBe('verify ✓ @a1b2c3d (unknown)')
     expect(standingWords(view.freshness)).toBe('Unknown: it came from a backup, and this desk has not observed it.')
   })
 
   it('a merged pull request whose branch is gone is final: current, and said so', () => {
     const final = prView('merged', { freshness: { state: 'final' } })
-    expect(chipOf(final)).toEqual({ key: 'pr', label: 'PR #12 merged', outcome: 'merged', stale: false, unknown: false })
+    expect(chipOf(final)).toEqual({ key: 'pr', label: 'PR #12 merged', since: null, outcome: 'merged', stale: false, unknown: false })
     expect(standingWords(final.freshness)).toBe('Final: the pull request was merged and its branch is gone, so nothing can land on it now.')
   })
 })
@@ -58,6 +59,25 @@ describe("a card's chips", () => {
   it('a check running now stands in for that check’s last fact, and the rest keep their order', () => {
     const chips = cardChips(cardEvidence(3, [checkView({ exit: 1 }), prView('open')], [{ name: 'verify', since: 1 }]))
     expect(chips.map((one) => one.label)).toEqual(['verify running', 'PR #12 open'])
+  })
+
+  it('a diff that changed nothing draws no chip beside other facts, while one that changed something does', () => {
+    const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
+    expect(cardChips(cardEvidence(1, [none, prView('open')])).map((one) => one.label)).toEqual(['PR #12 open'])
+    expect(cardChips(cardEvidence(1, [diffView()])).map((one) => one.label)).toEqual(['+120 −30 in 6 files'])
+  })
+
+  it('a finished card whose only fact is a zero diff keeps one quiet "no changes" chip', () => {
+    const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
+    const chips = cardChips(cardEvidence(1, [none]), true)
+    expect(chips.map((one) => [one.label, one.outcome])).toEqual([['no changes', null]])
+    expect(cardChips(cardEvidence(1, [none, none]), true).map((one) => one.label)).toEqual(['no changes'])
+  })
+
+  it('a card still being worked, whose only fact is a zero diff, draws nothing: nothing is known yet', () => {
+    const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
+    expect(cardChips(cardEvidence(1, [none]))).toEqual([])
+    expect(cardChips(cardEvidence(1, [none]), false)).toEqual([])
   })
 
   it('a card the desk observed nothing about has none', () => {

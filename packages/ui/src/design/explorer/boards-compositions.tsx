@@ -21,6 +21,8 @@ import {
   AttachmentGroup,
   AttachmentMedia,
   AttachmentTitle,
+  Avatar,
+  AvatarFallback,
   AvatarStack,
   Bars,
   Breadcrumb,
@@ -108,6 +110,7 @@ import {
   SegmentMeter,
   Sparkline,
   Stat,
+  Tick,
   StatRow,
   Stepper,
   Table,
@@ -134,6 +137,8 @@ import {
   Toolbar,
   ToolbarGap,
   toast,
+  SummaryItem,
+  SummaryList,
 } from '../ui'
 import {
   Counts,
@@ -155,7 +160,7 @@ import {
   WorkbenchRail,
   WorkbenchScrim,
 } from '../patterns/DockPanel'
-import { CodeText, Text } from '../patterns/Settings'
+import { CodeText, Row, Rows, SectionHead, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
@@ -186,7 +191,7 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
-const TEXTAREA_CATALOG_VARIANTS = ['default', 'editor', 'inline', 'composer'] as const
+const TEXTAREA_CATALOG_VARIANTS = ['default', 'editor', 'code', 'inline', 'composer'] as const
 const TEXTAREA_CATALOG_SIZES = ['default', 'compact', 'composer'] as const
 const TEXTAREA_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
 const ATTACHMENT_CATALOG_VARIANTS = ['default'] as const
@@ -212,10 +217,10 @@ const INPUT_GROUP_CATALOG_ALIGN = ['inline-start', 'inline-end', 'block-start', 
 const MARKER_CATALOG_VARIANTS = ['default', 'border', 'separator'] as const
 const MARKER_CATALOG_SIZES = ['default'] as const
 const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
-const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel'] as const
+const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel', 'page'] as const
 const SECTION_CATALOG_SIZES = ['default'] as const
 const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
-const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel'] as const
+const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel', 'summary'] as const
 const KEY_VALUE_CATALOG_SIZES = ['default'] as const
 const KEY_VALUE_CATALOG_STATES = ['default', 'empty', 'populated'] as const
 const TOOL_PANE_CATALOG_VARIANTS = ['default', 'integrated'] as const
@@ -350,6 +355,77 @@ const DeltaBoard = () => (
 
 // --- surfaces ---------------------------------------------------------------
 
+/**
+ * The Agent page, before and after the page grammar.
+ *
+ * Before: five facts about one Agent, each a grey label over a card that
+ * holds one row — the label 18px under the card above and 20px over its own,
+ * so it named neither. After: one `Section` holding one `SummaryList`, the
+ * facts read top to bottom like an inspector and every action in one column
+ * at the end. The words are the page's own, so the comparison is the layout
+ * and nothing else.
+ */
+const AGENT_FILE = '~/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md'
+const AGENT_BRIEF = 'Read a change against the checkout rules before anyone merges it, and say what would break.'
+
+const PageGrammar = () => (
+  <>
+    <div className="grid w-full items-start gap-(--hd-space-3) xl:grid-cols-2" data-catalog-example="page-grammar">
+      <Case label="the Agent page, before: a label over a one-row card, five times">
+        <div className="w-full">
+          <SectionHead name="File" />
+          <Rows>
+            <Row
+              title={<CodeText>{AGENT_FILE}</CodeText>}
+              desc="Comes first over the one that ships"
+              control={<><Button size="sm" variant="outline">Open file</Button><Button size="sm" variant="outline">Reveal</Button></>}
+            />
+          </Rows>
+          <SectionHead name="Ceiling" />
+          <Rows>
+            <Row title="Edit" desc="May change files and commit in its own checkout, and never push." control={<Button size="sm" variant="outline">Update…</Button>} />
+          </Rows>
+          <SectionHead name="Skills" />
+          <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
+          <SectionHead name="Servers" />
+          <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
+          <SectionHead name="Brief" />
+          <Rows><Row title={AGENT_BRIEF} control={<Button size="sm" variant="outline">Open in editor</Button>} /></Rows>
+        </div>
+      </Case>
+      <Case label="after: one Section, one SummaryList">
+        <div className="w-full">
+          <Section title="Agent" description="Read from its file; the file is the truth.">
+            <SummaryList>
+              <SummaryItem label="File" kind="path" note="Comes first over the one that ships" action={<Button size="sm" variant="secondary">Open file</Button>}>
+                {AGENT_FILE}
+              </SummaryItem>
+              <SummaryItem label="Ceiling" note="May change files and commit in its own checkout, and never push." action={<Button size="sm" variant="secondary">Update…</Button>}>
+                Edit
+              </SummaryItem>
+              <SummaryItem label="Skills" action={<Button size="sm" variant="secondary">Edit…</Button>}>Runtime defaults</SummaryItem>
+              <SummaryItem label="Servers" action={<Button size="sm" variant="secondary">Edit…</Button>}>Runtime defaults</SummaryItem>
+              <SummaryItem label="Brief" action={<Button size="sm" variant="secondary">Open in editor</Button>}>{AGENT_BRIEF}</SummaryItem>
+            </SummaryList>
+          </Section>
+          <Section title="Seats" action={<Button size="sm" variant="outline"><PlusIcon /> Add a seat…</Button>}>
+            <Rows>
+              <Row title="Claude · Opus" desc="The seat it takes here" />
+              <Row title="Codex" desc="Free here" />
+            </Rows>
+          </Section>
+        </div>
+      </Case>
+    </div>
+    <Rule>
+      A page is a head and a column of <code>Section</code>s, each a <code>GroupLabel</code> over one
+      card. The section owns the space — 8px from label to card, 32px to the next section — so a
+      screen writes no margin. Five facts about one thing are one <code>SummaryList</code>: a key
+      column, a value that wraps, an optional note and an action at the row&rsquo;s end.
+    </Rule>
+  </>
+)
+
 const SectionBoard = () => (
   <>
     <div
@@ -359,12 +435,30 @@ const SectionBoard = () => (
       data-catalog-sizes={SECTION_CATALOG_SIZES.join(' ')}
       data-catalog-states={SECTION_CATALOG_STATES.join(' ')}
     >
-      {SECTION_CATALOG_VARIANTS.map((variant) => (
-        <Section key={variant} variant={variant} data-catalog-variant={variant}>
-          <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
-          <SectionBody>Canonical section variant.</SectionBody>
-        </Section>
-      ))}
+      {SECTION_CATALOG_VARIANTS.map((variant) =>
+        variant === 'page' ? (
+          /* The page form: a title makes it a section of a page — the label
+             over its card, and the spacing owned. */
+          <div key={variant}>
+            <Section
+              title="Rules"
+              description="A rule answers a request before it reaches you."
+              action={<Button variant="outline" size="sm"><PlusIcon /> Add rule</Button>}
+              data-catalog-variant={variant}
+            >
+              <Rows>
+                <Row title="Allow the test runner" desc="Approves commands containing “pnpm test”." />
+                <Row title="Never push" desc="Denies commands containing “git push”." />
+              </Rows>
+            </Section>
+          </div>
+        ) : (
+          <Section key={variant} variant={variant} data-catalog-variant={variant}>
+            <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
+            <SectionBody>Canonical section variant.</SectionBody>
+          </Section>
+        ),
+      )}
       <Section>
         <SectionHeader>
           <SectionTitle>Approvals</SectionTitle>
@@ -423,6 +517,7 @@ const SectionBoard = () => (
         </SectionBody>
       </Section>
     </div>
+    <PageGrammar />
     <Rule>
       The header lays out on a grid that grows a second column only when a{' '}
       <code>SectionAction</code> is really there — <code>has-data-[slot=…]</code> asks the DOM
@@ -530,6 +625,17 @@ const ListBoard = () => (
               subtitle="harnessdesk / src/api"
               trail={<Delta value={12} />}
             />
+            {/* One face on its own, the primitive the stack is made of — the
+                catalogue's measured case for `avatar`. */}
+            <ListRow
+              lead={
+                <Avatar data-catalog-size="default">
+                  <AvatarFallback>SH</AvatarFallback>
+                </Avatar>
+              }
+              title="Review the migration"
+              subtitle="Shane · asked 5m ago"
+            />
             <ListRow
               interactive
               lead={
@@ -574,15 +680,31 @@ const KeyValueBoard = () => (
       data-catalog-sizes={KEY_VALUE_CATALOG_SIZES.join(' ')}
       data-catalog-states={KEY_VALUE_CATALOG_STATES.join(' ')}
     >
-      <Case label="one column, with a total">
+      <Case label="inspector: sentences wrap, a path gives up its middle">
         <KeyValue className="w-full" data-catalog-variant="default">
-          <KeyValueRow label="Prompt">5.9M</KeyValueRow>
-          <KeyValueRow label="Completion">2.5M</KeyValueRow>
-          <KeyValueRow label="Cached">−1.8M</KeyValueRow>
-          <KeyValueRow label="Charged" emphasis>
+          <KeyValueRow label="Source" kind="path">~/work/storefront/.harnessdesk/triggers/review.json</KeyValueRow>
+          <KeyValueRow label="Declares">When a pull request opens, open review-pr.</KeyValueRow>
+          <KeyValueRow label="Repository">acme/widgets</KeyValueRow>
+        </KeyValue>
+      </Case>
+      <Case label="numbers, with a total">
+        <KeyValue className="w-full">
+          <KeyValueRow label="Prompt" numeric>5.9M</KeyValueRow>
+          <KeyValueRow label="Completion" numeric>2.5M</KeyValueRow>
+          <KeyValueRow label="Cached" numeric>−1.8M</KeyValueRow>
+          <KeyValueRow label="Charged" numeric emphasis>
             $212.40
           </KeyValueRow>
         </KeyValue>
+      </Case>
+      <Case label="summary: facts about one object, as a card">
+        <SummaryList className="w-full" data-catalog-variant="summary">
+          <SummaryItem label="File" kind="path" action={<Button size="sm" variant="secondary">Open file</Button>}>
+            ~/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md
+          </SummaryItem>
+          <SummaryItem label="Ceiling" note="May change files and commit in its own checkout, and never push.">Edit</SummaryItem>
+          <SummaryItem label="Seats" numeric>3</SummaryItem>
+        </SummaryList>
       </Case>
       <Case label="compact panel facts">
         <KeyValue variant="panel" className="w-full" data-catalog-variant="panel">
@@ -835,11 +957,35 @@ const EmptyBoard = () => (
           <EmptyState tight icon={<SearchIcon />} title="No sessions match" description="Try a shorter query." />
         </SectionBody>
       </Section>
+      <div className="flex flex-col gap-1">
+        <Text role="meta">inline — inside a list, a column or a pane</Text>
+        <div className="flex min-h-24 flex-col rounded-(--hd-radius-lg) bg-(--hd-muted) p-3">
+          <EmptyState variant="inline" className="mt-auto" title="Nothing here" />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Text role="meta">row — one row of a Rows card</Text>
+        <Rows>
+          <EmptyState variant="row" title="No presets yet" description="Set a session up the way you like, then save it here." />
+        </Rows>
+        <Rows>
+          <EmptyState
+            variant="row"
+            icon={<SearchIcon size={15} />}
+            title="Nothing here matches “retry”"
+            description="Search covers the name, the opening message and the folder."
+          />
+        </Rows>
+      </div>
     </div>
     <Rule>
       An empty state is a menu, not an apology: it takes the space the missing content would have
       occupied and spends it saying what could fill it. On a <code>ChoiceRow</code> the second line
       is always earned — the reader is choosing between options whose names cannot tell them apart.
+      Three shapes, one per place: <code>panel</code> owns a page or pane, <code>inline</code> is one
+      muted line in a list or column, <code>row</code> is a quiet row in a card. A navigation tree
+      never carries one under a node, and when the header already holds the primary action the empty
+      state&apos;s own action is secondary.
     </Rule>
   </>
 )
@@ -936,6 +1082,14 @@ const SparkBoard = () => (
         >
           <div className="text-base font-semibold tabular-nums">100</div>
         </Donut>
+      </Case>
+      <Case label="ticks — a strip index, the asked and the answered">
+        <div className="flex w-10 flex-col gap-2">
+          <Tick emphasis="strong" className="w-3" />
+          <Tick className="w-2" />
+          <Tick emphasis="strong" className="w-5" />
+          <Tick className="w-2" />
+        </div>
       </Case>
     </div>
     <Rule>
@@ -1144,6 +1298,9 @@ const AdoptedBoard = () => {
           <Card spacing="compact" radius="sm" className="w-full" data-catalog-size="compact">
             A dense report keeps one inset and one rhythm.
           </Card>
+          <Card variant="plate" spacing="compact" className="w-full">
+            The app&rsquo;s own card: it follows the interface&rsquo;s card family, as the files card under an answer does.
+          </Card>
         </Case>
 
         <Case label="select &mdash; open with pointer or keyboard">
@@ -1296,7 +1453,7 @@ const AdoptedBoard = () => {
                     </TableCell>
                     <TableCell>{one.session}</TableCell>
                     <TableCell className="text-(--hd-muted-foreground)">{one.agent}</TableCell>
-                    <TableCell className="text-right tabular-nums">${one.spend}</TableCell>
+                    <TableCell align="end">${one.spend}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

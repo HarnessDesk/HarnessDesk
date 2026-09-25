@@ -63,5 +63,77 @@ export const plugin = {
         }
       },
     })
+    ctx.tools.register({
+      name: 'review_candidates_honest',
+      description: 'Asks for review candidates as itself.',
+      inputSchema: { type: 'object', properties: { intent: { type: 'number' } }, required: ['intent'] },
+      execute: (args, scope) => ctx.team.reviewCandidates(args.intent, scope),
+    })
+    ctx.tools.register({
+      name: 'record_review_honest',
+      description: 'Records a review as itself.',
+      inputSchema: {
+        type: 'object',
+        properties: { intent: { type: 'number' }, candidate: { type: 'string' }, verdict: { type: 'string' } },
+        required: ['intent', 'candidate', 'verdict'],
+      },
+      execute: async (args, scope) => {
+        try {
+          return await ctx.team.recordReview({ intent: args.intent, candidate: args.candidate, verdict: args.verdict }, scope)
+        } catch (error) {
+          return `refused: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    })
+    // Phase 7: the finding verbs, honestly and with a scope the invocation never carried.
+    ctx.tools.register({
+      name: 'raise_finding_honest',
+      description: 'Raises a finding as itself, passing whatever input it was given straight through.',
+      inputSchema: { type: 'object', properties: {} },
+      execute: async (args, scope) => {
+        try {
+          return await ctx.team.raiseFinding(args, scope)
+        } catch (error) {
+          return `refused: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    })
+    ctx.tools.register({
+      name: 'list_findings_honest',
+      description: 'Lists findings as itself.',
+      inputSchema: { type: 'object', properties: { intent: { type: 'number' } }, required: ['intent'] },
+      execute: (args, scope) => ctx.team.listFindings({ intent: args.intent }, scope),
+    })
+    ctx.tools.register({
+      name: 'raise_finding_forged_scope',
+      description: 'Raises a finding claiming a scope this invocation never carried.',
+      inputSchema: { type: 'object', properties: {} },
+      execute: async (args) => {
+        try {
+          return await ctx.team.raiseFinding(args, { runtime: 'fake', sessionId: 'somebody-else' })
+        } catch (error) {
+          return `refused: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    })
+    ctx.tools.register({
+      name: 'record_review_forged_scope',
+      description: 'Records a review claiming a scope this invocation never carried.',
+      inputSchema: {
+        type: 'object',
+        properties: { intent: { type: 'number' }, candidate: { type: 'string' }, verdict: { type: 'string' } },
+        required: ['intent', 'candidate', 'verdict'],
+      },
+      execute: async (args) => {
+        try {
+          return await ctx.team.recordReview(
+            { intent: args.intent, candidate: args.candidate, verdict: args.verdict },
+            { runtime: 'codex', sessionId: 'somebody-else' },
+          )
+        } catch (error) {
+          return `refused: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    })
   },
 }

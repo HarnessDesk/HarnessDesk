@@ -148,7 +148,7 @@ a:hover {
 /*
  * A list with nothing in it, said in one line.
  *
- * Not `EmptyState`, which is a page taking the space the missing content would
+ * Not the `EmptyState` panel, which is a page taking the space the missing content would
  * have had and spending it on what to press instead. This is the other thing —
  * a search that matched nothing, a folder with no children, a directory still
  * being read — where the answer is a sentence and the surroundings already say
@@ -157,6 +157,11 @@ a:hover {
  * It exists because three screens wrote it three times: at twenty, twenty-four
  * and thirty-two pixels of padding, at thirteen and fourteen, centred twice and
  * ranged once. One sentence, one shape.
+ *
+ * That shape is now `EmptyState variant="inline"` (design/ui/empty-state.tsx),
+ * which draws exactly these values. The class stays only for the two screens
+ * that still spell it — CommandPalette and TriggerMenu — and goes when they
+ * move to the part; do not reach for it in new code.
  */
 .hd-empty-line {
   padding: var(--hd-space-6) var(--hd-space-2-5);
@@ -260,6 +265,12 @@ a:hover {
 
 .hd-floatingNotices {
   position: absolute;
+  /* `top`, `left` and `right` are all set inline, in `App.tsx`, from
+     `lib/notice-bounds.ts`: over the pane or panel being read, never the
+     sidebar or an unrelated pane beside it, at a width a card can be read
+     at, and below every toolbar it would otherwise cover (#896). These are
+     only the values before that effect has ever run; `46px` is
+     `NOTICE_FLOOR`, just under the window's header strip. */
   top: 46px;
   left: 0;
   right: 0;
@@ -270,11 +281,45 @@ a:hover {
   gap: 10px;
   padding: 0 16px;
   pointer-events: none;
-  transition: left var(--hd-duration-slow) var(--hd-ease);
+  transition:
+    top var(--hd-duration-slow) var(--hd-ease),
+    left var(--hd-duration-slow) var(--hd-ease),
+    right var(--hd-duration-slow) var(--hd-ease);
 }
 
 .hd-floatingNotices > * {
   pointer-events: auto;
+}
+
+/*
+ * The notice system's own contract for a pane that can sit under the stack
+ * above: read `--hd-notice-inset` once, at your own top edge, so nothing of
+ * yours starts underneath a notice that is showing. `Conversation.tsx` reads
+ * the same variable directly, for the single case that predates this
+ * attribute; every other consumer opts in with `data-notice-yield` instead
+ * of reaching for the variable itself, so the one place that measures the
+ * stack (`App.tsx`) is also the one place that says how a pane leaves room
+ * for it, and a future screen composes this rather than growing its own
+ * copy (#913).
+ *
+ * Reset to `0px` for everything underneath: an inset already spent once, at
+ * the yielding element's own top, must not be spent again by whatever it
+ * contains — the room's rail and its reading side share one top edge this
+ * way instead of each counting the same notice twice.
+ *
+ * Coarse on purpose, for now: this measures whether the stack is showing at
+ * all, not whether it actually reaches the pane it is applied to. A very
+ * wide pane, a docked panel, or the second pane of a split can all yield to
+ * a notice that never visually reaches them, which is a real gap — scoping
+ * this to the pane the stack's own rectangle actually overlaps is filed as a
+ * follow-up rather than carried here.
+ */
+[data-notice-yield] {
+  margin-top: var(--hd-notice-inset, 0px);
+}
+
+[data-notice-yield] > * {
+  --hd-notice-inset: 0px;
 }
 
 /*

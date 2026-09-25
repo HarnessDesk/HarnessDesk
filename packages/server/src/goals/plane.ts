@@ -1,20 +1,52 @@
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 
 import {
-  activityOf, checkedDependencies, flowRoleOf, placeCard,
-  type BoardEvidence, type FlowPermission, type FlowRun, type FlowSeat,
-  type Goal, type GoalCitation, type GoalCreateInput, type GoalReceipt, type GoalSeatRequest, type GoalView,
-  type SeatId, type SeatRecord, type SessionPointer, type TeamState,
+  activityOf, checkedDependencies, flowStepOf, placeCard,
+  type BoardEvidence, type CarryFindingsInput, type EvidenceRecord, type FindingReceipt, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
+  type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalOrigin, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
+  type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
 } from '@harnessdesk/protocol'
 
 import type { SeatOpening } from '../evidence/records.js'
+import { memoryPath } from '../memory/git.js'
+import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
-import { recoverOperation, type GoalOperationPort } from './operations.js'
+import { recoverOperation, reserveEmpty, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
 import { citationBlob, previewWrap, Wraps, type WrapInput } from './wrap.js'
+
+/**
+ * What `GoalPlane` needs from memory beyond the citation/resolution pair
+ * every other consumer sees (`GoalMemoryPort`): the same live-registration
+ * bookkeeping `MemoryPlane` already keeps for `resolve`, reused here so a
+ * citation-created dependency edge can be checked synchronously — no
+ * `canDispatch` caller in this codebase can be made to await one more I/O
+ * round trip just to learn whether a Goal may be dispatched.
+ */
+export interface GoalMemorySupport extends GoalMemoryPort {
+  register(index: GoalMemoryIndex, restored?: boolean): void
+  isKnownRestored(citation: GoalCitation): boolean
+  /** Task 6's own backup export: the exact retained bytes under one content-addressed key, never a citation-shaped lookup. */
+  readRaw(key: string): Promise<string | null>
+  /** Task 6's own backup import: refiles an already-captured snapshot verbatim, keyed by its own content hash. */
+  writeSnapshot(snapshot: import('@harnessdesk/protocol').MemorySnapshot): Promise<string>
+  /** Task 6's own backup import: whether this exact tuple is already registered under this exact archive key. */
+  isRegistered(citation: GoalCitation, archive: string): boolean
+}
+
+/** Whether a cited path is a project memory file — the only kind a citation retains. */
+const isMemoryPath = (path: string): boolean => {
+  try {
+    memoryPath(path)
+    return true
+  } catch {
+    return false
+  }
+}
 
 export interface GoalPlanePort extends GoalOperationPort {
   seats: {
@@ -24,10 +56,19 @@ export interface GoalPlanePort extends GoalOperationPort {
   confine(input: GoalCreateInput): Promise<{ root: string; cwd: string }>
   known(runtime: string, session: string): Promise<{ project: string; busy: boolean } | null>
   claimable(goal: string, card: number, session: SessionPointer): boolean
+  /**
+   * Passed straight through to `Assignments` (see its own doc comment):
+   * whether this live conversation's attachment loading was actually
+   * observed here, for a session that claims an Agent identity. Optional so
+   * a host not wired for phase 12 keeps today's behavior — `GoalPlane` never
+   * invents a stricter default than the port it was given asks for.
+   */
+  attachmentsObserved?(session: SessionPointer): Promise<boolean>
   opening(goal: string, session: SessionPointer, id: SeatId): Promise<SeatOpening>
   board(goal: string): TeamState
   evidence(goal: string): Promise<BoardEvidence>
-  evidenceIds(goal: string, project: string): Promise<readonly string[]>
+  /** Every fact attributable to this Goal, by id — and the Seat that produced each, for `GoalReceipt['evidenceSeats']`. */
+  evidenceIds(goal: string, project: string): Promise<readonly GoalReceiptEvidenceSeat[]>
   flow(goal: string): FlowRun | undefined
   busy(session: SessionPointer): boolean
   waits(session: SessionPointer): boolean
@@ -39,10 +80,43 @@ export interface GoalPlanePort extends GoalOperationPort {
     readonly gaps: readonly string[]
   }>
   revision(cwd: string): Promise<{ readonly head: string | null; readonly dirty: boolean | null }>
-  changed(view: GoalView): void
+  /**
+   * A Goal's view moved. `install: false` when the caller only wants windows
+   * told — a flow run's own state changed and the Goal store did not — so a
+   * view read before the board's own pending write lands is never installed
+   * over the newer board the desk holds in memory.
+   */
+  changed(view: GoalView, options?: { readonly install: boolean }): void
   activity(goal: string, previous: NonNullable<GoalView['activity']>, activity: NonNullable<GoalView['activity']>, sentence: string): void
   ready(): { ok: true } | { ok: false; reason: string }
-  seatAgent(input: GoalSeatRequest, goal: Goal): Promise<SeatRecord>
+  /** Stops every flow run dispatching on this Goal, inside each run's own queue, before a wrap is taken. */
+  stopFlows?(goal: string): Promise<void>
+  /** Whether a run on this Goal (not only an old room's run) is still running or stalled. */
+  flowLive?(goal: string): boolean
+  /** The runs on this Goal, as the flow engine keeps them: which of its cards are a person's steps. */
+  executions?(goal: string): readonly FlowExecution[]
+  /** The Goal's cards as they stand — the board's one writer's copy — which a wrap reviews. Absent, the document's. */
+  cards?(goal: string): readonly Intent[]
+  /** Refuses every change to the Goal's board, with `reason`, until the answer is called. */
+  holdBoard?(goal: string, reason: string): () => void
+  /** The findings this Goal owns, as a wrap would freeze them, and what the receipt cannot vouch for. Absent: none recorded. */
+  findings?(goal: string): Promise<{
+    readonly receipt: FindingReceipt
+    readonly gaps: readonly string[]
+    /** Publications of this Goal's findings still unsettled after posting was worked to its end: a person records them. */
+    readonly publication?: readonly string[]
+  }>
+  /**
+   * Seats an Agent on a Goal. `policy.unattended` is chosen here, from the
+   * Goal's own persisted origin — never from the request: a Goal a trigger
+   * opened seats under the unattended ceiling policy.
+   */
+  seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean; readonly requireHeld?: true }): Promise<SeatRecord>
+  /** Whether a trigger firing is being recorded into this Goal now: a wrap waits for it to land. Absent, never. */
+  /** A trigger firing still landing on this Goal: true, or the sentence that says why it waits and what clears it. */
+  intakeHeld?(goal: string): boolean | string
+  /** This Goal's frozen trigger-origin projection for its receipt, read fresh at wrap time. Absent or null: not a trigger Goal. */
+  intakeReceipt?(goal: string): Promise<NonNullable<GoalReceipt['intake']> | null>
   openLegacySeat(input: {
     goal: string
     spec: FlowSeat
@@ -54,6 +128,22 @@ export interface GoalPlanePort extends GoalOperationPort {
   }, goal: Goal): Promise<SeatRecord>
 }
 
+/** Why a Goal's board takes no change while it wraps. */
+export const WRAPPING = 'This Goal is wrapping, so its board takes no new work. Start another Goal for it.'
+
+/** Why a wrap waits: a trigger firing is being recorded into this Goal. */
+export const INTAKE_LANDING = 'A trigger is adding new work to this Goal. Review the wrap again once it has landed.'
+
+/** What `ensureTriggerGoal` is handed: the firing's key, the Goal id it reserved, and the exact Goal to make. */
+export interface TriggerGoalRequest {
+  readonly key: string
+  readonly id: string
+  readonly input: GoalCreateInput & { readonly origin: Extract<GoalOrigin, { kind: 'trigger' }> }
+}
+
+/** A Goal id a trigger reserves: the same shape `create` mints. */
+export const TRIGGER_GOAL_ID = /^goal-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
 /** Goals coordinate transactions; Team owns card and channel rules. */
 export class GoalPlane {
   readonly #assignments: Assignments
@@ -62,22 +152,47 @@ export class GoalPlane {
   #lanePreferences: (() => import('@harnessdesk/protocol').LanePreferences) | null = null
   readonly #activity = new Map<string, NonNullable<GoalView['activity']>>()
   readonly #recoveryProblems = new Map<string, string>()
+  /**
+   * Assignments and releases that could not finish and could not be set
+   * aside either, by Goal: still staged, so the Goal refuses new work. Each is
+   * tried again on the next successful board write (`retryStuck`), not only
+   * at the next launch.
+   */
+  readonly #stuck = new Map<string, { readonly operation: Exclude<GoalOperation, { kind: 'wrap' | 'carry' }>; readonly reason: string }>()
+  /** How a carry's events reach the findings ledger: its one writer's append. */
+  #appendCarry: ((records: readonly EvidenceRecord[]) => Promise<void>) | null = null
+  /** Goals a wrap has begun on, decided under this plane's queue: no trigger firing joins one. */
+  readonly #closing = new Set<string>()
+
+  private readonly memory: GoalMemorySupport
 
   constructor(
     readonly store: GoalStore,
     private readonly port: GoalPlanePort,
     readonly serial = new Serial(),
     private readonly now: () => number = Date.now,
-    private readonly citationCheck: typeof citationBlob = citationBlob,
+    memory?: GoalMemorySupport,
   ) {
+    this.memory = memory ?? new MemoryPlane(join(store.directory, 'memory-archive'), {
+      receiptOf: (goal) => {
+        try {
+          return this.store.read(goal).receipt
+        } catch {
+          return null
+        }
+      },
+      seats: { byId: (id) => this.port.seats.byId(id) },
+    }, now)
     this.#assignments = new Assignments({
       goal: (id) => { this.#dispatch(id); return this.store.read(id).goal },
       seats: () => port.seats.all(),
       known: (runtime, session) => port.known(runtime, session),
       claimable: (goal, card, session) => port.claimable(goal, card, session),
       commit: (goal, card, session) => this.#assign(goal, card, session),
+      ...(port.attachmentsObserved ? { attachmentsObserved: (session: SessionPointer) => port.attachmentsObserved!(session) } : {}),
     }, serial)
     this.#wraps = new Wraps({
+      hold: (goal) => this.port.holdBoard?.(goal, WRAPPING) ?? (() => {}),
       read: (goal) => this.#wrapInput(goal),
       stage: (goal, receipt, stamp) => this.#stageWrap(goal, receipt, stamp),
       closeSeats: (goal, ids) => this.#closeWrapSeats(goal, ids),
@@ -89,6 +204,17 @@ export class GoalPlane {
     if (this.#lanes && this.#lanes !== lanes) throw new Error('This Goal plane already has its lane allocator.')
     this.#lanes = lanes
     this.#lanePreferences = preferences
+  }
+
+  /** The findings ledger's writer, for a carry's events. Set once. */
+  attachFindings(append: (records: readonly EvidenceRecord[]) => Promise<void>): void {
+    if (this.#appendCarry && this.#appendCarry !== append) throw new Error('This Goal plane already has its findings ledger.')
+    this.#appendCarry = append
+  }
+
+  #carryPort(): CarryPort | null {
+    const append = this.#appendCarry
+    return append ? { append, finish: (operation) => this.#finishCarry(operation) } : null
   }
 
   laneFor(seat: SeatId): import('@harnessdesk/protocol').Lane | null {
@@ -113,12 +239,13 @@ export class GoalPlane {
       problem = error instanceof Error ? error.message : String(error)
     }
     const run = this.port.flow(id)
+    const executions = this.port.executions?.(id) ?? []
     const placements = board.intents.map((intent) => placeCard({
       intent,
       evidence: evidence?.cards.find((card) => card.card === intent.id),
       stranded: this.port.stranded(id, intent.id),
       holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
-      forPerson: flowRoleOf(intent, run)?.kind === 'person',
+      forPerson: flowStepOf(intent, run, executions)?.kind === 'person',
     }))
     const dependencies = this.store.list().map((one) => one.goal)
     const activity = document.restored ? null : activityOf(document.goal, {
@@ -127,7 +254,7 @@ export class GoalPlane {
       busy: problem !== null || members.some((seat) => this.port.busy(seat.session)) ||
         placements.some((one) => one.column === 'review') ||
         (evidence?.cards.some((card) => card.running.length > 0) ?? false),
-      liveFlow: run?.state === 'running' || run?.state === 'stalled',
+      liveFlow: run?.state === 'running' || run?.state === 'stalled' || (this.port.flowLive?.(id) ?? false),
       cards: board.intents,
       dependencies,
     })
@@ -140,15 +267,16 @@ export class GoalPlane {
       }),
       members, board, receipt: document.receipt,
       problem: document.restored ? 'This Goal came from a backup. Start a new Goal to continue its work.' : problem,
+      ...(document.flowReservation ? { reservation: { run: document.flowReservation.run } } : {}),
     }
   }
 
-  async refresh(id: string): Promise<void> {
+  async refresh(id: string, options: { readonly install: boolean } = { install: true }): Promise<void> {
     const view = await this.view(id)
     const previous = this.#activity.get(id)
     if (view.activity === null) this.#activity.delete(id)
     else this.#activity.set(id, view.activity)
-    this.port.changed(view)
+    this.port.changed(view, options)
     if (previous !== undefined && view.activity !== null && previous !== view.activity) {
       this.port.activity(id, previous, view.activity, view.goal.sentence)
     }
@@ -168,12 +296,36 @@ export class GoalPlane {
     }
   }
 
-  async create(input: GoalCreateInput): Promise<GoalView> {
+  /**
+   * Folds every already-saved Goal document's citation index back into the
+   * memory plane after a restart. `MemoryPlane.resolve` answers only from
+   * the in-memory registry `register` builds — it never scans the archive
+   * folder itself — so without this, a citation made and wrapped in one
+   * process would read back "The original source was not retained" in the
+   * very next one, even though nothing about it was actually lost. A
+   * document's own `restored` marker (backup-imported history, never this
+   * desk's own prior run) is what `register` is told: a Goal this desk
+   * wrote and is simply reloading is not "restored" just because the
+   * process that wrote it has since exited.
+   */
+  async hydrateMemory(): Promise<void> {
+    for (const document of this.store.list()) {
+      if (document.memory) this.memory.register(document.memory, document.restored !== undefined)
+    }
+  }
+
+  /**
+   * `pin` is the host's alone — a front-door review's resolved commit, never
+   * a wire field: every Seat of a pinned Goal is given a checkout of its own
+   * cut from exactly that commit, whatever the project has checked out.
+   */
+  async create(input: GoalCreateInput, pin: { readonly at?: string } = {}): Promise<GoalView> {
     return this.serial.run(async () => {
       const ready = this.port.ready()
       if (!ready.ok) throw new Error(ready.reason)
       const sentence = input.sentence.trim()
       if (!sentence || sentence.length > 2000) throw new Error('Write a Goal in 1 to 2000 characters.')
+      if (pin.at !== undefined && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(pin.at)) throw new Error('A Goal is pinned to one complete commit id.')
       const { root, cwd } = await this.port.confine(input)
       const at = this.now()
       const goal: Goal = {
@@ -181,6 +333,7 @@ export class GoalPlane {
         state: 'open', revision: 0, checkout: input.checkout ?? 'shared',
         dependsOn: [], origin: input.origin ?? { kind: 'person' },
         createdAt: at, updatedAt: at, receipt: null,
+        ...(pin.at !== undefined ? { at: pin.at } : {}),
       }
       const dependsOn = checkedDependencies(goal, input.dependsOn ?? [], this.store.list().map((one) => one.goal))
       await this.store.save({
@@ -194,7 +347,95 @@ export class GoalPlane {
     })
   }
 
-  update(id: string, revision: number, patch: { sentence?: string; dependsOn?: readonly string[] }): Promise<GoalView> {
+  /**
+   * A trigger's Goal, under the id its firing reserved: made once, and found
+   * again by every retry of the same firing. Host-only — no wire method
+   * reaches it. A Goal already under that id is answered only when it is
+   * exactly this firing's (trigger origin, same trigger and firing key, same
+   * project and sentence); anything else refuses rather than adopting
+   * another Goal. `create` still mints ids for people and flows.
+   */
+  ensureTriggerGoal(request: TriggerGoalRequest): Promise<GoalView> {
+    return this.serial.run(async () => {
+      const ready = this.port.ready()
+      if (!ready.ok) throw new Error(ready.reason)
+      const { input } = request
+      if (!TRIGGER_GOAL_ID.test(request.id)) throw new Error('A trigger’s Goal id is not one the desk reserves.')
+      if (input.origin.kind !== 'trigger' || input.origin.event !== request.key || !input.origin.trigger) {
+        throw new Error('A trigger’s Goal must name the trigger and the firing that opened it.')
+      }
+      const sentence = input.sentence.trim()
+      if (!sentence || sentence.length > 2000) throw new Error('Write a Goal in 1 to 2000 characters.')
+      const existing = this.store.list().find((one) => one.goal.id === request.id)
+      if (existing) {
+        const origin = existing.goal.origin
+        const { root } = await this.port.confine(input)
+        if (existing.restored || origin.kind !== 'trigger' || origin.trigger !== input.origin.trigger ||
+          origin.event !== request.key || existing.goal.root !== root || existing.goal.sentence !== sentence) {
+          throw new Error('Another Goal already holds this trigger’s reserved id. Nothing was adopted.')
+        }
+        return this.view(request.id)
+      }
+      const { root, cwd } = await this.port.confine(input)
+      const at = this.now()
+      await this.store.save({
+        version: 1,
+        goal: {
+          id: request.id, root, cwd, sentence, state: 'open', revision: 0, checkout: input.checkout ?? 'shared',
+          dependsOn: [], origin: { kind: 'trigger', trigger: input.origin.trigger, event: request.key },
+          createdAt: at, updatedAt: at, receipt: null,
+        },
+        board: { nextIntent: 1, messaging: true, intents: [], channel: [] },
+        citations: [], receipt: null, operation: null,
+      }, null)
+      const view = await this.view(request.id)
+      this.#rememberAndPublish(view)
+      return view
+    })
+  }
+
+  /**
+   * The lifecycle barrier a trigger firing and a wrap share, taken under this
+   * plane's queue: whether this open Goal takes a firing now. When it does,
+   * `claim` runs before the queue is let go — the caller marks the Goal as
+   * receiving work, which a wrap then waits on — so a wrap and a firing
+   * decide in one order and never both. A Goal a wrap has begun on, a
+   * restored one, or one no longer open takes nothing: the firing opens a new
+   * generation instead.
+   */
+  intakeClaim(id: string, claim: () => void): Promise<boolean> {
+    return this.serial.run(async () => {
+      let document: GoalDocument
+      try {
+        document = this.store.read(id)
+      } catch {
+        return false
+      }
+      if (document.restored || document.goal.state !== 'open' || document.operation?.kind === 'wrap' || this.#closing.has(id)) return false
+      claim()
+      return true
+    })
+  }
+
+  /** How a Goal stands for intake: open, closing (a wrap has begun), wrapped, or not on this desk. */
+  lifecycle(id: string): 'open' | 'closing' | 'wrapped' | 'missing' {
+    let document: GoalDocument
+    try {
+      document = this.store.read(id)
+    } catch {
+      return 'missing'
+    }
+    if (document.restored || document.goal.state === 'wrapped') return 'wrapped'
+    if (document.goal.state === 'wrapping' || this.#closing.has(id)) return 'closing'
+    return 'open'
+  }
+
+  /** Whether seating on this Goal is unattended: read from the Goal's own persisted origin, never from a request. */
+  unattended(id: string): boolean {
+    return this.store.read(id).goal.origin.kind === 'trigger'
+  }
+
+  update(id: string, revision: number, patch: { sentence?: string; dependsOn?: readonly string[]; findingPublication?: boolean }): Promise<GoalView> {
     return this.serial.run(async () => {
       const document = this.store.read(id)
       this.#editable(document)
@@ -206,8 +447,12 @@ export class GoalPlane {
       if (!sentence || sentence.length > 2000) throw new Error('Write a Goal in 1 to 2000 characters.')
       const dependsOn = checkedDependencies(document.goal, patch.dependsOn ?? document.goal.dependsOn,
         this.store.list().map((one) => one.goal))
+      if (patch.findingPublication !== undefined && typeof patch.findingPublication !== 'boolean') {
+        throw new Error('Say whether findings are posted to this Goal’s pull request.')
+      }
       await this.store.save({ ...document, goal: {
         ...document.goal, sentence, dependsOn, revision: revision + 1, updatedAt: this.now(),
+        ...(patch.findingPublication !== undefined ? { findingPublication: patch.findingPublication } : {}),
       } }, revision)
       const view = await this.view(id)
       this.#rememberAndPublish(view)
@@ -217,9 +462,22 @@ export class GoalPlane {
 
   dependenciesReady(id: string): boolean {
     const documents = this.store.list()
-    return this.store.read(id).goal.dependsOn.every((dependency) =>
-      documents.find((one) => one.goal.id === dependency)?.goal.state === 'wrapped',
-    )
+    const document = this.store.read(id)
+    return document.goal.dependsOn.every((dependency) => {
+      if (documents.find((one) => one.goal.id === dependency)?.goal.state === 'wrapped') return true
+      // Missing, or not yet wrapped: an ordinary dependency stays blocked.
+      // Only the one edge a citation itself created — and only while its
+      // retention is genuinely, locally verified, never merely restored —
+      // may still count as satisfied. Checked synchronously and entirely
+      // from what `cite` already recorded: no caller here can be made to
+      // await an archive read just to learn whether a Goal may dispatch.
+      const source = document.memory?.satisfiedCitationSources.find((one) => one.goal === dependency)
+      if (!source) return false
+      const citation = document.memory?.citations.find(
+        (one) => one.citation.goal === dependency && one.citation.receipt === source.receipt,
+      )?.citation
+      return citation !== undefined && !this.memory.isKnownRestored(citation)
+    })
   }
 
   canDispatch(id: string): { ok: true } | { ok: false; reason: string } {
@@ -245,7 +503,7 @@ export class GoalPlane {
       seat.session.runtime === session.runtime && seat.session.sessionId === session.sessionId).map((seat) => seat.id)
     const operation = { kind: 'assignment', id: randomUUID(), goal, card, opening, close } as const
     await this.#stage(document, operation)
-    await recoverOperation(operation, this.port)
+    await this.#complete(operation)
     const kept = this.port.seats.byId(opening.id)
     if (!kept) throw new Error('The assigned Seat could not be read back. Finish recovery before starting work.')
     await this.refresh(goal)
@@ -262,7 +520,7 @@ export class GoalPlane {
       if (this.port.busy(record.session)) throw new Error("Stop this Seat's current turn before releasing it")
       const operation = { kind: 'release', id: randomUUID(), goal, seat: id, reason: 'released' } as const
       await this.#stage(document, operation)
-      await recoverOperation(operation, this.port)
+      await this.#complete(operation)
       await this.refresh(goal)
     })
   }
@@ -274,11 +532,137 @@ export class GoalPlane {
 
   async wrap(goal: string, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
     await this.port.settledFor(goal)
-    return this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
+    /*
+     * Validate before touching anything a refusal must leave alone. A stamp
+     * from `preview` can only ever have been taken while flow dispatch read
+     * as not live — `previewWrap` itself refuses otherwise — so checking as
+     * if it were already stopped is exactly what redoing the same preview
+     * would show once it is: every other input still has to match untouched.
+     * A wrap stale for any other reason — the sentence changed, a card
+     * moved — is refused right here, and this run was never stopped for it.
+     */
+    const approved = structuredClone(choices)
+    const input = await this.#wrapInput(goal)
+    const ready = previewWrap({ ...input, flow: false }, approved)
+    if (ready.stamp !== stamp) throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+    // Citations retained first: it takes this plane's queue itself, so never inside the barrier below.
+    await this.#resolveCitationsBeforeWrap(goal)
+    /* The lifecycle barrier a trigger firing shares: decided under this
+       plane's queue, so a firing either landed first (and this wrap waits for
+       it) or finds the Goal closing and opens a new generation — never both. */
+    await this.serial.run(async () => {
+      const landing = this.port.intakeHeld?.(goal)
+      if (landing) throw new Error(typeof landing === 'string' ? landing : INTAKE_LANDING)
+      /* Checked again here, under the barrier, before anything is stopped:
+         the check above and the citations' I/O leave a window in which a
+         firing may have landed and revived this Goal's run. A run live now
+         that was not then — or any other change — refuses the wrap with the
+         run untouched, never stopped for a wrap that cannot commit. */
+      const now = await this.#wrapInput(goal)
+      if ((now.flow && !input.flow) || previewWrap({ ...now, flow: false }, approved).stamp !== stamp) {
+        throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+      }
+      this.#closing.add(goal)
+    })
+    try {
+      // Only now, with the wrap otherwise certain to proceed: the barrier — no
+      // round opens and no Seat is sent work once wrapping has begun.
+      await this.port.stopFlows?.(goal)
+      return await this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
+    } finally {
+      this.#closing.delete(goal)
+    }
+  }
+
+  /**
+   * Best-effort retention for any citation on this Goal that was never
+   * captured — a document from before this phase shipped, most of all. The
+   * citation itself is never rewritten, only `memory` gains an entry for it;
+   * a source no longer available is left exactly as unresolved as it already
+   * was; a wrapped receipt this pass could not enrich still freezes whatever
+   * `document.citations` already says, honestly.
+   */
+  async #resolveCitationsBeforeWrap(goal: string): Promise<void> {
+    const document = this.store.read(goal)
+    if (document.restored || document.goal.state !== 'open') return
+    const known = new Set((document.memory?.citations ?? []).map((one) => JSON.stringify(one.citation)))
+    // Only memory files are ever retained; any other cited document stays phase 5's.
+    const missing = document.citations.filter((one) => isMemoryPath(one.path) && !known.has(JSON.stringify(one)))
+    if (missing.length === 0) return
+    const captured: { citation: GoalCitation; archive: string }[] = []
+    for (const citation of missing) {
+      try {
+        captured.push({ citation, archive: await this.memory.capture(citation) })
+      } catch {
+        // Best-effort: a source that can no longer be captured stays unresolved rather than blocking the wrap.
+      }
+    }
+    if (captured.length === 0) return
+    await this.serial.run(async () => {
+      const current = this.store.read(goal)
+      if (current.restored || current.goal.state !== 'open') return
+      const knownNow = new Set((current.memory?.citations ?? []).map((one) => JSON.stringify(one.citation)))
+      const fresh = captured.filter((one) => !knownNow.has(JSON.stringify(one.citation)))
+      if (fresh.length === 0) return
+      const memory: GoalMemoryIndex = {
+        citations: [...(current.memory?.citations ?? []), ...fresh],
+        satisfiedCitationSources: current.memory?.satisfiedCitationSources ?? [],
+      }
+      await this.store.save({ ...current, memory, goal: { ...current.goal, revision: current.goal.revision + 1, updatedAt: this.now() } }, current.goal.revision)
+      this.memory.register(memory)
+    })
   }
 
   async receipt(goal: string): Promise<GoalReceipt | null> {
     return this.store.read(goal).receipt
+  }
+
+  /**
+   * Opens a citation this Goal (or one it references) already made — Task 6's
+   * own front door onto Task 2's retention. Delegates straight to the memory
+   * plane's own resolution, which is what actually reads the retained
+   * snapshot and reports source/revision availability; this method exists so
+   * `methods/memory.ts` never needs a second reference to that private plane.
+   */
+  resolveMemory(citation: GoalCitation): Promise<import('@harnessdesk/protocol').MemoryResolution> {
+    return this.memory.resolve(citation)
+  }
+
+  /**
+   * Task 6's own backup export: every loaded Goal document's own `memory`
+   * field, exactly as the store already holds it — never a live re-read
+   * through the registry, and never a scan of the archive folder.
+   */
+  memoryDocuments(): readonly { readonly goal: string; readonly memory: GoalMemoryIndex }[] {
+    return this.store.list().flatMap((document) => (document.memory ? [{ goal: document.goal.id, memory: document.memory }] : []))
+  }
+
+  /** Backup export's read-through onto one retained object, by its own content-addressed key. */
+  readMemoryObject(key: string): Promise<string | null> {
+    return this.memory.readRaw(key)
+  }
+
+  /** Backup import's write-through for one already-captured snapshot, refiled under its own content hash. */
+  writeMemoryObject(snapshot: import('@harnessdesk/protocol').MemorySnapshot): Promise<string> {
+    return this.memory.writeSnapshot(snapshot)
+  }
+
+  /**
+   * Folds an imported index into the live registry, marked restored — never
+   * rewrites the Goal document itself, which is why this makes a citation
+   * resolvable immediately after a backup import rather than only after the
+   * next restart's `hydrateMemory` sweep. `false` when no such Goal exists
+   * locally to attach it to; the caller counts that as refused.
+   */
+  registerRestoredMemory(goal: string, index: GoalMemoryIndex): boolean {
+    if (!this.store.list().some((one) => one.goal.id === goal)) return false
+    this.memory.register(index, true)
+    return true
+  }
+
+  /** Backup import's own duplicate check: whether this exact tuple is already registered under this exact archive key. */
+  memoryRegistered(citation: GoalCitation, archive: string): boolean {
+    return this.memory.isRegistered(citation, archive)
   }
 
   cite(goal: string, citation: GoalCitation): Promise<void> {
@@ -292,7 +676,21 @@ export class GoalPlane {
       if (source.goal.state !== 'wrapped' || source.receipt?.id !== citation.receipt) {
         throw new Error('Choose an existing wrapped receipt.')
       }
-      await this.citationCheck(target.goal.root, citation.path, citation.at)
+      // Retention precedes the Goal mutation: bytes, receipt and Seat context
+      // land durably in the archive before anything here ever references
+      // them, so a failure past this point leaves at most an unreferenced
+      // archive object — never a citation pointing at nothing. This await is
+      // also this method's one race window: another change can land on
+      // `goal` while it is pending, which the re-read and re-check right
+      // after it exist to catch.
+      //
+      // Only a project memory file (`.harnessdesk/memory/<slug>.md`) is
+      // retained — phase 12's decision 1. Any other committed document is
+      // cited exactly as phase 5 cited it: checked at its revision, never
+      // retained, so its edge waits on its source like any other.
+      const archive = isMemoryPath(citation.path)
+        ? await this.memory.capture(citation)
+        : (await citationBlob(target.goal.root, citation.path, citation.at), null)
       target = this.store.read(goal)
       this.#editable(target)
       const currentSource = this.store.read(citation.goal)
@@ -303,19 +701,89 @@ export class GoalPlane {
       const dependsOn = checkedDependencies(target.goal,
         target.goal.dependsOn.includes(citation.goal) ? target.goal.dependsOn : [...target.goal.dependsOn, citation.goal],
         this.store.list().map((one) => one.goal))
+      const memory: GoalMemoryIndex | undefined = archive === null
+        ? target.memory
+        : {
+            citations: [...(target.memory?.citations ?? []), { citation: structuredClone(citation), archive }],
+            satisfiedCitationSources: [
+              ...(target.memory?.satisfiedCitationSources ?? []).filter((one) => one.goal !== citation.goal),
+              { goal: citation.goal, receipt: citation.receipt },
+            ],
+          }
       await this.store.save({
         ...target,
         citations: [...target.citations, structuredClone(citation)],
+        ...(memory ? { memory } : {}),
         goal: { ...target.goal, dependsOn, revision: target.goal.revision + 1, updatedAt: this.now() },
       }, target.goal.revision)
+      // Registered only now, after the durable Goal mutation committed: a
+      // failed compare-and-swap above must never make this citation look
+      // resolvable when no Goal document actually references it.
+      if (archive !== null && memory) this.memory.register(memory)
     })
+  }
+
+  /**
+   * A person carries unresolved findings from a wrapped receipt into this
+   * open Goal. Inside this plane's queue: the target is checked against the
+   * revision the person saw, the source against the receipt they chose, the
+   * project against both, and the new dependency against the graph; then
+   * `prepare` — the findings ledger's writer, under its own queue — builds
+   * the carry events; then the dependency and the events are journaled as one
+   * operation before either is applied, and applied once each.
+   */
+  carryFindings(
+    input: CarryFindingsInput,
+    prepare: (target: GoalDocument, source: GoalDocument) => Promise<readonly EvidenceRecord[]>,
+  ): Promise<void> {
+    return this.serial.run(async () => {
+      const target = this.store.read(input.goal)
+      this.#editable(target)
+      if (target.goal.revision !== input.revision) throw new Error('This Goal changed. Read it again before carrying findings into it.')
+      let source: GoalDocument
+      try {
+        source = this.store.read(input.source)
+      } catch {
+        throw new Error('Choose an existing wrapped receipt.')
+      }
+      if (source.goal.id === target.goal.id) throw new Error('A Goal cannot carry findings into itself.')
+      if (source.restored) throw new Error('That receipt came from a backup, so its findings are history. Ask for a new review instead.')
+      if (source.goal.root !== target.goal.root) throw new Error('Findings can only be carried within one project.')
+      if (source.goal.state !== 'wrapped' || source.receipt?.id !== input.receipt) throw new Error('Choose an existing wrapped receipt.')
+      const dependsOn = checkedDependencies(target.goal,
+        target.goal.dependsOn.includes(source.goal.id) ? target.goal.dependsOn : [...target.goal.dependsOn, source.goal.id],
+        this.store.list().map((one) => one.goal))
+      const records = await prepare(target, source)
+      const operation: Extract<GoalOperation, { kind: 'carry' }> = {
+        kind: 'carry', id: randomUUID(), goal: target.goal.id, source: source.goal.id, receipt: input.receipt,
+        dependsOn, records: structuredClone(records),
+      }
+      await this.#stage(target, operation)
+      await recoverOperation(operation, this.port, this.#carryPort())
+      await this.refresh(target.goal.id)
+    })
+  }
+
+  async #finishCarry(operation: Extract<GoalOperation, { kind: 'carry' }>): Promise<void> {
+    const document = this.store.read(operation.goal)
+    if (document.operation === null) return
+    if (document.operation.id !== operation.id) throw new Error('Another Goal operation replaced this carry. Finish recovery first.')
+    await this.store.save({
+      ...document,
+      operation: null,
+      goal: { ...document.goal, dependsOn: operation.dependsOn, revision: document.goal.revision + 1, updatedAt: this.now() },
+    }, document.goal.revision)
   }
 
   seat(input: GoalSeatRequest): Promise<SeatRecord> {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
       const goal = this.store.read(input.goal).goal
-      const record = await this.#withLane(goal, input.isolate ?? goal.checkout === 'isolated', (where) => this.port.seatAgent(input, where))
+      // Unattended from the Goal's own origin; held-only from the run that asked, which read it from its own stored policy.
+      const policy = { unattended: goal.origin.kind === 'trigger', ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
+      // A Goal pinned to a commit seats nobody in the project's own checkout: each Seat gets its own, cut from that commit.
+      const isolate = goal.at !== undefined || (input.isolate ?? goal.checkout === 'isolated')
+      const record = await this.#withLane(goal, isolate, (where) => this.port.seatAgent(input, where, policy))
       if (input.card !== undefined) {
         try {
           await this.port.claim(input.goal, input.card, record)
@@ -327,6 +795,65 @@ export class GoalPlane {
       await this.refresh(input.goal)
       return record
     })
+  }
+
+  /**
+   * An existing empty Goal, reserved for one front-door run inside this
+   * plane's queue — the one card and Seat changes take — against the
+   * revision the preview saw. The project is checked again here. The
+   * reservation and the revision it advances are one document write; two
+   * starts on one revision cannot both win, and a lost answer retried by the
+   * same run is answered as done.
+   */
+  async reserveEmptyFlowGoal(input: { goal: string; revision: number; run: string; operation: string; root: string }): Promise<GoalView> {
+    await reserveEmpty({
+      serial: (operation) => this.serial.run(operation),
+      read: async () => {
+        const document = this.store.read(input.goal)
+        if (document.goal.root !== input.root) throw new Error('This Goal belongs to another project. Start the shape from that project.')
+        const dispatch = this.canDispatch(input.goal)
+        return {
+          revision: document.goal.revision,
+          open: !document.restored && document.goal.state === 'open',
+          ready: dispatch.ok && document.operation === null,
+          // The board's one writer's copy and the stored one: a card in either is work.
+          cards: Math.max((this.port.cards?.(input.goal) ?? []).length, document.board.intents.length),
+          seats: this.port.seats.all().filter((seat) => seat.board === input.goal && !seat.closed && !seat.restored).length,
+          reservation: document.flowReservation ?? null,
+        }
+      },
+      commit: async ({ run, operation, revision }) => {
+        const document = this.store.read(input.goal)
+        await this.store.save({
+          ...document,
+          flowReservation: { run, operation },
+          goal: { ...document.goal, revision: revision + 1, updatedAt: this.now() },
+        }, revision)
+      },
+    }, { run: input.run, operation: input.operation, revision: input.revision })
+    const view = await this.view(input.goal)
+    this.#rememberAndPublish(view)
+    return view
+  }
+
+  /**
+   * Lets go of a front-door reservation, in the same queue that made it:
+   * only the run and operation that hold it can, and the Goal's revision
+   * advances with it, so a preview taken while it was reserved is stale.
+   * Anyone else's release, or one already done, changes nothing.
+   */
+  async releaseFlowReservation(input: { readonly goal: string; readonly run: string; readonly operation: string }): Promise<void> {
+    const released = await this.serial.run(async () => {
+      const document = this.store.read(input.goal)
+      const held = document.flowReservation
+      if (held?.run !== input.run || held.operation !== input.operation) return false
+      const { flowReservation: _released, ...rest } = document
+      await this.store.save({ ...rest, goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: this.now() } }, document.goal.revision)
+      return true
+    })
+    if (!released) return
+    const view = await this.view(input.goal)
+    this.#rememberAndPublish(view)
   }
 
   openLegacySeat(input: Parameters<GoalPlanePort['openLegacySeat']>[0]): Promise<SeatRecord> {
@@ -344,16 +871,130 @@ export class GoalPlane {
       for (const document of this.store.list()) {
         if (document.restored || !document.operation) continue
         try {
-          await recoverOperation(document.operation, this.port)
+          await recoverOperation(document.operation, this.port, this.#carryPort())
           this.#recoveryProblems.delete(document.goal.id)
         } catch (error) {
-          if (document.operation.kind !== 'wrap') throw error
-          this.#recoveryProblems.set(document.goal.id,
-            `Wrapping could not finish: ${error instanceof Error ? error.message : String(error)}. Restart to retry recovery.`)
+          const reason = error instanceof Error ? error.message : String(error)
+          if (document.operation.kind === 'carry') {
+            this.#recoveryProblems.set(document.goal.id, `Carrying findings could not finish: ${reason}. Restart to retry recovery.`)
+            continue
+          }
+          if (document.operation.kind === 'wrap') {
+            this.#recoveryProblems.set(document.goal.id, `Wrapping could not finish: ${reason}. Restart to retry recovery.`)
+            continue
+          }
+          /* An assignment or a release that cannot finish is set aside rather
+             than retried on every launch, where a refusal that will never
+             change — a card the Goal does not hold — failed the desk's start
+             each time. Either way the Goal says what happened. */
+          const aside = await this.#setAside(document.operation, reason)
+          this.#recoveryProblems.set(document.goal.id, aside.sentence)
+          if (!aside.settled) this.#stuck.set(document.goal.id, { operation: document.operation, reason })
         }
       }
       if (this.#lanes) await this.#lanes.recover(this.port.seats.all())
     })
+  }
+
+  /**
+   * Runs a staged assignment or release to its end, or sets it aside: an
+   * operation left staged refuses every later save of its Goal, so a refusal
+   * must never leave one behind. Rethrows the refusal once set aside.
+   */
+  async #complete(operation: Exclude<GoalOperation, { kind: 'wrap' | 'carry' }>): Promise<void> {
+    try {
+      await recoverOperation(operation, this.port)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      const aside = await this.#setAside(operation, reason)
+      // Set aside, the refusal says it all; stuck, the Goal says so until a retry or a launch clears it.
+      if (!aside.settled) {
+        this.#recoveryProblems.set(operation.goal, aside.sentence)
+        this.#stuck.set(operation.goal, { operation, reason })
+      }
+      await this.refresh(operation.goal).catch(() => {})
+      throw error
+    }
+    // The Goal took an assignment or a release: a note about an earlier one set aside no longer applies.
+    this.#recoveryProblems.delete(operation.goal)
+  }
+
+  /**
+   * Tries again to set aside every operation that could not be set aside,
+   * inside the Goal queue: called once a board write has landed, which is the
+   * sign that what refused the set-aside may be gone. One that is set aside
+   * now lets its Goal take work again, and its Goal says what happened; one
+   * the document no longer holds (a launch finished it) is forgotten; one
+   * still refused stays, and says why. Cheap when nothing is stuck.
+   */
+  /** Whether this Goal holds an operation that could not be set aside, and is waiting on `retryStuck`. */
+  isStuck(goal: string): boolean {
+    return this.#stuck.has(goal)
+  }
+
+  retryStuck(): Promise<void> {
+    if (this.#stuck.size === 0) return Promise.resolve()
+    /* One retry at a time, queued or running. Setting aside writes the board
+       itself (releasing a claim), and that write asks for a retry: without
+       this, a set-aside that keeps failing past its release would queue the
+       next attempt from inside the last, for ever. */
+    if (this.#retrying) return this.#retrying
+    const retry = this.serial.run(async () => {
+      for (const [goal, { operation, reason }] of [...this.#stuck]) {
+        let staged: GoalOperation | null
+        try {
+          const document = this.store.read(goal)
+          staged = document.restored ? null : document.operation
+        } catch {
+          staged = null
+        }
+        if (staged?.id !== operation.id) {
+          this.#stuck.delete(goal)
+          continue
+        }
+        const aside = await this.#setAside(operation, reason)
+        this.#recoveryProblems.set(goal, aside.sentence)
+        if (aside.settled) this.#stuck.delete(goal)
+        await this.refresh(goal).catch(() => {})
+      }
+    }).finally(() => { if (this.#retrying === retry) this.#retrying = null })
+    this.#retrying = retry
+    return retry
+  }
+
+  #retrying: Promise<void> | null = null
+
+  /**
+   * Sets aside an assignment or a release that could not finish, and answers
+   * the sentence the Goal shows for it. An assignment is undone: the Seat it
+   * opened is closed and any claim it took released, so the card can be
+   * assigned again. A release is closed out as far as it got. Should even
+   * that fail, the operation stays (`settled: false`), the Goal refuses new
+   * work saying so, and the next launch tries again — the desk still starts.
+   */
+  async #setAside(operation: Exclude<GoalOperation, { kind: 'wrap' | 'carry' }>, reason: string): Promise<{ settled: boolean; sentence: string }> {
+    const what = operation.kind === 'assignment'
+      ? `Assigning ${operation.card === null ? 'a Seat' : `card ${operation.card}`}`
+      : 'Releasing a Seat'
+    try {
+      if (operation.kind === 'assignment') {
+        const seat = this.port.seats.byId(operation.opening.id)
+        if (seat && !seat.closed && !seat.restored) await this.port.closeId(seat.id, 'released')
+        if (seat) await this.port.releaseClaim(operation.goal, seat.id)
+      }
+      await this.port.finish(operation.goal, operation.id)
+    } catch (error) {
+      return {
+        settled: false,
+        sentence: `${what} could not finish: ${reason}. Setting it aside failed too (${error instanceof Error ? error.message : String(error)}). It is tried again the next time a board changes, and at the next launch.`,
+      }
+    }
+    return {
+      settled: true,
+      sentence: operation.kind === 'assignment'
+        ? `${what} could not finish: ${reason}. The Seat it opened was closed; assign the card again.`
+        : `${what} could not finish: ${reason}. It was set aside; release the Seat again if it is still kept.`,
+    }
   }
 
   async #wrapInput(id: string): Promise<WrapInput> {
@@ -368,24 +1009,35 @@ export class GoalPlane {
     const folders = [...new Set([document.goal.cwd, ...seats.map((seat) => seat.checkout.cwd), ...lanes.map((lane) => lane.cwd)].filter(Boolean))].sort()
     const revisions = await Promise.all(folders.map(async (cwd) => ({ cwd, ...await this.port.revision(cwd) })))
     const revisionByCwd = new Map(revisions.map((revision) => [revision.cwd, revision]))
-    const evidenceIds = [...await this.port.evidenceIds(id, document.goal.root)].sort()
+    const evidenceRefs = [...await this.port.evidenceIds(id, document.goal.root)]
+      .sort((left, right) => left.id.localeCompare(right.id))
+    const findings = this.port.findings ? await this.port.findings(id) : null
+    const intake = this.port.intakeReceipt ? await this.port.intakeReceipt(id) : null
     const gaps = [
       ...answersRead.flatMap((read) => read.gaps),
-      ...(evidenceIds.length === 0 ? ['No evidence was recorded for this Goal.'] : []),
+      ...(findings?.gaps ?? []),
+      ...(findings?.publication ?? []),
+      ...(evidenceRefs.length === 0 ? ['No evidence was recorded for this Goal.'] : []),
       ...revisions.filter((revision) => revision.head === null || revision.dirty === null)
         .map((revision) => `Revision state was unavailable for ${revision.cwd}.`),
     ]
     return structuredClone({
       goal: document.goal,
-      cards: document.board.intents.map((card) => ({ id: card.id, state: card.state })),
+      cards: (this.port.cards?.(id) ?? document.board.intents).map((card) => ({ id: card.id, state: card.state })),
       dependencies: this.store.list().map((one) => ({ id: one.goal.id, state: one.goal.state })),
       busy: goalMembers(document, this.port.seats.all()).some((seat) => this.port.busy(seat.session)) ||
         evidence.cards.some((card) => card.running.length > 0),
-      flow: ['running', 'stalled'].includes(this.port.flow(id)?.state ?? ''),
+      flow: ['running', 'stalled'].includes(this.port.flow(id)?.state ?? '') || (this.port.flowLive?.(id) ?? false),
       pending: document.board.channel.some((entry) => entry.kind === 'message' && ['queued', 'held'].includes(entry.state)) ||
         goalMembers(document, this.port.seats.all()).some((seat) => this.port.waits(seat.session)),
       seats: seats.map((seat) => seat.id),
-      evidence: evidenceIds,
+      // Named here, once, while the Seat is still full — not derived later
+      // from `GoalView.members`, which answers `[]` the moment this Goal
+      // wraps (see `membersOf`). A receipt read after that has nowhere else
+      // to learn a Seat's name from.
+      members: seats.map((seat) => ({ seat: seat.id, agent: seat.agent?.name.trim() || null, seatLabel: seat.seatLabel })),
+      evidence: evidenceRefs.map((ref) => ref.id),
+      evidenceSeats: evidenceRefs,
       answers: answersRead.flatMap((read) => read.answer ? [read.answer] : []),
       lanes: lanes.map((lane) => ({
         lane: lane.id,
@@ -396,12 +1048,17 @@ export class GoalPlane {
       citations: [...document.citations].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
       gaps: [...new Set(gaps)].sort(),
       revisions,
+      ...(findings ? { findings: findings.receipt } : {}),
+      ...(findings?.publication && findings.publication.length > 0 ? { publication: [...findings.publication].sort() } : {}),
+      ...(intake ? { intake } : {}),
     } satisfies WrapInput)
   }
 
   async #stageWrap(goal: string, receipt: GoalReceipt, stamp: string): Promise<void> {
     const document = this.store.read(goal)
     this.#editable(document)
+    const landing = this.port.intakeHeld?.(goal)
+    if (landing) throw new Error(typeof landing === 'string' ? landing : INTAKE_LANDING)
     const operation = { kind: 'wrap', id: randomUUID(), goal, stamp, receipt } as const
     await this.store.save({
       ...document,

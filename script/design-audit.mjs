@@ -17,14 +17,15 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 import { SECTIONS } from './design-sections.mjs'
 import { resolveTokens } from './design-tokens.mjs'
-import { attributes, slotOffenders } from './design-usage.mjs'
+import { attributes, footerOffenders, slotOffenders } from './design-usage.mjs'
 import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 import { withoutComments } from './lib/without-comments.mjs'
 import { repositoryFiles } from './lib/repository-files.mjs'
-import { overlayViolations } from './ui-architecture.mjs'
+import { overlayViolations, utilityBase } from './ui-architecture.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -47,7 +48,7 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * that has reached the floor is an ordinary category, and holding it at a
  * ceiling of nought would say the same thing in a more complicated way.
  */
-const BURN_DOWN = new Set(['patternClass', 'screenAppearance'])
+const BURN_DOWN = new Set(['patternClass', 'screenAppearance', 'singleAreaPrimitive', 'uppercaseLabel'])
 
 /**
  * Everywhere UI is written, not just the screens.
@@ -1730,8 +1731,18 @@ const findings = {
   rawWeight: [],
   patternClass: [],
   screenAppearance: [],
+  singleAreaPrimitive: [],
+  uppercaseLabel: [],
   screenUnclassified: [],
   visualKindUnion: [],
+  /**
+   * Utilities that look like an appearance family this rule has not been
+   * taught — `caret-red-500`, `from-black` — reported only under `--verbose`,
+   * never counted. Deliberately outside `SECTIONS`: adding a family here
+   * does not tighten anything, it is a hint for whoever next extends
+   * `screenUtilityDeclarationOf`, not a second strict category.
+   */
+  unmappedScreenUtility: [],
 }
 
 /**
@@ -1756,28 +1767,222 @@ export const visualKindUnionsOf = (source) => {
 }
 
 /**
- * The screen family a source belongs to.
- *
- * Most screens own their basename. The Git surface is deliberately spread
- * across several source files, so its recorded family prefixes collapse to
- * one area. A new multi-file family has to be named here; an unknown screen
- * must never become `null`, because `null` used to exempt every non-Git
- * consumer from the single-area pattern ledger.
+ * Every value import in one source: named (`{ X, Y as Z }`), default (`X`),
+ * namespace (`* as X`), or default-and-named together (`X, { Y }`) — never a
+ * whole-statement `import type ...`, and never a `type X` specifier inside an
+ * otherwise-value import. A type import names a shape, not a use:
+ * `CommandPalette.tsx` and `Sidebar.tsx` both `import type { Section } from
+ * './Settings'`, and counting that as importing Settings.tsx made a pattern
+ * used only by Settings.tsx read as shared with whichever screen merely
+ * borrowed its type (#914 review, P2). Shared by the screen-family closure
+ * below and `designImportsOf` further down, so both read imports the same
+ * way.
  */
-export const screenAreaOf = (file) => {
+export const importsIn = (code) => {
+  const found = []
+  const IMPORT = /\bimport\s+(?!type(?:\s|\{))([\s\S]*?)\s*from\s*['"]([^'"]+)['"]/g
+  for (const match of code.matchAll(IMPORT)) {
+    const clause = match[1].trim()
+    const spec = match[2]
+    const bindings = []
+    const braceStart = clause.indexOf('{')
+    const before = (braceStart === -1 ? clause : clause.slice(0, braceStart)).replace(/,\s*$/, '').trim()
+    for (const part of before.split(',').map((piece) => piece.trim()).filter(Boolean)) {
+      const namespaceImport = /^\*\s+as\s+(\w+)$/.exec(part)
+      if (namespaceImport) bindings.push({ kind: 'namespace', localBinding: namespaceImport[1] })
+      else if (/^\w+$/.test(part)) bindings.push({ kind: 'default', name: 'default', localBinding: part })
+    }
+    if (braceStart !== -1) {
+      const named = clause.slice(braceStart + 1, clause.lastIndexOf('}'))
+      for (const part of named.split(',')) {
+        const trimmed = part.trim()
+        if (!trimmed || /^type\s+/.test(trimmed)) continue
+        const words = trimmed.split(/\s+as\s+/)
+        const name = words[0]?.trim()
+        const localBinding = words.at(-1)?.trim()
+        if (name && localBinding) bindings.push({ kind: 'named', name, localBinding })
+      }
+    }
+    if (bindings.length > 0) found.push({ spec, bindings })
+  }
+  return found
+}
+
+/** A screen's own stylesheet, as opposed to the system's. Moved up from
+ * further down this file so the closure below, which needs it to find the
+ * screen files in the first place, can run before anything asks
+ * `screenAreaOf` a question. */
+const isScreenSheet = (file) => !/[\\/]design[\\/]/.test(file) && /[\\/](components|slots|panels)[\\/]/.test(file)
+
+/**
+ * The pane registry mounts screens; it is not a screen family of its own.
+ * `app/` (the app shell, `App.tsx`) is the same shape one level up: it mounts
+ * whole screens too, and is not a screen source itself (`isScreenSheet`
+ * excludes it). Neither is skipped as an importer any more — a file mounted
+ * by one of these *and* by a real screen is genuinely reachable from two
+ * different places, and silently dropping the registry/app edge folded that
+ * file into the screen's family anyway (#925 review round 2, P1: Approvals
+ * is drawn in the registry's own session view, composed beside Conversation,
+ * *and* docked by TeamRoomPane — two places, not one). What is skipped is
+ * treating a *bare* registry/app mount — nothing else imports the file — as
+ * meaning anything: GitPane's only importer is the registry, and a view
+ * mounted nowhere else is still exactly one screen's own. See
+ * `resolveFamilies` and `singleScreenAreaOf` below for where the distinction
+ * is made.
+ */
+const PANE_REGISTRIES = new Set(['panels/builtins.tsx'])
+const isPaneRegistry = (file) => PANE_REGISTRIES.has(path.relative(UI_SRC, file).split(path.sep).join('/'))
+const isAppMount = (file) => /^app\//.test(path.relative(UI_SRC, file).split(path.sep).join('/'))
+
+/**
+ * A screen file's own name, lowercased — the family every screen falls back
+ * to when nothing hosts it, or when what hosts it does not agree on one.
+ */
+const defaultAreaOf = (file) => {
   const relative = path.relative(UI_SRC, file).split(path.sep).join('/')
-  if (/^components\/(?:Git|Branch|Changes|Details(?:\.|$)|NewWorktree)/.test(relative)) return 'git'
   const match = /^(?:components|slots|panels)\/([^/]+)\.tsx$/.exec(relative)
   return match?.[1]?.toLowerCase() ?? null
 }
 
-/** One owning screen area, or `null` when a pattern is genuinely cross-area. */
+/**
+ * Every screen or `app/` file that value-imports a screen file — the graph
+ * the closure below walks, and the same graph `singleScreenAreaOf` walks one
+ * hop at a time for a pattern's own consumers. The registry (`panels/
+ * builtins.tsx`) is itself a screen source (it lives under `panels/`) and is
+ * scanned like any other; `app/App.tsx` is added alongside it because
+ * `isScreenSheet` would otherwise never see it at all.
+ */
+const screenSources = tsxFiles().filter((candidate) => isScreenSheet(candidate))
+const appSources = tsxFiles().filter((candidate) => isAppMount(candidate))
+export const importersByFile = new Map()
+for (const importer of [...screenSources, ...appSources]) {
+  for (const { spec, bindings } of importsIn(codeOf(importer))) {
+    if (bindings.length === 0) continue
+    if (!spec.startsWith('.') && !spec.startsWith('@/')) continue
+    const base = spec.startsWith('@/') ? path.join(UI_SRC, spec.slice(2)) : path.resolve(path.dirname(importer), spec)
+    const imported = base.endsWith('.tsx') ? base : `${base}.tsx`
+    if (!tracked.has(imported) || !isScreenSheet(imported)) continue
+    importersByFile.set(imported, [...(importersByFile.get(imported) ?? []), importer])
+  }
+}
+
+/**
+ * A handful of screens are named roots: not because their file is special,
+ * but because they are the one screen a reader would actually call this
+ * family, and a closure has to start somewhere.
+ *
+ * Deriving every other screen's family from the import graph, rather than
+ * asserting membership by hand, is what caught two wrong assumptions the
+ * first pass made: Trajectory is not reachable from Conversation.tsx at
+ * all — its one real importer is Details.tsx, which is itself unhosted, so
+ * Trajectory (and Activity.tsx and the inspector's own Agents.tsx, Details's
+ * other two children) fold into `details`, not `conversation`. And Branch/
+ * Changes/NewWorktree were never Git's: `BranchSwitcher.tsx`'s one real
+ * importer is Conversation.tsx (a branch switcher lives in the transcript's
+ * own header), and `ChangesReview.tsx`/`NewWorktree.tsx` are reached only
+ * from `app/App.tsx`. `GitDialogs`, `GitAskAgent`, `GitGraph`,
+ * `GitWorktrees` and `CommitProvenance` are GitPane's real children and
+ * close onto `git` correctly. `LaneSettings`, `TriggerSettings` and
+ * `Library.tsx` are each imported only by Settings.tsx (directly — Library
+ * is not reached through ProjectPage or any other intermediary) and close
+ * onto `settings` the same way.
+ */
+export const NAMED_ROOTS = new Map([
+  [path.join(UI_SRC, 'components', 'Conversation.tsx'), 'conversation'],
+  [path.join(UI_SRC, 'components', 'Settings.tsx'), 'settings'],
+  [path.join(UI_SRC, 'components', 'TeamRoomPane.tsx'), 'room'],
+  [path.join(UI_SRC, 'components', 'TeamBoardPane.tsx'), 'room'],
+  [path.join(UI_SRC, 'components', 'AgentsWindow.tsx'), 'agentroster'],
+  [path.join(UI_SRC, 'components', 'GitPane.tsx'), 'git'],
+  [path.join(UI_SRC, 'panels', 'Workbench.tsx'), 'workbench'],
+])
+
+/**
+ * Every screen file's family, as a monotone fixed point: a file joins
+ * `resolved` only once *every one* of its own real (non-registry, non-`app/`)
+ * importers is itself already in `resolved`, so the answer never depends on
+ * which file happens to be visited first — the DFS this replaced memoized a
+ * *partial* result the moment recursion hit a cycle, so the family a file in
+ * one landed in could depend on iteration order (#925 review round 2, P3).
+ * Whatever is left once a full pass makes no progress is a genuine cycle, or
+ * depends on one, and every remaining file falls back to its own name in one
+ * pass together, rather than one arbitrarily borrowing a neighbor's still-
+ * tentative name.
+ *
+ * A registry or `app/` mount joins the set of families a file's real
+ * importers resolve to, rather than being skipped, but only when there is at
+ * least one real importer to join *against* — a file the registry (or
+ * `app/`) is the *only* importer of has exactly one host, and stays whatever
+ * that host's own resolution says (#925 review round 2, P1).
+ *
+ * A pure function of its three arguments so a fixture can hand it a small
+ * graph of its own, in either file order, and get the same map back.
+ */
+export const resolveFamilies = (files, importersByFile, namedRoots) => {
+  const resolved = new Map(namedRoots)
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const file of files) {
+      if (resolved.has(file)) continue
+      const importers = importersByFile.get(file) ?? []
+      let hasRegistryMount = false
+      let hasAppMount = false
+      const realImporters = []
+      for (const importer of importers) {
+        if (isPaneRegistry(importer)) hasRegistryMount = true
+        else if (isAppMount(importer)) hasAppMount = true
+        else realImporters.push(importer)
+      }
+      if (realImporters.length === 0) {
+        resolved.set(file, defaultAreaOf(file))
+        changed = true
+        continue
+      }
+      if (!realImporters.every((importer) => resolved.has(importer))) continue
+      const families = new Set(realImporters.map((importer) => resolved.get(importer)))
+      if (hasRegistryMount) families.add('registry')
+      if (hasAppMount) families.add('app')
+      resolved.set(file, families.size === 1 ? [...families][0] : defaultAreaOf(file))
+      changed = true
+    }
+  }
+  for (const file of files) {
+    if (!resolved.has(file)) resolved.set(file, defaultAreaOf(file))
+  }
+  return resolved
+}
+
+const familyOf = resolveFamilies(screenSources, importersByFile, NAMED_ROOTS)
+
+export const screenAreaOf = (file) => familyOf.get(file) ?? defaultAreaOf(file)
+
+/**
+ * One owning screen area, or `null` when a pattern is genuinely cross-area.
+ * A registry or `app/` mount counts as its own area (`registry`/`app`), but
+ * only once the one-hop walk has also added a *real* screen host — the same
+ * "alongside one screen" condition `resolveFamilies` applies, needed here
+ * too because this walks from a pattern's own direct consumers, not from the
+ * consumer's precomputed family alone (#925 review round 2, P1).
+ */
 export const singleScreenAreaOf = (files, importersByFile = new Map()) => {
   const screens = new Set(files)
+  let addedRealHost = false
+  let hasRegistryMount = false
+  let hasAppMount = false
   for (const file of files) {
-    for (const importer of importersByFile.get(file) ?? []) screens.add(importer)
+    for (const importer of importersByFile.get(file) ?? []) {
+      if (isPaneRegistry(importer)) { hasRegistryMount = true; continue }
+      if (isAppMount(importer)) { hasAppMount = true; continue }
+      if (!screens.has(importer)) addedRealHost = true
+      screens.add(importer)
+    }
   }
   const areas = new Set([...screens].map(screenAreaOf))
+  if (addedRealHost) {
+    if (hasRegistryMount) areas.add('registry')
+    if (hasAppMount) areas.add('app')
+  }
   return areas.size === 1 && !areas.has(null) ? [...areas][0] : null
 }
 
@@ -1804,9 +2009,6 @@ export const singleScreenAreaOf = (files, importersByFile = new Map()) => {
  * different check from this one.
  */
 const PATTERN_STEMS = new Set(['empty'])
-
-/** A screen's own stylesheet, as opposed to the system's. */
-const isScreenSheet = (file) => !/[\\/]design[\\/]/.test(file) && /[\\/](components|slots|panels)[\\/]/.test(file)
 
 /**
  * Specialized renderers whose appearance is their content rather than a role.
@@ -1841,7 +2043,7 @@ const LAYOUT_HEIGHT = /%|\d(?:[sld]?v(?:h|w|min|max|b|i)|cq(?:h|w|i|b|min|max))\
  * and a role's inner box. Families are stems because CSS may add or the app
  * may adopt another longhand without that spelling becoming invisible.
  */
-const APPEARANCE_PROPERTIES = {
+export const APPEARANCE_PROPERTIES = {
   exact: new Set([
     'line-height', 'letter-spacing', 'word-spacing', 'text-transform', 'text-underline-offset', 'text-shadow',
     'color', 'fill', 'caret-color', 'accent-color', 'filter', 'backdrop-filter', 'mix-blend-mode',
@@ -1875,7 +2077,7 @@ const LAYOUT_BEHAVIOUR_PROPERTIES = {
 const inPropertyTable = (name, table) =>
   table.exact.has(name) || table.families.some((family) => name === family || name.startsWith(`${family}-`))
 
-const screenPropertySideOf = (property, value) => {
+export const screenPropertySideOf = (property, value) => {
   if (property.startsWith('--')) return 'custom'
   const name = unprefixedProperty(property)
   if (inPropertyTable(name, APPEARANCE_PROPERTIES)) {
@@ -1954,7 +2156,937 @@ const ICON_MODULES = new Set([
   'chart.tsx',
   'AppearancePreview.tsx',
   'GitGraph.tsx',
+  // A shape's own roles and rules, drawn to scale — the same exception as
+  // GitGraph's commit graph, not a second icon set.
+  'ShapeGraph.tsx',
 ])
+
+/**
+ * Screen appearance, re-drawn as a Tailwind utility or an inline `style`
+ * instead of a screen's `.module.css`.
+ *
+ * `screenAppearanceOf` above answers this for a stylesheet; it went quiet
+ * because the same declarations moved into `className={\`... h-(--hd-chip-h)
+ * ...\`}` and `style={{ background: ... }}` in the screen's own `.tsx`, which
+ * that CSS-only rule cannot see. A screen that still draws its own type, ink,
+ * ground, edges or a role's inner box should still count, whichever of the
+ * three spellings — literal CSS, a utility class, an inline style — it used.
+ *
+ * A "screen" here is exactly `isScreenSheet`'s directory test (components,
+ * slots, panels, outside design/), so `preview/` — the harness, not a screen —
+ * and `app/` are never in scope without a separate rule. `ICON_MODULES` keeps
+ * the exemption it already has from the loose-icon rule: a data mark is
+ * content, not a role being redrawn. The `.tsx` that renders each exempt
+ * `.module.css` in `SCREEN_APPEARANCE_EXEMPTIONS` gets the same exemption for
+ * the same reason — prose keeps its own ratio ladder, a diff viewer is a
+ * specialized renderer — whichever of the pair holds the declaration.
+ */
+const SCREEN_APPEARANCE_TSX_EXEMPTIONS = new Set(
+  [...SCREEN_APPEARANCE_EXEMPTIONS].map((sheet) => sheet.replace(/\.module\.css$/, '.tsx')),
+)
+
+const isScreenTsx = (file) =>
+  isScreenSheet(file)
+  && !file.includes('.test.')
+  && !ICON_MODULES.has(path.basename(file))
+  && !SCREEN_APPEARANCE_TSX_EXEMPTIONS.has(screenAppearanceName(file))
+
+/** The combiner every shadcn component reaches for (`lib/utils.ts`'s `cn`)
+ * and its two common aliases — a `cn(...)`/`clsx(...)`/`cx(...)` call is a
+ * third place a screen's classes are spelled, alongside a plain string and a
+ * template literal. */
+const CLASS_COMBINERS = new Set(['cn', 'clsx', 'cx'])
+
+/**
+ * A real parser never reads a comment as code, so there is nothing here for a
+ * pre-pass to strip: a commented-out `className="…"` was never a token
+ * `ts.createSourceFile` produced, with or without one. (An earlier version
+ * ran the file through `withoutComments` first anyway, out of habit from the
+ * regex-based rules elsewhere in this file — round 1 review found the habit
+ * carried no effect and the fixture that claimed to prove it was vacuous.)
+ * `strict` parsing is kept: a file the parser could not read fails by name,
+ * the same contract `codeOf` and `ui-architecture.mjs`'s own `parseSource`
+ * hold elsewhere.
+ */
+export const parseScreenSource = (file, source) => {
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const problem = ast.parseDiagnostics?.[0]
+  if (problem) throw new Error(`${file}: TypeScript could not parse this file (${ts.flattenDiagnosticMessageText(problem.messageText, ' ')})`)
+  return ast
+}
+
+/* Tailwind's named type scale. `2xl` through `9xl` share one shape, so they
+   are matched by pattern instead of listed one at a time. */
+const TEXT_SIZE_SUFFIX = /^(?:xs|sm|base|lg|xl|\d+xl)$/
+const TEXT_ALIGN_SUFFIX = new Set(['left', 'center', 'right', 'justify', 'start', 'end'])
+// `text-wrap`/`nowrap`/`balance`/`pretty` set layout (`white-space`), not a
+// colour — named so they do not fall into the "anything else is a colour"
+// default below.
+const TEXT_LAYOUT_SUFFIX = new Set(['wrap', 'nowrap', 'balance', 'pretty'])
+const FONT_WEIGHT_SUFFIX = new Set(['thin', 'extralight', 'light', 'normal', 'medium', 'semibold', 'bold', 'extrabold', 'black'])
+const FONT_FAMILY_SUFFIX = new Set(['sans', 'serif', 'mono'])
+
+const looksLikeColour = (value) =>
+  /^#[0-9a-f]{3,8}$/i.test(value)
+  || /^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)\(/i.test(value)
+  || /^(?:currentcolor|transparent|black|white)$/i.test(value)
+
+/**
+ * A `h-`/`min-h-`/`max-h-`/`size-` suffix, resolved to a value string that
+ * carries the same layout-vs-metric signal a real CSS value would, so
+ * `screenPropertySideOf` can decide it with the exact rule it already applies
+ * to a stylesheet's `height`: `full`/`screen`/`dvh`/… are the keywords and
+ * viewport units `LAYOUT_HEIGHT` matches, a fraction is a percentage, and a
+ * bare scale number (`8`, `0.5`, `0`) is left for `ZERO_HEIGHT` to tell a
+ * reset from a metric.
+ */
+const HEIGHT_KEYWORD_VALUE = {
+  full: '100%', screen: '100vh', dvh: '100dvh', svh: '100svh', lvh: '100lvh',
+  min: 'min-content', max: 'max-content', fit: 'fit-content', auto: 'auto',
+}
+const heightSuffixValue = (suffix) => {
+  if (Object.hasOwn(HEIGHT_KEYWORD_VALUE, suffix)) return HEIGHT_KEYWORD_VALUE[suffix]
+  const fraction = /^(\d+)\/(\d+)$/.exec(suffix)
+  if (fraction) return `${(100 * Number(fraction[1])) / Number(fraction[2])}%`
+  if (suffix === 'px') return '1px'
+  return suffix
+}
+const HEIGHT_PROPERTY_OF = { h: 'height', 'min-h': 'min-height', 'max-h': 'max-height', size: 'height' }
+const PADDING_SIDE_PROPERTY = {
+  p: 'padding', px: 'padding-inline', py: 'padding-block',
+  pt: 'padding-top', pr: 'padding-right', pb: 'padding-bottom', pl: 'padding-left',
+  ps: 'padding-inline-start', pe: 'padding-inline-end',
+  pbs: 'padding-block-start', pbe: 'padding-block-end',
+}
+
+/** A whole utility with no suffix — the class name itself is the declaration.
+ * The numeric-variant family (`tabular-nums` and its siblings) all toggle
+ * `font-variant-numeric`, the same property a stylesheet's own declaration of
+ * it already counts under the `font` family match. */
+const LITERAL_UTILITY_PROPERTY = {
+  italic: 'font-style', 'not-italic': 'font-style',
+  underline: 'text-decoration', 'line-through': 'text-decoration', 'no-underline': 'text-decoration',
+  uppercase: 'text-transform', lowercase: 'text-transform', capitalize: 'text-transform', 'normal-case': 'text-transform',
+  truncate: 'text-overflow', 'text-ellipsis': 'text-overflow', 'text-clip': 'text-overflow',
+  border: 'border', rounded: 'border-radius', shadow: 'box-shadow', ring: 'box-shadow', outline: 'outline',
+  'normal-nums': 'font-variant-numeric', ordinal: 'font-variant-numeric', 'slashed-zero': 'font-variant-numeric',
+  'lining-nums': 'font-variant-numeric', 'oldstyle-nums': 'font-variant-numeric', 'proportional-nums': 'font-variant-numeric',
+  'tabular-nums': 'font-variant-numeric', 'diagonal-fractions': 'font-variant-numeric', 'stacked-fractions': 'font-variant-numeric',
+}
+
+/**
+ * A Tailwind utility — its variants and `!` already stripped by the caller —
+ * mapped to the CSS property it sets, and a value string for the one family
+ * where `screenPropertySideOf` reads the value at all (height). Classifying
+ * the RESULT through that one function, rather than keeping a second
+ * appearance/layout table here, is the whole point: a screen's utility and a
+ * screen's literal CSS declaration are the same drift, spelled two ways.
+ *
+ * Returns `null` for a token this has not been taught. That is not the same
+ * as "layout" — it is "not counted, and not claimed to be understood either".
+ */
+export const screenUtilityDeclarationOf = (token) => {
+  // `[prop:value]` names its own property outright — Tailwind's escape hatch
+  // for a property no utility covers. No prefix table applies; the bracket
+  // contents are read directly and handed to the same boundary function.
+  const arbitrary = /^\[([a-zA-Z-]+):(.+)\]$/.exec(token)
+  if (arbitrary) return { property: arbitrary[1].toLowerCase(), value: arbitrary[2] }
+
+  if (Object.hasOwn(LITERAL_UTILITY_PROPERTY, token)) return { property: LITERAL_UTILITY_PROPERTY[token], value: '' }
+
+  // `h-`/`min-h-`/`max-h-`/`size-` with nothing after the hyphen is what a
+  // template literal (`` `h-${n}` ``) leaves behind once its interpolation is
+  // read separately: the prefix alone still names the role. An empty value
+  // is neither `ZERO_HEIGHT` nor `LAYOUT_HEIGHT`, so it counts as a metric —
+  // the same way `text-${x}` already fell through to a colour below. This is
+  // the utility side only; an unknown *inline `style`* height is the opposite
+  // decision, right below `screenInlineStyleAppearanceOf`.
+  const height = /^(h|min-h|max-h|size)-(.*)$/.exec(token)
+  if (height) {
+    const [, key, rest] = height
+    const bracket = /^\[(.+)\]$/.exec(rest)?.[1]
+    const paren = /^\((.+)\)$/.exec(rest)?.[1]
+    const value = bracket ?? paren ?? heightSuffixValue(rest)
+    return { property: HEIGHT_PROPERTY_OF[key], value }
+  }
+
+  // `text-shadow-*` (Tailwind's own type shadow) shares the `text-` prefix
+  // with the size/colour family below and must be pulled out first, or
+  // `shadow-md` reads as its "rest" and falls through to the colour default.
+  if (token.startsWith('text-shadow-')) return { property: 'text-shadow', value: '' }
+  if (token.startsWith('underline-offset-')) return { property: 'text-underline-offset', value: '' }
+
+  if (token.startsWith('text-')) {
+    const rest = token.slice('text-'.length)
+    const bracket = /^\[(.+)\]$/.exec(rest)?.[1]
+    if (bracket !== undefined) return { property: looksLikeColour(bracket) ? 'color' : 'font-size', value: '' }
+    const paren = /^\((.+)\)$/.exec(rest)?.[1]
+    if (paren !== undefined) return { property: /^length:/.test(paren) ? 'font-size' : 'color', value: '' }
+    if (TEXT_SIZE_SUFFIX.test(rest)) return { property: 'font-size', value: '' }
+    if (TEXT_ALIGN_SUFFIX.has(rest)) return { property: 'text-align', value: '' }
+    if (TEXT_LAYOUT_SUFFIX.has(rest)) return { property: 'white-space', value: '' }
+    return { property: 'color', value: '' }
+  }
+
+  if (token.startsWith('font-')) {
+    const rest = token.slice('font-'.length)
+    if (rest.startsWith('stretch-')) return { property: 'font-stretch', value: '' }
+    if (/^[[(]/.test(rest)) return { property: 'font-family', value: '' }
+    if (FONT_WEIGHT_SUFFIX.has(rest)) return { property: 'font-weight', value: '' }
+    if (FONT_FAMILY_SUFFIX.has(rest)) return { property: 'font-family', value: '' }
+    return null
+  }
+
+  if (token.startsWith('leading-')) return { property: 'line-height', value: '' }
+  // Tailwind negates an arbitrary/bracket value with a leading `-` rather
+  // than a different utility name (`-tracking-[2px]`), so the family is
+  // checked with the sign stripped, not as a second prefix.
+  if (token.startsWith('tracking-') || token.startsWith('-tracking-')) return { property: 'letter-spacing', value: '' }
+  if (token.startsWith('decoration-')) return { property: 'text-decoration', value: '' }
+
+  if (token.startsWith('bg-')) {
+    const rest = token.slice('bg-'.length)
+    if (rest.startsWith('clip-')) return { property: 'background-clip', value: '' }
+    if (rest.startsWith('origin-')) return { property: 'background-origin', value: '' }
+    return { property: 'background', value: '' }
+  }
+
+  // `inset-shadow-*`/`inset-ring-*` before the plain `shadow-`/`ring-` check:
+  // they do not share its prefix, so order does not matter for correctness,
+  // only for reading the two rings of the same family next to each other.
+  if (token.startsWith('inset-shadow-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('inset-ring-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('mix-blend-')) return { property: 'mix-blend-mode', value: '' }
+  // Every `mask-*` sub-property (image, size, position, repeat, clip, origin,
+  // type, mode, composite) is counted as one, the same approximation
+  // `bg-clip-`/`bg-origin-` already makes for `background`.
+  if (token.startsWith('mask-')) return { property: 'mask-image', value: '' }
+
+  if (token.startsWith('border-')) return { property: 'border', value: '' }
+  if (token.startsWith('rounded-')) return { property: 'border-radius', value: '' }
+  if (token.startsWith('shadow-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('ring-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('outline-')) return { property: 'outline', value: '' }
+  if (token.startsWith('fill-')) return { property: 'fill', value: '' }
+  if (token.startsWith('stroke-')) return { property: 'stroke', value: '' }
+  if (token.startsWith('opacity-')) return { property: 'opacity', value: '' }
+
+  // As with height above, an empty suffix is what `` `px-${n}` `` leaves
+  // once its interpolation is read separately — padding has no value-based
+  // rule, so the property alone is enough to count it.
+  const padding = /^(pbs|pbe|p|px|py|pt|pr|pb|pl|ps|pe)-(.*)$/.exec(token)
+  if (padding) return { property: PADDING_SIDE_PROPERTY[padding[1]], value: '' }
+
+  return null
+}
+
+/**
+ * A Tailwind namespace this rule knows is appearance but has not mapped —
+ * `caret-red-500`, `from-black`, bare `antialiased` — reported only under
+ * `--verbose`, on `unmappedScreenUtility`, and never counted. Extending
+ * `screenUtilityDeclarationOf` is the fix; adding a name here is not — this
+ * is a hint, not a second strict category.
+ */
+const UNMAPPED_APPEARANCE_LITERAL = new Set(['antialiased', 'subpixel-antialiased'])
+const UNMAPPED_APPEARANCE_PREFIX = /^(?:caret|accent|placeholder|divide|from|via|to|selection|blur|brightness|contrast|grayscale|hue-rotate|invert|saturate|sepia|drop-shadow|backdrop-(?:blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia))-/
+export const looksLikeUnmappedAppearanceUtility = (token) =>
+  UNMAPPED_APPEARANCE_LITERAL.has(token) || UNMAPPED_APPEARANCE_PREFIX.test(token)
+
+/** Tailwind v4 moved the important marker to the end of a token
+ * (`bg-red-500!`); a v3 source may still carry it at the front
+ * (`!bg-red-500`). Either spelling is punctuation, not part of the name. */
+const withoutImportantMarker = (token) => token.replace(/^!/, '').replace(/!$/, '')
+
+/**
+ * The scopes a reference node sits inside, innermost first: every enclosing
+ * `{ }` block and the file itself. A function's own parameter list is not a
+ * scope this walks into separately — nothing here resolves a parameter — and
+ * arrow bodies with no block (`() => expr`) hold no declarations to find.
+ */
+const enclosingScopes = (node) => {
+  const scopes = []
+  let current = node.parent
+  while (current) {
+    if (ts.isSourceFile(current) || ts.isBlock(current)) scopes.push(current)
+    current = current.parent
+  }
+  return scopes
+}
+
+/** A `const`/`let`/`var` declared directly in `scope`'s own statement list —
+ * not in a nested block, which is a different scope with its own turn in
+ * `enclosingScopes`. */
+/**
+ * A `const`/`let`/`var` or an `export function` declared directly in
+ * `scope`'s own statement list. A function declaration has no `.initializer`
+ * of its own, so it is normalized to the same `{ initializer, pos }` shape a
+ * `const` already has — `.initializer` is its body block, the subtree a
+ * caller scopes an appearance or a usage check into — with `parent: null`
+ * marking it as not reassignable the way a `const` is not (`nearestDeclaration`
+ * below reads that rather than `declaration.parent.flags`, which a synthetic
+ * node does not have). `export function` composers were invisible here
+ * before #914 review's P3: a design pattern written that way lost its
+ * design-to-design reach entirely.
+ */
+const directDeclarationIn = (scope, name) => {
+  for (const statement of scope.statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === name && declaration.initializer) return declaration
+      }
+    } else if (ts.isFunctionDeclaration(statement) && statement.name?.text === name && statement.body) {
+      return { initializer: statement.body, pos: statement.pos, parent: null }
+    } else if (name === 'default' && ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      // The anonymous-default sentinel `exportedNamesOf` sets when
+      // `export default …` names nothing: the assignment's own expression is
+      // the subtree, whatever shape it is (an arrow, a function, a class) —
+      // read the same way any other export's initializer already is (#925
+      // review round 2, P3).
+      return { initializer: statement.expression, pos: statement.pos, parent: null }
+    }
+  }
+  return null
+}
+
+/**
+ * A name, resolved to the nearest declaration in an enclosing scope — real JS
+ * scoping, not "the first one anywhere in the file": two components each
+ * declaring their own `const tone` are two declarations, and an inner block
+ * that shadows an outer `const tone` resolves to its own, not the outer one.
+ *
+ * `const` yields its one initializer. `let`/`var` is read the same way when
+ * it is never reassigned; when it is, every literal assignment reachable
+ * from the declaring scope — the initializer and each `name = …` found in it
+ * or a nested block, not inside a separate closure — is gathered, because a
+ * variable that can hold more than one thing statically is not the one
+ * declaration a `const` is. Either way the result is keyed by the
+ * declaration's own position (`pos`), not by name, so `countedDefs` can
+ * dedupe by the declaration rather than by a name two scopes both use.
+ */
+/** `=` and `+=` both introduce literal content worth gathering — `c += '
+ * bg-(--x)'` after `let c = 'text-xs'` adds a second piece to the same
+ * declaration, not a replacement of the first, so both are kept rather than
+ * only the initializer or only the latest assignment. */
+const REASSIGNMENT_OPERATORS = new Set([ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken])
+
+const nearestDeclaration = (refNode, name) => {
+  for (const scope of enclosingScopes(refNode)) {
+    const declaration = directDeclarationIn(scope, name)
+    if (!declaration) continue
+    if (!declaration.parent || (declaration.parent.flags & ts.NodeFlags.Const) !== 0) {
+      return { pos: declaration.pos, nodes: [declaration.initializer] }
+    }
+    const assignments = []
+    const visit = (node) => {
+      if (node !== scope && ts.isFunctionLike(node)) return
+      if (
+        ts.isBinaryExpression(node) && REASSIGNMENT_OPERATORS.has(node.operatorToken.kind)
+        && ts.isIdentifier(node.left) && node.left.text === name
+      ) {
+        assignments.push(node.right)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(scope)
+    return { pos: declaration.pos, nodes: [declaration.initializer, ...assignments] }
+  }
+  return null
+}
+
+/** A named or default import's binding in one file → the name it was
+ * exported under (`'default'` for a default import) and the specifier it
+ * came from. A namespace import (`import * as ns`) is resolved separately,
+ * at its own `ns.NAME` property-access site, not by a bare name lookup. */
+const importBinding = (ast, localName) => {
+  for (const statement of ast.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+    const spec = statement.moduleSpecifier.text
+    const clause = statement.importClause
+    if (clause.name && clause.name.text === localName) return { spec, exportedName: 'default' }
+    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) {
+        if (element.name.text === localName) return { spec, exportedName: (element.propertyName ?? element.name).text }
+      }
+    }
+  }
+  return null
+}
+
+/** A namespace import's local binding (`import * as styles2 from '…'`) →
+ * the specifier it came from, for a `styles2.NAME` property access. */
+const namespaceImportSpec = (ast, localName) => {
+  for (const statement of ast.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+    const bindings = statement.importClause.namedBindings
+    if (bindings && ts.isNamespaceImport(bindings) && bindings.name.text === localName) return statement.moduleSpecifier.text
+  }
+  return null
+}
+
+/** A relative or `@/`-aliased specifier → the `.tsx`/`.ts` file it names, the
+ * same two resolutions `publicDesignImports` and `resolveStylesheet` already
+ * make for their own imports. A bare package specifier resolves to nothing:
+ * a screen's own constants are never published from `node_modules`. */
+const resolveConstModule = (fromFile, spec) => {
+  if (!spec.startsWith('.') && !spec.startsWith('@/')) return null
+  const base = spec.startsWith('@/') ? path.join(UI_SRC, spec.slice(2)) : path.resolve(path.dirname(fromFile), spec)
+  for (const ext of ['.tsx', '.ts']) {
+    const candidate = base.endsWith(ext) ? base : `${base}${ext}`
+    if (sourceOf(candidate) !== null) return candidate
+  }
+  return null
+}
+
+/** Parsed once per file and kept: a constant several screens import —
+ * `LibraryActions.tsx`'s `SWITCH_TRACK`, read by `Library.tsx` too — would
+ * otherwise be re-parsed by every consumer that reaches for it. */
+const constFileCache = new Map()
+const parsedConstFile = (file) => {
+  if (!constFileCache.has(file)) {
+    const source = sourceOf(file)
+    constFileCache.set(file, source === null ? null : { ast: parseScreenSource(file, source) })
+  }
+  return constFileCache.get(file)
+}
+
+/**
+ * An exported name's value in `file`'s top level — where an import always
+ * lands, since only a module's own top level can be exported — following a
+ * re-export (`export { NAME } from './Other'`, `hops` deep, default four)
+ * and a default export, either `export default <expr>` directly or
+ * `export default NAME` naming a local `const`. `directDeclarationIn` at the
+ * `SourceFile` scope is enough here; an export can never name a block-scoped
+ * local.
+ */
+const exportedValueIn = (file, exportedName, hops = 4) => {
+  const parsed = parsedConstFile(file)
+  if (!parsed) return null
+  if (exportedName === 'default') {
+    for (const statement of parsed.ast.statements) {
+      if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue
+      if (ts.isIdentifier(statement.expression)) {
+        const declaration = directDeclarationIn(parsed.ast, statement.expression.text)
+        return declaration ? { file, ast: parsed.ast, pos: declaration.pos, nodes: [declaration.initializer] } : null
+      }
+      return { file, ast: parsed.ast, pos: statement.pos, nodes: [statement.expression] }
+    }
+    return null
+  }
+  const declaration = directDeclarationIn(parsed.ast, exportedName)
+  if (declaration) return { file, ast: parsed.ast, pos: declaration.pos, nodes: [declaration.initializer] }
+  if (hops <= 0) return null
+  for (const statement of parsed.ast.statements) {
+    if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+    if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue
+    for (const element of statement.exportClause.elements) {
+      if (element.name.text === exportedName) {
+        const nextFile = resolveConstModule(file, statement.moduleSpecifier.text)
+        if (!nextFile || !isScreenTsx(nextFile)) return null
+        return exportedValueIn(nextFile, (element.propertyName ?? element.name).text, hops - 1)
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * A name used at a class site → the declaration it names, wherever that is:
+ * the nearest enclosing scope first, then one or more hops through an import
+ * to the file that (eventually, through a re-export chain) declares it. A
+ * definition outside the screen boundary (`design/`, a test file) is not
+ * followed — the boundary this whole rule enforces would otherwise credit a
+ * screen's reference for the design system's own choice.
+ */
+const resolveClassConst = (identifierNode, file, ast) => {
+  const name = identifierNode.text
+  const local = nearestDeclaration(identifierNode, name)
+  if (local) return { file, ast, pos: local.pos, nodes: local.nodes }
+  const binding = importBinding(ast, name)
+  if (!binding) return null
+  const modulePath = resolveConstModule(file, binding.spec)
+  if (!modulePath || !isScreenTsx(modulePath)) return null
+  return exportedValueIn(modulePath, binding.exportedName)
+}
+
+/**
+ * Every class-bearing site in a screen `.tsx`, resolved through however many
+ * layers separate it from the literal: a `className` — string, template
+ * literal, ternary, array, a nested `cn`/`clsx`/`cx` call, or a name that
+ * only leads to one of those through its own declaration; a `className:` key
+ * in an object literal (`BrowserPane.tsx`'s `createElement('webview', {
+ * className: … })`); and a bare `cn`/`clsx`/`cx` call reached some other way,
+ * such as a class list built once and assigned to a variable.
+ *
+ * The shapes this recurses into are named, not inferred by walking whatever
+ * a node happens to hold — round 3 review found the closed list too narrow,
+ * dropping 15 real shapes the previous, more permissive walker still caught,
+ * so the list below is deliberately generous: a template's head and each
+ * span, a type wrapper's expression (`as`, `as const`, `satisfies`, `!`,
+ * `<T>x`), a spread's or an element access's expression (`[...B]`, `TONE[t]`,
+ * `o?.a` — the object side only, same as a plain property access), a
+ * ternary's two branches, `cond && '…'`'s right side, `a || b`'s and `a ?? b`'s
+ * both sides, `a + b`'s both sides, an array's elements, an object literal's
+ * string-literal keys and every value (`clsx({ 'text-xs': c })`), `X.join(…)`'s
+ * `X`, a class-combiner call's arguments, a call resolving to a local
+ * function's return expressions only (never its whole body), any other
+ * call's arguments and (for a method call) the object it is called on, and a
+ * name's resolved declaration(s). A comparison (`=== !== == != < > <= >= in
+ * instanceof`) and a function body not reached through the call case above
+ * are the two shapes this still refuses: `const active = x === 'underline'`
+ * referenced at a class site counts nothing, and a bare reference to a
+ * function that is never called does not have its body opened. A property
+ * access reads only its object side (`styles.fileRow`'s `styles`, itself
+ * rarely resolvable) and never its `.name` as though it were a bare
+ * reference — `fileRow` is a property here, not a variable — except when the
+ * object is a namespace import, where `.name` is exactly the exported name
+ * being asked for.
+ *
+ * A name is counted once, at its declaration, however many times or files
+ * use it: `countedDefs` is a set of `file::pos` already resolved — the
+ * declaration's own position, not its name, so two components each
+ * declaring `const tone` (two declarations) are not mistaken for one, and a
+ * shadowed inner `const tone` is not mistaken for the outer one — shared
+ * across every class site this walks in one audit run. Every *direct*
+ * literal (typed at the class site itself, not reached through a name) is
+ * still counted at every occurrence: two screens copying the same string by
+ * hand is two copies, not one shared declaration.
+ *
+ * `file` on each result names where its token's declaration actually lives —
+ * the current file for a direct literal or a same-scope declaration, the
+ * imported module for one resolved across files — so the caller can label
+ * the finding at its definition rather than at whichever site happened to
+ * trigger it.
+ *
+ * `visitedCalls` guards the one way a `cn`/`clsx`/`cx` call can otherwise be
+ * read twice: `classSiteEntries` finds it directly, wherever it sits in the
+ * file, and a `className` that names the `const` it was assigned to reaches
+ * the identical call node a second time by resolving that name. The set
+ * remembers a call node once either path has read its arguments, so a
+ * `const rowClass = cn('rounded-full')` used as `className={rowClass}`
+ * counts `rounded-full` once, not twice.
+ */
+/** A function's return values only — the expression body of an arrow
+ * function with no block, or every `return`'s expression inside one,
+ * without crossing into a nested function's own returns. */
+const returnExpressionsOf = (fn) => {
+  if (!fn.body) return []
+  if (!ts.isBlock(fn.body)) return [fn.body]
+  const expressions = []
+  const visit = (node) => {
+    if (node !== fn.body && ts.isFunctionLike(node)) return
+    if (ts.isReturnStatement(node) && node.expression) expressions.push(node.expression)
+    ts.forEachChild(node, visit)
+  }
+  visit(fn.body)
+  return expressions
+}
+
+/** `=== !== == != < > <= >= in instanceof` — a comparison's operands are
+ * never a class list (`x === 'underline'` must count nothing), so these are
+ * excluded explicitly rather than left to fall through to the fallback by
+ * accident. */
+const COMPARISON_OPERATORS = new Set([
+  ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.LessThanToken, ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.LessThanEqualsToken, ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.InKeyword, ts.SyntaxKind.InstanceOfKeyword,
+])
+
+const classSiteTokens = (node, file, ast, countedDefs, out, visitedCalls) => {
+  if (
+    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
+    || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)
+  ) {
+    for (const piece of node.text.split(/\s+/)) if (piece) out.push({ text: piece, file })
+    return
+  }
+  if (ts.isTemplateExpression(node)) {
+    classSiteTokens(node.head, file, ast, countedDefs, out, visitedCalls)
+    for (const span of node.templateSpans) {
+      classSiteTokens(span.expression, file, ast, countedDefs, out, visitedCalls)
+      classSiteTokens(span.literal, file, ast, countedDefs, out, visitedCalls)
+    }
+    return
+  }
+  // A type wrapper (`as`, `as const`, `satisfies`, `!`, `<T>x`), a spread
+  // (`[...B]`), and an element access (`TONE[t]`, `o?.a`) all name their one
+  // interesting child the same way: `.expression`. An element access's index
+  // is not walked, the same reason a property access's `.name` is not below
+  // — `t` in `TONE[t]` selects which of `TONE`'s values applies, it is not
+  // itself one.
+  if (
+    ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
+    || ts.isNonNullExpression(node) || ts.isTypeAssertionExpression(node)
+    || ts.isSpreadElement(node) || ts.isElementAccessExpression(node)
+  ) {
+    classSiteTokens(node.expression, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isConditionalExpression(node)) {
+    classSiteTokens(node.whenTrue, file, ast, countedDefs, out, visitedCalls)
+    classSiteTokens(node.whenFalse, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind
+    // `done && 'text-(--hd-secondary-foreground)'` — a ternary missing its
+    // "else" — reads only the guarded side; `||`, `??` and `+` read both,
+    // since either side (or both, concatenated) can be the live value.
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+      classSiteTokens(node.right, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.PlusToken) {
+      classSiteTokens(node.left, file, ast, countedDefs, out, visitedCalls)
+      classSiteTokens(node.right, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    // A comparison, or any other operator (bitwise, arithmetic besides `+`)
+    // — none of these build a class list, comparison or not.
+    return
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    for (const element of node.elements) classSiteTokens(element, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // `clsx({ 'text-xs': c })`: a string-literal key is itself a class,
+  // whichever value decides whether it applies; every value is still walked,
+  // since a nested `clsx`/ternary/etc. inside one is legible the same way.
+  // An identifier key (`{ active: true }`) is not a string literal and is
+  // not yielded — most single-word identifiers are not meant as a class.
+  if (ts.isObjectLiteralExpression(node)) {
+    for (const property of node.properties) {
+      if (ts.isPropertyAssignment(property)) {
+        if (ts.isStringLiteral(property.name)) classSiteTokens(property.name, file, ast, countedDefs, out, visitedCalls)
+        else if (ts.isComputedPropertyName(property.name) && ts.isStringLiteral(property.name.expression)) {
+          classSiteTokens(property.name.expression, file, ast, countedDefs, out, visitedCalls)
+        }
+        classSiteTokens(property.initializer, file, ast, countedDefs, out, visitedCalls)
+      } else if (ts.isShorthandPropertyAssignment(property)) {
+        classSiteTokens(property.name, file, ast, countedDefs, out, visitedCalls)
+      } else if (ts.isSpreadAssignment(property)) {
+        classSiteTokens(property.expression, file, ast, countedDefs, out, visitedCalls)
+      }
+    }
+    return
+  }
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'join') {
+    classSiteTokens(node.expression.expression, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
+    if (visitedCalls.has(node)) return
+    visitedCalls.add(node)
+    for (const argument of node.arguments) classSiteTokens(argument, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // A call to a local helper (`classFor(k)`) — its return expressions only,
+  // never the rest of its body, and counted once at the function's own
+  // declaration the same way a name is.
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && !CLASS_COMBINERS.has(node.expression.text)) {
+    const local = nearestDeclaration(node.expression, node.expression.text)
+    const fn = local?.nodes.find((value) => ts.isArrowFunction(value) || ts.isFunctionExpression(value))
+    if (fn) {
+      const key = `${file}::${local.pos}`
+      if (!countedDefs.has(key)) {
+        countedDefs.add(key)
+        for (const expression of returnExpressionsOf(fn)) classSiteTokens(expression, file, ast, countedDefs, out, visitedCalls)
+      }
+      return
+    }
+  }
+  // Any other call — `twMerge(...)`, `buttonVariants({ className })`,
+  // `String(x)`, `.filter(Boolean)` on the way to a `.join` this already
+  // understands — is opaque itself, but its arguments and (for a method
+  // call) the object it is called on are still read.
+  if (ts.isCallExpression(node)) {
+    if (ts.isPropertyAccessExpression(node.expression)) {
+      classSiteTokens(node.expression.expression, file, ast, countedDefs, out, visitedCalls)
+    }
+    for (const argument of node.arguments) classSiteTokens(argument, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isPropertyAccessExpression(node)) {
+    if (ts.isIdentifier(node.expression)) {
+      const nsSpec = namespaceImportSpec(ast, node.expression.text)
+      if (nsSpec) {
+        const modulePath = resolveConstModule(file, nsSpec)
+        const resolved = modulePath && isScreenTsx(modulePath) ? exportedValueIn(modulePath, node.name.text) : null
+        if (resolved) {
+          const key = `${resolved.file}::${resolved.pos}`
+          if (!countedDefs.has(key)) {
+            countedDefs.add(key)
+            for (const value of resolved.nodes) classSiteTokens(value, resolved.file, resolved.ast, countedDefs, out, visitedCalls)
+          }
+        }
+        return
+      }
+    }
+    classSiteTokens(node.expression, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isIdentifier(node)) {
+    const resolved = resolveClassConst(node, file, ast)
+    if (!resolved) return
+    const key = `${resolved.file}::${resolved.pos}`
+    if (countedDefs.has(key)) return
+    countedDefs.add(key)
+    for (const value of resolved.nodes) classSiteTokens(value, resolved.file, resolved.ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // Fallback: walk the children generically, the way the pre-round-3 walker
+  // always did, with one exception — a function-like node reached this way
+  // (a bare reference to a function that is never called, say) is not
+  // entered. The one other exception, a comparison, is already handled
+  // above and never reaches here.
+  if (ts.isFunctionLike(node)) return
+  ts.forEachChild(node, (child) => classSiteTokens(child, file, ast, countedDefs, out, visitedCalls))
+}
+
+/**
+ * Every class site's entries, `{ text, file }`, across `root` — the whole
+ * file by default, or one export's own declaration when a caller needs only
+ * that export's share of a shared module's appearance (#914's per-export
+ * charge below). `ast` stays the whole file's tree either way, so a name
+ * `root` references still resolves through `resolveClassConst` to a sibling
+ * declared elsewhere in the same file.
+ */
+const classSiteEntries = (ast, file, countedDefs, root = ast) => {
+  const out = []
+  const visitedCalls = new Set()
+  const visit = (node) => {
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'className') {
+      let expr = node.initializer
+      if (expr && ts.isJsxExpression(expr)) expr = expr.expression
+      if (expr) classSiteTokens(expr, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    if (ts.isPropertyAssignment(node)) {
+      const keyText = ts.isIdentifier(node.name) ? node.name.text : ts.isStringLiteral(node.name) ? node.name.text : null
+      if (keyText === 'className') {
+        classSiteTokens(node.initializer, file, ast, countedDefs, out, visitedCalls)
+        return
+      }
+    }
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
+      classSiteTokens(node, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(root)
+  return out
+}
+
+/**
+ * Appearance a screen draws with a Tailwind utility instead of composing it —
+ * the `className` half of the split the module comment above describes.
+ *
+ * `ast` may be a tree already parsed for this file — the caller shares one
+ * parse across this, `screenInlineStyleAppearanceOf`, `screenUnmappedUtilityOf`
+ * and `screenUtilityUnclassifiedOf` — and `countedDefs` may be a set shared
+ * across every file in one audit run, so a name resolved while scanning one
+ * screen is not counted again reached from another. Fixtures pass neither:
+ * each gets its own parse and its own empty set, so one test's resolutions
+ * never leak into the next.
+ */
+export const screenUtilityAppearanceOf = (file, source, ast, countedDefs = new Set()) => {
+  if (!isScreenTsx(file)) return []
+  return utilityAppearanceIn(file, source, ast, countedDefs)
+}
+
+/* The classification itself, without the question of whose file this is:
+   a screen's, or a pattern only one screen family consumes. `root`, when
+   given, scopes the scan to one export's own declaration (#914). */
+const utilityAppearanceIn = (file, source, ast, countedDefs = new Set(), root) => {
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, countedDefs, root ?? tree)) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (!token) continue
+    const declaration = screenUtilityDeclarationOf(token)
+    if (declaration && screenPropertySideOf(declaration.property, declaration.value) === 'appearance') {
+      findings.push(`${screenAppearanceName(originFile)}: ${rawToken} (${declaration.property})`)
+    }
+  }
+  return findings
+}
+
+/**
+ * A utility mapped to a real property that is on neither side of the screen
+ * boundary — reachable today only through the `[prop:value]`
+ * arbitrary-property escape hatch naming something `APPEARANCE_PROPERTIES`
+ * and `LAYOUT_BEHAVIOUR_PROPERTIES` do not track, such as `[text-indent:2px]`.
+ * Held to the same strict zero a stylesheet's own `screenUnclassifiedOf` is:
+ * the boundary is total, or it silently is not.
+ */
+export const screenUtilityUnclassifiedOf = (file, source, ast) => {
+  if (!isScreenTsx(file)) return []
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, new Set())) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (!token) continue
+    const declaration = screenUtilityDeclarationOf(token)
+    if (declaration && screenPropertySideOf(declaration.property, declaration.value) === 'unclassified') {
+      findings.push(`${screenAppearanceName(originFile)}: ${rawToken} (${declaration.property})`)
+    }
+  }
+  return findings
+}
+
+/** The utilities `screenUtilityAppearanceOf` saw but could not classify,
+ * worth a human's attention without being counted. See `--verbose`. Not
+ * deduplicated by definition the way the counted list is: a hint repeated
+ * from more than one call site is still worth seeing at each. */
+export const screenUnmappedUtilityOf = (file, source, ast) => {
+  if (!isScreenTsx(file)) return []
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, new Set())) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (!token || screenUtilityDeclarationOf(token)) continue
+    if (looksLikeUnmappedAppearanceUtility(token)) findings.push(`${screenAppearanceName(originFile)}: ${rawToken}`)
+  }
+  return findings
+}
+
+const unwrapStyleExpression = (node) => {
+  let current = node
+  while (
+    current
+    && (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isNonNullExpression(current) || ts.isSatisfiesExpression(current))
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+/** `backgroundColor` → `background-color`, `WebkitTransform` → `-webkit-transform`
+ * (a leading capital becomes a leading hyphen, which is exactly the vendor
+ * prefix `screenPropertySideOf`'s `unprefixedProperty` already strips). A key
+ * already spelled `--near` is a custom property name, not camelCase, and is
+ * returned as written. */
+const cssPropertyOfStyleKey = (key) => (key.startsWith('--') ? key : key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`))
+
+/** A style object's own properties: a plain `key: value`, a `{ color }`
+ * shorthand (the value is a variable this does not chase — the property
+ * alone still says which side of the boundary it is on), and `['color']`, a
+ * computed key that is itself a literal. A truly dynamic computed key
+ * (`[someVar]`) names nothing this can read and is skipped, the same as a
+ * dynamic `className` reference. */
+const styleObjectFindings = (object) => {
+  const findings = []
+  for (const property of object.properties) {
+    let key = null
+    let valueNode = null
+    if (ts.isPropertyAssignment(property)) {
+      const keyNode = property.name
+      key = ts.isIdentifier(keyNode) ? keyNode.text
+        : ts.isStringLiteral(keyNode) ? keyNode.text
+        : ts.isComputedPropertyName(keyNode) && ts.isStringLiteral(keyNode.expression) ? keyNode.expression.text
+        : null
+      valueNode = property.initializer
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      key = property.name.text
+    }
+    if (key === null) continue
+    const cssProperty = cssPropertyOfStyleKey(key)
+    // A dynamic height-family value (not a literal this can read) is decided
+    // explicitly as layout, not left to fall through the empty-string path:
+    // `GitPane.tsx`'s `height: total * ROW` is a virtual list doing its own
+    // scroll-height arithmetic, not a control's metric, and the value rule
+    // that tells a real metric from a reset or a share has nothing to read
+    // when there is no literal at all. This is the opposite default from a
+    // utility's `` `h-${n}` `` above, where the prefix itself still names a
+    // metric even with an unknown suffix; a `style` key has no such prefix.
+    const literal = valueNode && ts.isStringLiteral(valueNode) ? valueNode.text
+      : valueNode && ts.isNumericLiteral(valueNode) ? valueNode.text
+      : null
+    if (literal === null && (cssProperty === 'height' || cssProperty === 'min-height' || cssProperty === 'max-height')) continue
+    if (screenPropertySideOf(cssProperty, literal ?? '') === 'appearance') findings.push(`style ${cssProperty}`)
+  }
+  return findings
+}
+
+/**
+ * Appearance a screen draws with an inline `style` object instead of
+ * composing it — the third spelling of the same boundary. A literal
+ * `style={{ … }}` is legible this way, including through a `satisfies
+ * CSSProperties` assertion, a `c ? {…} : {…}` conditional and a `s ?? {…}`
+ * fallback (both sides of either read) and a `c && {…}` guard (its right
+ * side read the same way a conditional's branch is); and so is `style={S}`,
+ * an object `const` resolved the same way a class site's name is — the
+ * nearest enclosing scope, or one or more hops through an import to the file
+ * that declares it. A dynamic reference this cannot resolve — a prop, a
+ * parameter, anything not a `const` reachable that way — is not counted,
+ * the same way a dynamic `className` reference is not (`classNameIsStatic`
+ * in `ui-architecture.mjs` draws the identical line for the same reason).
+ */
+export const screenInlineStyleAppearanceOf = (file, source, ast) => {
+  if (!isScreenTsx(file)) return []
+  return inlineStyleAppearanceIn(file, source, ast)
+}
+
+/** `root`, when given, scopes the scan to one export's own declaration
+ * instead of the whole file (#914's per-export charge below). */
+const inlineStyleAppearanceIn = (file, source, ast, root) => {
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  const stylesIn = (expression) => {
+    const resolved = unwrapStyleExpression(expression)
+    if (!resolved) return
+    if (ts.isObjectLiteralExpression(resolved)) { findings.push(...styleObjectFindings(resolved)); return }
+    if (ts.isConditionalExpression(resolved)) { stylesIn(resolved.whenTrue); stylesIn(resolved.whenFalse); return }
+    if (ts.isBinaryExpression(resolved) && resolved.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      stylesIn(resolved.right)
+      return
+    }
+    if (ts.isBinaryExpression(resolved) && resolved.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+      stylesIn(resolved.left)
+      stylesIn(resolved.right)
+      return
+    }
+    if (ts.isIdentifier(resolved)) {
+      const declaration = resolveClassConst(resolved, file, tree)
+      if (declaration) for (const value of declaration.nodes) stylesIn(value)
+    }
+  }
+  const visit = (node) => {
+    if (
+      ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'style'
+      && node.initializer && ts.isJsxExpression(node.initializer) && node.initializer.expression
+    ) {
+      stylesIn(node.initializer.expression)
+      return
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(root ?? tree)
+  return findings
+}
+
+/**
+ * The appearance a design module's own source draws — its className
+ * utilities and its inline style keys — by exactly the classification a
+ * screen's are. Counted only for a module one screen family consumes (see
+ * the single-area pass below): such a pattern is that screen's code moved
+ * into `design/`, and moving a drawing is not composing it. Before this, the
+ * pass read only the module's stylesheet, so appearance written as Tailwind
+ * in a single-consumer pattern left the ledger without converging (#912).
+ *
+ * `root`, when given, restricts both scans to one export's own declaration —
+ * a shared module's other exports draw nothing here, because a widely used
+ * export does not make a genuinely single-area sibling's own appearance any
+ * less that screen's own (#914).
+ */
+export const patternSourceAppearanceOf = (file, source, ast, countedDefs = new Set(), root) => [
+  ...utilityAppearanceIn(file, source, ast, countedDefs, root),
+  ...inlineStyleAppearanceIn(file, source, ast, root).map((detail) => `${screenAppearanceName(file)}: ${detail}`),
+]
 
 /** Existing screen families only, capped at eleven additional owners. An
  * annotation documents membership; it cannot grant a new exception. See
@@ -2304,37 +3436,552 @@ for (const file of tsxFiles()) {
   }
 }
 
-/** Named values re-exported by the public design entrypoint, by their module. */
-const publicDesignExports = () => {
-  const entry = path.join(UI_SRC, 'design', 'index.ts')
+/*
+ * Capitals on a label.
+ *
+ * The app's group label is one style — 13px, the secondary ink, sentence case
+ * (`GroupLabel`) — and the only capitals it keeps are the ones printed on a
+ * key (`Keycap`). Screens still spell 12px tracked capitals of their own (a
+ * rail's "AGENTS", a trajectory's "THINKING", a card's "RUNNING"), and each
+ * one was a screen deciding alone that its group needed shouting. So they are
+ * counted, in all three spellings a screen has: `text-transform: uppercase`
+ * in a stylesheet (a `var()` falling back to it included), the `uppercase`
+ * utility in a class list, and `textTransform: 'uppercase'` in an inline
+ * style. A rule whose selector names the keycap, or a line that draws a
+ * `Keycap`, is the one place they belong and is not counted. The foundation
+ * is outside the scan, as for every other rule here: a token is not a label.
+ */
+export const uppercaseLabelsOf = (file, source) => {
+  const name = label(file)
+  if (file.endsWith('.css')) {
+    const found = []
+    for (const rule of bare(source).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/text-transform\s*:[^;]*\buppercase\b/.test(rule[2])) continue
+      if (/keycap/i.test(rule[1])) continue
+      found.push(`${name}: ${rule[1].trim()} (text-transform)`)
+    }
+    return found
+  }
+  const code = withoutComments(source, file, { strict: true })
+  const found = []
+  for (const line of code.split('\n')) {
+    if (/keycap/i.test(line)) continue
+    for (const _ of line.matchAll(/(?<![\w-])uppercase(?![\w-])/g)) found.push(`${name}: uppercase`)
+  }
+  return found
+}
+
+for (const file of [...cssFiles(), ...tsxFiles()]) {
+  findings.uppercaseLabel.push(...uppercaseLabelsOf(file, read(file)))
+}
+
+/**
+ * A relative or `@/`-aliased import specifier → the concrete `.ts`/`.tsx`
+ * file it names: the path itself, its `.tsx`/`.ts` extension, or — for a
+ * directory specifier such as `./ui` or `../design` — the `index.tsx`/
+ * `index.ts` barrel inside it. `fs.statSync` decides which branch applies
+ * before anything is read, so a directory is never handed to `sourceOf` as
+ * though it were a file (that throws `EISDIR`, which the source cache does
+ * not swallow the way it swallows a missing file). A bare package specifier
+ * names nothing this can read, the same refusal `resolveConstModule` makes.
+ */
+const moduleFileFor = (spec, fromDir) => {
+  if (!spec.startsWith('.') && !spec.startsWith('@/')) return null
+  // A spec carrying some other extension (`./X.module.css`, an SVG, a JSON
+  // fixture) names a real file this must not try to parse as TypeScript — a
+  // default import of a CSS module used to reach here and crash the whole
+  // audit trying to read style rules as source code (#914 review, P3).
+  if (/\.[A-Za-z0-9]+$/.test(spec) && !/\.tsx?$/.test(spec)) return null
+  const base = spec.startsWith('@/') ? path.join(UI_SRC, spec.slice(2)) : path.resolve(fromDir, spec)
+  if (fs.existsSync(base) && fs.statSync(base).isDirectory()) {
+    for (const name of ['index.ts', 'index.tsx']) {
+      const candidate = path.join(base, name)
+      if (sourceOf(candidate) !== null) return candidate
+    }
+    return null
+  }
+  for (const ext of ['', '.tsx', '.ts']) {
+    const candidate = `${base}${ext}`
+    if (sourceOf(candidate) !== null) return candidate
+  }
+  return null
+}
+
+/**
+ * Every name a module exports, mapped to `{ file, localName }` — the
+ * concrete file that actually declares it, and the name it is declared under
+ * there — chasing `export * from '<spec>'`, a named re-export (renamed or
+ * not), and a directory's own barrel however many hops deep. A name declared
+ * directly in this file, whether at its own declaration (`export const X`)
+ * or gathered into a footer `export { X }` with no `from`, maps to this file
+ * under its own name.
+ *
+ * This is the general form `publicDesignExports` used to be, which read only
+ * `design/index.ts`'s own `export { X } from './y'` lines: `export *`
+ * (`design/ui`, `InspectorPanel`, `DockPanel`) was invisible, so a part with
+ * one consumer behind one was never charged (#914, shape 1). Because this
+ * walks a plain re-export chain wherever it starts, not only from
+ * `design/index.ts`, it doubles as the fix for a shim entirely outside
+ * `design/` — `components/Panel.tsx` re-exports `GroupLine` and `PanelRow`
+ * from `'../design'`, and a screen importing them from the shim used to
+ * leave no trace of ever having reached `design/` at all (#914, shape 4).
+ */
+const exportedNamesCache = new Map()
+export const exportedNamesOf = (file, seen = new Set()) => {
+  if (exportedNamesCache.has(file)) return exportedNamesCache.get(file)
+  if (seen.has(file)) return new Map()
+  seen.add(file)
   const byName = new Map()
-  const source = codeOf(entry)
-  for (const match of source.matchAll(/\bexport\s*\{([\s\S]*?)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-    const module = path.resolve(path.dirname(entry), `${match[2]}.tsx`)
+  exportedNamesCache.set(file, byName)
+  const dir = path.dirname(file)
+  const code = codeOf(file)
+
+  for (const match of code.matchAll(/^export\s*\*\s*from\s*['"]([^'"]+)['"]/gm)) {
+    const target = moduleFileFor(match[1], dir)
+    if (!target) continue
+    for (const [exportedName, ref] of exportedNamesOf(target, seen)) {
+      if (!byName.has(exportedName)) byName.set(exportedName, ref)
+    }
+  }
+  for (const match of code.matchAll(/^export\s*\{([\s\S]*?)\}\s*from\s*['"]([^'"]+)['"]/gm)) {
+    const target = moduleFileFor(match[2], dir)
+    if (!target) continue
+    const targetExports = exportedNamesOf(target, seen)
     for (const part of match[1].split(',')) {
       const words = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)
+      const localName = words[0]?.trim()
       const publicName = words.at(-1)?.trim()
-      if (publicName) byName.set(publicName, module)
+      if (!localName || !publicName) continue
+      byName.set(publicName, targetExports.get(localName) ?? { file: target, localName })
+    }
+  }
+  for (const match of code.matchAll(/^export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)/gm)) {
+    byName.set(match[1], { file, localName: match[1] })
+  }
+  for (const match of code.matchAll(/^export\s+(?:function|class)\s+([A-Za-z_$][\w$]*)/gm)) {
+    byName.set(match[1], { file, localName: match[1] })
+  }
+  // `export default function Name(...)` and `export default Name` (a local
+  // declared earlier and exported by name at the bottom) — the two default
+  // shapes with a name this can point `directDeclarationIn` at. A fully
+  // anonymous default (`export default () => …`) has no name to resolve to
+  // and is left unmapped, the same way a dynamic reference this cannot
+  // follow anywhere else in this file is (#914 review, P3).
+  const defaultFunction = /^export\s+default\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/m.exec(code)
+  const defaultIdentifier = /^export\s+default\s+([A-Za-z_$][\w$]*)\s*;?\s*$/m.exec(code)
+  const defaultName = defaultFunction?.[1] ?? defaultIdentifier?.[1]
+  if (defaultName) {
+    byName.set('default', { file, localName: defaultName })
+  } else if (/^export\s+default\s+/m.test(code)) {
+    // An anonymous default (`export default () => …`, `export default
+    // function () {…}`, `export default class {…}`) has no name of its own
+    // to point at — the literal name `default` below tells
+    // `directDeclarationIn` to read the export assignment's own expression
+    // instead of looking for a declaration called "default" (#925 review
+    // round 2, P3).
+    byName.set('default', { file, localName: 'default' })
+  }
+  // A footer re-export with no `from` — InspectorPanel.tsx declares Counts,
+  // GroupLine, PanelRow and the rest as local `const`s and exports them all
+  // together at the bottom. The lookahead excludes the "from" shape above so
+  // the two loops never both claim the same statement.
+  for (const match of code.matchAll(/^export\s*\{([\s\S]*?)\}(?!\s*from\s*['"])/gm)) {
+    for (const part of match[1].split(',')) {
+      const words = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)
+      const localName = words[0]?.trim()
+      const publicName = words.at(-1)?.trim()
+      if (localName && publicName) byName.set(publicName, { file, localName })
     }
   }
   return byName
 }
 
-/** Named imports from the public design entrypoint in one screen source. */
-const publicDesignImports = (file) => {
-  const names = []
-  for (const match of codeOf(file).matchAll(/\bimport\s+(?:type\s+)?\{([\s\S]*?)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-    const spec = match[2]
-    const resolved = spec.startsWith('@/')
-      ? path.join(UI_SRC, spec.slice(2))
-      : path.resolve(path.dirname(file), spec)
-    if (resolved !== path.join(UI_SRC, 'design')) continue
-    for (const part of match[1].split(',')) {
-      const imported = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]?.trim()
-      if (imported) names.push(imported)
+/**
+ * Every design export one file imports, resolved through however many hops
+ * of `export *`, named re-export and re-export shim it takes to reach
+ * `design/` — the general form `publicDesignImports` used to be, which saw
+ * only a direct `from '../design'` import naming design/index.ts exactly.
+ * Returns `{ file, localName, localBinding }`: `file`/`localName` are the
+ * concrete declaration, not public names — two different public names that
+ * happen to share a re-exporting module are two different exports below, not
+ * one shared module (#914, shape 3's precondition) — and `localBinding` is
+ * the name the *importer* actually uses (after its own `as`, if any), needed
+ * to find where in the importer's own code the import is read (below,
+ * transitive design-to-design use).
+ *
+ * `file` here is any source, not only a screen: called on a design file
+ * itself, this is how a pattern composing another design part is found.
+ */
+export const designImportsOf = (file) => {
+  const found = []
+  const code = codeOf(file)
+  const isDesignFile = (target) => target.file.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)
+  let ast = null
+  for (const { spec, bindings } of importsIn(code)) {
+    const target = moduleFileFor(spec, path.dirname(file))
+    if (!target) continue
+    const exported = exportedNamesOf(target)
+    for (const binding of bindings) {
+      if (binding.kind === 'namespace') {
+        // `import * as D from 'x'` reaches for whichever exports its own
+        // `D.X` (or `<D.X>`) sites name in `file` — found the same way a
+        // CSS-module binding's `styles.X` sites are, over the whole file
+        // rather than assumed used just because the import exists (#914
+        // review, P3).
+        ast ??= parseScreenSource(file, code)
+        for (const name of moduleClassReferences(ast, binding.localBinding)) {
+          const ref = exported.get(name)
+          if (ref && isDesignFile(ref)) found.push({ ...ref, localBinding: `${binding.localBinding}.${name}` })
+        }
+        continue
+      }
+      const ref = exported.get(binding.name)
+      if (ref && isDesignFile(ref)) found.push({ ...ref, localBinding: binding.localBinding })
     }
   }
+  return found
+}
+
+/**
+ * Every declaration in a stylesheet, tagged with the classes its rule's
+ * selector is about — `subjectClasses` read from `declarationsIn`'s own
+ * `rule.prelude`, the selector text it already tracks for every declaration
+ * it finds. This must read `declarationsIn`, not `declarationsOf`'s output
+ * fed back through a second, simpler pass: a declaration's *body* alone
+ * (`color: red;`), outside the `{ }` that told the real parser it was inside
+ * a rule rather than a selector prelude, sends `declarationsIn` no rule to
+ * flush against, so it finds nothing — every declaration silently vanished
+ * behind a stylesheet's own class the first time this was tried. A rule
+ * whose subject carries no class (an element or attribute selector, `:root`,
+ * an at-rule such as `@font-face`) tags its declarations with an empty set,
+ * so they are never attributed to one export below: only a named class ties
+ * a rule to the code that reaches for it.
+ */
+export const declarationsByClassIn = (css) => {
+  const out = []
+  for (const { property, value, valid, rule } of declarationsIn(css).declarations) {
+    if (!valid) continue
+    const classes = new Set(outside(rule.prelude, ',').flatMap((selector) => subjectClasses(selector)))
+    out.push({ classes, property, value })
+  }
+  return out
+}
+
+/** Every CSS-module class name a subtree reaches for via `binding.name` or
+ * `binding['name']` — the module object itself, not a `className`
+ * attribute's text (`classSiteTokens` already reads that). Used to tell
+ * which of a shared stylesheet's rules belong to one export's own code. */
+export const moduleClassReferences = (root, bindingName) => {
+  const names = new Set()
+  const visit = (node) => {
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === bindingName) {
+      names.add(node.name.text)
+    } else if (
+      ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === bindingName
+      && node.argumentExpression && ts.isStringLiteral(node.argumentExpression)
+    ) {
+      names.add(node.argumentExpression.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(root)
   return names
+}
+
+/**
+ * Which of `ast`'s own top-level exported declarations reference `localName`
+ * anywhere in their own subtree — a JSX tag, a bare identifier, a call — not
+ * a `styles.X` property access (`moduleClassReferences`'s job, just above).
+ * Used to trace which of a design pattern's own exports actually *compose*
+ * an import, rather than crediting every export in the file just because the
+ * file imports the name somewhere: `AppWindow.tsx` imports `RailSection`
+ * once, but only `AppWindowRailTop` and `AppWindowRailScroll` draw it —
+ * `AppWindowSurface`, `AppWindowRail` and `AppWindowPage` do not (#914
+ * review, transitive design-to-design use below).
+ */
+/**
+ * Which of `ast`'s own top-level EXPORTED declarations reference `localName`
+ * anywhere in their own subtree — directly, a JSX tag or a bare identifier,
+ * not a `styles.X` property access (`moduleClassReferences`'s job, just
+ * above) — or *transitively*, through a local (unexported) helper component
+ * or function it calls, resolved to that helper's own body rather than
+ * stopping at its name (#914 review, P3: a composer that delegates its own
+ * drawing to a private helper must not read as not composing anything).
+ * Every top-level `const`/`function`, exported or not, is collected first so
+ * a helper's own uses can be found; `usesLocalName`'s `visiting` guards
+ * against two helpers calling each other in a cycle.
+ */
+export const exportsReferencing = (ast, localName) => {
+  // `localName` names a namespace member (`D.RailSection`, from a namespace
+  // import's own `moduleClassReferences`-found access) when it carries a
+  // dot; matched as the property access it actually is, not as a single
+  // identifier whose text happens to contain one (#914 review, P3).
+  const namespaceAccess = localName.includes('.') ? localName.split('.') : null
+  const namesTarget = (node) =>
+    namespaceAccess
+      ? ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
+        && node.expression.text === namespaceAccess[0] && node.name.text === namespaceAccess[1]
+      : ts.isIdentifier(node) && node.text === localName
+  const declarations = new Map()
+  const exportedNames = new Set()
+  const isExported = (modifiers) => modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+  for (const statement of ast.statements) {
+    if (ts.isVariableStatement(statement)) {
+      const exported = isExported(statement.modifiers)
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
+        declarations.set(declaration.name.text, declaration.initializer)
+        if (exported) exportedNames.add(declaration.name.text)
+      }
+    } else if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      declarations.set(statement.name.text, statement.body)
+      if (isExported(statement.modifiers)) exportedNames.add(statement.name.text)
+    }
+  }
+
+  const usesCache = new Map()
+  const usesLocalName = (name, visiting) => {
+    if (usesCache.has(name)) return usesCache.get(name)
+    if (visiting.has(name)) return false
+    visiting.add(name)
+    const body = declarations.get(name)
+    const helperCalls = new Set()
+    let found = false
+    if (body) {
+      const visit = (node) => {
+        if (found) return
+        if (namesTarget(node)) { found = true; return }
+        if (ts.isIdentifier(node) && node.text !== name && declarations.has(node.text)) helperCalls.add(node.text)
+        ts.forEachChild(node, visit)
+      }
+      visit(body)
+    }
+    if (!found) {
+      for (const helper of helperCalls) {
+        if (usesLocalName(helper, visiting)) { found = true; break }
+      }
+    }
+    usesCache.set(name, found)
+    return found
+  }
+
+  const found = []
+  for (const name of exportedNames) {
+    if (usesLocalName(name, new Set())) found.push(name)
+  }
+  return found
+}
+
+/**
+ * Every dynamic `import('spec')` inside one of `ast`'s own top-level
+ * exported declarations — written directly, or wrapped in `lazy(() =>
+ * import('spec'))` — resolved to the target file it names. Which of the
+ * target's exports the caller actually destructures is not visible here
+ * (`const { X } = await import(...)`, `.then((m) => m.X)`, a bare default —
+ * any of these could follow), so a dynamic import this cannot resolve to
+ * specific names is read as reaching for the target's *entire* surface:
+ * conservative, because it can only ever add a consumer a design part
+ * genuinely has, never remove one it does not (#914 review, P3).
+ */
+export const dynamicImportUsesOf = (ast, fromDir) => {
+  const found = []
+  const isDynamicImportCall = (node) => ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
+  const visit = (node, name) => {
+    if (isDynamicImportCall(node)) {
+      const argument = node.arguments[0]
+      if (argument && ts.isStringLiteral(argument)) {
+        const target = moduleFileFor(argument.text, fromDir)
+        if (target) found.push({ exportName: name, target })
+      }
+    }
+    ts.forEachChild(node, (child) => visit(child, name))
+  }
+  // Every top-level EXPORTED declaration: `exportName` becomes the identity
+  // a caller attributes the reach to (a design-to-design composer, or the
+  // screen file itself), so it has to name something real — a private local
+  // helper's own dynamic import is still found through it the way any other
+  // local helper reference is, by `exportsReferencing`, not by this function
+  // guessing which export eventually calls the helper.
+  const isExported = (modifiers) => modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+  for (const statement of ast.statements) {
+    if (ts.isVariableStatement(statement)) {
+      if (!isExported(statement.modifiers)) continue
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer) visit(declaration.initializer, declaration.name.text)
+      }
+    } else if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      if (isExported(statement.modifiers)) visit(statement.body, statement.name.text)
+    }
+  }
+  return found
+}
+
+/**
+ * Every CSS-module class name referenced anywhere in a module, mapped to the
+ * set of top-level declarations — `const` or `function`, exported or not —
+ * that reference it. A class two or more declarations reach for is shared
+ * vocabulary, not one export's own appearance, even when each reference sits
+ * lexically inside a different export's own body: `Settings.tsx`'s
+ * `RowMark` alone draws `.rowMark`, but so do `Row` and `RowButton` in the
+ * same file, and those are used everywhere. Charging `.rowMark` to
+ * `RowMark`'s single area regardless was the false positive #914 review
+ * found (P1).
+ */
+export const classOwnersOf = (ast, stylesBinding) => {
+  const owners = new Map()
+  const record = (name, body) => {
+    for (const className of moduleClassReferences(body, stylesBinding)) {
+      if (!owners.has(className)) owners.set(className, new Set())
+      owners.get(className).add(name)
+    }
+  }
+  for (const statement of ast.statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer) record(declaration.name.text, declaration.initializer)
+      }
+    } else if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      record(statement.name.text, statement.body)
+    }
+  }
+  return owners
+}
+
+/**
+ * The workbench dock's own chrome — `panels/Workbench.tsx` is the only place
+ * a dock can exist, by design, so a second consumer for these thirteen
+ * exports of `design/patterns/DockPanel.tsx` is never coming. The
+ * single-consumer rule exists to find a screen's appearance that could be
+ * composed generically instead; these have nowhere else to be composed
+ * *into* — moving `WorkbenchRail`'s own drawing into `panels/` would leave
+ * it exactly as uncomposed as it is in `design/`, in a different directory,
+ * which is not what this category is for. Named the same way
+ * `SCREEN_APPEARANCE_EXEMPTIONS` above is, and for the same reason: an
+ * explicit list a reviewer can read in full, checked before #838 turns this
+ * ceiling into a hard zero, not a pattern a future rename could quietly
+ * widen or narrow. `RailSection`, DockPanel.tsx's other export, is not
+ * listed here because it is not single-area at all (AppWindow.tsx composes
+ * it too) and is never charged in the first place.
+ */
+const WORKBENCH_DOCK_MODULE = path.join(UI_SRC, 'design', 'patterns', 'DockPanel.tsx')
+const WORKBENCH_DOCK_EXEMPTIONS = new Set([
+  'PaneSurface', 'DockPanelActions', 'DockPanelBar', 'DockDropEdge', 'DockDropTarget',
+  'WorkbenchCanvas', 'WorkbenchRail', 'WorkbenchScrim', 'DockPanel', 'DockPanelBody',
+  'DockPanelTab', 'DockPanelTabs', 'PanelSeam',
+])
+export const isWorkbenchDockExempt = (module, localName) => module === WORKBENCH_DOCK_MODULE && WORKBENCH_DOCK_EXEMPTIONS.has(localName)
+
+/**
+ * Which of a module's exports are single-area, and the appearance each
+ * charges — the per-export form of the single-consumer pattern ledger.
+ *
+ * `exportsAndConsumers` is `[{ localName, consumers }]`: every export this
+ * module has at least one screen importer for, and the screen files that
+ * import it. Before #914 the whole module was charged as soon as *any* of
+ * its exports read as single-area, because every export's consumers were
+ * merged into one list before the area was even asked — so one export used
+ * everywhere made every sibling in the same file look shared too (shape 3).
+ *
+ * When every export here reaches the *same* one area, the whole module is
+ * that screen's appearance moved into `design/` in full, exactly as the
+ * original single-consumer rule read it, and is charged the same way it
+ * always was — this is the common case (`GitHistory.tsx`'s eight exports,
+ * `TurnWork.tsx`'s four), and re-deriving it export by export must not lose
+ * anything the whole-module charge already found. Otherwise — a shared
+ * export sits beside a single-area one, or two exports are each single to a
+ * *different* area — only a single-area export's own code is that screen's
+ * appearance: the utilities and inline styles inside its own declaration,
+ * found by scoping `patternSourceAppearanceOf` to it, and the stylesheet
+ * classes that declaration itself reaches for via `styles.foo`, found by
+ * `moduleClassReferences`. A shared export, or one with no local declaration
+ * to scope to, is left uncharged.
+ */
+export const patternExportAppearanceOf = (
+  module,
+  moduleSource,
+  sheet,
+  sheetSource,
+  exportsAndConsumers,
+  importersByFile = new Map(),
+  countedDefs = new Set(),
+) => {
+  const findings = []
+  const withAreas = exportsAndConsumers.map(({ localName, consumers }) => ({
+    localName,
+    area: singleScreenAreaOf(consumers, importersByFile),
+  }))
+  const areas = new Set(withAreas.map((entry) => entry.area))
+  const ast = moduleSource != null ? parseScreenSource(module, moduleSource) : null
+
+  const chargeWholeSheet = (area) => {
+    if (sheetSource == null) return
+    for (const { property, value } of declarationsOf(sheetSource)) {
+      if (screenPropertySideOf(property, value) === 'appearance') {
+        findings.push(`${label(sheet)} [${area} screen area]: ${property}`)
+      }
+    }
+  }
+  // Parsed once for the whole module, not once per single-area export: a
+  // pattern with a dozen exports used to re-walk its own stylesheet a dozen
+  // times for the same answer (#914 review, perf).
+  let sheetDeclarationsByClass = null
+  const chargeSheetClasses = (area, classes) => {
+    if (sheetSource == null || classes.size === 0) return
+    sheetDeclarationsByClass ??= declarationsByClassIn(sheetSource)
+    for (const { classes: ruleClasses, property, value } of sheetDeclarationsByClass) {
+      if (![...ruleClasses].some((name) => classes.has(name))) continue
+      if (screenPropertySideOf(property, value) === 'appearance') {
+        findings.push(`${label(sheet)} [${area} screen area]: ${property}`)
+      }
+    }
+  }
+
+  // A module with any named exemption never takes the whole-module path,
+  // uniform or not: that charge reads the *entire* file's text, which would
+  // charge an exempt export's own utilities right along with everything
+  // else. It always goes export by export below instead, where the
+  // per-export skip actually applies (#925 review round 2, P3).
+  const hasExemptExport = exportsAndConsumers.some(({ localName }) => isWorkbenchDockExempt(module, localName))
+  if (!hasExemptExport && areas.size === 1 && !areas.has(null)) {
+    const [area] = areas
+    chargeWholeSheet(area)
+    if (ast) {
+      for (const line of patternSourceAppearanceOf(module, moduleSource, ast, countedDefs)) {
+        const at = line.lastIndexOf(': ')
+        findings.push(`${line.slice(0, at)} [${area} screen area]: ${line.slice(at + 2)}`)
+      }
+    }
+    return findings
+  }
+
+  if (!ast) return findings
+  const stylesBinding = stylesheetImports(moduleSource, module, { strict: true })[0]?.binding ?? null
+  const classOwners = stylesBinding ? classOwnersOf(ast, stylesBinding) : null
+  for (const { localName, area } of withAreas) {
+    if (!area || isWorkbenchDockExempt(module, localName)) continue
+    const root = directDeclarationIn(ast, localName)?.initializer
+    if (!root) continue
+    for (const line of patternSourceAppearanceOf(module, moduleSource, ast, countedDefs, root)) {
+      const at = line.lastIndexOf(': ')
+      findings.push(`${line.slice(0, at)} [${area} screen area]: ${line.slice(at + 2)}`)
+    }
+    if (stylesBinding) {
+      // Only a class *exclusively* this export's own — no other declaration
+      // in the module, whether exported or not, also reaches for it — is
+      // that export's own appearance. `RowMark` draws `.rowMark`, but so do
+      // `Row` and `RowButton` in the same module, and those are shared
+      // vocabulary (#914 review, P1).
+      const referenced = moduleClassReferences(root, stylesBinding)
+      const exclusive = new Set(
+        [...referenced].filter((name) => {
+          const owners = classOwners.get(name)
+          return owners?.size === 1 && owners.has(localName)
+        }),
+      )
+      chargeSheetClasses(area, exclusive)
+    }
+  }
+  return findings
 }
 
 /*
@@ -2343,42 +3990,176 @@ const publicDesignImports = (file) => {
  * family that owns it. This is a burn-down rather than a blanket refusal:
  * layout may legitimately live with a typed cross-screen renderer, while its
  * copied type, ink, ground and inner box remain an honest part of the screen
- * appearance count.
+ * appearance count. `screenSources` and `importersByFile` are the same ones
+ * the family closure above already built.
  */
-const exportedFrom = publicDesignExports()
-const consumersByModule = new Map()
-const screenSources = tsxFiles().filter((candidate) => isScreenSheet(candidate))
-const importersByFile = new Map()
-for (const importer of screenSources) {
-  for (const match of codeOf(importer).matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)) {
-    const spec = match[1]
-    if (!spec.startsWith('.') && !spec.startsWith('@/')) continue
-    const base = spec.startsWith('@/')
-      ? path.join(UI_SRC, spec.slice(2))
-      : path.resolve(path.dirname(importer), spec)
-    const imported = base.endsWith('.tsx') ? base : `${base}.tsx`
-    if (!tracked.has(imported) || !isScreenSheet(imported)) continue
-    importersByFile.set(imported, [...(importersByFile.get(imported) ?? []), importer])
+/** Direct screen consumers only — a design export's own importers among
+ * `components/slots/panels`, before a design-to-design use is followed. */
+const consumersByExport = new Map()
+const addConsumer = (targetFile, targetName, consumer) => {
+  const key = `${targetFile}::${targetName}`
+  let entry = consumersByExport.get(key)
+  if (!entry) {
+    entry = { file: targetFile, localName: targetName, consumers: [] }
+    consumersByExport.set(key, entry)
   }
+  entry.consumers.push(consumer)
 }
 for (const file of screenSources) {
-  for (const name of publicDesignImports(file)) {
-    const module = exportedFrom.get(name)
-    if (!module) continue
-    consumersByModule.set(module, [...(consumersByModule.get(module) ?? []), file])
+  for (const ref of designImportsOf(file)) addConsumer(ref.file, ref.localName, file)
+  // A screen's own `lazy(() => import('../design'))` (or a bare dynamic
+  // `import(...)`) is a real consumer too, read the same conservative way a
+  // design file's dynamic import already is: every export of the target
+  // counts as reached, because which name is actually destructured from it
+  // is not visible here (#925 review round 2, P3).
+  const screenAst = parseScreenSource(file, codeOf(file))
+  for (const { target } of dynamicImportUsesOf(screenAst, path.dirname(file))) {
+    if (!target.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)) continue
+    for (const [targetName] of exportedNamesOf(target)) addConsumer(target, targetName, file)
   }
 }
-for (const [module, consumers] of consumersByModule) {
-  const area = singleScreenAreaOf(consumers, importersByFile)
-  if (!area) continue
-  const sheet = module.replace(/\.tsx$/, '.module.css')
-  if (!tracked.has(sheet)) continue
-  for (const { property } of declarationsOf(read(sheet)).filter(
-    ({ property, value }) => screenPropertySideOf(property, value) === 'appearance',
-  )) {
-    findings.screenAppearance.push(`${label(sheet)} [${area} screen area]: ${property}`)
+
+/**
+ * Every design export another design export *composes*, keyed by the export
+ * composed — the design-to-design half of the same graph `consumersByExport`
+ * builds for screens. `RailSection` has one direct screen importer
+ * (Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+ * and `AppWindowRailScroll`; those reach `components/AppWindow.tsx`, which
+ * Settings, the Agents window, ChangesReview and Usage each mount — so
+ * `RailSection`'s true reach is well past Sidebar, and charging it as
+ * "Sidebar's own" would have made the ceiling unreachable without faking a
+ * consumer out of existence (#914 review). Read from every `.tsx` under
+ * `design/`, not only patterns: a primitive can compose another primitive
+ * too (`ui/dialog.tsx`'s `Dialog` composing a lower part), and the reach has
+ * to be found wherever it starts.
+ */
+const designSources = tsxFiles().filter((file) => /[\\/]design[\\/]/.test(file))
+const designUsersByExport = new Map()
+const addComposer = (targetFile, targetName, designFile, localName) => {
+  const key = `${targetFile}::${targetName}`
+  let entry = designUsersByExport.get(key)
+  if (!entry) {
+    entry = { file: targetFile, localName: targetName, users: [] }
+    designUsersByExport.set(key, entry)
+  }
+  entry.users.push({ file: designFile, localName })
+}
+for (const designFile of designSources) {
+  const uses = designImportsOf(designFile)
+  const designAst = parseScreenSource(designFile, read(designFile))
+  for (const ref of uses) {
+    for (const localName of exportsReferencing(designAst, ref.localBinding)) {
+      addComposer(ref.file, ref.localName, designFile, localName)
+    }
+  }
+  // A dynamic import's target might not even be a named design import above
+  // (it may be the only way the module is reached), so every export it
+  // conservatively reaches for is added the same way.
+  for (const { exportName, target } of dynamicImportUsesOf(designAst, path.dirname(designFile))) {
+    if (!target.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)) continue
+    for (const [targetName] of exportedNamesOf(target)) addComposer(target, targetName, designFile, exportName)
+  }
+  // Same-module composition: `Dialog` composes `DialogBody`/`DialogSubhead`
+  // in its own body, in the same file, with no import at all — they are
+  // already in scope. `designImportsOf` is an *import* scanner and can never
+  // see this, so `DialogBody`'s only screen importer (SkillSheet.tsx) looked
+  // like its whole reach, when `Dialog`'s own ~46-screen reach is exactly as
+  // much this export's own (#925 review round 2, P1).
+  for (const [, ref] of exportedNamesOf(designFile)) {
+    if (ref.file !== designFile) continue
+    for (const composerName of exportsReferencing(designAst, ref.localName)) {
+      if (composerName === ref.localName) continue
+      addComposer(designFile, ref.localName, designFile, composerName)
+    }
   }
 }
+
+/**
+ * A design export's full screen reach: its own direct screen importers
+ * (`directConsumers`), plus — recursively, cycles guarded by `visited` — the
+ * reach of every design export that composes it (`designUsers`). A part
+ * reached only through composition (no screen ever imports it by name) is
+ * the reach of whatever composes it, not "no consumers". Parameterized on
+ * both maps, rather than closing over the module-level ones built below, so
+ * a fixture can hand it a small graph of its own.
+ */
+export const resolvedConsumersOf = (file, localName, directConsumers, designUsers, visited = new Set()) => {
+  const key = `${file}::${localName}`
+  if (visited.has(key)) return []
+  visited.add(key)
+  const direct = directConsumers.get(key)?.consumers ?? []
+  const downstream = (designUsers.get(key)?.users ?? []).flatMap(
+    (user) => resolvedConsumersOf(user.file, user.localName, directConsumers, designUsers, visited),
+  )
+  return [...direct, ...downstream]
+}
+
+const exportsByModule = new Map()
+for (const key of new Set([...consumersByExport.keys(), ...designUsersByExport.keys()])) {
+  const { file: module, localName } = consumersByExport.get(key) ?? designUsersByExport.get(key)
+  if (!exportsByModule.has(module)) exportsByModule.set(module, [])
+  exportsByModule.get(module).push({
+    localName,
+    consumers: resolvedConsumersOf(module, localName, consumersByExport, designUsersByExport),
+  })
+}
+
+/**
+ * The `.module.css` a design module owns, or `null` for a plain `.ts` module
+ * — an adapter with no JSX (`design/adapters/terminal.ts`) has no sibling
+ * stylesheet. Without this the unchanged `.tsx$` replace left a `.ts`
+ * module's `sheet` equal to `module` itself, so its own TypeScript source was
+ * read as though it were a stylesheet and produced a bogus finding (#914
+ * review's own false positive: `terminalAppearance [terminalpane screen
+ * area]`, which no `.module.css` backs at all).
+ */
+export const stylesheetFor = (module) => (module.endsWith('.tsx') ? module.replace(/\.tsx$/, '.module.css') : null)
+
+/**
+ * `screenAppearance` is charged only under `design/patterns/` — a typed,
+ * product-specific composition contract, which is what "a screen's
+ * appearance parked in the design folder" actually describes. `design/ui/`
+ * holds shadcn-registry primitives and their compositions (the chart kit,
+ * `Board`, `ToolPane`, `Card`, `Bar`, `KeyValue`, `Spark`, `Dialog`,
+ * `Breadcrumb`, `Delta`…): generic vocabulary that is meant to exist before
+ * it has a second consumer, the way a design system's own primitives always
+ * are. Charging one under `screenAppearance` for having one caller today
+ * would make that strict zero unreachable without inventing a second,
+ * pointless caller.
+ *
+ * That does not make a single-area primitive nothing, though — a primitive
+ * this narrow is still worth a human's attention, and a rule that only ever
+ * watched would let one sit unexamined forever, or let a pattern move out of
+ * `design/patterns/` specifically to dodge the charge. `singleAreaPrimitive`
+ * is the escape hatch's own ceiling: every one of these exports, named under
+ * `--verbose`, held to the same "may only fall" burn-down every other
+ * category here is (#914 review, P3's escape-hatch finding).
+ */
+export const isPatternModule = (module) => /[\\/]design[\\/]patterns[\\/]/.test(module)
+
+const patternCountedDefs = new Set()
+for (const [module, exportsHere] of exportsByModule) {
+  if (!isPatternModule(module)) {
+    for (const { localName, consumers } of exportsHere) {
+      const area = singleScreenAreaOf(consumers, importersByFile)
+      if (area) findings.singleAreaPrimitive.push(`${label(module)}: ${localName} [${area} screen area]`)
+    }
+    continue
+  }
+  const sheet = stylesheetFor(module)
+  const moduleSource = tracked.has(module) ? read(module) : null
+  const sheetSource = sheet && tracked.has(sheet) ? read(sheet) : null
+  findings.screenAppearance.push(
+    ...patternExportAppearanceOf(module, moduleSource, sheet, sheetSource, exportsHere, importersByFile, patternCountedDefs),
+  )
+}
+
+// Shared across the whole run so a class constant resolved while scanning
+// one screen file is not counted again when another screen imports it —
+// see `classSiteTokens`. A fixture never touches this: each of
+// `screenUtilityAppearanceOf` and `screenUnmappedUtilityOf` defaults to a
+// set of its own when the caller does not share one.
+const screenClassConstDefs = new Set()
 
 for (const file of tsxFiles()) {
   const name = label(file)
@@ -2401,10 +4182,36 @@ for (const file of tsxFiles()) {
   // form, and this one did not — so a commented-out `<SectionHead action={…}>`
   // in a doc comment was scanned as if it rendered.
   for (const hit of slotOffenders(code, name)) findings.wrongVariant.push(hit)
+  // A dialog's footer is read from the syntax tree, every branch of it: its
+  // rule is about the buttons together, and the source keeps its comments
+  // for a parser that understands them (the stripped text broke on a URL).
+  for (const hit of footerOffenders(source, name)) findings.wrongVariant.push(hit)
 
   /** Local binding → the classes that stylesheet declares. */
   const { sheets, crossImports } = sheetsOf(dir, file, name, source, UI_SRC)
   findings.crossImport.push(...crossImports)
+
+  // Appearance the screen drew as a Tailwind utility or an inline `style`
+  // instead of its `.module.css` — the other two spellings of the same
+  // boundary `screenAppearanceOf` reads a stylesheet for. One ceiling: both
+  // land on `findings.screenAppearance` beside the CSS-declared kind.
+  //
+  // Parsed once and shared across all three: each independently defaulted to
+  // parsing the file itself, so every screen file was read into a tree three
+  // separate times for no reason three different walks needed their own.
+  // `screenUtilityAppearanceOf` and `screenUnmappedUtilityOf` already carry
+  // the file a resolved token's declaration lives in, so they push a fully
+  // labelled line themselves; `screenInlineStyleAppearanceOf` never crosses a
+  // file (a `style` object is not resolved across an import) and still
+  // returns the bare detail for `name` to prefix here.
+  const screenAst = isScreenTsx(file) ? parseScreenSource(file, source) : undefined
+  findings.screenAppearance.push(...screenUtilityAppearanceOf(file, source, screenAst, screenClassConstDefs))
+  for (const detail of screenInlineStyleAppearanceOf(file, source, screenAst)) findings.screenAppearance.push(`${name}: ${detail}`)
+  findings.unmappedScreenUtility.push(...screenUnmappedUtilityOf(file, source, screenAst))
+  // Held to the same strict zero a stylesheet's own unclassified property is:
+  // an arbitrary-property utility naming something on neither side of the
+  // boundary (`[text-indent:2px]`) is not silently uncounted.
+  findings.screenUnclassified.push(...screenUtilityUnclassifiedOf(file, source, screenAst))
 
   // A glyph control drawn smaller than a finger.
   //
@@ -2562,6 +4369,14 @@ if (isMain) {
     } else if (verbose) for (const line of list) console.log(`        ${line}`)
     else for (const line of list.slice(0, 3)) console.log(`        ${line}`)
     if (!verbose && list.length > 3) console.log(`        … ${list.length - 3} more (--verbose)`)
+    console.log('')
+  }
+
+  // Outside SECTIONS on purpose: a hint for whoever next extends
+  // `screenUtilityDeclarationOf`, never a second strict category.
+  if (verbose && findings.unmappedScreenUtility.length > 0) {
+    console.log(`${String(findings.unmappedScreenUtility.length).padStart(4)}  Unmapped utility (not counted; looks like appearance)`)
+    for (const line of findings.unmappedScreenUtility) console.log(`        ${line}`)
     console.log('')
   }
   console.log(`${total} findings.`)

@@ -26,13 +26,6 @@
   overflow-y: auto;
 }
 
-.dep {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  min-width: 0;
-}
-
 .depTitle {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -132,6 +132,18 @@ const keyOf = (key: string, line: number): string => {
   return key
 }
 
+/**
+ * Sets one key of an inline map, refusing a key the map already holds.
+ *
+ * A block map always refused a key written twice; an inline one kept the last,
+ * so `{ flow: safe, flow: unsafe }` read as `unsafe` while a reviewer's eye
+ * stopped at `safe`. The two spellings of a map now answer the same way.
+ */
+export function setYamlEntry(map: Record<string, unknown>, key: string, value: unknown, line: number): void {
+  if (Object.prototype.hasOwnProperty.call(map, key)) throw new YamlError(`"${key}" is set twice in the same block`, line)
+  map[key] = value
+}
+
 /** `[a, b]` and `{a: b, c: d}` on one line, nested. Everything else is a scalar. */
 const flowValue = (text: string, line: number): unknown => {
   const value = text.trim()
@@ -176,7 +188,7 @@ const flowValue = (text: string, line: number): unknown => {
         skip()
         if (value[at] !== ':') throw new YamlError('a {map} entry is missing its colon', line)
         at += 1
-        map[key] = read()
+        setYamlEntry(map, key, read(), line)
         skip()
         if (value[at] === ',') {
           at += 1

@@ -78,10 +78,18 @@ export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
     variant: 'secondary',
-    when: 'An ordinary action inside something that already encloses it — a dialog footer, a card, a row.',
+    when: 'An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet whenever a filled act stands beside it, so the confirm is the one filled button. Never alone in a footer: a lone footer button is the act, `default`.',
     never: 'In a page or section head. It is the same grey as the surfaces around it and disappears into them.',
     because:
-      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn.',
+      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn. In a footer that holds a filled act the footer decides its look (`:has()` on the footer slot), so a screen writes `secondary` and gets the quiet way out. A lone footer button is the act and is filled, which the audit holds.',
+  },
+  {
+    family: 'button',
+    variant: 'quiet',
+    when: 'The way out of a question — Keep, Cancel, Close — when the act beside it is filled.',
+    never: 'As the only action on a surface, or for the act itself: a quiet button is the answer that changes nothing.',
+    because:
+      'A footer with two equally weighted buttons has no default. The quiet one is still a button — it takes the hover fill and the ring — but the eye lands on the filled one first.',
   },
   {
     family: 'button',
@@ -94,10 +102,18 @@ export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
     variant: 'destructive',
-    when: 'An action that removes something a person cannot get back.',
-    never: 'For an action that merely closes, cancels or hides. Those are ordinary.',
+    when: 'A remove action set among others on a page or in a row — the door to a confirm, not the confirm.',
+    never: 'For an action that merely closes, cancels or hides (those are ordinary), and never in a dialog footer: the act of a destructive confirm is `danger`, filled, and the audit refuses the soft red there.',
     because:
-      'It is soft in this app — danger ink on nothing, filling on hover — rather than a solid red. A red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.',
+      'It is soft — danger ink on nothing, filling on hover — rather than a solid red. On a page a red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.',
+  },
+  {
+    family: 'button',
+    variant: 'danger',
+    when: 'The act of a destructive confirm: Delete, Remove worktree, Discard — the one filled button in that footer. `ConfirmDialog tone="destructive"` draws it.',
+    never: 'Beside another filled button, or on a page. Anywhere but the answer to "are you sure?" it is `destructive`.',
+    because:
+      'In the confirm the question has already been asked, so the red is no longer competing with what you came to do — it is what you came to do. A red-text act beside a plain-text Keep was two equal ghosts with no default.',
   },
 ]
 
@@ -150,12 +166,212 @@ export const ELEMENTS: readonly UsageRule[] = [
       'A button and the chip beside it were the same shape, so a row of controls read as a row of labels. One rung apart is what separates them.',
   },
   {
+    family: 'choice',
+    variant: 'Segmented · NativeSelect · ChoiceList · Checkbox',
+    when: 'One answer among two to four short ones: `Segmented`, or a `NativeSelect` when the words are long or the list may grow. One answer that needs a line to explain it: `ChoiceList` — compact radio rows, each with its description under its title in the hint step, so answers can be compared and choosing moves nothing. Several members at once (which Agents to seat, which files to take): checkboxes.',
+    never: 'A switch for picking a member — a switch acts the moment it is flipped, and ticking who comes along is not an action. Nor a card of 60px settings rows for four words in a dialog; inside a dialog a `Rows` radio group made only of `RowChoice` rows already draws as a `ChoiceList` (a group of anything else keeps its card).',
+    because:
+      'A choice is read before it is made, so every answer shows what it means — in the hint step, a size below its title, so the titles still scan as a list. A description shown only on the chosen answer moved the rows under the pointer and hid what a person needed to compare.',
+  },
+  {
+    family: 'form',
+    variant: 'Field · Fieldset · FormStack',
+    when: 'Anything a dialog asks for. A label sits 6px over its control, the next field starts 16px below, a group of controls takes a `Fieldset` legend the way a field takes a label, and a field that may be left empty says `optional` at its label\'s end.',
+    never: 'Spacing a dialog\'s fields by hand, or a page\'s `SectionHead` as a group label: inside a dialog the body is already the form stack and a `SectionHead` already draws as a legend.',
+    because:
+      'A form is scanned by its labels. When every label is the same distance from its control and every field the same distance from the next, the eye stops measuring and reads; the "toy dialog" was one where each of those distances was a different accident.',
+  },
+  {
+    family: 'form',
+    variant: 'Row · RowInput · Switch',
+    when: 'Settings pages never show a Save button; values apply as you change them. A switch applies as it is flipped; a typed value is a `RowInput` in the row\'s control slot — as wide as the value it holds — and applies on Enter or when the field is left. A value the host refuses stays in its field, marked, with a `Note` under the card saying why.',
+    never: 'A page `Field` stretched across the column with a Save button under it, or any button in a `FormStack` stretched to the column: the stack lets a button keep its own width.',
+    because:
+      'Settings › Workspaces once held two 715px number inputs and a 715px black Save bar under three switches that applied instantly — the heaviest object on any Settings page, for a five-digit port, and a page with two rules for when a change takes effect.',
+  },
+  {
+    family: 'order',
+    variant: 'useSortable · sortableItemClass · SortableHandle',
+    when: 'Items whose order the person sets — a queue, seats, tabs. Order is shown by position; an item moves by a drag from the handle that appears on hover (a tab is its own handle), by ⌥↑/⌥↓ from anywhere in it but a text field, or by Space on its handle to pick it up and the arrows to carry it; the line shows where it will land, and every move is announced once the owner of the order has answered. Removal is the row\'s own `⋯` menu or hover ×. Every item draws its move with `sortableItemClass`.',
+    never: '"Move up" / "Move down" buttons on each row — three controls a row to say what its place already says — or a list that reorders itself before the owner of the order has answered.',
+    because:
+      'Reordering is silent by nature and the order often belongs to the host: one part that asks, waits for the answer, then says where the row went keeps the keyboard, the drag and a reader on the same list.',
+  },
+  {
     family: 'surface',
     variant: '--hd-surface-*',
     when: 'A dialog, a command palette, a sheet — something that takes the window.',
     never: 'A popover or a hover card. Those are the popover\'s lighter surface, and they match each other rather than the dialog.',
     because:
       'A hover card that wore a dialog\'s shadow would claim the window\'s attention for something the pointer merely passed over.',
+  },
+  {
+    family: 'tone',
+    variant: 'warning',
+    when: 'The person must act now — sign in, approve, free a limit — and the thing cannot go on without them. Chip, Badge, Note and Banner all read it this way.',
+    never: 'For a default or a normal state: a permission that is "asked" by default, an open finding, a shadowed copy, a limit working as designed. Those are neutral or carry no chip.',
+    because:
+      'The Permissions page once drew 48 identical amber chips for the default. Amber on every row is how the one row that does need someone stops being found.',
+  },
+  {
+    family: 'tone',
+    variant: 'danger',
+    when: 'Something is broken, or will be lost: a failed check, a missing executable, an action that deletes.',
+    never: 'For a stop the person asked for. "The agent was stopped." after pressing Stop is neutral — it is the outcome they chose.',
+    because:
+      'Red is the loudest thing a screen can say. Spent on an outcome the reader chose, it teaches them to look past the red that matters.',
+  },
+  {
+    family: 'tone',
+    variant: 'neutral',
+    when: 'Every default, every normal state and every fact that asks nothing of the reader — or no chip at all.',
+    never: 'Promoted to a colour to make a row look busier. A tone is a claim about what the reader should do.',
+    because:
+      'Most of what a desk reports is fine. Neutral is what lets the exceptions be seen.',
+  },
+  {
+    family: 'chip',
+    variant: 'one line',
+    when: 'Always. A chip never wraps: it stops at its box (at most 240px), ellipsises, and names itself whole in `title` while it is cut. The Chip enforces this.',
+    never: 'Forced into two lines by a caller. A fact that needs a second line is a row\'s description or a dialog\'s, not a chip.',
+    because:
+      'A pill with two lines in it is a card pretending to be a mark — the board\'s wrapped evidence chips were the loudest thing on every card that carried one.',
+  },
+  {
+    family: 'chip',
+    variant: 'stale',
+    when: 'A fact recorded before what is there now. Pass `stale`: the Chip leads with the history glyph and says "stale" to a screen reader; a stale pass drops to neutral and muted ink, while a stale failure keeps its danger ink.',
+    never: 'A strikethrough. Struck text reads as "wrong", and a stale fact was right when it was recorded.',
+    because:
+      'Muted with a glyph keeps the fact legible for what it was, and still says it is no longer current.',
+  },
+  {
+    family: 'chip',
+    variant: 'count',
+    when: 'A chip that counts something takes `count`, and a zero draws nothing. `showZero` is for the rare set where zero is itself the finding.',
+    never: 'A row of zero-count chips, or "+0 −0 in 0 files" on every card: a chip that counts none has nothing to say.',
+    because:
+      'A zero draws the eye exactly as much as a seven, and it asks nothing.',
+  },
+  {
+    family: 'chip',
+    variant: 'earned',
+    when: 'A chip says something the row does not already say. A chip that is identical on every row of a group belongs in the group\'s heading, once.',
+    never: 'Repeating the row\'s own title ("Healthy" beside a row titled Healthy), or the state a control beside it already shows ("Off" beside a switch that is off).',
+    because:
+      'Every chip costs the row some of its name. One that repeats the title or the control is paid for twice and says nothing.',
+  },
+  {
+    family: 'empty-state',
+    variant: 'panel',
+    when: 'Nothing yet on a page, a pane or a dialog body that exists to hold it: centred icon, title, sentence and the ways to fill it. `tight` inside a card.',
+    never: 'With its own ink action when the header above already has the primary. The empty state\'s action is then secondary — two ink buttons is two primaries, which is none.',
+    because:
+      'The empty Goal board once had "New job" in its header and "Add the first job" under it, both black.',
+  },
+  {
+    family: 'empty-state',
+    variant: 'inline',
+    when: 'Nothing in a list, a column or a pane that already says what it is: one muted line, no icon, no heading.',
+    never: 'Under a node of a navigation tree. An empty node has no children and at most a count; only a whole list with nothing in it at all may carry one inline line.',
+    because:
+      'A sentence under every empty Goal in the sidebar made the tree twice as tall and said the same thing four times.',
+  },
+  {
+    family: 'empty-state',
+    variant: 'row',
+    when: 'Nothing in a `Rows` card: a row with the Row\'s own padding and hairline, its title a step quieter so it is never read as an item.',
+    never: 'A hand-drawn `Row` titled "No … yet", or a bold title in a card of its own. Both were how the app came to have five empty layouts.',
+    because:
+      'The card keeps its shape whether it holds nothing or twelve things, so the page does not jump when the first one arrives.',
+  },
+  {
+    family: 'title',
+    variant: 'one step',
+    when: 'Every page head, a list page\'s `PageHead` and a drilled-into `DetailHead` alike: the page-title step, 20px semibold — the wordmark\'s own type.',
+    never: 'A second size for a detail page. What tells a detail page apart is its mark and its owner chip, never a bigger or lighter name.',
+    because:
+      'At 24px regular a drilled-into page read lighter and less finished than the list it came from, and the sidebar\'s wordmark beside it. The owner settled it in #832: page titles match the wordmark.',
+  },
+  {
+    family: 'label',
+    variant: 'GroupLabel',
+    when: 'The word over any group — a card of rows, a rail\'s list, a section of a page: 13px, the secondary ink, sentence case. `SectionHead`, `Section`, `NavigationGroupHeader` and the catalogue rail all draw it.',
+    never: 'Capitals. No label outside a `Keycap` is set in uppercase, tracked or not; the design audit counts every one (`uppercaseLabel`) and its ceiling may only fall.',
+    because:
+      'The app had three group-label styles and a column of six 12px tracked capitals read as shouted — the one group that needed finding stopped standing out. A key is the exception because it is a physical thing with printing on it.',
+  },
+  {
+    family: 'section',
+    variant: 'page',
+    when: 'Any part of a page: `<Section title description action>` around its card. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children\'s own margins.',
+    never: 'A `SectionHead`, a free `Note` and a `Rows` stacked by hand, or a screen margin between sections. The label then belongs to neither card and every page spaces itself.',
+    because:
+      'On the Agent page the label "Ceiling" sat 18px under the card above it and 20px over its own, so it named neither. A section that owns its spacing cannot drift that way, and a page composing sections writes no margin at all.',
+  },
+  {
+    family: 'section',
+    variant: 'description',
+    when: 'One muted sentence under the label saying what the section is, when the label alone cannot.',
+    never: 'A paragraph of how it works. Two or three lines under every label is a page that explains itself before it shows anything; the explanation belongs on the row it explains, or nowhere.',
+    because:
+      'Project, Permissions and Triggers each opened every section with a 2–3 line paragraph under the page\'s own blurb. The one warning that mattered read like the four around it.',
+  },
+  {
+    family: 'key-value',
+    variant: 'summary',
+    when: 'Several facts about one object on a page — a file, a ceiling, what it loads — as `SummaryList` inside one `Section`: a key, a value, an optional note under it and an optional small action at the row\'s end.',
+    never: 'A stack of one-row cards, each under its own label. Five facts about one Agent are one card of five rows.',
+    because:
+      'Eight label-plus-one-row-card sections made the Agent page a column of floating grey words. One card of facts is read top to bottom like an inspector, with the actions in one column at the end.',
+  },
+  {
+    family: 'row',
+    variant: 'wrapped control',
+    when: 'A control too wide to share a narrow row with its title drops under it. A compact control — a switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the row\'s end; a text answer (`RowValue`) takes its whole line and starts where the title starts. The row reads which from the control, so no caller says.',
+    never: 'A sentence pushed to the row\'s end on its own line: narrower than the row, it starts at whatever indent its length leaves and lines up with nothing.',
+    because:
+      'A row button\'s control travels with a chevron that cannot leave the end, and a card\'s trailing edge is the column every control is found in. Words are read from the left, so words that have their own line start at the left.',
+  },
+  {
+    family: 'section',
+    variant: 'sub-head',
+    when: 'Groups inside one section — one runtime\'s approvals among twelve, one layer of flows: a `SectionHead` among a `Section`\'s children, 24px above it and 8px over its card, and an h3 under the section\'s h2.',
+    never: 'A top-level section per group. Twelve 32px steps under one heading read as twelve sections and hide the one that heads them.',
+    because:
+      'The step between a section (32px) and a label-to-card (8px) is what says "part of the section above".',
+  },
+  {
+    family: 'title',
+    variant: 'outline',
+    when: 'A page\'s or a detail page\'s title is its h1; every section label on it, `Section` or `SectionHead`, is an h2. A detail head\'s owner is text that gives way at its end, or a mark (a chip) that stays whole while the name wraps.',
+    never: 'A title in a div, or a chip owner that ellipsises: a status read "Nee…" beside a long Goal.',
+    because:
+      'Heading navigation is how a screen reader skims a page, and a page whose labels are spans cannot be skimmed.',
+  },
+  {
+    family: 'key-value',
+    variant: 'default',
+    when: 'Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.',
+    never: 'Right-aligning a sentence. A ragged left edge cannot be scanned, and a three-line "Declares" set flush right was the worst line in its dialog.',
+    because:
+      'The eye runs down the keys and across to the value; a value that starts at the same x every time is the thing it lands on.',
+  },
+  {
+    family: 'key-value',
+    variant: 'numeric',
+    when: 'A count, a total, money — a value a reader compares by place. The row says `numeric`, and only then is it right-aligned on tabular figures.',
+    never: 'On a row that holds words, or as the list\'s default. Right alignment is a claim that the digits line up.',
+    because:
+      'A totals column that lines up by place is read in one glance; the same alignment on a sentence is read in none.',
+  },
+  {
+    family: 'key-value',
+    variant: 'path',
+    when: 'A file or folder path as a value: `kind="path"` (or `MiddleTruncate` elsewhere) gives up the middle, keeps the last segment, and names the whole in its title while cut.',
+    never: 'A bare path in a value: it has no break opportunities, so it either runs past the container or loses the file name at the end.',
+    because:
+      'A path\'s informative ends are whose it is and what it names. The middle is what every path in the list shares.',
   },
 ]
 
@@ -180,12 +396,14 @@ export const SLOTS: readonly {
   /** `full` is `--hd-btn-h`; `sm` is the rung below it. */
   readonly size: 'full' | 'sm'
   /**
-   * Whether the slot may hold more than one ink action.
+   * Whether the slot may hold more than one filled action (`default`,
+   * `primary`, `danger`).
    *
    * "At most one per screen" is the loudest claim the button vocabulary makes
    * and the one a machine can least often check, because a screen is not a
-   * syntactic thing. A slot is, so the part that *can* be checked is: two ink
-   * buttons in one header is two primaries, which is none.
+   * syntactic thing. A slot is, so the part that *can* be checked is: two
+   * filled buttons in one header or one footer is two primaries, which is
+   * none.
    */
   readonly oneInk?: true
   readonly why: string
@@ -200,7 +418,7 @@ export const SLOTS: readonly {
   },
   {
     slot: 'sectionAction',
-    what: 'the `action` of a `SectionHead`',
+    what: 'the `action` of a `SectionHead` or a titled `Section`',
     allow: ['outline', 'destructive', 'danger'],
     size: 'sm',
     why: 'One rung down, because a section heading is one rank down and its action should not outweigh the page\'s. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first\'s meaning with it.',
@@ -208,9 +426,9 @@ export const SLOTS: readonly {
   {
     slot: 'dialogFooter',
     what: 'the `footer` of a `Dialog`',
-    allow: ['default', 'primary', 'secondary', 'destructive', 'danger', 'outline'],
+    allow: ['default', 'primary', 'secondary', 'quiet', 'danger', 'outline'],
     size: 'full',
     oneInk: true,
-    why: 'The dialog encloses them, so `secondary` is the ordinary answer and the confirm is the one `default`. `ghost` is not: a footer button with no edge reads as a link in a place where every choice should look equally pressable.',
+    why: 'Every footer has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is that act, filled: a lone `secondary` is a frame the grey of the footer under it. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page\'s remove action, not a confirm\'s act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`.',
   },
 ]

@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { ChangeStats, FileState, PatchHeader, PatchSection } from './Change'
+import { ChangeStats, FileState, PatchHeader } from './Change'
 
 describe('change presentation', () => {
   afterEach(() => {
@@ -32,8 +32,7 @@ describe('change presentation', () => {
     const host = document.createElement('div')
     document.body.append(host)
     const root = createRoot(host)
-    act(() => root.render(<PatchSection><PatchHeader>src/a.ts</PatchHeader></PatchSection>))
-    expect(host.querySelector('[data-slot="patch-section"]')).not.toBeNull()
+    act(() => root.render(<PatchHeader>src/a.ts</PatchHeader>))
     expect(host.querySelector('[data-slot="patch-header"]')?.textContent).toBe('src/a.ts')
   })
 

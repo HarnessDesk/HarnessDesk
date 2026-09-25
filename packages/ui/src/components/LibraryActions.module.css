@@ -31,7 +31,7 @@
 }
 
 .opBody {
-  margin: 0 0 var(--hd-space-3) calc(var(--hd-space-4) + var(--hd-space-2));
+  margin: 0 0 var(--hd-space-3) calc(var(--hd-space-3) + var(--hd-space-2)); /* desk: space-4 + space-2 → space-3 + space-2, the body starts under the name after the 12px text mark */
 }
 
 .opFiles {
@@ -64,9 +64,10 @@
   flex-direction: column;
 }
 
+/* An import candidate is its labelled checkbox and the kind and description
+   beside it; the empty-copies line is a labelled checkbox alone. */
 .candidate,
 .choice,
-.hollowLine,
 .historyRow,
 .historyWhat {
   display: flex;
@@ -106,8 +107,6 @@
 }
 
 .hollowLine {
-  align-items: center;
-  gap: var(--hd-space-2);
   margin-top: var(--hd-space-3);
 }
 
@@ -132,4 +131,11 @@
 :global([data-slot='form-field']) input,
 :global([data-slot='form-field']) textarea {
   scroll-margin-block-start: var(--hd-space-8);
+}
+
+/* The agents an authored skill is installed for: one line that wraps. */
+.targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2) var(--hd-space-4);
 }

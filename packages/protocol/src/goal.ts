@@ -1,5 +1,7 @@
 import type { CeilingLevel, EvidenceRecord, SeatId, SeatRecord, Sha } from './evidence.js'
+import type { FindingReceipt } from './findings.js'
 import type { FlowPermission, FlowSeat } from './flow.js'
+import type { TriggerBudgetState, TriggerSource } from './intake.js'
 import type { Intent, TeamEntry, TeamState } from './team.js'
 
 export type GoalId = string
@@ -11,6 +13,30 @@ export type GoalOrigin =
   | { kind: 'legacy'; source: string }
   | { kind: 'flow'; run: string }
   | { kind: 'trigger'; trigger: string; event: string }
+
+/** A Seat's name, captured once into a receipt rather than looked up later. */
+export interface GoalReceiptMember {
+  readonly seat: SeatId
+  readonly agent: string | null
+  readonly seatLabel: string
+}
+
+/**
+ * One `GoalReceipt['evidence']` id, and the Seat (if any) that produced it.
+ *
+ * `seatLabel` is captured directly from that Seat's own record, rather than
+ * left to a `members` lookup by `seat`: a restored Seat — history a backup
+ * brought, never one this Goal held — can still produce evidence for it, and
+ * `GoalReceipt['members']` excludes a restored Seat the same way `seats`
+ * does. Without its own copy here, that evidence would have nowhere left to
+ * learn a name from once the receipt is read back. Null when the Seat could
+ * not be resolved, or the entry predates this field.
+ */
+export interface GoalReceiptEvidenceSeat {
+  readonly id: string
+  readonly seat: SeatId | null
+  readonly seatLabel?: string | null
+}
 
 /** A finishable effort. Its Seats, rather than this document, say who belongs. */
 export interface Goal {
@@ -26,6 +52,18 @@ export interface Goal {
   readonly createdAt: number
   readonly updatedAt: number
   readonly receipt: string | null
+  /**
+   * Whether a closed review round's findings are posted to this Goal's bound
+   * pull request. Absent means the default: on for a bound pull request,
+   * local-only without one. A person's preference, never a Seat's.
+   */
+  readonly findingPublication?: boolean
+  /**
+   * The commit every Seat of this Goal works at, each in a checkout of its
+   * own cut from it: set by the host alone, for a front-door review of a
+   * branch, a pull request or a diff. Absent, Seats work where the Goal does.
+   */
+  readonly at?: Sha
 }
 
 export interface GoalCitation {
@@ -49,7 +87,22 @@ export interface GoalReceipt {
     reason: string | null
   }[]
   readonly seats: readonly SeatId[]
+  /**
+   * Who held each Seat named in `seats` and `answers`, in the receipt's own
+   * words — an Agent's name where it had one, and always what it ran. A live
+   * lookup cannot stand in for this: `GoalView.members` answers `[]` the
+   * moment a Goal wraps, and a receipt is read later, by someone who was
+   * never there to look anything up elsewhere. Optional because a receipt
+   * wrapped before this field existed has none; a reader falls back to the
+   * bare Seat id it always showed.
+   */
+  readonly members?: readonly GoalReceiptMember[]
   readonly evidence: readonly string[]
+  /**
+   * Which Seat produced each entry of `evidence`, by id — null when the desk
+   * observed it unattended. Optional for the same reason `members` is.
+   */
+  readonly evidenceSeats?: readonly GoalReceiptEvidenceSeat[]
   readonly answers: readonly {
     seat: SeatId
     session: SeatRecord['session']
@@ -71,6 +124,21 @@ export interface GoalReceipt {
   }[]
   readonly citations: readonly GoalCitation[]
   readonly gaps: readonly string[]
+  /** The findings this Goal owned when it wrapped, frozen. Absent: the version that wrapped it did not record them. */
+  readonly findings?: FindingReceipt
+  /**
+   * Where this Goal came from, frozen at wrap: which trigger, its source, the
+   * host's own label ("from PR #12"), and why unattended work on it stopped —
+   * `null` when it never stopped, `undefined` if it wrapped before Intake
+   * observed anything on it. Absent entirely for an ordinary Goal, or a
+   * receipt wrapped before this field existed.
+   */
+  readonly intake?: {
+    readonly trigger: string
+    readonly source: TriggerSource
+    readonly label: string
+    readonly stop: TriggerBudgetState['stop']
+  }
 }
 
 /** The mutable board payload contains neither members nor a second Plan API. */
@@ -89,6 +157,12 @@ export interface GoalView {
   readonly board: TeamState
   readonly receipt: GoalReceipt | null
   readonly problem: string | null
+  /**
+   * The front-door run this existing empty Goal was reserved for, while the
+   * reservation holds: how a window finds that run's pane after a reload,
+   * since the Goal's own origin still names the person who made it.
+   */
+  readonly reservation?: { readonly run: string }
 }
 
 export interface GoalCreateInput {
@@ -111,11 +185,22 @@ export interface GoalSeatRequest {
   grant?: SeatGrant
   card?: number
   isolate?: boolean
+  /**
+   * Host-only: this Seat must hold its ceiling, read back, before it is kept.
+   * It only ever narrows seating; no wire request carries it.
+   */
+  requireHeld?: true
 }
 
 export interface WrapChoices {
   summary: string
   cards: GoalReceipt['cards']
+  /**
+   * The person's disposition of findings posting could not confirm on the
+   * pull request: `record` wraps with each one written into the receipt as
+   * a gap. Required when there is any; absent otherwise.
+   */
+  publicationGaps?: 'record'
 }
 
 export interface WrapPreview {
@@ -189,7 +274,7 @@ export function factsOfGoal(
   facts: readonly EvidenceRecord[],
 ): EvidenceRecord[] {
   const ids = new Set(seats.filter((seat) => seat.board === goal).map((seat) => seat.id))
-  return facts.filter((fact) => fact.card?.board === goal || (fact.seat != null && ids.has(fact.seat)))
+  return facts.filter((fact) => fact.card?.board === goal || (fact.seat != null && ids.has(fact.seat)) || fact.intake?.goal === goal)
 }
 
 export interface LanePreferences {

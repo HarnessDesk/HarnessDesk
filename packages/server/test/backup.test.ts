@@ -6,16 +6,20 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { SEAT_PREFERENCE_LIMIT, type BackupReport, type GoalView, type Lane, type MachineSeating, type RuntimeId, type WrapPreview } from '@harnessdesk/protocol'
+import { SEAT_PREFERENCE_LIMIT, type BackupReport, type EvidenceRecord, type GoalView, type Lane, type MachineSeating, type RuntimeId, type WrapPreview } from '@harnessdesk/protocol'
 
 import { exportAgentFolders } from '../src/agent-files.js'
+import { ATTACHMENT_TRUST_FILE } from '../src/attachments/trust.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
 import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX } from '../src/agents.js'
+import { EvidencePlane } from '../src/evidence/plane.js'
+import { foldFindings, isResolved } from '../src/findings/model.js'
 import { Host, Logger, StateStore } from '../src/index.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { GoalStore, restoredLane, type GoalDocument } from '../src/goals/store.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { rig as triggerRig } from './fixtures/intake-consent.js'
 import { goal } from './fixtures/goals.js'
 import { Client, halt, start as startHarness } from './fixtures/harness.js'
 
@@ -161,9 +165,10 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   // Nothing credential-shaped travels: the file has exactly the stores a backup owns.
   assert.deepEqual(
     Object.keys(backup).sort(),
-    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'goals', 'hostVersion', 'kind', 'preferences', 'provenance', 'seating', 'transcripts', 'version'],
+    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'goals', 'hostVersion', 'kind', 'memory', 'preferences', 'provenance', 'seating', 'transcripts', 'version'],
   )
   assert.deepEqual(backup.goals, { version: 1, documents: [], lanes: [] })
+  assert.deepEqual(backup.memory, { version: 1, objects: [], indexes: [], attachments: [] })
   assert.deepEqual(backup.agentFolders, [])
   assert.equal(backup.seating, null)
 
@@ -175,6 +180,7 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   assert.deepEqual(report.transcripts, { restored: 1, skipped: 0 })
   assert.deepEqual(report.agentFolders, { restored: 0, skipped: 0 })
   assert.deepEqual(report.seating, { restored: 0, skipped: 0 })
+  assert.deepEqual(report.memory, { restored: 0, alreadyHere: 0, refused: 0, failed: 0 })
 
   // The proof, on the fresh host's own wire: the agent is a runtime, the
   // preference reads back, and the transcript answers a content search.
@@ -190,6 +196,32 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   const again = await b.host.call('backup/import', { backup })
   assert.deepEqual(again.agents, { restored: 0, skipped: 1 })
   assert.deepEqual(again.transcripts, { restored: 0, skipped: 1 })
+})
+
+test('the memory sidecar is optional and never carries trust, even under a hostile key', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-memory-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const { host } = await hostAt(dir)
+  t.after(() => host.dispose())
+
+  // A legacy backup, from before this sidecar existed, restores exactly as it always did.
+  const legacyReport = await host.call('backup/import', { backup: backupWith([]) })
+  assert.deepEqual(legacyReport.memory, { restored: 0, alreadyHere: 0, refused: 0, failed: 0 })
+
+  // Nothing under `memory` this sidecar does not itself define — an
+  // `attachmentTrust` key, most of all — can smuggle a load approval in.
+  const hostile = {
+    ...backupWith([]),
+    memory: { version: 1, objects: [], indexes: [], attachments: [], attachmentTrust: [{ token: 'x', approvedAt: 1 }] },
+  }
+  const hostileReport = await host.call('backup/import', { backup: hostile })
+  assert.deepEqual(hostileReport.memory, { restored: 0, alreadyHere: 0, refused: 0, failed: 0 })
+  await assert.rejects(readFile(join(dir, ATTACHMENT_TRUST_FILE)))
+
+  // Export round-trips the new key, and carries exactly its own four fields — no trust, no live gateway state.
+  const exported = await host.call('backup/export', {})
+  assert.deepEqual(Object.keys(exported.memory ?? {}).sort(), ['attachments', 'indexes', 'objects', 'version'])
+  assert.deepEqual(exported.memory, { version: 1, objects: [], indexes: [], attachments: [] })
 })
 
 test('restored Goals are inert history and never acquire local lane authority', async (t) => {
@@ -342,9 +374,9 @@ test("a backup carries this machine's Agents and seats, and restore only adds wh
 
 test('backup export waits for a seating edit that was already queued', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-seating-queue-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const { host } = await hostAt(dir)
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   await host.call('agent/seating/set', { id: 'judge', seats: [{ runtime: 'codex' }] })
 
   const path = join(dir, 'seating.json')
@@ -411,9 +443,9 @@ test('backup export waits for a seating edit that was already queued', async (t)
 
 test('restoring seating into a removed file advances beyond the revision an open client drew', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-seating-revision-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const { host } = await hostAt(dir)
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const first = (await host.call('agent/seating/set', { id: 'judge', seats: [{ runtime: 'codex' }] })) as MachineSeating
   const drawn = (await host.call('agent/seating/set', {
@@ -457,7 +489,6 @@ test('restoring seating into a removed file advances beyond the revision an open
 
 test('export uses the roster ids, leaves links inside behind, and carries only bounded UTF-8 text', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-export-agents-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
   const real = join(agents, 'real')
   const linkedSource = join(dir, 'linked-source')
@@ -480,6 +511,7 @@ test('export uses the roster ids, leaves links inside behind, and carries only b
 
   const { host } = await hostAt(dir)
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   const backup = await host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['linked', 'real'])
   const copy = backup.agentFolders?.find((one) => one.id === 'real')
@@ -519,7 +551,6 @@ test('export uses the roster ids, leaves links inside behind, and carries only b
  */
 test('export leaves a nested folder out, and carries nothing from outside, when it is swapped for a link out of the Agent folder right after it is classified', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-dir-swap-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
   const nested = join(agents, 'scout', 'nested')
   const outside = join(dir, 'outside')
@@ -556,6 +587,7 @@ test('export leaves a nested folder out, and carries nothing from outside, when 
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const backup = await host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good', 'scout'])
@@ -566,7 +598,6 @@ test('export leaves a nested folder out, and carries nothing from outside, when 
 
 test('export leaves a nested file out, and carries nothing from outside, when it is swapped for a hard link to a file outside the Agent folder right after it is classified', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-file-swap-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
   const note = join(agents, 'scout', 'note.txt')
   const outside = join(dir, 'outside-secret.txt')
@@ -600,6 +631,7 @@ test('export leaves a nested file out, and carries nothing from outside, when it
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const backup = await host.call('backup/export', {})
   const scout = backup.agentFolders?.find((one) => one.id === 'scout')
@@ -630,7 +662,6 @@ test('export leaves a nested file out, and carries nothing from outside, when it
  */
 test('export leaves a nested folder out, and carries nothing from outside, when it is swapped for a link right after its own before/after checks pass, before its first child is named', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-midloop-swap-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
   await mkdir(join(agents, 'scout', 'nested'), { recursive: true })
   await mkdir(join(agents, 'good'), { recursive: true })
@@ -668,6 +699,7 @@ test('export leaves a nested folder out, and carries nothing from outside, when 
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const backup = await host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good', 'scout'])
@@ -687,7 +719,6 @@ test('export leaves a nested folder out, and carries nothing from outside, when 
  */
 test("export leaves an Agent out whole, and carries nothing from outside, when its own top folder is swapped for a link right after its readdir, before any child is named", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-top-swap-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
   await mkdir(join(agents, 'scout'), { recursive: true })
   await mkdir(join(agents, 'good'), { recursive: true })
@@ -722,6 +753,7 @@ test("export leaves an Agent out whole, and carries nothing from outside, when i
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const backup = await host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good'], 'the swapped Agent carried nothing and was left out whole')
@@ -741,7 +773,6 @@ test("export leaves an Agent out whole, and carries nothing from outside, when i
  */
 test('export leaves a nested file out, and carries nothing from outside, when its ancestor is swapped only for the classification and restored before the open', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-swap-restore-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
   const nested = join(agents, 'scout', 'nested')
   await mkdir(nested, { recursive: true })
@@ -784,6 +815,7 @@ test('export leaves a nested file out, and carries nothing from outside, when it
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const backup = await host.call('backup/export', {})
   const scout = backup.agentFolders?.find((one) => one.id === 'scout')
@@ -792,13 +824,13 @@ test('export leaves a nested file out, and carries nothing from outside, when it
 
 test('export quietly skips a dangling Agent link and still carries the good Agent beside it', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-dangling-agent-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   await mkdir(join(dir, 'agents', 'good'), { recursive: true })
   await writeFile(join(dir, 'agents', 'good', 'AGENT.md'), 'good brief')
   await symlink(join(dir, 'gone'), join(dir, 'agents', 'dangling'))
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const backup = await host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good'])
@@ -807,7 +839,6 @@ test('export quietly skips a dangling Agent link and still carries the good Agen
 
 test('export quietly skips an Agent link to a file and still carries the good Agent beside it', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-file-agent-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   await mkdir(join(dir, 'agents', 'good'), { recursive: true })
   await writeFile(join(dir, 'agents', 'good', 'AGENT.md'), 'good brief')
   await writeFile(join(dir, 'not-a-folder'), 'plain file')
@@ -815,6 +846,7 @@ test('export quietly skips an Agent link to a file and still carries the good Ag
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const backup = await host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good'])
@@ -858,7 +890,6 @@ test('export leaves an unreadable subfolder out with a warning and carries both 
 
 test('export takes AGENT.md first, then files in code-unit order, and warns when an Agent has no usable brief', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-priority-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
   await mkdir(join(agents, 'budget'), { recursive: true })
   await writeFile(join(agents, 'budget', 'AGENT.md'), 'brief')
@@ -883,6 +914,7 @@ test('export takes AGENT.md first, then files in code-unit order, and warns when
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const backup = await host.call('backup/export', {})
   assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['budget', 'ordered'])
@@ -1059,10 +1091,10 @@ test('restore refuses without writing outside when a subdirectory is swapped for
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-restore-swap-'))
   const outside = join(dir, 'outside')
   await mkdir(outside)
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const fsp = createRequire(import.meta.url)('node:fs/promises') as {
     mkdtemp: (...args: unknown[]) => Promise<string>
@@ -1142,9 +1174,9 @@ test("restore refuses a '.' path segment without aborting the Agent folder", asy
 
 test('restore drops case and Unicode aliases and overlong segments before writing', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-path-aliases-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const { host } = await hostAt(dir)
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   const report = await host.call('backup/import', {
     backup: backupWith([
       {
@@ -1206,9 +1238,9 @@ test('export and restore cap an Agent folder at 200 files even when the extras a
 
 test('restore never examines past the 200th entry, even when every one of the first 200 is invalid', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-invalid-flood-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const { host } = await hostAt(dir)
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   // None of these 205 can ever be accepted — each climbs above the Agent
   // folder — so the old "cap accepted files" guard never triggered on them
   // at all, and a late AGENT.md right behind them was still read.
@@ -1241,7 +1273,6 @@ test('restore never examines past the 200th entry, even when every one of the fi
  */
 test('restore admits every id the roster would list, and never replaces an existing folder or writes through a link', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-agent-ids-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
   const outside = join(dir, 'outside')
   await mkdir(join(agents, 'existing'), { recursive: true })
@@ -1253,6 +1284,7 @@ test('restore admits every id the roster would list, and never replaces an exist
 
   const { host } = await hostAt(dir)
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   const report = await host.call('backup/import', {
     backup: backupWith([
       folder(`${AGENT_TEMP_PREFIX}abc`),
@@ -1284,10 +1316,10 @@ test('restore admits every id the roster would list, and never replaces an exist
  */
 test('restore logs every refused Agent id with a reason and a quoted, capped id', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-refused-id-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   const stranger = `stranger-${'x'.repeat(2_000)}`
   const report = await host.call('backup/import', {
     backup: backupWith(
@@ -1315,10 +1347,10 @@ test('restore logs every refused Agent id with a reason and a quoted, capped id'
 
 test('a control character in a backup id does not smuggle the logged id past its cap', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-control-char-id-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   // Each NUL escapes to six characters (U+0000 spelled out): 140 raw characters —
   // already at the cap before any escaping — read back as an 842-character
   // JSON string if the cap is taken before `JSON.stringify` rather than after.
@@ -1344,10 +1376,10 @@ test('a control character in a backup id does not smuggle the logged id past its
  */
 test('a logged id truncated past its cap never ends with a torn escape', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-log-torn-escape-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   // Every one of these escapes to six characters once quoted, so the cap
   // falls inside one of them wherever it lands unless the raw text, not the
   // quoted text, is what gets cut.
@@ -1375,10 +1407,10 @@ test('a logged id truncated past its cap never ends with a torn escape', async (
  */
 test('a logged id truncated past its cap never splits an astral character’s surrogate pair', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-log-surrogate-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   // U+1D306, a surrogate pair, repeated well past the cap.
   const astral = '\u{1d306}'.repeat(80)
   const report = await host.call('backup/import', {
@@ -1397,12 +1429,12 @@ test('a logged id truncated past its cap never splits an astral character’s su
 
 test('an existing Agent collision is a quiet skip', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-quiet-collision-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   await mkdir(join(dir, 'agents', 'scout'), { recursive: true })
   await writeFile(join(dir, 'agents', 'scout', 'AGENT.md'), 'local')
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const report = await host.call('backup/import', {
     backup: backupWith([{ id: 'scout', files: [{ path: 'AGENT.md', text: 'backup' }] }]),
@@ -1414,7 +1446,6 @@ test('an existing Agent collision is a quiet skip', async (t) => {
 
 test('a restored Agent folder is announced by its own explicit notice, proven on a host whose watcher was never started', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-no-watch-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   // `host.start()` is what makes an `AgentWatch` at all — never called here,
   // so this host's roster watch never exists. If a notice still arrives, the
   // explicit push inside `backup/import` sent it: proof that does not lean
@@ -1422,6 +1453,7 @@ test('a restored Agent folder is announced by its own explicit notice, proven on
   // race it was never even entered into.
   const { host } = await hostAt(dir)
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   const notices: unknown[] = []
   host.addBroadcaster((notice) => {
     if (notice.method === 'agent/changed') notices.push(notice)
@@ -1436,7 +1468,6 @@ test('a restored Agent folder is announced by its own explicit notice, proven on
 
 test('bad files and refused writes are isolated, bounded, and leave no half-written Agent', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-isolation-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const seatingTemp = join(dir, `seating.json.${process.pid}.tmp`)
   await mkdir(seatingTemp)
   const heard = new Heard([], (message) => {
@@ -1446,6 +1477,7 @@ test('bad files and refused writes are isolated, bounded, and leave no half-writ
   })
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   const fsp = createRequire(import.meta.url)('node:fs/promises') as {
     open: (...args: unknown[]) => Promise<FileHandle>
   }
@@ -1517,10 +1549,10 @@ test('bad files and refused writes are isolated, bounded, and leave no half-writ
 
 test('an absent seating file is quiet, but an unreadable one is left out with a warning', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-seating-raw-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   const absent = await host.call('backup/export', {})
   assert.equal(absent.seating, null)
@@ -1552,9 +1584,9 @@ test('an absent seating file is quiet, but an unreadable one is left out with a 
 
 test('a restore never rolls a local transcript backwards', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-c-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const { host } = await hostAt(dir)
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
 
   await mkdir(join(dir, 'transcripts', 'my-agent'), { recursive: true })
   await writeFile(join(dir, 'transcripts', 'my-agent', 's1.json'), transcriptFile(2000, 'the newer local copy'))
@@ -1577,9 +1609,9 @@ test('a restore never rolls a local transcript backwards', async (t) => {
 
 test('what is not a backup is refused whole', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-d-'))
-  t.after(async () => rm(dir, { recursive: true, force: true }))
   const { host } = await hostAt(dir)
   t.after(() => host.dispose())
+  t.after(async () => rm(dir, { recursive: true, force: true }))
   await assert.rejects(
     host.call('backup/import', { backup: { some: 'other json file' } }),
     /not a HarnessDesk backup/,
@@ -1589,12 +1621,12 @@ test('what is not a backup is refused whole', async (t) => {
 test('the host carries provenance as historical observations and deduplicates a second restore', async (t) => {
   const firstDir = await mkdtemp(join(tmpdir(), 'provenance-backup-first-'))
   const secondDir = await mkdtemp(join(tmpdir(), 'provenance-backup-second-'))
-  t.after(async () => rm(firstDir, { recursive: true, force: true }))
-  t.after(async () => rm(secondDir, { recursive: true, force: true }))
   const first = await hostAt(firstDir)
   const second = await hostAt(secondDir)
   t.after(() => first.host.dispose())
   t.after(() => second.host.dispose())
+  t.after(async () => rm(firstDir, { recursive: true, force: true }))
+  t.after(async () => rm(secondDir, { recursive: true, force: true }))
   const backup = await first.host.call('backup/export', {})
   assert.deepEqual(backup.provenance, { version: 1, projects: [] })
   const carried = {
@@ -1614,4 +1646,112 @@ test('the host carries provenance as historical observations and deduplicates a 
   const exported = await second.host.call('backup/export', {})
   const entry = exported.provenance?.projects[0]?.entries[0] as { value: { restoredAt: number } }
   assert.equal(typeof entry.value.restoredAt, 'number')
+})
+
+// ------------------------------------------------------------- findings (phase 7)
+/*
+ * Named addition for the findings ledger: a backup carries finding events
+ * with their details, a restore marks each one history, and nothing about it
+ * resumes — a staged carry is dropped with the rest of a restored Goal's
+ * journal, a restored confirmation clears nothing, and a restored receipt
+ * cannot be carried from.
+ */
+test('restored findings retain details without live operations', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'hd-backup-findings-source-'))
+  const target = await mkdtemp(join(tmpdir(), 'hd-backup-findings-target-'))
+  try {
+    const A = 'a'.repeat(40)
+    const id = 'finding-00000000-0000-4000-8000-000000000001'
+    const origin = { goal: 'portable-goal', run: 'run-1', round: 1, card: 1, seat: 'seat-r', at: A }
+    const records: EvidenceRecord[] = [
+      { id: 'raise-1', fact: { kind: 'finding', id, state: 'open', at: A }, card: { board: 'portable-goal', id: 1 }, checkout: null, seat: 'seat-r', round: 1, observedAt: 1, posted: null,
+        finding: { version: 1, sequence: 1, operation: 'op-1', origin, event: { kind: 'raise', title: 'Unbounded retry', body: 'It never stops.', category: 'security', blocking: true, related: null, anchor: { path: 'src/a.ts', line: 3, side: 'RIGHT' } } } },
+      { id: 'withdraw-1', fact: { kind: 'finding', id, state: 'withdrawn', at: A }, card: { board: 'portable-goal', id: 1 }, checkout: null, seat: null, round: 1, observedAt: 2, posted: null,
+        finding: { version: 1, sequence: 2, operation: 'op-2', origin, event: { kind: 'verdict', state: 'withdrawn', note: 'Not a bug.', by: 'person' } } },
+    ]
+    const port = { board: () => null, cwdOf: () => null, push: () => {}, log: () => {} }
+    const from = new EvidencePlane({ dir: join(source, 'evidence'), seenFile: join(source, 'seen.json') }, port)
+    await from.store.append('/work/repo', 'evidence', records.map((record) => ({ type: 'evidence', record }) as const))
+    const into = new EvidencePlane({ dir: join(target, 'evidence'), seenFile: join(target, 'seen.json') }, port)
+    const count = await into.restore(await from.backup())
+    assert.equal(count.restored, 2)
+    const back = (await into.store.read('/work/repo', 'evidence')).lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : []))
+    assert.deepEqual(back.map((record) => record.finding), records.map((record) => record.finding), 'every detail travelled')
+    assert.ok(back.every((record) => record.restored), 'and every event is marked history')
+    const [view] = foldFindings(back)
+    assert.equal(view!.title, 'Unbounded retry')
+    assert.equal(view!.restored, true)
+    assert.equal(isResolved(view!), false, 'a restored withdrawal clears nothing here')
+
+    // A Goal wrapped while a carry was staged in another Goal: restored, its journal is gone and nothing replays.
+    await migrateDesk(source, async () => {})
+    await migrateDesk(target, async () => {})
+    const goals = new GoalStore(source)
+    await goals.load()
+    const carrying: GoalDocument = {
+      version: 1, goal: goal('carrying-goal', { revision: 0 }), board: { nextIntent: 1, messaging: true, intents: [], channel: [] },
+      citations: [], receipt: null,
+      operation: { kind: 'carry', id: 'carry-1', goal: 'carrying-goal', source: 'portable-goal', receipt: 'receipt-1', dependsOn: ['portable-goal'], records: [] },
+    }
+    await goals.save(carrying, null)
+    const restoredGoals = new GoalStore(target)
+    await restoredGoals.load()
+    assert.equal(await restoredGoals.restore(goals.read('carrying-goal'), 50), 'restored')
+    assert.equal(restoredGoals.read('carrying-goal').operation, null, 'a restored carry is not resumed')
+    assert.deepEqual(restoredGoals.read('carrying-goal').goal.dependsOn, [], 'and its dependency was never applied')
+  } finally {
+    await rm(source, { recursive: true, force: true })
+    await rm(target, { recursive: true, force: true })
+  }
+})
+
+// ------------------------------------------------------------ intake (phase 8)
+/*
+ * Named addition for trigger consent: arming is this machine's and this
+ * person's alone. A backup carries a project's declarations only as the
+ * repository content they already are — never an arm, a signing key or a
+ * source cursor — and nothing in a backup, however it is crafted, restores
+ * one as live state.
+ */
+test('restore never arms a trigger', async (t) => {
+  const dirA = await mkdtemp(join(tmpdir(), 'hd-backup-trigger-a-'))
+  const dirB = await mkdtemp(join(tmpdir(), 'hd-backup-trigger-b-'))
+  t.after(async () => {
+    await rm(dirA, { recursive: true, force: true })
+    await rm(dirB, { recursive: true, force: true })
+  })
+  const a = await hostAt(dirA)
+  t.after(() => a.host.dispose())
+  const armedHere = triggerRig({ home: dirA })
+  const preview = await armedHere.consent.preview(armedHere.world.project, 'review')
+  await armedHere.consent.arm(armedHere.world.project, 'review', preview.token!)
+  assert.ok(await armedHere.consent.binding(armedHere.world.project, 'review'))
+  const machineFile = await readFile(join(dirA, 'triggers-machine.json'), 'utf8')
+  const key = (await readFile(join(dirA, 'triggers-key.bin'), 'utf8')).trim()
+
+  const backup = await a.host.call('backup/export', {})
+  const exported = JSON.stringify(backup)
+  assert.ok(!exported.includes(key), 'the signing key never travels')
+  assert.ok(!exported.includes('"signature"'), 'no signed arm travels')
+  assert.ok(!exported.includes(machineFile), 'the consent file never travels')
+
+  // A crafted backup that carries the whole consent file, and the key, in every place a restore reads.
+  const crafted = {
+    ...backup,
+    preferences: { ...backup.preferences, triggers: JSON.parse(machineFile), 'triggers-key': key, triggerConsent: { review: true } },
+    triggers: JSON.parse(machineFile),
+  }
+  const b = await hostAt(dirB)
+  t.after(() => b.host.dispose())
+  await b.host.call('backup/import', { backup: crafted })
+  // Nothing on the restored desk arms, polls or opens anything for it.
+  await assert.rejects(readFile(join(dirB, 'triggers-machine.json'), 'utf8'), /ENOENT/)
+  await assert.rejects(readFile(join(dirB, 'triggers-key.bin'), 'utf8'), /ENOENT/)
+  const restored = triggerRig({ home: dirB })
+  assert.equal(await restored.consent.binding(restored.world.project, 'review'), null)
+  assert.deepEqual(await restored.consent.armed(), [], 'no current arm, so nothing is polled')
+  const view = (await restored.consent.list(restored.world.project)).triggers.find((one) => one.id === 'review')
+  assert.equal(view?.state, 'off')
+  const goals = await b.host.call('goal/list', {})
+  assert.equal(goals.filter((one) => one.goal.origin.kind === 'trigger').length, 0, 'no Goal is reserved for it')
 })

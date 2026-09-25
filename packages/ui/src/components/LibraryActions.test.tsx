@@ -82,6 +82,16 @@ const click = async (button: Element | null | undefined): Promise<void> => {
 const buttonNamed = (text: string): HTMLButtonElement | undefined =>
   [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes(text))
 
+/** A checkbox by its accessible name: the words of the label that names it. */
+const checkboxNamed = (name: string): HTMLElement | undefined =>
+  [...document.body.querySelectorAll<HTMLElement>('[role="checkbox"]')].find(
+    (node) =>
+      (node.getAttribute('aria-labelledby') ?? '')
+        .split(' ')
+        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .join(' ') === name && !node.hasAttribute('aria-label'),
+  )
+
 const plan = (ops: LibraryPlan['ops']): LibraryPlan => ({ plannedAt: 1, ops })
 
 it('previews before it applies, and applies exactly what was previewed', async () => {
@@ -185,6 +195,31 @@ it('a failed op wears its reason after apply; the batch reports per op', async (
   expect(document.body.querySelector('[data-testid="apply-summary"]')?.textContent).toContain(
     '1 change made, 1 failed.',
   )
+})
+
+it('marks each operation in its name\u2019s role: a pending ring to run, a check once done, the warning ink when it fails', async () => {
+  const op = (id: string, name: string): LibraryPlan['ops'][number] => ({
+    id, kind: 'skill', name, action: 'create', targetPath: `/t/${name}`, content: 'x', guardDigest: null, backup: false,
+  })
+  const store = storeWith(async (method) => {
+    if (method === 'library/plan') return plan([op('op-1', 'a'), op('op-2', 'b')])
+    return [
+      { id: 'op-1', outcome: 'done' },
+      { id: 'op-2', outcome: 'failed', detail: 'The target changed since the preview.' },
+    ]
+  })
+  await render(store, <PlanDialog title="Install" intents={[]} columns={columns} onClose={() => {}} onApplied={() => {}} />)
+  const marks = (): HTMLElement[] => [...document.body.querySelectorAll<HTMLElement>('[role="listitem"] [data-mark]')]
+  expect(marks().map((mark) => mark.dataset['role'])).toEqual(['row', 'row'])
+  expect(marks().map((mark) => mark.querySelector('svg')?.classList.contains('lucide-circle'))).toEqual([true, true])
+  expect(marks().map((mark) => mark.dataset['tone'] ?? mark.dataset['ink'])).toEqual(['muted', 'muted'])
+
+  await click(buttonNamed('Apply 2 changes'))
+  const [done, failed] = marks()
+  expect(done?.dataset['tone']).toBe('success')
+  expect(done?.querySelector('svg')?.classList.contains('lucide-check')).toBe(true)
+  expect(failed?.dataset['tone']).toBe('warning')
+  expect(failed?.querySelector('svg')?.classList.contains('lucide-x')).toBe(true)
 })
 
 const entryWith = (
@@ -298,7 +333,7 @@ it('a deselected candidate stays home', async () => {
   await click(intoSecond[intoSecond.length - 1])
   // A checkbox: these rows are items picked out of a list, not settings that
   // take effect where they stand.
-  await click(document.body.querySelector('[role="checkbox"][aria-label="Import carried"]'))
+  await click(checkboxNamed('carried'))
   await click(buttonNamed('Preview 1 import'))
   const intents = onPlan.mock.calls[0]?.[1] as readonly LibraryIntent[]
   expect(intents.map((one) => one.name)).toEqual(['stranded'])
@@ -379,14 +414,17 @@ it('authoring composes the frontmatter and refuses a name that cannot be a direc
     setArea?.call(textarea, 'Read the changelog, write the notes.')
     textarea?.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  // The agent picker is the app's own switcher in its many-valued form —
-  // the same control the import dialog's From/To use, so it is visible before
-  // it is pressed.
-  await click(
-    [...document.body.querySelectorAll('[data-slot="toggle-group-item"]')].find(
-      (one) => one.textContent === 'Second Agent',
-    ),
+  // Several agents at once, so a checkbox per agent: visible before it is
+  // ticked, and nothing is installed until the preview is confirmed.
+  // Each is named by its label's visible words — the agent's name — in the
+  // group its legend names; a role query by name finds it.
+  await click(checkboxNamed('Second Agent'))
+  // The agents are one group, announced by its legend.
+  const group = [...document.body.querySelectorAll('[role="group"]')].find(
+    (one) => document.getElementById(one.getAttribute('aria-labelledby') ?? '')?.textContent === 'Install for',
   )
+  expect(group, 'Install for should be a fieldset named by its legend').toBeTruthy()
+  expect(group?.querySelectorAll('[data-slot="checkbox"]').length).toBe(columns.length)
   await click(buttonNamed('Preview the install'))
 
   expect(onPlan).toHaveBeenCalledOnce()

@@ -5,10 +5,6 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
   Chip,
   CodeText,
-  LibraryOperationList,
-  LibraryOperationMark,
-  LibraryReachFace,
-  LibraryReachMark,
   MetaList,
   Monogram,
   Note,
@@ -92,6 +88,63 @@ it('says stale accessibly and refuses the success tone', () => {
   expect(chip.className).not.toContain('bg-(--hd-success-dim)')
 })
 
+it('stays on one line: bounded, ellipsised, never wrapping inside its pill', () => {
+  const chip = draw(<Chip tone="neutral">verify ✓ @a1b2c3d — 2 commits since</Chip>)
+  expect(css).toMatch(/\.chip\s*\{[^}]*max-width:\s*min\(100%, 240px\)[^}]*white-space:\s*nowrap/s)
+  // Bare words sit in a span of their own, which is the box that ellipsises.
+  const words = chip.querySelector('[data-slot="chip-words"]')
+  expect(words?.children).toHaveLength(1)
+  expect(words?.firstElementChild?.tagName).toBe('SPAN')
+  expect(css).toMatch(/\.chipWords > span\s*\{[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s)
+})
+
+it('says itself whole in title while it is cut, and keeps a title the caller gave', () => {
+  const text = 'verify ✓ @a1b2c3d — 2 commits since'
+  const chip = draw(<Chip tone="neutral">{text}</Chip>)
+  const inner = chip.querySelector<HTMLElement>('[data-slot="chip-words"] > span')
+  if (!inner) throw new Error('no words')
+  Object.defineProperty(inner, 'scrollWidth', { configurable: true, value: 300 })
+  Object.defineProperty(inner, 'clientWidth', { configurable: true, value: 120 })
+  act(() => { chip.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  expect(chip.getAttribute('title')).toBe(text)
+  Object.defineProperty(inner, 'scrollWidth', { configurable: true, value: 100 })
+  act(() => { chip.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  expect(chip.hasAttribute('title')).toBe(false)
+
+  const named = draw(<Chip tone="neutral" title="Whole story">Short</Chip>)
+  act(() => { named.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  expect(named.getAttribute('title')).toBe('Whole story')
+})
+
+it('marks stale with a history glyph, never a strikethrough, and mutes only a stale pass', () => {
+  const pass = draw(<Chip tone="success" stale>verify ✓ @a1b2c3d</Chip>)
+  expect(css).not.toMatch(/text-decoration:\s*line-through/)
+  expect(css).toMatch(/\.chip\[data-stale\]:is\(\[data-tone='neutral'\], :not\(\[data-tone\]\)\)\s*\{[^}]*color:\s*var\(--hd-muted-foreground\)/s)
+  const glyph = pass.firstElementChild
+  expect(glyph?.tagName.toLowerCase()).toBe('svg')
+  expect(glyph?.getAttribute('aria-hidden')).toBe('true')
+  // A stale pass no longer vouches for what is there now.
+  expect(pass.dataset['tone']).toBe('neutral')
+  expect(pass.querySelector('.sr-only')?.textContent).toContain('stale')
+
+  // A stale failure is still the last word: it keeps its danger ink.
+  const failed = draw(<Chip tone="danger" stale>verify ✗ @a1b2c3d</Chip>)
+  expect(failed.dataset['tone']).toBe('danger')
+  expect(failed.className).toContain('bg-(--hd-danger-dim)')
+  expect(failed.firstElementChild?.tagName.toLowerCase()).toBe('svg')
+})
+
+it('draws nothing for a zero count unless zero is the finding', () => {
+  act(() => root.render(<Chip tone="neutral" count={0}>copies differ</Chip>))
+  expect(container.innerHTML).toBe('')
+  const shown = draw(<Chip tone="neutral" count={0} showZero>copies differ</Chip>)
+  expect(shown.textContent).toBe('0 copies differ')
+  const counted = draw(<Chip tone="warning" count={3}>copies differ</Chip>)
+  expect(counted.textContent).toBe('3 copies differ')
+  const bare = draw(<Chip tone="neutral" count={12} />)
+  expect(bare.textContent).toBe('12')
+})
+
 it('defaults an unknown fact to Unknown and the neutral tone', () => {
   const chip = draw(<Chip tone="danger" unknown />)
   expect(chip.dataset['unknown']).toBe('')
@@ -149,40 +202,3 @@ it('draws row marks and compact facts as named roles', () => {
   expect(list?.textContent).toBe('3 copiesLast Tuesday')
 })
 
-it('keeps every library reach state named by shape', () => {
-  act(() => root.render(
-    <>
-      <LibraryReachMark state="reaches" label="Loaded" placement="cell" />
-      <LibraryReachMark state="off" label="Switched off" />
-      <LibraryReachMark state="unscanned" label="Outside scan paths" />
-      <LibraryReachMark state="hollow" label="Empty on disk" />
-    </>,
-  ))
-  const marks = [...container.querySelectorAll<HTMLElement>('[data-slot="library-reach-mark"]')]
-  expect(marks.map((mark) => mark.dataset['state'])).toEqual(['reaches', 'off', 'unscanned', 'hollow'])
-  expect(marks[0]?.dataset['placement']).toBe('cell')
-  expect(marks[0]?.className).toContain('h-(--hd-control-h)')
-  expect(marks.every((mark) => mark.getAttribute('role') === 'img')).toBe(true)
-})
-
-it('keeps agent identity content while reach controls only its plate', () => {
-  const face = draw(<LibraryReachFace state="hollow" label="Agent A: empty on disk">A</LibraryReachFace>)
-  expect(face.dataset['slot']).toBe('skill-reach')
-  expect(face.dataset['state']).toBe('hollow')
-  expect(face.dataset['problem']).toBe('')
-  expect(face.getAttribute('aria-label')).toBe('Agent A: empty on disk')
-  expect(face.textContent).toBe('A')
-})
-
-it('names operation marks and keeps a one-operation preview composed', () => {
-  act(() => root.render(
-    <LibraryOperationList>
-      <div role="listitem"><LibraryOperationMark state="planned" />Create skill</div>
-      <div role="listitem"><LibraryOperationMark state="done" />Done</div>
-    </LibraryOperationList>,
-  ))
-  const list = container.querySelector<HTMLElement>('[data-slot="library-operation-list"]')
-  expect(list?.getAttribute('role')).toBe('list')
-  expect(list?.className).toContain('min-h-18')
-  expect([...container.querySelectorAll<HTMLElement>('[data-slot="library-operation-mark"]')].map((mark) => mark.dataset['state'])).toEqual(['planned', 'done'])
-})

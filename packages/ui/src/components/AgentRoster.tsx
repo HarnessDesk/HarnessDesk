@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react'
 
-import type { AgentEntry, AgentOrigin } from '@harnessdesk/protocol'
+import type { AgentEntry, AgentOrigin, AuthoringPending } from '@harnessdesk/protocol'
 
 import {
   agentName,
   bySection,
-  ceilingMeaning,
-  ceilingWords,
   firstReason,
   markFor,
   originWords,
@@ -14,11 +12,13 @@ import {
   seatTaken,
 } from '../lib/agents'
 import { shortPath } from '../lib/paths'
+import { projectRootOf } from '../lib/projects'
 import type { AppSnapshot } from '../state/store'
-import { useSnapshot } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
+import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
-import { Chip, Note, PageHead, Row, RowButton, RowValue, Rows, SectionHead } from '../design'
+import { Button, Chip, Note, PageHead, Row, RowButton, RowValue, Rows, Section, Text } from '../design'
 import styles from './AgentRoster.module.css'
 
 /**
@@ -90,6 +90,7 @@ export const AgentsRosterSection = ({
 }) => {
   const snapshot = useSnapshot()
   const [open, setOpen] = useState<string | null>(focus)
+  const [creating, setCreating] = useState(false)
   useEffect(() => {
     setOpen(focus)
   }, [focus])
@@ -114,7 +115,12 @@ export const AgentsRosterSection = ({
 
   return (
     <>
-      <PageHead title="Agents" blurb="Who does the work: a brief, the most it may do, and the seats it prefers." />
+      <PageHead
+        title="Agents"
+        blurb="Who does the work: a brief, the most it may do, and the seats it prefers."
+        actions={<Button variant="default" onClick={() => setCreating(true)}>New Agent…</Button>}
+      />
+      <AuthoringPendingSection />
       {ORDER.filter((origin) => origin !== 'project' || snapshot.workspace !== null).map((origin) => {
         const heading = originWords(origin, project)
         const rows = sections[origin]
@@ -124,8 +130,7 @@ export const AgentsRosterSection = ({
           winner.shadows.filter((one) => one.origin === origin).map((one) => ({ winner, path: one.path })),
         )
         return (
-          <section key={origin} aria-label={heading}>
-            <SectionHead name={heading} />
+          <Section key={origin} title={heading}>
             <Rows>
               {rows.length === 0 && shadowed.length === 0 && <Row title={EMPTY[origin]} />}
               {rows.map((entry) => (
@@ -143,17 +148,33 @@ export const AgentsRosterSection = ({
                   key={path}
                   title={agentName(winner)}
                   desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : `the one in ${project ?? 'this project'}`}, which does the same job. This copy is not used.`}
-                  control={<RowValue className="text-(--hd-warning-ink)">Shadowed</RowValue>}
+                  /* A copy that is not used, said as a fact rather than a
+                     warning — the way a superseded plugin's row says it. */
+                  control={<RowValue>Shadowed</RowValue>}
                 />
               ))}
             </Rows>
             <Note>{footnote(origin, snapshot)}</Note>
-          </section>
+          </Section>
         )
       })}
+      {creating && (
+        <AgentNew
+          root={projectRootOf(snapshot.workspace) ?? undefined}
+          onClose={() => setCreating(false)}
+          onCreated={(entry) => {
+            setCreating(false)
+            setOpen(entry.id)
+            onFocus?.(entry.id)
+          }}
+        />
+      )}
     </>
   )
 }
+
+import { flagWords } from '../lib/ceilings'
+import { CeilingChip } from './CeilingChip'
 
 /** One Agent in force, or one whose file will not parse — each a way into its page. */
 export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readonly onOpen: () => void }) => {
@@ -173,28 +194,137 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
   const plan = snapshot.agentPlans.get(entry.id)
   const seat = seatTaken(plan)
   const reason = plan ? firstReason(plan) : null
+  const flag = flagWords(definition)
+  const desc = [definition.description, flag].filter((part): part is string => Boolean(part)).join(' ')
   return (
     <RowButton
       title={definition.name}
-      {...(definition.description ? { desc: definition.description } : {})}
+      {...(desc ? { desc } : {})}
       control={
-        <span className={`${styles.facts} text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-secondary-foreground)`}>
-          <span title={ceilingMeaning(definition.permission)}>{ceilingWords(definition.permission)}</span>
+        <Text role="muted" className={styles.facts}>
+          {/* The declared ceiling, always through the one chip every governed
+              seat reads it through — held plan or none. A plan with no seat
+              (every candidate passed) and no plan at all are the same fact
+              here: nothing has held this ceiling yet, so it is only asked,
+              same as the row beside it whose plan did land one. A bare,
+              unstyled word here — no chip, no "asked" or "held" — was the one
+              row in the roster that did not read like the others. */}
+          <CeilingChip ceiling={plan?.ceiling ?? { level: definition.ceiling, hold: 'asked' }} />
           {seat ? (
-            <span className={`${styles.seat} text-(--hd-foreground)`}>
+            <Text role="muted" ink="primary" className={styles.seat}>
               <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={12} />
               {seat.label}
-            </span>
+            </Text>
           ) : plan ? (
-            <span className="text-(--hd-warning-ink)">Can't seat here{reason ? ` · ${reason}` : ''}</span>
+            <Text role="muted" tone="warning">Can't seat here{reason ? ` · ${reason}` : ''}</Text>
           ) : snapshot.agentPlansFailed ? (
-            <span className="text-(--hd-warning-ink)">Its seats could not be checked</span>
+            <Text role="muted" tone="warning">Its seats could not be checked</Text>
           ) : (
             <span>Checking seats…</span>
           )}
-        </span>
+        </Text>
       }
       onClick={onOpen}
     />
+  )
+}
+
+/**
+ * A save that began and did not finish — a crash, a killed process, a lost
+ * power — read once when this window opens. `AgentFields` and `AgentNew`
+ * write through the same journaled transaction (Task 2's `AuthoringPlane`),
+ * so a restart offers exactly this: resume it, which checks each file on
+ * disk before writing what is missing, or discard the record, which leaves
+ * every file as it is. Nothing here resumes on its own.
+ */
+const AuthoringPendingSection = () => {
+  const store = useStore()
+  const [pending, setPending] = useState<readonly AuthoringPending[] | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  useEffect(() => {
+    let live = true
+    store.authoringPending().then(
+      (next) => {
+        if (live) setPending(next)
+      },
+      () => {
+        if (live) setPending([])
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [store])
+
+  if (!pending || pending.length === 0) return null
+
+  const resume = async (id: string): Promise<void> => {
+    setBusyId(id)
+    setProblem(null)
+    try {
+      const preview = await store.resumeAuthoringSave(id)
+      if (!preview.token) {
+        setProblem(preview.issues[0]?.text ?? 'This save could not be resumed.')
+        return
+      }
+      const result = await store.applyAuthoringSave(preview.token)
+      if (result.state !== 'applied') {
+        setProblem(result.message)
+        return
+      }
+      setPending(await store.authoringPending())
+      void store.loadAgents()
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const discard = async (id: string): Promise<void> => {
+    setBusyId(id)
+    setProblem(null)
+    try {
+      setPending(await store.discardAuthoringSave(id))
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  /** Where an unfinished save is — a title, not the sentence that belongs under it, and never a raw path. */
+  const placeWords = (one: AuthoringPending): string => {
+    if (one.scope !== 'project' || !one.root) return 'On this Mac'
+    const name = one.root.split('/').filter(Boolean).at(-1)
+    return `In ${name ?? 'a project'}`
+  }
+
+  return (
+    <Section title="Unfinished saves">
+      <Rows>
+        {pending.map((one) => (
+          <Row
+            key={one.id}
+            title={placeWords(one)}
+            wrapDesc
+            desc={one.message}
+            control={
+              <span className="flex gap-(--hd-space-2)">
+                <Button size="sm" variant="outline" disabled={busyId === one.id} onClick={() => void resume(one.id)}>
+                  {busyId === one.id ? 'Resuming…' : 'Resume'}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busyId === one.id} onClick={() => void discard(one.id)}>
+                  Discard
+                </Button>
+              </span>
+            }
+          />
+        ))}
+      </Rows>
+      {problem && <Note tone="bad">{problem}</Note>}
+    </Section>
   )
 }

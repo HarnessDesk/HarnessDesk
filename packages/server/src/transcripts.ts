@@ -10,6 +10,7 @@ import type {
   TranscriptHit,
   Turn,
   AgentItem,
+  TurnInsightContext,
 } from '@harnessdesk/protocol'
 import { openingOf, preserveNoticeItems } from '@harnessdesk/protocol'
 
@@ -65,6 +66,8 @@ interface Stored {
   readonly preview?: string | null
   readonly cwd?: string
   readonly updatedAt?: number
+  /** Optional historical observation metadata; old transcript files deliberately read without it. */
+  readonly insight?: readonly TurnInsightContext[]
 }
 
 const FORMAT = 1
@@ -174,8 +177,9 @@ const restorableUsage = (
 const keyOf = (runtime: RuntimeId, id: SessionId): string => `${runtime}\0${id}`
 
 export class TranscriptStore {
-  readonly #pending = new Map<string, { timer: ReturnType<typeof setTimeout>; session: Session }>()
+  readonly #pending = new Map<string, { timer: ReturnType<typeof setTimeout>; session: Session; insight: readonly TurnInsightContext[] }>()
   readonly #writes = new Map<string, Promise<void>>()
+  readonly #insight = new Map<string, readonly TurnInsightContext[]>()
   /** Folders a search has already named, so one searching per keystroke names each once. */
   readonly #unsearched = new Set<string>()
 
@@ -201,20 +205,26 @@ export class TranscriptStore {
    * Notes the session's current transcript for writing. `now` skips the
    * settle delay — the end of a turn is worth a write of its own.
    */
-  record(session: Session, options: { readonly now?: boolean } = {}): void {
+  record(session: Session, options: { readonly now?: boolean; readonly insight?: readonly TurnInsightContext[] } = {}): void {
     if (!session.itemsLoaded) return
-    if (!session.turns.some((turn) => turn.items.length > 0)) return
+    if (!session.turns.some((turn) => turn.items.length > 0) && !(options.insight?.length)) return
     const key = keyOf(session.runtime, session.id)
+    if (options.insight?.length) {
+      const previous = this.#insight.get(key) ?? []
+      const byTurn = new Map(previous.map((context) => [context.turn, context]))
+      for (const context of options.insight) byTurn.set(context.turn, context)
+      this.#insight.set(key, [...byTurn.values()].slice(-2000))
+    }
     const pending = this.#pending.get(key)
     if (pending) clearTimeout(pending.timer)
     const timer = setTimeout(() => {
       this.#pending.delete(key)
-      void this.#write(session)
+      void this.#write(session, this.#insight.get(key) ?? [])
     }, options.now ? 0 : SETTLE_MS)
-    this.#pending.set(key, { timer, session })
+    this.#pending.set(key, { timer, session, insight: this.#insight.get(key) ?? [] })
   }
 
-  async #write(session: Session): Promise<void> {
+  async #write(session: Session, insight: readonly TurnInsightContext[] = []): Promise<void> {
     const key = keyOf(session.runtime, session.id)
     const previous = this.#writes.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
@@ -229,6 +239,7 @@ export class TranscriptStore {
         preview: session.preview ?? null,
         cwd: session.cwd,
         updatedAt: session.updatedAt,
+        ...(insight.length ? { insight } : {}),
       }
       const file = this.#pathOf(session.runtime, session.id)
       try {
@@ -272,6 +283,12 @@ export class TranscriptStore {
     } catch {
       return null
     }
+  }
+
+  /** Historical metadata is unavailable, not person-caused, when an old file has none. */
+  async readInsight(runtime: RuntimeId, id: SessionId): Promise<readonly TurnInsightContext[] | null> {
+    const stored = await this.#read(runtime, id)
+    return stored?.insight ?? null
   }
 
   /**
@@ -547,6 +564,7 @@ export class TranscriptStore {
       clearTimeout(pending.timer)
       this.#pending.delete(key)
     }
+    this.#insight.delete(key)
     // Wait out a write already in flight, or the unlink races it.
     await this.#writes.get(key)?.catch(() => {})
     this.#writes.delete(key)
@@ -575,14 +593,23 @@ export class TranscriptStore {
     if (pending) {
       clearTimeout(pending.timer)
       this.#pending.delete(key)
-      await this.#write(pending.session)
+      await this.#write(pending.session, pending.insight)
     }
     await this.#writes.get(key)?.catch(() => {})
-    const stored = await this.recover(runtime, id)
+    const stored = await this.#read(runtime, id)
     if (!stored) return
     const kept = Math.max(0, stored.turns.length - count)
     if (kept === 0) await this.forget(runtime, id)
-    else await this.#write({ ...stored, turns: stored.turns.slice(0, kept) })
+    else {
+      const turns = stored.turns.slice(0, kept)
+      const retainedSession = await this.recover(runtime, id)
+      if (!retainedSession) return
+      const retained = new Set(turns.map((turn) => String(turn.id)))
+      const insight = (stored.insight ?? []).filter((context) => retained.has(context.turn))
+      if (insight.length) this.#insight.set(key, insight)
+      else this.#insight.delete(key)
+      await this.#write({ ...retainedSession, turns }, insight)
+    }
   }
 
   /** Writes whatever is still waiting. Call on shutdown. */
@@ -590,7 +617,7 @@ export class TranscriptStore {
     const waiting = [...this.#pending.values()]
     for (const entry of waiting) clearTimeout(entry.timer)
     this.#pending.clear()
-    await Promise.all(waiting.map((entry) => this.#write(entry.session)))
+    await Promise.all(waiting.map((entry) => this.#write(entry.session, entry.insight)))
     await Promise.all([...this.#writes.values()])
   }
 }

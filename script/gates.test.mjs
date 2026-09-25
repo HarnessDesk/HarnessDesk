@@ -5,20 +5,46 @@ import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
 import {
+  APPEARANCE_PROPERTIES,
   codeOf,
   compareBaseline,
   createSourceCache,
   declarationsOf,
+  designImportsOf,
+  exportedNamesOf,
   NAMED_COLOURS,
   rawColours,
   rawZIndexes,
+  looksLikeUnmappedAppearanceUtility,
+  classOwnersOf,
+  declarationsByClassIn,
+  dynamicImportUsesOf,
+  exportsReferencing,
+  importersByFile,
+  importsIn,
+  isPatternModule,
+  isWorkbenchDockExempt,
+  NAMED_ROOTS,
+  parseScreenSource,
+  patternExportAppearanceOf,
+  resolveFamilies,
+  resolvedConsumersOf,
   screenAppearanceOf,
   screenAreaOf,
   singleScreenAreaOf,
+  screenInlineStyleAppearanceOf,
+  patternSourceAppearanceOf,
+  screenPropertySideOf,
+  stylesheetFor,
   screenUnclassifiedOf,
+  screenUnmappedUtilityOf,
+  screenUtilityAppearanceOf,
+  screenUtilityDeclarationOf,
+  screenUtilityUnclassifiedOf,
   sheetsOf,
   squaresOf,
   STYLESHEET_OWNERS,
+  uppercaseLabelsOf,
   visualKindUnionsOf,
 } from './design-audit.mjs'
 import { SECTIONS } from './design-sections.mjs'
@@ -95,7 +121,947 @@ test('single-screen pattern accounting follows a pattern consumer into its scree
   const room = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
   const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
   const importers = new Map([[approval, [room, builtins]]])
+  // The registry mounts Approvals in the session view beside Conversation,
+  // and TeamRoomPane docks it too — two different places, not one, so the
+  // registry counts as its own area alongside `room` rather than being
+  // dropped, and a pattern used only by [approval] reads as cross-area
+  // (#925 review round 2, P1).
   assert.equal(singleScreenAreaOf([approval], importers), null)
+})
+
+test('the pane registry mounts a screen without making its patterns shared', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  // Every pane is registered there; a pattern only GitPane uses is still Git's.
+  assert.equal(singleScreenAreaOf([gitPane], new Map([[gitPane, [builtins]]])), 'git')
+})
+
+/*
+ * #914, shape 2: before this, Git was the only screen family named, so a
+ * pattern used only by the conversation transcript's own files — Items,
+ * TurnWork, StepGroup and their siblings — read as cross-area, because each
+ * file was its own area. `screenAreaOf` names four families now, not one.
+ */
+test('single-screen pattern accounting groups the conversation family, not only Git (#914)', () => {
+  const items = path.join(repoRoot, 'packages/ui/src/components/Items.tsx')
+  const turnWork = path.join(repoRoot, 'packages/ui/src/components/TurnWork.tsx')
+  const stepGroup = path.join(repoRoot, 'packages/ui/src/components/StepGroup.tsx')
+  const conversationMap = path.join(repoRoot, 'packages/ui/src/components/ConversationMap.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  assert.equal(screenAreaOf(items), 'conversation')
+  assert.equal(screenAreaOf(turnWork), 'conversation')
+  assert.equal(screenAreaOf(conversationMap), 'conversation')
+  // Before #914 these were four separate areas ('items', 'turnwork',
+  // 'stepgroup'), so a pattern spread across any two of them read as
+  // cross-area and was never charged.
+  assert.equal(singleScreenAreaOf([items, turnWork, stepGroup]), 'conversation')
+  assert.equal(singleScreenAreaOf([items, sidebar]), null)
+})
+
+test('single-screen pattern accounting names the settings, agent roster and room families (#914)', () => {
+  const settings = path.join(repoRoot, 'packages/ui/src/components/Settings.tsx')
+  const settingsAgents = path.join(repoRoot, 'packages/ui/src/components/SettingsAgents.tsx')
+  const settingsYou = path.join(repoRoot, 'packages/ui/src/components/SettingsYou.tsx')
+  assert.equal(singleScreenAreaOf([settings, settingsAgents, settingsYou]), 'settings')
+
+  const agentsWindow = path.join(repoRoot, 'packages/ui/src/components/AgentsWindow.tsx')
+  const agentRoster = path.join(repoRoot, 'packages/ui/src/components/AgentRoster.tsx')
+  const agentPage = path.join(repoRoot, 'packages/ui/src/components/AgentPage.tsx')
+  assert.equal(singleScreenAreaOf([agentsWindow, agentRoster, agentPage]), 'agentroster')
+  // Agents.tsx (a session's own delegated sub-agents, in the right-dock
+  // inspector) is a different screen and must stay out of that family — it
+  // does, but not by keeping its own name: its one real importer is
+  // Details.tsx, which is itself unhosted, so the closure folds it (and
+  // Activity.tsx, and Trajectory.tsx) into `details` instead.
+  const agentsInspector = path.join(repoRoot, 'packages/ui/src/components/Agents.tsx')
+  assert.equal(screenAreaOf(agentsInspector), 'details')
+  assert.notEqual(screenAreaOf(agentsInspector), 'agentroster')
+
+  const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  const teamBoardPane = path.join(repoRoot, 'packages/ui/src/components/TeamBoardPane.tsx')
+  const goalHeader = path.join(repoRoot, 'packages/ui/src/components/GoalHeader.tsx')
+  assert.equal(singleScreenAreaOf([teamRoomPane, teamBoardPane, goalHeader]), 'room')
+  // GoalCreate (the new-session flow) and GoalMigrationBanner (the app's own
+  // chrome) are goals too, but never appear in the room, so they stay out.
+  const goalCreate = path.join(repoRoot, 'packages/ui/src/components/GoalCreate.tsx')
+  assert.notEqual(screenAreaOf(goalCreate), 'room')
+})
+
+/*
+ * A pattern one screen family consumes is that screen's code wherever it
+ * lives, so its appearance counts on the same ledger whichever spelling it
+ * takes. The stylesheet half was always counted; these hold the other two —
+ * a Tailwind utility in the pattern's own className and a key in its inline
+ * style — by the same classification a screen's are (#912 review: four
+ * single-consumer TurnWork parts moved screen appearance into design/ and the
+ * number fell without anything converging).
+ */
+const patternTsx = (name) => path.join(repoRoot, 'packages/ui/src/design/patterns', name)
+
+test('a single-consumer pattern counts the utilities its own className draws', () => {
+  const source = `export const Part = () => <span className="text-(--hd-muted-foreground) tabular-nums flex gap-2" />\n`
+  assert.deepEqual(patternSourceAppearanceOf(patternTsx('Part.tsx'), source), [
+    'design/patterns/Part.tsx: text-(--hd-muted-foreground) (color)',
+    'design/patterns/Part.tsx: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+test('a single-consumer pattern counts appearance in its inline style, and not its layout or custom properties', () => {
+  const source = `export const Part = () => <span style={{ color: 'red', width: 4, '--near': 1 }} />\n`
+  assert.deepEqual(patternSourceAppearanceOf(patternTsx('Part.tsx'), source), ['design/patterns/Part.tsx: style color'])
+})
+
+test('a pattern reached through cn() and a class constant is read the way a screen is', () => {
+  const source = [
+    "import { cn } from '@/lib/utils'",
+    "const INK = 'text-(--hd-warning-ink)'",
+    'export const Part = ({ on }) => <span className={cn(\'shrink-0\', on && INK, \'px-2\')} />',
+    '',
+  ].join('\n')
+  assert.deepEqual(patternSourceAppearanceOf(patternTsx('Part.tsx'), source), [
+    'design/patterns/Part.tsx: text-(--hd-warning-ink) (color)',
+    'design/patterns/Part.tsx: px-2 (padding-inline)',
+  ])
+})
+
+test('single-screen patterns leave semantic appearance to system primitives', () => {
+  // The Git history's chrome was a single-screen pattern; it is folded back
+  // into the Git pane, onto the tool pane's own bar and body, rather than
+  // parked in design/patterns with its appearance.
+  for (const file of ['GitHistory.tsx', 'GitHistory.module.css']) {
+    assert.equal(fs.existsSync(path.join(repoRoot, 'packages/ui/src/design/patterns', file)), false, file)
+  }
+
+  const turnWork = fs.readFileSync(path.join(repoRoot, 'packages/ui/src/design/patterns/TurnWork.tsx'), 'utf8')
+  assert.doesNotMatch(turnWork, /TurnWork\.module\.css/)
+  assert.match(turnWork, /quietHover/)
+})
+
+/*
+ * #914, shape 1: `design/index.ts` re-exports `design/ui` and a few patterns
+ * (InspectorPanel, DockPanel) with `export *`, not a named `export { X } from
+ * 'y'`. Reading only the named form, as the single-consumer rule used to,
+ * makes every part behind an `export *` invisible — never charged, whatever
+ * its consumers.
+ */
+test('exported-name resolution follows `export *`, however many hops deep, to the file that declares the name (#914)', () => {
+  const designIndex = path.join(repoRoot, 'packages/ui/src/design/index.ts')
+  // `Tick` reaches `design/index.ts` only through `export * from './ui'` and
+  // then `design/ui/index.ts`'s own `export * from './spark'` — two hops.
+  assert.deepEqual(exportedNamesOf(designIndex).get('Tick'), {
+    file: path.join(repoRoot, 'packages/ui/src/design/ui/spark.tsx'),
+    localName: 'Tick',
+  })
+  // `GroupLine` is declared in InspectorPanel.tsx and reaches design/index.ts
+  // only through `export * from './patterns/InspectorPanel'` — one hop, but
+  // still invisible to a reader of named exports only.
+  assert.deepEqual(exportedNamesOf(designIndex).get('GroupLine'), {
+    file: path.join(repoRoot, 'packages/ui/src/design/patterns/InspectorPanel.tsx'),
+    localName: 'GroupLine',
+  })
+})
+
+/*
+ * #914, shape 4: `components/Panel.tsx` re-exports `GroupLine` and `PanelRow`
+ * from `'../design'` — a shim entirely outside `design/`. A screen importing
+ * either from the shim used to leave no trace of ever having reached
+ * `design/` at all, because the old resolver only read a direct
+ * `from '../design'` import.
+ */
+test('exported-name resolution follows a re-export shim to the file that actually declares the name (#914)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-export-shim-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const shimPath = path.join(dir, 'Shim.tsx')
+    fs.writeFileSync(targetPath, 'export const Foo = () => null\nexport const Bar = () => null\n')
+    fs.writeFileSync(shimPath, "export { Foo, Bar } from './Target'\n")
+    assert.deepEqual(exportedNamesOf(shimPath).get('Foo'), { file: targetPath, localName: 'Foo' })
+    assert.deepEqual(exportedNamesOf(shimPath).get('Bar'), { file: targetPath, localName: 'Bar' })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+
+  // The real shape this fixes: Trajectory.tsx imports GroupLine from
+  // `./Panel` (the shim), not from `../design` directly.
+  const trajectory = path.join(repoRoot, 'packages/ui/src/components/Trajectory.tsx')
+  const found = designImportsOf(trajectory).find((ref) => ref.localName === 'GroupLine')
+  assert.deepEqual(found, {
+    file: path.join(repoRoot, 'packages/ui/src/design/patterns/InspectorPanel.tsx'),
+    localName: 'GroupLine',
+    localBinding: 'GroupLine',
+  })
+})
+
+/*
+ * #914, shape 3: consumers used to be merged per *module*, not per export, so
+ * one export used everywhere made every sibling export in the same file look
+ * shared too — a genuinely single-area sibling's own appearance was never
+ * charged. `patternExportAppearanceOf` resolves each export's own consumers
+ * before asking whether the module is single-area.
+ */
+test('a module charges only its single-area export, not a sibling export used everywhere (#914)', () => {
+  const module = patternTsx('Widget.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    'export const Common = () => <span className="tabular-nums" />',
+    'export const Solo = () => <span className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    // Common is shared: Sidebar and GitPane are two different areas.
+    { localName: 'Common', consumers: [widelyUsed, onlyConsumer] },
+    // Solo has one consumer only, so it is that screen's own appearance.
+    { localName: 'Solo', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: line-through (text-decoration)',
+  ])
+})
+
+test('a module whose every export reaches the same area is still charged in full, the original way (#914)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    'export const Head = () => <span className="tabular-nums" />',
+    'export const Foot = () => <span className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Head', consumers: [onlyConsumer] },
+    { localName: 'Foot', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+    'design/patterns/Widget.tsx [git screen area]: line-through (text-decoration)',
+  ])
+})
+
+/*
+ * #914 review: `declarationsByClassIn` first read a rule's selector and body
+ * with the same flat `bare(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)` `squaresOf`
+ * uses for its own narrow width/height check, then fed the extracted *body*
+ * text alone back into `declarationsOf`. That function is `declarationsIn`'s
+ * full stylesheet parser, which only flushes a declaration once it has seen a
+ * `{` open a rule; handed a body with no surrounding braces at all, it never
+ * enters a rule, so every declaration for a class-scoped export vanished
+ * silently (`Settings.tsx`'s `SearchMatch` and `RowMark`, real names this
+ * shipped with #914, both read as contributing nothing). The fix reads
+ * `declarationsIn`'s own `rule.prelude` instead of re-deriving a selector.
+ */
+test('the CSS-module classes a single-area export reaches for are charged, reading real declarations not a re-parsed body (#914)', () => {
+  const css = [
+    '.mono { font-family: var(--hd-mono); }',
+    '.monoBlock { padding: 8px; background: var(--hd-muted); }',
+    '',
+  ].join('\n')
+  const tagged = declarationsByClassIn(css)
+  assert.deepEqual(tagged, [
+    { classes: new Set(['mono']), property: 'font-family', value: 'var(--hd-mono)' },
+    { classes: new Set(['monoBlock']), property: 'padding', value: '8px' },
+    { classes: new Set(['monoBlock']), property: 'background', value: 'var(--hd-muted)' },
+  ])
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const source = [
+    "import styles from './Widget.module.css'",
+    'export const Shared = ({ className }) => <span className={styles.mono + \' \' + className} />',
+    'export const Solo = () => <span className={styles.monoBlock} />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Shared', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'Solo', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: padding',
+    'design/patterns/Widget.module.css [git screen area]: background',
+  ])
+})
+
+/*
+ * #914 review: a plain `.ts` design module (no JSX) has no sibling
+ * `.module.css` — `design/adapters/terminal.ts` is one. The original
+ * `module.replace(/\.tsx$/, '.module.css')` left `sheet` equal to `module`
+ * itself for a `.ts` file, so the module's own TypeScript source was read as
+ * though it were a stylesheet, and a bogus finding came out the other end.
+ */
+test('a plain .ts design module has no stylesheet to charge (#914)', () => {
+  assert.equal(stylesheetFor(patternTsx('Widget.tsx')), patternTsx('Widget.module.css'))
+  assert.equal(stylesheetFor(path.join(repoRoot, 'packages/ui/src/design/adapters/terminal.ts')), null)
+})
+
+test('stylesheetFor rejects a .ts pattern module too, not only an adapter (#914 review, item 7)', () => {
+  assert.equal(stylesheetFor(path.join(repoRoot, 'packages/ui/src/design/patterns/Foo.ts')), null)
+})
+
+/*
+ * #914 review, P1: `RowMark` alone draws `.rowMark`, but `Row` and
+ * `RowButton` in the same module also reach for it, and those are used
+ * everywhere. Before this, a class was charged to any single-area export
+ * that referenced it in its own scoped subtree, without asking whether some
+ * *other* declaration in the module — exported or not — reached for the same
+ * class. Only a class exclusively one export's own may be charged.
+ */
+test('a class shared with another export in the same module is not charged to a single-area export (#914 review, P1)', () => {
+  const source = [
+    "import styles from './Widget.module.css'",
+    'export const Row = ({ className }) => <span className={styles.rowMark + " " + className} />',
+    'export const RowButton = () => <span className={styles.rowMark} />',
+    'export const RowMark = () => <span className={styles.rowMark + " " + styles.soloOnly} />',
+    '',
+  ].join('\n')
+  const owners = classOwnersOf(parseScreenSource('Widget.tsx', source), 'styles')
+  // .rowMark is Row's, RowButton's and RowMark's — shared, whichever export
+  // is later found single-area.
+  assert.deepEqual(owners.get('rowMark'), new Set(['Row', 'RowButton', 'RowMark']))
+  // .soloOnly is reached only from RowMark's own body.
+  assert.deepEqual(owners.get('soloOnly'), new Set(['RowMark']))
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const css = ['.rowMark { color: red; }', '.soloOnly { padding: 4px; }', ''].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Row', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'RowButton', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'RowMark', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: padding',
+  ])
+})
+
+/*
+ * #914 review, item 7: the whole-module path must still work when a module
+ * has a local (unexported) helper and a class nothing references at all —
+ * neither should crash the walk or leak into a charge.
+ */
+test('the whole-module path tolerates a local helper and a class nothing references (#914 review, item 7)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    "import styles from './Widget.module.css'",
+    'const cx = (...parts) => parts.filter(Boolean).join(" ")',
+    'export const Head = () => <span className={cx(styles.head, "tabular-nums")} />',
+    'export const Foot = () => <span className={styles.head} />',
+    '',
+  ].join('\n')
+  const css = ['.head { color: red; }', '.unused { padding: 4px; }', ''].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Head', consumers: [onlyConsumer] },
+    { localName: 'Foot', consumers: [onlyConsumer] },
+  ]
+  // The whole-module path charges the whole sheet, `.unused` included: every
+  // export here reaches the same one area, so the entire module is that
+  // screen's appearance moved into design/ in full, not only the classes an
+  // export happens to reach today — unchanged from before this review, and
+  // this fixture is here so a future change to that rule has to notice it.
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: color',
+    'design/patterns/Widget.module.css [git screen area]: padding',
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, item 6: the workbench dock chrome is exempt by name, not by
+ * pattern — the real DockPanel.tsx module, where every listed export is
+ * genuinely single-area (`workbench`), still charges nothing.
+ */
+test('the workbench dock chrome is a named exemption, not a pattern match (#914 review, DockPanel policy)', () => {
+  const dockPanel = path.join(repoRoot, 'packages/ui/src/design/patterns/DockPanel.tsx')
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'WorkbenchRail'), true)
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'DockPanelTab'), true)
+  // RailSection is DockPanel.tsx's other export, and is not on the list:
+  // it is not single-area at all (AppWindow.tsx composes it too), so
+  // whether it would be exempt never comes up.
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'RailSection'), false)
+  // The same export name in a different module is not exempt — this is a
+  // named list, not a rule about the word "WorkbenchRail".
+  assert.equal(isWorkbenchDockExempt(patternTsx('Widget.tsx'), 'WorkbenchRail'), false)
+
+  const moduleSource = fs.readFileSync(dockPanel, 'utf8')
+  const sheet = stylesheetFor(dockPanel)
+  const sheetSource = sheet && fs.existsSync(sheet) ? fs.readFileSync(sheet, 'utf8') : null
+  const workbench = path.join(repoRoot, 'packages/ui/src/panels/Workbench.tsx')
+  const exportsAndConsumers = [
+    { localName: 'WorkbenchRail', consumers: [workbench] },
+    { localName: 'DockPanelTab', consumers: [workbench] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(dockPanel, moduleSource, sheet, sheetSource, exportsAndConsumers), [])
+})
+
+/*
+ * #925 review round 2, P3: an otherwise-uniform module (every export the
+ * same single area) with a named exemption must not take the whole-module
+ * fast path — that reads the whole file's text, which would charge an
+ * exempt export's own utilities right along with an unlisted sibling's. One
+ * unlisted export charges only itself.
+ */
+test('the dock exemption is a per-export skip: one unlisted export in an otherwise-uniform module still charges (#925 review round 2, P3)', () => {
+  const dockPanel = path.join(repoRoot, 'packages/ui/src/design/patterns/DockPanel.tsx')
+  const workbench = path.join(repoRoot, 'packages/ui/src/panels/Workbench.tsx')
+  const source = [
+    'export const WorkbenchRail = () => <div className="tabular-nums" />',
+    'export const NotYetExempt = () => <div className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'WorkbenchRail', consumers: [workbench] },
+    { localName: 'NotYetExempt', consumers: [workbench] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(dockPanel, source, null, null, exportsAndConsumers), [
+    'design/patterns/DockPanel.tsx [workbench screen area]: line-through (text-decoration)',
+  ])
+})
+
+/*
+ * #925 review round 2, item 5: the primitive ledger and a pattern moved into
+ * ui/ as gates tests, not only caught by --strict — `isPatternModule` is the
+ * one switch between the two ceilings, both of which are real SECTIONS
+ * entries with their own recorded baseline.
+ */
+test('isPatternModule is the one switch between screenAppearance and singleAreaPrimitive, both real ceilings (#925 review round 2, item 5)', () => {
+  assert.ok(SECTIONS.some(([key]) => key === 'singleAreaPrimitive'))
+  const asPattern = path.join(repoRoot, 'packages/ui/src/design/patterns/Widget.tsx')
+  const asPrimitive = path.join(repoRoot, 'packages/ui/src/design/ui/widget.tsx')
+  assert.equal(isPatternModule(asPattern), true)
+  assert.equal(isPatternModule(asPrimitive), false)
+
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = 'export const Solo = () => <span className="tabular-nums" />\n'
+  const exportsAndConsumers = [{ localName: 'Solo', consumers: [onlyConsumer] }]
+  // Charged under screenAppearance as a pattern...
+  assert.deepEqual(patternExportAppearanceOf(asPattern, source, null, null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+  // ...but the real audit loop never calls patternExportAppearanceOf for a
+  // ui/ module at all — isPatternModule routes it to singleAreaPrimitive
+  // instead, using the same singleScreenAreaOf check patternExportAppearanceOf
+  // itself uses internally to decide an export's own area.
+  assert.equal(singleScreenAreaOf([onlyConsumer]), 'git')
+})
+
+/*
+ * #925 review round 2, P1: `Approvals.tsx` is mounted by the registry's own
+ * session view (beside Conversation) *and* docked by TeamRoomPane — two
+ * different places. `GitPane.tsx` is mounted by the registry alone (no
+ * other screen), and stays exactly one screen's own. The distinction is
+ * whether a real screen host was found *alongside* the registry/app mount,
+ * not whether one exists at all.
+ */
+test('a registry mount alongside a real screen import is a host with its own area (#925 review round 2, P1)', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  // GitPane's only importer is the registry, alone — unaffected.
+  assert.equal(singleScreenAreaOf([gitPane], new Map([[gitPane, [builtins]]])), 'git')
+
+  // The real shape review found: Approvals is drawn in the registry's own
+  // ConversationView (beside Conversation.tsx) and docked by TeamRoomPane.
+  const approvals = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  assert.equal(singleScreenAreaOf([approvals], importersByFile), null)
+  assert.notEqual(screenAreaOf(approvals), screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')))
+})
+
+test('a file mounted by app/ and by one screen does not fold into that screen\'s family (#925 review round 2, P1)', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  const root = path.join(uiSrc, 'components', 'Root.tsx')
+  const child = path.join(uiSrc, 'components', 'Child.tsx')
+  const appFile = path.join(uiSrc, 'app', 'App.tsx')
+  const namedRoots = new Map([[root, 'lobby']])
+
+  // Without the app/ mount, Child has exactly one host and folds into it.
+  const onlyScreen = new Map([[child, [root]]])
+  assert.equal(resolveFamilies([root, child], onlyScreen, namedRoots).get(child), 'lobby')
+
+  // The same screen host, plus an app/ mount: reachable from two places, so
+  // Child keeps its own name instead.
+  const withAppMount = new Map([[child, [root, appFile]]])
+  assert.equal(resolveFamilies([root, child], withAppMount, namedRoots).get(child), 'child')
+
+  // An app/ mount alone (no other screen) changes nothing, the same as a
+  // bare registry mount.
+  const solo = path.join(uiSrc, 'components', 'Solo.tsx')
+  const onlyApp = new Map([[solo, [appFile]]])
+  assert.equal(resolveFamilies([solo], onlyApp, new Map()).get(solo), 'solo')
+})
+
+/*
+ * #925 review round 2, P1: `Dialog` composes `DialogBody`/`DialogSubhead` in
+ * the same file, with no import at all — an import scanner can never see
+ * this. Replicated the way the audit's own loop builds a same-module edge:
+ * for each of a module's own exports, which sibling export's own body
+ * references it.
+ */
+test('same-module composition: an export composed by a sibling inherits its consumers (#925 review round 2, P1)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-same-module-'))
+  try {
+    const modulePath = path.join(dir, 'IntraShell.tsx')
+    fs.writeFileSync(modulePath, ['export const IntraBody = () => <div />', 'export const IntraShell = () => <IntraBody />', ''].join('\n'))
+    const ast = parseScreenSource(modulePath, fs.readFileSync(modulePath, 'utf8'))
+    const exported = exportedNamesOf(modulePath)
+    const designUsers = new Map()
+    for (const [, ref] of exported) {
+      if (ref.file !== modulePath) continue
+      for (const composerName of exportsReferencing(ast, ref.localName)) {
+        if (composerName === ref.localName) continue
+        const key = `${modulePath}::${ref.localName}`
+        const entry = designUsers.get(key) ?? { file: modulePath, localName: ref.localName, users: [] }
+        entry.users.push({ file: modulePath, localName: composerName })
+        designUsers.set(key, entry)
+      }
+    }
+    assert.deepEqual(designUsers.get(`${modulePath}::IntraBody`)?.users, [{ file: modulePath, localName: 'IntraShell' }])
+
+    const areaA = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+    const areaB = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+    const directConsumers = new Map([
+      [`${modulePath}::IntraShell`, { file: modulePath, localName: 'IntraShell', consumers: [areaA, areaB] }],
+    ])
+    // IntraBody has no direct screen importer of its own — its whole reach
+    // is IntraShell's, which two different areas use, so IntraBody is
+    // cross-area too and would not be charged.
+    const reach = resolvedConsumersOf(modulePath, 'IntraBody', directConsumers, designUsers)
+    assert.deepEqual(reach.slice().sort(), [areaA, areaB].sort())
+    assert.equal(singleScreenAreaOf(reach), null)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, P3: the DFS this replaced memoized a *partial* result
+ * the moment it hit a cycle, so which of two mutually-importing files "won"
+ * a shared name could depend on which was visited first. The fixed point
+ * must give the same answer regardless of the order files are handed in.
+ */
+test('cycle resolution in the family closure is order-independent (#925 review round 2, P3)', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  const a = path.join(uiSrc, 'components', 'CycleA.tsx')
+  const b = path.join(uiSrc, 'components', 'CycleB.tsx')
+  const importers = new Map([
+    [a, [b]],
+    [b, [a]],
+  ])
+  const forward = resolveFamilies([a, b], importers, new Map())
+  const backward = resolveFamilies([b, a], importers, new Map())
+  assert.deepEqual([forward.get(a), forward.get(b)], [backward.get(a), backward.get(b)])
+  assert.equal(forward.get(a), 'cyclea')
+  assert.equal(forward.get(b), 'cycleb')
+})
+
+/*
+ * #925 review round 2, P3: an anonymous default export (no name of its own)
+ * must still map to something `directDeclarationIn` can scope into — the
+ * literal sentinel `default`, resolved to the export assignment's own
+ * expression rather than a named declaration.
+ */
+test('exportedNamesOf maps an anonymous default export to its module\'s own default (#925 review round 2, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-anonymous-default-'))
+  try {
+    const arrowPath = path.join(dir, 'ArrowDefault.tsx')
+    fs.writeFileSync(arrowPath, 'export default () => null\n')
+    assert.deepEqual(exportedNamesOf(arrowPath).get('default'), { file: arrowPath, localName: 'default' })
+
+    const module = patternTsx('Widget.tsx')
+    const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+    const source = 'export default () => <span className="tabular-nums" />\n'
+    const exportsAndConsumers = [{ localName: 'default', consumers: [onlyConsumer] }]
+    assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+      'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+    ])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, item 5: end-to-end wiring, not only the unit that
+ * finds a dynamic import — a screen file's own `lazy(() => import(...))`
+ * must register as a real design consumer through `designImportsOf`'s
+ * sibling mechanism, the same conservative way a design file's already does.
+ */
+test('a screen\'s dynamic import is read too, not only a design file\'s (#925 review round 2, P3/item 5)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-dynamic-import-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(targetPath, 'export const A = () => null\nexport const B = () => null\n')
+    fs.writeFileSync(screenPath, 'export const Lazied = () => { import("./Target"); return null }\n')
+    const ast = parseScreenSource(screenPath, fs.readFileSync(screenPath, 'utf8'))
+    const uses = dynamicImportUsesOf(ast, dir)
+    assert.deepEqual(uses, [{ exportName: 'Lazied', target: targetPath }])
+    // Every export of the target is reached, conservatively — the same
+    // wiring the audit's own screen loop uses to call `addConsumer`.
+    assert.deepEqual([...exportedNamesOf(targetPath).keys()].sort(), ['A', 'B'])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, item 5: the export function branch survives a
+ * mutation unless both directions are pinned — charged when its own
+ * consumers are single-area, uncharged when a sibling export function
+ * shares the same module but a different (or no) area.
+ */
+test('an export function is charged only when its own consumers are single-area, not merely present (#925 review round 2, item 5)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const source = [
+    'export function Solo() {',
+    '  return <span className="tabular-nums" />',
+    '}',
+    'export function Shared() {',
+    '  return <span className="line-through" />',
+    '}',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Solo', consumers: [onlyConsumer] },
+    { localName: 'Shared', consumers: [onlyConsumer, widelyUsed] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, P3: a `const` export was the only shape `directDeclarationIn`
+ * and `exportsReferencing` could scope into. An `export function` composer
+ * lost its design-to-design reach entirely — neither shape existed in the
+ * tree, so nothing today depended on the gap, but a future pattern written
+ * this way must not silently stop composing.
+ */
+test('directDeclarationIn and exportsReferencing read an export function declaration (#914 review, P3)', () => {
+  const source = [
+    "import { RailSection } from './DockPanel'",
+    'export function AppWindowRailTop(props) {',
+    '  return <RailSection {...props} />',
+    '}',
+    'export function AppWindowSurface(props) {',
+    '  return <div {...props} />',
+    '}',
+    '',
+  ].join('\n')
+  const ast = parseScreenSource('AppWindow.tsx', source)
+  assert.deepEqual(exportsReferencing(ast, 'RailSection'), ['AppWindowRailTop'])
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const fnSource = [
+    'export function Solo() {',
+    '  return <span className="tabular-nums" />',
+    '}',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [{ localName: 'Solo', consumers: [onlyConsumer] }]
+  assert.deepEqual(patternExportAppearanceOf(module, fnSource, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, P3: a composer that delegates its own drawing to a private,
+ * unexported helper must not read as composing nothing — the helper's own
+ * body is where the import is actually used.
+ */
+test('exportsReferencing resolves a local helper component to its own body (#914 review, P3)', () => {
+  const source = [
+    "import { RailSection } from './DockPanel'",
+    'const Inner = () => <RailSection stretch="head" />',
+    'export const AppWindowRailTop = () => <Inner />',
+    'export const AppWindowSurface = () => <div />',
+    '',
+  ].join('\n')
+  const ast = parseScreenSource('AppWindow.tsx', source)
+  assert.deepEqual(exportsReferencing(ast, 'RailSection'), ['AppWindowRailTop'])
+})
+
+/*
+ * #914 review, P3: `import X, { Y }` names a default and a named specifier
+ * in one statement; both must be read as real bindings.
+ */
+test('importsIn reads a default-and-named import together, and a type-only import is invisible (#914 review, P2/P3)', () => {
+  const code = [
+    "import type { Foo } from './Foo'",
+    "import Default, { Bar, type Baz, Qux as Quux } from './Bar'",
+    '',
+  ].join('\n')
+  const found = importsIn(code)
+  assert.equal(found.length, 1)
+  assert.equal(found[0].spec, './Bar')
+  assert.deepEqual(found[0].bindings, [
+    { kind: 'default', name: 'default', localBinding: 'Default' },
+    { kind: 'named', name: 'Bar', localBinding: 'Bar' },
+    { kind: 'named', name: 'Qux', localBinding: 'Quux' },
+  ])
+})
+
+/*
+ * #914 review, P2: a type-only import must not register as a real screen
+ * import, in either consumer path. The real shape review found:
+ * CommandPalette.tsx and Sidebar.tsx both `import type { Section } from
+ * './Settings'` — a type import, not a use, so it must not make a pattern
+ * used only by Settings.tsx read as shared with either of them.
+ */
+test('a type-only import does not register as a real screen import (#914 review, P2)', () => {
+  const settings = path.join(repoRoot, 'packages/ui/src/components/Settings.tsx')
+  const commandPalette = path.join(repoRoot, 'packages/ui/src/components/CommandPalette.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const realImporters = importersByFile.get(settings) ?? []
+  assert.equal(realImporters.includes(commandPalette), false)
+  assert.equal(realImporters.includes(sidebar), false)
+})
+
+/*
+ * #925 review round 2, P2: the previous version of this gate reimplemented
+ * the closure it checks — including the registry skip — so it could not
+ * catch the very bug this round found (Approvals folded into `room` because
+ * the registry mount was dropped instead of counted). Hand-written
+ * expectations for known real cases instead: they describe what a reader
+ * would expect from the real import graph, not from re-deriving it.
+ */
+test('screen families read correctly for known real cases, including the ones the closure gets subtle (#925 review round 2, P2)', () => {
+  const approvals = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  // Approvals is drawn in the registry's own session view (beside
+  // Conversation) and docked by TeamRoomPane — two different places — so it
+  // is multi-area, not `room`.
+  assert.notEqual(screenAreaOf(approvals), screenAreaOf(teamRoomPane))
+  assert.equal(singleScreenAreaOf([approvals], importersByFile), null)
+
+  // Trajectory's real host is Details.tsx (its only value importer), not
+  // Conversation — Details is itself unhosted, so both read `details`.
+  const trajectory = path.join(repoRoot, 'packages/ui/src/components/Trajectory.tsx')
+  const details = path.join(repoRoot, 'packages/ui/src/components/Details.tsx')
+  assert.equal(screenAreaOf(trajectory), screenAreaOf(details))
+  assert.equal(screenAreaOf(trajectory), 'details')
+
+  // Library.tsx is imported only by Settings.tsx, directly — one hop, not
+  // through ProjectPage or any other intermediary.
+  const library = path.join(repoRoot, 'packages/ui/src/components/Library.tsx')
+  assert.equal(screenAreaOf(library), 'settings')
+
+  // Two more single-host files, named so a future reader can check them by
+  // hand against the real tree the same way: GitDialogs.tsx's only real
+  // importer is GitPane.tsx, and BranchSwitcher.tsx's is Conversation.tsx —
+  // a branch switcher in the transcript's own header, not Git's.
+  const gitDialogs = path.join(repoRoot, 'packages/ui/src/components/GitDialogs.tsx')
+  const branchSwitcherFile = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
+  assert.equal(screenAreaOf(gitDialogs), 'git')
+  assert.equal(screenAreaOf(branchSwitcherFile), 'conversation')
+})
+
+/*
+ * #914 review, item 7: families have live effect, not just a one-hop
+ * assertion that happened to already be true — AppearancePreview.tsx is
+ * folded into `settings` two hops deep (Settings.tsx -> SettingsYou.tsx ->
+ * AppearancePreview.tsx), and BranchSwitcher.tsx into `conversation`
+ * (Conversation.tsx's own header), which the closure only finds by iterating
+ * to a fixed point.
+ */
+test('the family closure iterates more than one hop, with a real effect on real files (#914 review, item 7)', () => {
+  const appearancePreview = path.join(repoRoot, 'packages/ui/src/components/AppearancePreview.tsx')
+  const branchSwitcher = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
+  assert.equal(screenAreaOf(appearancePreview), 'settings')
+  assert.equal(screenAreaOf(branchSwitcher), 'conversation')
+})
+
+/*
+ * #914 review, P3: a namespace import reaches for whichever exports its own
+ * `D.X` sites actually name, found the same way a CSS-module binding's
+ * `styles.X` sites are — not assumed used just because the import exists,
+ * and not invisible just because it is not a named import.
+ */
+test('a namespace import reaches for the specific exports its own D.X sites name (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-namespace-'))
+  try {
+    const designIndex = path.join(repoRoot, 'packages/ui/src/design/index.ts')
+    const relative = path.relative(dir, designIndex).replace(/\.ts$/, '')
+    const spec = relative.startsWith('.') ? relative : `./${relative}`
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(
+      screenPath,
+      `import * as D from '${spec}'\nexport const Widget = () => <D.Button>{D.Chip}</D.Button>\n`,
+    )
+    const names = designImportsOf(screenPath).map((ref) => ref.localName).sort()
+    assert.ok(names.includes('Button'), `expected Button among ${names.join(', ')}`)
+    assert.ok(names.includes('Chip'), `expected Chip among ${names.join(', ')}`)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: an aliased design-to-design import must be traced by its
+ * local binding, not the name it was exported under — `RailSection`
+ * imported as `Rail` is found by looking for `Rail` in the importing file's
+ * own body, not by looking for `RailSection`.
+ */
+test('a design-to-design edge follows an aliased import by its local binding (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-aliased-design-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const composerPath = path.join(dir, 'Composer.tsx')
+    fs.writeFileSync(targetPath, 'export const RailSection = () => null\n')
+    fs.writeFileSync(composerPath, "import { RailSection as Rail } from './Target'\nexport const Outer = () => <Rail />\n")
+    const found = designImportsOf(composerPath)
+    assert.equal(found.length, 0) // Target.tsx is not under design/, so this is not counted as reaching design/
+    // The mechanism itself, proven directly: exportsReferencing is asked
+    // about the *local* binding a design-to-design scan would resolve to.
+    const composerAst = parseScreenSource(composerPath, fs.readFileSync(composerPath, 'utf8'))
+    assert.deepEqual(exportsReferencing(composerAst, 'Rail'), ['Outer'])
+    assert.deepEqual(exportsReferencing(composerAst, 'RailSection'), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: a default export — either `export default function Name`
+ * or `export default Name` naming an earlier local — is a name
+ * `directDeclarationIn` can now scope into, the same as a named export.
+ */
+test('exportedNamesOf recognizes a default export, named or re-exported by name (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-default-export-'))
+  try {
+    const fnPath = path.join(dir, 'FnDefault.tsx')
+    fs.writeFileSync(fnPath, 'export default function Widget() {\n  return null\n}\n')
+    assert.deepEqual(exportedNamesOf(fnPath).get('default'), { file: fnPath, localName: 'Widget' })
+
+    const namedPath = path.join(dir, 'NamedDefault.tsx')
+    fs.writeFileSync(namedPath, 'const Widget = () => null\nexport default Widget\n')
+    assert.deepEqual(exportedNamesOf(namedPath).get('default'), { file: namedPath, localName: 'Widget' })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: a dynamic `import('spec')` inside an exported
+ * declaration — directly, or wrapped in `lazy(() => import('spec'))` —
+ * cannot be resolved to specific names, so it is read as reaching for the
+ * target's entire surface. Conservative: it can only add a consumer a part
+ * genuinely has, never remove one it does not.
+ */
+test('a dynamic import reaches for every export of its target, conservatively (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-dynamic-import-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const callerPath = path.join(dir, 'Caller.tsx')
+    fs.writeFileSync(targetPath, 'export const A = () => null\nexport const B = () => null\n')
+    fs.writeFileSync(
+      callerPath,
+      [
+        "const lazy = (f) => f",
+        'export const Direct = () => { import("./Target"); return null }',
+        'export const Lazied = lazy(() => import("./Target"))',
+        'export const Untouched = () => null',
+        '',
+      ].join('\n'),
+    )
+    const ast = parseScreenSource(callerPath, fs.readFileSync(callerPath, 'utf8'))
+    const uses = dynamicImportUsesOf(ast, dir)
+    assert.deepEqual(uses.map((use) => use.exportName).sort(), ['Direct', 'Lazied'])
+    for (const use of uses) assert.equal(use.target, targetPath)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('designImportsOf never resolves a target outside design/ (#914 review, item 7)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-design-filter-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(targetPath, 'export const Foo = () => null\n')
+    fs.writeFileSync(screenPath, "import { Foo } from './Target'\n")
+    assert.deepEqual(designImportsOf(screenPath), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review: charging a part as single-area because it has one *screen*
+ * importer ignored a design part composing it into something used far more
+ * widely. `RailSection` (DockPanel.tsx) has one direct screen importer
+ * (Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+ * and `AppWindowRailScroll`, which `components/AppWindow.tsx` mounts for
+ * Settings, the Agents window, ChangesReview and Usage — so RailSection's
+ * true reach spans several areas, and charging it as "Sidebar's own" would
+ * have made the zero unreachable without faking a consumer away.
+ */
+test('exportsReferencing finds only the exports that actually compose an import, real file (#914)', () => {
+  const appWindow = path.join(repoRoot, 'packages/ui/src/design/patterns/AppWindow.tsx')
+  const ast = parseScreenSource(appWindow, fs.readFileSync(appWindow, 'utf8'))
+  assert.deepEqual(
+    new Set(exportsReferencing(ast, 'RailSection')),
+    new Set(['AppWindowRailTop', 'AppWindowRailScroll']),
+  )
+  // Neither of these draws RailSection at all.
+  assert.equal(exportsReferencing(ast, 'DialogPopup').includes('AppWindowRailTop'), false)
+})
+
+test('resolvedConsumersOf inherits the reach of every design export that composes one, cycles guarded (#914)', () => {
+  const part = { file: '/design/Rail.tsx', localName: 'RailSection' }
+  const wrapperA = { file: '/design/AppWindow.tsx', localName: 'AppWindowRailTop' }
+  const sidebar = '/components/Sidebar.tsx'
+  const settings = '/components/Settings.tsx'
+  const agentsWindow = '/components/AgentsWindow.tsx'
+
+  const directConsumers = new Map([
+    [`${part.file}::${part.localName}`, { file: part.file, localName: part.localName, consumers: [sidebar] }],
+    // AppWindowRailTop has no screen importer of its own in this fixture —
+    // its whole reach comes from what composes *it*.
+  ])
+  const designUsers = new Map([
+    // RailSection is composed into AppWindowRailTop.
+    [`${part.file}::${part.localName}`, { ...part, users: [wrapperA] }],
+    // AppWindowRailTop is itself composed into components/AppWindow.tsx's own
+    // exports, which Settings and AgentsWindow each mount — modelled here as
+    // a second design export so the chain is two hops, not one.
+    [`${wrapperA.file}::${wrapperA.localName}`, {
+      ...wrapperA,
+      users: [{ file: '/components/AppWindow.tsx', localName: 'AppWindowPage' }],
+    }],
+  ])
+  directConsumers.set('/components/AppWindow.tsx::AppWindowPage', {
+    file: '/components/AppWindow.tsx',
+    localName: 'AppWindowPage',
+    consumers: [settings, agentsWindow],
+  })
+
+  assert.deepEqual(
+    resolvedConsumersOf(part.file, part.localName, directConsumers, designUsers).sort(),
+    [agentsWindow, settings, sidebar].sort(),
+  )
+
+  // A cycle (A composes B, B composes A) terminates rather than looping.
+  const cyclic = new Map([
+    ['/a.tsx::A', { file: '/a.tsx', localName: 'A', users: [{ file: '/b.tsx', localName: 'B' }] }],
+    ['/b.tsx::B', { file: '/b.tsx', localName: 'B', users: [{ file: '/a.tsx', localName: 'A' }] }],
+  ])
+  assert.deepEqual(resolvedConsumersOf('/a.tsx', 'A', new Map(), cyclic), [])
+})
+
+/*
+ * #914 review: `design/ui/` holds generic, shadcn-registry-style primitives
+ * that are meant to exist before they have a second caller — charging one
+ * for having exactly one today would make the ceiling unreachable without
+ * inventing a pointless second caller. Only `design/patterns/` compositions
+ * are charged; a single-area primitive is listed under `--verbose` instead
+ * (see the audit's own `isMain` block), never counted or baselined.
+ */
+test('only design/patterns/ is a pattern module; design/ui/ primitives are not charged (#914)', () => {
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/patterns/Settings.tsx')), true)
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/ui/chart.tsx')), false)
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/ui/board.tsx')), false)
 })
 
 test('the browser integration job builds workspace package entries before Vite', () => {
@@ -290,10 +1256,21 @@ test('a head action is held to its own rung', () => {
 })
 
 test('a dialog footer is held to its own list', () => {
-  assert.deepEqual(usage.slotOffenders('<Dialog footer={<Btn variant="ghost">Save</Btn>} />', 'F.tsx'), [
-    "F.tsx: <Btn variant=\"ghost\"> in a dialog's footer",
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Btn variant="ghost">Save</Btn>} />', 'F.tsx'), [
+    "F.tsx:1: <Btn variant=\"ghost\"> in a dialog's footer",
+    "F.tsx:1: a lone button in a dialog's footer is its act, and is not filled",
   ])
-  assert.deepEqual(usage.slotOffenders('<Dialog footer={<Btn variant="secondary">Cancel</Btn>} />', 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Btn variant="secondary">Cancel</Btn>} />', 'F.tsx'), [
+    "F.tsx:1: a lone button in a dialog's footer is its act, and is not filled",
+  ])
+  // The soft red is a page's remove action, never a confirm's act.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="destructive">Delete</Button><Button variant="secondary">Keep</Button></>} />', 'F.tsx'),
+    [
+      "F.tsx:1: <Button variant=\"destructive\"> in a dialog's footer",
+      "F.tsx:1: a dialog's footer renders 2 buttons and no filled act",
+    ],
+  )
 })
 
 
@@ -364,22 +1341,111 @@ test('a rung it cannot read is not called full', () => {
   )
 })
 
-test('two ink actions is two primaries, and a conditional slot is left alone', () => {
+test('a footer renders one filled act on every branch, a lone button included', () => {
   assert.deepEqual(
-    usage.slotOffenders('<Dialog footer={<><Btn variant="default">A</Btn><Btn variant="primary">B</Btn></>} />', 'F.tsx'),
-    ["F.tsx: 2 ink actions in a dialog's footer, which holds one"],
+    usage.footerOffenders('<Dialog footer={<><Btn variant="default">A</Btn><Btn variant="primary">B</Btn></>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
   )
-  // Both of these are correct code that earlier versions of this rule
-  // reported. The library's apply dialog writes two ink buttons in two
-  // branches and shows one; a conditional label nested in a fragment is the
-  // ordinary way to write "Save or Create". Deciding which branch renders is
-  // a JSX parser's job, so where there is a conditional this says nothing.
+  // A filled red act is a filled button: beside the ink confirm it is a
+  // second default, and the footer has no answer to lean on.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button>Save</Button></>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
+  )
+  // The footer's own grammar passes: one filled confirm, a quiet way out.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button variant="secondary">Cancel</Button></>} />', 'F.tsx'),
+    [],
+  )
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<><Button>Save</Button><Button variant="quiet">Close</Button></>} />', 'F.tsx'), [])
+  // A lone Close is the footer's act, and filled: a secondary alone on the
+  // footer's ground is a frame the colour of the ground. Two unfilled
+  // buttons have no default.
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Button>Close</Button>} />', 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Button variant="secondary">Close</Button>} />', 'F.tsx'), [
+    "F.tsx:1: a lone button in a dialog's footer is its act, and is not filled",
+  ])
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="secondary">Open</Button><Button variant="secondary">Close</Button></>} />', 'F.tsx'),
+    ["F.tsx:1: a dialog's footer renders 2 buttons and no filled act"],
+  )
+  // Both arms of a conditional are read. Each arm here is right…
   const branched =
     '<Dialog footer={r ? (<Btn variant="primary">Close</Btn>) : (<><Btn variant="primary">Apply</Btn><Btn>Cancel</Btn></>)} />'
-  assert.deepEqual(usage.slotOffenders(branched, 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders(branched, 'F.tsx'), [])
   const nested =
     '<Dialog footer={<><Btn variant="secondary">Cancel</Btn>{e ? <Btn variant="default">Save</Btn> : <Btn variant="default">Create</Btn>}</>} />'
-  assert.deepEqual(usage.slotOffenders(nested, 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders(nested, 'F.tsx'), [])
+  // …and an arm that is wrong is found, where the text check stayed silent.
+  const wrongArm =
+    '<Dialog footer={<>{hard ? <Button variant="destructive">Reset</Button> : <Button>Reset</Button>}<Button variant="secondary">Keep</Button></>} />'
+  assert.ok(usage.footerOffenders(wrongArm, 'F.tsx').includes("F.tsx:1: a dialog's footer renders 2 buttons and no filled act"))
+  // `&&` is read with and without its button: here the rendering with it is
+  // two primaries…
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button>Save</Button>{more && <Button>Also</Button>}</>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
+  )
+  // …and here only the rendering without it is wrong: Keep alone, unfilled.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="secondary">Keep</Button>{canSave && <Button>Save</Button>}</>} />', 'F.tsx'),
+    ["F.tsx:1: a lone button in a dialog's footer is its act, and is not filled"],
+  )
+})
+
+test('a footer counts its aside, a buttonVariants control, and a hoisted local', () => {
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<Button>Save</Button>} footerAside={<Button>Also save</Button>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
+  )
+  // The aside is set a step down; its rung is not the footer's.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<Button>Save</Button>} footerAside={<Button variant="secondary" size="sm">Prune</Button>} />', 'F.tsx'),
+    [],
+  )
+  assert.deepEqual(
+    usage.footerOffenders(
+      "<Dialog footer={<><Button>Save</Button><DialogClose className={buttonVariants({ variant: 'ghost' })}>Cancel</DialogClose></>} />",
+      'F.tsx',
+    ),
+    ["F.tsx:1: <DialogClose variant=\"ghost\"> in a dialog's footer"],
+  )
+  const hoisted = 'const actions = <><Button>Save</Button><Button>Save too</Button></>;\n<Dialog footer={actions} />'
+  assert.deepEqual(usage.footerOffenders(hoisted, 'F.tsx'), ["F.tsx:2: 2 filled actions in a dialog's footer, which holds one"])
+})
+
+test('a footer written as a component is read through it, and one it cannot see into is unread, never empty', () => {
+  // A component in the same file is read to what it returns — an arrow, a
+  // block body with a return, and a function declaration.
+  const arrow = 'const FooterButtons = () => <><Button variant="secondary">A</Button><Button variant="secondary">B</Button></>;\n<Dialog footer={<FooterButtons />} />'
+  assert.deepEqual(usage.footerOffenders(arrow, 'F.tsx'), ["F.tsx:2: a dialog's footer renders 2 buttons and no filled act"])
+  const block = 'const FooterButtons = ({ busy }) => { if (busy) return <Button disabled>Saving</Button>; return <><Button>Save</Button><Button variant="secondary">Cancel</Button></> };\n<Dialog footer={<FooterButtons />} />'
+  assert.deepEqual(usage.footerOffenders(block, 'F.tsx'), [])
+  const declared = 'function FooterButtons() { return <Button variant="destructive">Delete</Button> }\n<Dialog footer={<FooterButtons />} />'
+  assert.deepEqual(usage.footerOffenders(declared, 'F.tsx'), [
+    "F.tsx:2: <Button variant=\"destructive\"> in a dialog's footer",
+    "F.tsx:2: a lone button in a dialog's footer is its act, and is not filled",
+  ])
+  // Imported, or otherwise out of sight: reported, not counted as empty.
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<SharedFooter />} />', 'F.tsx'), [
+    "F.tsx:1: a dialog's footer holds a part this cannot read",
+  ])
+  // A wrapper with buttons inside is read through its children.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<RefusedAction reason="x"><Button>Go</Button></RefusedAction>} />', 'F.tsx'),
+    [],
+  )
+})
+
+test('a spread that can set a footer button\'s variant makes it unread', () => {
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Button {...confirm}>Go</Button>} />', 'F.tsx'), [
+    "F.tsx:1: <Button> in a dialog's footer has a variant this cannot read",
+  ])
+  // A variant written after the spread is the variant.
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Button {...confirm} variant="default">Go</Button>} />', 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<>{...buttons}</>} />', 'F.tsx'), [
+    "F.tsx:1: a dialog's footer holds a part this cannot read",
+  ])
 })
 
 test('a rule is filed under the class it is about', (t) => {
@@ -646,6 +1712,37 @@ test('an unclassified screen property fails --strict and names the property and 
   }
 })
 
+/**
+ * The one group label is sentence case, and the only capitals the app keeps
+ * are printed on a `Keycap`. `uppercaseLabel` counts every other one, in the
+ * three spellings a screen has — a stylesheet's `text-transform`, a class
+ * list's `uppercase` utility, an inline style's `textTransform` — and never a
+ * comment, a keycap, or a string method that merely has the word in it.
+ */
+test('uppercaseLabel counts capitals on a label in every spelling, and none on a keycap', () => {
+  const css = path.join(repoRoot, 'packages/ui/src/components/Example.module.css')
+  const tsx = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const cases = [
+    [css, '.label { font-size: var(--hd-text-xs); text-transform: uppercase; }', 1],
+    [css, '.label { text-transform: var(--hd-label-transform, uppercase); }', 1],
+    [css, '.a, .b { letter-spacing: 0.04em; text-transform: uppercase }', 1],
+    [css, '.keycap { text-transform: uppercase; }', 0],
+    [css, '.label { text-transform: none; }', 0],
+    [css, '/* .label { text-transform: uppercase; } */ .label { color: red; }', 0],
+    [tsx, 'export const A = () => <span className="text-xs font-medium uppercase" />\n', 1],
+    [tsx, 'export const A = () => <span className="data-[on]:uppercase" />\n', 1],
+    [tsx, "export const A = () => <span style={{ textTransform: 'uppercase' }} />\n", 1],
+    [tsx, 'export const A = () => <><span className="uppercase" /><b className="uppercase" /></>\n', 2],
+    [tsx, 'export const A = ({ name }: { name: string }) => <span>{name.toUpperCase()}</span>\n', 0],
+    [tsx, '// uppercase once lived here\nexport const A = () => <span className="normal-case" />\n', 0],
+    [tsx, 'export const A = () => <Keycap className="uppercase">k</Keycap>\n', 0],
+  ]
+  for (const [file, source, count] of cases) {
+    assert.equal(uppercaseLabelsOf(file, source).length, count, source)
+  }
+  assert.match(uppercaseLabelsOf(css, '.railLabel { text-transform: uppercase }')[0], /components\/Example\.module\.css: \.railLabel/)
+})
+
 test('screen appearance excludes the design system and its named specialized renderers', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-appearance-scope-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
@@ -660,6 +1757,700 @@ test('screen appearance excludes the design system and its named specialized ren
     fs.writeFileSync(file, source)
     assert.deepEqual(screenAppearanceOf(file, fs.readFileSync(file, 'utf8')), [], file)
   }
+})
+
+/**
+ * `screenAppearanceOf` reads a screen's `.module.css`; these fixtures cover
+ * the two other spellings the same drift moved into once the stylesheet went
+ * quiet — a Tailwind utility in `className` and a key in an inline `style`.
+ * No file is written to disk: `screenUtilityAppearanceOf` and
+ * `screenInlineStyleAppearanceOf` take `source` directly, the same as
+ * `screenAppearanceOf(file, css)` does, and only the path string drives the
+ * screen/exemption checks.
+ */
+const screenTsx = (name) => path.join(repoRoot, 'packages/ui/src/components', name)
+const classNameSource = (className) => `export const Example = () => <div className="${className}" />\n`
+// Every finding now names the file its declaration actually lives in — the
+// current file for a direct literal, a different one once item 1's identifier
+// resolution crosses an import — so a same-file fixture's expectation carries
+// the label too.
+const label = (name) => `components/${name}: `
+
+test('a plain screen utility counts, mapped to the property it draws', () => {
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('rounded-full')),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('a variant-prefixed screen utility is stripped to its base before it is classified', () => {
+  const cases = [
+    ['hover:bg-(--hd-accent-dim)', 'hover:bg-(--hd-accent-dim) (background)'],
+    ['data-[open]:text-sm', 'data-[open]:text-sm (font-size)'],
+    ['[&_h2]:text-base', '[&_h2]:text-base (font-size)'],
+    // Stacked variants: each one is its own top-level `:`, so the base is
+    // reached only once every layer is peeled off.
+    ['md:dark:hover:rounded-full', 'md:dark:hover:rounded-full (border-radius)'],
+  ]
+  for (const [className, expected] of cases) {
+    assert.deepEqual(
+      screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource(className)),
+      [`${label('Example.tsx')}${expected}`],
+      className,
+    )
+  }
+})
+
+test('the important marker is punctuation, in either spelling Tailwind has used for it', () => {
+  // v4 moved `!` to the end of the token; a v3 source may still lead with it.
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('bg-red-500!')),
+    [`${label('Example.tsx')}bg-red-500! (background)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('!bg-red-500')),
+    [`${label('Example.tsx')}!bg-red-500 (background)`],
+  )
+})
+
+test('an arbitrary height value counts exactly where the CSS height rule would', () => {
+  // Same three answers `screenAppearanceOf` gives a stylesheet's own
+  // `height`/`min-height`/`max-height`, reached through the utility instead:
+  // a real metric counts, a reset and a layout share do not.
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('max-h-[380px]')),
+    [`${label('Example.tsx')}max-h-[380px] (max-height)`],
+  )
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('h-full')), [])
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('h-0')), [])
+})
+
+test('a screen utility on the layout side of the boundary is not counted', () => {
+  // `text-align` and the truncate family are layout in `LAYOUT_BEHAVIOUR_PROPERTIES`
+  // whichever spelling declares them; a screen reaching for either is not new
+  // debt.
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('text-center')), [])
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), classNameSource('truncate')), [])
+})
+
+test('a screen utility inside a ternary is read on both branches, not only the one that looks true', () => {
+  // What spelling would this rule miss? A conditional class list, which is
+  // static text on both branches even though only one renders at a time —
+  // exactly `Items.tsx`'s `register === 'light' ? '' : ' rounded-(--hd-radius) ...'`.
+  const source = 'export const Example = () => <div className={`${styles.row}${open ? \' rounded-full\' : \' text-xs\'}`} />\n'
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a screen utility is read from a template literal and from a cn() call, not only a plain string', () => {
+  const templateSource = 'export const Example = () => <div className={`${styles.row} rounded-full`} />\n'
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), templateSource),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+
+  const cnCallSource = "import { cn } from '../lib/utils'\nexport const Example = () => <div className={cn('rounded-full', open && 'text-xs')} />\n"
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), cnCallSource),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a cn() call reached only through the const it was assigned to is read once, not twice', () => {
+  // What spelling would this rule miss? The call is found directly, wherever
+  // it sits in the file, and again by resolving the name a `className`
+  // references — both paths reach the identical call node, so its arguments
+  // must be read once, not once per path.
+  const indirectSource = "import { cn } from '../lib/utils'\nconst rowClass = cn('rounded-full')\nexport const Example = () => <div className={rowClass} />\n"
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), indirectSource),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('screen utility appearance excludes the design system, test files, and the Markdown/Diff exemption', () => {
+  const source = classNameSource('rounded-full')
+  const excluded = [
+    path.join(repoRoot, 'packages/ui/src/design/ui/button.tsx'),
+    path.join(repoRoot, 'packages/ui/src/components/Example.test.tsx'),
+    path.join(repoRoot, 'packages/ui/src/components/Markdown.tsx'),
+    path.join(repoRoot, 'packages/ui/src/components/Diff.tsx'),
+    // The icon façade carries the same exemption the loose-icon rule gives it.
+    path.join(repoRoot, 'packages/ui/src/components/Icons.tsx'),
+  ]
+  for (const file of excluded) assert.deepEqual(screenUtilityAppearanceOf(file, source), [], file)
+  // The same source, in an ordinary screen, does count — proving the fixture
+  // above excludes on purpose rather than by an accident in the source text.
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('a Tailwind utility maps to a property by its own shape, not a second appearance table', () => {
+  const cases = [
+    // `text-` is ambiguous between a size and a colour; the suffix decides.
+    ['text-xs', { property: 'font-size', value: '' }],
+    ['text-(length:--hd-x)', { property: 'font-size', value: '' }],
+    ['text-[12px]', { property: 'font-size', value: '' }],
+    ['text-(--hd-x)', { property: 'color', value: '' }],
+    ['text-(color:--hd-x)', { property: 'color', value: '' }],
+    ['text-[#fff]', { property: 'color', value: '' }],
+    ['text-red-500', { property: 'color', value: '' }],
+    // `text-shadow-*` shares the `text-` prefix with the size/colour family
+    // and must not fall through to it.
+    ['text-shadow-md', { property: 'text-shadow', value: '' }],
+    // `font-` is ambiguous between a weight, a family and (new) a stretch.
+    ['font-semibold', { property: 'font-weight', value: '' }],
+    ['font-mono', { property: 'font-family', value: '' }],
+    ['font-(family-name:--hd-font)', { property: 'font-family', value: '' }],
+    ['font-stretch-condensed', { property: 'font-stretch', value: '' }],
+    // `size-` sets width and height; only the height half is counted, by the
+    // same value rule as `h-`/`min-h-`/`max-h-`.
+    ['size-8', { property: 'height', value: '8' }],
+    ['size-full', { property: 'height', value: '100%' }],
+    // `` `h-${n}` ``/`` `px-${n}` `` leave a dangling prefix with nothing
+    // after the hyphen once the interpolation is read separately — counted
+    // the same way a dangling `text-` already fell through to a colour.
+    ['h-', { property: 'height', value: '' }],
+    ['px-', { property: 'padding-inline', value: '' }],
+    // The numeric-variant family, the negated tracking spelling, the new
+    // logical padding pair, and Tailwind's own escape hatch for a property
+    // no utility names.
+    ['tabular-nums', { property: 'font-variant-numeric', value: '' }],
+    ['-tracking-[2px]', { property: 'letter-spacing', value: '' }],
+    ['pbs-2', { property: 'padding-block-start', value: '' }],
+    ['pbe-2', { property: 'padding-block-end', value: '' }],
+    ['underline-offset-2', { property: 'text-underline-offset', value: '' }],
+    ['mix-blend-multiply', { property: 'mix-blend-mode', value: '' }],
+    ['inset-shadow-sm', { property: 'box-shadow', value: '' }],
+    ['inset-ring-2', { property: 'box-shadow', value: '' }],
+    ['mask-none', { property: 'mask-image', value: '' }],
+    ['[mask-type:luminance]', { property: 'mask-type', value: 'luminance' }],
+    // A token this rule has not been taught returns null rather than a guess.
+    ['font-condensed', null],
+  ]
+  for (const [token, expected] of cases) assert.deepEqual(screenUtilityDeclarationOf(token), expected, token)
+})
+
+/**
+ * Item 3's mechanical coverage check, walked FROM the real
+ * `APPEARANCE_PROPERTIES` export rather than a hand-copied list of its
+ * names: every family or exact property it counts needs an entry in
+ * `APPEARANCE_COVERAGE_SAMPLE` below, a representative utility that
+ * `screenUtilityDeclarationOf` maps to it, or is named as a hint on
+ * `looksLikeUnmappedAppearanceUtility` — never silently neither. Round 2
+ * review found the previous version of this test read a copy of the
+ * property names, so adding `text-indent` to the real table still passed:
+ * nothing forced a new sample to be written. Walking the export instead
+ * means a property or family with no entry here fails immediately, which is
+ * the proof this test is not vacuous — see the manual check in the task
+ * report, since committing the failing state itself would defeat the point.
+ *
+ * A property with no sample utility (`hint:` instead of a token) is one
+ * Tailwind gives no default scale to (`caret-color`, `filter`) or
+ * approximates only through the arbitrary-property escape hatch
+ * (`word-spacing`); those are read from the hint list instead of a mapped
+ * token.
+ */
+const APPEARANCE_COVERAGE_SAMPLE = {
+  'line-height': 'leading-tight',
+  'letter-spacing': 'tracking-wide',
+  'word-spacing': '[word-spacing:0.1em]',
+  'text-transform': 'uppercase',
+  'text-underline-offset': 'underline-offset-2',
+  'text-shadow': 'text-shadow-md',
+  color: 'text-red-500',
+  fill: 'fill-current',
+  'caret-color': { hint: 'caret-red-500' },
+  'accent-color': { hint: 'accent-red-500' },
+  filter: { hint: 'blur-md' },
+  'backdrop-filter': { hint: 'backdrop-blur-sm' },
+  'mix-blend-mode': 'mix-blend-multiply',
+  'box-shadow': 'shadow-md',
+  height: 'h-8',
+  'min-height': 'min-h-8',
+  'max-height': 'max-h-8',
+  font: 'font-mono',
+  'text-decoration': 'underline',
+  background: 'bg-red-500',
+  stroke: 'stroke-current',
+  mask: 'mask-none',
+  border: 'border',
+  outline: 'outline',
+  padding: 'p-2',
+}
+
+test('every family or exact property APPEARANCE_PROPERTIES counts has a sample utility or a hint', () => {
+  for (const property of [...APPEARANCE_PROPERTIES.exact, ...APPEARANCE_PROPERTIES.families]) {
+    const sample = APPEARANCE_COVERAGE_SAMPLE[property]
+    assert.ok(
+      sample !== undefined,
+      `${property} has no coverage sample — teach screenUtilityDeclarationOf a spelling (or add it to the hint list) and add one here`,
+    )
+    if (typeof sample === 'object') {
+      assert.equal(screenUtilityDeclarationOf(sample.hint), null, `${property}: ${sample.hint} should be a hint, not a mapping`)
+      assert.ok(looksLikeUnmappedAppearanceUtility(sample.hint), `${property}: ${sample.hint} should be flagged as a hint`)
+      continue
+    }
+    const declaration = screenUtilityDeclarationOf(sample)
+    assert.ok(declaration, `${property}: ${sample} has no utility mapping`)
+    assert.equal(screenPropertySideOf(declaration.property, declaration.value), 'appearance', `${property}: ${sample} -> ${declaration.property} is not appearance`)
+    assert.ok(
+      declaration.property === property || declaration.property.startsWith(`${property}-`),
+      `${property}: ${sample} mapped to ${declaration.property}, not the ${property} family`,
+    )
+  }
+})
+
+test('a bare antialiased is a hint, not a silent miss', () => {
+  assert.equal(screenUtilityDeclarationOf('antialiased'), null)
+  assert.ok(looksLikeUnmappedAppearanceUtility('antialiased'))
+  assert.ok(looksLikeUnmappedAppearanceUtility('subpixel-antialiased'))
+})
+
+test('an unmapped utility that looks like appearance is reported for --verbose only, never counted', () => {
+  const source = classNameSource('caret-red-500')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+  assert.deepEqual(screenUnmappedUtilityOf(screenTsx('Example.tsx'), source), [`${label('Example.tsx')}caret-red-500`])
+})
+
+/**
+ * Item 1: a class site that only names a `const`, not the literal itself.
+ * Round 1 review found four real shapes this rule missed entirely because it
+ * never resolved an identifier — `Conversation.tsx`'s plain string constants,
+ * `SettingsAgents.tsx`'s ternary, `TurnWork.tsx`'s array-and-`.join`, and
+ * `LibraryActions.tsx`'s constant exported and used again from `Library.tsx`
+ * — plus `BrowserPane.tsx`'s `className` written as an object key rather
+ * than a JSX attribute.
+ */
+test('a same-file const resolves at a class site: a string, a ternary, and an array.join', () => {
+  const stringSource = [
+    "const TITLE_CLASSES = 'font-(family-name:--hd-font-display) text-base'",
+    'export const Example = () => <div className={TITLE_CLASSES}>hi</div>',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), stringSource),
+    [`${label('Example.tsx')}font-(family-name:--hd-font-display) (font-family)`, `${label('Example.tsx')}text-base (font-size)`],
+  )
+
+  const ternarySource = [
+    "const fillClass = tone === 'bad' ? 'bg-(--hd-danger)' : 'bg-(--hd-success)'",
+    'export const Example = () => <div className={`h-full ${fillClass}`} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), ternarySource),
+    [`${label('Example.tsx')}bg-(--hd-danger) (background)`, `${label('Example.tsx')}bg-(--hd-success) (background)`],
+  )
+
+  const joinSource = [
+    "const SHIMMER_CLASSES = ['bg-clip-text', 'text-transparent'].join(' ')",
+    'export const Example = () => <span className={SHIMMER_CLASSES}>hi</span>',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), joinSource),
+    [`${label('Example.tsx')}bg-clip-text (background-clip)`, `${label('Example.tsx')}text-transparent (color)`],
+  )
+})
+
+test('a same-file const used at more than one class site is counted once, at its declaration', () => {
+  const source = [
+    "const SWITCH_TRACK = 'rounded-full'",
+    'export const Example = () => (',
+    '  <div>',
+    '    <span className={SWITCH_TRACK} />',
+    '    <span className={`${SWITCH_TRACK} w-fit`} />',
+    '  </div>',
+    ')',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('a const imported from another screen is counted once, at the file that defines it', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-const-import-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const definingFile = path.join(components, 'LibraryActions.tsx')
+  const consumingFile = path.join(components, 'Library.tsx')
+  fs.writeFileSync(definingFile, [
+    "export const SWITCH_TRACK = 'rounded-(--hd-radius-sm)'",
+    'export const Example = () => <div className={SWITCH_TRACK} />',
+  ].join('\n'))
+  fs.writeFileSync(consumingFile, [
+    "import { SWITCH_TRACK } from './LibraryActions'",
+    'export const Example = () => <div className={SWITCH_TRACK} />',
+  ].join('\n'))
+  const shared = new Set()
+  const definingFindings = screenUtilityAppearanceOf(definingFile, fs.readFileSync(definingFile, 'utf8'), undefined, shared)
+  const consumingFindings = screenUtilityAppearanceOf(consumingFile, fs.readFileSync(consumingFile, 'utf8'), undefined, shared)
+  assert.deepEqual(definingFindings, ['components/LibraryActions.tsx: rounded-(--hd-radius-sm) (border-radius)'])
+  // Not found again labelled under Library.tsx, and not silently dropped
+  // either — it was already counted once, at its definition.
+  assert.deepEqual(consumingFindings, [])
+})
+
+/**
+ * Item 1 (round 2): resolution is scope-correct, not "the first declaration
+ * anywhere in the file". Two components each declaring their own `const
+ * tone` are two declarations — both counted — and a shadowed inner `const
+ * tone` resolves to its own declaration inside the block that shadows it,
+ * not the outer one a flat name lookup would have found first.
+ */
+test('two components each declaring their own const tone are two declarations, both counted', () => {
+  const source = [
+    "const A = () => { const tone = 'rounded-full'; return <div className={tone} /> }",
+    "const B = () => { const tone = 'text-xs'; return <div className={tone} /> }",
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a shadowed inner const resolves to its own declaration, not the outer one', () => {
+  const source = [
+    'const Example = () => {',
+    "  const tone = 'text-xs'",
+    '  if (x) {',
+    "    const tone = 'rounded-full'",
+    '    return <span className={tone} />',
+    '  }',
+    '  return <span className={tone} />',
+    '}',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+/**
+ * Item 2 (round 2): a property access's member name is never treated as a
+ * bare variable reference, and only a recognized shape (string, template,
+ * ternary, array, `.join`, a class-combiner call) is walked once resolved —
+ * an arbitrary expression, such as a comparison, is not.
+ */
+test('the name after a dot is never resolved as a variable: styles.fileRow does not find a const fileRow', () => {
+  const source = [
+    "const fileRow = 'rounded-full'",
+    'export const Example = () => <div className={styles.fileRow} />',
+  ].join('\n')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+})
+
+test('a const holding a comparison, referenced at a class site, counts nothing', () => {
+  const source = [
+    "const active = x === 'underline'",
+    'export const Example = () => <div className={active} />',
+  ].join('\n')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+})
+
+/**
+ * Item 4 (round 2): the spellings round 2 review found still missed, none
+ * used today. `let`/`var` behaves like `const` when never reassigned;
+ * reassigned, every literal assignment reachable from the declaring scope is
+ * gathered under the one declaration, since a variable that can hold more
+ * than one thing statically is not the one thing a `const` is.
+ */
+test('a let never reassigned resolves like a const', () => {
+  const source = "let tone = 'rounded-full'\nexport const Example = () => <div className={tone} />\n"
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [`${label('Example.tsx')}rounded-full (border-radius)`])
+})
+
+test('a reassigned let counts every literal assignment it was given', () => {
+  const source = [
+    "let tone = 'rounded-full'",
+    "if (x) { tone = 'bg-(--hd-card)' }",
+    'export const Example = () => <div className={tone} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}bg-(--hd-card) (background)`],
+  )
+})
+
+test('a default import, a namespace import, a re-export, and a two-hop import all resolve, at their definition', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-import-shapes-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const write = (name, content) => fs.writeFileSync(path.join(components, name), content)
+  const read = (name) => fs.readFileSync(path.join(components, name), 'utf8')
+  const at = (name) => path.join(components, name)
+
+  write('DefaultBase.tsx', "export default 'rounded-full'\n")
+  write('DefaultUser.tsx', "import CLASS from './DefaultBase'\nexport const Example = () => <div className={CLASS} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('DefaultUser.tsx'), read('DefaultUser.tsx')),
+    ['components/DefaultBase.tsx: rounded-full (border-radius)'],
+  )
+
+  write('NsBase.tsx', "export const TONE = 'bg-(--hd-card)'\n")
+  write('NsUser.tsx', "import * as ns from './NsBase'\nexport const Example = () => <div className={ns.TONE} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('NsUser.tsx'), read('NsUser.tsx')),
+    ['components/NsBase.tsx: bg-(--hd-card) (background)'],
+  )
+
+  write('Origin.tsx', "export const SHARED = 'shadow-(--hd-hairline)'\n")
+  write('Reexport.tsx', "export { SHARED } from './Origin'\n")
+  write('ReexportUser.tsx', "import { SHARED } from './Reexport'\nexport const Example = () => <div className={SHARED} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('ReexportUser.tsx'), read('ReexportUser.tsx')),
+    ['components/Origin.tsx: shadow-(--hd-hairline) (box-shadow)'],
+  )
+
+  write('HopC.tsx', "export const DEEP = 'outline-2'\n")
+  write('HopB.tsx', "export { DEEP } from './HopC'\n")
+  write('HopA.tsx', "export { DEEP } from './HopB'\n")
+  write('HopUser.tsx', "import { DEEP } from './HopA'\nexport const Example = () => <div className={DEEP} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('HopUser.tsx'), read('HopUser.tsx')),
+    ['components/HopC.tsx: outline-2 (outline)'],
+  )
+})
+
+test('style={c && {...}} reads the guard\'s right side, and style={CONST} resolves a same-file object const', () => {
+  const guardSource = 'export const Example = () => <div style={c && { color: "red" }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), guardSource), ['style color'])
+
+  const constSource = [
+    'const FROZEN_STYLE = { color: "red" }',
+    'export const Example = () => <div style={FROZEN_STYLE} />',
+  ].join('\n')
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), constSource), ['style color'])
+})
+
+test('an arbitrary property the stylesheet rule treats as unclassified is a strict screenUnclassified finding', () => {
+  const source = classNameSource('[text-indent:2px]')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+  assert.deepEqual(
+    screenUtilityUnclassifiedOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}[text-indent:2px] (text-indent)`],
+  )
+})
+
+/**
+ * Round 3 review: the closed shape list was too narrow and dropped 15 real
+ * shapes the pre-round-2 walker still caught — none used in a counted file
+ * today, but exactly the blind spot this PR exists to close. Each fixture
+ * below was confirmed failing (finding nothing, or one token short) against
+ * `fb5fa67e`, the head that introduced the closed list, before this file's
+ * `classSiteTokens` grew the case that fixes it.
+ */
+const helperSource = (expr) => `export const Example = () => <div className={${expr}} />\n`
+
+test('?? and || read both sides; + reads both sides of a concatenation', () => {
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("cls ?? 'text-xs'")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("cls || 'text-xs'")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("'text-xs ' + extra")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('as, as const, satisfies and ! all recurse into their expression', () => {
+  const withConst = (expr) => `const cls = 'text-xs'\nexport const Example = () => <div className={${expr}} />\n`
+  for (const expr of ["('text-xs' as string)", "('text-xs' as const)", "('text-xs' satisfies string)", 'cls!']) {
+    assert.deepEqual(
+      screenUtilityAppearanceOf(screenTsx('Example.tsx'), expr.startsWith("'") ? helperSource(expr) : withConst(expr)),
+      [`${label('Example.tsx')}text-xs (font-size)`],
+      expr,
+    )
+  }
+  // `<T>x` is the same shape (recurse into `.expression`) but has no legal
+  // spelling in a `.tsx` file — `<` opens a JSX element there — so it cannot
+  // be fixture-tested on this parser; `screenUtilityDeclarationOf`'s dispatch
+  // still names `ts.isTypeAssertionExpression` alongside the others.
+})
+
+test('an object literal yields its string-literal keys: clsx({ \'text-xs\': c })', () => {
+  const source = "import { cn } from '../lib/utils'\nexport const Example = () => <div className={cn({ 'text-xs': c })} />\n"
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [`${label('Example.tsx')}text-xs (font-size)`])
+})
+
+test('a spread inside an array joined with .join(\' \') reads every element', () => {
+  const source = [
+    "const B = ['bg-(--hd-card)']",
+    "const SHIMMER = [...B, 'text-xs'].join(' ')",
+    'export const Example = () => <span className={SHIMMER} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}bg-(--hd-card) (background)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('an element access (TONE[t]) and optional chaining (o?.a) recurse into the object, not the key', () => {
+  const mapSource = [
+    "const TONE = { a: 'text-xs', b: 'rounded-full' }",
+    'export const Example = () => <div className={TONE[t]} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), mapSource),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+  const optionalSource = [
+    "const o = { a: 'text-xs' }",
+    'export const Example = () => <div className={o?.a} />',
+  ].join('\n')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), optionalSource), [`${label('Example.tsx')}text-xs (font-size)`])
+})
+
+test('a call this does not specifically recognize still reads its arguments and (for a method call) its object', () => {
+  assert.deepEqual(
+    screenUtilityAppearanceOf(
+      screenTsx('Example.tsx'),
+      "import { twMerge } from 'tailwind-merge'\nexport const Example = () => <div className={twMerge('text-xs', 'rounded-full')} />\n",
+    ),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("buttonVariants({ variant: 'a' }) + ' text-xs'")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("buttonVariants({ className: 'text-xs' })")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  const filterJoinSource = [
+    "const PARTS = ['text-xs', false]",
+    "const SHIMMER = PARTS.filter(Boolean).join(' ')",
+    'export const Example = () => <span className={SHIMMER} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), filterJoinSource),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("String('text-xs')")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a call resolving to a local function const is walked through its return expressions only', () => {
+  const source = [
+    "const classFor = (k) => { if (k === 'a') return 'text-xs'; return 'rounded-full' }",
+    'export const Example = () => <div className={classFor(k)} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('a reassigned let with += gathers that literal alongside the initializer', () => {
+  const source = [
+    "let c = 'text-xs'",
+    "c += ' bg-(--hd-card)'",
+    'export const Example = () => <div className={c} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}bg-(--hd-card) (background)`],
+  )
+})
+
+test('style={s ?? {...}} reads both sides, and an imported style={S} is read at its definition', (t) => {
+  assert.deepEqual(
+    screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), 'export const Example = () => <div style={s ?? { color: "red" }} />\n'),
+    ['style color'],
+  )
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-style-import-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const definingFile = path.join(components, 'StyleBase.tsx')
+  const consumingFile = path.join(components, 'StyleUser.tsx')
+  fs.writeFileSync(definingFile, "export const S = { color: 'red' }\n")
+  fs.writeFileSync(consumingFile, "import { S } from './StyleBase'\nexport const Example = () => <div style={S} />\n")
+  assert.deepEqual(screenInlineStyleAppearanceOf(consumingFile, fs.readFileSync(consumingFile, 'utf8')), ['style color'])
+})
+
+test('a className written as an object key is a class site, the same as a JSX attribute', () => {
+  // BrowserPane.tsx: createElement('webview', { className: `...` }).
+  const source = [
+    'export const Example = () =>',
+    "  createElement('webview', { className: `border-0 bg-(--hd-card)` })",
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}border-0 (border)`, `${label('Example.tsx')}bg-(--hd-card) (background)`],
+  )
+})
+
+test('an inline style counts its appearance keys and not its layout keys or an unresolvable reference', () => {
+  const styleSource = 'export const Example = () => <div style={{ background: "red", width: 10 }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), styleSource), ['style background'])
+
+  // A same-file object const is now resolved (item 4) — see the dedicated
+  // fixture below. What is still unresolvable is a value this cannot chase
+  // to any declaration at all: a function parameter, a prop, anything not a
+  // `const` this file itself declares.
+  const dynamicSource = 'export const Example = ({ obj }) => <div style={obj} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), dynamicSource), [])
+
+  // camelCase -> kebab-case, including a vendor prefix, and a key already
+  // spelled as a custom property is left exactly as written.
+  const vendorSource = 'export const Example = () => <div style={{ WebkitTransform: "scale(1)", \'--near\': near }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), vendorSource), [])
+})
+
+/** Item 4: style shapes round 1 review found unused but unhandled. */
+test('an inline style reads a shorthand key, a computed string key, satisfies, and a conditional', () => {
+  const shorthandSource = 'const color = "red"\nexport const Example = () => <div style={{ color }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), shorthandSource), ['style color'])
+
+  const computedSource = 'export const Example = () => <div style={{ [\'color\']: "red" }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), computedSource), ['style color'])
+
+  const satisfiesSource = 'export const Example = () => <div style={{ color: "red" } satisfies React.CSSProperties} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), satisfiesSource), ['style color'])
+
+  // Both branches read, not only the one a fixed `c` would pick.
+  const conditionalSource = 'export const Example = () => <div style={c ? { color: "red" } : { background: "blue" }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), conditionalSource), ['style color', 'style background'])
+})
+
+/**
+ * Item 5: the over-count round 1 review found — `GitPane.tsx`'s virtual list
+ * sets `height: total * ROW`, and the empty-value path a real metric falls
+ * through to (nothing looks like a reset or a layout share) was counting a
+ * plain arithmetic expression as though it were one. A height-family key
+ * with no literal value is decided explicitly as layout; every other
+ * property is unaffected, since only height has a value-based rule at all.
+ */
+test('a dynamic height-family style value is not counted; a dynamic value on an ordinary property still is', () => {
+  const heightSource = 'export const Example = () => <div style={{ height: total * ROW }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), heightSource), [])
+
+  const minHeightSource = 'export const Example = () => <div style={{ minHeight: rowCount * ROW }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), minHeightSource), [])
+
+  // A literal height value is unaffected — this is about an unknown value,
+  // not about height keys generally.
+  const literalSource = 'export const Example = () => <div style={{ height: 40 }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), literalSource), ['style height'])
+
+  // An ordinary (non-height) property with a dynamic value is still counted
+  // by property alone, as it always was — this decision is specific to the
+  // height family's value rule, not a blanket "unknown value" refusal.
+  const backgroundSource = 'export const Example = () => <div style={{ background: pick() }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), backgroundSource), ['style background'])
 })
 
 test('a visual kind prop cannot hide a component catalogue in one string union', () => {
@@ -689,8 +2480,8 @@ test('a slot this cannot see into is reported, not skipped', () => {
   assert.deepEqual(usage.slotOffenders('<PageHead t="x" actions={headerAction} />', 'F.tsx'), [
     "F.tsx: a page head's action is held in `headerAction`, which this cannot read",
   ])
-  assert.deepEqual(usage.slotOffenders('<Dialog footer={renderFooter()} />', 'F.tsx'), [
-    "F.tsx: a dialog's footer is held in `renderFooter()`, which this cannot read",
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={renderFooter()} />', 'F.tsx'), [
+    "F.tsx:1: a dialog's footer holds a part this cannot read",
   ])
   // An element that simply is not a button is legible, and is not the rule's
   // business.
@@ -931,6 +2722,21 @@ test('the method list is the validator table\u2019s own keys, not the fields ins
   assert.deepEqual(methodsIn(source), ['session/list', 'team/post'])
 })
 
+test('a hyphenated method name is on the list, not skipped', () => {
+  /* `\w` has no `-`, so `'flow/start-goal':` failed the key pattern outright
+     and the method was invisible to the gate — neither counted nor flagged.
+     Found during the flows work; the control is `session/list` beside it. */
+  const source = [
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "  'flow/start-goal': shape({ room: isString }),",
+    "  'agent-pool/lease-one': shape({}),",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list', 'flow/start-goal', 'agent-pool/lease-one'])
+  assert.deepEqual([...reachedBy(['flow/start-goal'], ["await request('flow/start-goal', { room })"])], ['flow/start-goal'])
+})
+
 test('a longer method name does not make a shorter one look called', () => {
   /* `plugin/install` is a suffix of `runtime/plugin/install`, and both are
      real methods on this wire. A substring match on the bare name reads the
@@ -969,6 +2775,42 @@ test('the method list stops at the validator table, not at the end of the file',
     "}",
   ].join('\n')
   assert.deepEqual(methodsIn(source), ['session/list'])
+})
+
+test('a method group spread into the validator table is on the list', () => {
+  /* `...goalValidators,` assembled goal/*, insight/* and finding/* into the
+     table from literals declared above it, and the parser read only the
+     table's own lines — every one of those methods was invisible to the gate.
+     The spread is followed to its own declaration; `unrelated` beside it is
+     the control that a literal nobody spreads is still not read. */
+  const source = [
+    "const goalValidators = {",
+    "  'goal/list': goalShape({}),",
+    "  'goal/create': goalShape({",
+    "    'not/a/method': isString,",
+    "  }),",
+    "}",
+    "const unrelated = {",
+    "  'not/a/method': 1,",
+    "}",
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "  ...goalValidators,",
+    "  'team/post': shape({}),",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list', 'goal/list', 'goal/create', 'team/post'])
+  // A spread that names nothing declared fails loudly rather than dropping a group.
+  assert.throws(() => methodsIn("const paramsValidators = {\n  ...missingValidators,\n}"), /missingValidators/)
+})
+
+test('the real validator table: every spread group is read, and every method is reachable or pinned', () => {
+  /* The end-to-end half of the test above, against the file as it is. Before
+     spreads were followed this list had no goal/* or insight/* entry at all. */
+  const methods = methodsIn(fs.readFileSync(path.join(repoRoot, 'packages/protocol/src/wire-validators.ts'), 'utf8'))
+  for (const method of ['goal/list', 'insight/usage']) assert.ok(methods.includes(method), method)
+  const run = spawnSync(process.execPath, [path.join(repoRoot, 'script/check-reachable.mjs')], { encoding: 'utf8' })
+  assert.equal(run.status, 0, run.stderr + run.stdout)
 })
 
 test('a method name held in a variable is not a caller either', () => {

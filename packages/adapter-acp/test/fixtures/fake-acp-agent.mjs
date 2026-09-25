@@ -51,9 +51,12 @@ const STORE = process.env.FAKE_ACP_STORE ?? null
 const UNLISTED = new Set((process.env.FAKE_ACP_UNLISTED ?? '').split(',').filter(Boolean))
 const LIST_PAGE = Number(process.env.FAKE_ACP_LIST_PAGE ?? 0)
 const NO_LIST = process.env.FAKE_ACP_NO_LIST === '1'
-const recordOpen = (method, sessionId, cwd) => {
+const recordOpen = (method, sessionId, cwd, meta) => {
   if (process.env.FAKE_ACP_OPENS) {
-    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd })}\n`)
+    // With the attachment extension on, each line also says whether the open
+    // carried a Seat's filter — the one fact a test of "never unfiltered" needs.
+    const filtered = process.env.FAKE_ACP_ATTACHMENTS === '1' ? { filtered: Boolean(meta?.harnessdesk?.attachments) } : {}
+    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered })}\n`)
   }
 }
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
@@ -668,6 +671,26 @@ const TASKS = process.env.FAKE_ACP_TASKS === '1'
 const DELETES = process.env.FAKE_ACP_DELETE === '1'
 
 /**
+ * Phase 12's attachment extension, agent side. Off by default — most ACP
+ * agents have never heard of it, and that is the state a conformance suite
+ * needs to see honestly reported as `unsupported`, not merely untested.
+ *
+ *  - FAKE_ACP_ATTACHMENTS=1 declares `{version:1, skills:true, mcp:true,
+ *    suppressUnapproved:true}` at `initialize` and actually answers
+ *    `_harnessdesk/attachment_receipt` from what `session/new`/`session/load`
+ *    handed it under `_meta.harnessdesk.attachments.input` — an honest
+ *    fake, the way `FakeRuntime` on the host side is.
+ *  - FAKE_ACP_ATTACHMENTS_VERSION=<n> declares a different version number.
+ *  - FAKE_ACP_ATTACHMENTS_MALFORMED=1 declares the capability with a
+ *    non-boolean field, which a strict decoder must refuse.
+ *  - FAKE_ACP_ATTACHMENTS_RECEIPT=<json> overrides the honest receipt this
+ *    agent would otherwise answer, for a test that wants to hand the host a
+ *    dishonest one (wrong key, an extra unrequested item, excess bytes).
+ */
+const ATTACHMENTS = process.env.FAKE_ACP_ATTACHMENTS === '1'
+const attachmentsBySession = new Map()
+
+/**
  * Whether this agent answers ACP's own `logout` and declares it in
  * `agentCapabilities.auth`, the way Google Antigravity's server does. Off by
  * default: most ACP agents hold no credentials of their own, and an agent
@@ -754,7 +777,7 @@ const handlers = {
         : [
             { id: 'device', name: 'Sign in on the agent side', description: 'Run the agent login.' },
           ],
-      ...(TASKS || DELETES
+      ...(TASKS || DELETES || ATTACHMENTS
         ? {
             _meta: {
               harnessdesk: {
@@ -762,6 +785,18 @@ const handlers = {
                 // FAKE_ACP_DELETE=1 plays a bridge that knows where its agent
                 // writes. Most ACP agents do not, and declare nothing.
                 ...(DELETES ? { deleteSession: true } : {}),
+                ...(ATTACHMENTS
+                  ? {
+                      attachments: process.env.FAKE_ACP_ATTACHMENTS_MALFORMED
+                        ? { version: 1, skills: 'yes', mcp: true, suppressUnapproved: true }
+                        : {
+                            version: Number(process.env.FAKE_ACP_ATTACHMENTS_VERSION ?? 1),
+                            skills: true,
+                            mcp: true,
+                            suppressUnapproved: true,
+                          },
+                    }
+                  : {}),
               },
             },
           }
@@ -857,7 +892,10 @@ const handlers = {
       } catch {}
     }
     const state = newSession(undefined, params?.cwd)
-    recordOpen('session/new', state.id, params?.cwd)
+    recordOpen('session/new', state.id, params?.cwd, params?._meta)
+    if (ATTACHMENTS && params?._meta?.harnessdesk?.attachments) {
+      attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
+    }
     reply(id, {
       sessionId: state.id,
       ...(CONFIG_MODEL_ONLY ? {} : { models: {
@@ -982,7 +1020,7 @@ const handlers = {
     reply(id, { sessions: rows.slice(from, from + LIST_PAGE), ...(next !== null ? { nextCursor: next } : {}) })
   },
   'session/load': (id, params) => {
-    recordOpen('session/load', params.sessionId, params.cwd)
+    recordOpen('session/load', params.sessionId, params.cwd, params?._meta)
     const store = readStore()
     const entry = store[params.sessionId]
     if (!entry) return fail(id, `no stored session ${params.sessionId}`, { details: 'the store has no such id' })
@@ -990,6 +1028,16 @@ const handlers = {
       return fail(id, 'Internal error', { details: 'the transcript could not be read' })
     }
     const state = newSession(entry.sessionId, entry.cwd)
+    // A load is handed the servers a session/new is: dumped the same way.
+    if (process.env.FAKE_ACP_DUMP_SERVERS) {
+      try {
+        writeFileSync(process.env.FAKE_ACP_DUMP_SERVERS, JSON.stringify(params?.mcpServers ?? []))
+      } catch {}
+    }
+    // A load carries a reopened Seat's filter the same way session/new does.
+    if (ATTACHMENTS && params?._meta?.harnessdesk?.attachments) {
+      attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
+    }
     // Replay: every content block of a stored turn as its own user chunk,
     // then an answer chunk — the shape Claude Code replays.
     for (const blocks of entry.turns) {
@@ -1070,6 +1118,28 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     delete store[message.params?.sessionId]
     writeStore(store)
     reply(message.id, { removed: had ? [`${message.params.sessionId}.jsonl`] : [], disposition: 'trash' })
+    return
+  }
+  if (ATTACHMENTS && typeof message.id === 'number' && message.method === '_harnessdesk/attachment_receipt') {
+    if (process.env.FAKE_ACP_ATTACHMENTS_RECEIPT) {
+      reply(message.id, JSON.parse(process.env.FAKE_ACP_ATTACHMENTS_RECEIPT))
+      return
+    }
+    const input = attachmentsBySession.get(message.params?.sessionId)
+    if (!input || input.key !== message.params?.key) {
+      fail(message.id, 'no attachments were prepared for this session, or the key has moved on')
+      return
+    }
+    // Honest by default: reports loading exactly what it was asked to load,
+    // the same way `FakeRuntime` on the host side does.
+    reply(message.id, {
+      key: input.key,
+      loaded: [
+        ...(input.skills ?? []).map((one) => ({ kind: 'skill', name: one.name, digest: one.digest })),
+        ...(input.mcp ?? []).map((one) => ({ kind: 'mcp', name: one.name, digest: one.digest })),
+      ],
+      refused: [],
+    })
     return
   }
   const handler = handlers[message.method]

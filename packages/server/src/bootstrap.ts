@@ -10,7 +10,9 @@ import { runtimeId, sessionId, type RuntimeInfo } from '@harnessdesk/protocol'
 import { CodexRuntime, CODEX_RUNTIME_ID } from '@harnessdesk/adapter-codex'
 import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
 import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
-import { ToolGateway } from './tool-gateway.js'
+import { invokeForBridge, ToolGateway } from './tool-gateway.js'
+import { GatedRegistry } from './ceilings/gate.js'
+import { attachmentGateway } from './attachments/wiring.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
@@ -160,6 +162,9 @@ export const createDefaultHost = (
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
     },
   )
+  // Every runtime sees the same capability surface; the gate consults the
+  // host only when a tool is invoked, after the host below exists.
+  const gated = new GatedRegistry(extensions, () => host.ceilingGate)
 
   // Whether a newer build of an agent is published: one registry read a day
   // per package, cached here, and off entirely with HARNESSDESK_NO_UPDATE_CHECK.
@@ -199,7 +204,7 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: home,
       logger: logger.child(id),
-      capabilities: extensions,
+      capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
     })
 
@@ -280,6 +285,12 @@ export const createDefaultHost = (
     callerRuntimes.set(token, runtime)
     bounded(callerRuntimes)
   }
+  // Phase 12's own gateway: a Seat's approved external MCP servers, reached
+  // through the very same socket and the very same correlation token as the
+  // desk's own plugin tools — but gated by `host.ceilingGate`, the identical
+  // gate every other tool call answers to, and resolved to a Seat through
+  // the registry alone, never inferred from anything a call itself says.
+  const mcpBackend = attachmentGateway(() => host, (token) => callers.get(token))
   const socketPath = toolSocketPath(stateDir)
   const gateway = new ToolGateway(socketPath, {
     listTools: () => extensions.list('tool', {}),
@@ -293,30 +304,11 @@ export const createDefaultHost = (
       if (runtime !== undefined && host.runtimeInfo(runtime)?.capabilities.instructions) return ''
       return host.forgePlane.instructions()
     },
-    invokeByName: async (namespace, name, args, caller) => {
-      const tools = extensions.list('tool', {})
-      const tool =
-        tools.find((entry) => entry.namespace === namespace && entry.name === name) ??
-        tools.find((entry) => entry.name === name)
-      if (!tool) return { ok: false, error: `No tool named ${namespace}/${name} is registered.` }
-      const scope = caller !== undefined ? callers.get(caller) : undefined
-      // The scope in the log is the audit trail 25.3 was missing: which
-      // conversation ran which tool, from the host's own record.
-      if (scope) {
-        logger.debug('tool call scoped to its session', {
-          tool: `${namespace}/${name}`,
-          runtime: scope.runtime,
-          session: scope.sessionId,
-        })
-      }
-      return extensions.invokeTool(
-        tool.id,
-        args,
-        scope
-          ? { runtime: runtimeId(scope.runtime), sessionId: sessionId(scope.sessionId) }
-          : {},
-      )
-    },
+    invokeByName: (namespace, name, args, caller) =>
+      invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
+        logger.debug(message, details),
+      ),
+    ...mcpBackend,
   })
   gateway.start()
   const bridgeEntry = toolBridgeEntry()
@@ -441,6 +433,9 @@ export const createDefaultHost = (
 
   // Codex writes its rollouts where the ledger can read them, and meters
   // itself over its own API — so it needs a corpus and no meter.
+  // Closed when the desk quits, like everything else it owns: no bridge
+  // reaches a Seat's server through a socket the desk has left behind.
+  host.onDispose(() => gateway.stop())
   host.bindUsage(runtimeId('codex'), { corpus: 'codex' })
 
   host.register(
@@ -452,7 +447,7 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: options.codexHome ?? null,
       logger: logger.child('codex'),
-      capabilities: extensions,
+      capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
     }),
   )

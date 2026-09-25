@@ -1,12 +1,14 @@
 import {
   effortWord,
+  isCeilingLevel,
   type AgentEntry,
   type AgentOrigin,
-  type FlowPermission,
+  type CeilingLevel,
   type FlowSeat,
   type RuntimeInfo,
   type SeatArchived,
   type SeatCandidate,
+  type SeatCeiling,
   type SeatDifference,
   type SeatFix,
   type SeatLeft,
@@ -28,23 +30,26 @@ import { shortPath } from './paths'
  * drift apart. Pure: no store, no React.
  */
 
-const PERMISSION_WORD: Readonly<Record<FlowPermission, string>> = { read: 'Read', publish: 'Publish', merge: 'Merge' }
+const LEVEL_WORD: Readonly<Record<CeilingLevel, string>> = { read: 'Read', edit: 'Edit', publish: 'Publish', merge: 'Merge' }
 
 /**
  * A ceiling as every surface says it in this phase: its word, and that it is
  * asked rather than held — the seat is told it, and nothing stops it yet.
  */
-export const ceilingWords = (permission: FlowPermission): string => `${PERMISSION_WORD[permission]} · asked`
+export const ceilingWords = (level: CeilingLevel): string => LEVEL_WORD[level]
+
+/** A seat's effective ceiling and whether its runtime holds it. */
+export const seatCeilingWords = (ceiling: SeatCeiling): string => `${LEVEL_WORD[ceiling.level]} · ${ceiling.hold}`
 
 /** What a ceiling tells a seat, for a title: the rule, and that nothing holds it to the rule. */
-export const ceilingMeaning = (permission: FlowPermission): string =>
-  `${
-    permission === 'read'
-      ? 'Told it may edit and commit in its own checkout, and never push or merge.'
-      : permission === 'publish'
-        ? 'Told it may push its own branch and open a pull request, and never merge.'
-        : 'Told it may merge what it is asked to merge.'
-  } Asked, not held: nothing enforces it yet.`
+export const ceilingMeaning = (level: CeilingLevel): string =>
+  level === 'read'
+    ? 'Changes nothing: it reads, searches and reports.'
+    : level === 'edit'
+      ? 'May change files and commit in its own checkout, and never push.'
+      : level === 'publish'
+        ? 'May push its own branch and open a pull request, and never merge.'
+        : 'May merge what it is asked to merge.'
 
 /** Where an Agent was found, as its section is headed. */
 export const originWords = (origin: AgentOrigin, project: string | null): string =>
@@ -233,6 +238,20 @@ export const reasonWords = (reason: SeatReason, runtime: string, modelLabel?: Mo
       return `${runtime} could not open a conversation: ${reason.detail}`
     case 'openedOtherwise':
       return `${runtime} opened it ${reason.differences.map((one) => differenceWords(one, modelLabel)).join(', and ')}`
+    case 'unheld': {
+      // `isCeilingLevel` first: a level this file does not recognize is
+      // shown as written rather than thrown on indexing `LEVEL_WORD`.
+      const level = isCeilingLevel(reason.level) ? LEVEL_WORD[reason.level].toLowerCase() : reason.level
+      const detail = reason.detail ? `: ${reason.detail}` : ''
+      // `required` is a front-door start's own need — every Seat holds its
+      // ceiling, whatever this Mac's setting says. The runtime is running;
+      // it simply does not hold this level, or read back holding a different
+      // one — never "this Mac refuses…", the setting's own words, which is
+      // not what is happening here.
+      return reason.required
+        ? `${runtime} cannot hold ${level}${detail}, and a start from here needs every Seat to hold its ceiling`
+        : `${runtime} cannot hold ${level}${detail}, and this Mac refuses a seat whose ceiling is only asked`
+    }
   }
 }
 
@@ -251,6 +270,8 @@ export const fixWords = (fix: SeatFix, runtime: string): string => {
       return `Open ${runtime} in Settings`
     case 'seats':
       return 'Edit seats for this Mac'
+    case 'ceilings':
+      return 'Change what happens when a ceiling cannot be held'
   }
 }
 
@@ -319,6 +340,12 @@ const asReason = (value: unknown): SeatReason | null => {
       return typeof (raw as { effort?: unknown }).effort === 'string' ? (raw as SeatReason) : null
     case 'openedOtherwise':
       return Array.isArray((raw as { differences?: unknown }).differences) ? (raw as SeatReason) : null
+    case 'unheld': {
+      const detail = (raw as { detail?: unknown }).detail
+      return typeof (raw as { level?: unknown }).level === 'string' && (detail === null || typeof detail === 'string')
+        ? (raw as SeatReason)
+        : null
+    }
     default:
       return null
   }

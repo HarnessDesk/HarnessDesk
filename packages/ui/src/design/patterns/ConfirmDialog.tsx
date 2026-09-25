@@ -10,6 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../ui/alert-dialog'
+import { cn } from '../../lib/utils'
 import styles from './ConfirmDialog.module.css'
 
 /**
@@ -37,7 +38,7 @@ export const ConfirmDialog = ({
   icon,
   confirmLabel,
   cancelLabel = 'Keep',
-  tone = 'destructive',
+  tone = 'default',
   busy = false,
   busyLabel,
   pending = false,
@@ -52,6 +53,12 @@ export const ConfirmDialog = ({
   confirmLabel: string
   /** The verb for leaving things alone. Only override with a better verb. */
   cancelLabel?: string
+  /**
+   * `destructive` — the trash glyph and the filled red verb — only for a confirm that
+   * really destroys something: delete, remove, discard, forget, sign out. A
+   * consent, an approval or a run asks in the ordinary tone, which is why it
+   * is the default: the red look is chosen, never inherited.
+   */
   tone?: 'destructive' | 'default'
   busy?: boolean
   busyLabel?: string
@@ -83,9 +90,18 @@ export const ConfirmDialog = ({
    * the one that deletes.
    */
   <AlertDialog open onOpenChange={(next) => { if (!next) onCancel() }}>
-    <AlertDialogContent className={styles.content} initialFocus={false}>
+    <AlertDialogContent
+      /* The box is said once, as utilities: a column, bounded by the window,
+         with no padding or gap of its own — header, body and footer pad
+         themselves. The primitive's `grid gap-3 p-4` are utilities too, so
+         `cn` drops them here. A module rule saying the same would tie with
+         them, and which won depended on the order a build loaded the sheets:
+         the preview drew every confirm with a second 16px frame. */
+      className="flex max-h-(--hd-dialog-max-height) flex-col gap-0 overflow-hidden p-0"
+      initialFocus={false}
+    >
       <AlertDialogHeader
-        className={styles.header}
+        className={cn(styles.header, 'shrink-0 flex-row items-center gap-2')}
         data-tone={tone === 'destructive' ? 'destructive' : undefined}
       >
         <span className={styles.icon}>
@@ -98,7 +114,10 @@ export const ConfirmDialog = ({
           and a `p` wrapping those is invalid nesting: React warns, and the
           browser closes the paragraph early, which strands the rest of the body
           outside the element `aria-describedby` points at. */}
-      <AlertDialogDescription render={<div />} className={styles.body}>
+      {/* The body is the only part that scrolls: a confirm can be asked to
+          hold what it confirms — a whole skill, a server's command line — and
+          the question and both answers stay on screen however long that is. */}
+      <AlertDialogDescription render={<div />} className={cn(styles.body, 'min-h-0 min-w-0 flex-auto overflow-y-auto')} data-slot="confirm-body">
         {children}
       </AlertDialogDescription>
       {/* The proceeding action is written first. The footer is `row-reverse`,
@@ -109,15 +128,18 @@ export const ConfirmDialog = ({
           and a Return keep things as they are. Written the other way round,
           every confirm in the app put the verb for leaving things alone where
           the pointer goes to proceed, and a Tab and a Return confirmed. */}
-      <AlertDialogFooter className={styles.footer}>
+      <AlertDialogFooter className={cn(styles.footer, 'mt-0 shrink-0')}>
+        {/* One filled button: the act, red when it destroys. The way to keep
+            things as they are is quiet — it is the answer that changes
+            nothing, and it should not compete with the one that does. */}
         <Button
-          variant={tone === 'destructive' ? 'destructive' : 'default'}
+          variant={tone === 'destructive' ? 'danger' : 'default'}
           onClick={onConfirm}
           disabled={busy || pending}
         >
           {busy ? (busyLabel ?? confirmLabel) : confirmLabel}
         </Button>
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>
+        <Button variant="quiet" onClick={onCancel} disabled={busy}>
           {cancelLabel}
         </Button>
       </AlertDialogFooter>

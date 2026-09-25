@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
@@ -15,16 +15,19 @@ import { Notices, StatusBanner } from '../components/Notices'
 import { ChangesReview } from '../components/ChangesReview'
 import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
+import { FrontDoor } from '../components/FrontDoor'
 import { resolveSection, Settings, type Section } from '../components/Settings'
 import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
+import { RaceStart } from '../components/RaceStart'
+import { projectRootOf } from '../lib/projects'
+import { NOTICE_BAR_SELECTOR, noticePlacement } from '../lib/notice-bounds'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
 import { SignIn } from '../components/SignIn'
 import { Usage } from '../components/Usage'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
-import { sidebarPlacement } from '../state/workbench'
 import { useTheme } from '../state/theme'
 
 /**
@@ -82,6 +85,12 @@ export const App = () => {
     if (libraryImport) setLibraryImport(false)
   }, [libraryImport])
   const [foldersOpen, setFoldersOpen] = useState(false)
+  // The front door, opened on one project at a time — from the palette today,
+  // and from any other place-scoped entry point that hands over its own
+  // resolved `root` rather than opening a chooser of its own. `null` is
+  // closed; this is the one instance the app renders for it.
+  const [frontDoorRoot, setFrontDoorRoot] = useState<string | null>(null)
+  const openFrontDoor = useCallback((root: string) => setFrontDoorRoot(root), [])
   // `true` opens the sign-in page where it thinks best; a runtime id pins it.
   const [signInOpen, setSignInOpen] = useState<boolean | RuntimeId>(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -98,14 +107,6 @@ export const App = () => {
   // The resolved face, for anything that needs telling rather than styling —
   // Sonner paints its own surface and takes the theme as a value.
   const theme = useTheme()
-  // A standing banner belongs to the pane being read, not to the whole
-  // window. Centring it across the window let a wide banner cover the
-  // sidebar at supported-but-small window sizes. Move the notice rail past
-  // the sidebar only while the sidebar actually owns a column; a floating or
-  // hidden sidebar deliberately leaves it centred on the page underneath.
-  const noticeLeft =
-    sidebarPlacement(snapshot) === 'column' ? snapshot.workbench.sidebar.size : 0
-
   // One way to choose a folder per build: the desktop app uses the system
   // dialog, as Claude Code and Codex do; the browser build, which has none,
   // gets the in-app picker. The picker is also the fallback should the
@@ -340,6 +341,53 @@ export const App = () => {
     return () => observer.disconnect()
   }, [])
 
+  /*
+   * A standing banner rides the pane being read (#896) — `noticeArea` in
+   * `state/workbench.ts` says which one, from the layout model, and marks it
+   * `[data-notice-host]`: the split tree's expanded or first pane, or the
+   * panel a zoom or a narrow window has given the room. This reads that box
+   * live rather than reconstructing it from saved sizes, which a zoom or a
+   * narrow window overrides without changing, and `noticePlacement` keeps
+   * the stack at a readable width and below every bar it would otherwise lie
+   * across, so it never takes a click meant for another pane's toolbar. The
+   * observers fire for a window resize, a split drag, a zoom or a panel
+   * opening alike; the effect itself only runs again when the marked element
+   * could be a different one.
+   */
+  useLayoutEffect(() => {
+    const stack = notices.current
+    const area = stack?.parentElement
+    if (!stack || !area) return
+    const content = document.querySelector<HTMLElement>('[data-notice-bounds]')
+    const host = document.querySelector<HTMLElement>('[data-notice-host]')
+    const apply = (): void => {
+      const box = area.getBoundingClientRect()
+      const bars = [...document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)]
+        // A hidden tab, a zoomed-away area or the collapsed half of an
+        // expansion keeps its box but is not on screen; a header inside a
+        // notice is the stack's own, and would only chase it down the page.
+        .filter((bar) => !stack.contains(bar) && (bar.checkVisibility?.({ visibilityProperty: true }) ?? true))
+        .map((bar) => bar.getBoundingClientRect())
+      const placement = noticePlacement({
+        container: box,
+        content: content?.getBoundingClientRect() ?? box,
+        host: host?.getBoundingClientRect() ?? null,
+        bars,
+      })
+      stack.style.left = `${placement.left}px`
+      stack.style.right = `${placement.right}px`
+      stack.style.top = `${placement.top}px`
+    }
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(area)
+    if (content) observer.observe(content)
+    if (host) observer.observe(host)
+    // A bar that wraps onto a second line moves the edge the stack clears.
+    for (const bar of document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)) observer.observe(bar)
+    return () => observer.disconnect()
+  }, [snapshot.layout, snapshot.workbench, snapshot.narrowWindow])
+
   return (
     /* One shell, one set of actions — including the app windows mounted
        beside the workbench. A project page lives in Settings, and its Agent
@@ -381,7 +429,6 @@ export const App = () => {
             className="hd-floatingNotices"
             data-over-conversation
             ref={notices}
-            style={{ left: `${noticeLeft}px` }}
           >
             <StatusBanner onSignIn={() => setSignInOpen(true)} />
             <GoalMigrationBanner />
@@ -439,6 +486,15 @@ export const App = () => {
           onClose={() => store.askNewWorktree(null)}
         />
       )}
+      {/* /race opens dialog state only; the store no longer picks a second
+          runtime or creates two drafts itself — see AppStore.raceAgents. */}
+      {snapshot.raceStart && projectRootOf(snapshot.workspace) && (
+        <RaceStart
+          root={projectRootOf(snapshot.workspace)!}
+          task={snapshot.raceStart.task}
+          onClose={() => store.closeRaceStart()}
+        />
+      )}
       {/* One mount for the sheet every door that starts an Agent can raise. */}
       {snapshot.seatRefusal && (
         <SeatSheet
@@ -459,6 +515,17 @@ export const App = () => {
             openSettings: (section, focus) => openSettingsAt(section, focus ?? null),
             openUsage: () => setUsageOpen(true),
             openAgents,
+            openFrontDoor,
+          }}
+        />
+      )}
+      {frontDoorRoot && (
+        <FrontDoor
+          context={{ kind: 'project', root: frontDoorRoot }}
+          onClose={() => setFrontDoorRoot(null)}
+          onStarted={(execution) => {
+            store.openGoal(execution.goal)
+            setFrontDoorRoot(null)
           }}
         />
       )}

@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
 import { isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
-import type { FlowPermission, FlowSeat } from '@harnessdesk/protocol'
+import type { CeilingLevel, FlowSeat } from '@harnessdesk/protocol'
 
 import {
   AGENT_FILE_LIMIT,
@@ -72,14 +72,14 @@ const seatLines = (seat: FlowSeat): string[] =>
 export const agentSource = (agent: {
   readonly name: string
   readonly description: string | null
-  readonly permission: FlowPermission
+  readonly ceiling: CeilingLevel
   readonly prefer: readonly FlowSeat[]
 }): string =>
   [
     '---',
     `name: ${quoted(agent.name)}`,
     ...(agent.description ? [`description: ${quoted(agent.description)}`] : []),
-    `permission: ${agent.permission}`,
+    `ceiling: ${agent.ceiling}`,
     'prefer:',
     ...agent.prefer.flatMap(seatLines),
     '---',
@@ -167,7 +167,8 @@ const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
  * different moment — one while a link was still there to refuse, the other
  * once it was gone again.
  */
-const openNoFollow = (path: string, flags: number) => open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW))
+const openNoFollow = (path: string, flags: number, mode?: number) =>
+  open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW), mode)
 
 /**
  * Creates text under `writeAgentFolder`'s canonical temporary path, with
@@ -919,3 +920,25 @@ export const rollbackCreatedAgent = async (created: CreatedAgentFolder, project:
     return `the Agent folder could not be removed: ${messageOf(error)}`
   }
 }
+
+/** Reach an existing Agent folder one real directory at a time, never through a link. */
+const agentFolderAt = async (within: string, steps: readonly string[]): Promise<string> => {
+  let at = within
+  for (const step of steps) {
+    at = join(at, step)
+    const info = await lstat(at).catch(() => null)
+    if (!info) throw new Error(`${at} is not there, so nothing was written.`)
+    if (info.isSymbolicLink()) {
+      throw new Error(`${at} is a link, so nothing was written through it: an Agent is only ever written inside its own folder.`)
+    }
+    if (!info.isDirectory()) throw new Error(`${at} is not a folder, so nothing was written there.`)
+  }
+  return at
+}
+
+export const projectAgentFolder = async (project: string, id: string): Promise<string> =>
+  agentFolderAt(await realpath(project), [...PROJECT_AGENT_DIR.split('/'), id])
+
+export const userAgentFolder = async (root: string, id: string): Promise<string> =>
+  agentFolderAt(await realpath(root), [id])
+

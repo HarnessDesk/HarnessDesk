@@ -56,9 +56,27 @@ import {
   type TeamInbound,
   type TeamPeerInfo,
   type TeamState,
+  type TriggerArmPreview,
+  type TriggerGoalStatus,
+  type TriggerHistoryPage,
+  type TriggerPreferences,
+  type TriggerProjectView,
+  type TriggerView,
   type FlowDryRun,
+  type FlowEntry,
+  type FlowExecution,
   type FlowFile,
-  type FlowPermission,
+  type FlowOrigin,
+  type FlowPreview,
+  type FlowStartRequest,
+  type FlowUpdatePreview,
+  type FlowUpdateResult,
+  type CarryFindingsInput,
+  type CeilingLevel,
+  type FindingDetailPage,
+  type FindingRunView,
+  type FindingPublicationsView,
+  type FindingView,
   type FlowRun,
   type FlowSeat,
   type GoalCreateInput,
@@ -66,6 +84,7 @@ import {
   type GoalReceipt,
   type GoalSeatRequest,
   type GoalView,
+  type HostParams,
   type Lane,
   type LanePreferences,
   type SessionPointer,
@@ -75,13 +94,35 @@ import {
   type UiDecoration,
   type UserContent,
   type WireNotification,
+  type InsightQuery,
+  type InsightReport,
+  type InsightCompareQuery,
+  type InsightComparison,
+  type InsightOrderQuery,
+  type InsightOrderPreview,
   type Worktree,
+  type AgentFieldEdit,
+  type AuthoringDocument,
+  type AuthoringPending,
+  type AuthoringSaveInput,
+  type AuthoringSavePreview,
+  type AuthoringSaveResult,
+  type AuthoringIssue,
+  type AuthoringTarget,
+  type FlowPolicy,
+  type FrontDoorPreview,
+  type FrontDoorPreviewInput,
+  type StartContext,
+  type TriggerDefinition,
+  type TriggerSource,
+  type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
+import { emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
@@ -239,9 +280,20 @@ export type {
 } from './snapshot'
 export { emptySnapshot } from './snapshot'
 
+export type UnheldCeilings = 'seat' | 'refuse'
+
 export class AppStore {
   #captureEpoch = 0
   #captureList = 0
+  /**
+   * Bumped on a workspace switch or a lost connection: a flow surface binds
+   * an in-flight catalogue read, preview or update preview to the value it
+   * held when the request began, and discards the reply once this has moved
+   * on — the same shape as `#agentsGeneration`, for the same reason a stale
+   * preview must read as though it never arrived rather than replace what a
+   * newer root or a fresh connection already answered.
+   */
+  #flowGeneration = 0
 
   #keepCaptureHealth(health: import('@harnessdesk/protocol').CaptureHealth): void {
     if (health.revision < (this.#snapshot.provenanceRevision.get(health.project) ?? -1)) return
@@ -295,6 +347,126 @@ export class AppStore {
     const health = await this.transport.request('provenance/retry', { root })
     if (epoch === this.#captureEpoch) this.#keepCaptureHealth(health)
     return health
+  }
+
+  // -------------------------------------------------------------- intake
+  /**
+   * A project's own consent revision only ever grows. A `trigger/list` reply
+   * carries its own, and `trigger/changed` pushes it independently — a list
+   * request started before an arm can land after it, and its older number
+   * must not walk the revision back down, which is what a component's
+   * `useEffect` on `triggerRevisions[root]` depends on to know to re-read.
+   * The host stays authoritative for armed state and history: this counter
+   * is invalidation only, never a cache of the view itself.
+   */
+  #keepTriggerRevision(project: string, revision: number): void {
+    if (revision <= (this.#snapshot.triggerRevisions[project] ?? -1)) return
+    this.#patch({ triggerRevisions: { ...this.#snapshot.triggerRevisions, [project]: revision } })
+  }
+
+  async projectTriggers(root: string): Promise<TriggerProjectView> {
+    const view = await this.transport.request('trigger/list', { root })
+    // The host names a project by its canonical path; this window may have opened it by another (a symlink).
+    const roots = this.#triggerRoots.get(view.project) ?? new Set<string>()
+    this.#triggerRoots.set(view.project, roots.add(root))
+    this.#keepTriggerRevision(root, view.revision)
+    return view
+  }
+
+  /** The roots this window read each canonical project's triggers by. */
+  readonly #triggerRoots = new Map<string, Set<string>>()
+
+  /**
+   * A `trigger/changed` push is news whatever number it carries — a source's
+   * status can move without a new consent revision, and the host numbers its
+   * journal and its consent apart — so it invalidates by moving each
+   * affected revision forward: the project it names, every root this window
+   * read that project by, and every one of them for the machine's own
+   * controls (no project). Never backwards.
+   */
+  #triggersChanged(project: string, revision: number): void {
+    const keys = project === '' ? [...this.#triggerRoots.values()].flatMap((roots) => [...roots]) : [project, ...(this.#triggerRoots.get(project) ?? [])]
+    for (const key of new Set(keys)) this.#keepTriggerRevision(key, Math.max(revision, (this.#snapshot.triggerRevisions[key] ?? 0) + 1))
+  }
+
+  previewTrigger(root: string, id: string): Promise<TriggerArmPreview> {
+    return this.transport.request('trigger/preview', { root, id })
+  }
+
+  async armTrigger(root: string, id: string, token: string): Promise<TriggerView> {
+    const view = await this.transport.request('trigger/arm', { root, id, token })
+    // The exact new consent revision arrives on `trigger/changed`; bumping
+    // ahead of it here only nudges a mounted `ProjectTriggers` to re-read
+    // immediately rather than wait for that round trip, and the guard above
+    // keeps the eventual real number from ever being walked backwards.
+    this.#keepTriggerRevision(root, (this.#snapshot.triggerRevisions[root] ?? 0) + 1)
+    return view
+  }
+
+  async disarmTrigger(root: string, id: string): Promise<TriggerView> {
+    const view = await this.transport.request('trigger/disarm', { root, id })
+    this.#keepTriggerRevision(root, (this.#snapshot.triggerRevisions[root] ?? 0) + 1)
+    return view
+  }
+
+  /** A trigger's source stopped at a gap watches from now: what changed in the gap is skipped, never replayed. */
+  async rebaselineTrigger(root: string, id: string): Promise<TriggerView> {
+    const view = await this.transport.request('trigger/rebaseline', { root, id })
+    this.#keepTriggerRevision(root, (this.#snapshot.triggerRevisions[root] ?? 0) + 1)
+    return view
+  }
+
+  triggerHistory(root: string, id: string, cursor?: string): Promise<TriggerHistoryPage> {
+    return this.transport.request('trigger/history', cursor === undefined ? { root, id } : { root, id, cursor })
+  }
+
+  triggerPreferences(): Promise<TriggerPreferences> {
+    return this.transport.request('trigger/preferences', {})
+  }
+
+  async setTriggerPreferences(revision: number, paused: boolean, dailyUsd: number): Promise<TriggerPreferences> {
+    const next = await this.transport.request('trigger/preferences/set', { revision, paused, dailyUsd })
+    this.#patch({ triggerPreferences: next })
+    return next
+  }
+
+  triggerGoal(goal: string): Promise<TriggerGoalStatus | null> {
+    return this.transport.request('trigger/goal', { goal: goal as GoalId })
+  }
+
+  /** What happens when a Goal a trigger opened cannot hold a Seat's ceiling. Mirrors `loadUnheldCeilings`. */
+  async loadUnattendedCeilings(): Promise<UnheldCeilings> {
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      const unattended = typeof stored === 'object' && stored !== null
+        ? (stored as { unattended?: unknown }).unattended
+        : undefined
+      return unattended === 'seat' ? 'seat' : 'refuse'
+    } catch {
+      return 'refuse'
+    }
+  }
+
+  /**
+   * Writes only the unattended unheld-ceiling preference, first reading the
+   * current object so the watched value already there is never erased: the
+   * host's `app/state/set` replaces `unheldCeilings` whole rather than
+   * merging inside it.
+   */
+  async setUnattendedCeilings(value: UnheldCeilings): Promise<void> {
+    let watched: unknown
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      watched = typeof stored === 'object' && stored !== null ? (stored as { watched?: unknown }).watched : undefined
+    } catch {
+      watched = undefined
+    }
+    await this.#writePreference(
+      { unheldCeilings: { ...(watched === 'seat' || watched === 'refuse' ? { watched } : {}), unattended: value } },
+      'What happens when a trigger’s Goal cannot hold a ceiling',
+    )
   }
 
   #snapshot: AppSnapshot = emptySnapshot()
@@ -489,6 +661,10 @@ export class AppStore {
           this.#goalEvents += 1
           this.#keepGoal(notification.params.view)
         }
+        if (notification.method === 'finding/changed') {
+          // Invalidation only, never a claim's body: reload the affected Goal, coalesced against a burst of these.
+          this.#findingsRefresh(notification.params.goal)
+        }
         if (notification.method === 'flow/changed') {
           // Whole, for the reason the board is: a round opening changes what
           // every card beside it means.
@@ -497,9 +673,24 @@ export class AppStore {
           flowRuns.set(room, runs)
           this.#patch({ flowRuns })
         }
+        if (notification.method === 'flow/execution-changed') {
+          // Whole, for the same reason: a round or an evidence write changes
+          // what a run status surface should be showing right now.
+          const { execution } = notification.params
+          const flowExecutions = new Map(this.#snapshot.flowExecutions)
+          flowExecutions.set(execution.id, execution)
+          this.#patch({ flowExecutions })
+        }
         if (notification.method === 'evidence/changed') {
           const { room, evidence } = notification.params
           this.#keepBoardEvidence(room, evidence)
+        }
+        if (notification.method === 'trigger/changed') this.#triggersChanged(notification.params.project, notification.params.revision)
+        if (notification.method === 'trigger/attention') {
+          const { attention } = notification.params
+          this.#patch({
+            triggerAttention: { ...this.#snapshot.triggerAttention, [attention.id]: attention },
+          })
         }
         if (notification.method === 'team/removed') {
           const { room } = notification.params
@@ -536,6 +727,7 @@ export class AppStore {
         const previous = this.#snapshot.status
         if (status !== 'open') {
           this.#captureEpoch += 1
+          this.#flowGeneration += 1
           this.#patch({ status, captureHealth: new Map(), provenanceRevision: new Map() })
         } else {
           this.#patch({ status })
@@ -1497,6 +1689,21 @@ export class AppStore {
     return this.transport.request('usage/ledger', query).catch(() => null)
   }
 
+  /** Insight is intentionally pull-only: hidden screens never trigger a corpus read. */
+  readGoalInsight(goal: string): Promise<InsightReport> { return this.transport.request('insight/goal', { goal }) }
+  readUsageInsight(query: InsightQuery): Promise<InsightReport> { return this.transport.request('insight/usage', query) }
+  readAgentInsight(root: string | undefined, agent: string, origin: AgentOrigin): Promise<InsightReport> {
+    return this.transport.request('insight/agent', { ...(root ? { root } : {}), agent, origin })
+  }
+  compareInsight(query: InsightCompareQuery): Promise<InsightComparison> { return this.transport.request('insight/compare', query) }
+  previewInsightOrder(query: InsightOrderQuery): Promise<InsightOrderPreview> { return this.transport.request('insight/order/preview', query) }
+  async applyInsightOrder(stamp: string): Promise<MachineSeating> {
+    const seating = await this.transport.request('insight/order/apply', { stamp })
+    this.#patch({ seating })
+    return seating
+  }
+  clearInsightRequests(): void { /* request owners use generations; no global cache is retained */ }
+
   /** Starts a transcript scan; progress arrives as a notification. */
   async scanUsage(full = false): Promise<void> {
     try {
@@ -1899,35 +2106,18 @@ export class AppStore {
   }
 
   /**
-   * One task, two agents, each in its own worktree so neither sees
-   * the other's half-finished work. The task goes to the active runtime and
-   * the first other ready runtime; the second conversation takes the screen
-   * (one conversation at a time) and the first waits in the sidebar, and
-   * each worktree's diff is the result to compare.
+   * Opens the race dialog on the typed task — dialog state only. It no
+   * longer picks the other installed runtime or creates two drafts itself:
+   * `RaceStart` chooses one Agent and two explicit, isolated seats, then
+   * starts the ordinary `comparison` flow through `flow/start-goal`, the
+   * same single-Goal path every other flow start takes.
    */
   async raceAgents(text: string): Promise<void> {
-    const active = this.#snapshot.activeRuntime
-    const rival = this.#snapshot.runtimes.find((entry) => entry.id !== active)?.id
-    if (!active || !rival) {
-      this.notice('warning', 'Racing needs a second runtime. Add one in ~/.harnessdesk/agents.json.')
-      return
-    }
-    if (!this.#snapshot.workspace?.git?.branch) {
-      this.notice('warning', 'Racing needs a git repository, so each agent gets its own worktree.')
-      return
-    }
-    const stamp = Date.now().toString(36)
-    const input: UserContent[] = [{ type: 'text', text }]
-    const first = await this.newSession({ worktree: `race-${stamp}-a`, runtime: active })
-    if (!first) return
-    await this.send(input, first)
-    const second = await this.newSession({
-      worktree: `race-${stamp}-b`,
-      runtime: rival,
-      split: 'row',
-    })
-    if (!second) return
-    await this.send(input, second)
+    this.#patch({ raceStart: { task: text } })
+  }
+
+  closeRaceStart(): void {
+    this.#patch({ raceStart: null })
   }
 
   /**
@@ -3785,6 +3975,125 @@ export class AppStore {
     this.openDefaultView({ kind: 'room', room: goal })
   }
 
+  // ---------------------------------------------------------------- findings
+
+  /** Late-request discarding: the last call for a Goal wins, by generation rather than arrival order. */
+  #findingsLoads = new Map<string, number>()
+  /** One coalesced reload per Goal, built lazily: several `finding/changed` in one burst reload it once. */
+  #findingsRefreshers = new Map<string, () => void>()
+
+  #findingsRefresh(goal: GoalId): void {
+    let trigger = this.#findingsRefreshers.get(goal)
+    if (!trigger) {
+      trigger = coalesce(() => {
+        const current = this.#snapshot.findings.get(goal)
+        if (current) void this.loadFindings(goal, current.filter)
+        for (const run of this.#snapshot.findingRuns.values()) {
+          if (run.goal === goal) void this.loadFindingRun(goal, run.run)
+        }
+      })
+      this.#findingsRefreshers.set(goal, trigger)
+    }
+    if (this.#snapshot.findings.has(goal) || [...this.#snapshot.findingRuns.values()].some((run) => run.goal === goal)) trigger()
+  }
+
+  #withFindings(goal: GoalId, state: FindingsListState): void {
+    const findings = new Map(this.#snapshot.findings)
+    findings.set(goal, state)
+    this.#patch({ findings })
+  }
+
+  /**
+   * A page of a Goal's findings. With no cursor this is a fresh first page —
+   * a filter change is a fresh read, never a slice of what is cached — and
+   * the previous rows stay on screen, marked loading, until it lands. With a
+   * cursor this appends to the cached rows of that same filter. A response
+   * from a superseded call — the filter changed again, or a newer read for
+   * this Goal is already in flight — is discarded rather than shown.
+   */
+  async loadFindings(goal: GoalId, filter: FindingFilter = 'all', cursor?: string): Promise<void> {
+    const generation = (this.#findingsLoads.get(goal) ?? 0) + 1
+    this.#findingsLoads.set(goal, generation)
+    const previous = this.#snapshot.findings.get(goal)
+    const appending = cursor !== undefined && previous !== undefined && previous.filter === filter
+    const base = appending ? previous! : (previous?.filter === filter ? previous : emptyFindingsState(filter))
+    this.#withFindings(goal, { ...base, loading: !appending, loadingMore: appending, error: null })
+    try {
+      const page = await this.transport.request('finding/list', {
+        goal, filter, ...(cursor !== undefined ? { cursor } : {}),
+      })
+      if (this.#findingsLoads.get(goal) !== generation) return
+      const onto = appending ? this.#snapshot.findings.get(goal) : undefined
+      this.#withFindings(goal, {
+        filter, rows: appending ? [...(onto?.rows ?? []), ...page.rows] : page.rows,
+        next: page.next, totals: page.totals, problem: page.problem,
+        loading: false, loadingMore: false, error: null, stale: false,
+      })
+    } catch (error) {
+      if (this.#findingsLoads.get(goal) !== generation) return
+      const kept = this.#snapshot.findings.get(goal) ?? emptyFindingsState(filter)
+      this.#withFindings(goal, { ...kept, loading: false, loadingMore: false, error: describe(error), stale: true })
+    }
+  }
+
+  /** One finding's history. Not cached in the snapshot: the detail panel owns its own request and its own paging. */
+  async readFinding(goal: GoalId, finding: string, cursor?: string): Promise<FindingDetailPage> {
+    return this.transport.request('finding/read', { goal, finding, ...(cursor !== undefined ? { cursor } : {}) })
+  }
+
+  async carryFindings(input: CarryFindingsInput): Promise<readonly FindingView[]> {
+    const views = await this.transport.request('finding/carry', input)
+    // The target's cache, if any, is of a ledger that just gained rows it did not read: drop it rather than patch it.
+    this.#findingsLoads.set(input.goal, (this.#findingsLoads.get(input.goal) ?? 0) + 1)
+    if (this.#snapshot.findings.has(input.goal)) {
+      const findings = new Map(this.#snapshot.findings)
+      findings.delete(input.goal)
+      this.#patch({ findings })
+    }
+    return views
+  }
+
+  /**
+   * The Goal's publication preference. Never written optimistically: the
+   * cached Goal only ever reflects a confirmed value, so a refusal here
+   * leaves the last confirmed one in place for the Switch to fall back to.
+   */
+  async setFindingPublication(goal: GoalId, revision: number, enabled: boolean): Promise<GoalView> {
+    const view = await this.transport.request('finding/publication', { goal, revision, enabled })
+    this.#keepGoal(view)
+    return view
+  }
+
+  /** A run's findings, as a person reads and decides them. */
+  async loadFindingRun(goal: GoalId, run: string): Promise<void> {
+    const view = await this.transport.request('finding/run', { goal, run })
+    const findingRuns = new Map(this.#snapshot.findingRuns)
+    findingRuns.set(run, view)
+    this.#patch({ findingRuns })
+  }
+
+  async decideFindingRun(input: HostParams<'finding/decide'>): Promise<FindingRunView> {
+    const view = await this.transport.request('finding/decide', input)
+    const findingRuns = new Map(this.#snapshot.findingRuns)
+    findingRuns.set(input.run, view)
+    this.#patch({ findingRuns })
+    return view
+  }
+
+  /** A run's postings that need a person, and the rounds kept on the desk. Not cached: the panel owns its request. */
+  async readFindingPublications(goal: GoalId, run: string): Promise<FindingPublicationsView> {
+    return this.transport.request('finding/publications', { goal, run })
+  }
+
+  /** Post again, skip or backfill; the run's own view is read again after, since its publication state moved. */
+  async publishFinding(input: HostParams<'finding/publish'>): Promise<FindingPublicationsView> {
+    try {
+      return await this.transport.request('finding/publish', input)
+    } finally {
+      void this.loadFindingRun(input.goal, input.run).catch(() => {})
+    }
+  }
+
   // ------------------------------------------------------------------- flows
 
   /** The flows this project offers, from the files it keeps them in. */
@@ -3848,6 +4157,156 @@ export class AppStore {
     } catch {
       // A room the host no longer has is a room with no runs to draw.
     }
+  }
+
+  // ---------------------------------------------------------------- flows v2
+
+  /**
+   * Changes on a workspace switch or a lost connection. A flow surface reads
+   * this when it starts a request and compares it again when the answer
+   * lands: unequal means a newer root or a fresh connection has already
+   * moved past what the answer describes, and it is discarded rather than
+   * shown. Every method below is otherwise a pure passthrough — it caches
+   * nothing in the snapshot itself, the same as `agentsIn`/`plansIn` — so
+   * the binding is the caller's, not this store's.
+   */
+  flowGeneration(): number {
+    return this.#flowGeneration
+  }
+
+  /** The flows one project's catalogue offers: its own, then this Mac's, then the ones that ship. Throws. */
+  async flowCatalog(root: string): Promise<readonly FlowEntry[]> {
+    return this.transport.request('flow/catalog', { root })
+  }
+
+  /** One catalogue entry's exact source, as `flowCatalog` names it. Throws. */
+  async flowSource(root: string, id: string, origin?: FlowOrigin): Promise<string> {
+    return this.transport.request('flow/source', { root, id, ...(origin ? { origin } : {}) })
+  }
+
+  /**
+   * What this flow would do, spending nothing: every seat it would open, its
+   * guards and its commands verbatim. `flow/start-goal` redeems the token
+   * this mints, for exactly the `(root, source, vars)` it was taken of.
+   */
+  async previewFlow(root: string, source: string, vars: Readonly<Record<string, string>> = {}): Promise<FlowPreview> {
+    return this.transport.request('flow/preview', { root, source, vars })
+  }
+
+  /** Starts a new Goal running this flow. The only v2 call that spends anything. */
+  async startFlowGoal(input: FlowStartRequest): Promise<FlowExecution> {
+    return this.transport.request('flow/start-goal', input)
+  }
+
+  /** The whole-file diff an old flow's Update or a shipped/user flow's Customize would write. Throws. */
+  async previewFlowUpdate(root: string, id: string, mode: 'update' | 'customize'): Promise<FlowUpdatePreview> {
+    return mode === 'update'
+      ? this.transport.request('flow/update/preview', { root, id })
+      : this.transport.request('flow/customize/preview', { root, id })
+  }
+
+  /** Writes the files a previewed Update or Customize named, once. */
+  async applyFlowUpdate(root: string, id: string, token: string, mode: 'update' | 'customize'): Promise<FlowUpdateResult> {
+    // The two wire routes disagree on their own shape: an update's token
+    // already names its journal, so `id` there would be an unexpected field;
+    // a customize is stateless per call and needs it to say what to copy.
+    return mode === 'update'
+      ? this.transport.request('flow/update/apply', { root, token })
+      : this.transport.request('flow/customize/apply', { root, id, token })
+  }
+
+  /** One run's execution state, read fresh — the pull half of `flow/execution-changed`'s push. */
+  async readFlowExecution(run: string): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/execution', { run })
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    flowExecutions.set(execution.id, execution)
+    this.#patch({ flowExecutions })
+    return execution
+  }
+
+  /**
+   * A fresh preview bound to an interrupted check's exact saved source and
+   * inputs — `flow/preview`'s own `retry` param validates that equality on
+   * the host, so this can never choose a new command or checkout, only ask
+   * again for consent to run the same one. Reads the run's own saved source
+   * back first: a renderer that only just opened this run, rather than
+   * starting it, otherwise has no way to supply what the equality check asks for.
+   */
+  async previewFlowRetry(run: string, card: number): Promise<FlowPreview> {
+    const execution = this.#snapshot.flowExecutions.get(run) ?? (await this.readFlowExecution(run))
+    const goal = this.#snapshot.goals.get(execution.goal)
+    const root = goal?.goal.root ?? execution.goal
+    const stored = await this.transport.request('flow/execution/source', { run })
+    return this.transport.request('flow/preview', { root, source: stored.source, vars: stored.vars, retry: { run, card } })
+  }
+
+  /** Redeems a check-retry token, minted only by `previewFlowRetry` above and bound to this exact run and card. */
+  async retryFlowCheck(run: string, card: number, token: string): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/check/retry', { run, card, token })
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    flowExecutions.set(execution.id, execution)
+    this.#patch({ flowExecutions })
+    return execution
+  }
+
+  // ------------------------------------------------------------- front door
+
+  /**
+   * Every call to `previewFrontDoor` below owns the one live generation:
+   * calling it — from any target, any caller — retires whatever the last
+   * call was waiting on. A reply that lands once a newer call has already
+   * started can never write `frontDoor.preview`, so it can never enable
+   * Start on a stale token, however late it arrives.
+   */
+  #frontDoorGen = 0
+
+  /** Opens the front door for one context, and — to reuse it — one empty Goal at the revision it was seen at. */
+  openFrontDoor(context: StartContext, goal?: { readonly id: string; readonly revision: number }): void {
+    this.#frontDoorGen += 1
+    this.#patch({ frontDoor: { context, goal: goal ?? null, preview: null } })
+  }
+
+  /** Closes the front door. Any preview in flight becomes stale the instant this runs. */
+  closeFrontDoor(): void {
+    this.#frontDoorGen += 1
+    this.#patch({ frontDoor: null })
+  }
+
+  /**
+   * The front door's dry run for one chosen shape and its typed inputs.
+   * Spends nothing. Clears `frontDoor.preview` the instant it is called —
+   * before the request is even sent — so a source or input change disables
+   * Start immediately rather than leaving the previous token live while a
+   * fresh one is fetched.
+   */
+  async previewFrontDoor(input: FrontDoorPreviewInput): Promise<FrontDoorPreview> {
+    const mine = ++this.#frontDoorGen
+    if (this.#snapshot.frontDoor) this.#patch({ frontDoor: { ...this.#snapshot.frontDoor, preview: null } })
+    const preview = await this.transport.request('authoring/start/preview', input)
+    if (mine === this.#frontDoorGen && this.#snapshot.frontDoor) {
+      this.#patch({ frontDoor: { ...this.#snapshot.frontDoor, preview } })
+    }
+    return preview
+  }
+
+  /**
+   * A shape's exact, host-normalized YAML for one policy — validation and
+   * rendering only. Spends nothing and grants nothing; the editor's own
+   * source pane and its graph both read through this so neither can drift
+   * from what a save would actually write. Throws.
+   */
+  async renderShape(policy: FlowPolicy): Promise<{ readonly source: string; readonly issues: readonly AuthoringIssue[] }> {
+    return this.transport.request('authoring/shape/render', { policy })
+  }
+
+  /** A brand-new trigger's phase-8 defaults, from its own parser. Drafts only: nothing is written or armed. Throws. */
+  async draftTrigger(input: { readonly id: string; readonly on: TriggerSource; readonly opens: TriggerDefinition['opens'] }): Promise<TriggerDefinition> {
+    return this.transport.request('authoring/triggers/draft', input)
+  }
+
+  /** Every trigger's exact, host-normalized YAML, `parseTriggers`-checked before it is offered. Throws. */
+  async renderTriggers(definitions: readonly TriggerDefinition[]): Promise<{ readonly source: string; readonly issues: readonly AuthoringIssue[] }> {
+    return this.transport.request('authoring/triggers/render', { definitions })
   }
 
   // ------------------------------------------------------------------ evidence
@@ -3936,6 +4395,187 @@ export class AppStore {
   }
 
   // ------------------------------------------------------------------ agents
+  /** The exact host target for an editable Agent ceiling. */
+  #ceilingTarget(entry: AgentEntry, level: CeilingLevel): {
+    readonly id: string
+    readonly origin: 'user' | 'project'
+    readonly project?: string
+    readonly level: CeilingLevel
+  } {
+    if (entry.origin === 'builtin') {
+      throw new Error('An Agent that ships with the app is updated by the app. Customize it first.')
+    }
+    if (entry.origin === 'project') {
+      const project = this.#snapshot.agentsProject
+      if (!project) throw new Error('Open the project that owns this Agent before updating it.')
+      return { id: entry.id, origin: entry.origin, project, level }
+    }
+    return { id: entry.id, origin: entry.origin, level }
+  }
+
+  /** Shows the one line the host would replace, without writing it. */
+  async previewCeiling(entry: AgentEntry, level: CeilingLevel): Promise<import('@harnessdesk/protocol').CeilingUpdate> {
+    return this.transport.request('agent/ceiling/preview', this.#ceilingTarget(entry, level))
+  }
+
+  /** Writes the exact previewed line, bound to that preview's digest. */
+  async writeCeiling(entry: AgentEntry, level: CeilingLevel, digest: string): Promise<AgentEntry> {
+    const project = this.#snapshot.agentsProject
+    const written = await this.transport.request('agent/ceiling/write', { ...this.#ceilingTarget(entry, level), digest })
+    const agents = this.#snapshot.agents
+    if (agents && project === this.#snapshot.agentsProject) {
+      this.#patch({
+        agents: agents.map((one) => (
+          one.id === written.id && one.origin === written.origin && one.path === written.path ? written : one
+        )),
+      })
+    }
+    return written
+  }
+
+  // -------------------------------------------------------------- authoring
+
+  /** An Agent, a flow or a project's triggers file, exactly as it is on disk, with what is in the way of using it. Throws. */
+  async readAuthoring(target: AuthoringTarget): Promise<AuthoringDocument> {
+    return this.transport.request('authoring/read', { target })
+  }
+
+  /** One field of an Agent, changed in place and previewed against `expected` — the host encodes the value. Throws. */
+  async previewAgentEdit(
+    target: Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>,
+    expected: string,
+    edit: AgentFieldEdit,
+  ): Promise<AuthoringSavePreview> {
+    return this.transport.request('authoring/agent/patch', { target, expected, edit })
+  }
+
+  /** What saving this source (and any new Agents it names) would write, before anything is. Throws. */
+  async previewAuthoringSave(input: AuthoringSaveInput): Promise<AuthoringSavePreview> {
+    return this.transport.request('authoring/save/preview', input)
+  }
+
+  /** Writes exactly what one preview showed. A token already applied answers its saved result again. Throws. */
+  async applyAuthoringSave(token: string): Promise<AuthoringSaveResult> {
+    return this.transport.request('authoring/save/apply', { token })
+  }
+
+  /** Saves that began and did not finish, each with what is known to have landed. Throws. */
+  async authoringPending(): Promise<readonly AuthoringPending[]> {
+    return this.transport.request('authoring/save/pending', {})
+  }
+
+  /** A recorded, unfinished save, previewed again from what is on disk now. Throws. */
+  async resumeAuthoringSave(id: string): Promise<AuthoringSavePreview> {
+    return this.transport.request('authoring/save/resume', { id })
+  }
+
+  /** Drops the record of an unfinished save. Every file stays exactly as it is. Throws. */
+  async discardAuthoringSave(id: string): Promise<readonly AuthoringPending[]> {
+    return this.transport.request('authoring/save/discard', { id })
+  }
+
+  /** One Agent by its directory name, chosen exactly as `agent/list` chooses; null when nobody defined it. Throws. */
+  async readAgent(id: string, project?: string): Promise<AgentEntry | null> {
+    return this.transport.request('agent/read', { id, ...(project ? { project } : {}) })
+  }
+
+  /** Any origin, including `builtin` — the read-only front door onto an Agent's declarations, or its notes. */
+  #attachmentTarget(named: { readonly id: string; readonly origin: AgentEntry['origin'] }): { readonly id: string; readonly origin: AgentEntry['origin']; readonly project?: string } {
+    if (named.origin === 'project') {
+      const project = this.#snapshot.agentsProject
+      if (!project) throw new Error('Open the project that owns this Agent before reading it.')
+      return { id: named.id, origin: named.origin, project }
+    }
+    return { id: named.id, origin: named.origin }
+  }
+
+  /** `user` or `project` only — writing an Agent's own file, exactly like `#ceilingTarget`. */
+  #editTarget(named: { readonly id: string; readonly origin: AgentEntry['origin'] }): { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string } {
+    if (named.origin === 'builtin') {
+      throw new Error('An Agent that ships with the app is updated by the app. Customize it first.')
+    }
+    if (named.origin === 'project') {
+      const project = this.#snapshot.agentsProject
+      if (!project) throw new Error('Open the project that owns this Agent before updating it.')
+      return { id: named.id, origin: named.origin, project }
+    }
+    return { id: named.id, origin: named.origin }
+  }
+
+  /** What an Agent declares (`skills:`/`mcp:`) and what each measured runtime build can do with each kind. */
+  async readAgentAttachments(id: string, origin: AgentEntry['origin']): Promise<import('@harnessdesk/protocol').AgentAttachmentsView> {
+    return this.transport.request('attachment/agent', this.#attachmentTarget({ id, origin }))
+  }
+
+  /** Previews exactly the `skills:`/`mcp:` lines a write would change. */
+  async previewAttachmentEdit(entry: AgentEntry, skills: readonly string[], mcp: readonly string[]): Promise<import('@harnessdesk/protocol').AttachmentEditPreview> {
+    return this.transport.request('attachment/edit/preview', { ...this.#editTarget(entry), skills, mcp })
+  }
+
+  /** Writes exactly the previewed edit, bound to the digest that preview showed. */
+  async writeAttachmentEdit(entry: AgentEntry, skills: readonly string[], mcp: readonly string[], digest: string): Promise<AgentEntry> {
+    const project = this.#snapshot.agentsProject
+    const written = await this.transport.request('attachment/edit/write', { ...this.#editTarget(entry), skills, mcp, digest })
+    const agents = this.#snapshot.agents
+    if (agents && project === this.#snapshot.agentsProject) {
+      this.#patch({
+        agents: agents.map((one) => (
+          one.id === written.id && one.origin === written.origin && one.path === written.path ? written : one
+        )),
+      })
+    }
+    return written
+  }
+
+  /** Reads `NOTES.md` beside an Agent's file. A missing file is `text: null`. */
+  async readAgentNotes(id: string, origin: AgentEntry['origin']): Promise<import('@harnessdesk/protocol').AgentNotesView> {
+    return this.transport.request('attachment/notes', this.#attachmentTarget({ id, origin }))
+  }
+
+  /** Clears an Agent's notes to empty, bound to the exact digest it was shown at. */
+  async clearAgentNotes(id: string, origin: AgentEntry['origin'], digest: string): Promise<import('@harnessdesk/protocol').AgentNotesView> {
+    return this.transport.request('attachment/notes/clear', { ...this.#editTarget({ id, origin }), digest })
+  }
+
+  /**
+   * What a person is asked to approve before this Agent's declared content
+   * may load for one runtime, in one project — the exact bytes, never a
+   * promise to fetch them again later. `root` must name the project this
+   * Agent is actually about to be seated in: trust binds to that project's
+   * own incarnation, the same one `agent/seat` itself uses, which for a
+   * `user` Agent is never its own folder. No runtime is named: the host
+   * reviews for the runtime `agent/seat` will actually choose, and answers
+   * which one that is.
+   */
+  async reviewAttachments(id: string, origin: AgentEntry['origin'], root: string): Promise<import('@harnessdesk/protocol').AttachmentReview> {
+    return this.transport.request('attachment/review', { id, origin, root })
+  }
+
+  /** Records a person's approval of exactly the reviewed token — acknowledging, when it showed any, the values it showed only as set. */
+  async approveAttachments(token: string, acknowledgeHidden = false): Promise<void> {
+    await this.transport.request('attachment/approve', { token, ...(acknowledgeHidden ? { acknowledgeHidden: true } : {}) })
+  }
+
+  /** A Seat's frozen attachment history, by its own immutable id — `null` when nothing was ever recorded for it. */
+  async readSeatAttachments(seat: import('@harnessdesk/protocol').SeatId): Promise<import('@harnessdesk/protocol').SeatAttachmentsRecord | null> {
+    return this.transport.request('attachment/seat', { seat })
+  }
+
+  /** Every committed `.harnessdesk/memory/*.md` file at one exact revision — never re-resolving HEAD per row. */
+  async readMemoryFiles(root: string, at: string): Promise<readonly import('@harnessdesk/protocol').MemoryFile[]> {
+    return this.transport.request('memory/list', { root, at })
+  }
+
+  /** Opens one citation's retained bytes, with truthful missing-source labels. */
+  async readMemoryCitation(root: string, citation: import('@harnessdesk/protocol').GoalCitation): Promise<import('@harnessdesk/protocol').MemoryResolution> {
+    return this.transport.request('memory/read', { root, citation })
+  }
+
+  /** Retains this citation and links it into the Goal being cited into — the one write `goal/cite` itself makes. */
+  async citeMemory(goal: GoalId, citation: import('@harnessdesk/protocol').GoalCitation): Promise<void> {
+    await this.transport.request('goal/cite', { goal, citation })
+    await this.#refreshGoal(goal)
+  }
 
   /**
    * Numbered against overlapping reads: a workspace switch, an `agent/changed`
@@ -4046,10 +4686,14 @@ export class AppStore {
    * `opened` carries whether "Nothing was opened" is still true. The folder is
    * also the project the Agent is read for, because that is whose Agents a
    * conversation there should get.
+   *
+   * `ceiling` is a level a person chose above the default (`edit`), up to the
+   * Agent's own — never set by anything but that choice (#897). It travels as
+   * the seating's grant; the host still narrows it to the Agent's ceiling.
    */
   async startAsAgent(
     id: string,
-    options: { readonly cwd?: string; readonly reveal?: boolean } = {},
+    options: { readonly cwd?: string; readonly reveal?: boolean; readonly ceiling?: 'publish' | 'merge' } = {},
   ): Promise<SessionKey | null> {
     const cwd = options.cwd ?? this.#snapshot.workspace?.path
     // As `newSession`: a folder this app has proof is gone is never where a conversation starts.
@@ -4083,7 +4727,11 @@ export class AppStore {
       return null
     }
     try {
-      const session = await this.transport.request('agent/seat', { id, cwd, project: cwd })
+      const session = await this.transport.request('agent/seat', {
+        id, cwd, project: cwd,
+        // A person's own choice above the default; without one the host seats at `edit`.
+        ...(options.ceiling ? { permission: options.ceiling } : {}),
+      })
       this.#setSession(session)
       const key = sessionKey(session.runtime, session.id)
       if (options.reveal !== false) this.#showInPane(key)
@@ -4153,7 +4801,7 @@ export class AppStore {
   async saveAsAgent(agent: {
     readonly name: string
     readonly description: string
-    readonly permission: FlowPermission
+    readonly ceiling: CeilingLevel
     readonly seat: FlowSeat
     readonly to: 'user' | 'project'
   }): Promise<AgentEntry> {
@@ -4161,7 +4809,7 @@ export class AppStore {
     const entry = await this.transport.request('agent/create', {
       name: agent.name,
       ...(agent.description ? { description: agent.description } : {}),
-      permission: agent.permission,
+      ceiling: agent.ceiling,
       seat: agent.seat,
       to: agent.to,
       ...(project ? { project } : {}),
@@ -5049,6 +5697,7 @@ export class AppStore {
   async openWorkspace(path: string): Promise<void> {
     try {
       const workspace = await this.transport.request('workspace/open', { path })
+      this.#flowGeneration += 1
       this.#patch({ workspace })
       if (this.#layouts) this.#restoreLayout(workspace.path)
       await this.loadWorkspaces()
@@ -5230,6 +5879,28 @@ export class AppStore {
       this.notice('error', `${what} could not be saved, so the next launch will not have it. ${describe(error)}`)
       return false
     }
+  }
+
+  /** What a watched conversation does when its runtime cannot hold the requested ceiling. */
+  async loadUnheldCeilings(): Promise<UnheldCeilings> {
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      const watched = typeof stored === 'object' && stored !== null
+        ? (stored as { watched?: unknown }).watched
+        : undefined
+      return watched === 'refuse' ? 'refuse' : 'seat'
+    } catch {
+      return 'seat'
+    }
+  }
+
+  /** Writes only the watched unheld-ceiling preference; the host merges the patch. */
+  async saveUnheldCeilings(watched: UnheldCeilings): Promise<void> {
+    await this.#writePreference(
+      { unheldCeilings: { watched } },
+      'What happens when a ceiling cannot be held',
+    )
   }
 
   setTheme(theme: AppSnapshot['theme']): void {

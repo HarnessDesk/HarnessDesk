@@ -32,13 +32,12 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, Dot, EmptyState, FileState, KeyValue, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text, Toolbar } from '../design'
+import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text } from '../design'
 import { Button, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
   AgentIcon,
   BranchIcon,
-  ChevronIcon,
   CommitIcon,
   CopyIcon,
   CrossIcon,
@@ -58,11 +57,13 @@ import {
   SidebarIcon,
   StashIcon,
   TagIcon,
+  TeamIcon,
   TrashIcon,
   UnlockIcon,
   WorktreeIcon,
 } from './Icons'
 import { ContextMenu, MenuItem, MenuLabel, MenuSeparator, useContextMenu } from '../design'
+import { FrontDoor } from './FrontDoor'
 import { ltr, ToolPaneHeader } from './ToolPaneHeader'
 import {
   CommitDialog,
@@ -166,6 +167,7 @@ type DialogState =
   | { readonly kind: 'reset'; readonly to: string; readonly subject: string }
   | { readonly kind: 'stash' }
   | { readonly kind: 'diffRange'; readonly from: string; readonly to: string }
+  | { readonly kind: 'review'; readonly branch: string }
   | {
       readonly kind: 'confirm'
       readonly title: string
@@ -720,7 +722,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </Button>
       </ToolPaneHeader>
 
-      <Toolbar className={styles.actionBar} role="toolbar" aria-label="Repository actions">
+      <ToolPaneBar variant="tools" role="toolbar" aria-label="Repository actions">
         <ActionBtn
           icon={<CommitIcon size={15} />}
           label="Commit"
@@ -801,8 +803,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         />
         <span className={styles.space} />
         {working && <Text role="meta">{working}</Text>}
-      </Toolbar>
-      <Separator />
+      </ToolPaneBar>
 
       {conflicted && (
         <Alert tone="warning" className={styles.troubleBar} role="status">
@@ -826,7 +827,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </Alert>
       )}
 
-      <Toolbar className={styles.tools}>
+      <ToolPaneBar variant="tools" className={styles.tools}>
         <Segmented<GitLogScope>
           label="Which branches"
           options={[
@@ -864,8 +865,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         <Text role="meta" numeric className={styles.count}>
           {loading ? 'Reading…' : `${total.toLocaleString()}${hasMore ? '+' : ''} commits`}
         </Text>
-      </Toolbar>
-      <Separator />
+      </ToolPaneBar>
 
       {provenance.error && <Note>Provenance could not be read. <Button variant="link" onClick={provenance.retry}>Retry provenance</Button></Note>}
 
@@ -891,7 +891,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             </Button>
           )}
 
-          <div className={styles.head} role="row" onPointerMove={onDragMove} onPointerUp={onRelease}>
+          <div role="row" className={styles.tableHead} onPointerMove={onDragMove} onPointerUp={onRelease}>
             {!searching && (
               <HeadCell
                 name="graph"
@@ -945,11 +945,14 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             aria-label="Commits"
           >
             {total === 0 && !loading ? (
-              <Note>
-                {searching
-                  ? 'Nothing in the history matches that search.'
-                  : 'No commits yet — the history starts with the first one.'}
-              </Note>
+              <EmptyState
+                variant="inline"
+                title={
+                  searching
+                    ? 'Nothing in the history matches that search.'
+                    : 'No commits yet — the history starts with the first one.'
+                }
+              />
             ) : (
               <div style={{ height: total * ROW, position: 'relative' }}>
                 {commits.slice(first, last).map((commit, offset) => {
@@ -1126,6 +1129,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             onDelete={() => setDialog({ kind: 'deleteBranch', name: railTarget.branch.name })}
             onCopy={() => doCopy(railTarget.branch.name, `Copied “${railTarget.branch.name}”.`)}
             onPullRequest={() => doPullRequest(railTarget.branch.name)}
+            onReview={() => setDialog({ kind: 'review', branch: railTarget.branch.name })}
           />
         )}
         {railTarget?.kind === 'remote' && (
@@ -1387,6 +1391,16 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       {dialog?.kind === 'diffRange' && (
         <DiffRangeDialog root={root} from={dialog.from} to={dialog.to} onDone={() => setDialog(null)} />
       )}
+      {dialog?.kind === 'review' && root && (
+        <FrontDoor
+          context={{ kind: 'branch', root, branch: dialog.branch }}
+          onClose={() => closeDialog(false)}
+          onStarted={(execution) => {
+            store.openGoal(execution.goal)
+            closeDialog(false)
+          }}
+        />
+      )}
       {dialog?.kind === 'confirm' && (
         <ConfirmDialog
           title={dialog.title}
@@ -1572,6 +1586,7 @@ const BranchMenu = ({
   onDelete,
   onCopy,
   onPullRequest,
+  onReview,
 }: {
   branch: GitBranchRef
   current: string | null
@@ -1585,6 +1600,7 @@ const BranchMenu = ({
   onDelete: () => void
   onCopy: () => void
   onPullRequest: () => void
+  onReview: () => void
 }) => {
   const itself = branch.current
   return (
@@ -1644,6 +1660,13 @@ const BranchMenu = ({
         label="Create pull request…"
         hint="On the branch's forge, in the browser."
         onSelect={onPullRequest}
+      />
+      <MenuSeparator />
+      <MenuItem
+        icon={<TeamIcon size={14} />}
+        label="Review…"
+        hint="Choose a shape and start a team on this branch."
+        onSelect={onReview}
       />
     </>
   )
@@ -1835,7 +1858,7 @@ const RefsRail = ({
           ) : (
             <div key={`folder-${entry.name}`}>
               <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`b:${entry.name}`)}>
-                <ChevronIcon size={11} style={{ transform: closed.has(`b:${entry.name}`) ? undefined : 'rotate(90deg)' }} />
+                <DisclosureChevron open={!closed.has(`b:${entry.name}`)} size="xs" />
                 {entry.name}
                 <Text role="meta" numeric className={styles.railCount}>{entry.branches.length}</Text>
               </Button>
@@ -1848,7 +1871,7 @@ const RefsRail = ({
         {[...remotes.entries()].map(([remote, list]) => (
           <div key={`remote-${remote}`}>
             <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`r:${remote}`)}>
-              <ChevronIcon size={11} style={{ transform: closed.has(`r:${remote}`) ? undefined : 'rotate(90deg)' }} />
+              <DisclosureChevron open={!closed.has(`r:${remote}`)} size="xs" />
               {remote}
               <Text role="meta" numeric className={styles.railCount}>{list.length}</Text>
             </Button>
@@ -2098,7 +2121,7 @@ const CommitDetail = ({
           dragging.current = false
         }}
       />
-      <Toolbar className={styles.detailHead}>
+      <ToolPaneBar variant="tools" className={styles.detailHead}>
         <CommitIcon size={13} />
         <Text role="meta"><CodeText as="code">{shortSha(sha)}</CodeText></Text>
         <Text role="row" className={styles.detailTitle}>{subject}</Text>
@@ -2106,8 +2129,7 @@ const CommitDetail = ({
         <Button variant="ghost" size="icon-sm" aria-label="Close the commit" onClick={onClose}>
           <CrossIcon size={13} />
         </Button>
-      </Toolbar>
-      <Separator />
+      </ToolPaneBar>
 
       {failed ? (
         <Note>Could not read that commit — it may have been rewritten away.</Note>
@@ -2121,7 +2143,7 @@ const CommitDetail = ({
             <PopoverGroupLabel>
               {detail.files.length} file{detail.files.length === 1 ? '' : 's'}
             </PopoverGroupLabel>
-            <div className={styles.fileListBody}>{detail.files.map(fileRow)}</div>
+            {detail.files.map(fileRow)}
           </div>
           <Separator orientation="vertical" />
           <div className={styles.detailRight}>
@@ -2140,9 +2162,9 @@ const CommitDetail = ({
                 ) : diffs.get(file) === '' ? (
                   <Note>No text patch — a binary file, or an empty change.</Note>
                 ) : (
-                  <div className={styles.diffScroll}>
+                  <ToolPaneBody>
                     <DiffView diff={diffs.get(file)!} />
-                  </div>
+                  </ToolPaneBody>
                 )}
               </>
             ) : (
@@ -2166,9 +2188,9 @@ const CommitDetail = ({
                 ) : diffs.get(entry.path) === '' ? (
                   <Note>No text patch — a binary file, or an empty change.</Note>
                 ) : (
-                  <div className={styles.inlinePatch}>
+                  <ListRowDetail inset>
                     <DiffView diff={diffs.get(entry.path)!} />
-                  </div>
+                  </ListRowDetail>
                 ))}
             </div>
           ))}

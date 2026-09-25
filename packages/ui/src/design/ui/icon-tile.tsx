@@ -22,10 +22,17 @@ import { softTint, softTone, type Tint, type Tone } from './tone'
  * `shape` is a real choice and not a style: a circle reads as a person or an
  * account, a rounded square as a thing or a category. The app already holds that
  * rule for avatars; this keeps the two consistent.
+ *
+ * A listing that brings its own mark — a plugin's or a skill's logo — puts the
+ * `<img>` inside, and the tile crops it to its corner. One that brings only its
+ * own colour passes `color`: that colour is the ground and the initial on it is
+ * in the ink the accent carries, as the listing's store draws it. `color` is
+ * data from the listing, never a colour a screen picked, which is why it is a
+ * third option beside `tone` and `tint` rather than either of them.
  */
 
 const tileVariants = cva(
-  'inline-flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0',
+  'inline-flex shrink-0 items-center justify-center overflow-hidden [&_svg]:pointer-events-none [&_svg]:shrink-0 [&>img]:size-full [&>img]:object-contain',
   {
     variants: {
       size: {
@@ -47,16 +54,28 @@ const tileVariants = cva(
    than a colour someone has to notice is wrong. */
 type IconTileProps = React.ComponentProps<'span'> &
   VariantProps<typeof tileVariants> &
-  ({ tone?: Tone; tint?: never } | { tint: Tint; tone?: never })
+  (
+    | { tone?: Tone; tint?: never; color?: never }
+    | { tint: Tint; tone?: never; color?: never }
+    | { color: string; tone?: never; tint?: never }
+  )
 
-const IconTile = ({ className, size, shape, tone, tint, ...props }: IconTileProps) => (
+const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }: IconTileProps) => (
   <span
     data-slot="icon-tile"
+    {...(color ? { 'data-color': '' } : {})}
+    {...(tint ? { 'data-tint': tint } : {})}
+    {...(!color && !tint ? { 'data-tone': tone ?? 'neutral' } : {})}
     className={cn(
       tileVariants({ size, shape }),
-      tint ? softTint({ tint }) : softTone({ tone }),
+      color
+        ? 'bg-(--tile-color) text-(--hd-accent-foreground)'
+        : tint
+          ? softTint({ tint })
+          : softTone({ tone }),
       className,
     )}
+    style={color ? ({ ...style, '--tile-color': color } as React.CSSProperties) : style}
     {...props}
   />
 )

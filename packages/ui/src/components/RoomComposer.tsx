@@ -28,6 +28,8 @@ import {
   ComposerShell,
   ComposerText,
   ComposerTools,
+  Text,
+  TurnWorkLive,
 } from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
@@ -70,6 +72,12 @@ export interface RoomMember {
 export interface RoomComposerHandle {
   /** Adds a member to the audience, as picking them from `@` would. */
   readonly address: (key: SessionKey) => void
+  /**
+   * Puts the caret in the text well — what the composer returning after an
+   * approval is answered, or "tell it what to do instead" from a denial,
+   * both mean in practice: the words go here next.
+   */
+  readonly focus: () => void
 }
 
 /**
@@ -303,7 +311,7 @@ export const RoomComposer = ({
 
   /* Published after `address` is defined, so the handle is the same act the
      menu performs rather than a second implementation of it. */
-  useImperativeHandle(ref, () => ({ address }), [address])
+  useImperativeHandle(ref, () => ({ address, focus: () => textarea.current?.focus() }), [address])
 
   const change = (value: string): void => {
     const closed = gap.current === null ? value : closeMentionGap(gap.current, value)
@@ -479,6 +487,17 @@ export const RoomComposer = ({
     ).find((one): one is { readonly tone: 'warn' | 'muted'; readonly text: string } => one !== false) ?? null
 
   return (
+    <>
+    {/* What sending will do, said over the box rather than inside it, as one
+        more line of the room's tail: the transcript's live line, settled —
+        the same box, size and ink as who is working above it — so the tail
+        speaks in one voice and the box holds only the words and the ways to
+        send them. It changes only when the audience does. */}
+    {notice && (
+      <TurnWorkLive settled data-slot="room-composer-notice">
+        {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
+      </TurnWorkLive>
+    )}
     <ComposerShell className="relative">
       {mention && (
         <TriggerMenu
@@ -496,7 +515,7 @@ export const RoomComposer = ({
           {chosen.map((one) => (
             <ComposerChip
               key={one.key}
-              className="bg-(--hd-accent-dim) text-(--hd-accent)"
+              tone="brand"
               /* No tooltip of its own. The card is on the mark and the name
                  inside this chip, so a `title` here stacked a second box on
                  the same rest — and what it said is already said elsewhere,
@@ -534,14 +553,6 @@ export const RoomComposer = ({
         onChange={(event) => change(event.target.value)}
         onKeyDown={onKeyDown}
       />
-
-      {notice && (
-        <div
-          className={`px-3.5 pb-1 text-xs ${notice.tone === 'warn' ? 'text-(--hd-warning-ink)' : 'text-(--hd-muted-foreground)'}`}
-        >
-          {notice.text}
-        </div>
-      )}
 
       <ComposerTools>
         <Popover
@@ -590,7 +601,7 @@ export const RoomComposer = ({
                   hint={one.title ?? one.peer.model ?? undefined}
                   value={
                     !one.canUseBoard ? (
-                      <span className="text-(--hd-warning-ink)">no tools</span>
+                      <Text role="meta" tone="warning">no tools</Text>
                     ) : one.busy ? (
                       'working'
                     ) : undefined
@@ -623,11 +634,9 @@ export const RoomComposer = ({
         {/* The count appears a thousand short of the ceiling and not before:
             a number on every message is a number nobody reads. */}
         {draft.length > limit - 1000 && (
-          <span
-            className={`text-xs tabular-nums ${over ? 'text-(--hd-warning-ink)' : 'text-(--hd-muted-foreground)'}`}
-          >
+          <Text role="meta" numeric {...(over ? { tone: 'warning' as const } : {})}>
             {draft.length.toLocaleString()} / {limit.toLocaleString()}
-          </span>
+          </Text>
         )}
 
         {/* `later` is a claim about the whole message, so it is spent only when
@@ -646,5 +655,6 @@ export const RoomComposer = ({
         </ComposerSend>
       </ComposerTools>
     </ComposerShell>
+    </>
   )
 }

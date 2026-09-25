@@ -14,7 +14,9 @@
  * - An interrupted turn is never announced: the user did that themselves.
  */
 
-/** The four kinds, with what the settings page should call them. */
+import { INTAKE_NOTIFICATION_KINDS } from './intake-notifications.mjs'
+
+/** The kinds, with what the settings page should call them. */
 export const SYSTEM_NOTIFICATION_KINDS = [
   {
     kind: 'turns',
@@ -46,6 +48,8 @@ export const SYSTEM_NOTIFICATION_KINDS = [
     title: 'Goals ready to wrap',
     detail: 'A Goal settled and is ready for its receipt.',
   },
+  // Unattended work a trigger started: decided in `intake-notifications.mjs`.
+  ...INTAKE_NOTIFICATION_KINDS,
 ]
 
 /**

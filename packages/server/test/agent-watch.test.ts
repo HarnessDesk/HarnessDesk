@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { renameSync, realpathSync, symlinkSync, watch, type FSWatcher } from 'node:fs'
+import { mkdirSync, renameSync, realpathSync, symlinkSync, watch, type FSWatcher } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { test } from 'node:test'
 
-import { AgentWatch, type WatchFn } from '../src/agent-watch.js'
+import { AgentWatch, type Clock, type WatchFn } from '../src/agent-watch.js'
 import { Agents } from '../src/agents.js'
-import { builtinAgentRoot } from '../src/host.js'
+import { __setBuiltinAgentRootForTests, builtinAgentRoot } from '../src/host.js'
 import { Client, shippedAgentsCopy, start, stop } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
@@ -128,6 +128,57 @@ const proveWatching = async (probe: ReturnType<typeof recording>, dir: string, w
 /** A watcher that reports nothing on its own: for a test that says by hand what a watch reported. */
 const quietWatcher = (): FSWatcher => Object.assign(new EventEmitter(), { close: () => {} }) as unknown as FSWatcher
 
+/**
+ * A clock a test moves by hand, for counting how many times a debounced
+ * timer fires without betting on real time. Nothing scheduled through it
+ * fires on its own — real filesystem events can land in whatever real burst
+ * or trickle a loaded machine makes of them, and the pending timer they reset
+ * just keeps sliding forward, since "now" never moves until `advance` says
+ * so. Only once the test is sure no more real events are coming does it move
+ * the clock forward in a single step, which fires whatever is due — once,
+ * deterministically, the same way regardless of how unevenly the real events
+ * that scheduled it arrived.
+ */
+const fakeClock = (): Clock & {
+  readonly advance: (ms: number) => void
+  readonly pendingCount: () => number
+  /** Every `setTimeout` this clock has ever been asked to schedule, cancelled or not — never decremented. */
+  readonly scheduledCount: () => number
+} => {
+  let now = 0
+  let scheduled = 0
+  const pending = new Set<{ readonly due: number; readonly callback: () => void; readonly unref: () => void }>()
+  return {
+    setTimeout: (callback, ms) => {
+      scheduled += 1
+      const timer = { due: now + ms, callback, unref: () => {} }
+      pending.add(timer)
+      return timer
+    },
+    clearTimeout: (timer) =>
+      void pending.delete(timer as { readonly due: number; readonly callback: () => void; readonly unref: () => void }),
+    advance: (ms) => {
+      now += ms
+      for (;;) {
+        const due = [...pending].filter((timer) => timer.due <= now).sort((a, b) => a.due - b.due)[0]
+        if (!due) return
+        pending.delete(due)
+        due.callback()
+      }
+    },
+    // Every timer `AgentWatch` schedules — a settle, a rescan, a retry, a
+    // backoff re-check — goes through this clock and no other (#938): the
+    // count left in `pending` is a direct read of whether one is still
+    // waiting, not a guess from whether moving time forward raised anything.
+    pendingCount: () => pending.size,
+    // Monotonic, so a caller that already has one timer pending (a walk-up's
+    // own backoff, most of all) can still wait for yet *another*, distinct
+    // one to be scheduled — `pendingCount` alone cannot tell those apart, and
+    // its net count is exactly the thing under test where cancellation is.
+    scheduledCount: () => scheduled,
+  }
+}
+
 test('a change under a watched root is a notice, and a burst of them is fewer notices than changes', async (t) => {
   const root = tempDir('hd-agent-watch-')
   await mkdir(join(root, 'scout'))
@@ -179,6 +230,172 @@ test('a root that is not there yet is watched for, and followed once it appears'
     () => writeFile(join(root, 'scout', 'AGENT.md'), brief(`Look ${n++}.`)),
     'a change inside the root that appeared',
   )
+})
+
+/*
+ * #899's own bug: `#follow`'s walk-up checks whether the name it wants is
+ * there (`reach`), then attaches a watcher on the ancestor above it — and
+ * between those two steps, a real `mkdir -p` can land the name in place
+ * before the watcher ever starts listening. A watcher only reports a
+ * *future* event; one that already happened by the time it attaches is gone
+ * for good, and nothing after that ever tells the roster the root exists.
+ *
+ * The watcher this test hands back is deliberately quiet — it never emits
+ * anything on its own — so the only way this test can pass is the fix's own
+ * immediate re-check right after the watch attaches, never a real event a
+ * real `fs.watch` happened to still catch. `watchFn` creates the root as a
+ * side effect of being asked for the ancestor watch, reproducing the exact
+ * gap `#follow` cannot see across on its own, with no dependence on how any
+ * given platform's real watcher handles a creation that landed moments
+ * before it started listening. Before the fix this test times out.
+ */
+test('a root created in the gap between the ancestor check and the watch attaching is not missed (#899)', async (t) => {
+  const home = tempDir('hd-agent-watch-')
+  const root = join(home, 'agents')
+  const { said, changed } = heard()
+  const watchFn: WatchFn = () => {
+    mkdirSync(root, { recursive: true })
+    return quietWatcher()
+  }
+  const watchInstance = new AgentWatch({ roots: [root], changed, settleMs: 30, watchFn })
+  t.after(() => watchInstance.dispose())
+  await until(() => said.length > 0, 'the root that already existed by the time its own ancestor watch armed, from the fix’s own re-check, never a real event')
+})
+
+/*
+ * #938 — the review that found #933's own fix still short, twice over.
+ *
+ * First: `#899`'s immediate re-check runs right after `#watch` arms the
+ * ancestor, but arming a watcher and that watcher's native listener actually
+ * being ready to report something are not the same moment, and on a loaded
+ * machine the gap between them can outlast a single fixed wait. A one-shot
+ * delayed re-check only narrows that window; it does not close it.
+ *
+ * Second, on review of the first attempt at closing it: a single delayed
+ * re-check is a guess at how long a native listener takes to start, and the
+ * guess is exactly the thing under test here, not the timer's existence. So
+ * these two tests never assert on how long anything took — only on the
+ * property #938 actually asks for: a name that appears before the watcher
+ * has proved itself is still found, by a re-check that keeps recurring for
+ * as long as the watcher stays unproven, and a watcher that *has* proved
+ * itself (any event of its own, not necessarily the name being waited for)
+ * is trusted from then on, with no further polling needed.
+ *
+ * Both hand back a watcher this test controls entirely by hand — quiet
+ * unless a test fires it — and synchronize on `watchFn` itself having been
+ * called (`until`, never a fixed pause) before touching the filesystem, so
+ * neither test's outcome depends on how long a real walk-up takes to arm on
+ * whatever machine runs it. Before this fix — a single fixed delay, or none
+ * at all — both time out or find nothing when the assertion is reached.
+ *
+ * The second test's own proof event still needs one real-time wait of its
+ * own afterward: the look it triggers (`reach`, a `realpath` call) is real
+ * async I/O the fake clock knows nothing about. That wait is on the settle
+ * timer the look schedules once it lands (`clock.pendingCount()`), not a
+ * fixed guess at how long the look itself takes — and the same count is
+ * what proves the backoff actually stopped afterward, rather than merely
+ * having nothing left to raise when the clock is moved (review of #938).
+ */
+test('a name that appears while the watch is unproven is found by the backoff across several steps, even if the watcher never fires (#938)', async (t) => {
+  const home = tempDir('hd-agent-watch-')
+  const root = join(home, 'agents')
+  const { said, changed } = heard()
+  const clock = fakeClock()
+  let watchCalled = false
+  const watchFn: WatchFn = () => {
+    watchCalled = true
+    // Deliberately quiet forever: stands in for a native listener that never
+    // manages to prove itself, so only the backoff's own direct look at the
+    // filesystem — never an event — can be what finds the root.
+    return quietWatcher()
+  }
+  const watchInstance = new AgentWatch({ roots: [root], changed, settleMs: 30, watchFn, clock })
+  t.after(() => watchInstance.dispose())
+
+  await until(() => watchCalled, 'the ancestor watch to arm')
+  await pause(20)
+  assert.deepEqual(said, [], 'nothing to notice yet: the root the immediate re-check looked for is not there')
+
+  // Several backoff steps in a row, each looking and finding nothing — the
+  // property under test is that it keeps looking, not that one look happens.
+  // A step size well past `RETRY_MAX_MS` always covers whatever the next
+  // scheduled wait is, however many times it has doubled or capped by then.
+  for (let step = 1; step <= 3; step++) {
+    clock.advance(10_000)
+    await pause(20)
+    assert.deepEqual(said, [], `still nothing after backoff step ${step}: the root is not there yet`)
+  }
+
+  // The root appears only now — after checks that already came back empty —
+  // and the quiet watcher above never reports it on its own.
+  mkdirSync(root, { recursive: true })
+  clock.advance(10_000)
+  await pause(20) // lets that step's own `reach` (finding the root this time) settle before its notice's settle timer exists to move past
+  clock.advance(1_000)
+  assert.ok(said.length > 0, 'a later backoff step must have found the root once it existed, with no event from the watcher at all')
+})
+
+test('a watcher’s own event — even one naming nothing the walk-up is waiting for — stops the backoff, and is relied on from then on (#938)', async (t) => {
+  const home = tempDir('hd-agent-watch-')
+  const root = join(home, 'agents')
+  const { said, changed } = heard()
+  const clock = fakeClock()
+  // A box, not a bare closed-over variable: the listener is set from inside
+  // `watchFn`, called later and asynchronously by `AgentWatch` itself, and a
+  // plain field on an object this test also holds is what lets it be read
+  // and called back from outside that closure.
+  const box: { listener: Parameters<WatchFn>[2] | null } = { listener: null }
+  const watchFn: WatchFn = (_dir, _options, listener) => {
+    box.listener = listener
+    return quietWatcher() // never fires on its own; this test fires it by hand
+  }
+  const watchInstance = new AgentWatch({ roots: [root], changed, settleMs: 30, watchFn, clock })
+  t.after(() => watchInstance.dispose())
+
+  await until(() => box.listener !== null, 'the ancestor watch to arm')
+  // The walk-up's own backoff is armed in the same synchronous span as the
+  // watch itself: a re-check is already waiting on the clock, never merely
+  // "nothing has happened yet by coincidence".
+  await until(() => clock.pendingCount() > 0, 'the backoff’s first re-check to be scheduled')
+  assert.deepEqual(said, [], 'nothing to notice yet')
+
+  // The root appears, but the deliberately quiet watcher above has reported
+  // nothing about it — exactly the state a native listener still starting up
+  // would leave things in. The only thing that follows is an event naming
+  // something else entirely in the watched ancestor: not the name the
+  // walk-up wants, but proof enough — of any kind — that the listener is now
+  // live. That proof alone must be what triggers one last look, finding the
+  // root that was already there; the ordinary per-event filename filter, on
+  // its own, would have thrown this particular event away without ever
+  // checking anything, which is exactly what a plain filename match (no
+  // notion of "first event proves it live") does on unfixed code, and why
+  // this fails there rather than on a real future event happening to name
+  // the right thing.
+  const scheduledBefore = clock.scheduledCount()
+  mkdirSync(root, { recursive: true })
+  box.listener?.('change', 'unrelated.txt')
+  // That proof's own look at the filesystem (`reach`, a real `realpath`) is
+  // async I/O off the fake clock entirely, so what is waited for here is not
+  // a guess at how long it takes — it is the settle timer it schedules once
+  // that look lands (`#poke`), on a real-time poll bounded generously, never
+  // a fixed pause a loaded machine could outrun before it fires (#938).
+  // `scheduledCount`, not `pendingCount`: the walk-up's own backoff re-check
+  // is already pending from the arm above, so "something is pending" is true
+  // before this event even fires — what proves the look actually landed is a
+  // *new* timer beyond that one, not merely a nonempty pending set.
+  await until(() => clock.scheduledCount() > scheduledBefore, 'the notice’s settle timer to be scheduled')
+  clock.advance(1_000) // fires that settle timer
+  assert.ok(said.length > 0, 'the event that first proved the watcher live must have triggered one last look, finding the root that was already there')
+  said.length = 0
+
+  // Fully proved now: the backoff that would otherwise still be polling must
+  // have actually stopped — nothing at all left waiting on the clock, proven
+  // directly (`pendingCount`), never inferred from moving time forward and
+  // seeing nothing come of it, which a timer merely gone quiet without ever
+  // being cleared would pass just the same.
+  assert.equal(clock.pendingCount(), 0, 'no backoff timer is left running once the watch has proved itself')
+  clock.advance(1_000_000)
+  assert.deepEqual(said, [], 'once proved live, the backoff must not still be running underneath the watcher')
 })
 
 test('a project is watched while it is open, named as it was opened, and not after', async (t) => {
@@ -583,7 +800,6 @@ test('(F8) through the host: a folder inside a linked worktree gets the worktree
 
 test('(F1, host) an older #watchProjects call finishing late does not re-add a project a newer one dropped', async (t) => {
   const fakeGitDir = await mkdtemp(join(tmpdir(), 'hd-agent-watch-fakegit-'))
-  t.after(() => rm(fakeGitDir, { recursive: true, force: true }))
   const fakeGit = join(fakeGitDir, 'git')
   await writeFile(fakeGit, '#!/bin/sh\nsleep 3\nexit 1\n')
   await chmod(fakeGit, 0o755)
@@ -596,6 +812,9 @@ test('(F1, host) an older #watchProjects call finishing late does not re-add a p
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
+  // Removing this after the host is stopped, not before: a slow #watchProjects
+  // call still spawning `fakeGit` out of it could otherwise race the removal (#868).
+  t.after(() => rm(fakeGitDir, { recursive: true, force: true }))
 
   const p = tempDir('hd-agent-watch-project-')
   await mkdir(join(p, '.harnessdesk', 'agents', 'scout'), { recursive: true })
@@ -1281,6 +1500,20 @@ test('(P3) a top-level link inside the Agents folder that reaches the project ro
  * anywhere beneath it. It now runs once per settled burst, on the same clock
  * `#poke`'s own notice already settles on — proved here by counting
  * `onRescan` across a burst of rapid changes, once the watch is proved live.
+ *
+ * A real settle timer used to gather that burst: fine when the 20 real
+ * writes below land close enough together in real time, but a loaded machine
+ * can space a plain sequential loop of them out past even a generous window,
+ * and once any real gap outlasts `settleMs` the timer fires mid-burst —
+ * several genuinely separate "settled" windows, not one. The debounce logic
+ * itself resets correctly on every event; only counting it against a real
+ * clock was the flake. A `fakeClock` fixes that: nothing it schedules fires
+ * until `advance` says so, so however unevenly the real events land while
+ * the test waits for them, the pending timer they keep resetting never gets
+ * the chance to expire early. Only once the test is done waiting for the
+ * real writes to be heard does it move the clock forward, in one step,
+ * settling the whole burst exactly once — deterministically, regardless of
+ * load.
  */
 test('(P3) the top-level link rescan runs once per settled burst, not once per file changed beneath the root', async (t) => {
   const root = tempDir('hd-agent-watch-')
@@ -1293,42 +1526,62 @@ test('(P3) the top-level link rescan runs once per settled burst, not once per f
   let rescans = 0
   const probe = recording()
   const { changed } = heard()
+  const clock = fakeClock()
   const watch = new AgentWatch({
     roots: [],
     changed,
     settleMs: 30,
     watchFn: probe.watchFn,
+    clock,
     onRescan: () => void rescans++,
   })
   t.after(() => watch.dispose())
   await watch.watchProjects([project])
   await proveWatching(probe, join(project, '.harnessdesk', 'agents'), "the Agents folder's own watch")
+  // Real time, not the fake clock: lets whatever the setup above scheduled —
+  // the initial follow's own rescan, and any settle timer the liveness probe
+  // above reset — actually be pending, so the advance right after can flush
+  // it before the count below starts from a clean zero.
   await settled()
+  clock.advance(1_000)
   rescans = 0
 
   for (let n = 0; n < 20; n++) await writeFile(join(project, '.harnessdesk', 'agents', 'scout', `f${n}.txt`), 'x')
+  // Real time again: gives the OS as long as `settled()` ever did to deliver
+  // every one of the 20 real events. None of them can expire the debounce
+  // timer early, however they are spaced, because the clock that timer runs
+  // on is frozen until the `advance` below moves it.
   await settled()
-  assert.ok(rescans <= 2, `20 rapid changes beneath the root caused ${rescans} rescans, not one settled burst`)
+  clock.advance(1_000)
+  assert.equal(rescans, 1, `20 rapid changes beneath the root caused ${rescans} rescans, not one settled burst`)
 })
 
 /*
  * G4 — the tests that count `agent/changed` point their host's built-in root
  * at a copy, so an edit to `packages/server/agents` cannot land in a count.
- * This one does not: it is the app's own setup, and proves the real folder the
- * Agents ship in is watched. Only the folder's own times are touched — nothing
- * in it changes, and nothing that lists it sees a difference — and they are
- * put back.
+ * This one still proves the app's own setup — that a host started with no
+ * explicit `builtinAgents` option watches wherever `builtinAgentRoot()`
+ * resolves — but it never touches the real folder to do it:
+ * `__setBuiltinAgentRootForTests` points that resolution at a private copy
+ * for the life of the test, cleared once it ends, so a run of this file never
+ * races another copy of itself, or a person editing `packages/server/agents`,
+ * over the same real directory's mtime. There is deliberately no environment
+ * variable for this — see `builtinAgentRoot`'s own comment in `host.ts` —
+ * only a function a test imports and calls directly.
  */
 
 test('(G4) through the host: the Agents that ship with the app are watched where they ship', async (t) => {
+  const copy = await shippedAgentsCopy()
+  __setBuiltinAgentRootForTests(copy)
+  t.after(() => __setBuiltinAgentRootForTests(null))
   // No `agents` in this state directory, so a notice for this machine's roster can only be the built-in one's.
   const harness = await start()
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
   const shipped = builtinAgentRoot()
+  assert.equal(shipped, copy, 'a host with no builtinAgents option resolves the same builtinAgentRoot() a test can redirect')
   const was = await stat(shipped)
-  t.after(() => utimes(shipped, was.atime, was.mtime))
   const namedNull = () =>
     client.notifications.some((one) => 'method' in one && one.method === 'agent/changed' && one.params.project === null)
   let n = 0
@@ -1344,13 +1597,20 @@ test('(G4) through the host: the Agents that ship with the app are watched where
 
 test('(G4) through the host: a host pointed at a copy of the shipped Agents watches the copy, and not the real folder', async (t) => {
   const copy = await shippedAgentsCopy()
+  // A second, private copy stands in for "the real folder" on the negative
+  // half of this test — proving an explicit `builtinAgents` option wins over
+  // whatever `builtinAgentRoot()` would otherwise resolve to, without this
+  // test ever touching the checkout's actual `agents/` to prove it.
+  const decoy = await shippedAgentsCopy()
+  __setBuiltinAgentRootForTests(decoy)
+  t.after(() => __setBuiltinAgentRootForTests(null))
   const harness = await start({ builtinAgents: copy })
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
   const shipped = builtinAgentRoot()
+  assert.equal(shipped, decoy, 'builtinAgentRoot() resolves to the decoy standing in for the real folder this test never touches')
   const was = await stat(shipped)
-  t.after(() => utimes(shipped, was.atime, was.mtime))
   const agentChanged = () => client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed')
   // Listed from the copy, as the app lists it from the real one.
   const listed = (await client.call('agent/list', {})) as { readonly id: string; readonly origin: string; readonly path: string }[]
@@ -1368,9 +1628,9 @@ test('(G4) through the host: a host pointed at a copy of the shipped Agents watc
   )
   await settled()
   client.notifications.length = 0
-  // …and the real folder, touched the same way, is not.
+  // …and what builtinAgentRoot() resolves to when no option overrides it — standing in for the real folder — touched the same way, is not.
   const at = new Date(was.mtimeMs + 60_000)
   await utimes(shipped, at, at)
   await pause(600)
-  assert.deepEqual(agentChanged(), [], 'the real shipped folder is still watched by a host pointed at a copy')
+  assert.deepEqual(agentChanged(), [], 'the decoy standing in for the real folder is still not watched by a host pointed at a copy')
 })

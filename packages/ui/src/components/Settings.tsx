@@ -73,12 +73,14 @@ import { LibrarySection } from './Library'
 import { RuntimesSection, agentReadiness } from './SettingsAgents'
 import { PluginsSection } from './PluginsSection'
 import { ExtensionsSection } from './Extensions'
+import { CeilingsSection } from './SettingsCeilings'
 import { RemoveWorktree } from './RemoveWorktree'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
   BackLink,
   Button,
   Chip,
+  CodeText,
   DetailMark,
   DetailHead,
   Dot,
@@ -95,15 +97,14 @@ import {
   RowValue,
   Rows,
   Search,
+  Section,
   SectionHead,
-  SectionToggle,
   NativeSelect,
   Monogram,
   Switch,
   Text,
-  WireText,
 } from '../design'
-import { Dialog, ConfirmDialog } from '../design'
+import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
 import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
 import { ProfileFace } from './ProfileFace'
@@ -112,6 +113,7 @@ import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
 import { ProjectPage } from './ProjectPage'
 import { LaneSettings } from './LaneSettings'
+import { TriggerSettings } from './TriggerSettings'
 import styles from './Settings.module.css'
 
 /**
@@ -324,6 +326,7 @@ const RoutesRows = () => {
         <ConfirmDialog
           title={`Remove ${removing.name}?`}
           confirmLabel="Remove endpoint"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             void store.deleteRoute(removing.id)
@@ -437,6 +440,7 @@ const KeysRows = () => {
         <ConfirmDialog
           title={`Forget ${removing.name}?`}
           confirmLabel="Forget key"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             const ref = removing.ref
@@ -612,7 +616,7 @@ const isAccessOption = (option: ConfigOption): boolean =>
  * comes first, because that is what a person means by "permissions"; the
  * rules that answer for you come second, and are written in a dialog.
  */
-const PermissionsSection = () => {
+const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [rules, setRules] = useState<readonly PolicyRule[] | null>(null)
@@ -651,13 +655,16 @@ const PermissionsSection = () => {
     <>
       <PageHead
         title="Permissions"
-        blurb="What each agent may do without asking, and the rules that answer for you."
+        blurb="Ceilings set the most a seat may do. Approvals ask you about an action; rules answer recurring permission requests."
       />
 
+      <CeilingsSection focus={focus} />
+
       {groups.length > 0 && (
-        <>
-          <SectionHead name="Approvals" />
-          <Note>What a new session starts with. An agent that decides this per conversation says so.</Note>
+        <Section title="Approvals" description="What a new session starts with. An agent that decides this per conversation says so.">
+          {/* Each runtime's head is a sub-head of this section — a step
+              tighter than a section's — so twelve runtimes read as twelve
+              groups of one section rather than twelve sections. */}
           {groups.map((group) => (
             <NewSessionDefaults
               key={group.info.id}
@@ -668,46 +675,44 @@ const PermissionsSection = () => {
               empty="Decided when a session starts"
             />
           ))}
-        </>
+        </Section>
       )}
 
-      <SectionHead
-        name={withCount('Rules', rules?.length ?? 0)}
+      <Section
+        title={withCount('Rules', rules?.length ?? 0)}
+        description="They answer a request before it reaches you, for every agent alike; a question an agent asks you directly always comes through."
         action={
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
             <PlusIcon size={13} />
             Add rule
           </Button>
         }
-      />
-      <Note>
-        A rule answers a request before it reaches you, for every agent alike. A question an
-        agent asks you directly always comes through.
-      </Note>
-      {saveError && <Note tone="bad">{saveError}</Note>}
-      <Rows>
-        {rules === null ? (
-          <Row title="Loading…" />
-        ) : rules.length === 0 ? (
-          <Row title="No rules yet" desc="Every request reaches you." />
-        ) : (
-          rules.map((rule) => (
-            <Row
-              key={rule.id}
-              mark={<ShieldIcon size={15} />}
-              title={rule.name}
-              desc={`${rule.action === 'approve' ? 'Approves' : 'Denies'} ${kindWords(rule.match.type)}${
-                rule.match.pattern ? ` containing “${rule.match.pattern}”` : ''
-              }.`}
-              control={
-                <Button size="sm" variant="ghost" onClick={() => setRemoving(rule)}>
-                  Remove…
-                </Button>
-              }
-            />
-          ))
-        )}
-      </Rows>
+      >
+        {saveError && <Note tone="bad">{saveError}</Note>}
+        <Rows>
+          {rules === null ? (
+            <Row title="Loading…" />
+          ) : rules.length === 0 ? (
+            <EmptyState variant="row" title="No rules yet" description="Every request reaches you." />
+          ) : (
+            rules.map((rule) => (
+              <Row
+                key={rule.id}
+                mark={<ShieldIcon size={15} />}
+                title={rule.name}
+                desc={`${rule.action === 'approve' ? 'Approves' : 'Denies'} ${kindWords(rule.match.type)}${
+                  rule.match.pattern ? ` containing “${rule.match.pattern}”` : ''
+                }.`}
+                control={
+                  <Button size="sm" variant="ghost" onClick={() => setRemoving(rule)}>
+                    Remove…
+                  </Button>
+                }
+              />
+            ))
+          )}
+        </Rows>
+      </Section>
       {adding && (
         <AddRuleDialog onAdd={(rule) => save([...(rules ?? []), rule])} onClose={() => setAdding(false)} />
       )}
@@ -715,6 +720,7 @@ const PermissionsSection = () => {
         <ConfirmDialog
           title={`Remove “${removing.name}”?`}
           confirmLabel="Remove rule"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             // The page reports a refused write; the dialog has already gone.
@@ -834,7 +840,7 @@ const PresetsRows = () => {
       <Note>A preset is a session’s model, effort and permissions saved under a name, for the composer to apply in one click.</Note>
       <Rows>
         {presets.length === 0 && (
-          <Row title="No presets yet" desc="Set a session up the way you like, then save it here." />
+          <EmptyState variant="row" title="No presets yet" description="Set a session up the way you like, then save it here." />
         )}
         {presets.map((preset) => (
           <Row
@@ -865,6 +871,7 @@ const PresetsRows = () => {
         <ConfirmDialog
           title={`Remove ${removing.name}?`}
           confirmLabel="Remove preset"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             void store.saveCustomPresets(
@@ -919,9 +926,9 @@ const ModelsSection = () => {
         action={
           <>
             {total > 0 && (
-              <SectionToggle>
+              <Text role="muted" ink="muted">
                 {shown === total ? 'All in the composer' : `${shown} of ${total} in the composer`}
-              </SectionToggle>
+              </Text>
             )}
             {total > 4 && shown > 0 && (
               <Button size="sm" variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, true)}>
@@ -959,13 +966,14 @@ const ModelsSection = () => {
 
       <Rows>
         {total === 0 && (
-          <Row
+          <EmptyState
+            variant="row"
             title="No models yet"
-            desc={`${runtime.presentation.name} has not reported any. Refresh once it is signed in.`}
+            description={`${runtime.presentation.name} has not reported any. Refresh once it is signed in.`}
           />
         )}
         {total > 0 && listed.length === 0 && (
-          <Row title="No matches" desc={`Nothing ${runtime.presentation.name} offers matches “${query.trim()}”.`} />
+          <EmptyState variant="row" title="No matches" description={`Nothing ${runtime.presentation.name} offers matches “${query.trim()}”.`} />
         )}
         {listed.map((model) => (
           <Row
@@ -1095,24 +1103,19 @@ const skillScopeLabel = (scope: string | undefined): string | null => {
  */
 const SkillMark = ({ skill, size = 15 }: { skill: SkillInfo; size?: number }) => {
   const [broken, setBroken] = useState(false)
+  // The plugin row's drawing: the logo cropped in an icon tile, else the
+  // listing's colour under its initial, at the tile step the glyph matches.
+  const tile = size >= 20 ? 'sm' : 'xs'
   if (skill.iconUrl && !broken) {
     return (
-      <img
-        src={skill.iconUrl}
-        alt=""
-        width={size + 5}
-        height={size + 5}
-        style={{ borderRadius: 5 }}
-        onError={() => setBroken(true)}
-      />
+      <IconTile size={tile}>
+        <img src={skill.iconUrl} alt="" onError={() => setBroken(true)} />
+      </IconTile>
     )
   }
   if (skill.brandColor) {
     return (
-      <IconTile
-        size="xs"
-        style={{ background: skill.brandColor, color: 'var(--hd-accent-foreground)' }}
-      >
+      <IconTile size={tile} color={skill.brandColor}>
         <Monogram>{skillTitle(skill).charAt(0).toUpperCase()}</Monogram>
       </IconTile>
     )
@@ -1177,7 +1180,7 @@ const SkillPage = ({
 
       <SectionHead name="About" />
       <Rows>
-        <Row title="Identifier" control={<WireText>{skill.name}</WireText>} />
+        <Row title="Identifier" control={<Text role="meta"><CodeText>{skill.name}</CodeText></Text>} />
         {skill.path && (
           <Row
             title="Where it lives"
@@ -1482,9 +1485,13 @@ const BrowserSection = () => {
  */
 export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | null }) => {
   const snapshot = useSnapshot()
-  const [open, setOpen] = useState<string | null>(focus)
+  // 'triggers' is not a workspace path — it asks this list page to scroll to
+  // its own machine-wide "Triggers on this Mac", never to open a project by
+  // that literal name.
+  const [open, setOpen] = useState<string | null>(focus === 'triggers' ? null : focus)
   useEffect(() => {
-    if (focus) setOpen(focus)
+    if (focus === 'triggers') setOpen(null)
+    else if (focus) setOpen(focus)
   }, [focus])
 
   if (open) return <ProjectPage key={open} root={open} onBack={() => setOpen(null)} />
@@ -1517,6 +1524,7 @@ export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | 
       <WorktreeRows />
       <SectionHead name="Lanes" />
       <LaneSettings root={snapshot.workspace?.path} />
+      <TriggerSettings focus={focus} />
     </>
   )
 }
@@ -1951,7 +1959,7 @@ export const Settings = ({
           id: 'permissions',
           label: 'Permissions',
           icon: <ShieldIcon size={14} />,
-          keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network'],
+          keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked'],
         },
         {
           id: 'browser',
@@ -2043,7 +2051,7 @@ export const Settings = ({
             {section === 'extensions' && hasExtensions && <ExtensionsSection />}
             {section === 'library' && <LibrarySection initialFlow={libraryImport ? 'import' : null} />}
             {section === 'skills' && <SkillsSection onUse={onClose} />}
-            {section === 'permissions' && <PermissionsSection />}
+            {section === 'permissions' && <PermissionsSection focus={focus} />}
             {section === 'browser' && <BrowserSection />}
       </WindowPage>
     </AppWindow>

@@ -1,0 +1,181 @@
+/*
+ * The form grammar of a dialog: one rhythm, so parts composed in the right
+ * order come out finished.
+ *
+ *   label → its control      6px   (`--hd-space-1-5`, the Field's own gap)
+ *   field → the next field   16px  (`--hd-space-4`, this stack's gap)
+ *   legend → its group       6px   (the same as a label: a legend is a label)
+ *
+ * The body of a `Dialog` is this stack, and so is a `FormStack` inside one, so
+ * a screen that writes Note, Field, Field, SectionHead, Rows gets the rhythm
+ * without saying a number.
+ */
+
+/* A grid rather than a flex column: a flex item with `overflow: hidden` (a
+   card of rows) may shrink below its content inside a bounded, scrolling
+   body, and a grid row never does. `minmax(0, 1fr)` keeps a long path from
+   widening the dialog. */
+.stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--hd-space-4);
+}
+
+/* --- the legend ----------------------------------------------------------
+   The name over a group of controls, drawn exactly as a Field's label so a
+   form reads as one list of named things. */
+.legend {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+/* Written before the group it names, so it is pulled onto that group: the
+   stack's 16px becomes the label's 6px. Only a direct child of a stack is
+   moved, so a legend anywhere else keeps its ordinary spacing. */
+.stack > .legend {
+  margin-bottom: calc(var(--hd-space-1-5) - var(--hd-space-4));
+}
+
+.legendText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--hd-space-0-5);
+  min-width: 0;
+}
+
+.legendName {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  font-weight: var(--hd-weight-medium);
+  color: var(--hd-secondary-foreground);
+}
+
+.legendHint {
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  color: var(--hd-secondary-foreground);
+}
+
+/* --- the fieldset --------------------------------------------------------- */
+.fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hd-space-1-5);
+  min-width: 0;
+}
+
+.fieldsetBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+/* --- the choice list -------------------------------------------------------
+   Compact rows, a radio on the title's line, and no card: a dialog's list of
+   answers is part of the form, not a panel inside it. */
+.choiceList {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Each row reaches 8px past its column on either side — the row, not the
+   list, so the radio lines up with the labels above it wherever the row is
+   placed — and the hover still has a corner to round. Its height is its
+   content's: a title, and the description under it when there is one, so the
+   rows never move when the answer changes. */
+.choice {
+  display: grid;
+  grid-template-columns: var(--hd-space-4) minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--hd-space-2);
+  width: calc(100% + 2 * var(--hd-space-2));
+  margin-inline: calc(-1 * var(--hd-space-2));
+  min-height: var(--hd-control-h);
+  padding: var(--hd-space-1) var(--hd-space-2);
+  border-radius: var(--hd-radius-md);
+  text-align: left;
+}
+
+.choice:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The radio, drawn as `design/ui/radio-group` draws it: a ring at rest, the
+   accent with a knob when it is the answer. */
+/* Centred on the title's 18px line, not on the row. */
+.radio {
+  display: grid;
+  place-items: center;
+  margin-top: var(--hd-space-px);
+  width: var(--hd-space-4);
+  height: var(--hd-space-4);
+  border: var(--hd-border-width) solid var(--hd-border-strong);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-background);
+}
+
+.radio[data-checked] {
+  border-color: var(--hd-toggle-on);
+  background: var(--hd-toggle-on);
+}
+
+.radio[data-checked]::after {
+  content: '';
+  width: var(--hd-space-1-5);
+  height: var(--hd-space-1-5);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-toggle-knob-on);
+}
+
+/* The title's own line: an optional leading icon, the title, and an optional
+   shortcut pinned to the far end — a `display: contents` row would still
+   need this seam, since `.choiceDesc` below stays on the title's column
+   without sharing its line. */
+.choiceHead {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+/* The kind being chosen, not a tinted tile — dimmer than the title so the
+   word carries the row, the way a settings row's own leading glyph does. */
+.choiceIcon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--hd-secondary-foreground);
+}
+
+/* A keyboard shortcut, said quietly at the row's end — never a second
+   column, so a row with none of these is exactly as wide as one with one. */
+.choiceTrailing {
+  flex: none;
+  margin-left: auto;
+}
+
+.choiceTitle {
+  min-width: 0;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-foreground);
+}
+
+/* Every answer explains itself, under its title in the step a hint is set
+   in: one line where it fits, and a sentence that does not wraps whole. */
+.choiceDesc {
+  grid-column: 2;
+  min-width: 0;
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  color: var(--hd-secondary-foreground);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

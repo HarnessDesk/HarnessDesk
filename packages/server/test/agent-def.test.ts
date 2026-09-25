@@ -29,7 +29,9 @@ test('a complete definition parses, and the body is the brief', () => {
   assert.equal(agent?.id, 'code-reviewer')
   assert.equal(agent?.name, 'Code reviewer')
   assert.equal(agent?.description, 'Reads a diff it did not write and reports findings.')
-  assert.equal(agent?.permission, 'read')
+  // Written before the split: `permission: read` keeps the meaning it had, which is `edit` now.
+  assert.equal(agent?.ceiling, 'edit')
+  assert.equal(agent?.ceilingFrom, 'permission')
   assert.deepEqual(agent?.answers, ['approve', 'request-changes'])
   assert.deepEqual(agent?.produces, ['review'])
   assert.deepEqual(agent?.skills, ['review-checklist'])
@@ -97,12 +99,6 @@ test('a seat that does not parse is refused, never pushed through as itself', ()
   assert.equal(problems.length, 1)
   assert.equal(problems[0]?.at, 'prefer[0]')
   assert.match(problems[0]?.text ?? '', /\+thinking/)
-})
-
-test('permission defaults to read, the narrowest ceiling', () => {
-  const { agent, problems } = parseAgentDefinition('---\nname: Scout\n---\nLook around.\n', 'scout')
-  assert.deepEqual(problems, [])
-  assert.equal(agent?.permission, 'read')
 })
 
 test('an unknown permission is an error, not a silent widening', () => {
@@ -229,7 +225,7 @@ test('CRLF front matter still splits, fields and brief both', () => {
   )
   assert.deepEqual(problems, [])
   assert.equal(agent?.name, 'Win')
-  assert.equal(agent?.permission, 'merge')
+  assert.equal(agent?.ceiling, 'merge')
   assert.equal(agent?.brief, 'Body here.')
 })
 
@@ -290,12 +286,12 @@ test('a field an Agent does not have is named in a warning — a misspelt ceilin
   /* `permissions: merge` read as nothing is a ceiling of read, which fails
      closed — but silently, and the author believes the Agent may merge. */
   const { agent, problems } = parseAgentDefinition('---\nname: Writer\npermissions: merge\n---\nWork.\n', 'writer')
-  assert.equal(agent?.permission, 'read', 'a field nothing reads raises no ceiling')
+  assert.equal(agent?.ceiling, 'read', 'a field nothing reads raises no ceiling')
   assert.deepEqual(problems, [
     {
       level: 'warning',
       at: 'permissions',
-      text: '"permissions" is not read — an Agent\'s fields are name, description, permission, answers, produces, skills and prefer',
+      text: '"permissions" is not read — an Agent\'s fields are name, description, ceiling, permission, answers, produces, skills, mcp and prefer',
     },
   ])
   // Every field it does have is read, and so warns about nothing.
@@ -309,6 +305,129 @@ test('a byte-order mark before the fence is not a brief: the fields are read, an
   const { agent, problems } = parseAgentDefinition('\uFEFF---\nname: Marked\npermission: publish\n---\nWork.\n', 'marked')
   assert.deepEqual(problems, [])
   assert.equal(agent?.name, 'Marked')
-  assert.equal(agent?.permission, 'publish')
+  assert.equal(agent?.ceiling, 'publish')
   assert.equal(agent?.brief, 'Work.')
+})
+
+// ------------------------------------------------------------- the four boundaries
+
+/*
+ * `read` is split, and the new meaning gets a new key, so no word already
+ * written changes meaning. These four pin the boundary between the two keys.
+ */
+
+test('an Agent written before the split keeps its old meaning, and is flagged: permission: read is edit', () => {
+  const { agent, problems } = parseAgentDefinition('---\nname: Old\npermission: read\n---\nWork.\n', 'old')
+  assert.deepEqual(problems, [], 'the old key is not a problem — it is what the file was written with')
+  assert.equal(agent?.ceiling, 'edit')
+  assert.equal(agent?.ceilingFrom, 'permission', 'flagged: its row offers Update…')
+  // The old key's other words mean what they always did.
+  assert.equal(parseAgentDefinition('---\nname: P\npermission: publish\n---\nWork.\n', 'p').agent?.ceiling, 'publish')
+  assert.equal(parseAgentDefinition('---\nname: M\npermission: merge\n---\nWork.\n', 'm').agent?.ceiling, 'merge')
+})
+
+test('an Agent with no ceiling at all runs as read, the narrowest, and is flagged', () => {
+  const { agent, problems } = parseAgentDefinition('---\nname: Scout\n---\nLook around.\n', 'scout')
+  assert.deepEqual(problems, [])
+  assert.equal(agent?.ceiling, 'read')
+  assert.equal(agent?.ceilingFrom, 'none', 'flagged until its author writes one')
+})
+
+test('ceiling: read is read-only, and is not flagged', () => {
+  const { agent, problems } = parseAgentDefinition('---\nname: Reader\nceiling: read\n---\nRead.\n', 'reader')
+  assert.deepEqual(problems, [])
+  assert.equal(agent?.ceiling, 'read')
+  assert.equal(agent?.ceilingFrom, 'ceiling')
+  for (const level of ['edit', 'publish', 'merge'] as const) {
+    const said = parseAgentDefinition(`---\nname: L\nceiling: ${level}\n---\nWork.\n`, 'l')
+    assert.deepEqual(said.problems, [], level)
+    assert.equal(said.agent?.ceiling, level)
+    assert.equal(said.agent?.ceilingFrom, 'ceiling')
+  }
+})
+
+test('an Agent that writes both keys is refused with both lines named — in either order, and neither value takes effect', () => {
+  const orders = [
+    ['---\nname: Both\npermission: merge\nceiling: read\n---\nWork.\n', 'line 4', 'line 3'],
+    ['---\nname: Both\nceiling: read\npermission: merge\n---\nWork.\n', 'line 3', 'line 4'],
+    ['---\nname: Both\nceiling: merge\npermission: read\n---\nWork.\n', 'line 3', 'line 4'],
+    ['---\nname: Both\npermission: read\nceiling: merge\n---\nWork.\n', 'line 4', 'line 3'],
+  ] as const
+  for (const [source, ceilingLine, permissionLine] of orders) {
+    const { agent, problems } = parseAgentDefinition(source, 'both')
+    // Neither value is read: there is no Agent to seat, so neither can take effect.
+    assert.equal(agent, null, source)
+    assert.equal(problems.length, 1, source)
+    assert.equal(problems[0]?.level, 'error')
+    assert.equal(problems[0]?.at, 'ceiling')
+    assert.equal(
+      problems[0]?.text,
+      `it says both ceiling: (${ceilingLine}) and permission: (${permissionLine}) — keep one line: ceiling: is the key this app writes, and permission: is the one Agents were written with before`,
+      source,
+    )
+  }
+})
+
+test('a ceiling that is no word on the ladder, or empty, is an error — never a silent widening', () => {
+  const unknown = parseAgentDefinition('---\nname: Bad\nceiling: owner\n---\nx\n', 'bad')
+  assert.equal(unknown.agent, null)
+  assert.deepEqual(unknown.problems, [
+    { level: 'error', at: 'ceiling', text: '"owner" is not a ceiling — it is read, edit, publish or merge' },
+  ])
+  const empty = parseAgentDefinition('---\nname: Blank\nceiling:\n---\nx\n', 'blank')
+  assert.equal(empty.agent, null)
+  assert.deepEqual(empty.problems, [
+    { level: 'error', at: 'ceiling', text: 'the ceiling field is empty — write read, edit, publish or merge' },
+  ])
+  // The old key's words are not the new key's: `edit` was never a permission.
+  const edit = parseAgentDefinition('---\nname: Old\npermission: edit\n---\nx\n', 'old')
+  assert.equal(edit.agent, null)
+  assert.equal(edit.problems[0]?.at, 'permission')
+})
+
+// ------------------------------------------------------------- mcp (phase 12)
+
+test('parses mcp without changing legacy empty skills', () => {
+  /* An Agent written before mcp: existed, with no skills: at all, keeps
+     reading exactly as it always did once mcp: is added beside it — the new
+     field neither disturbs the old ceiling provenance nor invents a skill. */
+  const { agent, problems } = parseAgentDefinition(
+    '---\nname: Old\npermission: publish\nmcp: [docs]\n---\nWork.\n',
+    'old',
+  )
+  assert.deepEqual(problems, [])
+  assert.deepEqual(agent?.skills, [])
+  assert.deepEqual(agent?.mcp, ['docs'])
+  assert.equal(agent?.ceiling, 'publish')
+  assert.equal(agent?.ceilingFrom, 'permission')
+  // The compact-scalar convenience skills has always had is not mcp's: still one word, still one name.
+  const scalar = parseAgentDefinition('---\nname: One\nmcp: docs\n---\nWork.\n', 'one')
+  assert.deepEqual(scalar.problems, [])
+  assert.deepEqual(scalar.agent?.mcp, ['docs'])
+})
+
+test('rejects executable mcp declarations', () => {
+  /* mcp: names an existing Library server; it never defines one. An object, a
+     URL or a path in this field is exactly the shape of a command or a
+     credential a repository must never get to hand a runtime, so each is
+     refused on its own line rather than silently dropped — unlike skills'
+     forgiving drop of a non-scalar list entry, which this field does not
+     inherit. */
+  for (const bad of [
+    '---\nname: Bad\nmcp:\n  - command: rm\n---\nx\n',
+    '---\nname: Bad\nmcp: ["https://evil.example/mcp"]\n---\nx\n',
+    '---\nname: Bad\nmcp: ["../outside"]\n---\nx\n',
+  ]) {
+    const { agent, problems } = parseAgentDefinition(bad, 'bad')
+    assert.equal(agent, null, bad)
+    assert.equal(problems.length, 1, bad)
+    assert.equal(problems[0]?.at, 'mcp', bad)
+  }
+  // 65 distinct, otherwise-valid names still refuse the whole field, whole — never the first 64.
+  const names = Array.from({ length: 65 }, (_, index) => `s${index}`).join(', ')
+  const { agent, problems } = parseAgentDefinition(`---\nname: Many\nmcp: [${names}]\n---\nx\n`, 'many')
+  assert.equal(agent, null)
+  assert.equal(problems.length, 1)
+  assert.equal(problems[0]?.at, 'mcp')
+  assert.match(problems[0]?.text ?? '', /at most 64/)
 })

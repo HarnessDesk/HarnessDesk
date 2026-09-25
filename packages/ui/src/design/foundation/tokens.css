@@ -269,6 +269,9 @@ body {
   --hd-control-h: 26px;
   --hd-target-min: 24px;
   --hd-control-h-sm: 24px;
+  /* The floor of the history's resizable commit detail. Its action and
+     filter bars stand on the tool pane's own bar rung now (`ToolPaneBar`). */
+  --hd-history-detail-min-h: 160px;
   /*
    * The text-control rung, and why it is not `--hd-control-h`.
    *
@@ -382,6 +385,11 @@ body {
   --hd-composer-line: 20px; /* desk: 22 → 20, the interface line */
   --hd-composer-radius: 28px;
 
+  /* The tallest a dialog is ever drawn: the window, less the same gutter a
+     dialog keeps at its sides. A dialog taller than what it holds gives the
+     difference to its body, which scrolls; its question and its answers stay. */
+  --hd-dialog-max-height: calc(100dvh - 2 * var(--hd-space-6));
+
   /* Native-looking scrollbar geometry and paint. The global adapter consumes
      only these public names; the private platform palette ends here. */
   --hd-scrollbar-width: 8px;
@@ -489,6 +497,17 @@ body {
   --hd-z-sheet: 60;
   --hd-z-dialog: 100;
   --hd-z-toast: 200;
+
+  /* The floating notice stack's own measured height, plus its own gap — set
+     from JS (`App.tsx`'s `ResizeObserver` on `.hd-floatingNotices`), never
+     written by a screen. `0px` here is what every reader gets before that
+     effect has run once, and what a screen with nothing to yield to keeps.
+     A pane that can sit under the stack reads it once, at its own top edge,
+     through the system's own helper beside `.hd-floatingNotices`
+     (`app.css`) rather than reaching for this name directly, so the one
+     place that measures the stack is also the one place that says how a
+     pane leaves room for it (#913). */
+  --hd-notice-inset: 0px;
 
   /* =========================================================================
      SEMANTIC COLOUR — what a colour is for, not what it is.
@@ -673,6 +692,17 @@ body {
   --hd-code-inset: var(--hd-space-3);
   --hd-code-text: var(--hd-text-xs);
   --hd-code-line: var(--hd-line-sm);
+  /* Code set inside a sentence (`CodeText`) follows the sentence rather than
+     taking a size of its own: 0.92 of it, which sets the monospace face's
+     x-height a touch under the interface face's (measured 0.547 against 0.530
+     of the em) to offset its wider, evenly weighted glyphs — at the same
+     size a flag read a step larger than the words around it. Not a step of
+     the scale: it lands on whichever of the four steps the sentence is set
+     in, and never below the smallest of them. */
+  --hd-code-inline: max(var(--hd-text-xs), 0.92em);
+  /* A code read aloud and typed on another device — a one-time sign-in
+     code — is spaced so its groups read across a room. */
+  --hd-code-tracking-spaced: 0.18em;
   --hd-code-max-height: 380px;
   /* Diff rows sit inside the darker code fill. Resolve their state washes
      against the page as opaque colours so a gutter does not composite the
@@ -792,6 +822,33 @@ body {
      readable step rather than the fill colour — see the state-ink block. */
   --hd-btn-danger-ink: var(--hd-danger-ink);
   --hd-btn-danger-hover: var(--hd-danger-dim);
+  /* The one filled red button: the act of a destructive confirm. It is the
+     footer's only filled button, so it is as loud as a primary and no louder.
+     The fill is the 600 step rather than the danger colour itself because
+     white on the 500 step reads at 4.0:1; the 600 holds 4.9:1 in both
+     themes, and the hover darkens toward the 900. */
+  --hd-btn-danger-fill: var(--hdp-static-red-600);
+  --hd-btn-danger-fill-hover: color-mix(in srgb, var(--hdp-static-red-600) 84%, var(--hdp-static-red-900));
+  --hd-btn-danger-foreground: var(--hd-destructive-foreground);
+  /* A filled act that cannot be pressed yet — the primary or the red one —
+     is drawn one way: its fill kept at a sixth, laid over the footer's ground,
+     and its label in the button's own ink mixed into that ground, solved so
+     both labels land at the same contrast, just over 3:1 in both themes
+     (ink 3.2 / 3.1, red 3.1 / 3.3). The red ink loses contrast on its own
+     pale fill faster than the ink does on grey, so it keeps more of itself:
+     85% against 60%. At one share for both, the ink label was 5:1 and read
+     as enabled, or the red one fell under 3:1. It still reads as the act, in
+     its own hue, and clearly weaker than it will be. Half
+     opacity mixed the button into whatever was under it, which on the grey
+     footer was a mid-grey slab with a white label; a dark fill with a faded
+     label stayed nearly as strong as the enabled button. */
+  --hd-btn-disabled-fill-share: 16%;
+  --hd-btn-disabled-ink-share: 60%;
+  --hd-btn-danger-disabled-ink-share: 85%;
+  --hd-btn-primary-disabled-fill: color-mix(in srgb, var(--hd-btn-primary-fill) var(--hd-btn-disabled-fill-share), var(--hd-muted));
+  --hd-btn-primary-disabled-foreground: color-mix(in srgb, var(--hd-btn-primary-fill) var(--hd-btn-disabled-ink-share), var(--hd-muted));
+  --hd-btn-danger-disabled-fill: color-mix(in srgb, var(--hd-btn-danger-fill) var(--hd-btn-disabled-fill-share), var(--hd-muted));
+  --hd-btn-danger-disabled-foreground: color-mix(in srgb, var(--hd-btn-danger-ink) var(--hd-btn-danger-disabled-ink-share), var(--hd-muted));
 
   /* --- density scopes ------------------------------------------------------
    *
@@ -892,22 +949,26 @@ body {
 
   /* --- the section label ---------------------------------------------------
      The word over a group of rows — "Workspaces", "Capabilities", "Agents".
-     Desk sets it at the rows' own 13px size in sentence case, regular weight
-     and muted ink, so it names the group quietly. Studio sets it at 12px in
-     uppercase medium with tracking, so the group reads distinctly without a
-     rule beneath it. */
+     There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own
+     13px chrome step, the secondary ink, sentence case, so it names the group
+     quietly and the rows stay the subject. Studio sets the same label in the
+     medium weight with more air above a rail's group; neither interface sets
+     a label in capitals — the only capitals in the app are printed on a
+     `Keycap`, and the design audit counts any other (`uppercaseLabel`). */
   /*
-   * The whole `--hd-label-*` family is defined in the STUDIO block and nowhere
-   * else, and so is the selection family below it. This is the rule the rest
-   * of this section follows, so it is worth stating once.
+   * The two `--hd-label-*` tokens left (`-weight`, `-space`) are defined in the
+   * STUDIO block and nowhere else, and so is the selection family below them.
+   * This is the rule the rest of this section follows, so it is worth stating
+   * once.
    *
-   * The app draws a group heading in three navigation columns and no two agree:
-   * the sidebar's is 13px sentence case in the secondary ink with 6px of air,
-   * the settings window's is 13px tertiary with 20px, the room's rail is
-   * already 12px uppercase medium in the muted foreground. Every one of those
-   * is a value somebody looked at and accepted. Naming a single Desk default
-   * would restyle two of the three, which is a redesign wearing the clothes of
-   * a refactor — and is exactly the mistake this file made once already.
+   * The group heading was where this rule was first needed, and it is now
+   * resolved rather than deferred. The app drew it three ways: the sidebar's
+   * 13px secondary, the settings window's 13px in the faint ink, and the
+   * room's rail in 12px tracked capitals. The first is the one kept; the
+   * settings label moved to it, and the capitals are the audit's to burn down
+   * (the room's rail, the trajectory's role labels and the agent card are the
+   * screens still spelling them). What the interfaces may still vary is only
+   * the weight and the air, which is why those two stay Studio-only tokens.
    *
    * So: **a token that varies between the two interfaces is defined only in
    * Studio, and each call site spells its own value as the `var()` fallback.**
@@ -973,6 +1034,10 @@ body {
 
   --hd-chip-radius: var(--hd-radius-full);
   --hd-chip-fill: var(--hd-muted);
+  /* A pressable pill under the pointer: its own fill a step toward the ink,
+     so the step is visible on the chip's ground rather than replacing it with
+     the translucent hover that reads as nothing over grey. */
+  --hd-chip-fill-hover: color-mix(in srgb, var(--hd-chip-fill) 92%, var(--hd-foreground));
 
   /* The switch, the checkbox and the radio: three shapes, one question, which
      is whether the control is on. On is the **accent**, and this token spent a
@@ -1020,13 +1085,6 @@ body {
   --hd-surface-radius: var(--hd-radius-lg);
   --hd-surface-shadow: var(--hd-shadow-lg), var(--hd-hairline);
   --hd-scrim: var(--hdp-alias-bg-mask-1);
-  --hd-lightbox-scrim: rgba(0, 0, 0, 0.78);
-  --hd-lightbox-canvas: rgb(255, 255, 255);
-  --hd-lightbox-foreground: rgba(255, 255, 255, 0.92);
-  --hd-lightbox-muted: rgba(255, 255, 255, 0.6);
-  --hd-lightbox-control: rgba(255, 255, 255, 0.12);
-  --hd-lightbox-control-hover: rgba(255, 255, 255, 0.24);
-  --hd-lightbox-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   --hd-external-canvas: rgb(255, 255, 255);
 }
 
@@ -1058,6 +1116,10 @@ body {
  */
 body[data-hd-dark-theme] {
   --hd-sidebar-plate: var(--hdp-static-grey-850); /* desk: black → a plate above the page, the direction the column reads in */
+
+  /* A lighter grey needs a longer step to read as one: the same 8% on a dark
+     chip moved it by as little as the light theme's does, and read as none. */
+  --hd-chip-fill-hover: color-mix(in srgb, var(--hd-chip-fill) 86%, var(--hd-foreground));
 
   /* An elevation drawn in black does nothing on a black page: the smallest
      rung becomes a hairline of light instead. */
@@ -1104,10 +1166,12 @@ body[data-hd-dark-theme] {
  *      row in a column that most needs finding. Studio fills it with the
  *      brand, so the two states stop being neighbours on one scale of grey.
  *
- *   2. A GROUP HEADING IS NOT A ROW. Desk sets it at the same size and weight
- *      as the rows beneath it, one shade lighter. Studio steps it down to
- *      12px, uppercase, medium, tracked — which is what lets a group read as
- *      a group with no rule under it.
+ *   2. A GROUP HEADING IS NOT A ROW. Desk sets it at the same size as the
+ *      rows beneath it, one shade lighter. Studio gives it the medium weight
+ *      and more air above it, which is what lets a group read as a group with
+ *      no rule under it. It once also stepped it down to 12px tracked
+ *      capitals; the app keeps no capitals outside a `Keycap`, and a column
+ *      of six shouted labels was the loudest thing in the sidebar.
  *
  *   3. A CARD SEPARATES BY AREA, NOT BY EDGE. Desk draws white on white with
  *      a 4%-black hairline; stack three and the page reads as a wireframe.
@@ -1163,15 +1227,11 @@ body[data-hd-interface='studio'] {
   --hd-nav-radius: var(--hd-radius-sm);
   --hd-nav-inset: var(--hd-space-2-5);
 
-  /* 2 — the group heading */
-  --hd-label-size: var(--hd-text-xs);
+  /* 2 — the group heading. Defined here and nowhere else — see the note in
+     the Desk block. The size, the ink and the case are `GroupLabel`'s in both
+     interfaces; Studio varies only the weight and the air above a rail's
+     group. */
   --hd-label-weight: var(--hd-weight-medium);
-  --hd-label-tracking: 0.06em;
-  --hd-label-transform: uppercase;
-  /* Defined here and nowhere else — see the note in the Desk block. These two
-     lines are what make the sidebar, the settings window and the room's rail
-     head their groups identically. */
-  --hd-label-ink: var(--hd-tertiary-foreground);
   --hd-label-space: var(--hd-space-5);
 
   /* 3 — the card. 4% of the brand over white is a visible wash and nothing

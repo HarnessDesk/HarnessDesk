@@ -1,4 +1,4 @@
-import { StrictMode, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { runtimeId, sessionKey, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
@@ -11,6 +11,12 @@ import { AgentsView, ChangesView, TrajectoryView } from '../components/Details'
 import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
 import { ProjectChecks } from '../components/ProjectChecks'
+import { ProjectFlows } from '../components/ProjectFlows'
+import { ProjectTriggers } from '../components/ProjectTriggers'
+import { TriggerArm } from '../components/TriggerArm'
+import { FlowUpdate } from '../components/FlowUpdate'
+import { RaceStart } from '../components/RaceStart'
+import { FlowRunStatus } from '../components/FlowRunStatus'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -20,6 +26,7 @@ import { SaveAsAgentDialog } from '../components/SaveAsAgent'
 import { Settings, WorkspacesSection, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
+import { SIGN_IN_SCENES, SIGN_IN_SELECTED, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
@@ -33,17 +40,34 @@ import {
   Boundary,
   EDGE_ROOM,
   EMPTY_ROOM,
+  PREVIEW_EMPTY_SESSION_KEY,
   PREVIEW_PLANS,
   PREVIEW_ROOM,
   PREVIEW_SESSION_KEY,
+  previewStore,
   runtime,
   store,
 } from './harness'
+import { PublicationCard } from '../components/Publication'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
-import { PREVIEW_GOAL } from './goal-fixture'
+import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
+import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
+import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
+import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
+import { MessageQueue } from '../components/MessageQueue'
 import '../styles/app.css'
+
+const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
+/* A second full `<Conversation>` duplicates every ambient header element —
+   the plan strip, its "other agents" trigger — which is exactly what broke
+   the composer frames above before they were gated the same way. Only on
+   `preview.html?empty`, for the same reason. */
+const SHOW_EMPTY = new URLSearchParams(window.location.search).has('empty')
+/* Painted only when asked for: the fixture draws its two pictures at load. */
+const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
+const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -58,6 +82,75 @@ Object.assign(store as unknown as Record<string, unknown>, {
     return health
   },
   retryCapture: async () => captureHealth(),
+})
+
+// The one run `goal-flow`'s own reservation names — its header reads
+// whichever of these `flowExecutions` holds, exactly as a real room does.
+previewMutable.patch({ flowExecutions: new Map([['preview-flow-run', sceneFlowExecution('pinned')]]) })
+/** Set from the "flow scene" Dial; `flowExecutions` is read synchronously off the snapshot, never fetched. */
+const setPreviewFlowExecutionScene = (scene: FlowExecutionScene): void => {
+  previewMutable.patch({ flowExecutions: new Map([['preview-flow-run', sceneFlowExecution(scene)]]) })
+}
+
+// The project's own trigger list is mutable here: arming and disarming the
+// switch in "Project — its triggers" below writes back into this state, the
+// same way the capture switch above does, so the preview page is something
+// a person can actually operate rather than a frozen screenshot.
+let goalIntakeScene: GoalIntakeScene = 'pull-request'
+/** Read by `triggerGoal` below; set from the "goal intake scene" Dial. */
+const setPreviewGoalIntakeScene = (scene: GoalIntakeScene): void => {
+  goalIntakeScene = scene
+  /* The one scene that is not the trigger's own status: a member of the room
+     asking before it runs a command, which the room draws in its composer's
+     slot. The rest clear it, so no scene inherits another's question. */
+  previewMutable.patch({
+    approvals: scene === 'approval'
+      ? [{
+          key: sessionKey(runtimeId('codex'), 'c1'),
+          approval: {
+            id: 'preview-approval', type: 'command', kind: 'shell', command: 'pnpm test', cwd: PREVIEW_TRIGGER_GOAL.goal.cwd,
+            reason: 'Runs the project’s tests before the review is written.',
+            options: [
+              { id: 'yes', label: 'Allow', intent: 'approve' },
+              { id: 'always', label: 'Allow for this session', intent: 'approveAlways' },
+              { id: 'no', label: 'Deny', intent: 'deny' },
+            ],
+          },
+        }] as never
+      : [],
+  })
+}
+
+let previewTriggers = triggerProjectView()
+Object.assign(store as unknown as Record<string, unknown>, {
+  projectTriggers: async () => previewTriggers,
+  previewTrigger: async (_root: string, id: string) => sceneArmPreview((TRIGGER_ARM_SCENES as readonly string[]).includes(id) ? (id as TriggerArmScene) : 'ready'),
+  armTrigger: async (_root: string, id: string) => {
+    const armed = previewTriggers.triggers.find((one) => one.id === id)
+    if (!armed) throw new Error(`[preview] no trigger named ${id}`)
+    const next = { ...armed, armed: true, state: 'armed' as const }
+    previewTriggers = { ...previewTriggers, triggers: previewTriggers.triggers.map((one) => (one.id === id ? next : one)) }
+    return next
+  },
+  disarmTrigger: async (_root: string, id: string) => {
+    const off = previewTriggers.triggers.find((one) => one.id === id)
+    if (!off) throw new Error(`[preview] no trigger named ${id}`)
+    const next = { ...off, armed: false, state: 'off' as const }
+    previewTriggers = { ...previewTriggers, triggers: previewTriggers.triggers.map((one) => (one.id === id ? next : one)) }
+    return next
+  },
+  // Answered for the Goal asked about: the room reads a status only when it
+  // names the Goal it is showing, and the fixture's own id is a different one.
+  triggerGoal: async (goal: string) => (goal === PREVIEW_TRIGGER_GOAL.goal.id ? { ...sceneGoalStatus(goalIntakeScene), goal } : null),
+  respondToApproval: async () => { previewMutable.patch({ approvals: [] }) },
+  triggerHistory: async () => triggerHistoryPage({
+    items: [
+      triggerFiring(),
+      triggerFiring({ id: 'firing-2', subject: '11', outcome: 'skipped', reason: 'A stranger’s head; forks are never run.', goal: null, run: null, round: null, head: 'b'.repeat(40) }),
+      triggerFiring({ id: 'firing-3', subject: '11', outcome: 'duplicate', reason: null }),
+    ],
+    next: null,
+  }),
 })
 
 /**
@@ -151,6 +244,19 @@ const WorktreeDialogs = ({ which, onClose }: { which: 'remove' | 'bring back'; o
   )
 }
 
+/**
+ * Sign-in on a roster of its own: every state the dialog draws is one scene
+ * of `signin-fixture.ts`, and each scene opens on the agent that shows it.
+ */
+const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => void }) => {
+  const own = useMemo(() => previewStore(signInSeed(scene)), [scene])
+  return (
+    <StoreProvider store={own}>
+      <SignIn runtime={SIGN_IN_SELECTED[scene]} onClose={onClose} />
+    </StoreProvider>
+  )
+}
+
 const Dial = <T extends string>({
   label,
   value,
@@ -208,7 +314,15 @@ const Preview = () => {
     | 'save as agent'
     | 'what was observed'
     | 'run a check'
+    | 'flow update'
+    | 'flow customize'
+    | 'race'
+    | 'trigger arm'
   >('off')
+  const [armScene, setArmScene] = useState<TriggerArmScene>('ready')
+  const [signInScene, setSignInScene] = useState<SignInScene>('refused')
+  const [goalScene, setGoalScene] = useState<GoalIntakeScene>('pull-request')
+  const [flowScene, setFlowScene] = useState<FlowExecutionScene>('pinned')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
   return (
@@ -252,15 +366,29 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
           onChange={setDialog}
         />
+        <Dial label="trigger arm scene" value={armScene} options={TRIGGER_ARM_SCENES} onChange={setArmScene} />
+        <Dial label="sign in scene" value={signInScene} options={SIGN_IN_SCENES} onChange={setSignInScene} />
+        <Dial
+          label="goal intake scene"
+          value={goalScene}
+          options={GOAL_INTAKE_SCENES}
+          onChange={(next) => { setGoalScene(next); setPreviewGoalIntakeScene(next) }}
+        />
+        <Dial
+          label="flow scene"
+          value={flowScene}
+          options={FLOW_EXECUTION_SCENES}
+          onChange={(next) => { setFlowScene(next); setPreviewFlowExecutionScene(next) }}
+        />
       </div>
-      {/* Sign-in is on this page's own store rather than the worktree one: it
-          reads the roster, which the fixture already has, and it is the one
-          screen here that is *only* ever a dialog — so at a narrow window
-          nothing else on the page shows what it does. */}
-      {dialog === 'sign in' && <SignIn onClose={() => setDialog('off')} />}
+      {/* Sign-in stands on a store of its own, seeded by `signin-fixture.ts`:
+          the page's roster is all signed in, which is the one roster this
+          dialog never has to help with. The scene dial picks which state it
+          opens on. */}
+      {dialog === 'sign in' && <SignInPreview key={signInScene} scene={signInScene} onClose={() => setDialog('off')} />}
       {dialog === 'what was observed' && (
         <ObservedDialog
           id={1}
@@ -279,6 +407,18 @@ const Preview = () => {
         />
       )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
+      {dialog === 'flow update' && (
+        <FlowUpdate root={PREVIEW_ROOT} id="old-fix" mode="update" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
+      )}
+      {dialog === 'flow customize' && (
+        <FlowUpdate root={PREVIEW_ROOT} id="comparison" mode="customize" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
+      )}
+      {dialog === 'race' && (
+        <RaceStart root={PREVIEW_ROOT} task="Fix the retry bug" onClose={() => setDialog('off')} />
+      )}
+      {dialog === 'trigger arm' && (
+        <TriggerArm root={PREVIEW_ROOT} id={armScene} onClose={() => setDialog('off')} onArmed={() => setDialog('off')} />
+      )}
       {dialog === 'seat sheet' && (
         <SeatSheet
           refusal={{
@@ -386,6 +526,11 @@ const Preview = () => {
           <WorkspacesSection focus={PREVIEW_ROOT} />
         </div>
       </Frame>
+      <Frame title="Settings › Workspaces — Triggers on this Mac">
+        <div className="max-h-[560px] overflow-y-auto p-4">
+          <WorkspacesSection />
+        </div>
+      </Frame>
       {/* The Dashboard, at the width the window really opens it at. Its own
           rail scopes the page, so clicking an account in here shows the
           burn-down band the way the app does.
@@ -425,6 +570,100 @@ const Preview = () => {
           </PaneProvider>
         </div>
       </Frame>
+
+      {/* A pane scoped to no session at all: the transcript's own pitch,
+          "What should we build?", the pane a fresh conversation opens on.
+          Only on `preview.html?empty` — see `SHOW_EMPTY` above. */}
+      {SHOW_EMPTY && (
+        <Frame title="Conversation — the empty pane">
+          <div className="h-[560px]">
+            <PaneProvider
+              scope={{
+                paneId: 'preview-empty' as never,
+                view: { kind: 'conversation', session: PREVIEW_EMPTY_SESSION_KEY } as never,
+                sessionKey: PREVIEW_EMPTY_SESSION_KEY,
+              }}
+            >
+              <Conversation
+                onChooseProject={() => {}}
+                onSignIn={() => {}}
+                onOpenUsage={() => {}}
+                onOpenRuntimes={() => {}}
+              />
+            </PaneProvider>
+          </div>
+        </Frame>
+      )}
+
+      {/* The card a publication chip opens on hover: the forge's own crest,
+          state, size and excerpt. Rendered directly — no transcript in this
+          fixture set carries a publication item yet. */}
+      <Frame title="Publication card — a pull request">
+        <div className="w-[320px] rounded-(--hd-radius-lg) shadow-[inset_0_0_0_1px_var(--hd-border-strong)] bg-(--hd-popover)">
+          <PublicationCard
+            reference={{
+              kind: 'pullRequest',
+              action: 'opened',
+              repo: 'harnessdesk/harnessdesk',
+              number: 748,
+              url: 'https://github.com/harnessdesk/harnessdesk/pull/748',
+              title: 'Converge the conversation, its cards and its bars onto the design system',
+              state: 'open',
+              author: 'shane',
+              additions: 214,
+              deletions: 58,
+              files: 6,
+              excerpt: 'Screens compose the parts design/ already owns instead of drawing their own appearance.',
+              via: 'gh',
+              signature: null,
+            }}
+          />
+        </div>
+      </Frame>
+
+      {/* The composer holding everything it can at once, on a store of its
+          own: a model list that folds behind a filter, a build with a newer
+          one out, three messages waiting, and a sent message with two
+          pictures to open in the lightbox. Only on `preview.html?composer`:
+          a second conversation on the page would give every spec that finds
+          "the" model trigger or "the" transcript two of them. */}
+      {SHOW_COMPOSER && <>
+      <Frame title="Composer — its pickers, the queue and a picture">
+        <div className="h-[820px]" data-preview="composer">
+          <StoreProvider store={composerWaiting}>
+            <PaneProvider
+              scope={{
+                paneId: 'preview-composer' as never,
+                view: { kind: 'conversation', session: COMPOSER_SESSION_KEY } as never,
+                sessionKey: COMPOSER_SESSION_KEY,
+              }}
+            >
+              <Conversation
+                onChooseProject={() => {}}
+                onSignIn={() => {}}
+                onOpenUsage={() => {}}
+                onOpenRuntimes={() => {}}
+              />
+            </PaneProvider>
+          </StoreProvider>
+        </div>
+      </Frame>
+      <Frame title="Composer — a paused queue">
+        <div className="p-4" data-preview="queue-paused">
+          <StoreProvider store={composerPaused}>
+            <PaneProvider
+              scope={{
+                paneId: 'preview-queue' as never,
+                view: { kind: 'conversation', session: COMPOSER_SESSION_KEY } as never,
+                sessionKey: COMPOSER_SESSION_KEY,
+              }}
+            >
+              <MessageQueue />
+            </PaneProvider>
+          </StoreProvider>
+        </div>
+      </Frame>
+      </>}
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
         {/* The two right-dock panels, at the width the dock actually gives
@@ -468,9 +707,32 @@ const Preview = () => {
             </PaneProvider>
           </div>
         </Frame>
+        <Frame title="Project — its flows">
+          <div className="p-4">
+            <ProjectFlows root={PREVIEW_ROOT} current />
+          </div>
+        </Frame>
+        <Frame title="Flow — run status, interrupted check">
+          <div className="p-4">
+            <FlowRunStatus
+              execution={{
+                version: 2, id: 'run-preview', goal: PREVIEW_ROOM, document: { format: 'agents', flow: { version: 2, name: 'Fix and review', inputs: [], roles: [], rules: [], seed: { role: 'verify', title: 'Check the fix' }, messaging: 'board-only', wait: 240 } },
+                state: 'stalled',
+                rounds: [{ n: 2, role: 'verify', cards: [7], seats: [], evidence: [], state: 'running', cause: 'x' }],
+                operations: [{ key: 'check:2:0', kind: 'check', state: 'uncertain', card: 7, seat: null }],
+                legacyRun: null, reason: 'This check was interrupted. Inspect its effects, then choose Run again.',
+              }}
+            />
+          </div>
+        </Frame>
         <Frame title="Project — its checks">
           <div className="p-4">
             <ProjectChecks root={PREVIEW_ROOT} />
+          </div>
+        </Frame>
+        <Frame title="Project — its triggers">
+          <div className="p-4">
+            <ProjectTriggers root={PREVIEW_ROOT} />
           </div>
         </Frame>
       </div>
@@ -497,6 +759,21 @@ const Preview = () => {
         <Frame title="Goal — state, roster and channel">
           <div className="h-[540px]">
             <TeamRoomPane room={PREVIEW_GOAL.goal.id} />
+          </div>
+        </Frame>
+        <Frame title="Goal — opened by a trigger">
+          <div className="h-[540px]">
+            <TeamRoomPane key={goalScene} room={PREVIEW_TRIGGER_GOAL.goal.id} />
+          </div>
+        </Frame>
+        {/* A front-door start's own header meta: a pinned revision ("at
+            a1b2c3d on branch feature"), a diff or working-tree's label alone
+            (no head to repeat), or a person's own stop line — all read off
+            `flowExecutions`, never fetched, so the "flow scene" Dial above
+            is what moves this frame. */}
+        <Frame title="Goal — a front-door start's pinned revision or stop line">
+          <div className="h-[540px]">
+            <TeamRoomPane key={flowScene} room={PREVIEW_FLOW_GOAL.goal.id} />
           </div>
         </Frame>
         <div className="flex min-w-0 flex-col gap-4">

@@ -12,6 +12,7 @@ import {
   type Approval,
   type ApprovalDecision,
   type ApprovalId,
+  type AttachmentSupport,
   type BackgroundTask,
   type ConfigOption,
   type FileEntry,
@@ -33,6 +34,8 @@ import {
   type RuntimeCapabilities,
   type RuntimeInfo,
   type Session,
+  type SessionAttachmentReceipt,
+  type SessionAttachments,
   type SessionDeletion,
   type SessionId,
   type SessionOptions,
@@ -42,6 +45,8 @@ import {
   type Unsubscribe,
   type UserContent,
 } from '@harnessdesk/protocol'
+
+import { bundleDigest, readBundle } from '../../src/attachments/catalog.js'
 
 /**
  * An in-memory `AgentRuntime` for host tests.
@@ -243,6 +248,15 @@ export class FakeRuntime implements AgentRuntime {
   #health: RuntimeHealth = { state: 'unavailable', reason: 'unknown', message: 'not started' }
   #counter = 0
   readonly sessions = new Map<string, FakeSession>()
+  /**
+   * Refuses a second message while a turn is still running, in the words a
+   * real agent adapter uses — off by default, since most suites drive one
+   * turn at a time and never ask. The flow suites turn it on: a seat's brief
+   * is a turn of its own, and a card order sent into it is refused there.
+   */
+  refusesWhileBusy = false
+  /** Called once a sent turn has started, so a test can play an agent that works inside that turn. */
+  onSend: ((session: FakeSession, text: string, opts?: { readonly recordAs?: 'user' | 'notice' }) => void) | null = null
   /** Turn ids the test asked to leave running, so interrupt has something to do. */
   readonly history: SessionSummary[] = []
 
@@ -263,6 +277,21 @@ export class FakeRuntime implements AgentRuntime {
       sessionStore?: string
       /** What `getAccount` calls this identity, so two accounts can be told apart. */
       accountLabel?: string
+      /**
+       * Phase 12's stronger session contract. Absent by default — exactly
+       * like a runtime never measured against it — so a test that wants a
+       * capable fake opts in explicitly rather than every existing test of
+       * this fixture suddenly gaining a capability nobody asked it for.
+       */
+      attachments?: AttachmentSupport
+      /**
+       * The brand the Library scans this runtime as (`presentation.brand`) —
+       * `claudecode` makes a project's `.mcp.json` a Library server, which a
+       * phase-12 test needs to resolve a real `mcp:` declaration.
+       */
+      brand?: string
+      /** Which vendor its models come from, as an adapter would report it (`RuntimeInfo.provider`). */
+      provider?: string | null
     } = {},
   ) {
     this.info = {
@@ -274,6 +303,9 @@ export class FakeRuntime implements AgentRuntime {
       ...(identity.capabilities
         ? { capabilities: { ...this.info.capabilities, ...identity.capabilities } }
         : {}),
+      ...(identity.attachments ? { attachments: identity.attachments } : {}),
+      ...(identity.brand ? { presentation: { ...this.info.presentation, brand: identity.brand } } : {}),
+      ...(identity.provider !== undefined ? { provider: identity.provider } : {}),
     }
     this.sessionStore = identity.sessionStore ?? null
     this.accountLabel = identity.accountLabel ?? 'API key'
@@ -611,6 +643,20 @@ export class FakeRuntime implements AgentRuntime {
   lastResumeOptions: Partial<SessionOptions> | null = null
 
   /**
+   * What each session was actually given to load, by session id — the fake's
+   * own honest memory, read back by `attachmentReceipt` exactly the way a
+   * real capable runtime would answer for what it was actually handed,
+   * never for what a caller merely asked for afterwards.
+   */
+  readonly attachmentsGiven = new Map<string, SessionAttachments | undefined>()
+  /**
+   * Overrides what a session's next `attachmentReceipt` answers, for a test
+   * that needs a dishonest or unsupported-shaped answer (a stale key, an
+   * extra loaded item, a thrown refusal) rather than the honest default.
+   */
+  readonly attachmentReceiptOverrides = new Map<string, SessionAttachmentReceipt | Error>()
+
+  /**
    * Opens a conversation on every setting it is handed, not only its folder
    * and model — the host's own `agent`, `briefDigest`, `permission`,
    * `seatLabel` and `passedOver` among them — the way a runtime that copies
@@ -639,8 +685,49 @@ export class FakeRuntime implements AgentRuntime {
     const session = new FakeSession(this, id, settings, values)
     this.sessions.set(id, session)
     this.minted.set(String(id), options.cwd)
+    this.attachmentsGiven.set(String(id), options.attachments)
     this.emit({ type: 'session/started', session: session.snapshot() })
     return session
+  }
+
+  /**
+   * The honest readback `AgentRuntime.attachmentReceipt` promises: exactly
+   * what this session was actually given at `createSession`, echoed back as
+   * loaded — never invented, and never answered for a session this fake was
+   * not asked to scope in the first place. A test that wants a dishonest
+   * runtime (a stale key, an extra item, a thrown failure) sets
+   * `attachmentReceiptOverrides` for that session id first.
+   */
+  /** Runs just before a receipt is read — a test's chance to change what was staged after it was prepared. */
+  beforeAttachmentReceipt: ((given: SessionAttachments) => Promise<void>) | null = null
+
+  async attachmentReceipt(session: SessionId): Promise<SessionAttachmentReceipt> {
+    const pending = this.attachmentsGiven.get(String(session))
+    if (pending && this.beforeAttachmentReceipt) await this.beforeAttachmentReceipt(pending)
+    const override = this.attachmentReceiptOverrides.get(String(session))
+    if (override instanceof Error) throw override
+    if (override) return override
+    const given = this.attachmentsGiven.get(String(session))
+    if (!given) throw new Error(`fake runtime: session ${session} was never given attachments to load`)
+    // A skill is reported by the digest of what is actually at the path it
+    // was handed — hashed here, never repeated back from the input — so a
+    // staged copy that changed after it was prepared reads as different
+    // content, exactly as a real runtime's receipt must. A server has no
+    // bytes of its own here: the desk's gateway is what dials it.
+    const skills = await Promise.all(
+      (given.skills ?? []).map(async (one) => {
+        const read = await readBundle(one.path)
+        return read.ok ? { kind: 'skill' as const, name: one.name, digest: bundleDigest(read.files) } : null
+      }),
+    )
+    return {
+      key: given.key,
+      loaded: [
+        ...skills.filter((one): one is NonNullable<typeof one> => one !== null),
+        ...(given.mcp ?? []).map((one) => ({ kind: 'mcp' as const, name: one.name, digest: one.digest })),
+      ],
+      refused: (given.skills ?? []).filter((_, index) => skills[index] === null).map((one) => ({ kind: 'skill' as const, name: one.name, reason: 'not there' })),
+    }
   }
 
   /** What `resumeSession` throws instead of answering, for failure plumbing. */
@@ -655,6 +742,9 @@ export class FakeRuntime implements AgentRuntime {
     if (this.resumeFailure) throw this.resumeFailure
     const existing = this.sessions.get(id)
     if (existing) return existing
+    // What a real adapter does with a reopen's filter: remembers it as what
+    // this session was given, so its receipt answers for the reopen.
+    if (options?.attachments) this.attachmentsGiven.set(String(id), options.attachments)
     const session = new FakeSession(this, id, SETTINGS, defaultValues())
     this.sessions.set(id, session)
     if (!this.minted.has(String(id))) this.minted.set(String(id), SETTINGS.cwd)
@@ -662,7 +752,10 @@ export class FakeRuntime implements AgentRuntime {
     return session
   }
 
+  lastForkOptions: Partial<SessionOptions> | null = null
+
   async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    this.lastForkOptions = options
     return this.createSession({
       cwd: options.cwd ?? this.sessions.get(id)?.settings().cwd ?? '/w',
       ...(options.model ? { model: options.model } : {}),
@@ -749,6 +842,9 @@ export class FakeSession implements AgentSession {
       throw failure
     }
     if (this.sendDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.sendDelayMs))
+    if (this.host.refusesWhileBusy && this.#activeTurn) {
+      throw new Error(`${this.host.info.name} is still working on the last message; wait for the turn to end, or interrupt it.`)
+    }
     this.#turn += 1
     const id = turnId(`fake-turn-${this.#turn}`)
     this.#activeTurn = id
@@ -787,7 +883,13 @@ export class FakeSession implements AgentSession {
         text: first?.type === 'text' ? `echo: ${first.text}` : 'echo',
       },
     })
+    this.host.onSend?.(this, input.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n'), opts)
     return id
+  }
+
+  /** Whether a turn is running now. */
+  get busy(): boolean {
+    return this.#activeTurn !== null
   }
 
   /** Completes the turn. Tests call this so timing is deterministic. */

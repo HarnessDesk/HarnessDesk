@@ -216,7 +216,7 @@ const Row = ({
   tone?: Tone
 }) => (
   <KeyValue className={styles.row}>
-    <KeyValueRow label={label}>
+    <KeyValueRow label={label} numeric>
       <Text role="value" tone={tone} className={styles.rowReading}>{value}</Text>
       {hint != null && hint !== '' && <Text role="meta" align="end">{hint}</Text>}
     </KeyValueRow>

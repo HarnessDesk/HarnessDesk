@@ -1,7 +1,7 @@
 import { closeSync, fstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import {
   agent as acpAgent,
   methods,
@@ -27,6 +27,16 @@ import { SESSION_DELETE, SESSION_DELETE_CAPABILITY, TASKS_CAPABILITY, TASKS_CLEA
 import { DelegationRegistry } from './delegation.js'
 import { childEnvironment, environmentAck, environmentIn } from './lane-environment.js'
 import { TaskRegistry } from './tasks.js'
+import {
+  ATTACHMENT_CAPABILITY_VALUE,
+  ATTACHMENT_RECEIPT,
+  ATTACHMENTS_CAPABILITY,
+  attachmentOptions,
+  attachmentReceipt,
+  decodeAttachmentInput,
+  type AttachmentInput,
+  type StagedAttachments,
+} from './attachments.js'
 
 const DEFAULT = 'default'
 const EFFORT_OPTION_ID = 'effort'
@@ -163,6 +173,30 @@ export const withInstructions = <T extends { _meta?: Meta }>(params: T): T => {
   const appended = typeof existing === 'object' && existing !== null && typeof (existing as { append?: unknown }).append === 'string' ? `${(existing as { append: string }).append}\n\n${text.trim()}` : text.trim()
   return { ...params, _meta: { ...(params._meta ?? {}), systemPrompt: { append: appended } } }
 }
+
+/**
+ * Phase 12's own extension applied at session creation: decodes
+ * `_meta.harnessdesk.attachments`, stages what it approves, and merges the
+ * resulting `claudeCode.options` fields (`skills`, `plugins`,
+ * `settingSources`, `strictMcpConfig`) onto whatever is already in `_meta` —
+ * never in place of it, so this composes with `withInstructions`/`withOptions`
+ * regardless of call order. A request that never carried the extension at
+ * all comes back unchanged: the plain path this bridge already has stays
+ * exactly as it was.
+ */
+const withAttachments = <T extends { _meta?: Meta }>(
+  params: T,
+  stagingRoot: (key: string) => string,
+): { params: T; input: AttachmentInput | null; staged: StagedAttachments | null } => {
+  const input = decodeAttachmentInput(params._meta)
+  if (!input) return { params, input: null, staged: null }
+  const attached = attachmentOptions(input, stagingRoot(input.key))
+  if (!attached) return { params, input, staged: null }
+  const meta = params._meta ?? {}
+  const claudeCode = (meta['claudeCode'] ?? {}) as { options?: Record<string, unknown> }
+  const merged: T = { ...params, _meta: { ...meta, claudeCode: { ...claudeCode, options: { ...(claudeCode.options ?? {}), ...attached.options } } } }
+  return { params: merged, input, staged: attached.staged }
+}
 const CONTROL_IDS = [EFFORT_OPTION_ID, AUTOCOMPACT_OPTION_ID, OUTPUT_STYLE_OPTION_ID] as const
 export const valueOf = (state: { values: Record<string, string> }, id: string): string => state.values[id] ?? DEFAULT
 export const optionsIn = (meta: Meta): Record<string, string> => {
@@ -282,6 +316,8 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #delegations = new Map<string, DelegationRegistry>()
   readonly #outputPollers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #deletedSessions = new Set<string>()
+  /** The exact input a session was prepared with, and what actually got staged for it — set once at create/load, reapplied unchanged by `#recreate`. */
+  readonly #attachments = new Map<string, { input: AttachmentInput; staged: StagedAttachments }>()
   readonly #stateDir: string
   readonly #log: (line: string) => void
   constructor(client: AcpClient, options: HarnessDeskClaudeAgentOptions = {}) {
@@ -337,15 +373,44 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
           [DELEGATION_CAPABILITY]: true,
           [INSTRUCTIONS_CAPABILITY]: true,
           sessionEnvironment: true,
+          [ATTACHMENTS_CAPABILITY]: ATTACHMENT_CAPABILITY_VALUE,
         },
       },
     }
   }
+  /** Where one session's approved skills are staged — a key `decodeAttachmentInput` already proved is a plain token. */
+  #stagingRoot(key: string): string {
+    return join(this.#stateDir, 'attachments', key)
+  }
+
+  /**
+   * Forgets what a session was prepared with and removes its staged folder —
+   * on close, on delete, and when a new or reloaded session replaces it under
+   * another key. `#recreate` closes through `super`, so a reconfigure keeps
+   * the folder its frozen options still point at.
+   */
+  #releaseAttachments(sessionId: string, keep?: string): void {
+    const held = this.#attachments.get(sessionId)
+    this.#attachments.delete(sessionId)
+    if (held && held.input.key !== keep) rmSync(this.#stagingRoot(held.input.key), { recursive: true, force: true })
+  }
+
+  override async closeSession(params: Parameters<ClaudeAcpAgent['closeSession']>[0]): ReturnType<ClaudeAcpAgent['closeSession']> {
+    try {
+      return await super.closeSession(params)
+    } finally {
+      this.#releaseAttachments(params.sessionId)
+    }
+  }
+
   override async newSession(request: NewSessionRequest): Promise<NewSessionResponse> {
-    const params = withInstructions(request)
+    const instructed = withInstructions(request)
+    const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
     const values = optionsIn(params._meta)
     const response = await super.newSession({ ...params, _meta: withOptions(params._meta, values, new AbortController()) })
     this.#deletedSessions.delete(response.sessionId)
+    this.#releaseAttachments(response.sessionId, input?.key)
+    if (input && staged) this.#attachments.set(response.sessionId, { input, staged })
     const session = this.sessions[response.sessionId]
     const decorated = decorateModelOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
     const stored: StoredControlsWithRuntime = { values: { ...values }, spawned: { ...values }, prompted: false, styles: await optionStyles(this, response.sessionId), meta: params._meta, cwd: params.cwd }
@@ -361,8 +426,11 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   override async loadSession(request: LoadSessionRequest): Promise<LoadSessionResponse> {
     const remembered = this.#readControls(request.sessionId)
     this.#deletedSessions.delete(request.sessionId)
-    const params = withInstructions(request)
+    const instructed = withInstructions(request)
+    const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
     const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController()) })
+    this.#releaseAttachments(request.sessionId, input?.key)
+    if (input && staged) this.#attachments.set(request.sessionId, { input, staged })
     const session = this.sessions[request.sessionId]
     const decorated = decorateModelOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
     const stored: StoredControlsWithRuntime = { values: remembered, spawned: { ...remembered }, prompted: true, styles: await optionStyles(this, request.sessionId), meta: params._meta, cwd: params.cwd }
@@ -438,6 +506,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       this.#controls.delete(sessionId)
       this.#tasks.delete(sessionId)
       this.#delegations.delete(sessionId)
+      this.#releaseAttachments(sessionId)
       const poller = this.#outputPollers.get(sessionId)
       if (poller) clearTimeout(poller)
       this.#outputPollers.delete(sessionId)
@@ -472,6 +541,23 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       const registry = this.#tasks.get(sessionId)
       if (registry?.clearFinished()) await this.client.extNotification?.(TASKS_NOTIFICATION, { sessionId, tasks: registry.list() })
       return { cleared: true }
+    }
+    if (method === ATTACHMENT_RECEIPT) {
+      const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
+      const key = typeof params['key'] === 'string' ? params['key'] : ''
+      const prepared = this.#attachments.get(sessionId)
+      // The client never accepts a receipt it did not ask for and never
+      // trusts a key that does not match what it prepared — enforced on its
+      // own side too, but this bridge never answers for a session/key pair
+      // it does not itself recognize as the one it was actually prepared
+      // with, host-side re-validation or not.
+      if (!prepared || prepared.input.key !== key) throw RequestError.invalidParams(`No prepared attachment input matches session ${sessionId} and its key.`)
+      const query = this.sessions[sessionId]?.query as
+        | { supportedCommands(): Promise<readonly { readonly name: string }[]>; mcpServerStatus(): Promise<readonly { readonly name: string; readonly status: string }[]> }
+        | undefined
+      if (!query) throw RequestError.invalidParams(`Session not found: ${sessionId}`)
+      const receipt = await attachmentReceipt(prepared.input, prepared.staged, query)
+      return { key: receipt.key, loaded: receipt.loaded, refused: receipt.refused }
     }
     throw RequestError.methodNotFound(method)
   }
@@ -508,11 +594,19 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     if (!session) throw RequestError.invalidParams(`Session not found: ${sessionId}`)
     const creation = session.creationParams
     await super.closeSession({ sessionId })
+    // `resume: sessionId` is added to whatever `claudeCode.options` already
+    // held — never in its place. Phase 12's own fields (`skills`, `plugins`,
+    // `settingSources`, `strictMcpConfig`) live in exactly that object, set
+    // once at create/load time and never re-derived from the Agent's current
+    // file here: a reconfigure or a resume reapplies the same frozen filter,
+    // it does not ask this Agent what it wishes for today.
+    const frozenClaudeCode = (stored.meta?.['claudeCode'] as Record<string, unknown> | undefined) ?? {}
+    const frozenOptions = (frozenClaudeCode['options'] as Record<string, unknown> | undefined) ?? {}
     const response = await super.resumeSession({
       sessionId,
       cwd: stored.cwd,
       ...(creation?.mcpServers ? { mcpServers: creation.mcpServers } : {}),
-      _meta: withOptions({ ...(stored.meta ?? {}), claudeCode: { ...((stored.meta?.['claudeCode'] as Record<string, unknown> | undefined) ?? {}), options: { resume: sessionId } } }, stored.values, new AbortController()),
+      _meta: withOptions({ ...(stored.meta ?? {}), claudeCode: { ...frozenClaudeCode, options: { ...frozenOptions, resume: sessionId } } }, stored.values, new AbortController()),
     })
     const current = this.#controls.get(sessionId)
     if (current) {
@@ -591,6 +685,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       .onRequest(TASKS_STOP, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_STOP, ctx.params))
       .onRequest(TASKS_CLEAR, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_CLEAR, ctx.params))
       .onRequest(DELEGATION_LIST, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(DELEGATION_LIST, ctx.params))
+      .onRequest(ATTACHMENT_RECEIPT, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(ATTACHMENT_RECEIPT, ctx.params))
       .onNotification(methods.agent.session.cancel, (ctx) => agent.cancel(ctx.params))
       .connect(stream)
     agent = new HarnessDeskClaudeAgent(clientFromContext(app.client), options)

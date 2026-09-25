@@ -35,6 +35,7 @@ import {
 import { useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowPage } from './AppWindow'
 import { RuntimeMark } from './BrandIcons'
+import { InsightUsage } from './InsightUsage'
 import {
   AlertIcon,
   CheckIcon,
@@ -155,6 +156,7 @@ export const Usage = ({
   const [scope, setScope] = useState<RuntimeId | null>(runtime)
   const [ledger, setLedger] = useState<LedgerReport | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [insightView, setInsightView] = useState<'goal' | 'agent'>('goal')
 
   useEffect(dismissOverlays, [])
 
@@ -379,8 +381,8 @@ export const Usage = ({
         <PageHead title={scoped ? scoped.presentation.name : 'Dashboard'} blurb={blurb} />
 
         <div className={styles.body}>
+          <BandHead name="What is left" note={summary.headline} className={styles.firstBandHead} />
           <section className={styles.band} aria-label="What is left">
-            <BandHead name="What is left" note={summary.headline} />
 
             <div className={styles.cards}>
               {reports.map((report) => (
@@ -454,6 +456,10 @@ export const Usage = ({
             />
             <Ranked ledger={ledger} pivot={pivot} byId={byId} tintOf={agentTints} />
           </section>
+          <section className={styles.band} aria-label="Project usage">
+            <BandHead name="Project usage" action={<Segmented label="Project usage view" options={[{ value: 'goal', label: 'By Goal' }, { value: 'agent', label: 'By Agent' }]} value={insightView} onChange={(next) => setInsightView(next as 'goal' | 'agent')} />} />
+            <InsightUsage root={snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null} runtime={scope} view={insightView} onGoal={(goal) => store.openGoal(goal)} />
+          </section>
         </div>
       </WindowPage>
     </AppWindow>
@@ -464,15 +470,17 @@ const BandHead = ({
   name,
   note,
   action,
+  className,
 }: {
   name: string
   note?: ReactNode
   action?: ReactNode
+  className?: string
 }) => (
   <SectionHead
     sticky
     level="heading"
-    className={styles.bandHead}
+    className={`${styles.bandHead}${className ? ` ${className}` : ''}`}
     name={name}
     description={note}
     action={

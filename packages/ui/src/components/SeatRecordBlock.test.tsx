@@ -53,6 +53,8 @@ const mount = async (seatRecord: (runtime: string, sessionId: string) => Promise
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     seatRecord: vi.fn(seatRecord),
+    // Not recorded — this fixture never made any Agent declare an attachment.
+    readSeatAttachments: vi.fn(async () => null),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -90,7 +92,7 @@ it('a closed seat says how the desk let it go', async () => {
 })
 
 it("a seat phase 3 kept for an Agent that said only `ceiling:` is drawn in that order's words", async () => {
-  await mount(async () => ({ ...PREVIEW_SEAT, standing: { kind: 'ceiling', level: 'edit' } }))
+  await mount(async () => ({ ...PREVIEW_SEAT, standing: { kind: 'ceiling', level: 'edit' }, ceiling: { level: 'edit', hold: 'asked' } }))
   expect(container.textContent).toContain('Edit · its ceiling')
   expect(container.textContent).not.toContain('Read · asked')
 })

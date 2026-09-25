@@ -97,7 +97,25 @@ let TURN = 'turn-e2e'
 let threadCounter = 0
 const nextThreadId = () => (threadCounter++ === 0 ? 'thread-e2e' : `thread-e2e-${threadCounter}`)
 
+/**
+ * Each thread's own working folder, taken from its `cwd` at `thread/start`,
+ * or from the thread it was resumed or forked from — never shared between
+ * threads the way `settingsState` otherwise is. `settingsState.cwd` still
+ * holds whichever thread is currently being handled, for the code below that
+ * reads it mid-turn; `cwdByThread` is what lets a *different* thread's own
+ * folder survive that one being resolved and reasserted at the top of every
+ * `thread/start`, `thread/resume` and `thread/fork`, instead of the second
+ * thread's cwd silently overwriting the first's for the rest of the process.
+ */
+const cwdByThread = new Map()
+
 const thread = (overrides = {}) => {
+  // The thread this describes may not be the one currently being handled —
+  // `thread/read`'s fallback describes an arbitrary `params.threadId` this
+  // way — so its own folder comes from `cwdByThread`, keyed on whichever id
+  // wins below, and only a thread this process never started or resumed
+  // falls back to whatever `settingsState.cwd` currently holds.
+  const describedId = overrides.id ?? THREAD
   const described = {
     id: THREAD,
     sessionId: THREAD,
@@ -109,7 +127,7 @@ const thread = (overrides = {}) => {
     updatedAt: 1_700_000_100,
     status: { type: 'idle' },
     path: '/tmp/rollout.jsonl',
-    cwd: '/w',
+    cwd: cwdByThread.get(describedId) ?? settingsState.cwd,
     cliVersion: version,
     source: 'vscode',
     threadSource: null,
@@ -351,6 +369,18 @@ const startLogin = (type) => {
   return response
 }
 const deletedThreads = new Set()
+
+/**
+ * The three purely canned rows below are never started or resumed by
+ * anything, so nothing in the per-thread bookkeeping above ever sets a
+ * folder of their own — without this, `thread()`'s fallback to
+ * `settingsState.cwd` would have them silently follow whatever thread this
+ * process most recently handled, in a listing of conversations that never
+ * happened in this process at all. Pinned to `/w`, the same folder
+ * `thread()`'s old, process-wide default always gave every thread, so they
+ * read exactly as they always have: a fixed history, not a live one.
+ */
+for (const id of ['thread-2', 'thread-3', 'thread-4']) cwdByThread.set(id, '/w')
 
 /**
  * What Codex has stored: what `thread/list` returns, and what `thread/read`
@@ -595,15 +625,17 @@ const playTurn = (openingAlreadySent = false) => {
     completedAtMs: nowMs(),
   })
 
+  // The thread's own folder, as the real app-server reports it — never a
+  // stand-in path, which a screenshot of the approval would print verbatim.
   const command = {
     type: 'commandExecution',
     id: 'call-c1',
     command: 'ls -la',
-    cwd: '/w',
+    cwd: settingsState.cwd,
     processId: null,
     source: 'agent',
     status: 'inProgress',
-    commandActions: [{ type: 'listFiles', command: 'ls -la', path: '/w' }],
+    commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
     aggregatedOutput: null,
     exitCode: null,
     durationMs: null,
@@ -623,8 +655,8 @@ const playTurn = (openingAlreadySent = false) => {
       startedAtMs: nowMs(),
       reason: 'Needs to read the working directory',
       command: 'ls -la',
-      cwd: '/w',
-      commandActions: [{ type: 'listFiles', command: 'ls -la', path: '/w' }],
+      cwd: settingsState.cwd,
+      commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
       availableDecisions: ['accept', 'acceptForSession', 'decline'],
     },
   })
@@ -653,7 +685,7 @@ const startBackground = (command, { fails = false } = {}) => {
     type: 'commandExecution',
     id: itemId,
     command,
-    cwd: '/w',
+    cwd: settingsState.cwd,
     processId,
     source: 'unifiedExecStartup',
     commandActions: [{ type: 'unknown', command }],
@@ -672,7 +704,7 @@ const startBackground = (command, { fails = false } = {}) => {
       itemId,
       processId,
       command,
-      cwd: '/w',
+      cwd: settingsState.cwd,
       osPid: 40000 + backgroundCounter,
       cpuPercent: 1.5,
       rssKb: 20480,
@@ -891,11 +923,11 @@ const finishTurn = () => {
       type: 'commandExecution',
       id: 'call-c1',
       command: 'ls -la',
-      cwd: '/w',
+      cwd: settingsState.cwd,
       processId: null,
       source: 'agent',
       status: 'completed',
-      commandActions: [{ type: 'listFiles', command: 'ls -la', path: '/w' }],
+      commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
       aggregatedOutput: 'README.md\n',
       exitCode: 0,
       durationMs: 12,
@@ -949,6 +981,100 @@ const callDeclaredTool = () => {
       namespace: tool.namespace ?? null,
       tool: tool.name,
       arguments: { text: 'from codex' },
+    },
+  })
+}
+
+/** A child thread calls the first client-declared tool after naming its parent. */
+const callDeclaredToolAsChild = () => {
+  const tool = declaredTools[0]
+  if (!tool) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  const child = `${THREAD}-child`
+  notify('thread/started', { thread: thread({ id: child, parentThreadId: THREAD, preview: 'A sub-agent.' }) })
+  send({
+    id: ++approvalRequestId,
+    method: 'item/tool/call',
+    params: {
+      threadId: child,
+      turnId: 'turn-child',
+      callId: 'call-dyn-child',
+      namespace: tool.namespace ?? null,
+      tool: tool.name,
+      arguments: { text: 'from a sub-agent' },
+    },
+  })
+}
+
+/** Calls every declared tool as one child, optionally withholding its fresh registration. */
+const callDeclaredToolsAsChild = (announceChild) => {
+  if (declaredTools.length === 0) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  const child = `${THREAD}-child`
+  if (announceChild) {
+    notify('thread/started', { thread: thread({ id: child, parentThreadId: THREAD, preview: 'A sub-agent.' }) })
+  }
+  for (const tool of declaredTools) {
+    send({
+      id: ++approvalRequestId,
+      method: 'item/tool/call',
+      params: {
+        threadId: child,
+        turnId: 'turn-child',
+        callId: `call-dyn-child-${tool.name}`,
+        namespace: tool.namespace ?? null,
+        tool: tool.name,
+        arguments: { text: 'from a sub-agent' },
+      },
+    })
+  }
+}
+
+/**
+ * Before the simulated upgrade this establishes C -> R. The replacement
+ * process first calls C without naming it, then repeats with a fresh child
+ * registration, which exercises the adapter's epoch boundary.
+ */
+let restartEpochCalls = 0
+const callRestartEpochTools = () => {
+  if (!since(200)) {
+    callDeclaredToolAsChild()
+    return
+  }
+  restartEpochCalls += 1
+  callDeclaredToolsAsChild(restartEpochCalls > 1)
+}
+
+/** A deeply delegated child calls a declared tool after every parent is announced. */
+const callDeclaredToolAsDeepChild = (count) => {
+  const tool = declaredTools[0]
+  if (!tool) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  let parent = THREAD
+  let child = THREAD
+  for (let index = 0; index < count; index += 1) {
+    child = `${THREAD}-child-${index}`
+    notify('thread/started', { thread: thread({ id: child, parentThreadId: parent, preview: 'A sub-agent.' }) })
+    parent = child
+  }
+  send({
+    id: ++approvalRequestId,
+    method: 'item/tool/call',
+    params: {
+      // Once the bounded map has evicted its first association, exercise that
+      // original child rather than a still-retained descendant.
+      threadId: count > 2000 ? `${THREAD}-child-0` : child,
+      turnId: 'turn-child',
+      callId: 'call-dyn-child',
+      namespace: tool.namespace ?? null,
+      tool: tool.name,
+      arguments: { text: 'from a sub-agent' },
     },
   })
 }
@@ -1122,6 +1248,13 @@ rl.on('line', (line) => {
     appendFileSync(process.env['FAKE_CODEX_FOLDERS'], `${JSON.stringify({ method, cwd: params?.cwd ?? null })}\n`)
   }
 
+  // FAKE_CODEX_CALLS=<file> records every method name asked of this fake, one
+  // per line — for a test proving a *negative*: that some flow never asks
+  // for something, which "the round trip still works" cannot show on its own.
+  if (process.env['FAKE_CODEX_CALLS']) {
+    appendFileSync(process.env['FAKE_CODEX_CALLS'], `${method}\n`)
+  }
+
   switch (method) {
     case 'initialize':
       send({
@@ -1163,6 +1296,10 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: problem } })
         return
       }
+      // This thread's own folder, from here on — never overwritten by a
+      // later thread/start's own cwd the way `settingsState.cwd` otherwise
+      // would be for every thread that shares it.
+      cwdByThread.set(THREAD, settingsState.cwd)
       // A new thread is in the folder it was started in, as Codex reports it.
       send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
       notify('thread/started', { thread: thread() })
@@ -1187,6 +1324,11 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: `thread ${params.threadId} not found` } })
         return
       }
+      // A resume or a fork picks its settings up where the thread it came
+      // from left them, not wherever the last *different* thread active in
+      // this process happened to leave `settingsState` — cwd most of all,
+      // the one setting a test routinely gives a fresh value at `thread/start`.
+      settingsState.cwd = cwdByThread.get(params.threadId) ?? settingsState.cwd
       THREAD = method === 'thread/resume' ? params.threadId : nextThreadId()
       TURN = `turn-${THREAD}`
       const refused = historyVerb(method, params)
@@ -1206,6 +1348,7 @@ rl.on('line', (line) => {
         settingsState.permissions = null
         settingsState.sandboxPolicy = JSON.parse(resumed)
       }
+      cwdByThread.set(THREAD, settingsState.cwd)
       send({ id, result: startResponse() })
       notify('thread/started', { thread: thread() })
       return
@@ -1307,6 +1450,10 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: problem } })
         return
       }
+      // A `cwd` change here is this thread's own from now on — a later
+      // thread/read for it must answer with what this update actually set,
+      // not whatever it was given at thread/start.
+      cwdByThread.set(params.threadId, settingsState.cwd)
       /* FAKE_CODEX_QUIET_NOOP=1 is real Codex's way, measured on 0.149.0: an
          update that changes nothing is answered `{}` and never announced. */
       if (process.env['FAKE_CODEX_QUIET_NOOP'] === '1' && JSON.stringify(threadSettings()) === was) {
@@ -1986,6 +2133,10 @@ rl.on('line', (line) => {
       }
       if (mode === 'turn') setImmediate(playTurn)
       if (mode === 'dynamic-tools') setImmediate(callDeclaredTool)
+      if (mode === 'delegated-tools') setImmediate(callDeclaredToolAsChild)
+      if (mode === 'delegated-tools-deep') setImmediate(() => callDeclaredToolAsDeepChild(9))
+      if (mode === 'delegated-tools-evicted') setImmediate(() => callDeclaredToolAsDeepChild(2001))
+      if (mode === 'delegated-tools-restart-epoch') setImmediate(callRestartEpochTools)
       return
     }
 

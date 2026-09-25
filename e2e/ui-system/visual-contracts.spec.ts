@@ -206,3 +206,23 @@ test('canonical controls retain selected, drop, icon and deferred-send states', 
   await send.hover()
   await expect.poll(() => send.evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe(normal)
 })
+
+/**
+ * A tool row outside a turn's work fold draws on the shared `Card
+ * variant="plate"`, with its default `gap-4`/`py-4` zeroed back to the
+ * app's one-line rung (`Items.tsx`'s `Row`). That override is a class name a
+ * unit test can read without a browser, but the height it is supposed to
+ * hold only a layout engine can confirm — a lost override still shows the
+ * right class and a ~62px row. This measures the rendered row itself, so it
+ * fails the day the rung grows back.
+ */
+test('a tool row outside the work fold keeps the app\'s one-line rung', async ({ page }) => {
+  await page.goto('/design.html?view=code')
+  const sample = page.getByTestId('inline-diff-sample')
+  await expect(sample).toBeVisible()
+  const row = sample.locator('[data-slot="card"][data-variant="plate"]')
+  await expect(row).toHaveCount(1)
+  const height = await row.locator('button').first().evaluate(node => node.getBoundingClientRect().height)
+  expect(height).toBeGreaterThanOrEqual(24)
+  expect(height).toBeLessThanOrEqual(32)
+})

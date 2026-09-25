@@ -1,16 +1,18 @@
 import { isAbsolute, normalize } from 'node:path'
 
-import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type Intent, type ProjectChecks, type TeamState, type WireNotification } from '@harnessdesk/protocol'
+import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type EvidenceView, type GoalReceiptEvidenceSeat, type Intent, type ProjectChecks, type TeamState, type TriggerFact, type WireNotification } from '@harnessdesk/protocol'
 
+import type { ReviewAppendOutcome } from '../flow-evidence.js'
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
-import { boardEvidence, RunningChecks } from './board.js'
+import { boardEvidence, freshnessReader, RunningChecks } from './board.js'
 import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
 import type { GhInCheckout } from './forge.js'
 import { Observer, type Look } from './observe.js'
 import { idOfLine, LINE_LIMIT, lineOf, LINE_VERSION, mintId, type StoreFile, type StoredLine } from './records.js'
 import { projectOf, revisionOf } from './revision.js'
+import { runCommand, type CommandRun } from './run.js'
 import { SeatBook } from './seats.js'
 import { CommandsSeen, incarnationOf } from './seen.js'
 import { EvidenceMergeError, EvidenceStore, type Admit } from './store.js'
@@ -35,6 +37,12 @@ export interface EvidencePort {
   push(notification: WireNotification): void
   log(message: string, details?: Readonly<Record<string, unknown>>): void
   canMutateBoard?(board: string): boolean
+  /**
+   * New facts are on the disk for these boards — whoever appended them: a
+   * check, an observed branch, a structured review, a restore. Called once
+   * per durable append, after it is synced, never for a line that is not.
+   */
+  appended?(boards: readonly string[]): void
 }
 
 export interface EvidenceOptions {
@@ -48,6 +56,18 @@ export interface EvidenceOptions {
   readonly cipher?: CredentialCipher
   readonly now?: () => number
 }
+
+/**
+ * Where a card's work began, for its diff: its claim's own record; else where
+ * its last diff was measured from; else the head its Seat opened on. A
+ * claim's record that is missing — never written, or null because the head
+ * could not be read — falls through, never stopping the search.
+ */
+export const cardStart = (
+  claimed: string | null | undefined,
+  lastDiffFrom: string | null | undefined,
+  seatOpened: string | null | undefined,
+): string | null => claimed ?? lastDiffFrom ?? seatOpened ?? null
 
 export class EvidencePlane {
   readonly #settling = new Map<string, Set<Promise<void>>>()
@@ -70,6 +90,17 @@ export class EvidencePlane {
     this.#now = options.now ?? Date.now
     this.store = new EvidenceStore(options.dir, (message, details) => port.log(message, details))
     this.seats = new SeatBook(this.store, options.now)
+    this.store.onDurable((_project, file, lines) => {
+      if (file !== 'evidence' || !port.appended) return
+      const boards = new Set<string>()
+      for (const line of lines) {
+        if (line.type !== 'evidence') continue
+        if (line.record.card?.board) boards.add(line.record.card.board)
+        const board = line.record.seat ? this.seats.byId(line.record.seat)?.board : null
+        if (board) boards.add(board)
+      }
+      if (boards.size > 0) port.appended([...boards])
+    })
     this.seen = new CommandsSeen(options.seenFile, {
       ...(options.cipher ? { cipher: options.cipher } : {}),
       ...(options.now ? { now: options.now } : {}),
@@ -153,15 +184,16 @@ export class EvidencePlane {
    */
   seatedAs(runtime: string, sessionId: string): SeatedAs | null {
     const seat = this.seats.latestKeptOf(runtime, sessionId)
-    if (!seat?.agent || seat.briefDigest === null || seat.standing.kind !== 'permission') return null
+    if (!seat?.agent || seat.briefDigest === null) return null
     return {
       agent: seat.agent.id,
       name: seat.agent.name,
       briefDigest: seat.briefDigest,
-      permission: seat.standing.permission,
+      standing: seat.standing,
       seatLabel: seat.seatLabel,
       passedOver: seat.passedOver,
       ceiling: seat.ceiling,
+      ceilingNote: null,
     }
   }
 
@@ -200,11 +232,130 @@ export class EvidencePlane {
     })
   }
 
-  /** Every fact attributable to a Goal, including Seat-scoped facts without a card. */
-  async factIdsOfGoal(goal: string, project: string): Promise<string[]> {
+  /**
+   * Every fact attributable to a Goal, including Seat-scoped facts without a
+   * card — each with the Seat (if any) that produced it, so a wrap can name
+   * it in the receipt rather than only carrying its bare id.
+   *
+   * `seatLabel` is read from the Seat's own record here, by `byId`, which
+   * resolves a restored Seat exactly as it does a live one — unlike a wrap's
+   * `members`, built only from Seats it still holds. Evidence a restored
+   * Seat produced is real and stays attributed; a receipt built from `seat`
+   * alone would have nowhere else to learn that Seat's name from.
+   */
+  async factIdsOfGoal(goal: string, project: string): Promise<GoalReceiptEvidenceSeat[]> {
     const { lines } = await this.store.read(project, 'evidence')
     const records = lines.flatMap((line) => line.type === 'evidence' ? [line.record] : [])
-    return factsOfGoal(goal, this.seats.all(), records).map((record) => record.id).sort()
+    return factsOfGoal(goal, this.seats.all(), records)
+      .map((record) => ({
+        id: record.id,
+        seat: record.seat ?? null,
+        seatLabel: record.seat ? this.seats.byId(record.seat)?.seatLabel ?? null : null,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id))
+  }
+
+  /**
+   * Every fact attributable to a Goal, in the order they were appended, each
+   * carrying its own freshly computed freshness. Unlike `board()`, this is
+   * never folded to one winner per card and kind: a flow's evidence guard
+   * reads the whole append-only sequence itself, so a later failure can
+   * defeat an earlier pass at the exact revision it names.
+   */
+  async factsForGoal(goal: string, project: string): Promise<readonly EvidenceView[]> {
+    const { lines } = await this.store.read(project, 'evidence')
+    const records = lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : []))
+    const scoped = factsOfGoal(goal, this.seats.all(), records)
+    const freshness = freshnessReader(project)
+    const out: EvidenceView[] = []
+    for (const record of scoped) {
+      const seat = record.seat ? this.seats.byId(record.seat) : null
+      out.push({ record, freshness: await freshness(record), by: seat ? { agent: seat.agent?.name ?? null, seat: seat.seatLabel } : null })
+    }
+    return out
+  }
+
+  /**
+   * Appends one structured review through the store's own compare-and-swap
+   * merge, so two callers racing the same verdict can never both write, and
+   * a caller naming a different one for the same question is told so rather
+   * than silently dropped or silently overwritten.
+   */
+  async appendReview(project: string, record: EvidenceRecord): Promise<ReviewAppendOutcome> {
+    const fact = record.fact
+    if (fact.kind !== 'review') throw new Error('appendReview only appends review facts.')
+    const sameQuestion = (candidate: EvidenceRecord): candidate is EvidenceRecord & { fact: typeof fact } =>
+      candidate.fact.kind === 'review' &&
+      candidate.fact.by === fact.by &&
+      candidate.fact.at === fact.at &&
+      candidate.card?.id === record.card?.id &&
+      candidate.round === record.round
+    let outcome: ReviewAppendOutcome = { outcome: 'added', record }
+    await this.store.merge(project, 'evidence', [{ type: 'evidence', record }], (line, here, added) => {
+      if (line.type !== 'evidence') return 'refused'
+      const existing = [...here, ...added].flatMap((one) => (one.type === 'evidence' && sameQuestion(one.record) ? [one.record] : []))
+      const matching = existing.find((one) => one.fact.verdict === fact.verdict)
+      if (matching) {
+        outcome = { outcome: 'duplicate', record: matching }
+        return 'duplicate'
+      }
+      if (existing.length > 0) {
+        outcome = { outcome: 'conflict' }
+        return 'refused'
+      }
+      return 'add'
+    })
+    if (outcome.outcome === 'added' && record.card) this.announce(record.card.board)
+    return outcome
+  }
+
+  /**
+   * Records what a trigger firing observed on the forge as evidence of its
+   * Goal (phase 8): for a pull-request fact, the pull request at the head the
+   * desk read, open. Issue, comment and schedule facts are source input, not
+   * evidence, and record nothing. Idempotent on `(firing, part)` through the
+   * store's compare-and-merge: a recovery that observes the same part again
+   * gets the existing fact's id back, and a different fact under the same
+   * firing and part is refused with both kept as they were — never a second
+   * record, never a rewritten one. Answers the fact ids, in part order.
+   */
+  async observeTrigger(firing: string, goal: string, fact: TriggerFact): Promise<readonly string[]> {
+    if (fact.source !== 'pull-request' || fact.head === null || fact.repository === null) return []
+    const number = Number(fact.subject)
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('This pull request’s number cannot be recorded.')
+    const record: EvidenceRecord = {
+      id: mintId(),
+      fact: { kind: 'pr', number, head: fact.head, state: 'open', url: fact.url },
+      card: null,
+      checkout: null,
+      seat: null,
+      round: null,
+      observedAt: this.#now(),
+      intake: { firing, part: 'pr', goal },
+    }
+    const same = (one: EvidenceRecord): boolean => JSON.stringify(one.fact) === JSON.stringify(record.fact) && one.intake?.goal === goal
+    const outcome: { id: string | null; conflict: boolean } = { id: null, conflict: false }
+    await this.store.merge(fact.project, 'evidence', [{ type: 'evidence', record }], (line, here, added) => {
+      if (line.type !== 'evidence') return 'refused'
+      const existing = [...here, ...added].flatMap((one) =>
+        one.type === 'evidence' && one.record.intake?.firing === firing && one.record.intake.part === 'pr' ? [one.record] : [])
+      if (existing.length === 0) {
+        outcome.id = record.id
+        return 'add'
+      }
+      const match = existing.find(same)
+      if (match) {
+        outcome.id = match.id
+        return 'duplicate'
+      }
+      outcome.conflict = true
+      return 'refused'
+    })
+    if (outcome.conflict || outcome.id === null) {
+      throw new Error('This firing already recorded a different pull request fact. Both are kept; nothing was rewritten.')
+    }
+    this.announce(goal)
+    return [outcome.id]
   }
 
   /** Tells every window a room's evidence moved. Never throws: a fact is kept whether or not a window hears of it. */
@@ -235,9 +386,12 @@ export class EvidencePlane {
     const cwd = this.#port.cwdOf(intent.claim.runtime, intent.claim.sessionId)
     const board = this.#port.board(room)
     if (!cwd || !board) return
-    const seat = this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)?.id ?? null
+    const kept = this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)
+    const seat = kept?.id ?? null
+    const since = cardStart(intent.claim.head, null, kept?.checkout.head)
+    const upstream = intent.claim.upstream
     const work = (async () => {
-      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat }
+      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since, ...(upstream !== undefined ? { upstream } : {}) }
       if (await this.observer.observe(look)) this.announce(room)
     })()
     let pending = this.#settling.get(room)
@@ -285,7 +439,16 @@ export class EvidencePlane {
       const cwd = holder ?? last?.checkout?.cwd ?? null
       if (!cwd || !this.observer.take(room, intent.id)) continue
       const seat = holder && intent.claim ? (this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)?.id ?? null) : null
-      looks.push({ room, card: intent.id, project, cwd, seat })
+      /* Where the card's work began: its claim's own start while it is held;
+         once it is not, the start its last diff was measured from — else the
+         Seat this desk last saw on it. */
+      const lastDiff = [...records].reverse()
+        .find((one) => !one.restored && one.card?.board === room && one.card.id === intent.id && one.fact.kind === 'diff')
+      const began = seat ?? (last?.seat ?? null)
+      const since = cardStart(holder ? intent.claim?.head : null, lastDiff?.fact.kind === 'diff' ? lastDiff.fact.from : null,
+        began ? this.seats.byId(began)?.checkout.head : null)
+      const upstream = intent.claim?.upstream
+      looks.push({ room, card: intent.id, project, cwd, seat, since, ...(upstream !== undefined ? { upstream } : {}) })
     }
     if (looks.length === 0) return
     void (async () => {
@@ -363,6 +526,51 @@ export class EvidencePlane {
           }),
       )
     return result
+  }
+
+  /**
+   * The v2 flow check path: runs through the same bounded `runCommand` a
+   * person's own check uses, and — unlike the legacy `flowCheck` above —
+   * awaits its evidence append before answering, so a card is never marked
+   * done on an unsaved fact. One append, never two: the caller consumes
+   * `FlowCheckResult` directly rather than the compatibility `{status}` the
+   * legacy path still returns.
+   */
+  async runFlowCheck(
+    command: string,
+    where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
+    card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number },
+  ): Promise<{ readonly result: CommandRun; readonly evidence: string | null; readonly problem: string | null }> {
+    const revision = await revisionOf(where.cwd)
+    const result = await runCommand(command, {
+      cwd: where.cwd, timeoutSec: where.timeoutSec,
+      ...(where.flowContext !== undefined ? { flowContext: where.flowContext } : {}),
+      ...(where.signal ? { signal: where.signal } : {}),
+    })
+    if (!revision) return { result, evidence: null, problem: null }
+    const board = this.#port.board(card.goal)
+    if (!board) return { result, evidence: null, problem: null }
+    const project = await projectOf(board.cwd ?? board.root)
+    const record: EvidenceRecord = {
+      id: mintId(),
+      fact: { kind: 'check', name: card.name, run: command, exit: result.exit, timedOut: result.timedOut, at: revision.head, dirty: revision.dirty, tail: result.tail },
+      card: { board: card.goal, id: card.card },
+      checkout: { cwd: where.cwd, branch: revision.branch },
+      seat: null,
+      round: card.round,
+      observedAt: this.#now(),
+      posted: null,
+    }
+    try {
+      await this.store.append(project, 'evidence', [{ type: 'evidence', record }])
+    } catch (error) {
+      this.#port.log("a flow check's result could not be recorded", {
+        goal: card.goal, card: card.card, error: error instanceof Error ? error.message : String(error),
+      })
+      return { result, evidence: null, problem: 'The check finished, but its evidence could not be saved. Fix storage before continuing.' }
+    }
+    this.announce(card.goal)
+    return { result, evidence: record.id, problem: null }
   }
 
   /**

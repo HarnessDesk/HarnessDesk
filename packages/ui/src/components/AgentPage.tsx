@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   SEAT_PREFERENCE_LIMIT,
+  reaches,
   type AgentEntry,
+  type AgentFieldEdit,
+  type AuthoringDocument,
+  type AuthoringTarget,
   type FlowSeat,
   type ModelInfo,
   type RuntimeId,
   type SeatCandidate,
   type SeatFix,
+  type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
 import {
@@ -27,31 +32,58 @@ import {
   stateWords,
   wordList,
 } from '../lib/agents'
-import { shortPath } from '../lib/paths'
+import { relativeTo, shortPath } from '../lib/paths'
+import { ceilingTitle, flagWords, runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { BriefIcon, CrossIcon, MoveDownIcon, MoveUpIcon, PlusIcon } from './Icons'
+import { AgentSeatCosts } from './AgentSeatCosts'
+import { BriefIcon, PlusIcon, TrashIcon } from './Icons'
 import {
   BackLink,
+  Banner,
+  BoardMenuButton,
   Button,
   Checkbox,
-  CodeText,
   ConfirmDialog,
   DetailHead,
   DetailMark,
   Dialog,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Field,
-  FormStack,
   NativeSelect,
   Note,
   Row,
   RowChoice,
   RowValue,
   Rows,
+  Section,
   SectionHead,
+  SortableAnnouncer,
+  SortableHandle,
+  SummaryItem,
+  SummaryList,
   Switch,
+  Text,
+  sortableItemClass,
+  useSortable,
 } from '../design'
 import styles from './AgentPage.module.css'
+import { AgentAttachments } from './AgentAttachments'
+import { AgentFields, AgentPageSections, FieldEditDialog, PreferFieldDialog } from './AgentFields'
+import { AgentNotes } from './AgentNotes'
+import { CeilingUpdate } from './CeilingUpdate'
+import { TriggerCreate } from './TriggerCreate'
+
+/** The one file `AgentFields` reads and saves through — a project's own Agent needs the project that owns it. */
+const authoringTarget = (entry: AgentEntry, project: string | null): AuthoringTarget => ({
+  kind: 'agent',
+  origin: entry.origin,
+  id: entry.id,
+  ...(entry.origin === 'project' && project ? { root: project } : {}),
+})
 
 /**
  * An Agent's page — a drill from the roster, not a dialog.
@@ -85,10 +117,21 @@ export const AgentPage = ({
   const [customizing, setCustomizing] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [updatingCeiling, setUpdatingCeiling] = useState(false)
+  const [editingCeiling, setEditingCeiling] = useState(false)
+  const [editingPrefer, setEditingPrefer] = useState(false)
   const [seatingBusy, setSeatingBusy] = useState(false)
   const [seatingProblem, setSeatingProblem] = useState<string | null>(null)
   const seatingInFlight = useRef(false)
+  const [agentDocument, setAgentDocument] = useState<AuthoringDocument | null>(null)
+  const [documentProblem, setDocumentProblem] = useState<string | null>(null)
+  const [fieldsBusy, setFieldsBusy] = useState(false)
+  const [everyTime, setEveryTime] = useState(false)
+  const [attachmentsProblem, setAttachmentsProblem] = useState<string | null>(null)
+  const [startingHigher, setStartingHigher] = useState(false)
   const definition = entry.definition
+  // Offered only for an Agent whose own ceiling reaches past the default a seating starts at (#897).
+  const canStartHigher = definition !== null && (definition.ceiling === 'publish' || definition.ceiling === 'merge')
   const name = agentName(entry)
   const project = projectName(snapshot.workspace)
   const folder = isAgentFolder(entry)
@@ -97,10 +140,63 @@ export const AgentPage = ({
   const warnings = entry.problems.filter((one) => one.level === 'warning')
   const shadows = shadowWords(entry)
   const plan = snapshot.agentPlans.get(entry.id)
+  const ceilingFlag = definition ? flagWords(definition) : null
+  // Relative to the project's own root when there is one to be relative to —
+  // the header above already says "In storefront", so a project Agent's file
+  // repeats nothing by starting from `.harnessdesk/agents/...` rather than
+  // the whole checkout path. The absolute path still rides along in `title`.
+  const fileLabel =
+    entry.origin === 'project' && snapshot.agentsProject ? relativeTo(entry.path, snapshot.agentsProject) : fileWords(entry, snapshot.home)
+  const canUpdateCeiling = ceilingFlag !== null && (entry.origin === 'user' || entry.origin === 'project')
+  /** Builtins are read-only until Customize copies them, exactly like the fields below. */
+  const editable = entry.origin !== 'builtin'
+  useEffect(() => {
+    setUpdatingCeiling(false)
+    setEditingCeiling(false)
+    setEditingPrefer(false)
+  }, [entry.id, entry.origin, entry.path, snapshot.agentsProject])
+
+  useEffect(() => {
+    if (!definition) return
+    let live = true
+    setAgentDocument(null)
+    setDocumentProblem(null)
+    store.readAuthoring(authoringTarget(entry, snapshot.agentsProject)).then(
+      (next) => {
+        if (live) setAgentDocument(next)
+      },
+      (error: unknown) => {
+        if (live) setDocumentProblem(error instanceof Error ? error.message : String(error))
+      },
+    )
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.id, entry.origin, snapshot.agentsProject, store])
 
   const openFile = (): void => {
     store.openFile(entry.path)
     onLeave()
+  }
+
+  /**
+   * A field just landed. The digest `AgentFields` was editing against is now
+   * stale for the next one, so both the roster (for `entry`) and the document
+   * (for its digest) are read again before another edit is allowed —
+   * `fieldsBusy` is what disables its rows meanwhile.
+   */
+  const onFieldEdited = (_edit: AgentFieldEdit): void => {
+    setFieldsBusy(true)
+    void Promise.all([
+      store.loadAgents(),
+      store.readAuthoring(authoringTarget(entry, snapshot.agentsProject)).then(
+        (next) => setAgentDocument(next),
+        () => {
+          // A read that fails after a save that landed leaves the last good document on screen.
+        },
+      ),
+    ]).finally(() => setFieldsBusy(false))
   }
 
   const setMachineSeats = async (
@@ -155,51 +251,102 @@ export const AgentPage = ({
       />
 
       {/*
-       * Customize… and Remove… live below the head, not inside its own
-       * `actions` slot: that slot's own layout gives its text column no room
-       * once a second and third action sit beside a label this long — a shape
-       * every other `DetailHead` caller avoids by keeping to one short
-       * control (a toggle, an icon). Flagged for the UI-system session
-       * (`design/patterns/Settings.tsx`'s `.detailCtl`/`.detailText`): it
-       * needs either a wrap or a second line for more than one wide action,
-       * not a second composition here working around it.
+       * Customize… lives below the head, not inside its own `actions` slot:
+       * that slot's own layout gives its text column no room once a second
+       * action sits beside a label this long — a shape every other
+       * `DetailHead` caller avoids by keeping to one short control (a toggle,
+       * an icon). Flagged for the UI-system session (`design/patterns/Settings.tsx`'s
+       * `.detailCtl`/`.detailText`): it needs either a wrap or a second line
+       * for more than one wide action, not a second composition here working
+       * around it. Remove… moved out entirely — a destructive action never
+       * sits alone under the title (review item 7) — into its own Danger
+       * section at the foot of the page, below.
        */}
-      {(targets.length > 0 || (folder && entry.origin !== 'builtin')) && (
+      {(targets.length > 0 || (definition && snapshot.agentsProject) || canStartHigher) && (
         <span className={styles.actions}>
+          {canStartHigher && (
+            <Button variant="outline" onClick={() => setStartingHigher(true)}>
+              Start at a higher ceiling…
+            </Button>
+          )}
           {targets.length > 0 && (
             <Button variant="outline" onClick={() => setCustomizing(true)}>
               Customize…
             </Button>
           )}
-          {folder && entry.origin !== 'builtin' && (
-            <Button variant="secondary" onClick={() => setRemoving(true)}>
-              Remove…
+          {definition && snapshot.agentsProject && (
+            <Button variant="outline" onClick={() => setEveryTime(true)}>
+              Every time…
             </Button>
           )}
         </span>
       )}
 
-      {folder ? (
-        <>
-          <SectionHead name="File" />
-          <Rows>
-            <Row
-              title={<CodeText>{fileWords(entry, snapshot.home)}</CodeText>}
-              {...(shadows ? { desc: shadows } : {})}
-              control={
-                <span className={styles.actions}>
+      {(folder || definition) && (
+        <Section title="Agent">
+          <SummaryList>
+            {folder && (
+              <SummaryItem
+                label="File"
+                kind="path"
+                title={entry.path}
+                {...(shadows ? { note: shadows } : {})}
+                action={
+                  <span className={styles.actions}>
+                    <Button size="sm" variant="outline" onClick={openFile}>
+                      Open file
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void store.revealAgent(entry.id, entry.origin)}>
+                      Reveal
+                    </Button>
+                  </span>
+                }
+              >
+                {fileLabel}
+              </SummaryItem>
+            )}
+            {definition && (
+              <SummaryItem
+                label="Ceiling"
+                note={[ceilingMeaning(definition.ceiling), ceilingFlag].filter(Boolean).join(' ')}
+                {...(editable ? {
+                  action: canUpdateCeiling ? (
+                    // A legacy `permission:` Agent needs Update first — Edit…
+                    // would only reach the same preview and be told, every
+                    // time, to come back here. One action, not a second that
+                    // always refuses.
+                    <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>
+                  ) : (
+                    // Same `authoring/*` preview/save path as name, description, answers and
+                    // produces below — disabled until that document is read, since it needs
+                    // the digest to preview against.
+                    <Button size="sm" variant="outline" disabled={!agentDocument} onClick={() => setEditingCeiling(true)}>Edit…</Button>
+                  ),
+                } : {})}
+              >
+                {ceilingWords(definition.ceiling)}
+              </SummaryItem>
+            )}
+            {definition && <AgentAttachments entry={entry} onProblem={setAttachmentsProblem} />}
+            {definition && (
+              <SummaryItem
+                label="Brief"
+                action={
                   <Button size="sm" variant="outline" onClick={openFile}>
-                    Open file
+                    Open in editor
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => void store.revealAgent(entry.id, entry.origin)}>
-                    Reveal
-                  </Button>
-                </span>
-              }
-            />
-          </Rows>
-        </>
-      ) : null}
+                }
+              >
+                {firstParagraph(definition.brief) || 'It has no brief yet.'}
+              </SummaryItem>
+            )}
+          </SummaryList>
+        </Section>
+      )}
+      {/* The Skills/Servers read-failure: a `<dl>`'s subgrid has no room for a
+          Banner among its rows, so `AgentAttachments` hands it up here rather
+          than drawing it in place of the row it would otherwise be. */}
+      {attachmentsProblem && <Banner tone="danger" title="Attachments could not be read">{attachmentsProblem}</Banner>}
 
       {errors.length > 0 && (
         <>
@@ -224,12 +371,11 @@ export const AgentPage = ({
 
       {definition && (
         <>
-          <SectionHead name="Ceiling" />
-          <Rows>
-            <Row title={ceilingWords(definition.permission)} desc={ceilingMeaning(definition.permission)} />
-          </Rows>
-
-          <OwnSeats entry={entry} onEditSeats={() => setAdding(true)} />
+          <OwnSeats
+            entry={entry}
+            onEditSeats={() => setAdding(true)}
+            {...(agentDocument ? { onEditPrefer: () => setEditingPrefer(true) } : {})}
+          />
           <MachineSeats
             entry={entry}
             busy={seatingBusy}
@@ -237,41 +383,58 @@ export const AgentPage = ({
             onSet={setMachineSeats}
             onAdd={() => setAdding(true)}
           />
+          <AgentSeatCosts entry={entry} />
 
-          <SectionHead name="What it hands back" />
-          <Rows>
-            <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
-            <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
-            <Row
-              title="Skills"
-              control={
-                definition.skills.length === 0 ? (
-                  <RowValue>None</RowValue>
-                ) : (
-                  <span className={styles.actions}>
-                    {definition.skills.map((skill) => (
-                      <Button key={skill} size="sm" variant="link" title="Open the Library" onClick={() => store.askSettings('library')}>
-                        {skill}
-                      </Button>
-                    ))}
-                  </span>
-                )
-              }
+          {agentDocument ? (
+            <AgentFields
+              document={agentDocument}
+              entry={entry}
+              busy={fieldsBusy}
+              onEdit={onFieldEdited}
+              onOpenFile={openFile}
             />
-          </Rows>
+          ) : documentProblem ? (
+            <Banner tone="danger" title="This Agent’s file could not be read">{documentProblem}</Banner>
+          ) : (
+            <>
+              <SectionHead name="What it hands back" />
+              <Rows>
+                <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
+                <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
+              </Rows>
+            </>
+          )}
 
-          <SectionHead name="Brief" />
+          <AgentNotes entry={entry} />
+
+          <AgentPageSections entry={entry}>{null}</AgentPageSections>
+        </>
+      )}
+
+      {/* A destructive action never sits alone under the title (review item 7) — reachable for a broken entry too, since removing one is how its folder is cleaned up. */}
+      {folder && entry.origin !== 'builtin' && (
+        <section aria-label="Danger">
+          <SectionHead name="Danger" />
           <Rows>
             <Row
-              title={firstParagraph(definition.brief) || 'It has no brief yet.'}
+              title="Remove"
+              desc="Moves its folder to the Trash. It can be put back."
               control={
-                <Button size="sm" variant="outline" onClick={openFile}>
-                  Open in editor
+                <Button variant="destructive" onClick={() => setRemoving(true)}>
+                  Remove…
                 </Button>
               }
             />
           </Rows>
-        </>
+        </section>
+      )}
+
+      {startingHigher && definition && (
+        <StartHigher
+          entry={entry}
+          onClose={() => setStartingHigher(false)}
+          onStarted={onLeave}
+        />
       )}
 
       {customizing && definition && (
@@ -295,6 +458,40 @@ export const AgentPage = ({
         />
       )}
 
+      {updatingCeiling && definition && canUpdateCeiling && (
+        <CeilingUpdate entry={entry} onClose={() => setUpdatingCeiling(false)} />
+      )}
+
+      {editingCeiling && definition && agentDocument && (
+        <FieldEditDialog
+          fieldKey="ceiling"
+          target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
+          digest={agentDocument.digest}
+          initial={definition.ceiling}
+          onOpenFile={openFile}
+          onClose={() => setEditingCeiling(false)}
+          onSaved={(edit) => {
+            setEditingCeiling(false)
+            onFieldEdited(edit)
+          }}
+        />
+      )}
+
+      {editingPrefer && definition && agentDocument && (
+        <PreferFieldDialog
+          entry={entry}
+          target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
+          digest={agentDocument.digest}
+          initial={definition.prefer}
+          onOpenFile={openFile}
+          onClose={() => setEditingPrefer(false)}
+          onSaved={(edit) => {
+            setEditingPrefer(false)
+            onFieldEdited(edit)
+          }}
+        />
+      )}
+
       {removing && folder && entry.origin !== 'builtin' && (
         <RemoveDialog
           entry={entry}
@@ -302,6 +499,15 @@ export const AgentPage = ({
           hasMachineSeat={plan?.from === 'machine'}
           onClose={() => setRemoving(false)}
           onRemoved={onBack}
+        />
+      )}
+
+      {everyTime && snapshot.agentsProject && (
+        <TriggerCreate
+          root={snapshot.agentsProject}
+          opens={{ agent: entry.id }}
+          onClose={() => setEveryTime(false)}
+          onSaved={() => setEveryTime(false)}
         />
       )}
     </>
@@ -316,25 +522,32 @@ export const AgentPage = ({
 const OwnSeats = ({
   entry,
   onEditSeats,
+  onEditPrefer,
 }: {
   readonly entry: AgentEntry
   /** Where a seat the Agent asks for that this Mac cannot give is fixed — this Mac's own seats. */
   readonly onEditSeats?: () => void
+  /** Edits the list itself, through the same `authoring/*` path as the rest of this page — absent while it is not yet known which file to save. */
+  readonly onEditPrefer?: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const plan = snapshot.agentPlans.get(entry.id)
   const replaced = plan?.from === 'machine'
   const seats = replaced ? (plan.own ?? []) : (plan?.candidates ?? [])
+  const editable = entry.origin !== 'builtin'
   return (
     <section aria-label="Seats">
-      <SectionHead name="Seats" />
+      <SectionHead
+        name="Seats"
+        {...(editable && onEditPrefer ? { action: <Button size="sm" variant="outline" onClick={onEditPrefer}>Edit…</Button> } : {})}
+      />
       <Note>
         {replaced
           ? 'Not used on this Mac: its seats here replace this list. Every other machine seats it in this order.'
           : 'In the order it asks for them. The first this Mac can offer is the one it takes.'}
       </Note>
-      <Rows className={replaced ? 'text-(--hd-muted-foreground)' : undefined}>
+      <Rows>
         {!plan && <Row title="Checking seats…" />}
         {plan && !replaced && plan.blocked && <Row title={plan.blocked} />}
         {plan && seats.length === 0 && !plan.blocked && <Row title="It names no seat" />}
@@ -342,6 +555,7 @@ const OwnSeats = ({
           <SeatRow
             key={`${index}-${candidate.label}`}
             candidate={candidate}
+            moot={replaced}
             words={replaced && candidate.state === 'taken' ? 'Free here' : stateWords(candidate)}
             editsSeats={onEditSeats !== undefined}
             onFix={(fix) => (fix.kind === 'seats' ? onEditSeats?.() : store.askSeatFix(fix, entry.id))}
@@ -356,11 +570,14 @@ const OwnSeats = ({
 export const SeatRow = ({
   candidate,
   words,
+  moot = false,
   editsSeats = false,
   onFix,
 }: {
   readonly candidate: SeatCandidate
   readonly words: string
+  /** A seat of a list this Mac does not use: named in the muted ink, never withdrawn. */
+  readonly moot?: boolean
   /** Whether this surface can take *Edit seats for this Mac* itself; a button that goes nowhere is not drawn. */
   readonly editsSeats?: boolean
   readonly onFix: (fix: SeatFix) => void
@@ -370,7 +587,7 @@ export const SeatRow = ({
   return (
     <Row
       mark={<RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} />}
-      title={candidate.label}
+      title={<Text role="row" ink={moot ? 'muted' : 'primary'}>{candidate.label}</Text>}
       desc={words}
       {...(fix && (fix.kind !== 'seats' || editsSeats)
         ? {
@@ -438,6 +655,41 @@ const MachineSeats = ({
     if (seat) next.splice(to, 0, seat)
     set(next)
   }
+  /*
+   * The list is a sortable order: a drag from a seat's handle, ⌥↑/⌥↓ from its
+   * row, or Space on its handle to pick it up. Each move is the same write,
+   * and it is announced once the list on disk says so. A seat has no id of its
+   * own, so it is named by what it is, and by which of its twins it is.
+   */
+  const seatIds = useMemo(() => {
+    const seen = new Map<string, number>()
+    return (mine?.seats ?? []).map((seat) => {
+      const base = JSON.stringify([seat.runtime, seat.model ?? null, seat.effort ?? null, seat.thinking ?? null])
+      const twin = seen.get(base) ?? 0
+      seen.set(base, twin + 1)
+      return `${base}#${twin}`
+    })
+  }, [mine?.seats])
+  const sortable = useSortable({
+    ids: seatIds,
+    onMove: (id, to) => move(seatIds.indexOf(id), to),
+    /* Named from the seat itself — its runtime, model and effort — never from
+       the dry run, which lags a move and would name the seat that used to be
+       in its place. */
+    name: (id) => {
+      const seat = mine?.seats[seatIds.indexOf(id)]
+      if (!seat) return 'the seat'
+      const runtime = snapshot.runtimes.find((one) => one.id === seat.runtime)?.presentation.name ?? seat.runtime
+      return [runtime, seat.model, seat.effort].filter(Boolean).join(' · ')
+    },
+    movable: () => !unreadable,
+    // A write in flight: keys and drags wait, but focus stays on the handle.
+    busy,
+  })
+  /* The seat whose ⋯ menu is open. Controlled so that a write in flight can
+     refuse to open it while the button keeps its focus (`aria-disabled`),
+     rather than a disabled button dropping focus to the page. */
+  const [menuFor, setMenuFor] = useState<string | null>(null)
   const remove = (index: number): void => {
     if (!mine) return
     const next = mine.seats.filter((_, at) => at !== index)
@@ -493,52 +745,39 @@ const MachineSeats = ({
             desc="Seats added here replace its own list on this Mac. They are not added to it."
           />
         )}
-        {mine?.seats.map((seat, index) => {
+        {mine?.seats.map((_seat, index) => {
           const candidate = weighed?.[index]
+          const id = seatIds[index]!
           return (
             <Row
-              key={`${index}-${seat.runtime}-${seat.model ?? ''}-${seat.effort ?? ''}`}
+              key={id}
+              {...sortable.row(id, index)}
+              className={sortableItemClass()}
               {...(candidate ? { mark: <RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} /> } : {})}
               title={candidate?.label ?? 'Checking…'}
               {...(candidate ? { desc: stateWords(candidate) } : {})}
-              control={
-                <span className={styles.actions}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Move up"
-                    disabled={busy || index === 0}
-                    onClick={() => move(index, index - 1)}
+              control={(
+                <>
+                  <SortableHandle {...sortable.handle(id)} />
+                  <DropdownMenu
+                    open={menuFor === id && !busy}
+                    onOpenChange={(open) => setMenuFor(open && !busy ? id : null)}
                   >
-                    <MoveUpIcon size={14} />
-                    Move up
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Move down"
-                    disabled={busy || index === mine.seats.length - 1}
-                    onClick={() => move(index, index + 1)}
-                  >
-                    <MoveDownIcon size={14} />
-                    Move down
-                  </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Remove this seat"
-                    title="Remove this seat"
-                    disabled={busy}
-                    onClick={() => remove(index)}
-                  >
-                    <CrossIcon size={13} />
-                  </Button>
-                </span>
-              }
+                    <DropdownMenuTrigger render={<BoardMenuButton aria-label={`Seat ${index + 1} actions`} {...(busy ? { 'aria-disabled': true } : {})} />} />
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem variant="destructive" onClick={() => remove(index)}>
+                        <TrashIcon size={14} />
+                        Remove seat
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
+              )}
             />
           )
         })}
       </Rows>
+      <SortableAnnouncer message={sortable.announcement} />
       <Note>
         {`Kept in ${seating ? shortPath(seating.path, snapshot.home) : 'seating.json'}, on this Mac only — never committed.`}
       </Note>
@@ -626,59 +865,57 @@ const AddSeatDialog = ({
         </>
       }
     >
-      <FormStack>
-        {expected === null && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
-        <Field label="Runtime">
+      {expected === null && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
+      <Field label="Runtime">
+        {(control) => (
+          <NativeSelect {...control} value={runtime} onChange={(event) => setRuntime(event.target.value)}>
+            {snapshot.runtimes.map((one) => (
+              <option key={one.id} value={one.id}>
+                {one.presentation.name}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
+      </Field>
+      <Field label="Model" {...(models === null ? { hint: 'Asking the runtime…' } : {})}>
+        {(control) => (
+          <NativeSelect
+            {...control}
+            value={model}
+            disabled={models === null}
+            onChange={(event) => {
+              setModel(event.target.value)
+              setEffort('')
+              setThinking(false)
+            }}
+          >
+            <option value="">Its default</option>
+            {(models ?? []).map((one) => (
+              <option key={one.id} value={one.id}>
+                {one.displayName}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
+      </Field>
+      {shape && shape.reasoningLevels.length > 0 && (
+        <Field label="Effort">
           {(control) => (
-            <NativeSelect {...control} value={runtime} onChange={(event) => setRuntime(event.target.value)}>
-              {snapshot.runtimes.map((one) => (
-                <option key={one.id} value={one.id}>
-                  {one.presentation.name}
-                </option>
-              ))}
-            </NativeSelect>
-          )}
-        </Field>
-        <Field label="Model" {...(models === null ? { hint: 'Asking the runtime…' } : {})}>
-          {(control) => (
-            <NativeSelect
-              {...control}
-              value={model}
-              disabled={models === null}
-              onChange={(event) => {
-                setModel(event.target.value)
-                setEffort('')
-                setThinking(false)
-              }}
-            >
+            <NativeSelect {...control} value={effort} onChange={(event) => setEffort(event.target.value)}>
               <option value="">Its default</option>
-              {(models ?? []).map((one) => (
-                <option key={one.id} value={one.id}>
-                  {one.displayName}
+              {shape.reasoningLevels.map((level) => (
+                <option key={level.id} value={level.id}>
+                  {level.label}
                 </option>
               ))}
             </NativeSelect>
           )}
         </Field>
-        {shape && shape.reasoningLevels.length > 0 && (
-          <Field label="Effort">
-            {(control) => (
-              <NativeSelect {...control} value={effort} onChange={(event) => setEffort(event.target.value)}>
-                <option value="">Its default</option>
-                {shape.reasoningLevels.map((level) => (
-                  <option key={level.id} value={level.id}>
-                    {level.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            )}
-          </Field>
-        )}
-        {shape?.thinking === 'optional' && (
-          <Field label="Thinking">{(control) => <Switch {...control} checked={thinking} onCheckedChange={setThinking} />}</Field>
-        )}
-        {problem && <Note tone="bad">{problem}</Note>}
-      </FormStack>
+      )}
+      {shape?.thinking === 'optional' && (
+        <Field label="Thinking">{(control) => <Switch {...control} checked={thinking} onCheckedChange={setThinking} />}</Field>
+      )}
+      {problem && <Note tone="bad">{problem}</Note>}
     </Dialog>
   )
 }
@@ -797,6 +1034,7 @@ const RemoveDialog = ({
     <ConfirmDialog
       title={`Remove ${name}?`}
       confirmLabel="Move to Trash"
+      tone="destructive"
       busy={busy}
       onCancel={onClose}
       onConfirm={() => {
@@ -818,12 +1056,106 @@ const RemoveDialog = ({
       {entry.shadows.length > 0 ? ' The one it came first over takes its place.' : ''}
       {entry.origin === 'project' ? ' The project’s checkout changes; commit it for everyone else.' : ''}
       {hasMachineSeat && (
-        <label className={styles.clearSeats}>
-          <Checkbox checked={clearSeats} onCheckedChange={(next) => setClearSeats(next === true)} />
-          Also clear this Mac’s seats for “{name}”
-        </label>
+        <Checkbox
+          className={styles.clearSeats}
+          checked={clearSeats}
+          onCheckedChange={(next) => setClearSeats(next === true)}
+          label={`Also clear this Mac’s seats for “${name}”`}
+        />
       )}
       {problem && <Note tone="bad">{problem}</Note>}
+    </ConfirmDialog>
+  )
+}
+
+/**
+ * Starting an Agent above the default ceiling (#897): a person's explicit
+ * choice, up to the Agent's own ceiling and never past it — `edit` stays the
+ * default, and the plain *Start* never asks. Each level says what it means
+ * and how the runtime that would take the seat here keeps to it, in the same
+ * words a seat's ceiling chip uses (`ceilingTitle`): held by its runtime, or
+ * asked, not held. A level this Mac's own setting refuses when its runtime
+ * cannot hold it is shown and not offered, rather than chosen and then
+ * refused. A consent, not a destruction, so it asks in the ordinary tone. An
+ * Agent that declares MCP servers says at `merge` that this is what loads
+ * them (decision 13: an external server needs a Seat that may merge).
+ */
+const StartHigher = ({
+  entry,
+  onClose,
+  onStarted,
+}: {
+  readonly entry: AgentEntry
+  readonly onClose: () => void
+  readonly onStarted: () => void
+}) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const [level, setLevel] = useState<'edit' | 'publish' | 'merge'>('edit')
+  const [busy, setBusy] = useState(false)
+  // What this Mac does with a watched seat its runtime cannot hold: read once, before anything is offered.
+  const [unheld, setUnheld] = useState<'seat' | 'refuse' | null>(null)
+  useEffect(() => {
+    let live = true
+    void store.loadUnheldCeilings().then((value) => { if (live) setUnheld(value) })
+    return () => { live = false }
+  }, [store])
+  const definition = entry.definition
+  if (!definition) return null
+  const plan = snapshot.agentPlans.get(entry.id)
+  const winner = plan && plan.winner !== null ? plan.candidates[plan.winner] : undefined
+  const runtime = winner ? snapshot.runtimes.find((one) => String(one.id) === winner.seat.runtime) : undefined
+  const holds = new Map(runtime ? runtimeHolds(runtime).map((one) => [one.level, one]) : [])
+  const levels = (['edit', 'publish', 'merge'] as const).filter((one) => one === 'edit' || reaches(definition.ceiling, one))
+  const servers = definition.mcp.length
+  const refusal = (one: 'edit' | 'publish' | 'merge'): string | null => {
+    if (one === 'edit') return null
+    if (!winner) return 'No seat can be taken here now.'
+    if (!holds.get(one)?.held && unheld !== 'seat') {
+      return `${winner.runtimeName} cannot hold this ceiling, and this Mac does not seat a ceiling its runtime cannot hold.`
+    }
+    return null
+  }
+  const start = (): void => {
+    if (busy) return
+    setBusy(true)
+    // Closed either way: a seating refused here raises its own refusal sheet, with its fixes.
+    void store.startAsAgent(entry.id, level === 'edit' ? {} : { ceiling: level }).then((key) => {
+      onClose()
+      if (key) onStarted()
+    })
+  }
+  return (
+    <ConfirmDialog
+      title={`Start ${definition.name} at which ceiling?`}
+      confirmLabel={`Start at ${ceilingWords(level)}`}
+      tone="default"
+      busy={busy}
+      pending={unheld === null}
+      onConfirm={start}
+      onCancel={onClose}
+    >
+      <Note>
+        {`A conversation as ${definition.name} starts at ${ceilingWords('edit')} unless you choose more here. Its own ceiling is ${ceilingWords(definition.ceiling)}, and nothing starts above that.`}
+      </Note>
+      <Rows role="radiogroup" aria-label="Ceiling to start at">
+        {levels.map((one) => {
+          const refused = refusal(one)
+          const hold = holds.get(one)
+          const loads = one === 'merge' && servers > 0 ? ` Seat at ${ceilingWords('merge')} to load its MCP server${servers === 1 ? '' : 's'}.` : ''
+          const how = one === 'edit' ? ceilingMeaning(one) : ceilingTitle({ level: one, hold: hold?.held ? 'held' : 'asked' }, hold?.how ?? null)
+          return (
+            <RowChoice
+              key={one}
+              title={ceilingWords(one)}
+              desc={<span className="whitespace-normal">{refused ?? `${how}${loads}`}</span>}
+              selected={level === one}
+              disabled={busy || unheld === null || refused !== null}
+              onClick={() => setLevel(one)}
+            />
+          )
+        })}
+      </Rows>
     </ConfirmDialog>
   )
 }

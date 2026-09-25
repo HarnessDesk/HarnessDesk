@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 
 import { instant } from '../lib/clock'
 import { useSessionKey, useStore } from '../state/context'
-import { Button, CopyButton } from '../design'
+import { Button, CopyButton, Text } from '../design'
 import { RetryIcon, ThumbsDownIcon, ThumbsUpIcon } from './Icons'
 import styles from './Items.module.css'
 
@@ -76,12 +76,14 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
       >
         <RetryIcon size={13} />
       </Button>
-      {copied && <span className="ms-(--hd-space-1) text-sm whitespace-nowrap text-(--hd-muted-foreground)">Copied</span>}
-      {vote === 'down' && <span className="ms-(--hd-space-1) text-sm whitespace-nowrap text-(--hd-muted-foreground)">Marked for review</span>}
+      {/* What the row just did, or when the answer came: one quiet word at
+          the body's small step, beside the buttons that did it. */}
+      {copied && <Text role="muted" ink="muted" className="ms-(--hd-space-1) whitespace-nowrap">Copied</Text>}
+      {vote === 'down' && <Text role="muted" ink="muted" className="ms-(--hd-space-1) whitespace-nowrap">Marked for review</Text>}
       {!copied && vote !== 'down' && when !== null && (
-        <span className="ms-(--hd-space-1) text-sm whitespace-nowrap text-(--hd-muted-foreground)">
+        <Text role="muted" ink="muted" className="ms-(--hd-space-1) whitespace-nowrap">
           {new Date(when).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-        </span>
+        </Text>
       )}
     </div>
   )

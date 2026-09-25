@@ -5,7 +5,7 @@ import { useSnapshot } from '../state/context'
 import type { SeatRefusal } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
 import { BriefIcon } from './Icons'
-import { Button, Dialog, Note, Row, Rows } from '../design'
+import { Button, Dialog, Fieldset, Row, Rows } from '../design'
 
 /**
  * The refusal sheet: an Agent that could not be seated here, and nothing
@@ -46,45 +46,48 @@ export const SeatSheet = ({
         </>
       }
     >
-      <Note>
-        {refusal.opened
-          ? 'It was not started — every seat it tried is shown below, with what each left behind.'
-          : refusal.blocked
-            ? 'Nothing was opened. It could not be weighed at all:'
-            : 'Nothing was opened. Each seat it would take, in its order, and what stands in the way:'}
-      </Note>
-      <Rows>
-        {refusal.blocked && <Row title={refusal.blocked} />}
-        {!refusal.blocked && refusal.candidates.length === 0 && (
-          <Row title="It names no seat to try" desc="Add a seat for this Mac, or name one in its file." />
-        )}
-        {refusal.candidates.map((candidate, index) => {
-          const why = [
-            candidate.reason ? reasonWords(candidate.reason, candidate.runtimeName) : 'Not reached',
-            candidate.left ? leftWords(candidate.left, candidate.runtimeName) : null,
-          ]
-            .filter((part): part is string => part !== null)
-            .join('. ')
-          const fix = candidate.fix
-          return (
-            <Row
-              key={`${index}-${candidate.label}`}
-              mark={<RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} />}
-              title={candidate.label}
-              desc={why}
-              {...(fix
-                ? {
-                    control: (
-                      <Button size="sm" variant="outline" onClick={() => onFix(fix)}>
-                        {fixWords(fix, candidate.runtimeName)}
-                      </Button>
-                    ),
-                  }
-                : {})}
-            />
-          )
-        })}
-      </Rows>
+      <Fieldset
+        legend={
+          refusal.opened
+            ? 'It was not started — every seat it tried is shown below, with what each left behind.'
+            : refusal.blocked
+              ? 'Nothing was opened. It could not be weighed at all:'
+              : 'Nothing was opened. Each seat it would take, in its order, and what stands in the way:'
+        }
+      >
+        <Rows>
+          {refusal.blocked && <Row title={refusal.blocked} />}
+          {!refusal.blocked && refusal.candidates.length === 0 && (
+            <Row title="It names no seat to try" desc="Add a seat for this Mac, or name one in its file." />
+          )}
+          {refusal.candidates.map((candidate, index) => {
+            const why = [
+              candidate.reason ? reasonWords(candidate.reason, candidate.runtimeName) : 'Not reached',
+              candidate.left ? leftWords(candidate.left, candidate.runtimeName) : null,
+            ]
+              .filter((part): part is string => part !== null)
+              .join('. ')
+            const fix = candidate.fix
+            return (
+              <Row
+                key={`${index}-${candidate.label}`}
+                mark={<RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} />}
+                title={candidate.label}
+                desc={why}
+                {...(fix
+                  ? {
+                      control: (
+                        <Button size="sm" variant="outline" onClick={() => onFix(fix)}>
+                          {fixWords(fix, candidate.runtimeName)}
+                        </Button>
+                      ),
+                    }
+                  : {})}
+              />
+            )
+          })}
+        </Rows>
+      </Fieldset>
     </Dialog>
   )
 }

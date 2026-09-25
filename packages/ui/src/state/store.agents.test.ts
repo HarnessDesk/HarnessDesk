@@ -37,15 +37,17 @@ const ENTRY: AgentEntry = {
     id: 'code-reviewer',
     name: 'Code reviewer',
     description: null,
-    permission: 'read',
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
     answers: [],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude-code' }],
     brief: 'Review.',
   },
 }
-const PLAN: SeatPlan = { id: 'code-reviewer', from: 'prefer', winner: null, blocked: null, candidates: [] }
+const PLAN: SeatPlan = { id: 'code-reviewer', from: 'prefer', winner: null, blocked: null, ceiling: null, candidates: [] }
 const WORKSPACE = { path: '/work/storefront/pkg', name: 'pkg', lastOpenedAt: 1 }
 
 let store: AppStore
@@ -403,6 +405,7 @@ const seatPlan = (winner: number | null): SeatPlan => ({
   from: 'prefer',
   winner,
   blocked: null,
+  ceiling: winner === null ? null : { level: 'edit', hold: 'asked' },
   candidates: [
     {
       seat: { runtime: 'cursor' },
@@ -448,6 +451,15 @@ it('a start the plan allows is seated in the open folder, and shown', async () =
   })
   expect(store.getSnapshot().sessions.has(key!)).toBe(true)
   expect(store.getSnapshot().seatRefusal).toBeNull()
+})
+
+it('a higher ceiling a person chose is the seating’s grant; without one the host seats at its default (#897)', async () => {
+  answering({ 'agent/seat/dry': () => [seatPlan(0)], 'agent/seat': () => SEATED })
+  await store.openWorkspace(WORKSPACE.path)
+  await store.startAsAgent('code-reviewer', { ceiling: 'merge' })
+  expect(asked.filter((one) => one.method === 'agent/seat').map((one) => one.params)).toEqual([
+    { id: 'code-reviewer', cwd: WORKSPACE.path, project: WORKSPACE.path, permission: 'merge' },
+  ])
 })
 
 it('a fix asked for from deep inside is held until the shell takes it where it is fixed', () => {
@@ -804,4 +816,76 @@ it('re-reads the plans once its own set answers, without waiting for a notice', 
   })
   await store.setSeating('code-reviewer', null)
   expect(dryRuns).toBe(1)
+})
+
+it('shows and writes an Agent’s ceiling line in the roster’s project, and draws the answer at once', async () => {
+  const projectEntry: AgentEntry = { ...ENTRY, origin: 'project', path: '/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md' }
+  const written: AgentEntry = { ...projectEntry, digest: 'written', definition: { ...projectEntry.definition!, ceilingFrom: 'ceiling', ceiling: 'read' } }
+  answering({
+    'agent/list': () => [projectEntry],
+    'agent/seat/dry': () => [],
+    'agent/ceiling/preview': () => ({ path: projectEntry.path, digest: 'preview-digest', line: 3, before: 'permission: read', after: 'ceiling: read', diff: 'diff' }),
+    'agent/ceiling/write': () => written,
+  })
+  await store.openWorkspace(WORKSPACE.path)
+  await store.loadAgents()
+  asked.length = 0
+  const preview = await store.previewCeiling(projectEntry, 'read')
+  expect(preview.digest).toBe('preview-digest')
+  await store.writeCeiling(projectEntry, 'read', preview.digest)
+  expect(asked.map((one) => [one.method, one.params])).toEqual([
+    ['agent/ceiling/preview', { id: 'code-reviewer', origin: 'project', project: WORKSPACE.path, level: 'read' }],
+    ['agent/ceiling/write', { id: 'code-reviewer', origin: 'project', project: WORKSPACE.path, level: 'read', digest: 'preview-digest' }],
+  ])
+  expect(store.getSnapshot().agents).toEqual([written])
+})
+
+it('user updates omit project and built-ins never reach the wire', async () => {
+  const user: AgentEntry = { ...ENTRY, origin: 'user', path: '/u/agents/code-reviewer/AGENT.md' }
+  answering({
+    'agent/ceiling/preview': () => ({ path: user.path, digest: 'd', line: 1, before: null, after: 'ceiling: read', diff: 'diff' }),
+    'agent/ceiling/write': () => user,
+  })
+  await store.previewCeiling(user, 'read')
+  await store.writeCeiling(user, 'read', 'd')
+  expect(asked.map((one) => one.params)).toEqual([
+    { id: 'code-reviewer', origin: 'user', level: 'read' },
+    { id: 'code-reviewer', origin: 'user', level: 'read', digest: 'd' },
+  ])
+  asked.length = 0
+  await expect(store.previewCeiling(ENTRY, 'read')).rejects.toThrow('Customize it first')
+  await expect(store.writeCeiling(ENTRY, 'read', 'd')).rejects.toThrow('Customize it first')
+  expect(asked).toEqual([])
+})
+
+it('a completed write in the previous project cannot replace this project’s roster', async () => {
+  const workspaceA: WorkspaceEntry = { path: '/work/a', name: 'a', lastOpenedAt: 1 }
+  const workspaceB: WorkspaceEntry = { path: '/work/b', name: 'b', lastOpenedAt: 2 }
+  const entryA: AgentEntry = { ...ENTRY, origin: 'project', path: '/work/a/.harnessdesk/agents/code-reviewer/AGENT.md' }
+  // Keep the exact target identity to isolate the project-scope guard: the
+  // newer roster may already have re-read this same linked Agent path.
+  const entryB: AgentEntry = { ...ENTRY, origin: 'project', path: entryA.path, digest: 'newer-b' }
+  const writtenA: AgentEntry = { ...entryA, digest: 'written-a', definition: { ...entryA.definition!, ceilingFrom: 'ceiling' } }
+  const pending = deferred<AgentEntry>()
+  let open = workspaceA
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    asked.push({ method, params })
+    if (method === 'workspace/open') {
+      open = (params as { path: string }).path === workspaceA.path ? workspaceA : workspaceB
+      return open
+    }
+    if (method === 'workspace/recent') return [workspaceA, workspaceB]
+    if (method === 'agent/list') return open.path === workspaceA.path ? [entryA] : [entryB]
+    if (method === 'agent/seat/dry') return []
+    if (method === 'agent/ceiling/write') return pending.promise
+    return null
+  }) as never)
+  await store.openWorkspace(workspaceA.path)
+  await store.loadAgents()
+  const write = store.writeCeiling(entryA, 'read', 'd')
+  await store.openWorkspace(workspaceB.path)
+  await vi.waitFor(() => expect(store.getSnapshot().agentsProject).toBe(workspaceB.path))
+  pending.resolve(writtenA)
+  await write
+  expect(store.getSnapshot().agents).toEqual([entryB])
 })

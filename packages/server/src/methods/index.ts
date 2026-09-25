@@ -3,15 +3,21 @@ import type { HostMethodName, HostParams, HostResult } from '@harnessdesk/protoc
 import { accountMethods } from './accounts.js'
 import { agentMethods } from './agents.js'
 import { appMethods } from './app.js'
+import { attachmentMethods } from './attachments.js'
+import { authoringMethods } from './authoring.js'
 import type { HostContext, HostMethodTable } from './context.js'
 import { credentialMethods } from './credentials.js'
 import { evidenceMethods } from './evidence.js'
+import { findingMethods } from './findings.js'
 import { provenanceMethods } from './provenance.js'
 import { flowMethods } from './flows.js'
 import { goalMethods } from './goals.js'
 import { gitMethods } from './git.js'
+import { insightMethods } from './insight.js'
+import { intakeMethods } from './intake.js'
 import { libraryMethods } from './library.js'
 import { laneMethods } from './lanes.js'
+import { memoryMethods } from './memory.js'
 import { pluginMethods } from './plugins.js'
 import { runtimeExtensionMethods } from './runtime-extensions.js'
 import { runtimeMethods } from './runtimes.js'
@@ -53,6 +59,7 @@ export const hostMethods: HostMethodTable = {
   ...accountMethods,
   ...credentialMethods,
   ...usageMethods,
+  ...insightMethods,
   ...libraryMethods,
   ...laneMethods,
   ...sessionMethods,
@@ -62,9 +69,14 @@ export const hostMethods: HostMethodTable = {
   ...worktreeMethods,
   ...teamMethods,
   ...flowMethods,
+  ...authoringMethods,
   ...goalMethods,
+  ...memoryMethods,
   ...agentMethods,
+  ...attachmentMethods,
   ...evidenceMethods,
+  ...findingMethods,
+  ...intakeMethods,
   ...provenanceMethods,
   ...gitMethods,
   ...pluginMethods,
@@ -82,6 +94,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   accountMethods,
   credentialMethods,
   usageMethods,
+  insightMethods,
   libraryMethods,
   laneMethods,
   sessionMethods,
@@ -91,9 +104,14 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   worktreeMethods,
   teamMethods,
   flowMethods,
+  authoringMethods,
   goalMethods,
+  memoryMethods,
   agentMethods,
+  attachmentMethods,
   evidenceMethods,
+  findingMethods,
+  intakeMethods,
   provenanceMethods,
   gitMethods,
   pluginMethods,

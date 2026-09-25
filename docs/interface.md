@@ -20,6 +20,14 @@ repository pane — is in [`images/app/`](images/app), in both themes.
 
 ## Panels
 
+### Insight
+
+Cost beside a wrapped receipt and project usage are accounting views, not a
+verdict on an Agent. They name source, age and qualification beside each
+number. Unknown is visible; it is not styled as free. Historical partitions
+(Goal, Agent and Seat) are alternate views of one total,
+never contributions to add together.
+
 Four areas — the **sidebar**, the **main content area**, the **right panel**
 and the **bottom panel** — and one model behind all of them. A feature is
 mounted into an area rather than built for one, so Changes can be the right
@@ -180,8 +188,9 @@ so the composer, a filter box and an empty desk all still navigate.
 Three slots at the top, because that space is the most valuable in the app and
 only what a person reaches for *while working* earns a place in it:
 
-- **New session**: clicking the button opens a choice between a solo session and
-  a collaborative room for several agents. The solo choice lists Agents first,
+- **New session**: clicking the button opens a choice between a solo session,
+  a collaborative room, and **Start with a team** — the front door, below.
+  The solo choice lists Agents first,
   each with the mark of the runtime it would sit on here — one that cannot be
   seated here stays, greyed with its reason — and then the runtime's own
   session; ⌘N goes straight to a session. The small branch button at the row's
@@ -349,8 +358,18 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
 sidebar row lead with the Agent's name — once, while the conversation's title
 is still that name — the composer's agent chip names the Agent and the seat it
 took, and the name card adds an *Agent* band: what it is for, its ceiling
-(*Read · asked*), where it came from, the seat and every seat passed over, and
+(*Read · held* or *Read · asked*), where it came from, the seat and every seat passed over, and
 *The brief has changed since this started* once its file has moved on.
+
+The same ceiling vocabulary appears on six governed-seat surfaces: the
+conversation header, Agent name card, room rail, board holder, flow dry run and
+Agent roster. The chip is neutral whether the limit is held or asked — most
+runtimes have no control that holds one, so `asked` is the ordinary state, not
+a warning; the words *held* and *asked* and a hover explanation make colour
+unnecessary either way.
+The roster keeps two facts distinct: the Agent file's declared level and the
+effective would-be seat after the seating grant narrows it. A plain conversation
+has no ceiling chip.
 
 **A worktree comes back as a branch.** "Bring it back to the main checkout"
 checks the worktree's branch out in the main checkout and removes the worktree
@@ -553,7 +572,31 @@ open project's own Agents, yours, and the ones that ship. Its overview names
 the folder each section reads; each row is an Agent's name and what it is for,
 with its ceiling and the seat it would take here, or *Can't seat here* and why.
 A row opens the Agent's page, and *On this Mac* on that page is where this
-machine's seats for it are chosen. See [agents.md](agents.md).
+machine's seats for it are chosen. A legacy or missing ceiling flag leads to
+that page's **Ceiling → Update…** action. Its dialog offers only compatible
+choices, previews the exact one-line file diff, and requires an author-controlled
+write; a changed file is refused. Built-ins must be customized first. See
+[agents.md](agents.md).
+
+An Agent's page also shows its Skills and Servers as an editable allowlist —
+an empty one reads "Runtime defaults", never "None" — with **Edit…**
+previewing the exact `skills:`/`mcp:` diff before it writes, and **Review &
+Approve…** showing the exact bytes a runtime would load before a person
+approves them once for that repository, Agent, runtime build and ceiling. Its
+Notes section reads and clears `NOTES.md` beside the Agent's file: private
+working context, never system instructions. A Seat's own name card and the
+Library's Agent filter both read back what a Seat's runtime build actually
+loaded, by that Seat's own immutable id — "declared, not loaded" and "not
+recorded" are shown as different facts, never folded into one another.
+
+**Settings › Permissions › Ceilings** shows four held/asked chips for every
+installed runtime, using controls the runtime declares and reads back rather
+than a runtime-name table. It also chooses whether a watched conversation may
+open an unheld seat and say so, or pass it over, and a second, independent
+choice for a Goal a trigger opened — refuse by default, or seat it and say so
+as an explicit decision. The same section is focused when a seating refusal's
+fix opens Settings; Approvals and Rules remain beside it and do not
+auto-answer held peer actions.
 
 **Runtimes** is every registered runtime with its accounts beneath it, and a
 page per runtime (health, update, the runtime's own options) or per account;
@@ -569,7 +612,28 @@ authentication, and nothing at all before either has happened. It is never
 **Workspaces** lists every folder opened, each a way into its project's page —
 *Project settings* in the sidebar's project menu opens the same page — which
 lists the project's own Agents and the folder they are read from, with *Open*
-and *Forget* for a project that is not the one open.
+and *Forget* for a project that is not the one open. Its Memory section stays
+a single "Project memory" row until pressed — no read happens before that —
+and then shows the project's committed `.harnessdesk/memory/*.md` files, at
+the checkout's own HEAD, with an uncommitted one captioned "Commit this file
+before citing it" rather than offered. Choosing one of the project's own open
+Goals there offers "Cite in this Goal…"; confirming shows the file, its
+revision and the wrapped source Goal chosen before it writes anything. A
+citation's own retained detail — from here, or from a receipt's Citations
+row — is read-only: opening one starts no turn and grants nothing, and a
+missing source Goal or Git revision says so honestly beside the text that was
+retained.
+The page also lists the project's checks, its flows and its Triggers. A
+project's Triggers section describes each declared source as a sentence and
+its arm state; turning one on opens the exact arming review before anything
+runs, which also names the forge repository it binds and, for an issue
+trigger that reads comments, whose comments fire it. An arm that changed or
+was refused stays switched on until turned off, with *Review* to arm it again,
+and a source stopped at a gap shows *Watch from now*. Below the folder list,
+"Triggers on this Mac" is this machine's own pause — which holds the work
+triggers started and continues it on resume — and daily cap for every armed
+trigger, with what is reserved and charged today. See
+[multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own).
 
 The runtime page also draws the controls the runtime declares for new sessions.
 Codex includes an optional CLI profile there: choosing one reads its bounded
@@ -694,3 +758,78 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+A receipt's Citations row opens each memory citation's own retained detail in
+a dialog, the same read-only view a project's Memory section opens.
+
+A Goal a trigger opened carries its origin honestly: its header names where it
+came from ("from PR #12," "from issue #7," "from a schedule") with a link to
+the forge when there is one, and the sidebar's room row carries the same short
+label. Any wait on it — a held message or action, a question nobody answered,
+a person's own card, or a stopped run — shows as Needs you with who it is
+waiting on and the existing surface that resolves it; a plain conversation or
+an ordinary Goal shows none of this and asks Intake nothing. A wrapped
+trigger Goal's receipt keeps that same origin and stop reason.
+
+## Flows
+
+A project's page lists its own Flows section beside Agents and Checks, read
+lazily — only once that page is open, never on the plain Workspaces list —
+from the layered catalogue (project, then your Mac, then what ships), each
+row saying its origin in words, never a wire id. An old-format project file
+carries **Update…**; a shipped or your-Mac file carries **Customize…**;
+either opens a dialog showing the whole before/after diff of every file it
+would write, through the same diff viewer an Agent's own ceiling update
+uses, before one confirming write. A project's own current-format file
+additionally carries **Edit shape…**, opening the same ordered editor and
+graph the front door's *Your own shape* uses, seeded from that file. A broken
+entry stays listed, disabled, with its own parser refusal on screen — never
+hidden.
+
+**New session → A flow** shows the same dry run FlowStart always has: every
+seat a role would open, every candidate this machine tried and why each was
+passed over, the effective ceiling each seat would hold, every check command
+verbatim with its checkout and timeout, and the plain rule list a round
+would move through — an unevidenced rule (answers alone, no observed fact)
+carries a warning chip rather than reading as already satisfied. Editing the
+source or a variable invalidates Start immediately; a stale reply can never
+re-enable it. Starting a flow opens exactly one new Goal, through one host
+operation — never a bare Goal made first and a flow started into it after.
+
+**`/race`** opens a dialog asking for one Agent and two explicit, isolated
+seats — never the other installed runtime, never two ordinary drafts. It
+shows the same full dry run before Start, including the judge and person
+steps a comparison names. A Goal a flow opened shows its own status strip
+beside the ordinary Goal header — Running, Waiting for evidence, Waiting for
+a person, Interrupted, Stopped or Settled — and an interrupted check's own
+**Review and run again…** action, which asks for a fresh confirmation
+(showing the original command, unchanged) before spending anything a second
+time. Nothing here names a runtime by brand; every word comes from what the
+Agent, seat and evidence actually are.
+
+### The front door
+
+**Start with a team**, beside **New session**'s solo choice, opens the same
+catalogue Flows lists — the project's own, then yours, then what ships,
+sorted by a shape's own declared `layout.frontDoor.order` when it has one —
+and reads the identical strict dry run before **Start**: every Seat must
+*hold* its ceiling here, so a runtime that can only be asked shows its exact
+refusal and fix rather than starting under a weaker policy. Git's branch
+menu, a pull request's own row, ⌘K and an empty Goal's board each open it
+the same way, prefilled with what that place already knows — a branch, a
+pull request, the project itself.
+
+**Your own shape…**, the catalogue's last row, opens an ordered editor of
+the chosen shape (or a blank one, a single person step) instead of starting
+it: add a step or a rule, see the exact file update as you go, and the
+identical dry run below it. **Save…** writes it to the project or to you,
+previewed first; **Start** needs no save at all, running the shape exactly as
+edited. Its **Graph** tab draws the same steps and rules spatially — dragging
+a node, or the Horizontal/Vertical fields beside a selected one, only ever
+moves it on screen.
+
+**Every time…**, on a chosen shape or an Agent's own page, hands off to
+Intake: the source, its fields, the Goal grouping and budget, saved to the
+working tree and disarmed. *Saved. Commit this file before arming* is the
+whole of what a save does — the existing Triggers section's own preview and
+explicit **Arm**, bound to the committed bytes, are still what consents to
+anything running unattended.

@@ -1,6 +1,8 @@
 import {
+  DisclosureChevron,
   Button,
   Card,
+  CardViewport,
   CodeText,
   KeyValue,
   KeyValueRow,
@@ -16,6 +18,7 @@ import {
   TableHeader,
   TableRow,
   Text,
+  TextMark,
 } from '../design'
 import { Suspense, lazy, useMemo, useState, type ReactNode } from 'react'
 
@@ -83,7 +86,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
   const maxLines = Math.max(4, Math.trunc(block.maxLines ?? 24))
 
   return (
-    <Card variant="flush" radius="sm" className={`${styles.code} bg-(--hd-background)`}>
+    <Card variant="flush" radius="sm" className={styles.code}>
       {(block.path || editable) && (
         <PatchHeader level="block">
           {block.path && <CodeText size="inherit" className="min-w-0 truncate">{block.path}</CodeText>}
@@ -92,14 +95,10 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
           )}
         </PatchHeader>
       )}
-      <div
-        className={styles.codeBody}
-        style={{
-          ['--hd-block-code-max' as string]: `${Math.round(maxLines * appearance.fontSize * appearance.lineHeight)}px`,
-          maxHeight: 'var(--hd-block-code-max)',
-        }}
-      >
-        <Suspense fallback={<CodeText as="pre" size="inherit" className="m-0 overflow-x-auto whitespace-pre p-2 text-xs leading-(--hd-line-sm)">{text}</CodeText>}>
+      <CardViewport size="lines" maxHeight={Math.round(maxLines * appearance.fontSize * appearance.lineHeight)}>
+        {/* The text itself while the editor's chunk is in flight, so the
+            panel shows the code rather than a blank. */}
+        <Suspense fallback={<CodeText as="pre" block>{text}</CodeText>}>
           <CodeEditor
             value={text}
             path={block.path ?? null}
@@ -127,7 +126,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
             ariaLabel={block.path ?? 'Code'}
           />
         </Suspense>
-      </div>
+      </CardViewport>
     </Card>
   )
 }
@@ -152,13 +151,11 @@ const DocumentSection = ({
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <Text role="meta" className={styles.documentChevron} data-chevron data-open={open ? '' : undefined} aria-hidden="true">
-          <ChevronIcon size={12} />
-        </Text>
+        <DisclosureChevron open={open} size="sm" className={styles.documentChevron} />
         {heading}
       </Button>
       {open && (
-        <Text as="div" role="navigation" className="pb-2 pl-5">
+        <Text as="div" role="navigation" className={styles.documentBody}>
           <Markdown text={text} />
         </Text>
       )}
@@ -167,6 +164,14 @@ const DocumentSection = ({
 }
 
 // --------------------------------------------------------------------- tree
+
+/** A node's label, and its hint at the row's end with a gap before it only when there is one. */
+const TreeText = ({ node }: { node: UiTreeNode }) => (
+  <span className={styles.treeText}>
+    <Text role="navigation" truncate className={styles.treeLabel}>{node.label}</Text>
+    {node.hint && <Text role="meta" className={styles.treeHint}>{node.hint}</Text>}
+  </span>
+)
 
 const TreeNode = ({ node }: { node: UiTreeNode }) => {
   const run = useRunner()
@@ -191,23 +196,17 @@ const TreeNode = ({ node }: { node: UiTreeNode }) => {
               setOpen((value) => !value)
             }}
           >
-            <Text role="meta" data-chevron data-open={open ? '' : undefined} aria-hidden="true">
-              <ChevronIcon size={12} />
-            </Text>
+            <DisclosureChevron open={open} size="sm" />
           </Button>
         ) : (
           <span className={styles.treeSpacer} aria-hidden="true" />
         )}
         {actionable ? (
           <Button type="button" variant="row" size="row" className={styles.treeRow} onClick={() => run(node.action)}>
-            <Text role="navigation" truncate className="min-w-0">{node.label}</Text>
-            {node.hint && <Text role="meta" className={`${styles.treeHint} pl-2`}>{node.hint}</Text>}
+            <TreeText node={node} />
           </Button>
         ) : (
-          <>
-            <Text role="navigation" truncate className="min-w-0">{node.label}</Text>
-            {node.hint && <Text role="meta" className={`${styles.treeHint} pl-2`}>{node.hint}</Text>}
-          </>
+          <TreeText node={node} />
         )}
       </div>
       {hasChildren && open && (
@@ -245,7 +244,7 @@ export const Block = ({ block }: { block: UiBlock }) => {
         <ul className={styles.list}>
           {block.items.map((item, index) => (
             <li key={index} className={styles.listItem}>
-              <Text role="meta" aria-hidden="true" className={styles.listBullet}>
+              <TextMark>
                 {item.done === true ? (
                   <TodoDoneIcon size={12} />
                 ) : item.done === false ? (
@@ -253,8 +252,8 @@ export const Block = ({ block }: { block: UiBlock }) => {
                 ) : (
                   <BulletIcon size={16} />
                 )}
-              </Text>
-              <Text role="navigation" className={`${styles.listLabel} py-0.5${item.done ? ' line-through opacity-60' : ''}`}>
+              </TextMark>
+              <Text role="navigation" done={item.done === true} className={styles.listLabel}>
                 {item.label}
                 {item.hint && <Text role="meta" className="ml-1.5">{item.hint}</Text>}
               </Text>
@@ -322,7 +321,7 @@ export const Block = ({ block }: { block: UiBlock }) => {
                     <TableCell
                       key={column.key}
                       variant="panel"
-                      className={column.align === 'end' ? 'text-right tabular-nums' : undefined}
+                      align={column.align === 'end' ? 'end' : 'start'}
                     >
                       {/* Keyed, not positional: a cell the row omits is empty, never the next column's. */}
                       {row[column.key] ?? ''}
@@ -387,12 +386,7 @@ export const PanelSection = ({
   }
 
   return (
-    <Section
-      variant="panel"
-      className={styles.section}
-      style={{ maxHeight: 'var(--panel-max, none)' }}
-      aria-label={title}
-    >
+    <Section variant="panel" className={styles.section} aria-label={title}>
       {title && (
 <Button
           type="button"

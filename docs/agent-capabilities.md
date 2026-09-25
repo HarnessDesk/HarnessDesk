@@ -45,7 +45,7 @@ cannot.
 
 ³ Declared per runtime as the `pluginTools` capability, and reported
 truthfully — an agent that refuses the server reports `false`, not hope.
-HarnessDesk offers every agent an MCP server carrying its 61 built-in plugin
+HarnessDesk offers every agent an MCP server carrying its 63 built-in plugin
 tools (the browser, iOS Simulator, Android, checkpoint and todo plugins among
 them; installed plugins add their own on top). Codex takes them as dynamic
 tools; Claude Code takes the server; Cursor takes them through a generated
@@ -61,3 +61,34 @@ profile, so the cell stays empty while the tools arrive. See
 Codex is the fullest column because it is the one HarnessDesk speaks to
 natively; everything else reaches it through ACP, which carries less. That is
 a property of the protocol, not a ranking of the agents.
+
+## Ceiling controls added in phase 3
+
+Ceilings describe checkout and publishing authority for an Agent seat. Their
+four cumulative levels and legacy-file behavior are defined in
+[agents.md](agents.md); they do not classify every possible browser, device or
+external side effect.
+
+The capability declaration is source-backed, not a new live survey. Codex
+declares two controls in
+`packages/adapter-codex/src/mapping/options.ts`: `read` selects its read-only
+sandbox and person-reviewed approvals; `edit` selects its workspace sandbox
+and the same reviewer. The workspace control is narrower than the ladder's
+edit level because it cannot commit, reach the network or listen on a port.
+`packages/adapter-codex/test/capabilities.test.ts` checks the declaration and
+the settings read back after a session opens.
+
+No runtime declares a held `publish` or `merge` control in this phase. Claude
+Code plan mode is not treated as a read-only sandbox, and the ACP adapters do
+not provide a reliable ceiling read-back, so those seats say *asked*. The
+desk's classified tools still refuse calls beyond the effective ceiling,
+including delegated calls correlated to their root seat. Unknown callers and
+runtime-native shell actions are explicit limits: the desk does not claim a
+global shell interceptor.
+
+These declarations and tests establish the mapping and host contract; they are
+not evidence that a live runtime rejected an action. The
+[phase-3 ceiling walkthrough](verification/2026-09-18-agents-ceilings.md)
+records the inspected synthetic UI paths separately from the real-runtime cases
+that are complete and the native-runtime case that remains blocked; no native
+sandbox-enforcement result is claimed here.

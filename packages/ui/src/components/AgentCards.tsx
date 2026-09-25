@@ -24,7 +24,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { accountIdentity, accountKey, accountName, runtimeTint } from '../lib/accounts'
-import { ceilingWords, originWords, passedWords, projectOfAgent, seatCautions } from '../lib/agents'
+import { originWords, passedWords, projectOfAgent, seatCautions } from '../lib/agents'
 import { elapsedSince } from '../lib/clock'
 import { describeContext, formatTokens } from '../lib/context-usage'
 import { formatElapsed } from '../lib/turn-view'
@@ -681,7 +681,7 @@ export const AgentHoverCard = ({
           ref={setCard}
           side={placed}
           {...(align ? { align } : {})}
-          className="p-0"
+          bleed
           /* A verb dismisses the card that offered it. Every action here opens,
              renames or addresses something *behind* this card, and review found
              it left floating over the destination until the pointer happened to
@@ -806,6 +806,8 @@ const turnStartedAt = (live: Session | undefined): number | null => {
 const busyNow = (live: Session | undefined): boolean =>
   live !== undefined && Array.isArray(live.turns) && isBusy(live)
 
+import { CeilingChip } from './CeilingChip'
+
 /** The Agent band for a conversation seated as one, and what its card should warn about it. */
 const seatedOf = (
   live: Session | undefined,
@@ -817,7 +819,7 @@ const seatedOf = (
   return {
     agent: {
       name: seated.name,
-      ceiling: ceilingWords(settings?.permission ?? definition?.permission ?? 'read'),
+      ceiling: <CeilingChip ceiling={settings?.ceiling ?? { level: definition?.ceiling ?? 'read', hold: 'asked' }} note={settings?.ceilingNote} />,
       description: definition?.description ?? null,
       origin: seated.entry ? originWords(seated.entry.origin, projectOfAgent(seated.entry)) : null,
       seat: settings?.seatLabel ?? null,

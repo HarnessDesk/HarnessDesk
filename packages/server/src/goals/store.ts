@@ -2,8 +2,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import { open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import type { Goal, GoalBoard, GoalCitation, GoalId, GoalReceipt, Lane, Plan, SeatId } from '@harnessdesk/protocol'
+import type { Goal, GoalBoard, GoalCitation, GoalId, GoalMemoryIndex, GoalReceipt, Lane, Plan, SeatId } from '@harnessdesk/protocol'
 
+import { evidenceRecordOf } from '../evidence/records.js'
 import type { RememberedMember } from './migration.js'
 import type { GoalOperation } from './operations.js'
 
@@ -21,8 +22,21 @@ export interface GoalDocument {
     readonly seatLocations: Readonly<Record<SeatId, 'remembered' | 'inferred'>>
   }
   readonly citations: readonly GoalCitation[]
+  /**
+   * Phase 12's citation archive references and citation-created dependency
+   * markers. Optional: missing means legacy, never corrupted, and a document
+   * with citations but no `memory` simply has nothing retained for any of
+   * them yet.
+   */
+  readonly memory?: GoalMemoryIndex
   readonly receipt: GoalReceipt | null
   readonly operation: GoalOperation | null
+  /**
+   * The front-door run this existing empty Goal was reserved for, written in
+   * the same save that advanced its revision. Absent on every other Goal.
+   * It stays after an uncertain start: that run's recovery finds it here.
+   */
+  readonly flowReservation?: { readonly run: string; readonly operation: string }
 }
 
 /** A restored Goal is inert history: its bytes survive, its executable journal does not. */
@@ -91,11 +105,13 @@ const strings = (value: unknown): value is string[] =>
 const sha = (value: unknown): value is string =>
   typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)
 
-const citationOf = (value: unknown): value is GoalCitation =>
+/** Shared with `memory/plane.ts`, which reads a retained snapshot's own citation back through the same rule this store already applies to `GoalDocument.citations`. */
+export const citationOf = (value: unknown): value is GoalCitation =>
   object(value) && typeof value.goal === 'string' && typeof value.receipt === 'string' &&
   typeof value.project === 'string' && typeof value.path === 'string' && sha(value.at)
 
-const receiptOf = (value: unknown, goal: string, id: unknown): value is GoalReceipt => {
+/** Shared with `memory/plane.ts`: a retained snapshot's own receipt is read back exactly as strictly as this store already reads a wrapped Goal's. */
+export const receiptOf = (value: unknown, goal: string, id: unknown): value is GoalReceipt => {
   if (!object(value) || value.version !== 1 || value.goal !== goal || value.id !== id ||
     typeof value.id !== 'string' || typeof value.sentence !== 'string' ||
     !Number.isFinite(value.wrappedAt) || typeof value.summary !== 'string' ||
@@ -108,12 +124,38 @@ const receiptOf = (value: unknown, goal: string, id: unknown): value is GoalRece
     object(answer.session) && typeof answer.session.runtime === 'string' && typeof answer.session.sessionId === 'string' &&
     (answer.turn === null || typeof answer.turn === 'string') && typeof answer.text === 'string' &&
     typeof answer.partial === 'boolean' && (answer.stopReason === null || typeof answer.stopReason === 'string'))) return false
+  // Both optional: a receipt wrapped before either field existed has neither.
+  if (value.members !== undefined && (!Array.isArray(value.members) || !value.members.every((member) =>
+    object(member) && typeof member.seat === 'string' &&
+    (member.agent === null || typeof member.agent === 'string') && typeof member.seatLabel === 'string'))) return false
+  if (value.evidenceSeats !== undefined && (!Array.isArray(value.evidenceSeats) || !value.evidenceSeats.every((ref) =>
+    object(ref) && typeof ref.id === 'string' && (ref.seat === null || typeof ref.seat === 'string') &&
+    (ref.seatLabel === undefined || ref.seatLabel === null || typeof ref.seatLabel === 'string')))) return false
   if (!value.lanes.every((lane) => object(lane) && typeof lane.lane === 'string' && typeof lane.cwd === 'string' &&
     (lane.dirty === null || typeof lane.dirty === 'boolean') && lane.retained === true)) return false
   if (!value.revisions.every((revision) => object(revision) && typeof revision.cwd === 'string' &&
     (revision.head === null || sha(revision.head)) && (revision.dirty === null || typeof revision.dirty === 'boolean'))) return false
-  return value.citations.every(citationOf)
+  if (!value.citations.every(citationOf)) return false
+  return value.findings === undefined || findingReceiptOf(value.findings)
 }
+
+const archiveKeyOf = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+
+/** Phase 12's optional `memory` field: archive references and citation-created dependency markers, read no more leniently than anything else here. */
+export const memoryIndexOf = (value: unknown): value is GoalMemoryIndex =>
+  object(value) &&
+  Array.isArray(value.citations) &&
+  value.citations.every((one) => object(one) && citationOf(one.citation) && archiveKeyOf(one.archive)) &&
+  Array.isArray(value.satisfiedCitationSources) &&
+  value.satisfiedCitationSources.every((one) => object(one) && typeof one.goal === 'string' && typeof one.receipt === 'string')
+
+/** A wrap's frozen findings: their event ids and the views they folded to. Shape only; the views are the host's own. */
+const findingReceiptOf = (value: unknown): boolean =>
+  object(value) && value.version === 1 && strings(value.evidence) && Array.isArray(value.findings) &&
+  value.findings.every((view) => object(view) && typeof view.id === 'string' && object(view.origin) && object(view.lifecycle) &&
+    typeof view.ownerGoal === 'string' && strings(view.evidence)) &&
+  Array.isArray(value.overrides) && value.overrides.every((override) => object(override) && override.by === 'person' &&
+    typeof override.run === 'string' && strings(override.findings) && typeof override.reason === 'string')
 
 /** Refuse a partial or newer document; do not repair it by dropping fields. */
 export function documentOf(value: unknown): GoalDocument {
@@ -130,10 +172,16 @@ export function documentOf(value: unknown): GoalDocument {
     !Number.isFinite(goal.createdAt) || !Number.isFinite(goal.updatedAt) ||
     !object(goal.origin) || !['person', 'legacy', 'flow', 'trigger'].includes(String(goal.origin.kind)) ||
     !(goal.receipt === null || typeof goal.receipt === 'string') ||
+    !(goal.findingPublication === undefined || typeof goal.findingPublication === 'boolean') ||
+    !(goal.at === undefined || (typeof goal.at === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(goal.at))) ||
     'members' in goal || 'members' in board || 'roles' in board || 'plans' in board ||
     !Number.isSafeInteger(board.nextIntent) || Number(board.nextIntent) < 1 ||
     typeof board.messaging !== 'boolean' || !Array.isArray(board.intents) || !Array.isArray(board.channel) ||
     !Array.isArray(value.citations) || !value.citations.every(citationOf) ||
+    (value.memory !== undefined && !memoryIndexOf(value.memory)) ||
+    (value.flowReservation !== undefined && (!object(value.flowReservation) ||
+      typeof value.flowReservation.run !== 'string' || !value.flowReservation.run ||
+      typeof value.flowReservation.operation !== 'string' || !value.flowReservation.operation)) ||
     !('receipt' in value) || !('operation' in value)
   ) return bad()
   for (const card of board.intents) {
@@ -151,7 +199,11 @@ export function documentOf(value: unknown): GoalDocument {
   }
   if (value.receipt !== null && !receiptOf(value.receipt, String(goal.id), goal.receipt)) return bad()
   if (value.operation !== null && (!object(value.operation) || value.operation.goal !== goal.id ||
-    typeof value.operation.id !== 'string' || !['assignment', 'release', 'wrap'].includes(String(value.operation.kind)))) return bad()
+    typeof value.operation.id !== 'string' || !['assignment', 'release', 'wrap', 'carry'].includes(String(value.operation.kind)))) return bad()
+  if (value.operation !== null && value.operation.kind === 'carry' &&
+    (goal.state !== 'open' || typeof value.operation.source !== 'string' || typeof value.operation.receipt !== 'string' ||
+      !strings(value.operation.dependsOn) || !Array.isArray(value.operation.records) ||
+      !value.operation.records.every((record) => evidenceRecordOf(record) !== null))) return bad()
   if (value.operation !== null && value.operation.kind === 'wrap' &&
     (goal.state !== 'wrapping' || !sha(value.operation.stamp) ||
       !receiptOf(value.operation.receipt, String(goal.id), object(value.operation.receipt) ? value.operation.receipt.id : null))) return bad()
@@ -185,6 +237,11 @@ export class GoalStore {
   #index: GoalIndex = { version: 1, noticeSeen: true, ids: [] }
   #tail: Promise<void> = Promise.resolve()
   #problem: Error | null = null
+
+  /** This store's own machine-state directory — never a repository path — for a sibling like the memory citation archive to be placed under. */
+  get directory(): string {
+    return this.#directory
+  }
 
   constructor(home: string, write: typeof atomicJson = atomicJson) {
     this.#directory = join(home, 'goals')

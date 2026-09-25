@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { runtimeId } from '@harnessdesk/protocol'
-import type { Library, LibraryEntry, LibraryUsage, ReachState, RuntimeInfo } from '@harnessdesk/protocol'
+import type { AgentAttachmentsView, AgentEntry, Library, LibraryEntry, LibraryUsage, ReachState, RuntimeInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -141,6 +141,9 @@ const mount = async (
     getSnapshot: () => snapshot,
     transport: { request },
     setSkillEnabled: options.setSkillEnabled ?? (async () => {}),
+    // The Agent filter's own roster read — these fixtures never populate
+    // `snapshot.agents`, so this stays a no-op and the filter offers nothing.
+    loadAgents: vi.fn(async () => {}),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -157,15 +160,54 @@ const mount = async (
  *
  * The page opens on cards, which is the point of the redesign; everything
  * that reads the table, its footers or its drawer has to say so first. Found
- * by the toggle's own accessible name rather than by position, so a third
- * view added later cannot silently re-point these at the wrong one.
+ * by the segment's own name rather than by position, so a third view added
+ * later cannot silently re-point these at the wrong one.
  */
 const showMatrix = async (): Promise<void> => {
-  const button = [...document.body.querySelectorAll('button')].find(
-    (node) => node.getAttribute('aria-label') === 'Show every entry against every agent',
-  )
+  const button = [
+    ...document.body.querySelectorAll('[role="radiogroup"][aria-label="How to show the library"] [role="radio"]'),
+  ].find((node) => node.textContent === 'Matrix') as HTMLButtonElement | undefined
   expect(button, 'the view switch should offer the matrix').toBeTruthy()
   await act(async () => button?.click())
+}
+
+/**
+ * The toolbar's Filter menu: every count is one of its rows, and the Agent
+ * picker its submenu. Opened by its trigger's name, read, and chosen from by
+ * each row's words.
+ */
+const filterTrigger = (): HTMLElement => {
+  const trigger = document.body.querySelector('[data-slot="popover-trigger"][title^="Filter the library"]') as HTMLElement | null
+  expect(trigger, 'the toolbar should have a Filter menu').toBeTruthy()
+  return trigger as HTMLElement
+}
+const openFilter = async (): Promise<void> => {
+  if (filterTrigger().hasAttribute('data-open')) return
+  await act(async () => filterTrigger().click())
+  await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)) })
+}
+const closeFilter = async (): Promise<void> => {
+  if (!filterTrigger().hasAttribute('data-open')) return
+  await act(async () => filterTrigger().click())
+}
+const filterRows = (): HTMLElement[] => [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
+/** The row whose words start with `label`, with the menu open. */
+const filterRow = (label: string): HTMLElement | undefined =>
+  filterRows().find((node) => node.textContent?.toLowerCase().startsWith(label.toLowerCase()))
+const chooseFilter = async (label: string): Promise<void> => {
+  await openFilter()
+  const row = filterRow(label)
+  expect(row, `the Filter menu should offer ${label}`).toBeTruthy()
+  await act(async () => row?.click())
+}
+const chooseAgent = async (name: string): Promise<void> => {
+  await openFilter()
+  const declared = [...document.body.querySelectorAll<HTMLElement>('button')].find((node) => node.textContent?.startsWith('Declared by'))
+  expect(declared, 'the Filter menu should offer the Agent picker once a roster exists').toBeTruthy()
+  await act(async () => declared?.click())
+  const row = filterRow(name)
+  expect(row, `the Agent picker should offer ${name}`).toBeTruthy()
+  await act(async () => row?.click())
 }
 
 const cellNames = (): readonly string[] =>
@@ -206,11 +248,7 @@ it('a count filters the table down to what it counted', async () => {
   expect(document.body.textContent).toContain('good')
   expect(document.body.textContent).toContain('empty')
 
-  const button = [...document.body.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('empty on disk'),
-  )
-  expect(button, 'the summary strip should offer the hollow count').toBeTruthy()
-  await act(async () => button?.click())
+  await chooseFilter('Empty on disk')
 
   const rows = [...document.body.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
   expect(rows).toEqual(['empty'])
@@ -228,19 +266,57 @@ it('only-problems means defects and strandings, never mere non-reach', async () 
     ]),
   )
   await showMatrix()
-  const toggle = document.body.querySelector('[role="switch"]') as HTMLElement | null
-  expect(toggle, 'the problems switch should render').toBeTruthy()
-  await act(async () => toggle?.click())
+  await chooseFilter('Problems')
   const rows = [...document.body.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
   expect(rows).toEqual(['empty', 'stranded'])
 })
 
-it('a count with nothing to show cannot be pressed', async () => {
+it('a count with nothing to show is not offered', async () => {
+  // A zero-count filter is a row that would empty the list, so it is not
+  // offered at all — and the one that is always a way back, "Everything", is.
   await mount(library([entry('good', ['reaches', 'reaches'])]))
-  const button = [...document.body.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('empty on disk'),
-  )
-  expect((button as HTMLButtonElement | undefined)?.disabled).toBe(true)
+  await openFilter()
+  const counts = filterRows().map((node) => node.textContent)
+  expect(counts.some((text) => text?.startsWith('Empty on disk'))).toBe(false)
+  expect(counts.some((text) => text?.startsWith('Problems'))).toBe(false)
+  expect(counts.some((text) => text?.startsWith('Everything'))).toBe(true)
+})
+
+it('the toolbar is one row: listing, search, filter and view, and a pill only for the filter that is on', async () => {
+  await mount(library([entry('good', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent'])]))
+  const toolbar = document.body.querySelector('[data-slot="library-toolbar"]') as HTMLElement | null
+  expect(toolbar, 'the page should have one toolbar').toBeTruthy()
+  expect(toolbar?.querySelector('[aria-label="What the library is listing"]')).toBeTruthy()
+  expect(toolbar?.querySelector('input[aria-label="Filter the library by name"]')).toBeTruthy()
+  expect(toolbar?.contains(filterTrigger())).toBe(true)
+  expect(toolbar?.querySelector('[aria-label="How to show the library"]')).toBeTruthy()
+  // At rest, the menu's one piece of news is on its button: how many have a problem, in amber.
+  expect(filterTrigger().querySelector('[data-tone="warning"]')?.textContent).toBe('1')
+  expect(filterTrigger().getAttribute('title')).toBe('Filter the library — 1 with a problem')
+  // The filters and the view wrap as one group, so List | Matrix is never alone on a line.
+  const group = toolbar?.querySelector('[data-slot="toolbar"]') as HTMLElement | null
+  expect(group?.contains(filterTrigger())).toBe(true)
+  expect(group?.querySelector('[aria-label="How to show the library"]')).toBeTruthy()
+  // The counts live in the menu, where a problem's number keeps its amber.
+  expect(document.body.querySelector('[data-slot="library-count"]')).toBeNull()
+  expect(document.body.querySelector('select[aria-label="Agent"]')).toBeNull()
+  await openFilter()
+  expect(filterRow('Empty on disk')?.querySelector('[data-tone="warning"]')?.textContent).toBe('1')
+  // A filter that is on is a pressed pill in the toolbar, so the narrowed list
+  // says why — and pressing it lets go.
+  await act(async () => filterRow('Empty on disk')?.click())
+  const pill = [...(toolbar?.querySelectorAll<HTMLButtonElement>('button[aria-pressed="true"]') ?? [])].find((node) => node.textContent === 'Empty on disk')
+  expect(pill, 'the filter that is on should be a pressed pill').toBeTruthy()
+  expect(filterTrigger().textContent).toBe('Filter')
+  expect(cards().length).toBe(1)
+  // From the pill itself, as a keyboard reaches it: the pill goes away with
+  // the filter, and the focus goes to Filter, where the next choice is made.
+  act(() => pill?.focus())
+  expect(document.activeElement).toBe(pill)
+  await act(async () => pill?.click())
+  expect(cards().length).toBe(2)
+  expect(document.activeElement).toBe(filterTrigger())
+  expect([...(toolbar?.querySelectorAll('button[aria-pressed="true"]') ?? [])].some((node) => node.textContent === 'Empty on disk')).toBe(false)
 })
 
 it('opening a row shows every copy and who reads it', async () => {
@@ -261,7 +337,7 @@ it('opening a row shows every copy and who reads it', async () => {
     ]),
   )
   await showMatrix()
-  const disclosure = document.body.querySelector('[aria-expanded]') as HTMLButtonElement | null
+  const disclosure = document.body.querySelector('table [aria-expanded]') as HTMLButtonElement | null
   expect(disclosure).toBeTruthy()
   await act(async () => disclosure?.click())
   // With the tilde, because that is how the path is written everywhere else
@@ -297,6 +373,7 @@ it('reports a failed scan instead of an empty library', async () => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: { request },
+    loadAgents: vi.fn(async () => {}),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -323,11 +400,7 @@ it('usage joins the matrix: the never-fired tile isolates paid-and-idle', async 
     },
   )
   await showMatrix()
-  const tile = [...document.body.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('never fired'),
-  )
-  expect(tile, 'the never-fired tile should render once usage arrives').toBeTruthy()
-  await act(async () => tile?.click())
+  await chooseFilter('Never fired')
   const rows = [...document.body.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
   // `invisible` reaches nobody: it is a reach problem, not an idle expense.
   expect(rows).toEqual(['idle'])
@@ -361,10 +434,7 @@ it('the never-fired view leads with the most expensive idle row', async () => {
     usageOf({ working: { sessions: 1, activations: 1, lastAt: 5, byRuntime: { one: { sessions: 1, activations: 1 } } } }),
   )
   await showMatrix()
-  const tile = [...document.body.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('never fired'),
-  )
-  await act(async () => tile?.click())
+  await chooseFilter('Never fired')
   const rows = [...document.body.querySelectorAll('tbody th[scope="row"]')].map((node) => node.textContent)
   expect(rows).toEqual(['dear-idle', 'cheap-idle'])
 })
@@ -396,7 +466,7 @@ it('a split that cannot name every activation shows the remainder', async () => 
     }),
   )
   await showMatrix()
-  const disclosure = document.body.querySelector('[aria-expanded]') as HTMLButtonElement | null
+  const disclosure = document.body.querySelector('table [aria-expanded]') as HTMLButtonElement | null
   await act(async () => disclosure?.click())
   expect(document.body.textContent).toContain('2× First Agent')
   expect(document.body.textContent).toContain('3× under earlier registrations')
@@ -884,17 +954,34 @@ it('writes a skill’s name as the command that fires it', async () => {
 
 it('a row says who loads it without a table, and names each state for readers', async () => {
   await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
-  const faces = [...document.body.querySelectorAll('[data-slot="skill-reach"]')].map((node) => ({
-    state: node.getAttribute('data-state'),
+  // Each agent's mark on a round IconTile: the neutral ground where it loads,
+  // the same tile faded for every other "not this one".
+  const faces = [...document.body.querySelectorAll('[data-reach][data-tone]')].map((node) => ({
+    state: node.getAttribute('data-reach'),
+    tone: node.getAttribute('data-tone'),
+    faded: node.classList.contains('opacity-40'),
     label: node.getAttribute('aria-label'),
   }))
   expect(faces).toEqual([
-    { state: 'reaches', label: 'First Agent: Loads it' },
+    { state: 'reaches', tone: 'neutral', faded: false, label: 'First Agent: Loads it' },
     {
       state: 'unscanned',
+      tone: 'neutral',
+      faded: true,
       label: 'Second Agent: Installed where this agent does not look',
     },
   ])
+})
+
+it('a problem wears the warning ground on the same small round tile', async () => {
+  await mount(library([entry('alpha', ['hollow', 'reaches'])]))
+  const [problem] = [...document.body.querySelectorAll<HTMLElement>('[data-reach][data-tone]')]
+  expect(problem?.dataset['reach']).toBe('hollow')
+  expect(problem?.dataset['tone']).toBe('warning')
+  expect(problem?.hasAttribute('data-problem')).toBe(true)
+  expect(problem?.classList.contains('size-4.5')).toBe(true)
+  expect(problem?.classList.contains('rounded-full')).toBe(true)
+  expect(problem?.classList.contains('opacity-40')).toBe(false)
 })
 
 it('a row’s finding names the defect, never the symptom it causes', async () => {
@@ -1231,7 +1318,7 @@ it('a row says a skill is switched off before it says nobody loads it', async ()
   expect(cards()[0]?.textContent).not.toContain('Loaded by nobody')
 })
 
-it('the switched-off chip isolates exactly the entries with a switch down', async () => {
+it('the switched-off filter isolates exactly the entries with a switch down', async () => {
   await mount(
     library([
       entry('on', ['reaches', 'reaches']),
@@ -1243,11 +1330,7 @@ it('the switched-off chip isolates exactly the entries with a switch down', asyn
       }),
     ]),
   )
-  const chip = [...document.body.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('switched off'),
-  )
-  expect(chip, 'the chip row should offer the switched-off count').toBeTruthy()
-  await act(async () => chip?.click())
+  await chooseFilter('Switched off')
   expect(cards().map((card) => card.textContent?.includes('paused'))).toEqual([true])
 })
 
@@ -1290,12 +1373,15 @@ const typeSearch = async (text: string): Promise<void> => {
   })
 }
 
-const chipNamed = (label: string): HTMLButtonElement | undefined =>
-  [...document.body.querySelectorAll('[data-slot="library-count"]')].find((node) =>
-    node.textContent?.includes(label),
-  ) as HTMLButtonElement | undefined
+/** A filter row's count, read with the menu open and the menu closed again. */
+const countOf = async (label: string): Promise<string | null | undefined> => {
+  await openFilter()
+  const text = filterRow(label)?.textContent
+  await closeFilter()
+  return text
+}
 
-it('a count counts what pressing it will show, search included', async () => {
+it('a count counts what choosing it will show, search included', async () => {
   await mount(
     library([
       entry('alpha', ['absent', 'absent']),
@@ -1304,33 +1390,41 @@ it('a count counts what pressing it will show, search included', async () => {
     ]),
   )
   // Two reach nobody, and that is the honest number for the whole library.
-  expect(chipNamed('reach none')?.textContent).toContain('2')
+  expect(await countOf('Reach none')).toContain('2')
 
-  // Narrow to one of them. The chip used to keep saying 2 — and pressing it,
-  // which is the only thing a chip does, left an empty page.
+  // Narrow to one of them. The count used to keep saying 2 — and choosing
+  // it, which is the only thing a count does, left an empty page.
   await typeSearch('alpha')
-  expect(chipNamed('reach none')?.textContent).toContain('1')
-  expect(chipNamed('in all')?.textContent).toContain('1')
-  await act(async () => chipNamed('reach none')?.click())
+  expect(await countOf('Reach none')).toContain('1')
+  expect(await countOf('Everything')).toContain('1')
+  await chooseFilter('Reach none')
   expect(cards().length).toBe(1)
   expect(cards()[0]?.textContent).toContain('alpha')
 
-  // Release it, and a search that leaves nothing in that state disables the
-  // chip rather than offering a press that would empty the list.
-  await act(async () => chipNamed('reach none')?.click())
+  // Chosen, it stays offered at zero so it can be seen and left: search for
+  // the one entry that reaches everything and the chosen row reads 0.
   await typeSearch('gamma')
-  expect(chipNamed('reach none')?.textContent).toContain('0')
-  expect(chipNamed('reach none')?.disabled).toBe(true)
+  await openFilter()
+  expect(filterRow('Reach none')?.textContent).toContain('0')
+  expect(filterRow('Reach none')?.getAttribute('aria-checked')).toBe('true')
+  // At zero the number carries no amber: nothing is wrong in what is shown.
+  expect(filterRow('Reach none')?.querySelector('[data-tone="warning"]')).toBeNull()
+
+  // Left, a search that leaves nothing in that state withdraws the row
+  // rather than offering a choice that would empty the list.
+  await act(async () => filterRow('Everything')?.click())
+  await openFilter()
+  expect(filterRow('Reach none')).toBeUndefined()
 })
 
 it('an empty list blames whichever of the two narrowings actually emptied it', async () => {
   await mount(
     library([entry('alpha', ['reaches', 'absent']), entry('beta', ['reaches', 'reaches'])]),
   )
-  // One entry reaches some, so the chip is pressable. Then search for the
+  // One entry reaches some, so the filter is offered. Then search for the
   // *other* one: the search matched something, and the filter is what left
   // the page empty.
-  await act(async () => chipNamed('reach some')?.click())
+  await chooseFilter('Reach some')
   await typeSearch('beta')
   expect(document.body.textContent).toContain('Nothing matches')
   expect(document.body.textContent).toContain('1 entry matches “beta”')
@@ -1360,6 +1454,22 @@ it('the matrix says what its marks mean, on screen', async () => {
   expect(legend?.textContent).not.toContain('Cannot host')
 })
 
+it('draws each matrix state in the meta ink it judges by, loads-it as the readiness light', async () => {
+  await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
+  await showMatrix()
+  const marks = [...document.body.querySelectorAll<HTMLElement>('td [data-reach]')]
+  const [loads, unread] = marks
+  expect(marks.map((mark) => mark.dataset['reach'])).toEqual(['reaches', 'unscanned'])
+  expect(loads?.dataset['role']).toBe('meta')
+  expect(loads?.dataset['placement']).toBe('cell')
+  expect(loads?.querySelector('[data-slot="dot"]')?.getAttribute('data-state')).toBe('ready')
+  expect(loads?.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('Reaches')
+  expect(unread?.dataset['tone']).toBe('warning')
+  expect(unread?.querySelector('[data-slot="dot"]')).toBeNull()
+  // A copy no agent has read is the task list's pending ring, not a drawing of one.
+  expect(unread?.querySelector('svg')?.classList.contains('lucide-circle')).toBe(true)
+})
+
 it('a copy an agent has not read back yet says so, and is not filed as a fault', async () => {
   await mount(
     library([
@@ -1379,12 +1489,10 @@ it('a copy an agent has not read back yet says so, and is not filed as a fault',
   // The row a second after an install: it worked, and the last step is the
   // agent's.
   expect(cards()[0]?.textContent).toContain('Not read yet by Second Agent')
-  // Quietly — the problems filter is for defects, and this is not one.
-  await act(async () => {
-    const only = document.body.querySelector('[role="switch"]') as HTMLElement | null
-    only?.click()
-  })
-  expect(document.body.textContent).toContain('Nothing matches')
+  // Quietly — the problems filter is for defects, and this is not one, so
+  // there is no problem to choose.
+  await openFilter()
+  expect(filterRow('Problems')).toBeUndefined()
 })
 
 it('the sheet offers to make a stale agent look again, and reports a refusal', async () => {
@@ -1580,4 +1688,163 @@ it('determines winning copy under Windows-style scan roots (#664)', async () => 
   )
   await showMatrix()
   expect(document.body.textContent).toContain('alpha')
+})
+
+/**
+ * Phase 12 Task 6: the Agent filter is a declaration filter, never a second
+ * reach measurement. A skill two different Agents both declare stays one row
+ * whichever of them is chosen; the row's own measured reach — which runtime
+ * actually loads it — is untouched by that choice; and a declared name with
+ * nothing behind it (unresolved) never causes the Agent's *other*, real rows
+ * to disappear.
+ */
+it('Agent filter preserves measured reach: same skill declared by two origins but loaded by one runtime; distinguish declarations and reach, retain unresolved rows', async () => {
+  const value = library([
+    entry('shared-skill', ['reaches', 'absent']), // reaches "one" only — declared by both agents below
+    entry('orphan-skill', ['reaches', 'reaches']), // declared by neither agent
+  ])
+  const agentA: AgentEntry = {
+    id: 'agent-a', origin: 'user', path: '/home/u/.harnessdesk/agents/agent-a/AGENT.md', digest: 'da', shadows: [], problems: [],
+    definition: { id: 'agent-a', name: 'Agent A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const agentB: AgentEntry = {
+    id: 'agent-b', origin: 'project', path: '/repo/.harnessdesk/agents/agent-b/AGENT.md', digest: 'db', shadows: [], problems: [],
+    definition: { id: 'agent-b', name: 'Agent B', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const viewFor: Record<string, AgentAttachmentsView> = {
+    'agent-a': {
+      agent: 'agent-a', origin: 'user', agentDigest: 'da', skillsMode: 'allowlist', mcpMode: 'runtime-defaults', support: [],
+      declarations: [
+        { kind: 'skill', name: 'shared-skill', identity: { kind: 'skill', name: 'shared-skill', digest: 'x'.repeat(64), source: 'agent', pathLabel: 'p' }, problem: null },
+        // Declared, but nothing in the catalogue resolves it — must never
+        // suppress this Agent's other, real declaration below.
+        { kind: 'skill', name: 'ghost-name', identity: null, problem: 'Could not resolve this name.' },
+      ],
+    },
+    'agent-b': {
+      agent: 'agent-b', origin: 'project', agentDigest: 'db', skillsMode: 'allowlist', mcpMode: 'runtime-defaults', support: [],
+      declarations: [
+        { kind: 'skill', name: 'shared-skill', identity: { kind: 'skill', name: 'shared-skill', digest: 'y'.repeat(64), source: 'agent', pathLabel: 'q' }, problem: null },
+      ],
+    },
+  }
+  const request = vi.fn(async (method: string) =>
+    method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} }
+    : method === 'library/plan' ? { plannedAt: 1, ops: [] }
+    : value,
+  )
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [runtime('one', 'First Agent'), runtime('two', 'Second Agent')],
+    agents: [agentA, agentB],
+  } as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: { request },
+    loadAgents: vi.fn(async () => {}),
+    readAgentAttachments: vi.fn(async (id: string) => viewFor[id]),
+  } as unknown as AppStore
+  await act(async () => {
+    root.render(<StoreProvider store={store}><LibrarySection /></StoreProvider>)
+  })
+  // Settle the roster's own declaration read — a microtask past mount.
+  await act(async () => {})
+
+  // Unfiltered: both catalogue rows are on screen.
+  expect(document.body.textContent).toContain('shared-skill')
+  expect(document.body.textContent).toContain('orphan-skill')
+
+  await chooseAgent('Agent A')
+  expect(document.body.textContent).toContain('shared-skill')
+  expect(document.body.textContent).not.toContain('orphan-skill')
+
+  // The Agent chosen is a pressed pill; pressing it lets go of the Agent.
+  const agentPill = [...document.body.querySelectorAll<HTMLButtonElement>('[data-slot="library-toolbar"] button[aria-pressed="true"]')].find((node) => node.textContent === 'Agent A')
+  expect(agentPill, 'the chosen Agent should be a pressed pill').toBeTruthy()
+  act(() => agentPill?.focus())
+  await act(async () => agentPill?.click())
+  expect(document.body.textContent).toContain('orphan-skill')
+  expect(document.activeElement).toBe(filterTrigger())
+
+  await chooseAgent('Agent A')
+
+  await chooseAgent('Agent B')
+  expect(document.body.textContent).toContain('shared-skill')
+  expect(document.body.textContent).not.toContain('orphan-skill')
+
+  // Reach is untouched by the Agent filter: switch to the matrix and confirm
+  // "shared-skill" still shows its own measured reach, not a loaded-by-Seat
+  // fiction. `showMatrix()` looks for a button by its accessible name, which
+  // survives the filter narrowing the rows above it.
+  await showMatrix()
+  const names = cellNames()
+  expect(names).toContain('shared-skill — First Agent: Reaches')
+  expect(names).toContain('shared-skill — Second Agent: Not installed')
+})
+
+/**
+ * PR #893's CI (`e2e/ui-system/provenance.spec.ts`) caught a page-wide crash:
+ * `store.readAgentAttachments` resolved `undefined` for one Agent in the
+ * roster — exactly what a store that does not honor its own
+ * `Promise<AgentAttachmentsView>` contract can produce, which is what the
+ * preview harness fixture (missing an implementation) actually did — and
+ * this effect read `result.view.declarations` with no guard, throwing
+ * `Cannot read properties of undefined (reading 'declarations')` before
+ * `setDeclaredBy` ever ran. One unreadable Agent must never blank out every
+ * other Agent's declarations.
+ */
+it('an Agent whose attachments view could not be read is treated as nothing declared, not a crash (#893)', async () => {
+  const value = library([entry('shared-skill', ['reaches', 'absent'])])
+  const agentA: AgentEntry = {
+    id: 'agent-a', origin: 'user', path: '/home/u/.harnessdesk/agents/agent-a/AGENT.md', digest: 'da', shadows: [], problems: [],
+    definition: { id: 'agent-a', name: 'Agent A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const agentB: AgentEntry = {
+    id: 'agent-b', origin: 'project', path: '/repo/.harnessdesk/agents/agent-b/AGENT.md', digest: 'db', shadows: [], problems: [],
+    definition: { id: 'agent-b', name: 'Agent B', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const viewFor: Record<string, AgentAttachmentsView | undefined> = {
+    'agent-a': {
+      agent: 'agent-a', origin: 'user', agentDigest: 'da', skillsMode: 'allowlist', mcpMode: 'runtime-defaults', support: [],
+      declarations: [
+        { kind: 'skill', name: 'shared-skill', identity: { kind: 'skill', name: 'shared-skill', digest: 'x'.repeat(64), source: 'agent', pathLabel: 'p' }, problem: null },
+      ],
+    },
+    // agent-b's read never resolves a real view — never thrown, never
+    // rejected, just missing, exactly like the unimplemented preview-harness
+    // stub CI actually hit.
+    'agent-b': undefined,
+  }
+  const request = vi.fn(async (method: string) =>
+    method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} }
+    : method === 'library/plan' ? { plannedAt: 1, ops: [] }
+    : value,
+  )
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [runtime('one', 'First Agent'), runtime('two', 'Second Agent')],
+    agents: [agentA, agentB],
+  } as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: { request },
+    loadAgents: vi.fn(async () => {}),
+    readAgentAttachments: vi.fn(async (id: string) => viewFor[id]),
+  } as unknown as AppStore
+
+  await act(async () => {
+    root.render(<StoreProvider store={store}><LibrarySection /></StoreProvider>)
+  })
+  // Settle the roster's own declaration read — a microtask past mount, same
+  // as the sibling test above.
+  await act(async () => {})
+
+  await chooseAgent('Agent A')
+  // Agent A's own, real declaration must survive Agent B's unreadable one —
+  // never blanked out by a sibling that could not be read.
+  expect(document.body.textContent).toContain('shared-skill')
 })

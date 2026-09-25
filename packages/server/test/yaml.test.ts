@@ -277,3 +277,25 @@ test('a key named __proto__ is refused by name, wherever a key is written, and n
   assert.deepEqual(kept, { __proto: 1, proto__: 2 })
   assert.equal(Object.getPrototypeOf(kept), Object.prototype)
 })
+
+test('duplicate keys in inline maps refuse in either order', () => {
+  /* A block map already refused a key set twice; an inline map kept the
+     last one, so `{ flow: safe, flow: unsafe }` read as `unsafe` while a
+     reviewer's eye stopped at `safe`. Either order is refused, by name and line. */
+  const refuses = (source: string, key: string, line: number): void => {
+    assert.throws(
+      () => parseYaml(source),
+      (error: unknown) => {
+        assert.ok(error instanceof YamlError, `expected a YamlError for:\n${source}`)
+        assert.equal(error.line, line, source)
+        assert.match(error.message, new RegExp(`"${key}" is set twice`))
+        return true
+      },
+    )
+  }
+  refuses('opens: {flow: safe, flow: unsafe}\n', 'flow', 1)
+  refuses('opens: {flow: unsafe, flow: safe}\n', 'flow', 1)
+  refuses('a: 1\nlist:\n  - {b: [1, {c: 1, "c": 2}]}\n', 'c', 3)
+  // Distinct keys in an inline map still read.
+  assert.deepEqual(parseYaml('opens: {flow: safe, agent: other}\n'), { opens: { flow: 'safe', agent: 'other' } })
+})

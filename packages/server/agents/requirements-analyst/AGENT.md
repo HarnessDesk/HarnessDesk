@@ -1,7 +1,7 @@
 ---
 name: Requirements analyst
 description: Turns a need into requirements that can be built and tested, and later judges whether a change meets them.
-permission: read
+ceiling: edit
 answers: [agreed, disagree, met, not-met]
 produces: [diff, review]
 prefer: [claude-code, codex, cursor]

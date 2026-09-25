@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   sessionKey,
   type BoardEvidence,
+  type FindingRunView,
+  type GoalView,
   type RuntimeInfo,
   type Session,
   type TeamState,
@@ -13,7 +15,7 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
-import { cardEvidence, checkView, ciView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
+import { cardEvidence, checkView, ciView, factView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
 import { ARM_MS } from './RunCheck'
 import { TeamBoardPane } from './TeamBoardPane'
 
@@ -85,7 +87,7 @@ const state = (intents: readonly unknown[], extra: Partial<TeamState> = {}): Tea
 /* `extra` carries the parts of the board state a test needs to vary — the
    nicknames, so far, because who holds a card is a property of the board and
    there is no other way to write that case. */
-const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, evidence?: BoardEvidence) => {
+const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, evidence?: BoardEvidence, goal?: GoalView) => {
   /* `turns` and `itemsLoaded` are not decoration: every real session carries
      them, and anything reading a transcript — `isBusy`, `currentTurn` — reads
      `turns` without asking. A fixture that leaves them out passes until the
@@ -113,6 +115,7 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, eviden
     sessions: new Map([[sessionKey('codex', 'c1'), held]]),
     teams: new Map([[ROOM, state(intents, extra)]]),
     boardEvidence: new Map(evidence ? [[ROOM, evidence]] : []),
+    goals: new Map(goal ? [[ROOM, goal]] : []),
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -132,6 +135,13 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, eviden
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     runCheck: vi.fn().mockResolvedValue({ kind: 'started' }),
+    // The front door an empty Goal's board offers: an empty catalogue is
+    // enough to mount it and read what root/goal it was opened with.
+    openFrontDoor: vi.fn(),
+    closeFrontDoor: vi.fn(),
+    flowCatalog: vi.fn().mockResolvedValue([]),
+    agentsIn: vi.fn().mockResolvedValue([]),
+    openGoal: vi.fn(),
   } as unknown as AppStore
   return { store, snapshot }
 }
@@ -153,6 +163,12 @@ const button = (text: string): HTMLButtonElement => {
   )
   if (!found) throw new Error(`no button labelled ${text}`)
   return found
+}
+
+/** The stop dialog's reason, found by the label a person reads rather than by its markup. */
+const whyField = (): HTMLInputElement | null => {
+  const label = [...document.querySelectorAll('label')].find((one) => one.textContent === 'Why it is stopped')
+  return label ? (document.getElementById(label.htmlFor) as HTMLInputElement | null) : null
 }
 
 it('columns are what is known about the work, so no card has to repeat its own', async () => {
@@ -300,7 +316,7 @@ it('stopping a card asks why before it stops anything', async () => {
 
   // Nothing has happened yet — the question is the point.
   expect(store.teamIntent).not.toHaveBeenCalled()
-  const why = document.querySelector<HTMLInputElement>('input[aria-label="Why it is stopped"]')
+  const why = whyField()
   if (!why) throw new Error('nobody was asked why')
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
@@ -331,7 +347,7 @@ it('cancelling the question leaves the card where it was', async () => {
   await act(async () => {})
 
   expect(store.teamIntent).not.toHaveBeenCalled()
-  expect(document.querySelector('input[aria-label="Why it is stopped"]')).toBeNull()
+  expect(whyField()).toBeNull()
   expect(column('To do').textContent).toContain('Migrate auth callers')
 })
 
@@ -340,7 +356,7 @@ it('offers the same stop from the card’s own menu', async () => {
   await render(store)
 
   await pick(1, 'Stop it — say why')
-  expect(document.querySelector('input[aria-label="Why it is stopped"]')).not.toBeNull()
+  expect(whyField()).not.toBeNull()
   expect(store.teamIntent).not.toHaveBeenCalled()
 })
 
@@ -411,6 +427,32 @@ it('offers the same long form from an empty board', async () => {
   act(() => door.click())
   await act(async () => {})
   expect(document.body.textContent).toContain('Files it will own')
+})
+
+it('an empty Goal’s empty board also offers to start a team, reusing that Goal rather than a new one', async () => {
+  const empty = { goal: { id: ROOM, root: '/repo', revision: 3 }, members: [] } as unknown as GoalView
+  const { store } = rig([], {}, undefined, empty)
+  await render(store)
+
+  act(() => button('Start with a team').click())
+  await act(async () => {})
+
+  expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'project', root: '/repo' }, { id: ROOM, revision: 3 })
+})
+
+it('an empty board with no Goal behind it offers no team action — there is no root or revision to reuse', async () => {
+  const { store } = rig([])
+  await render(store)
+  expect([...container.querySelectorAll('button')].every((one) => one.textContent?.trim() !== 'Start with a team')).toBe(true)
+})
+
+it('a Goal that already has a Seat is not an empty Goal to reuse, so its board offers no team action', async () => {
+  // Offering the front door here would silently create a second, unrelated
+  // run beside the one this Goal is already carrying.
+  const seated = { goal: { id: ROOM, root: '/repo', revision: 1 }, members: [{ session: { runtime: 'codex', sessionId: 'c1' }, closed: null }] } as unknown as GoalView
+  const { store } = rig([], {}, undefined, seated)
+  await render(store)
+  expect([...container.querySelectorAll('button')].every((one) => one.textContent?.trim() !== 'Start with a team')).toBe(true)
 })
 
 /**
@@ -515,6 +557,10 @@ it('draws the conversation’s title beside the holder without a tooltip of its 
   expect([...holder.querySelectorAll('span')].some((one) => one.textContent === 'API migration')).toBe(true)
   const tooltips = [holder, ...holder.querySelectorAll('*')].filter((one) => one.hasAttribute('title'))
   expect(tooltips.map((one) => one.getAttribute('title'))).toEqual([])
+  // Who holds the card is its key fact: named in a row's name role, the
+  // title beside it in meta.
+  expect(holder.querySelector('[data-slot="text"][data-role="row"]')?.textContent).toBe('Gemini')
+  expect(holder.querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('API migration')
 })
 
 it('separates work waiting on its dependencies from work somebody stopped', async () => {
@@ -819,10 +865,24 @@ it('a stale chip says how far behind it is', async () => {
     observed(['verify'], [cardEvidence(1, [checkView({ freshness: { state: 'behind', commits: 2 } })])]),
   )
   await render(store)
-  expect(chipsOf(1)?.textContent).toBe('verify ✓ @a1b2c3d — 2 commits since (stale)')
+  // The card shows the fact whole; the distance is said aloud and in the chip's title.
+  expect(chipsOf(1)?.textContent).toBe('verify ✓ @a1b2c3d (stale)')
+  expect(chipsOf(1)?.querySelector('[data-stale]')?.getAttribute('title')).toBe('verify ✓ @a1b2c3d — 2 commits since')
   expect(chipsOf(1)?.getAttribute('aria-label')).toBe(
     'What the desk observed on #1: verify ✓ @a1b2c3d — 2 commits since (stale)',
   )
+})
+
+it('a zero diff alone says "no changes" on a done card and nothing on a working one', async () => {
+  const none = () => factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
+  const { store } = rig(
+    [intent({ id: 1, state: 'done' }), intent({ id: 2, state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
+    {},
+    observed([], [cardEvidence(1, [none()]), cardEvidence(2, [none()])]),
+  )
+  await render(store)
+  expect(chipsOf(1)?.textContent).toBe('no changes')
+  expect(chipsOf(2)).toBeNull()
 })
 
 it('the plain board draws no evidence', async () => {
@@ -1143,4 +1203,44 @@ it("a card an earlier run left open is not the person's step because a new run r
   const labels = (await menuItems(1)).map((one) => one.textContent?.trim())
   expect(labels).not.toContain('Answer approve')
   expect(labels).toContain('Mark done')
+})
+
+it('repair context leads a review card: its ids and from/to come before other detail, never a stale full transcript', async () => {
+  const from = 'a'.repeat(40)
+  const to = 'b'.repeat(40)
+  const reviewCard = intent({
+    id: 7, title: 'Review the checkout fix', dispatch: 'run-9:2:0',
+    detail: 'a stale full transcript of the earlier round that should not lead the card',
+  })
+  const { store, snapshot } = rig([reviewCard])
+  const runView: FindingRunView = {
+    run: 'run-9', goal: ROOM, round: 2, finished: 1, total: 3, embargoed: false, open: 1, blocking: 1,
+    reason: null, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+    pendingExceptions: [],
+    repair: [{ series: `reviewer@/repo`, from, to, claimed: ['finding-0001'], unresolved: ['finding-0003'] }],
+    boundPr: null, unbound: null, undecidable: null,
+  }
+  Object.assign(snapshot, { findingRuns: new Map([['run-9', runView]]) })
+  await render(store)
+
+  const text = card('Review the checkout fix').textContent ?? ''
+  expect(text.indexOf('finding-0001')).toBeGreaterThan(-1)
+  expect(text).toContain(from.slice(0, 7))
+  expect(text).toContain(to.slice(0, 7))
+  expect(text).toContain('finding-0003')
+  // The repair lead is what the card's one note line shows; the card's own stale detail never appears at all.
+  expect(text).not.toContain('a stale full transcript')
+})
+
+it('a card with no repair lead pinned for its round shows its own detail as before', async () => {
+  const plainCard = intent({ id: 8, title: 'Fix the flaky test', dispatch: 'run-9:1:0', detail: 'known flaky under load' })
+  const { store, snapshot } = rig([plainCard])
+  const runView: FindingRunView = {
+    run: 'run-9', goal: ROOM, round: 1, finished: 0, total: 3, embargoed: false, open: 1, blocking: 1,
+    reason: null, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+    pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null,
+  }
+  Object.assign(snapshot, { findingRuns: new Map([['run-9', runView]]) })
+  await render(store)
+  expect(card('Fix the flaky test').textContent).toContain('known flaky under load')
 })

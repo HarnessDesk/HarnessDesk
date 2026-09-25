@@ -15,7 +15,7 @@ matter, then the brief.
 ---
 name: Code reviewer
 description: Reads a change it did not write and reports every problem it finds, blocking or not.
-permission: read
+ceiling: read
 answers: [approve, request-changes]
 produces: [review]
 prefer: [claude-code, codex, cursor]
@@ -28,16 +28,68 @@ You review a change somebody else wrote. …
 | --- | --- |
 | `name` | What every surface calls it. |
 | `description` | One line; the roster shows it under the name. |
-| `permission` | The most it may do — `read`, `publish` or `merge`. A ceiling, never a grant: see *Asked, not held* below. |
+| `ceiling` | The most it may do — `read`, `edit`, `publish` or `merge`. A limit, never a grant: see *Held and asked* below. |
+| `permission` | The supported legacy spelling — `read`, `publish` or `merge`. Legacy `read` means `edit` on the ceiling ladder. Do not put both keys in one file. |
 | `answers` | The verdicts it may give. |
 | `produces` | What it leaves behind. |
-| `skills` | The skills it expects, by name. Read-only for now. |
+| `skills` | The skills it expects, by name. Omitted or empty means the runtime's own defaults, never "none". |
+| `mcp` | The MCP servers it expects, by name. Same empty-means-default rule as `skills`. |
 | `prefer` | The seats it asks for, in order — at most eight. |
 | the body | The brief, handed to the seat once as its standing order. |
 
 A file that will not parse is still listed, with where and why — the parser
 (`packages/server/src/agent-def.ts`) names every problem it finds, and a
 listing never drops an Agent it could not read.
+
+The four ceiling levels are cumulative:
+
+| Ceiling | Limit |
+| --- | --- |
+| `read` | Changes nothing. |
+| `edit` | May change and commit inside its checkout, but never pushes. |
+| `publish` | May also push its own branch and open a pull request. |
+| `merge` | May additionally merge the pull request it was asked to merge. |
+
+These are upper bounds, not permission to reset, force, rewrite published
+history, or act outside the task. An old `permission: read` file keeps its old
+meaning and is translated to `edit`; old `publish` and `merge` keep those
+levels. A file with no key is treated as `read` and flagged for review. A file
+with both `ceiling` and `permission` is refused, whichever line comes first,
+and the error names both lines.
+
+## What it may carry: skills, servers and notes
+
+`skills:` and `mcp:` name catalogue entries, never a command or a path. A
+declared name never runs anything by being read: an Agent's page (**Edit…**)
+previews the exact `skills:`/`mcp:` diff before writing it, and **Review &
+Approve…** shows a person the exact bytes an Agent-local `skills/` bundle
+contains — hashed whole, including every script and resource it references —
+before it is trusted to load for a given repository, runtime build and
+ceiling; any of those changing means review again. The review is for the
+runtime the Agent will actually be seated on, at the Agent's own ceiling, and
+covers any Seat at or below it. For an MCP server it shows the command,
+arguments and environment that will run — a credential's value only as set.
+An external MCP server is treated conservatively (`merge`) unless a trusted,
+desk-owned manifest already says otherwise, is only ever reached through the
+desk's own gateway, and runs only when a Seat that may merge lists or calls
+its tools — so seating a merge-ceiling Agent the default way (`edit`) loads
+its skills and says why its servers were not. A runtime that cannot be
+stopped from auto-loading unapproved repository content on its own refuses
+the whole seating rather than opening unscoped.
+
+A Seat freezes exactly what it decided to load at open; nothing it loaded
+changes afterward, whatever the Agent's file does next. Reopening its
+conversation — after a restart, or when its agent restarts — re-applies that
+same filter; forking it is refused. What actually loaded
+— versus what was declared but refused, and why — is on the Seat's own name
+card and in the Library's Agent filter, read by the Seat's immutable id, not
+by the Agent's current name.
+
+`NOTES.md`, beside the Agent's own file, is that Agent's private working
+notes — read and cleared from its page, never treated as an instruction or as
+evidence of anything. This release does not load them onto a Seat: that would
+need an approval of their own, which notes do not have yet. A project Agent's notes are visible in its checkout's
+Git history like the rest of the file; nothing here is secret.
 
 ## Three places, one roster
 
@@ -57,17 +109,23 @@ places changes (`packages/server/src/agent-watch.ts`).
 
 ## The nine that ship
 
-| Agent | What it is for | `permission` |
+| Agent | What it is for | `ceiling` |
 | --- | --- | --- |
 | Code reviewer | Reads a change it did not write and reports every problem it finds, blocking or not | `read` |
 | Security reviewer | Reads a change for the ways it could be abused, and how to close each | `read` |
-| Performance reviewer | Reads a change for what it costs in time, memory and I/O, and when that cost shows | `read` |
+| Performance reviewer | Reads a change for what it costs in time, memory and I/O, and when that cost shows | `edit` |
 | API reviewer | Reads a change for what it does to the interfaces other code and other people rely on | `read` |
-| Test reviewer | Judges whether a change's tests would catch it being wrong | `read` |
+| Test reviewer | Judges whether a change's tests would catch it being wrong | `edit` |
 | Implementer | Builds the change it is given on its own branch, proves it with the project's checks, and hands it over | `publish` |
 | Judge | Compares attempts at the same task, picks one or none, and says why | `read` |
-| Researcher | Answers a question from the code and its sources, and writes the answer down with its evidence | `read` |
-| Requirements analyst | Turns a need into requirements that can be built and tested, and later judges whether a change meets them | `read` |
+| Researcher | Answers a question from the code and its sources, and writes the answer down with its evidence | `edit` |
+| Requirements analyst | Turns a need into requirements that can be built and tested, and later judges whether a change meets them | `edit` |
+
+Code, security and API reviewers and the judge only need to inspect and report,
+so they stay at `read`. Test and performance reviewers run checks and write
+their evidence; the researcher and requirements analyst write their results,
+so those four need `edit`. The implementer may hand over its own branch, so it
+has `publish`.
 
 Each names runtimes, not models — `prefer: [claude-code, codex, cursor]` —
 because a model name in a file that travels breaks the Agent on every machine
@@ -104,6 +162,13 @@ under *On this Mac*, and validated on the way in: an entry that does not read
 seating it on the list it replaced; and a file that is not JSON is never
 written over (`packages/server/src/agent-seating-file.ts`).
 
+Insight can show source-qualified historical seat usage beside this local
+order. It is observational: unknown or partial money does not rank a seat, and
+an order preview is read-only until its short-lived host stamp is applied. The
+apply path compares the raw `seating.json` text inside its write queue, so a
+change made while reviewing is refused rather than overwritten. It changes
+only this machine's override, never an `AGENT.md` or a receipt.
+
 **Refuse, never substitute.** A candidate is passed over when its runtime is
 not added or not installed, cannot start, is signed out, has used up its plan
 window, does not offer the model or effort asked for, does not answer within
@@ -130,9 +195,23 @@ from it.
   seated here stays — greyed, with its reason — and pressing it shows every
   seat it would take and what stands in the way.
 - **⌘K** offers *Start as <Agent>* and *Open <Agent>*.
-- **An Agent's page** offers *Start a conversation as <name>*.
+- **An Agent's page** offers *Start a conversation as <name>*. That seats it
+  at `edit`, whatever its ceiling. An Agent whose ceiling is `publish` or
+  `merge` also offers **Start at a higher ceiling…**: a choice of level, up
+  to its own ceiling, each saying what it allows and whether the runtime
+  that would take the seat here holds it or can only be asked to — the words
+  a seat's ceiling chip uses. A level its runtime can only be asked to keep
+  is offered only while this Mac seats such a ceiling for a watched
+  conversation (the `unheldCeilings` setting). It is the app's path to a
+  Seat that loads an Agent's MCP servers, which need `merge`.
 - **A room's +** offers the project's Agents first; one seated there joins
   under the Agent's name.
+
+An Agent's page also offers **Every time…**, when a project is open: it opens
+Intake's authoring surface with `opens: { agent: <id> }` already chosen — a
+pull request, an issue or a schedule that runs this one Agent as a one-role
+flow. See [flows.md](flows.md#every-time) for what that saves and what it
+still takes to arm.
 
 A conversation seated as an Agent leads its header and its sidebar row with
 the Agent's name; its composer names the seat it took, as read back from the
@@ -142,12 +221,25 @@ has changed since this started* once the file has moved on from the one it was
 handed. That a conversation was seated as an Agent is remembered until the
 desk quits.
 
-**Asked, not held.** A seat is told the narrower of its Agent's `permission`
-and what its seating grants, and nothing started from the app grants more than
-`read`. `read` lets a seat edit and commit in its own checkout and never push,
-merge, reset or force. The seat is *told* this in its standing order, and
-nothing at the tool surface stops one that ignores it yet — so every surface
-labels a ceiling *asked*: *Read · asked*.
+**Held and asked.** A seat's effective ceiling is the narrower of its Agent's
+ceiling and its seating grant. The current `agent/seat` interface still accepts
+the legacy `permission` words; the ordinary app start grants at most the level
+that now corresponds to `edit`, so selecting a `publish` Agent does not by
+itself grant a publish seat.
+
+*Held* means the runtime control was set when the seat opened and the runtime
+reported it back. *Asked* means the standing order carries the limit but the
+runtime supplied no reliable control and read-back for that level. Codex maps
+`read` to its read-only sandbox and `edit` to its workspace sandbox, with
+approval reviewed by the person. The workspace sandbox is narrower than the
+ladder's `edit`: it cannot commit, reach the network or listen on a port.
+Claude Code plan mode is not a read-only sandbox, so it is not claimed as held.
+No runtime is claimed to hold `publish` or `merge` in this phase.
+
+The desk's own tools enforce the effective ceiling whether its chip says held
+or asked. That includes calls from delegated children, which keep their root
+seat's identity. Runtime-native shell publishing is not intercepted globally,
+so an asked seat still depends on its standing order outside desk tools.
 
 ## Making your own
 
@@ -156,11 +248,34 @@ labels a ceiling *asked*: *Read · asked*.
   it is written under `~/.harnessdesk/agents`; saved to the project, the
   committed file names the runtime alone and this Mac keeps the exact seat in
   `seating.json`. The new brief — a skeleton — opens in the editor.
+- **New Agent** on the roster's overview starts from a shipped Agent — one
+  `agent/copy`, straight to its page — or from a blank draft: a name, a folder
+  id (slugged from the name, still editable before *Create*), a ceiling and a
+  brief, written only once, through the same previewed authoring transaction
+  every field edit below uses. Nothing is written while typing, and *Cancel*
+  on a blank draft writes nothing at all.
 - **Customize…** on a built-in Agent or one of yours copies it to the project
   or to you, where the copy comes first and shadows the original.
 - **Remove…** on a project's Agent or one of yours moves its folder to the
   Trash; the copy it shadowed, if any, is in force again.
 - Or write the folder by hand. The roster notices.
+
+An Agent's page edits its name, description, answers, produces, ceiling and
+`prefer` in place: each is a row whose *Edit…* previews the exact line it
+would replace before *Save* writes it, so a hand-written comment, the file's
+line endings and the brief around it survive untouched. A field that spans
+lines in the file — a block scalar — refuses the same way a stale-digest
+conflict does, and points at the file instead of guessing a flattened value.
+An unfinished save (the desk quit mid-write) is listed on the roster's
+overview with *Resume* or *Discard*; neither ever happens on its own.
+
+A legacy or missing key is flagged in the roster. Follow that row to the Agent
+page, then choose **Ceiling → Update…**. A legacy file offers the translated
+level or a narrower one; a missing key offers **Keep Read** and **Allow Edit**.
+The dialog shows the exact one-line diff before it writes. If the file changes
+after that preview, the write is refused rather than retried or overwritten.
+A built-in must be customized first. A project Agent's successful update is a
+normal uncommitted project diff for its author to review and commit.
 
 ## Where to find them
 
@@ -173,7 +288,14 @@ reason; a shadowed copy is muted and says what shadows it; a file that will not
 parse says why. Each row opens the Agent's page: its file, with *Open file* and
 *Reveal*; its ceiling; its own seats and their state here; *On this Mac*, this
 machine's seats, added to, reordered or cleared; what it answers and produces,
-and its skills; and its brief's first paragraph, with *Open in editor*.
+its Skills and Servers allowlists, and its Notes; and its brief's first
+paragraph, with *Open in editor*.
+
+Every would-be or live Agent seat carries an explicit ceiling chip. Neutral
+means held; warning means asked, and both words are written on the chip rather
+than conveyed by colour alone. **Settings › Permissions › Ceilings** shows the
+four declared holds for each runtime and chooses whether a watched conversation
+may open an unheld seat with a warning or must pass it over.
 
 **Settings › Workspaces** opens a page per project — so does *Project
 settings* in the sidebar's project menu — listing the project's own Agents and

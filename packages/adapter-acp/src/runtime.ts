@@ -41,6 +41,8 @@ import {
   type InstallationCheck,
   type Session,
   type SessionId,
+  type SessionAttachments,
+  type SessionAttachmentReceipt,
   type SessionOptions,
   type SessionSettings,
   type SessionDeletion,
@@ -89,6 +91,8 @@ import {
   ACP_SESSION_DELETE,
   ACP_SESSION_DELETE_CAPABILITY,
   ACP_INSTRUCTIONS_CAPABILITY,
+  ACP_ATTACHMENT_RECEIPT,
+  type AcpAttachmentCapability,
   type AcpSessionDeleted,
   ACP_AUTHENTICATE,
   ACP_DELEGATION_NOTIFICATION,
@@ -99,6 +103,7 @@ import {
 } from '@harnessdesk/transport-acp'
 
 import { CliAccount, type AcpAccountCommands } from './account.js'
+import { attachmentsMeta, decodeAttachmentCapability, toAttachmentSupport, validateAttachmentReceipt } from './attachments.js'
 import { AcpExtensions } from './extensions.js'
 import { resolveExecutable, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
 import { acknowledgeEnvironment, environmentMeta, environmentSupported } from './lane-environment.js'
@@ -249,6 +254,15 @@ export interface AcpAgentConfig {
    * registry.
    */
   readonly resolveIdentity?: () => Account | null
+  /**
+   * Which vendor's models the agent's sessions reach, from the agent's own
+   * configuration, for a session in `cwd` when one is named — or null when
+   * anything the person set could point it elsewhere. Supplied by the host,
+   * which knows where each agent keeps that configuration; absent, the
+   * provider is unknown, whatever the agent is called. See
+   * `RuntimeInfo.provider`.
+   */
+  readonly resolveProvider?: (cwd?: string) => Promise<string | null>
   /**
    * Where an agent that puts no usage on the wire writes it down.
    * Antigravity's server counts every model call in its own conversation
@@ -599,6 +613,9 @@ const acpCategory = (id: string, category: string | null | undefined): OptionCat
 
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
+  /** Read on construction and again on each start, unknown until then; see `RuntimeInfo.provider`. */
+  #provider: string | null = null
+  #providerRead: Promise<void> = Promise.resolve()
   /** Set when the agent answered that it cannot take an MCP tool server. */
   #toolServerRefused = false
   /** The agent's bridge declared that it carries the desk's standing instruction. */
@@ -638,6 +655,17 @@ export class AcpRuntime implements AgentRuntime {
    * the stronger evidence of the two.
    */
   #tasks: AcpTasks | null = null
+  /** Decoded once from `initialize`'s `_meta.harnessdesk.attachments`; `null` until shaken, and forever if the peer never declared it. */
+  #attachmentCapability: AcpAttachmentCapability | null = null
+  /**
+   * What each live session was actually prepared with, kept for
+   * `attachmentReceipt` — which the protocol asks by session id alone — to
+   * know both the exact key to ask the peer for and the exact set of names
+   * a receipt may claim as loaded. Never re-derived from the current Agent:
+   * decision "reapply the same approved input on recreate, resume and fork"
+   * means this is the frozen record, not a fresh read.
+   */
+  readonly #attachmentInputs = new Map<SessionId, SessionAttachments>()
   /**
    * Set the moment `dispose()` begins, and never cleared.
    *
@@ -664,6 +692,7 @@ export class AcpRuntime implements AgentRuntime {
 
   constructor(config: AcpAgentConfig) {
     this.#config = config
+    this.#providerRead = this.#refreshProvider()
     this.#account = config.account
       ? new CliAccount(
           config.account,
@@ -724,6 +753,14 @@ export class AcpRuntime implements AgentRuntime {
           : null
         : null,
       capabilities: this.#capabilities(),
+      // Phase 12's stronger session contract — a sibling of `capabilities`,
+      // never folded into it, and absent (not `unsupported`) until this
+      // runtime has actually shaken hands: "what a runtime may claim before
+      // it has observed anything" is nothing.
+      ...(this.#initialized
+        ? { attachments: toAttachmentSupport(this.#attachmentCapability, this.#config.id, effectiveVersion ?? '', this.#config.name) }
+        : {}),
+      provider: this.#provider,
       presentation: {
         name: this.#config.name,
         // What an ACP agent declares are commands; some of them are skills
@@ -805,7 +842,27 @@ export class AcpRuntime implements AgentRuntime {
     // agent behind this adapter.
   }
 
+  async #readProvider(cwd?: string): Promise<string | null> {
+    try {
+      return (await this.#config.resolveProvider?.(cwd)) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  #refreshProvider(): Promise<void> {
+    return this.#readProvider().then((provider) => { this.#provider = provider })
+  }
+
+  /** `AgentRuntime.providerAt`: an agent that reads a project's own settings can be pointed elsewhere there. */
+  async providerAt(cwd: string): Promise<string | null> {
+    await this.#providerRead
+    return this.#provider === null ? null : this.#readProvider(cwd)
+  }
+
   async start(): Promise<void> {
+    // Read beside the start, never ahead of it; `providerAt` waits for it.
+    this.#providerRead = this.#refreshProvider()
     // A start that never begins. Not the guard that holds the invariant —
     // that one is welded to the spawn in `#spawnBridge` — but the two lines
     // below each shell out to a subprocess of their own, the host's launch
@@ -860,6 +917,7 @@ export class AcpRuntime implements AgentRuntime {
       if (declared?.[ACP_TASKS_CAPABILITY] === true) this.#adoptTasks()
       this.#canDelete = declared?.[ACP_SESSION_DELETE_CAPABILITY] === true
       this.#briefs = declared?.[ACP_INSTRUCTIONS_CAPABILITY] === true
+      this.#attachmentCapability = decodeAttachmentCapability(this.#initialized)
       this.#setHealth({ state: 'ready' })
       // The handshake is what turned the capability claims on, and a window
       // may already be drawn from the all-false version.
@@ -1423,12 +1481,14 @@ export class AcpRuntime implements AgentRuntime {
       return {
         accounts: [...status.accounts, ...keyAccounts, ...observed.accounts],
         signInMethods: [...status.signInMethods, ...keyMethods, ...observed.signInMethods],
+        ...(observed.refusal ? { refusal: observed.refusal } : {}),
       }
     }
     const observed = this.#observedAccount(keyAccounts.length > 0)
     return {
       accounts: [...keyAccounts, ...observed.accounts],
       signInMethods: [...keyMethods, ...observed.signInMethods],
+      ...(observed.refusal ? { refusal: observed.refusal } : {}),
     }
   }
 
@@ -1853,7 +1913,11 @@ export class AcpRuntime implements AgentRuntime {
    * agent has already refused it. A refusal is not a failure: retry once
    * without the bridge, remember, and log why the plugin tools are absent.
    */
-  async #openWithTools<T>(method: 'session/new' | 'session/load', params: Record<string, unknown>): Promise<T> {
+  async #openWithTools<T>(
+    method: 'session/new' | 'session/load',
+    params: Record<string, unknown>,
+    attachments?: SessionAttachments,
+  ): Promise<T> {
     const caller = randomUUID()
     const servers = this.#toolServerRefused ? [] : mcpServersOf(this.#config, caller)
     // The token's runtime is known now; its session only once the open answers.
@@ -1867,9 +1931,16 @@ export class AcpRuntime implements AgentRuntime {
       }
       return result
     }
+    // The prepared attachment input rides beside `#briefed`'s instruction,
+    // under the very same `_meta.harnessdesk` key each merges into in turn —
+    // applied last, so it can see (and never clobber) what `#briefed` put there.
+    const extend = (p: Record<string, unknown>): Record<string, unknown> => {
+      const briefed = { ...p, ...this.#briefed(p) }
+      return { ...briefed, ...attachmentsMeta(briefed, attachments) }
+    }
     try {
       return this.#opened(
-        claim(await this.#connection.request<T>(method, { ...params, ...this.#briefed(params), mcpServers: servers })),
+        claim(await this.#connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
       )
     } catch (error) {
       const message = describeAcp(error)
@@ -1896,7 +1967,7 @@ export class AcpRuntime implements AgentRuntime {
         for (const listener of this.#infoListeners) listener()
       }
       try {
-        return this.#opened(await this.#connection.request<T>(method, { ...params, mcpServers: [] }))
+        return this.#opened(await this.#connection.request<T>(method, extend({ ...params, mcpServers: [] })))
       } catch (again) {
         this.refusedForSignIn(again)
         throw again
@@ -1972,8 +2043,9 @@ export class AcpRuntime implements AgentRuntime {
           id: `${ACP_METHOD}${method.id}`,
           label: method.name,
           flow: 'browser' as const,
-          description: [method.description ?? '', said].filter((part) => part.length > 0).join(' — '),
+          ...(method.description ? { description: method.description } : {}),
         })),
+        ...(said ? { refusal: said } : {}),
       }
     }
     return { accounts: [], signInMethods: [] }
@@ -2029,9 +2101,10 @@ export class AcpRuntime implements AgentRuntime {
         : Object.keys(initial).length > 0
           ? { _meta: { harnessdesk: { options: initial } } }
           : {}),
-    })
+    }, options.attachments)
     const session = new AcpSession(this, result, options.cwd)
     this.#sessions.set(session.id, session)
+    if (options.attachments) this.#attachmentInputs.set(session.id, options.attachments)
     this.#learnCatalog(result)
     // Initial option values ride the same path a user change would — mode
     // and model first, because they decide which other options exist.
@@ -2108,9 +2181,20 @@ export class AcpRuntime implements AgentRuntime {
       return this.resumeSession(id, options)
     }
     const live = this.#sessions.get(id)
-    if (live) {
+    // Live, but opened with no filter at all — a read loads a conversation
+    // (ACP has no other way to read one) and a read has no filter to give.
+    // Handed back as it is, the Seat would run on the agent's own defaults.
+    // So that one, and only while idle, is let go and loaded again with the
+    // filter. A session already on a filter is the Seat's, whatever key a
+    // second reopen carries; and a running turn is never cancelled by one.
+    const unfiltered = live !== undefined && options.attachments !== undefined && !this.#attachmentInputs.has(id) && !live.busy
+    if (live && !unfiltered) {
       if (environment && !saved) throw new Error('An already-open session cannot acquire a lane environment.')
       return live
+    }
+    if (live) {
+      this.#sessions.delete(id)
+      await live.close().catch(() => {})
     }
 
     const run = (async () => {
@@ -2147,7 +2231,11 @@ export class AcpRuntime implements AgentRuntime {
           ...(environment
             ? { _meta: environmentMeta({}, environment, this.info.capabilities.sessionEnvironment) }
             : {}),
-        })
+        }, options.attachments)
+        // Reapplied, never re-resolved: the caller (the host) is the one that
+        // decides whether a resume repeats a Seat's frozen input, exactly as
+        // it decided at create. This only remembers what it was handed.
+        if (options.attachments) this.#attachmentInputs.set(id, options.attachments)
         if (environment) {
           acknowledgeEnvironment(loaded._meta, environment)
           this.#environments.set(id, environment)
@@ -2266,6 +2354,25 @@ export class AcpRuntime implements AgentRuntime {
 
   async forkSession(): Promise<AgentSession> {
     throw new Error(`${this.#config.name} does not support forking a session.`)
+  }
+
+  /**
+   * Asks the peer what it actually loaded for this session, over the
+   * `_harnessdesk/attachment_receipt` extension — never accepted from a
+   * client-supplied receipt, and validated strictly before anything trusts
+   * it: bounds, exact key match, and every claimed name inside the set this
+   * session was actually prepared with. A peer that never declared the
+   * extension is asked anyway (a stale declaration is not this function's
+   * problem to guess at) and its answer is judged by the same validation as
+   * one that did — an unrequested or malformed reply earns nothing either way.
+   */
+  async attachmentReceipt(session: SessionId): Promise<SessionAttachmentReceipt> {
+    const intended = this.#attachmentInputs.get(session)
+    if (!intended) throw new Error(`${session} was never given attachments to load.`)
+    const raw = await this.#connection.request<unknown>(ACP_ATTACHMENT_RECEIPT, { sessionId: String(session), key: intended.key })
+    const validated = validateAttachmentReceipt(raw, intended)
+    if (!validated) throw new Error(`${this.#config.name} answered an attachment receipt this desk will not trust.`)
+    return validated
   }
 
   // ------------------------------------------------------------------ internal
@@ -2612,8 +2719,15 @@ const isAuthRefusal = (error: unknown): boolean =>
   AUTH_REQUIRED_WORDS.test(`${error.message}\n${(error as AcpError).details ?? ''}`)
 
 /** The first sentence of what an agent said, for a line a person reads. */
-const firstSentence = (text: string): string => {
-  const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
+export const firstSentence = (text: string): string => {
+  const first = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
+  // An agent's `error.data` that is neither a string nor `{details}` nor
+  // `{message}` arrives as JSON after a colon — Qwen Code refuses with
+  // `…authenticate first.: {"authMethods":[…]}`. The record is for a program,
+  // and the sentence before it is the part a person reads. Only a record's
+  // own opening is cut — `{"`, `[{`, `["` — so a reason an agent writes in
+  // brackets, `[Errno 13] Permission denied`, is kept: it is the clue.
+  const line = first.replace(/\s*:\s*(?:\{"|\[\{|\[").*$/, '').trim()
   const cut = line.search(/[.!?](\s|$)/)
   return (cut === -1 ? line : line.slice(0, cut + 1)).slice(0, 200)
 }

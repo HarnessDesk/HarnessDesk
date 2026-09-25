@@ -1,5 +1,4 @@
 import {
-  createElement,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -73,6 +72,7 @@ import {
   MenuSeparator,
   MenuToggle,
   Popover,
+  SortableAnnouncer,
   Spinner,
   Text,
   ToolPane,
@@ -83,10 +83,13 @@ import {
   ToolPaneDocumentTab,
   ToolPaneEmptyState,
   ToolPaneFooter,
+  ToolPaneGuest,
+  ToolPaneStage,
   ToolPaneTabIcon,
   ToolPaneTabViewport,
   ToolPaneToolGroup,
   useContextMenu,
+  useSortable,
 } from '../design'
 import { useTabStrip } from './TabStrip'
 import { ToolPaneHeader } from './ToolPaneHeader'
@@ -517,40 +520,39 @@ const BrowserTabPage = ({
       aria-hidden={!active}
       {...(active ? { 'data-active': '' } : {})}
     >
-      <div
-        className={`${styles.stage}${spec.size ? ' bg-(--hd-muted)' : ''}`}
-        ref={stage}
-        {...(spec.size ? { 'data-framed': '' } : {})}
-      >
+      <ToolPaneStage ref={stage} framed={Boolean(spec.size)}>
         {inline
-          ? createElement('webview', {
-              key: guestKey,
-              ref: setElement,
-              src: bornAt,
-              partition,
-              /*
-                Without this a guest may not open windows at all, and the
-                shell's window-open handler — the thing that turns a page's
-                `target=_blank` into a tab here or a page in the OS browser —
-                is never consulted. Every request still ends in that handler,
-                which denies the window and routes the URL; no popup is ever
-                actually made.
-              */
-              allowpopups: 'true',
-              ...(spec.userAgent ? { useragent: spec.userAgent } : {}),
-              className: `${styles.webview} border-0 bg-(--hd-card)${spec.size ? ' rounded-(--hd-radius-sm) shadow-(--hd-hairline)' : ''}`,
-              style: framed,
-            })
+          ? (
+              <ToolPaneGuest
+                as="webview"
+                key={guestKey}
+                ref={setElement}
+                src={bornAt}
+                partition={partition}
+                /*
+                  Without this a guest may not open windows at all, and the
+                  shell's window-open handler — the thing that turns a page's
+                  `target=_blank` into a tab here or a page in the OS browser —
+                  is never consulted. Every request still ends in that handler,
+                  which denies the window and routes the URL; no popup is ever
+                  actually made.
+                */
+                allowpopups="true"
+                {...(spec.userAgent ? { useragent: spec.userAgent } : {})}
+                framed={Boolean(spec.size)}
+                style={framed}
+              />
+            )
           : tab.url !== BLANK && (
-              <iframe
-                className={`${styles.webview} border-0 bg-(--hd-card)${spec.size ? ' rounded-(--hd-radius-sm) shadow-(--hd-hairline)' : ''}`}
+              <ToolPaneGuest
+                framed={Boolean(spec.size)}
                 style={framed}
                 src={tab.url}
                 sandbox="allow-scripts allow-forms allow-same-origin"
                 title={tabName(tab)}
               />
             )}
-      </div>
+      </ToolPaneStage>
       {/*
         A blank page is white whatever the theme is: `about:blank` has no
         styles of its own and Chromium's base colour is white, which no
@@ -745,8 +747,6 @@ export const BrowserPane = () => {
   const [typing, setTyping] = useState(false)
   /** Site marks, by tab. Kept out of the layout: they are cheap to fetch again. */
   const [icons, setIcons] = useState<Record<string, string>>({})
-  /** The tab being dragged along the strip, and where it would land. */
-  const [drag, setDrag] = useState<{ id: string; over: number } | null>(null)
   const addressBox = useRef<HTMLInputElement>(null)
   /** The right-click menu, and which tab it was opened on. */
   const menu = useContextMenu()
@@ -1305,6 +1305,20 @@ export const BrowserPane = () => {
   const busy = view ? (loading[view.active] ?? false) : false
   const arrows = view ? (canGo[view.active] ?? { back: false, forward: false }) : { back: false, forward: false }
   const tabs = useMemo(() => view?.tabs ?? [], [view])
+  /* The strip is a sortable order: a tab is its own grip, ⌥← / ⌥→ moves the
+     focused one, and every move is said out loud once the layout has it. */
+  const sortable = useSortable({
+    ids: tabs.map((entry) => entry.id),
+    onMove: (id, to) => {
+      if (paneId) store.moveBrowserTab(paneId, id, to)
+    },
+    name: (id) => {
+      const entry = tabs.find((one) => one.id === id)
+      return entry ? tabName(entry) : 'the tab'
+    },
+    orientation: 'horizontal',
+    grip: 'item',
+  })
 
   if (!mount || !view || !tab || !paneId) return null
 
@@ -1329,6 +1343,7 @@ export const BrowserPane = () => {
                 const isActive = entry.id === view.active
                 const name = tabName(entry)
                 const icon = icons[entry.id]
+                const order = sortable.row(entry.id, index)
                 return (
                   <ToolPaneDocumentTab
                     key={entry.id}
@@ -1338,10 +1353,9 @@ export const BrowserPane = () => {
                     aria-controls={`browser-page-${entry.id}`}
                     aria-selected={isActive}
                     tabIndex={0}
-                    draggable
+                    {...order}
+                    aria-keyshortcuts={sortable.keys}
                     {...(isActive ? { 'data-active': '' } : {})}
-                    {...(drag?.id === entry.id ? { 'data-dragging': '' } : {})}
-                    {...(drag && drag.id !== entry.id && drag.over === index ? { 'data-drop': '' } : {})}
                     onClick={() => store.selectBrowserTab(paneId, entry.id)}
                     onKeyDown={(event) => {
                       // A tab is a span, so that the close button can sit
@@ -1359,25 +1373,6 @@ export const BrowserPane = () => {
                       event.preventDefault()
                       tabMenu.open(event, entry)
                     }}
-                    onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = 'move'
-                      // Firefox and Chromium both need *something* set, and a
-                      // tab is only ever dropped back onto this strip.
-                      event.dataTransfer.setData('text/plain', entry.id)
-                      setDrag({ id: entry.id, over: index })
-                    }}
-                    onDragOver={(event) => {
-                      if (!drag) return
-                      event.preventDefault()
-                      event.dataTransfer.dropEffect = 'move'
-                      setDrag((was) => (was && was.over !== index ? { ...was, over: index } : was))
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault()
-                      if (drag) store.moveBrowserTab(paneId, drag.id, index)
-                      setDrag(null)
-                    }}
-                    onDragEnd={() => setDrag(null)}
                     title={entry.url === BLANK ? name : `${name}\n${entry.url}`}
                   >
                     {icon ? (
@@ -1415,6 +1410,7 @@ export const BrowserPane = () => {
                 )
               })}
             </ToolPaneTabViewport>
+            <SortableAnnouncer message={sortable.announcement} />
             <Button
               type="button"
               variant="ghost" size="icon-sm" className={styles.tabAdd}

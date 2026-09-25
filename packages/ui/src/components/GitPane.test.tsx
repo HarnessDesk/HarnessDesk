@@ -14,6 +14,8 @@ import { StoreProvider } from '../state/context'
 import { MountProvider } from '../panels/mount'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { GitPane } from './GitPane'
+import gitPaneCss from './GitPane.module.css?raw'
+import gitPaneSource from './GitPane.tsx?raw'
 
 /**
  * The history pane against a scripted host. What is held: the pane asks for
@@ -169,6 +171,15 @@ const mount = async (script: Script) => {
     revealWorkspace: vi.fn(async () => {}),
     newSession,
     send,
+    // The front door this pane's BranchMenu opens: an empty catalogue is
+    // enough to mount it and read what it was opened with, without also
+    // scripting `authoring/start/preview` for a test that is not about the
+    // dry run itself — `FrontDoor.test.tsx` owns that.
+    openFrontDoor: vi.fn(),
+    closeFrontDoor: vi.fn(),
+    flowCatalog: vi.fn(async () => []),
+    agentsIn: vi.fn(async () => []),
+    openGoal: vi.fn(),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -515,6 +526,24 @@ it('a branch row answers with the SourceTree menu, and delete asks in red first'
   expect(request).not.toHaveBeenCalledWith('git/deleteBranch', expect.anything())
   await act(async () => button('Delete').click())
   expect(request).toHaveBeenCalledWith('git/deleteBranch', { root: '/repo/app', name: 'feat/graph' })
+})
+
+it('a branch’s Review… opens the front door bound to that branch, without checking it out', async () => {
+  const { store, request } = await mount({ log: [commit('aaaa1111111', 'tip')] })
+  const row = [...document.body.querySelectorAll('button')].find((node) => node.title.startsWith('feat/graph —'))!
+  await rightClick(row)
+
+  const menu = document.querySelector('[role="menu"]')!
+  expect(menu.textContent).toContain('Review…')
+
+  await act(async () => button('Review…').click())
+
+  expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'branch', root: '/repo/app', branch: 'feat/graph' }, undefined)
+  // No checkout, and no history/provenance fetch — a branch shortcut supplies
+  // a context to resolve, never authority to act on the working tree.
+  expect(request).not.toHaveBeenCalledWith('git/checkout', expect.anything())
+  // The dry-run dialog itself mounted, reading the (empty) catalogue.
+  expect(document.body.textContent).toContain('No shapes here yet')
 })
 
 it('the commit menu offers the git verbs, and cherry-pick refuses a merge', async () => {
@@ -1139,4 +1168,18 @@ it('a file staged and then changed again is one file to commit, not two', async 
   await act(async () => button('Commit').click())
   const rows = [...document.querySelectorAll('[role="checkbox"]')].filter((node) => node.textContent?.includes('src/a.ts'))
   expect(rows).toHaveLength(1)
+})
+
+/**
+ * The commit's head stands on the tool bar, which wraps its controls in a
+ * narrow pane. The head is one line of text whose subject ellipsises, so it
+ * says `nowrap`: wrapped, a long subject would drop under the id on a line of
+ * its own. Read as text, because the CSS module is stubbed here.
+ */
+it('keeps the open commit’s head on one line, while the other tool bars wrap', () => {
+  expect(gitPaneSource).toContain('<ToolPaneBar variant="tools" className={styles.detailHead}>')
+  const at = gitPaneCss.indexOf('.detailHead {')
+  expect(at, 'the head has a rule of its own').toBeGreaterThan(-1)
+  const rule = gitPaneCss.slice(at, gitPaneCss.indexOf('}', at)).replace(/\/\*[\s\S]*?\*\//g, '')
+  expect(rule).toMatch(/flex-wrap:\s*nowrap/)
 })

@@ -1,6 +1,9 @@
 import { act, useState, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { compile } from 'tailwindcss'
+import themeSheet from 'tailwindcss/theme.css?raw'
+import utilitiesSheet from 'tailwindcss/utilities.css?raw'
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -34,6 +37,35 @@ type Props = ComponentProps<typeof ConfirmDialog>
 
 let container: HTMLDivElement
 let root: Root
+
+/*
+ * The confirm's box is said as utilities (its sheet says only what no utility
+ * on the same element says — Dialog.box.test.tsx), so the utilities it wears
+ * are compiled by Tailwind itself, once, for every class both tones and the
+ * waiting state put on screen, and kept in the document for the file.
+ */
+beforeAll(async () => {
+  const probe = document.createElement('div')
+  document.body.appendChild(probe)
+  const probeRoot = createRoot(probe)
+  const classes = new Set<string>()
+  for (const props of [{ tone: 'destructive' as const }, { tone: 'default' as const, pending: true }]) {
+    act(() => probeRoot.render(
+      <ConfirmDialog title="Probe" confirmLabel="Go" onConfirm={() => {}} onCancel={() => {}} {...props}>
+        <pre>probe</pre>
+      </ConfirmDialog>,
+    ))
+    for (const element of document.querySelectorAll('[class]')) {
+      for (const one of (element.getAttribute('class') ?? '').split(/\s+/)) if (one) classes.add(one)
+    }
+  }
+  act(() => probeRoot.unmount())
+  probe.remove()
+  const compiler = await compile([themeSheet, utilitiesSheet].join('\n'), { base: '/' })
+  const style = document.createElement('style')
+  style.textContent = compiler.build([...classes])
+  document.head.append(style)
+})
 
 beforeEach(() => {
   container = document.createElement('div')
@@ -100,6 +132,7 @@ const Harness = (props: Partial<Props>) => {
         <ConfirmDialog
           title="Delete conversation"
           confirmLabel="Delete"
+          tone="destructive"
           onConfirm={() => {}}
           onCancel={() => setShown(false)}
           {...props}
@@ -149,7 +182,7 @@ const pressTab = async (): Promise<void> => {
 
 it.each([
   // RemoveWorktree, the removals in Settings, signing out: the red verb and "Keep".
-  { shape: 'a destructive confirm', props: {}, proceed: 'Delete', stay: 'Keep' },
+  { shape: 'a destructive confirm', props: { tone: 'destructive' }, proceed: 'Delete', stay: 'Keep' },
   // OptionConfirm: the ordinary tone, with a better verb for staying put.
   {
     shape: 'a default-tone confirm with its own verb for staying',
@@ -165,6 +198,24 @@ it.each([
   expect(keep.parentElement).toBe(footer)
 
   expect(paintedLeftToRight(footer)).toEqual([keep, go])
+})
+
+/*
+ * The destructive look is the one cue that means "this destroys something",
+ * so it is chosen, never inherited (#900). Approving an Agent's attachments
+ * and arming a trigger both arrived with a trash can and a red verb because
+ * they said no tone at all.
+ */
+it('asks in the ordinary tone unless the caller says it destroys something', () => {
+  const consent = open({ title: 'Arm this trigger', confirmLabel: 'Arm' })
+  expect(consent.querySelector('[data-slot="alert-dialog-header"]')?.hasAttribute('data-tone')).toBe(false)
+  expect(button(consent, 'Arm').getAttribute('data-variant')).toBe('default')
+  act(() => root.unmount())
+  root = createRoot(container)
+
+  const removal = open({ tone: 'destructive' })
+  expect(removal.querySelector('[data-slot="alert-dialog-header"]')?.getAttribute('data-tone')).toBe('destructive')
+  expect(button(removal, 'Delete').getAttribute('data-variant')).toBe('danger')
 })
 
 it('proceeds from the right-hand button and keeps from the left-hand one', () => {
@@ -232,4 +283,31 @@ it('focuses nothing when it opens, so a held Return confirms nothing', async () 
     await new Promise((resolve) => setTimeout(resolve, 50))
   })
   expect(surface.contains(document.activeElement)).toBe(false)
+})
+
+it('a confirm holds whatever it is asked to confirm: the popup is bounded by the window, its body scrolls between a fixed header and footer, and code in it wraps', () => {
+  act(() =>
+    root.render(
+      <ConfirmDialog title="Approve what this agent would load?" confirmLabel="Approve" tone="default" onConfirm={() => {}} onCancel={() => {}}>
+        <pre data-testid="code">{`command: ${'x'.repeat(2000)}`}</pre>
+      </ConfirmDialog>,
+    ),
+  )
+  const surface = document.querySelector<HTMLElement>('[role="alertdialog"]')!
+  const content = getComputedStyle(surface)
+  // The utilities arrived — without them the popup would read as a block with no bound.
+  expect(content.display).toBe('flex')
+  expect(content.flexDirection).toBe('column')
+  expect(content.maxHeight).toMatch(/--hd-dialog-max-height|100dvh/)
+  const body = surface.querySelector<HTMLElement>('[data-slot="confirm-body"]')!
+  expect(getComputedStyle(body).overflowY).toBe('auto')
+  expect(getComputedStyle(body).minHeight).toMatch(/^0(px)?$/)
+  const code = surface.querySelector<HTMLElement>('[data-testid="code"]')!
+  expect(getComputedStyle(code).whiteSpace).toBe('pre-wrap')
+  expect(getComputedStyle(code).overflowWrap).toBe('anywhere')
+  // Header and footer never give up their height to a tall body.
+  for (const slot of ['alert-dialog-header', 'alert-dialog-footer']) {
+    const part = surface.querySelector<HTMLElement>(`[data-slot="${slot}"]`)!
+    expect(getComputedStyle(part).flexShrink).toBe('0')
+  }
 })

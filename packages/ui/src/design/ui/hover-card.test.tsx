@@ -72,3 +72,21 @@ it('associates a controlled open state with its trigger', () => {
   expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
   expect(document.querySelector('[data-slot="hover-card-content"]')).not.toBeNull()
 })
+
+it('keeps its inset for plain facts, and bleeds for a body that is a card of its own', () => {
+  const inset = (bleed: boolean): string[] => {
+    act(() =>
+      root.render(
+        <HoverCard open>
+          <HoverCardTrigger render={<span />}>trigger</HoverCardTrigger>
+          <HoverCardContent bleed={bleed}>card</HoverCardContent>
+        </HoverCard>,
+      ),
+    )
+    const card = document.querySelector('[data-slot="hover-card-content"]')
+    expect(card?.hasAttribute('data-bleed')).toBe(bleed)
+    return [...(card?.classList ?? [])].filter((name) => /^p-\d+$/.test(name))
+  }
+  expect(inset(false)).toEqual(['p-3'])
+  expect(inset(true)).toEqual(['p-0'])
+})
