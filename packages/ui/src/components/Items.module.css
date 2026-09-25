@@ -32,9 +32,8 @@
  * `check-interface-drift` requires and which is therefore the one place in
  * this sheet a before-and-after belongs.
  *
- * All appearance (type, ink, ground, edges, box-shadow, border-radius,
- * padding, height, line-height, font-*) is composed on each element in
- * Items.tsx via Tailwind utilities and the design system's Text and Chip.
+ * All appearance (type, ink, ground, edges, a role's inner box) is composed
+ * from the design system's parts in Items.tsx; this sheet only places them.
  */
 
 .item {
@@ -131,19 +130,14 @@
   object-fit: contain;
 }
 
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1);
-}
-
 /* --- assistant ---------------------------------------------------------- */
-/* Appearance composed on the element via Tailwind. */
 
+/* Where the running mark stands while an answer is still being written: on
+   the line after the last block, level with its words. */
 .caret {
-  display: inline-block;
-  width: 2px; /* desk: 7 → 2, a caret rather than a block */
-  vertical-align: text-bottom;
+  display: inline-flex; /* desk: inline-block → inline-flex, centers the Dot it now wraps instead of stacking a fixed-width block */
+  align-items: center;
+  vertical-align: middle; /* desk: text-bottom → middle, aligned to the dot's own center rather than a block caret's foot */
 }
 
 /* --- generic collapsible row ------------------------------------------- */
@@ -183,6 +177,34 @@
   display: inline-flex;
   align-items: center;
   gap: var(--hd-space-2);
+}
+
+/* A call's telling argument, a step after its sentence. */
+.headline {
+  margin-inline-start: var(--hd-space-2);
+}
+
+/* The opened step's own body is `ListRowDetail inset="title"` (Items.tsx),
+   the same part a list uses to hang a row's detail under it — here at the
+   step under a title. Nothing left for this sheet to place. */
+
+/* The tool's own name, over its arguments: a name to write a permission rule
+   against, so it may break anywhere rather than widen the step. */
+.wire {
+  overflow-wrap: anywhere;
+}
+
+/* A call's arguments, as the panel's facts list draws them, set flush in the
+   body like every other part it holds. */
+.args,
+.args dd {
+  margin: 0;
+}
+
+/* An argument's value as it was sent: its own line breaks kept. */
+.argValue {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* --- reasoning ---------------------------------------------------------- */
@@ -235,32 +257,30 @@
 
 /* --- notice ------------------------------------------------------------- */
 
-.notice {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--hd-space-1-5);
-}
-
-/* Optical, not spacing: a 12px glyph centred on an 18px line is (18 - 12) / 2.
-   There is no step of the scale at 3px because there is no gap at 3px. */
+/* The note's glyph sits on its first line, as it always has. */
 .noticeIcon {
-  flex: none;
+  margin-top: var(--hd-space-1);
 }
 
-/* --- plan --------------------------------------------------------------- */
+/* --- plan and todo list ------------------------------------------------- */
 
-.planStep {
+/* The shared `[data-slot] ul,ol` reset (shadcn.css) only reaches a list
+   nested under a design part; the light register's own row is a bare div,
+   so this list still has to zero its own UA indent. */
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
   display: flex;
-  align-items: flex-start;
-  gap: var(--hd-space-2);
+  flex-direction: column;
+  gap: var(--hd-space-0-5); /* desk: 8px → 2px, the gap between rows now that a row's own gap to its mark moved to .listItem */
 }
 
-/* Optical: a 14px mark centred on a 21px line. */
-.planBullet {
-  flex: none;
-  width: 14px;
-  display: inline-grid;
-  place-items: center;
+/* The mark sits on the label's first line, however many lines it wraps to. */
+.listItem {
+  display: flex; /* desk: inline-grid → flex, a mark-and-label row rather than one centred glyph */
+  align-items: first baseline;
+  gap: var(--hd-space-2);
 }
 
 /* --- message actions ---------------------------------------------------- */
@@ -283,8 +303,14 @@
 
 /* --- context injection -------------------------------------------------- */
 
-.injectionWrap[data-open] {
-  overflow: hidden;
+.injectionWrap {
+  display: flex;
+  flex-direction: column;
+}
+
+/* What was sent hangs under the row's words, as an opened step's body does. */
+.injectionBody {
+  margin: var(--hd-space-0-5) 0 var(--hd-space-1-5) var(--hd-space-6);
 }
 
 .injection {
@@ -329,22 +355,6 @@
 
 .argRow {
   display: contents;
-}
-
-/* --- the light register ------------------------------------------------- */
-
-/* Light register: appearance (radius, bg, shadow) composed in TSX. */
-
-/* Indented to the row's own title rather than to a number: the header's
-   2px of padding, its 16px icon and the 8px gap after it. */
-[data-register='light'] .rowBody {
-  margin: var(--hd-space-0-5) 0 var(--hd-space-1-5) var(--hd-space-6); /* desk: 22 → 24, the step that lands on the title */
-  overflow: hidden;
-}
-
-/* The child draws its own plate, so the body supplies alignment only. */
-.rowBodyBare {
-  margin: var(--hd-space-0-5) 0 var(--hd-space-1-5) var(--hd-space-6);
 }
 
 /* @design-owners MessageActions, StepGroup */

@@ -116,6 +116,9 @@ export const runtime = (id: string, name: string): RuntimeInfo =>
 /** The conversation every frame below is scoped to. */
 export const PREVIEW_SESSION_KEY = sessionKey(runtimeId('codex'), 's1' as SessionId)
 
+/** A pane scoped to no session at all — the empty-conversation frame's key. */
+export const PREVIEW_EMPTY_SESSION_KEY = sessionKey(runtimeId('codex'), 'preview-empty' as SessionId)
+
 const now = Date.now()
 const yesterday = now - 26 * 60 * 60 * 1000
 

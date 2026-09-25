@@ -14,7 +14,11 @@ it('keeps transcript animations bound to shared global keyframes', () => {
   expect(conversationCss).not.toMatch(/@keyframes\s+(spin|pulse)/)
   expect(itemsCss).not.toMatch(/@keyframes\s+(spin|blink)/)
   expect(conversationTsx).toMatch(/animate-\[hd-pulse_/)
-  expect(itemsTsx).toMatch(/animate-\[hd-blink_/)
+  // The still-writing caret converged onto the same pulsing `Dot` a sign-in
+  // row already wears, so `hd-blink` now names no direct consumer either —
+  // kept in base.css as a general motion utility, as hd-spin is below.
+  expect(itemsTsx).toMatch(/<Dot state="signin" pulse/)
+  expect(itemsTsx).not.toMatch(/animate-\[hd-blink_/)
   // A step's own running mark is the system spinner, not a fourth drawing —
   // the same rule the step group's already kept. Conversation.tsx's own two
   // running marks (the background-tasks chip, the transcript's own load)

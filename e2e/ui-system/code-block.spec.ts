@@ -81,7 +81,7 @@ for (const theme of ['light', 'dark'] as const) {
     }
 
     const sample = page.getByTestId('inline-diff-sample')
-    const body = sample.locator('[class*="_rowBodyBare_"]')
+    const body = sample.locator('[data-slot="list-row-detail"]')
     const plate = sample.locator('[class*="_diff_"]')
     const added = sample.locator('tr[class*="_add_"]')
     const removed = sample.locator('tr[class*="_remove_"]')

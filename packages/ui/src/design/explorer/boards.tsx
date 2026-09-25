@@ -6,6 +6,7 @@ import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, Te
 import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
+import { PublicationCard } from '../../components/Publication'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
@@ -63,7 +64,6 @@ import {
   NavigationGroupHeader,
   Note,
   NoteList,
-  PublicationCard,
   PopoverSurface,
   RefusedAction,
   SectionHead,

@@ -46,8 +46,9 @@ import appCss from '../styles/app.css?raw'
  */
 
 describe('the row under the macOS window buttons', () => {
-  it("a conversation's header leaves room for them (from the TSX)", () => {
-    expect(conversationTsx).toMatch(/var\(--titlebar-inset/)
+  it("a conversation's header leaves room for them through the shared bar's corner", () => {
+    expect(conversationTsx).toMatch(/<Bar as="header" corner inset="ink"/)
+    expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]'")
   })
 
   it('a room’s top row leaves room for the window buttons through the shared bar’s corner', () => {
