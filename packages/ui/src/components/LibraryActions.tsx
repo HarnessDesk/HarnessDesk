@@ -28,11 +28,11 @@ import {
   Text,
   Textarea,
 } from '../design'
-import { Checkbox, EmptyState, ToggleGroup, ToggleGroupItem } from '../design'
+import { Checkbox, DisclosureChevron, EmptyState, Fieldset, Segmented } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { shortPath } from '../lib/paths'
 import { DiffView } from './Diff'
-import { AlertIcon, ChevronIcon, ImportIcon, PlusIcon } from './Icons'
+import { AlertIcon, ImportIcon, PlusIcon } from './Icons'
 import styles from './LibraryActions.module.css'
 
 /**
@@ -304,9 +304,7 @@ export const PlanDialog = ({
                     </Text>
                   )}
                   {expandable && (
-                    <Text role="meta" className={styles.opChev} data-chevron="" data-open={open === op.id ? '' : undefined}>
-                      <ChevronIcon size={13} />
-                    </Text>
+                    <DisclosureChevron open={open === op.id} className={styles.opChev} />
                   )}
                 </Button>
                 {result?.outcome === 'failed' && <ActionError>{result.detail}</ActionError>}
@@ -343,29 +341,6 @@ export const PlanDialog = ({
   )
 }
 
-/** One agent picked out of the columns; a segmented row, not a dropdown. */
-/**
- * The switcher this app draws when one of several things is chosen: a filled
- * track, and the chosen one raised out of it on a card.
- *
- * Named here, once, and used by all three of them — the kind tabs, the
- * list/matrix switch, and the two agent pickers below. The first two were
- * already the same control written two ways (`rounded-md bg-muted` against
- * `rounded-(--hd-radius-sm) bg-(--hd-muted)`), which resolve to the same
- * pixels today and are two things to keep in step forever. Three copies is
- * where that stops being survivable.
- */
-/* `p-px`, not `p-0.5`.
-
-   The trough is `--hd-control-h` and the segment inside it is `h-full`, so
-   the padding is the only thing deciding how tall the pressable part is. Two
-   pixels a side left it at 22 — under the 24 the system declares as its
-   target floor — and one leaves it exactly on the floor without the track,
-   the row or anything beside it moving a pixel. */
-export const SWITCH_TRACK = 'h-(--hd-control-h) rounded-(--hd-radius-sm) bg-(--hd-muted) p-px'
-export const SWITCH_ITEM =
-  'h-full gap-1.5 rounded-(--hd-radius-sm) px-2 text-sm font-medium whitespace-nowrap text-(--hd-muted-foreground) hover:bg-transparent hover:text-(--hd-foreground) data-pressed:bg-(--hd-card) data-pressed:text-(--hd-foreground) data-pressed:shadow-(--hd-shadow-sm)'
-
 /**
  * Which agent, of the ones on this machine.
  *
@@ -378,10 +353,10 @@ export const SWITCH_ITEM =
  * to full ink, a twenty-five-fold step, which is the signature of a control
  * that was drawn rather than chosen.
  *
- * It is now the switcher the page already uses twice above it, so it is
- * visible at rest, keyboard-navigable as a radio group, and carries each
- * agent's own mark — which is how every other surface in the app names an
- * agent.
+ * It is now the system's `Segmented` — the same control as the page's kind
+ * and view switches above it — so it is visible at rest, keyboard-navigable
+ * as a radio group, and carries each agent's own mark — which is how every
+ * other surface in the app names an agent.
  *
  * **Nothing here is disabled**, and that is a fix rather than an oversight.
  * The other side's choice used to be greyed out in each picker, which reads
@@ -403,26 +378,25 @@ const AgentPick = ({
   onChange: (next: RuntimeId) => void
   label: string
 }) => (
-  <ToggleGroup
-    type="single"
+  /* A second press on the chosen agent is ignored by the segmented control
+     itself, which is what stops a picker whose whole job is to hold a choice
+     from being emptied by a stray click. */
+  <Segmented<RuntimeId | ''>
+    label={label}
     value={value ?? ''}
-    aria-label={label}
-    className={SWITCH_TRACK}
-    onValueChange={(next) => {
-      // An empty value is the second press on the chosen one. Ignoring it is
-      // what stops a picker whose whole job is to hold a choice from being
-      // emptied by a stray click.
-      if (next === '' || next === null) return
-      onChange(next as RuntimeId)
+    options={columns.map((column) => ({
+      value: column.id,
+      label: (
+        <>
+          {column.info && <RuntimeMark runtime={column.info} size={13} />}
+          {column.label}
+        </>
+      ),
+    }))}
+    onChange={(next) => {
+      if (next !== '') onChange(next)
     }}
-  >
-    {columns.map((column) => (
-      <ToggleGroupItem key={column.id} value={column.id} className={SWITCH_ITEM}>
-        {column.info && <RuntimeMark runtime={column.info} size={13} />}
-        {column.label}
-      </ToggleGroupItem>
-    ))}
-  </ToggleGroup>
+  />
 )
 
 /**
@@ -812,32 +786,32 @@ export const AuthorDialog = ({
             />
           )}
         </Field>
-        <Field label="Install for">
-          {(control) => (
-            <>
-              {/* The same switcher the import pickers use, in its many-valued
-                  form. It was a row of the same invisible pills — and here the
-                  stakes are higher, because with none of them pressed the confirm
-                  button is disabled and nothing on screen says which of the four
-                  unstyled words is the thing to press. */}
-              <ToggleGroup
-                {...control}
-                type="multiple"
-                value={[...targets]}
-                aria-label="Install for"
-                className={`${SWITCH_TRACK} w-fit`}
-                onValueChange={(next) => setTargets(new Set(next as RuntimeId[]))}
-              >
-                {columns.map((column) => (
-                  <ToggleGroupItem key={column.id} value={column.id} className={SWITCH_ITEM}>
-                    {column.info && <RuntimeMark runtime={column.info} size={13} />}
-                    {column.label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </>
-          )}
-        </Field>
+        {/* Several agents at once, so checkboxes: a picked agent is part of
+            the plan being composed, and nothing is installed until the
+            preview is confirmed. It was a row of the same invisible pills —
+            and with none of them pressed the confirm button is disabled and
+            nothing on screen said which of the four words was the thing to
+            press. A box is visible before it is ticked. */}
+        <Fieldset legend="Install for">
+          <div className={styles.targets}>
+            {columns.map((column) => (
+              <label key={column.id} className={styles.target}>
+                <Checkbox
+                  checked={targets.has(column.id)}
+                  aria-label={`Install for ${column.label}`}
+                  onCheckedChange={(next) => {
+                    const after = new Set(targets)
+                    if (next === true) after.add(column.id)
+                    else after.delete(column.id)
+                    setTargets(after)
+                  }}
+                />
+                {column.info && <RuntimeMark runtime={column.info} size={13} />}
+                <Text role="navigation">{column.label}</Text>
+              </label>
+            ))}
+          </div>
+        </Fieldset>
       </FormStack>
     </Dialog>
   )

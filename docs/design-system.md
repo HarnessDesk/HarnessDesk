@@ -1069,6 +1069,41 @@ A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
 
 The messages held between the transcript and the composer.
 
+### `DialogHead`
+
+`packages/ui/src/design/patterns/ModalDialog.tsx`
+
+The head every dialog wears: its mark, its name, and the way out.
+
+`Dialog` draws it, and so does a sheet that lays out its own body — the
+skill sheet — so a dialog's name is one step, one inset and one rule under
+it whichever of them is open. The name is the subject step (14/21, medium):
+a dialog names one question or one thing, and a page names a place.
+
+`aside` sits on the name's own line (a kind badge); `children` are the lines
+under it — an identifier, the sentence saying what the thing is — and the
+head then aligns to its top, so the mark and the way out stay beside the
+name rather than drifting to the middle of a paragraph.
+
+### `DialogSubhead`
+
+`packages/ui/src/design/patterns/ModalDialog.tsx`
+
+Under the head, above the body, and outside the scroll: a breadcrumb, or
+the view switch of a document, still there after the body has scrolled.
+
+### `DialogBody`
+
+`packages/ui/src/design/patterns/ModalDialog.tsx`
+
+A dialog's body, which scrolls and is inset the dialog's step.
+
+`form` (what `Dialog` draws unless it is `flush`) is the form stack: its
+children are 16px apart, a `SectionHead` in it is a legend, and a `Rows`
+radio group is a compact `ChoiceList`. `flush` is a list whose rows reach
+the edges. `reading` is inset like a form and is not one — a document, or
+the facts beside it — so its parts keep their own rhythm.
+
 ### `Dialog`
 
 `packages/ui/src/design/patterns/ModalDialog.tsx`
@@ -1470,7 +1505,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 750 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
+| `screenAppearance` | 560 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
