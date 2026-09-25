@@ -246,6 +246,18 @@
   white-space: nowrap;
 }
 
+/* The "Needs you" reason is a sentence (a Goal's name plus the kind of
+   wait), not a short fact like `.rowMetaItem`'s usual agent name or trace
+   word — rule 9: names and paths truncate, sentences wrap. `flex: 1 1 auto`
+   gives it room to shrink to the row's width, and wrapping (rather than an
+   ellipsis) is how it arrives whole once it does. */
+.rowMetaSentence {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal; /* desk: nowrap → normal, a sentence wraps instead of clipping past the row's edge with no ellipsis */
+  overflow-wrap: anywhere;
+}
+
 .rowMetaBranch {
   flex: 0 1 auto;
   min-width: 0;

@@ -374,6 +374,39 @@ it('gives each “Needs you” row a distinguishing reason, so two conversations
   expect(waiting.textContent).toContain('needs your approval')
 })
 
+/**
+ * The reason line above is a sentence — a Goal's name plus the kind of
+ * wait — not a short fact like a name or a path. Rule 9 draws the line
+ * exactly there: "names and paths truncate, sentences wrap." Truncating it
+ * with an ellipsis, or worse, clipping it with no ellipsis at all because the
+ * row never gave the text room to shrink, would read as "Issue #42, from
+ * trigger triage-issue —" with the actual reason cut off after the dash.
+ */
+it('wraps the "Needs you" reason instead of truncating it, because it is a sentence (rule 9)', () => {
+  const key1 = sessionKey('codex', sessionId('s1'))
+  const roomA = room({ id: 'g1', name: 'Issue #42, from trigger triage-issue', members: [key1] })
+  const s1 = summary({ id: 's1', title: 'Triager' })
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
+    workspaces: [{ path: '/repo', name: 'repo', lastOpenedAt: 1 }],
+    history: [s1],
+    sessions: new Map([[key1, s1]]),
+    teams: new Map([['g1', roomA]]),
+    approvals: [{ key: key1, approval: {} }],
+  } as unknown as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+
+  const hint = [...container.querySelectorAll('[data-slot="text"]')].find((el) =>
+    el.textContent?.includes('needs your approval'),
+  )
+  if (!hint) throw new Error('no reason text rendered')
+  expect(hint.textContent).toBe('Issue #42, from trigger triage-issue — needs your approval')
+  expect(hint.className.split(' ')).not.toContain('truncate')
+})
+
 it('a room is a row under its project, and its members hang off it', () => {
   const { container: tree } = treeWith(
     [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],

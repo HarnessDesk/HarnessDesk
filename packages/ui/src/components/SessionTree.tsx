@@ -298,7 +298,15 @@ const SessionRow = ({
               </span>
               {context ? (
                 <span className={styles.rowMeta}>
-                  <Text role="meta" tone="warning" truncate className={styles.rowMetaItem}>{context}</Text>
+                  {/* A Goal's name plus the kind of wait is a sentence, not a
+                      name or a path — rule 9 draws the line there: names and
+                      paths truncate, sentences wrap. `rowMetaItem`'s `flex:
+                      none` (right, for the short words it usually holds) kept
+                      this sentence at its full content width, so it never
+                      shrank far enough for its own `truncate` ellipsis to
+                      engage — the row's own overflow just clipped it instead,
+                      raw, with no ellipsis at all. */}
+                  <Text role="meta" tone="warning" className={styles.rowMetaSentence}>{context}</Text>
                 </span>
               ) : snapshot.listPrefs.density === 'comfortable' && (
                 <span className={styles.rowMeta}>
