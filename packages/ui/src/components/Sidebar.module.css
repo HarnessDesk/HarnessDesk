@@ -347,10 +347,13 @@
   flex-direction: column;
 }
 
+.seatAgent {
+  margin-left: var(--hd-space-1-5);
+}
+
 .accountLabel,
 .youLabel,
 .seatName,
-.seatSub,
 .usageLaneName {
   min-width: 0;
   overflow: hidden;

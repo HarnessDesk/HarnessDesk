@@ -253,11 +253,16 @@ there is one — and at its end sits the mark of the agent new sessions run as,
 in its account's ring, with that agent's readiness dot beside it. The
 account's *name* is not on the row: an account is a pen, not a person. Rest on
 the mark for its name card — which account, on what plan, how much is left.
-The menu behind the row opens on you, tagged Local, and pressing that row
-opens your profile. Then comes switching: **Run new sessions as** lists every
-account of every agent with the same figure the header strip shows and ticks
-the default; then Add an account, Settings, Dashboard, and signing out of the
-default agent.
+The menu behind the row opens on you, and pressing that row opens your
+profile. Then comes switching: **Run new sessions as** lists every account of
+every agent, one line each — its name, and the same figure the header strip
+shows — and ticks the default. The address and plan behind a name are on its
+tooltip and its card; the agent's name joins the line only when two accounts
+share one. An agent waiting for a sign-in is not listed (choosing it would
+start nothing) unless it is the default; it waits behind **Add an account**,
+whose chooser is where signing in happens. **Usage remaining** appears only
+where something is metered, and then come Settings, Dashboard, and signing out
+of the default agent.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every

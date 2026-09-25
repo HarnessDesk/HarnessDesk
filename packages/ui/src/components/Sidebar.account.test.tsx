@@ -155,7 +155,7 @@ it('ticks the default in the menu, chooses on a seat’s press, and signs out of
   click(ticked)
 
   const codexSeat = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
-    item.textContent?.includes('shane'),
+    item.getAttribute('title')?.includes('shane'),
   )
   if (!codexSeat) throw new Error('no Codex seat in the menu')
   click(codexSeat)
@@ -182,7 +182,8 @@ it('keeps the menu on the current account until the picker is opened', () => {
   if (!current) throw new Error('no current account')
   click(current)
 
-  expect(document.querySelector('[role="menu"]')?.textContent).toContain('shane@example.com')
+  const listed = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')]
+  expect(listed.some((item) => item.getAttribute('title') === 'shane@example.com')).toBe(true)
   expect(selectRuntime).not.toHaveBeenCalled()
 })
 
@@ -412,7 +413,9 @@ it('an agent that keeps its own credential wears no ring and is not dimmed for i
   if (!current) throw new Error('no current seat')
   click(current)
   const item = [...document.querySelectorAll('[role="menuitem"]')].find((el) => /^Cline/.test(el.textContent?.trim() ?? ''))
-  expect(item?.textContent).toContain('Ready')
+  // Ready says nothing on the row; the tooltip still answers.
+  expect(item?.textContent).not.toContain('Ready')
+  expect(item?.getAttribute('title')).toBe('Ready')
   const disc = item?.querySelector('[data-slot="hover-card-trigger"] > span')
   expect(disc?.hasAttribute('data-off')).toBe(false)
   expect(disc?.hasAttribute('data-tint')).toBe(false)
@@ -510,7 +513,7 @@ it('a seat inside the menu offers Usage too, on the same account as the badge be
   if (!current) throw new Error('no current seat')
   click(current)
   const codexSeat = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
-    item.textContent?.includes('shane@example.com'),
+    item.getAttribute('title') === 'shane@example.com',
   )
   const trigger = codexSeat?.querySelector('[data-slot="hover-card-trigger"]')
   if (!trigger) throw new Error('no card trigger on the menu seat')
@@ -554,7 +557,8 @@ it('opens your profile from the top of the menu', () => {
   const you = document.querySelector('[role="menu"] [role="menuitem"]')
   if (!you) throw new Error('no menu')
   expect(you.textContent).toContain('Jane')
-  expect(you.textContent).toContain('Local')
+  // Every profile is kept on this Mac, so a chip saying so marked nothing.
+  expect(you.textContent).not.toContain('Local')
   click(you)
   expect(onOpenSettings).toHaveBeenCalledWith('profile')
   expect(document.querySelector('[role="menu"]')).toBeNull()
@@ -593,4 +597,61 @@ it('says your whole name on hover only where the row cuts it', () => {
   sized(menu, 320, 120)
   hover(menu)
   expect(menu.getAttribute('title')).toBe(name)
+})
+
+it('gives every seat one line, and keeps the identity for the tooltip', () => {
+  mount()
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  click(current)
+  const seats = [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')]
+  expect(seats.map((seat) => seat.textContent?.trim())).toEqual(['shane', 'Shane-Claude'])
+  expect(seats.map((seat) => seat.getAttribute('title'))).toEqual(['shane@example.com', 'olivia@acme.dev'])
+})
+
+it('leaves an agent waiting for a sign-in to Add an account…, unless it is the default', () => {
+  const gemini = runtime(runtimeId('gemini'), 'Gemini CLI', 'gemini')
+  mount({
+    runtimes: [codex, claude, gemini],
+    accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: signedIn('olivia@acme.dev'), [gemini.id]: signedOut },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' }, [gemini.id]: { state: 'ready' } },
+  })
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  click(current)
+  const menu = document.querySelector('[role="menu"]')
+  expect(menu?.textContent).not.toContain('Gemini CLI')
+  expect(menu?.textContent).toContain('Add an account…')
+
+  // The default is the chair you are in, and it says what is wrong with it.
+  act(() => root.unmount())
+  root = createRoot(container)
+  mount({ accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: signedOut } })
+  click(row())
+  const chair = document.querySelector('[role="menuitem"][data-current]')
+  expect(chair?.textContent).toContain('Claude Code')
+  expect(chair?.textContent).toContain('Needs sign-in')
+})
+
+it('draws no usage row where nothing is metered', () => {
+  mount()
+  click(row())
+  const rows = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent ?? '')
+  expect(rows.some((text) => text.includes('Usage remaining'))).toBe(false)
+  expect(rows.some((text) => text.includes('Dashboard'))).toBe(true)
+})
+
+it('names the agent only where two chairs share a name', () => {
+  mount({
+    accountsByRuntime: { [CODEX]: signedIn('jane@example.com'), [CLAUDE]: signedIn('jane@example.com') },
+    accountPrefs: {},
+  })
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  click(current)
+  const seats = [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')]
+  expect(seats.map((seat) => seat.textContent?.trim())).toEqual(['janeCodex', 'janeClaude'])
 })

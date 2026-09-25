@@ -14,7 +14,6 @@ import {
   AccountMark,
   Bar,
   Button,
-  Chip,
   Dot,
   Menu,
   MenuItem,
@@ -529,6 +528,16 @@ export const AccountFooter = ({
     ? describeReport(here.report, { now: Date.now(), maxLanes: 8, preference: here.preference })
     : null
   const hasUsage = usageView !== null && usageView.all.length > 0
+  // The chairs you can sit in. An agent that is waiting for a sign-in is not
+  // one — choosing it would start nothing — so it waits behind "Add an
+  // account…", whose chooser is where signing in happens. The default stays
+  // listed whatever its state: it is the chair you are in.
+  const chairs = seats.filter((seat) => seat.current || seat.state !== 'signin')
+  // One address signed in to two agents is two chairs with one name. Only
+  // there does a row say whose chair it is; the mark says it everywhere else.
+  const shared = new Set(
+    chairs.map((seat) => seat.name).filter((name, index, names) => names.indexOf(name) !== index),
+  )
 
   const signOut = async (close: () => void): Promise<void> => {
     if (!snapshot.activeRuntime) return
@@ -629,22 +638,26 @@ export const AccountFooter = ({
             <span className={styles.youText}>
               <span className={styles.youName}>
                 <Text role="row"><Clipped className={styles.youLabel}>{yourName}</Clipped></Text>
-                <Chip tone="neutral" size="sm">Local</Chip>
               </span>
             </span>
           </MenuItem>
 
           <MenuSeparator />
           <MenuLabel size="compact">Run new sessions as</MenuLabel>
-            {(accountsOpen ? seats : here ? [here] : seats).map((seat) => (
+            {(accountsOpen ? chairs : here ? [here] : chairs).map((seat) => (
               <MenuItem
                 key={seat.key}
                 layout="account"
+                /* One line a seat. The name is the account's own — yours, or
+                   the address it was signed in with — so the identity under
+                   it only said it again; it is here, and whole on the mark's
+                   card. */
+                title={seat.sub}
                 current={seat.current}
-                expanded={seat.current && seats.length > 1 ? accountsOpen : undefined}
-                keepOpen={seat.current && seats.length > 1}
+                expanded={seat.current && chairs.length > 1 ? accountsOpen : undefined}
+                keepOpen={seat.current && chairs.length > 1}
                 onSelect={() => {
-                  if (seat.current && seats.length > 1) {
+                  if (seat.current && chairs.length > 1) {
                     setAccountsOpen((value) => !value)
                     setUsageOpen(false)
                     return
@@ -685,16 +698,27 @@ export const AccountFooter = ({
                   </AccountMark>
                 </AccountHoverCard>
                 <span className={styles.seatText}>
-                  <Text role="navigation" fade className={styles.seatName}>{seat.name}</Text>
-                  <Text role="meta" truncate tone={readinessTone(seat.state)} className={styles.seatSub}>
-                    {seat.sub}
+                  <Text role="navigation" fade className={styles.seatName}>
+                    {seat.name}
+                    {shared.has(seat.name) && (
+                      <Text role="meta" className={styles.seatAgent}>
+                        {brandOf(seat.info.presentation.name)}
+                      </Text>
+                    )}
                   </Text>
                 </span>
-                {seat.figure && (
+                {/* What is left, where it is measured; otherwise the one word
+                    that is wrong. A ready seat with nothing metered says
+                    nothing. */}
+                {seat.figure ? (
                   <Text role="muted" tone={usageReadingTone(seat.tone)} numeric className={styles.seatFigure}>
                     {seat.figure}
                   </Text>
-                )}
+                ) : seat.state !== 'ready' && seat.state !== 'available' ? (
+                  <Text role="meta" tone={readinessTone(seat.state)} className={styles.seatFigure}>
+                    {READINESS_LABEL[seat.state]}
+                  </Text>
+                ) : null}
                 <Text role="meta" tone="brand" className={styles.seatTick}>
                   {seat.current ? <CheckIcon size={14} /> : null}
                 </Text>
@@ -715,11 +739,14 @@ export const AccountFooter = ({
             />
 
           <MenuSeparator />
+            {/* Only where something is metered: a row whose whole answer is
+                "—" took a line to say there was nothing to say. */}
+            {hasUsage && (
             <MenuItem
-              expanded={hasUsage ? usageOpen : false}
+              expanded={usageOpen}
               keepOpen
               onSelect={() => {
-                if (hasUsage) setUsageOpen((value) => !value)
+                setUsageOpen((value) => !value)
               }}
               /* The menu's own icon column and value slot, so the gauge and its
                  words line up with Settings and Dashboard below. */
@@ -731,17 +758,16 @@ export const AccountFooter = ({
                 {/* The fold wears the figure's trouble, as the figure beside it does.
                     A fold has one trouble tone, so a spent window's red figure
                     folds under the warning mark. */}
-                {hasUsage && (
-                  <DisclosureChevron
-                    open={usageOpen}
-                    placement="trailing"
-                    tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
-                    className={styles.accountMenuCaret}
-                  />
-                )}
+                <DisclosureChevron
+                  open={usageOpen}
+                  placement="trailing"
+                  tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
+                  className={styles.accountMenuCaret}
+                />
               </Text>
               }
             />
+            )}
             {usageOpen && usageView && (
               <div className={styles.usageDetails} data-usage-details>
                 <div className={styles.usageLanes}>

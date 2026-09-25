@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The account menu says less.** Every account is one line — its name and
+  what is left — with the address and plan on hover rather than under every
+  name. Agents still waiting for a sign-in step behind **Add an account…**
+  instead of filling the list, the **Local** tag on your profile is gone
+  (every profile is local), and **Usage remaining** no longer takes a row to
+  say "—" when nothing is metered.
+
 - **A standing notice stays in its own pane.** The floating banner stack (a
   Library import offer, an account warning) used to span the whole workbench,
   so it could sit squarely over a room's Board row, cut through the top of
