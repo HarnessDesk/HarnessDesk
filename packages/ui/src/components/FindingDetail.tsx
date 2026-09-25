@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { FindingDetailPage, FindingOrigin, FindingRecord, FindingRunView, FindingView } from '@harnessdesk/protocol'
 
-import { Banner, Button, Chip, CodeText, Dialog, KeyValue, KeyValueRow, Note, SectionHead, Text, Textarea } from '../design'
+import { Banner, Button, Chip, CodeText, Dialog, Fieldset, KeyValue, KeyValueRow, Note, Text, Textarea } from '../design'
 import { openExternal } from '../lib/desktop'
 import { blockingWords, postWords } from '../lib/findings'
 import { useStore } from '../state/context'
@@ -102,8 +102,11 @@ export const FindingDetail = ({
       {read.kind === 'error' && <Banner tone="danger" title="This finding could not be read">{read.message}</Banner>}
       {read.kind === 'ready' && (() => {
         const { finding: view, records, seat, problem } = read.page
+        const later = records.filter((record) => record.finding.event.kind !== 'raise')
+        /* The dialog's own stack spaces these; each later part of the history
+           is one of its named groups, the way a form's are. */
         return (
-          <div className="flex flex-col gap-4">
+          <>
             {problem && <Banner tone="warning" title="This history cannot be shown as complete">{problem}</Banner>}
             <KeyValue>
               <KeyValueRow label="Id"><CodeText>{view.id}</CodeText></KeyValueRow>
@@ -116,28 +119,32 @@ export const FindingDetail = ({
               )}
             </KeyValue>
             <Markdown text={view.body} />
-            <section aria-label="History" className="flex flex-col gap-3 border-t border-(--hd-border) pt-3">
-              {records.filter((record) => record.finding.event.kind !== 'raise').map((record) => (
-                <div key={record.id} className="flex flex-col gap-1">
-                  <Text role="meta">{eventSentence(record, view.origin)}</Text>
-                  {(record.finding.event.kind === 'repair' || record.finding.event.kind === 'verdict') && record.finding.event.note && (
-                    <Markdown text={record.finding.event.note} />
-                  )}
-                </div>
-              ))}
-              {read.page.next && (
-                <Button variant="ghost" size="sm" disabled={more} onClick={() => void loadMore()}>
-                  {more ? 'Loading…' : 'Show more history'}
-                </Button>
-              )}
-            </section>
-            <section aria-label="Where it was posted" className="flex flex-col gap-1 border-t border-(--hd-border) pt-3">
+            {/* Only once there is a later event, or more of them to read: a named
+                group with nothing under it reads as a history that failed to load. */}
+            {(later.length > 0 || read.page.next) && (
+              <Fieldset legend="History">
+                {later.map((record) => (
+                  <div key={record.id} className="flex flex-col gap-1">
+                    <Text role="meta">{eventSentence(record, view.origin)}</Text>
+                    {(record.finding.event.kind === 'repair' || record.finding.event.kind === 'verdict') && record.finding.event.note && (
+                      <Markdown text={record.finding.event.note} />
+                    )}
+                  </div>
+                ))}
+                {read.page.next && (
+                  <Button variant="ghost" size="sm" className="justify-self-start" disabled={more} onClick={() => void loadMore()}>
+                    {more ? 'Loading…' : 'Show more history'}
+                  </Button>
+                )}
+              </Fieldset>
+            )}
+            <Fieldset legend="Where it was posted">
               {view.posted.length === 0 ? (
                 <Text role="muted">Not published yet</Text>
               ) : (
                 view.posted.map((post) => (
                   post.url.startsWith('https://') ? (
-                    <Button key={post.operation} variant="link" size="inline" className="self-start" onClick={() => openExternal(post.url)}>
+                    <Button key={post.operation} variant="link" size="inline" className="justify-self-start" onClick={() => openExternal(post.url)}>
                       {postWords(post)}
                     </Button>
                   ) : (
@@ -145,14 +152,14 @@ export const FindingDetail = ({
                   )
                 ))
               )}
-            </section>
-            <section aria-label="Raised by" className="border-t border-(--hd-border) pt-3">
+            </Fieldset>
+            <Fieldset legend="Raised by">
               {seat ? <SeatRecordView seat={seat} /> : <Text role="muted">This Seat is unavailable.</Text>}
-            </section>
+            </Fieldset>
             {decide && (
               <PersonVerdict goal={goal} view={view} run={decide} onDecided={() => setGeneration((one) => one + 1)} />
             )}
-          </div>
+          </>
         )
       })()}
     </Dialog>
@@ -202,8 +209,7 @@ const PersonVerdict = ({ goal, view, run, onDecided }: {
     }
   }
   return (
-    <section aria-label="Decide it yourself" className="flex flex-col gap-2 border-t border-(--hd-border) pt-3">
-      <SectionHead name="Decide it yourself" />
+    <Fieldset legend="Decide it yourself">
       {refusal && <Note>{refusal}</Note>}
       <Textarea aria-label="Why" value={why} disabled={refusal !== null || pending !== null} onChange={(event) => setWhy(event.target.value)} placeholder="Say why you are deciding this rather than a reviewer." />
       {error && <Banner tone="danger" title="This decision could not be recorded">{error}</Banner>}
@@ -221,6 +227,6 @@ const PersonVerdict = ({ goal, view, run, onDecided }: {
           </Button>
         ))}
       </span>
-    </section>
+    </Fieldset>
   )
 }
