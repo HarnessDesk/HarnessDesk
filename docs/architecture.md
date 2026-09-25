@@ -188,6 +188,27 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   whose effects keep failing holds only its own project. Machine consent and
   its signing key are excluded from backup; the declaration itself is an
   ordinary project file.
+- **Authoring and the front door** (`packages/server/src/authoring/`) — the
+  one owner of an Agent's file, a flow and a project's triggers, read exactly
+  and written only through a preview a person saw: `authoring/read`,
+  `authoring/agent/patch` and `authoring/save/*` share one journaled
+  transaction on the queue flow updates already use, so a new Agent a saved
+  shape names lands before the flow that references it, and an interrupted
+  save is listed, resumable or discardable, never silently retried.
+  `authoring/shape/render` and `authoring/triggers/render` turn a policy or a
+  trigger list into the exact bytes `writeShape`/`writeTriggers` would write,
+  refusing (never guessing) a value that would not read back as itself — the
+  ordered shape editor's source pane and its graph, and Intake's *Every
+  time…*, both render through this rather than a private serializer.
+  `authoring/start/preview` (`FrontDoor` in `authoring/start.ts`) resolves
+  what a start is *about* — a branch, a pull request, a diff, or a bounded
+  working-tree snapshot that can never masquerade as a committed head — and
+  binds a strict, held-Seats-only flow preview to it; `flow/start-goal`
+  redeems that same token, so what a person saw is what runs. `layout:`'s
+  `frontDoor` and `positions` keys are read defensively for this and for the
+  graph alike (`authoring/model.ts`'s `readShapeLayout`) and never trusted for
+  more than a shortcut or a view default — the engine itself still never
+  reads them.
 - **Background tasks** ([background-tasks.md](background-tasks.md)) — the
   agent's own long-running work, relayed from whichever runtime keeps a
   registry of it and held here so a reload does not lose sight of a job that

@@ -91,3 +91,35 @@ test('the flow layer refuses after 256 directory entries, including non-flow fil
   assert.deepEqual(entries.map((entry) => entry.id), ['__limit__'])
   assert.match(entries[0]?.problem ?? '', /256 entries/i)
 })
+
+const agents = (name: string, layout?: unknown) => [
+  'version: 2',
+  `name: ${name}`,
+  'roles:',
+  '  reviewer: { kind: agent, uses: [reviewer], grant: read }',
+  'seed: { role: reviewer, title: Go }',
+  ...(layout === undefined ? [] : [`layout: ${JSON.stringify(layout)}`]),
+  '',
+].join('\n')
+
+test('the catalogue carries a v2 flow’s own front-door order and contexts, read once with its name', async () => {
+  const scratch = tempDir('hd-flow-catalog-')
+  const project = join(scratch, 'project')
+  const flows = join(project, '.harnessdesk', 'flows')
+  await mkdir(flows, { recursive: true })
+  await writeFile(join(flows, 'review.yml'), agents('Review', { frontDoor: { order: 2, contexts: ['branch', 'pull-request'] } }), 'utf8')
+  await writeFile(join(flows, 'ship.yml'), agents('Ship'), 'utf8')
+  await writeFile(join(flows, 'legacy.yml'), old('Legacy'), 'utf8')
+
+  const catalogue = new FlowCatalog({ confine: async () => {} })
+  const entries = await catalogue.list(project)
+
+  const review = entries.find((entry) => entry.id === 'review')
+  const ship = entries.find((entry) => entry.id === 'ship')
+  const legacy = entries.find((entry) => entry.id === 'legacy')
+  assert.deepEqual(review?.frontDoor, { order: 2, contexts: ['branch', 'pull-request'] })
+  // No `layout:` at all reads as no restriction — never as "only 'project'".
+  assert.deepEqual(ship?.frontDoor, null)
+  // A legacy-format flow has no roles/layout concept; the field stays null.
+  assert.deepEqual(legacy?.frontDoor, null)
+})

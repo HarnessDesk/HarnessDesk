@@ -72,7 +72,136 @@ export interface FlowUpdatesOptions {
   readonly now?: () => number
   /** Tests only: the platform the host's own state tree behaves as. */
   readonly platform?: NodeJS.Platform
+  /**
+   * The desk's one queue of configuration writes, keyed by the canonical
+   * tree they land in. The host hands the same queue to authoring saves, so
+   * a conversion and a save into one project never interleave. Absent, this
+   * updater keeps a queue of its own.
+   */
+  readonly queue?: TreeQueue
 }
+
+// ------------------------------------------------ the shared transaction parts
+
+/**
+ * One queue per canonical tree: every configuration write into a project, or
+ * into the desk's own folder, runs behind the one before it. A leaf in the
+ * host's lock order — a holder asks for nothing else while it holds this.
+ */
+export class TreeQueue {
+  readonly #tails = new Map<string, { tail: Promise<unknown>; depth: number }>()
+
+  /** `waiting` is told when this call queues behind another on the same tree: what a test gates a race on. */
+  run<T>(key: string, fn: () => Promise<T>, waiting?: (key: string) => void): Promise<T> {
+    const entry = this.#tails.get(key) ?? { tail: Promise.resolve(), depth: 0 }
+    this.#tails.set(key, entry)
+    if (entry.depth > 0) waiting?.(key)
+    entry.depth += 1
+    const result = entry.tail.then(fn)
+    entry.tail = result.catch(() => {}).finally(() => {
+      entry.depth -= 1
+      if (entry.depth === 0 && this.#tails.get(key) === entry) this.#tails.delete(key)
+    })
+    return result
+  }
+}
+
+/**
+ * The desk's own journals: whole JSON documents in its state folder, each
+ * written as a synced sibling renamed over the last, so a crash leaves the
+ * previous record or this one and never a torn file. Flow conversions and
+ * authoring saves keep theirs here, each under its own folder.
+ */
+export class StateJournal {
+  readonly #stateDir: string
+  readonly #platform: NodeJS.Platform | undefined
+  constructor(stateDir: string, platform?: NodeJS.Platform) {
+    this.#stateDir = stateDir
+    this.#platform = platform
+  }
+
+  async #tree(create: boolean): Promise<ConfinedTree> {
+    return ConfinedTree.open(this.#stateDir, { create, ...(this.#platform ? { platform: this.#platform } : {}) })
+  }
+
+  /** Answers only once the record is durable. */
+  async save(rel: string, value: unknown): Promise<void> {
+    const tree = await this.#tree(true)
+    const folder = rel.split('/').slice(0, -1).join('/')
+    if (folder) await tree.ensureDir(folder)
+    await tree.put(rel, JSON.stringify(value))
+  }
+
+  /** The record's text, or null when there is none. A record that cannot be read throws. */
+  async load(rel: string, limit: number): Promise<string | null> {
+    try {
+      return await (await this.#tree(false)).read(rel, limit)
+    } catch (error) {
+      if (errnoOf(error) === 'ENOENT') return null
+      throw error
+    }
+  }
+
+  /** The names of the records in one folder, at most `limit`; empty when there is no folder yet. */
+  async list(folder: string, limit: number): Promise<readonly string[]> {
+    let tree: ConfinedTree
+    try {
+      tree = await this.#tree(false)
+    } catch (error) {
+      if (errnoOf(error) === 'ENOENT') return []
+      throw error
+    }
+    const listed = await tree.list(folder, limit)
+    if (!listed) return []
+    if (listed.exceeded) throw new Error('There are too many saved records to read. Remove finished ones before saving again.')
+    return listed.entries.filter((entry) => entry.kind === 'file' && entry.name.endsWith('.json')).map((entry) => entry.name)
+  }
+}
+
+/** Where a tree keeps its Agents: `.harnessdesk/agents` in a project, `agents` in the desk's own folder. */
+export interface ConfinedLayout { readonly agents: string }
+
+/**
+ * The confined write adapter every configuration save goes through: reads
+ * bounded and link-refusing, an Agent created as a whole folder renamed into
+ * place, any other new file created whole and never over anything, and a
+ * replacement only while the file still holds the previewed bytes. Nothing
+ * here follows a link or writes on a platform that cannot refuse one.
+ */
+export interface ConfinedWrites {
+  read(rel: string): Promise<string | null>
+  /** Creates `rel`; refuses with `EEXIST` when anything is there. */
+  create(rel: string, after: string): Promise<void>
+  /** Replaces `rel` only while it holds `before`; refuses with `HD_TREE_CHANGED_BYTES` when it holds anything else. */
+  replace(rel: string, before: string, after: string): Promise<void>
+}
+
+const agentFileIn = (layout: ConfinedLayout, rel: string): string | null => {
+  const prefix = `${layout.agents}/`
+  if (!rel.startsWith(prefix)) return null
+  const match = /^([a-z0-9][a-z0-9-]{0,47})\/AGENT\.md$/.exec(rel.slice(prefix.length))
+  return match ? match[1]! : null
+}
+
+export const confinedWrites = (tree: ConfinedTree, layout: ConfinedLayout): ConfinedWrites => ({
+  read: (rel) => tree.read(rel, agentFileIn(layout, rel) !== null ? AGENT_FILE_LIMIT : FLOW_FILE_LIMIT),
+  create: async (rel, after) => {
+    const agent = agentFileIn(layout, rel)
+    if (agent !== null) {
+      await tree.ensureDir(layout.agents)
+      await tree.createFolder(`${layout.agents}/${agent}`, [['AGENT.md', after]], AGENT_TEMP_PREFIX)
+      return
+    }
+    const folder = rel.split('/').slice(0, -1).join('/')
+    if (folder) await tree.ensureDir(folder)
+    await tree.createAtomic(rel, after)
+  },
+  replace: async (rel, before, after) => {
+    if (await tree.replace(rel, before, after) === 'changed') {
+      throw Object.assign(new Error(`"${rel}" changed after it was previewed, so it was not written.`), { code: 'HD_TREE_CHANGED_BYTES' })
+    }
+  },
+})
 
 const JOURNAL_LIMIT = 4 * 1024 * 1024
 const JOURNAL_AGENT = /^\.harnessdesk\/agents\/([a-z0-9][a-z0-9-]{0,47})\/AGENT\.md$/
@@ -107,7 +236,7 @@ const EXISTS = 'An Agent file already exists. Choose another flow name and previ
  * straight from the file system names the absolute one, so it is replaced by
  * what happened and its code.
  */
-const refusalOf = (error: unknown, root: string): string => {
+export const refusalOf = (error: unknown, root: string): string => {
   const raw = error instanceof Error ? error.message : String(error)
   const fromFs = typeof error === 'object' && error !== null && ('syscall' in error || 'path' in error)
   if (!fromFs && !raw.includes(root) && !/(^|[\s'"(])\/[^\s'"]/.test(raw)) return raw
@@ -157,6 +286,8 @@ export class FlowUpdates {
   readonly #catalogue: FlowCatalog
   readonly #now: () => number
   readonly #platform: NodeJS.Platform | undefined
+  readonly #queue: TreeQueue
+  readonly #journal: StateJournal
   #tokens = new Map<string, Token>()
   #customizeTokens = new Map<string, { readonly expires: number; readonly root: string; readonly path: string; readonly source: string }>()
   constructor(options: FlowUpdatesOptions) {
@@ -164,6 +295,8 @@ export class FlowUpdates {
     this.#catalogue = options.catalogue
     this.#now = options.now ?? Date.now
     this.#platform = options.platform
+    this.#queue = options.queue ?? new TreeQueue()
+    this.#journal = new StateJournal(options.stateDir, options.platform)
   }
 
   /** The journal's name: a digest, so no project path ever becomes (or overflows) a file name. */
@@ -171,23 +304,16 @@ export class FlowUpdates {
     return `flow-updates/${createHash('sha256').update(`${root}\0${id}`).digest('hex')}.json`
   }
 
-  async #state(create: boolean): Promise<ConfinedTree> {
-    return ConfinedTree.open(this.#stateDir, { create, ...(this.#platform ? { platform: this.#platform } : {}) })
-  }
-
   /** Written whole through the state tree: a crash leaves the previous journal or this one, never a torn file. */
   async #save(journal: Journal): Promise<void> {
-    const state = await this.#state(true)
-    await state.ensureDir('flow-updates')
-    await state.put(this.#journalName(journal.root, journal.id), JSON.stringify(journal))
+    await this.#journal.save(this.#journalName(journal.root, journal.id), journal)
   }
 
   async #load(root: string, id: string): Promise<Journal | null> {
     let source: string | null
     try {
-      source = await (await this.#state(false)).read(this.#journalName(root, id), JOURNAL_LIMIT)
-    } catch (error) {
-      if (errnoOf(error) === 'ENOENT') return null
+      source = await this.#journal.load(this.#journalName(root, id), JOURNAL_LIMIT)
+    } catch {
       throw new Error('The saved flow update is unreadable. Remove it only after reviewing any partially created Agents.')
     }
     if (source === null) return null
@@ -238,17 +364,18 @@ export class FlowUpdates {
     }
     if (held.root !== project.root) return expired
     if (!project.writable) return { state: 'refused', written: [], message: 'HarnessDesk cannot change project files on this system, so nothing was written.' }
-    try {
-      // A project that never had a flow of its own has no folder for one yet: made through the same confined tree.
-      await project.ensureDir(FLOWS_DIR)
-      await project.createFile(held.path, held.source)
-      return { state: 'applied', written: [held.path], message: 'The flow was copied into the project.' }
-    } catch (error) {
-      if (errnoOf(error) === 'EEXIST') {
-        return { state: 'refused', written: [], message: 'A project flow already exists at that name. Edit it directly, or choose another name.' }
+    return this.#queue.run(project.root, async () => {
+      try {
+        // A project that never had a flow of its own has no folder for one yet: made through the same confined writer.
+        await confinedWrites(project, { agents: PROJECT_AGENT_DIR.split(/[\\/]/).join('/') }).create(held.path, held.source)
+        return { state: 'applied', written: [held.path], message: 'The flow was copied into the project.' }
+      } catch (error) {
+        if (errnoOf(error) === 'EEXIST') {
+          return { state: 'refused', written: [], message: 'A project flow already exists at that name. Edit it directly, or choose another name.' }
+        }
+        return { state: 'refused', written: [], message: refusalOf(error, project.root) }
       }
-      return { state: 'refused', written: [], message: refusalOf(error, project.root) }
-    }
+    })
   }
 
   async preview(root: string, id: string): Promise<FlowUpdatePreview> {
@@ -314,17 +441,15 @@ export class FlowUpdates {
     const intended = new Set(heldJournal.intended ?? [])
     const written = new Set(heldJournal.written)
     const journal = (): Journal => ({ ...heldJournal, intended: [...intended], written: [...written] })
-    const agentsDir = PROJECT_AGENT_DIR.split(/[\\/]/).join('/')
+    const writes = confinedWrites(project, { agents: PROJECT_AGENT_DIR.split(/[\\/]/).join('/') })
     const port: MigrationPort = {
-      read: (path) => project.read(path, path.startsWith(`${agentsDir}/`) ? AGENT_FILE_LIMIT : FLOW_FILE_LIMIT),
+      read: (path) => writes.read(path),
       recorded: async (path) => intended.has(path),
       record: async (path) => { intended.add(path); await this.#save(journal()) },
       create: async (path, after) => {
-        const match = JOURNAL_AGENT.exec(path)
-        if (!match) throw new Error('The update may create Agent files only.')
-        await project.ensureDir(agentsDir)
+        if (!JOURNAL_AGENT.test(path)) throw new Error('The update may create Agent files only.')
         try {
-          await project.createFolder(`${agentsDir}/${match[1]!}`, [['AGENT.md', after]], AGENT_TEMP_PREFIX)
+          await writes.create(path, after)
         } catch (error) {
           if (errnoOf(error) === 'EEXIST') throw new Error(EXISTS)
           throw error
@@ -334,20 +459,28 @@ export class FlowUpdates {
       },
       replace: async (path, before, after) => {
         if (!JOURNAL_FLOW.test(path)) throw new Error('The update may replace one project flow only.')
-        if (await project.replace(path, before, after) === 'changed') throw new Error(CHANGED)
+        try {
+          await writes.replace(path, before, after)
+        } catch (error) {
+          if (errnoOf(error) === 'HD_TREE_CHANGED_BYTES') throw new Error(CHANGED)
+          throw error
+        }
       },
     }
-    try {
-      await applyMigration(heldJournal.edits, port)
-      const done = { ...journal(), done: true }
-      await this.#save(done)
-      return { state: 'applied', written: [...written], message: 'The flow update was applied.' }
-    } catch (error) {
-      const message = refusalOf(error, project.root)
-      await this.#save(journal()).catch(() => {})
-      return written.size
-        ? { state: 'partial', written: [...written], message: 'The flow was not replaced. Some Agent files were created; review them, then continue the update.' }
-        : { state: 'refused', written: [], message }
-    }
+    // The same queue an authoring save into this project takes: a conversion and a save never interleave.
+    return this.#queue.run(project.root, async () => {
+      try {
+        await applyMigration(heldJournal.edits, port)
+        const done = { ...journal(), done: true }
+        await this.#save(done)
+        return { state: 'applied', written: [...written], message: 'The flow update was applied.' }
+      } catch (error) {
+        const message = refusalOf(error, project.root)
+        await this.#save(journal()).catch(() => {})
+        return written.size
+          ? { state: 'partial', written: [...written], message: 'The flow was not replaced. Some Agent files were created; review them, then continue the update.' }
+          : { state: 'refused', written: [], message }
+      }
+    })
   }
 }

@@ -39,6 +39,8 @@ import type {
   TriggerPreferences,
   Worktree,
   WorkspaceEntry,
+  FrontDoorPreview,
+  StartContext,
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefsMap } from '../lib/accounts'
@@ -493,6 +495,20 @@ export interface AppSnapshot {
    */
   readonly seatFix: { readonly fix: SeatFix; readonly agent: string } | null
   /**
+   * The front door, open for one context and (when reusing one) one empty
+   * Goal — `AppStore.openFrontDoor`. `preview` is the live dry run for the
+   * shape and inputs last asked for; `AppStore.previewFrontDoor` bumps one
+   * generation on every call and writes here only when its own reply is
+   * still the newest one, so a reply that lands after a newer request
+   * already started can never revive an old token here and enable Start.
+   * Null when the front door is closed.
+   */
+  readonly frontDoor: {
+    readonly context: StartContext
+    readonly goal: { readonly id: string; readonly revision: number } | null
+    readonly preview: FrontDoorPreview | null
+  } | null
+  /**
    * The Agent each seated conversation was seated as, read for the folder it
    * works in, by `seatAgentKey(cwd, id)` — what its header, its row and its
    * name card say about it. Null when no Agent by that id is there any more.
@@ -799,6 +815,7 @@ const EMPTY: AppSnapshot = {
   settingsFocus: null,
   seatRefusal: null,
   seatFix: null,
+  frontDoor: null,
   seatAgents: new Map(),
   workspaces: [],
   workspace: null,

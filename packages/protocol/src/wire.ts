@@ -1,6 +1,19 @@
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
+  AgentFieldEdit,
+  AuthoringDocument,
+  AuthoringIssue,
+  AuthoringPending,
+  AuthoringSaveInput,
+  AuthoringSavePreview,
+  AuthoringSaveResult,
+  AuthoringTarget,
+  FrontDoorPreview,
+  FrontDoorPreviewInput,
+  WritableAuthoringTarget,
+} from './authoring.js'
+import type {
   AgentAttachmentsView,
   AgentNotesView,
   AttachmentEditPreview,
@@ -22,12 +35,14 @@ import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, Se
 import type { GoalMemoryIndex, MemoryFile, MemoryResolution, MemorySnapshot } from './memory.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
-  TriggerArmPreview, TriggerAttention, TriggerGoalStatus, TriggerHistoryPage, TriggerPreferences, TriggerProjectView, TriggerView,
+  TriggerArmPreview, TriggerAttention, TriggerDefinition, TriggerGoalStatus, TriggerHistoryPage, TriggerPreferences,
+  TriggerProjectView, TriggerSource, TriggerView,
 } from './intake.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
   FlowEntry,
   FlowExecution,
+  FlowPolicy,
   FlowPreview,
   FlowStartRequest,
   FlowUpdatePreview,
@@ -1818,6 +1833,58 @@ export interface HostMethods {
   'flow/customize/preview': { params: { readonly root: string; readonly id: string }; result: FlowUpdatePreview }
   /** Applies a previously previewed customization. */
   'flow/customize/apply': { params: { readonly root: string; readonly id: string; readonly token: string }; result: FlowUpdateResult }
+
+  // -- authoring: an Agent, a flow or a project's triggers, read and saved as
+  // the files they are. Every save is previewed whole and written in one
+  // journaled transaction; nothing here writes on selection or on a start.
+  /** A file exactly as it is on disk, with what is in the way of using it. */
+  'authoring/read': { params: { readonly target: AuthoringTarget }; result: AuthoringDocument }
+  /** One field of an Agent, changed in place and previewed; the host encodes the value. */
+  'authoring/agent/patch': {
+    params: { readonly target: Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>; readonly expected: string; readonly edit: AgentFieldEdit }
+    result: AuthoringSavePreview
+  }
+  /** What saving this source (and any new Agents it names) would write, before anything is. */
+  'authoring/save/preview': { params: AuthoringSaveInput; result: AuthoringSavePreview }
+  /** Writes exactly what one preview showed. A token applied already answers its saved result again. */
+  'authoring/save/apply': { params: { readonly token: string }; result: AuthoringSaveResult }
+  /** Saves that began and did not finish, each with what is known to have landed. */
+  'authoring/save/pending': { params: Record<string, never>; result: readonly AuthoringPending[] }
+  /** A recorded, unfinished save, previewed again from what is on disk now, to be finished with `authoring/save/apply`. */
+  'authoring/save/resume': { params: { readonly id: string }; result: AuthoringSavePreview }
+  /** Drops the record of an unfinished save. Every file stays exactly as it is. */
+  'authoring/save/discard': { params: { readonly id: string }; result: readonly AuthoringPending[] }
+  /**
+   * A front-door start's dry run: the context resolved by the host, the shape
+   * compiled, every Seat required to hold its ceiling. Spends nothing; its
+   * token is redeemed by `flow/start-goal`, bound to this target and Goal.
+   */
+  'authoring/start/preview': { params: FrontDoorPreviewInput; result: FrontDoorPreview }
+  /**
+   * A shape's exact, host-normalized YAML for one policy — the ordered editor
+   * and its graph both render through this, so what a person sees is always
+   * what `writeShape` would actually write. Validation and rendering only:
+   * it grants no start or save authority, and writes nothing on its own.
+   */
+  'authoring/shape/render': { params: { readonly policy: FlowPolicy }; result: { readonly source: string; readonly issues: readonly AuthoringIssue[] } }
+  /**
+   * A brand-new trigger's phase-8 defaults, from its own parser over a
+   * minimal trusted document — a schedule starts disarmed at 60 minutes.
+   * Drafts only: nothing is written, and nothing here arms anything.
+   */
+  'authoring/triggers/draft': {
+    params: { readonly id: string; readonly on: TriggerSource; readonly opens: TriggerDefinition['opens'] }
+    result: TriggerDefinition
+  }
+  /**
+   * Every trigger's exact, host-normalized YAML, `parseTriggers`-checked
+   * before it is offered. A save away from disk, and — once committed — an
+   * explicit Arm away from running; this call alone starts nothing.
+   */
+  'authoring/triggers/render': {
+    params: { readonly definitions: readonly TriggerDefinition[] }
+    result: { readonly source: string; readonly issues: readonly AuthoringIssue[] }
+  }
 
   // -- agents: who does the work, as opposed to the runtime it runs on. Read
   // only: an Agent is a file, and writing one is editing that file.

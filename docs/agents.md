@@ -199,6 +199,12 @@ from it.
 - **A room's +** offers the project's Agents first; one seated there joins
   under the Agent's name.
 
+An Agent's page also offers **Every time…**, when a project is open: it opens
+Intake's authoring surface with `opens: { agent: <id> }` already chosen — a
+pull request, an issue or a schedule that runs this one Agent as a one-role
+flow. See [flows.md](flows.md#every-time) for what that saves and what it
+still takes to arm.
+
 A conversation seated as an Agent leads its header and its sidebar row with
 the Agent's name; its composer names the seat it took, as read back from the
 runtime; and its name card carries the Agent — what it is for, its ceiling,
@@ -234,11 +240,26 @@ so an asked seat still depends on its standing order outside desk tools.
   it is written under `~/.harnessdesk/agents`; saved to the project, the
   committed file names the runtime alone and this Mac keeps the exact seat in
   `seating.json`. The new brief — a skeleton — opens in the editor.
+- **New Agent** on the roster's overview starts from a shipped Agent — one
+  `agent/copy`, straight to its page — or from a blank draft: a name, a folder
+  id (slugged from the name, still editable before *Create*), a ceiling and a
+  brief, written only once, through the same previewed authoring transaction
+  every field edit below uses. Nothing is written while typing, and *Cancel*
+  on a blank draft writes nothing at all.
 - **Customize…** on a built-in Agent or one of yours copies it to the project
   or to you, where the copy comes first and shadows the original.
 - **Remove…** on a project's Agent or one of yours moves its folder to the
   Trash; the copy it shadowed, if any, is in force again.
 - Or write the folder by hand. The roster notices.
+
+An Agent's page edits its name, description, answers, produces, ceiling and
+`prefer` in place: each is a row whose *Edit…* previews the exact line it
+would replace before *Save* writes it, so a hand-written comment, the file's
+line endings and the brief around it survive untouched. A field that spans
+lines in the file — a block scalar — refuses the same way a stale-digest
+conflict does, and points at the file instead of guessing a flattened value.
+An unfinished save (the desk quit mid-write) is listed on the roster's
+overview with *Resume* or *Discard*; neither ever happens on its own.
 
 A legacy or missing key is flagged in the roster. Follow that row to the Agent
 page, then choose **Ceiling → Update…**. A legacy file offers the translated

@@ -606,6 +606,8 @@ interface Pretend {
   readonly modelsHang?: boolean
   /** Bumped every time this runtime's account is read, so a test can count how many times a dry run or a seating asked it. */
   readonly asks?: { account: number }
+  /** It declares a control that can hold these ceilings (phase 10's held-only cases). */
+  readonly holds?: readonly CeilingLevel[]
 }
 
 const pretendRuntime = (id: string, pretend: Pretend) => {
@@ -617,6 +619,7 @@ const pretendRuntime = (id: string, pretend: Pretend) => {
       id: runtimeId(id),
       capabilities: { account: pretend.keepsOwnAccount !== true },
       presentation: { name: pretend.name ?? id },
+      ...(pretend.holds ? { ceilings: Object.fromEntries(pretend.holds.map((level) => [level, { settings: [], how: 'A sandbox' }])) } : {}),
     },
     health: (): RuntimeHealth => {
       if (pretend.healthThrows) throw new Error(pretend.healthThrows)
@@ -677,6 +680,8 @@ const rig = async (
     readonly directory?: AgentDirectory
     /** What `seating.json` holds on this machine, written before the seating; no file when absent. */
     readonly machine?: string
+    /** What holding a ceiling reads back as, per runtime; asked, with a reason, unless a test says otherwise (phase 10). */
+    readonly hold?: (runtime: string, level: CeilingLevel) => SeatHold
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
@@ -774,11 +779,11 @@ const rig = async (
         if (options.orderFails) throw new Error(options.orderFails)
         ordered.push(text)
       },
-      hold: async (_runtime: string, _sessionId: string, level: CeilingLevel): Promise<SeatHold> => ({
+      hold: async (runtime: string, _sessionId: string, level: CeilingLevel): Promise<SeatHold> => options.hold?.(runtime, level) ?? {
         ceiling: { level, hold: 'asked' },
         how: null,
         why: 'this test runtime does not expose a ceiling control',
-      }),
+      },
       retire: async (runtime: string, id: string) => {
         await new Promise((resolve) => setImmediate(resolve))
         alive -= 1
@@ -3796,4 +3801,43 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
   assert.equal(summary?.preview, request, 'the normal turn supplies the live session opening')
   // `agent/seat` names the conversation before handing over its silent order,
   // so this seated session cannot be renamed by a later opening message.
+})
+
+// Added in phase 10 (Task 3): held-only admission on the ordinary seating path, as a front-door run asks for it.
+test('held-only seating passes over a runtime that cannot hold before opening it, whatever this Mac says', async () => {
+  const { seatAgent } = await import('../src/methods/agents.js')
+  const seen = await rig('asker=opus-5, holder=opus-5', { asker: { models: ['opus-5'] }, holder: { models: ['opus-5'], holds: ['edit'] } }, {
+    hold: (runtime, level) => runtime === 'holder' ? { ceiling: { level, hold: 'held' }, how: 'A sandbox', why: null } : { ceiling: { level, hold: 'asked' }, how: null, why: 'no control' },
+  })
+  // This Mac's own watched setting is the default, seat: a held-only seating refuses asked all the same.
+  const seated = await seatAgent(seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }, { board: 'goal-1', role: null, requireHeld: true })
+  assert.deepEqual(seen.created, [{ runtime: 'holder', model: 'opus-5', cwd: '/tmp/x' }], 'the runtime that cannot hold is never opened')
+  assert.deepEqual(seen.recorded[0]?.ceiling, { level: 'edit', hold: 'held' })
+  assert.deepEqual(seen.recorded[0]?.passedOver?.map((one) => one.reason), [{ kind: 'unheld', level: 'edit', detail: null, required: true }])
+  assert.equal(seen.ordered.length, 1, 'the held Seat is briefed once it is kept')
+  assert.ok(seated.record)
+})
+
+test('held-only seating closes a candidate whose readback is asked before its brief, and never keeps it', async () => {
+  const { seatAgent } = await import('../src/methods/agents.js')
+  const { SeatRefusedError } = await import('@harnessdesk/protocol')
+  const seen = await rig('holder=opus-5', { holder: { models: ['opus-5'], holds: ['edit'] } }, {
+    hold: (_runtime, level) => ({ ceiling: { level, hold: 'asked' }, how: null, why: 'the sandbox reads back as full access' }),
+  })
+  await assert.rejects(seatAgent(seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }, { board: 'goal-1', role: null, requireHeld: true }), (error: unknown) => {
+    assert.ok(error instanceof SeatRefusedError)
+    assert.deepEqual((error as InstanceType<typeof SeatRefusedError>).wireData.candidates.map((one) => one.reason), [{ kind: 'unheld', level: 'edit', detail: 'the sandbox reads back as full access', required: true }])
+    return true
+  })
+  assert.equal(seen.created.length, 1, 'it was opened, provisionally')
+  assert.deepEqual(seen.discarded, ['holder s1'], 'and closed before anything was sent to it')
+  assert.deepEqual(seen.ordered, [])
+  assert.deepEqual(seen.durable, [])
+  assert.deepEqual(seen.recorded, [])
+  // The same seating without the requirement keeps phase 3's watched behaviour: seated, and said to be asked.
+  const watched = await rig('holder=opus-5', { holder: { models: ['opus-5'], holds: ['edit'] } }, {
+    hold: (_runtime, level) => ({ ceiling: { level, hold: 'asked' }, how: null, why: 'the sandbox reads back as full access' }),
+  })
+  await seatAgent(watched.ctx, { id: 'reviewer', cwd: '/tmp/x' }, { board: 'goal-1', role: null })
+  assert.deepEqual(watched.recorded[0]?.ceiling, { level: 'edit', hold: 'asked' })
 })

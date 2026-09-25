@@ -572,6 +572,10 @@ export class Flows implements TeamFlows {
   }
 
   /** The open blind review rounds on a Goal, for the board's reads and the channel's refusals. */
+  embargoedRounds(room: string): ReturnType<FlowExecutions['embargoedRounds']> {
+    return this.#executions?.embargoedRounds(room) ?? []
+  }
+
   blindRounds(room: string): ReturnType<FlowExecutions['blindRounds']> {
     return this.#executions?.blindRounds(room) ?? []
   }

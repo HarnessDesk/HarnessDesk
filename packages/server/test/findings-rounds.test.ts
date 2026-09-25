@@ -203,3 +203,46 @@ rules: []
   const keys = progressKeys({ facts: [check('c1', 1)], slotOf: () => null, confirmed: [] })
   assert.equal(advanceProgress(keys, keys, false).newProgress, false)
 })
+
+// Added in phase 10 (Task 3): `blind: false` lets siblings read finished work; it never releases anything early.
+test('sighted reads do not publish early', async (t) => {
+  const { findingsRig } = await import('./fixtures/findings-rig.js')
+  const reviewers = ['code-reviewer', 'security-reviewer', 'api-reviewer']
+  const raise = (intent: number, candidate: string, title: string) => ({
+    intent, candidate, request: `raise-${title}`, title, body: `${title} body`, category: 'ordinary' as const, blocking: true,
+  })
+  const twoOfThree = async (sighted: boolean) => {
+    const f = await findingsRig(t, { reviewers, sighted })
+    await f.finishFixer()
+    const cards = f.cards('reviewer')
+    assert.equal(cards.length, 3)
+    const raised: string[] = []
+    for (const [index, seat] of ['seat-2', 'seat-3'].entries()) {
+      const card = cards[index]!
+      const candidate = await f.candidate(card.id, seat)
+      raised.push((await f.plane.raise(raise(card.id, candidate.id, `${sighted ? 'SIGHTED' : 'BLIND'}-${index}`), f.scope(seat))).id)
+      await f.rig.review.record({ intent: card.id, candidate: candidate.id, verdict: 'request-changes' }, f.scope(seat))
+      await f.rig.team.complete(card.id, { outcome: 'request-changes' }, f.scope(seat))
+    }
+    await f.rig.flows.flush()
+    const third = cards[2]!
+    return { f, raised, third, read: await f.plane.readForSeat({ intent: third.id }, f.scope('seat-4')) }
+  }
+  const blind = await twoOfThree(false)
+  const sighted = await twoOfThree(true)
+  // Visibility differs: the blind sibling reads nothing of the finished two; the sighted one reads both.
+  assert.deepEqual(blind.read, [])
+  assert.deepEqual(sighted.read.map((one) => one.id).sort(), [...sighted.raised].sort())
+  for (const { f, third } of [blind, sighted]) {
+    // Nothing is public before the round closes, in either mode: every reviewer — finished or not — is held back from the forge.
+    assert.equal(f.rig.flows.roundClosed(f.run, 2), false)
+    for (const seat of ['seat-2', 'seat-3', 'seat-4']) {
+      const scope = f.scope(seat)
+      assert.match(f.plane.embargoOf(scope.runtime, scope.sessionId) ?? '', /blind round that has not closed/)
+    }
+    assert.equal((await f.plane.runView(f.run)).embargoed, true)
+    const posts = (await f.records()).filter((record) => record.finding?.event.kind === 'post')
+    assert.deepEqual(posts, [])
+    assert.equal(third.state, 'claimed')
+  }
+})

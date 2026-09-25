@@ -25,7 +25,7 @@ import { tempDir } from './scratch.js'
  * the shape itself is ordinary data today.
  */
 
-const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest', 'review-pr']
+const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest', 'review-pr', 'review']
 
 /** What a later phase would need to actually start this shape unattended — recorded, not implemented. */
 const FUTURE_TRIGGER_REQUIREMENTS: Readonly<Record<string, string>> = {
@@ -53,10 +53,10 @@ const compileShape = (source: string, agents: readonly AgentEntry[]) => {
   return compiled
 }
 
-test('the eight shipped flows parse, and name only Agents that actually ship', async () => {
+test('the nine shipped flows parse, and name only Agents that actually ship', async () => {
   const agents = await agentsOf()
   const files = (await readdir(builtinFlowRoot())).filter((name) => /\.ya?ml$/i.test(name)).map((name) => name.replace(/\.ya?ml$/i, ''))
-  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the eight named shapes ship, nothing else')
+  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the nine named shapes ship, nothing else')
   for (const id of SHIPPED) {
     const source = await readFile(join(builtinFlowRoot(), `${id}.yml`), 'utf8')
     const compiled = compileShape(source, agents)
@@ -116,9 +116,12 @@ test('mechanical-contest maps exit statuses to declared winners with no "winner"
   const decide = document.flow.roles.find((role) => role.kind === 'check')
   assert.ok(decide?.kind === 'check')
   // The mapping lives entirely in ordinary file data — exits, and the rules
-  // reading their answers — never a kind the engine special-cases.
-  assert.deepEqual(decide.check.exits, { '0': 'first', '1': 'second' })
+  // reading their answers — never a kind the engine special-cases. A draw is
+  // its own distinct outcome, routed to a person; a missing result (the
+  // script's own error, `otherwise`) is not itself routed anywhere.
+  assert.deepEqual(decide.check.exits, { '0': 'first', '1': 'second', '2': 'draw' })
   assert.equal(decide.check.otherwise, 'no-contest')
+  assert.ok(document.flow.rules.some((rule) => rule.when?.every?.includes('draw')), 'a draw is routed, distinctly from a missing result')
   assert.ok(!document.flow.rules.some((rule) => rule.when?.every?.includes('no-contest') || rule.when?.any?.includes('no-contest')), 'a missing result opens nothing — it is not itself routed anywhere')
 })
 

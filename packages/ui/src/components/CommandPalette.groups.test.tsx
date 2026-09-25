@@ -53,6 +53,7 @@ const mount = async (history: readonly SessionSummary[]): Promise<void> => {
     openSettings: () => {},
     openUsage: () => {},
     openAgents: () => {},
+    openFrontDoor: () => {},
   }
   await act(async () => {
     root.render(

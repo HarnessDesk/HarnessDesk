@@ -51,3 +51,6 @@ messaging: board-only
 # referee's own close from reading as a stop. Raise it for longer loops.
 budget: { rounds: 9, without-progress: 2 }
 wait: 240
+# Front-door metadata only. It opens with a fixer that may edit, so it starts
+# from a plain project; a branch, a pull request or a diff gets the Review shape.
+layout: {"frontDoor":{"contexts":["project"]}}

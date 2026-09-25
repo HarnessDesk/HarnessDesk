@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 
-import type { FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
+import type { AuthoringDocument, FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
 
 import { Button, Chip, Note, Row, Rows, SectionHead } from '../design'
 import { useStore } from '../state/context'
 import { FlowUpdate } from './FlowUpdate'
+import { ShapeEditor } from './ShapeEditor'
 
 export interface ProjectFlowsProps {
   readonly root: string
@@ -30,6 +31,8 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [dialog, setDialog] = useState<{ readonly id: string; readonly mode: 'update' | 'customize' } | null>(null)
+  const [editing, setEditing] = useState<AuthoringDocument | null>(null)
+  const [editProblem, setEditProblem] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
@@ -51,6 +54,15 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
     void store.flowCatalog(root).then(setEntries, () => {})
   }
 
+  const openEditor = async (id: string): Promise<void> => {
+    setEditProblem(null)
+    try {
+      setEditing(await store.readAuthoring({ kind: 'flow', origin: 'project', id, root }))
+    } catch (error) {
+      setEditProblem(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   return (
     <section aria-label="Flows">
       <SectionHead name="Flows" />
@@ -58,12 +70,13 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
         Editable files in <code>.harnessdesk/flows</code>, versioned with the project’s code — its own first, then
         yours, then the ones that ship as starting points.
       </Note>
+      {editProblem && <Row title="This shape could not be read" desc={editProblem} />}
       <Rows>
         {problem && <Row title={problem} />}
         {!problem && entries === null && <Row title="Reading…" />}
         {entries?.length === 0 && <Row title="No flows of its own" desc="Customize a shipped one, below, to give this project its own." />}
         {entries?.map((entry) => (
-          <FlowRow key={entry.id} root={root} entry={entry} onOpen={(mode) => setDialog({ id: entry.id, mode })} />
+          <FlowRow key={entry.id} root={root} entry={entry} onOpen={(mode) => setDialog({ id: entry.id, mode })} onEdit={() => void openEditor(entry.id)} />
         ))}
       </Rows>
       {!current && entries && entries.length > 0 && <Note>Open this project to start its flow.</Note>}
@@ -76,16 +89,29 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
           onApplied={reload}
         />
       )}
+      {editing && (
+        <ShapeEditor
+          root={root}
+          context={{ kind: 'project', root }}
+          document={editing}
+          onClose={() => setEditing(null)}
+          onStarted={(execution) => {
+            setEditing(null)
+            store.openGoal(execution.goal)
+          }}
+        />
+      )}
     </section>
   )
 }
 
 const FlowRow = ({
-  root, entry, onOpen,
+  root, entry, onOpen, onEdit,
 }: {
   readonly root: string
   readonly entry: FlowEntry
   readonly onOpen: (mode: 'update' | 'customize') => void
+  readonly onEdit: () => void
 }) => {
   const store = useStore()
   const legacy = entry.format === 'legacy'
@@ -101,6 +127,11 @@ const FlowRow = ({
     !entry.problem && legacy ? 'This flow uses the old format.' : sentence(entry.description),
     shadowNote,
   ].filter((part): part is string => Boolean(part)).join(' ')
+
+  // Editing the ordered shape is only offered for a project's own current-format
+  // flow: a legacy file needs Update first, and a shipped or your-Mac flow is
+  // edited through Customize into the project, never in place.
+  const editable = !broken && !legacy && entry.origin === 'project' && entry.format === 'agents'
 
   const action = broken
     ? <Chip state="broken" label="Will not run" />
@@ -118,6 +149,7 @@ const FlowRow = ({
       control={(
         <span className="inline-flex items-center gap-(--hd-space-2)">
           <Chip tone="neutral">{ORIGIN_WORDS[entry.origin]}</Chip>
+          {editable && <Button size="sm" variant="outline" onClick={onEdit}>Edit shape…</Button>}
           {action}
         </span>
       )}

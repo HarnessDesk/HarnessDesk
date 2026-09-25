@@ -13,6 +13,9 @@ const textareaVariants = cva(
       variant: {
         default: 'border-input bg-transparent dark:bg-input/30',
         editor: 'border-(--hd-border) bg-(--hd-background)',
+        /* A raw source pane — YAML, a rendered file — read in the app's
+           monospace step rather than the ordinary text size. */
+        code: 'border-(--hd-border) bg-(--hd-background) font-mono text-xs',
         inline: 'border-(--hd-accent) bg-(--hd-card)',
         /* The composer's shell answers focus for the whole control, so the
            field inside it draws neither ring. `outline-none` in the base

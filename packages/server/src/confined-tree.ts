@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, opendir, realpath, rename, rmdir, unlink, type FileHandle } from 'node:fs/promises'
+import { link, lstat, mkdir, open, opendir, realpath, rename, rmdir, unlink, type FileHandle } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { NOTHING_HERE } from './errno.js'
@@ -386,6 +386,40 @@ export class ConfinedTree {
     await this.#checkRoot()
     await this.#directory(parent)
     await this.#writeNew(parts, text, mode)
+    await this.#syncDirectory(parent)
+  }
+
+  /**
+   * Creates one file whole, never over anything: a synced sibling is written
+   * first, then given the name with `link`, which the system refuses with
+   * `EEXIST` when anything is already there — a file, a folder, a link, one
+   * that appeared a moment ago included. There is no look-then-rename gap for
+   * another writer to land in. The sibling's own name is removed after, and
+   * the folder synced. A crash leaves nothing at `rel` or the whole file,
+   * never a torn one. Made under the process umask, as `createFolder`'s files
+   * are, unless a mode is named.
+   */
+  async createAtomic(rel: string, text: string, mode = 0o666 & ~process.umask()): Promise<void> {
+    this.#mayWrite()
+    const parts = partsOf(rel)
+    const parent = parts.slice(0, -1)
+    await this.#checkRoot()
+    await this.#directory(parent)
+    const exists = (): Error => coded(`"${rel}" already exists, so nothing was written there.`, 'EEXIST')
+    // A cheap early refusal only: the link below is what actually refuses.
+    if (await this.#exists(parts)) throw exists()
+    const temporary = [...parent, `.${parts.at(-1)!}.${randomUUID()}.tmp`]
+    await this.#writeNew(temporary, text, mode)
+    try {
+      try {
+        await link(join(this.root, ...temporary), join(this.root, ...parts))
+      } catch (error) {
+        if (errnoOf(error) === 'EEXIST') throw exists()
+        throw error
+      }
+    } finally {
+      await unlink(join(this.root, ...temporary)).catch(() => {})
+    }
     await this.#syncDirectory(parent)
   }
 

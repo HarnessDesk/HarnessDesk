@@ -130,7 +130,16 @@ export interface FindingFlows {
    * bookkeeping; only the fields a close owns are taken from what it answers.
    */
   recordClose?(run: string, round: number, close: ((current: FindingRunState) => FindingRunState) | null): Promise<void>
-  /** Open blind review rounds on a Goal: their cards, and who holds each. */
+  /**
+   * Every open review round with several reviewers, blind or sighted: none of
+   * them posts until it closes. Absent, the blind rounds stand in for it.
+   */
+  embargoedRounds?(goal: string): readonly {
+    readonly run: string
+    readonly round: number
+    readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[]
+  }[]
+  /** Open blind review rounds on a Goal: their cards, and who holds each. A sighted round (`blind: false`) is not one. */
   blindRounds?(goal: string): readonly {
     readonly run: string
     readonly round: number
@@ -935,8 +944,9 @@ export class FindingsPlane {
   embargoOf(runtime: string, sessionId: string): string | null {
     const seat = this.#port.seats.latestKeptOf(runtime, sessionId)
     if (!seat || seat.restored || !seat.board) return null
-    const blind = (this.#port.flows.blindRounds?.(seat.board) ?? [])
-      .some((round) => round.holders.some((holder) => holder.runtime === runtime && holder.sessionId === sessionId))
+    // Blind or sighted, a reviewer of an open round posts nothing: publication waits for the round to close either way.
+    const rounds = this.#port.flows.embargoedRounds?.(seat.board) ?? this.#port.flows.blindRounds?.(seat.board) ?? []
+    const blind = rounds.some((round) => round.holders.some((holder) => holder.runtime === runtime && holder.sessionId === sessionId))
     return blind
       ? 'Refused: this Seat is reviewing in a blind round that has not closed. Its findings are posted with the round, together, once every reviewer has finished.'
       : null
@@ -1081,7 +1091,7 @@ export class FindingsPlane {
     const series = this.#port.flows.seriesOfGoal?.(snapshot.goal) ?? snapshot.findings?.series ?? []
     const admitted = admittedOf(series)
     const last = snapshot.rounds.at(-1)
-    const blind = (this.#port.flows.blindRounds?.(snapshot.goal) ?? []).some((one) => one.run === run)
+    const blind = (this.#port.flows.embargoedRounds?.(snapshot.goal) ?? this.#port.flows.blindRounds?.(snapshot.goal) ?? []).some((one) => one.run === run)
     const publication = this.#publisher ? await this.#publisher.status(run) : { publication: 'local' as const, reason: null }
     const facts = (await this.#port.flows.facts?.(snapshot.goal)) ?? []
     // What "merge anyway" needs: a pull request the desk observed and bound, whatever posting is set to.

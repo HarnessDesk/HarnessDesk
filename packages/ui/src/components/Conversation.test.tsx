@@ -94,6 +94,13 @@ const rig = (
     // Not recorded — these fixtures never made any Agent declare an attachment.
     seatRecord: vi.fn(async () => null),
     readSeatAttachments: vi.fn(async () => null),
+    // The front door the ready empty pane opens, once its own project (this
+    // session's folder) is known — an empty catalogue is enough to mount it.
+    openFrontDoor: vi.fn(),
+    closeFrontDoor: vi.fn(),
+    flowCatalog: vi.fn(async () => []),
+    agentsIn: vi.fn(async () => []),
+    openGoal: vi.fn(),
   } as unknown as AppStore
   return { store }
 }
@@ -165,6 +172,21 @@ it('with no session at all, offers the opening pitch rather than a failure', () 
 
   expect(container.textContent).not.toContain('Nothing to show')
   expect(container.textContent).not.toContain('restore')
+})
+
+it('a ready, empty pane whose folder is known offers to start with a team there', async () => {
+  const { store } = rig(session())
+  render(store)
+
+  const start = [...container.querySelectorAll('button')].find((one) => one.textContent?.trim().startsWith('Start with a team'))!
+  await act(async () => start.click())
+
+  expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'project', root: '/repo' }, undefined)
+})
+
+it('with no session at all — no folder to read a catalogue from — offers no team action', () => {
+  render(rig(null).store, null)
+  expect([...container.querySelectorAll('button')].some((one) => one.textContent?.trim().startsWith('Start with a team'))).toBe(false)
 })
 
 it('carries the window’s own controls whenever the sidebar is not standing beside it', () => {
