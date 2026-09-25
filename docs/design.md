@@ -778,7 +778,7 @@ these is opening every tab in a browser.
 ### What the audit refuses
 
 `pnpm design:audit --strict` holds nineteen categories at a baseline.
-Eighteen are at zero; `screenAppearance` sits at 820 declarations —
+Eighteen are at zero; `screenAppearance` sits at 656 declarations —
 appearance a screen still draws for itself instead of composing it, in
 whichever of three spellings it chose.
 
@@ -994,6 +994,28 @@ simply unable to see:
   (607 plus Settings.tsx's newly-correct `settings`-area exports, minus the
   workbench exemption and the false-positive class charge; #924 has since
   removed `AccessHeader`, one of the SignIn-area exports this rule counts).
+
+  A third review round found two more false positives, both from consumer
+  resolution stopping one hop too early. `panels/builtins.tsx` (the pane
+  registry) was skipped entirely as an importer, which correctly kept a
+  bare registry mount (GitPane, mounted nowhere else) from reading as
+  cross-area — but it also hid that `Approvals.tsx` is drawn in the
+  registry's own session view beside Conversation *and* docked by
+  TeamRoomPane, two different places, so it wrongly folded into `room`
+  (`ApprovalDialog.module.css [room]`, 48 findings). And composition within
+  one file was never followed at all: `Dialog` composes `DialogBody` and
+  `DialogSubhead` in the same `ModalDialog.tsx`, with no import needed, so
+  their reach read as SkillSheet.tsx's alone instead of the ~46 screens
+  `Dialog` itself reaches (`ModalDialog.module.css [settings]`, 9 findings).
+  A registry or `app/` mount now counts as its own host area, but only
+  alongside a real screen import, and a same-module composer's own reach is
+  now followed the same way a cross-file one already was. Family resolution
+  also moved from a DFS with a visiting set — which memoized a partial,
+  order-dependent result the moment it hit a cycle — to a monotone fixed
+  point, so the answer no longer depends on which file is visited first.
+  `screenAppearance` settled at 656 after also merging main past #920
+  (Agents and Goals brought onto shared design parts, which changed several
+  unrelated screen-appearance findings of its own).
 
 All four have the same shape as the line-height ratios before them: name the
 spellings you happen to remember, and everything else is invisible —
