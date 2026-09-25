@@ -15,7 +15,7 @@ import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
-import { recoverOperation, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
+import { recoverOperation, reserveEmpty, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
 import { citationBlob, previewWrap, Wraps, type WrapInput } from './wrap.js'
 
@@ -111,7 +111,7 @@ export interface GoalPlanePort extends GoalOperationPort {
    * Goal's own persisted origin — never from the request: a Goal a trigger
    * opened seats under the unattended ceiling policy.
    */
-  seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean }): Promise<SeatRecord>
+  seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean; readonly requireHeld?: true }): Promise<SeatRecord>
   /** Whether a trigger firing is being recorded into this Goal now: a wrap waits for it to land. Absent, never. */
   /** A trigger firing still landing on this Goal: true, or the sentence that says why it waits and what clears it. */
   intakeHeld?(goal: string): boolean | string
@@ -260,6 +260,7 @@ export class GoalPlane {
       }),
       members, board, receipt: document.receipt,
       problem: document.restored ? 'This Goal came from a backup. Start a new Goal to continue its work.' : problem,
+      ...(document.flowReservation ? { reservation: { run: document.flowReservation.run } } : {}),
     }
   }
 
@@ -306,12 +307,18 @@ export class GoalPlane {
     }
   }
 
-  async create(input: GoalCreateInput): Promise<GoalView> {
+  /**
+   * `pin` is the host's alone — a front-door review's resolved commit, never
+   * a wire field: every Seat of a pinned Goal is given a checkout of its own
+   * cut from exactly that commit, whatever the project has checked out.
+   */
+  async create(input: GoalCreateInput, pin: { readonly at?: string } = {}): Promise<GoalView> {
     return this.serial.run(async () => {
       const ready = this.port.ready()
       if (!ready.ok) throw new Error(ready.reason)
       const sentence = input.sentence.trim()
       if (!sentence || sentence.length > 2000) throw new Error('Write a Goal in 1 to 2000 characters.')
+      if (pin.at !== undefined && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(pin.at)) throw new Error('A Goal is pinned to one complete commit id.')
       const { root, cwd } = await this.port.confine(input)
       const at = this.now()
       const goal: Goal = {
@@ -319,6 +326,7 @@ export class GoalPlane {
         state: 'open', revision: 0, checkout: input.checkout ?? 'shared',
         dependsOn: [], origin: input.origin ?? { kind: 'person' },
         createdAt: at, updatedAt: at, receipt: null,
+        ...(pin.at !== undefined ? { at: pin.at } : {}),
       }
       const dependsOn = checkedDependencies(goal, input.dependsOn ?? [], this.store.list().map((one) => one.goal))
       await this.store.save({
@@ -764,8 +772,11 @@ export class GoalPlane {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
       const goal = this.store.read(input.goal).goal
-      const policy = { unattended: goal.origin.kind === 'trigger' }
-      const record = await this.#withLane(goal, input.isolate ?? goal.checkout === 'isolated', (where) => this.port.seatAgent(input, where, policy))
+      // Unattended from the Goal's own origin; held-only from the run that asked, which read it from its own stored policy.
+      const policy = { unattended: goal.origin.kind === 'trigger', ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
+      // A Goal pinned to a commit seats nobody in the project's own checkout: each Seat gets its own, cut from that commit.
+      const isolate = goal.at !== undefined || (input.isolate ?? goal.checkout === 'isolated')
+      const record = await this.#withLane(goal, isolate, (where) => this.port.seatAgent(input, where, policy))
       if (input.card !== undefined) {
         try {
           await this.port.claim(input.goal, input.card, record)
@@ -777,6 +788,65 @@ export class GoalPlane {
       await this.refresh(input.goal)
       return record
     })
+  }
+
+  /**
+   * An existing empty Goal, reserved for one front-door run inside this
+   * plane's queue — the one card and Seat changes take — against the
+   * revision the preview saw. The project is checked again here. The
+   * reservation and the revision it advances are one document write; two
+   * starts on one revision cannot both win, and a lost answer retried by the
+   * same run is answered as done.
+   */
+  async reserveEmptyFlowGoal(input: { goal: string; revision: number; run: string; operation: string; root: string }): Promise<GoalView> {
+    await reserveEmpty({
+      serial: (operation) => this.serial.run(operation),
+      read: async () => {
+        const document = this.store.read(input.goal)
+        if (document.goal.root !== input.root) throw new Error('This Goal belongs to another project. Start the shape from that project.')
+        const dispatch = this.canDispatch(input.goal)
+        return {
+          revision: document.goal.revision,
+          open: !document.restored && document.goal.state === 'open',
+          ready: dispatch.ok && document.operation === null,
+          // The board's one writer's copy and the stored one: a card in either is work.
+          cards: Math.max((this.port.cards?.(input.goal) ?? []).length, document.board.intents.length),
+          seats: this.port.seats.all().filter((seat) => seat.board === input.goal && !seat.closed && !seat.restored).length,
+          reservation: document.flowReservation ?? null,
+        }
+      },
+      commit: async ({ run, operation, revision }) => {
+        const document = this.store.read(input.goal)
+        await this.store.save({
+          ...document,
+          flowReservation: { run, operation },
+          goal: { ...document.goal, revision: revision + 1, updatedAt: this.now() },
+        }, revision)
+      },
+    }, { run: input.run, operation: input.operation, revision: input.revision })
+    const view = await this.view(input.goal)
+    this.#rememberAndPublish(view)
+    return view
+  }
+
+  /**
+   * Lets go of a front-door reservation, in the same queue that made it:
+   * only the run and operation that hold it can, and the Goal's revision
+   * advances with it, so a preview taken while it was reserved is stale.
+   * Anyone else's release, or one already done, changes nothing.
+   */
+  async releaseFlowReservation(input: { readonly goal: string; readonly run: string; readonly operation: string }): Promise<void> {
+    const released = await this.serial.run(async () => {
+      const document = this.store.read(input.goal)
+      const held = document.flowReservation
+      if (held?.run !== input.run || held.operation !== input.operation) return false
+      const { flowReservation: _released, ...rest } = document
+      await this.store.save({ ...rest, goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: this.now() } }, document.goal.revision)
+      return true
+    })
+    if (!released) return
+    const view = await this.view(input.goal)
+    this.#rememberAndPublish(view)
   }
 
   openLegacySeat(input: Parameters<GoalPlanePort['openLegacySeat']>[0]): Promise<SeatRecord> {

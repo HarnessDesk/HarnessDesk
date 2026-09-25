@@ -156,18 +156,35 @@ export const TeamRoomPane = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room)
-  /** This Goal's own v2 flow run, if a flow is what opened it — at most one, per phase 6 decision 4. */
+  /**
+   * The run this Goal's own front door names — its origin when a flow opened
+   * it, or its reservation while one holds a reused empty Goal, whose origin
+   * still only names the person who made it.
+   */
+  const run = goal?.goal.origin.kind === 'flow' ? goal.goal.origin.run : goal?.reservation?.run ?? null
+  /**
+   * This Goal's own v2 flow run, at most one per phase 6 decision 4 — read by
+   * `run` above, never by scanning every cached execution for the first one
+   * merely sharing this Goal's id. A Goal's id is reused across incarnations,
+   * so an earlier, already-stopped run can still sit in the cache under the
+   * same `.goal`; a plain "find the first match" can read that one back
+   * instead of the run this incarnation actually reserved — including while
+   * *this* run has not been fetched yet, when a fallback scan would still
+   * find the older one sitting there. Once `run` is known, this is the only
+   * id that answers; the effect below is what asks for it when it is not
+   * cached yet, never a stand-in read here.
+   */
   const flowExecution = useMemo(
-    () => [...snapshot.flowExecutions.values()].find((one) => one.goal === room) ?? null,
-    [snapshot.flowExecutions, room],
+    () => (run ? (snapshot.flowExecutions.get(run) ?? null) : [...snapshot.flowExecutions.values()].find((one) => one.goal === room) ?? null),
+    [snapshot.flowExecutions, room, run],
   )
   // A reopened room whose run predates this window's own pushes has nothing
   // cached yet: read it once, the same pull `flow/execution-changed` is the
   // push half of.
   useEffect(() => {
-    if (flowExecution || goal?.goal.origin.kind !== 'flow') return
-    void store.readFlowExecution(goal.goal.origin.run).catch(() => {})
-  }, [flowExecution, goal, store])
+    if (flowExecution || !run) return
+    void store.readFlowExecution(run).catch(() => {})
+  }, [flowExecution, run, store])
   const mount = useMount()
   /**
    * The roster, and the room it belongs to.

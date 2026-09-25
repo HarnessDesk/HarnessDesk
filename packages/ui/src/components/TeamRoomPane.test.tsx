@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   sessionId,
   sessionKey,
+  type FlowExecution,
   type RuntimeInfo,
   type GoalView,
   type Session,
@@ -144,6 +145,8 @@ const rig = (
      something once there is something to do. */
   board: Partial<TeamState> = {},
   goal: GoalView | null = null,
+  /** Cached runs already in the store — a reused Goal's own id can carry more than one across its lifetime. */
+  flowExecutions: ReadonlyMap<string, FlowExecution> = new Map(),
 ) => {
   const session = {
     id: 'c1',
@@ -170,6 +173,7 @@ const rig = (
       sessions: new Map([[sessionKey('codex', 'c1'), session]]),
       teams: new Map([[ROOM, team]]),
       goals: new Map(goal ? [[ROOM, goal]] : []),
+      flowExecutions,
     }) as AppSnapshot
   let snapshot = snapshotOf()
   const store = {
@@ -427,6 +431,60 @@ it('Findings joins only a Goal’s own navigation; a loose conversation keeps no
   act(() => row('Board').click())
   await act(async () => {})
   expect(container.textContent).toContain('Migrate auth callers')
+})
+
+it('a reused empty Goal reads the run its reservation names after a reload, and a plain Goal reads none', async () => {
+  const reserved = { ...GOAL, reservation: { run: 'flow-reused-1' } } as GoalView
+  const { store } = rig(undefined, undefined, {}, reserved)
+  const readFlowExecution = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, { readFlowExecution })
+  await render(store)
+  expect(readFlowExecution).toHaveBeenCalledWith('flow-reused-1')
+
+  const plain = rig(undefined, undefined, {}, GOAL)
+  const none = vi.fn().mockResolvedValue(undefined)
+  Object.assign(plain.store, { readFlowExecution: none })
+  await render(plain.store)
+  expect(none).not.toHaveBeenCalled()
+})
+
+it('a reused Goal with an earlier stopped run prefers the reservation’s own run, never an older one merely sharing the Goal’s id', async () => {
+  const FLOW = { version: 2 as const, name: 'Fix', inputs: [], roles: [], rules: [], seed: { role: 'fixer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 }
+  // The Goal's own id is reused across incarnations, so an earlier run can
+  // still be cached under the same `.goal` — inserted first, so a plain
+  // "find the one sharing this Goal id" reads it before the current one.
+  const older: FlowExecution = {
+    version: 2, id: 'flow-old-1', goal: ROOM, document: { format: 'agents', flow: FLOW },
+    state: 'stopped', rounds: [], operations: [], legacyRun: null, reason: 'Stopped.',
+  }
+  const current: FlowExecution = { ...older, id: 'flow-reused-1', state: 'running', reason: null }
+  const reserved = { ...GOAL, reservation: { run: 'flow-reused-1' } } as GoalView
+  const { store } = rig(undefined, undefined, {}, reserved, new Map([[older.id, older], [current.id, current]]))
+
+  await render(store)
+
+  expect(container.textContent).toContain('Running')
+  expect(container.textContent).not.toContain('Stopped')
+})
+
+it('while the reservation’s own run has not loaded yet, the pane asks for it rather than falling back to an older cached run sharing the Goal’s id', async () => {
+  const FLOW = { version: 2 as const, name: 'Fix', inputs: [], roles: [], rules: [], seed: { role: 'fixer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 }
+  const older: FlowExecution = {
+    version: 2, id: 'flow-old-1', goal: ROOM, document: { format: 'agents', flow: FLOW },
+    state: 'stopped', rounds: [], operations: [], legacyRun: null, reason: 'Stopped.',
+  }
+  const reserved = { ...GOAL, reservation: { run: 'flow-reused-2' } } as GoalView
+  // Only the older, unrelated run is cached — the reservation's own run
+  // ("flow-reused-2") has not been read yet.
+  const { store } = rig(undefined, undefined, {}, reserved, new Map([[older.id, older]]))
+  const readFlowExecution = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, { readFlowExecution })
+
+  await render(store)
+
+  // Never the older run's own words, and the reservation's run is asked for.
+  expect(container.textContent).not.toContain('Stopped')
+  expect(readFlowExecution).toHaveBeenCalledWith('flow-reused-2')
 })
 
 it('a plain conversation room shows no Findings row and never asks for one', async () => {

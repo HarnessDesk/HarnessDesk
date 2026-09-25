@@ -4,7 +4,7 @@ import { digestOf } from '@harnessdesk/agent-inventory'
 import type { AgentAttachmentsView, AgentOrigin, AttachmentSupport } from '@harnessdesk/protocol'
 
 import { parseAgentDefinition } from '../agent-def.js'
-import { readAgentSource, rewriteAgentFile } from '../agent-files.js'
+import { readAgentSource } from '../agent-files.js'
 import { attachmentFieldEdit } from '../attachments/edit.js'
 import { clearAgentNotes, readAgentNotes } from '../attachments/notes.js'
 import { incarnationOf } from '../evidence/seen.js'
@@ -15,6 +15,7 @@ import {
   originAgent,
   projectOf,
   unusable,
+  staleUpdate,
   updatable,
 } from './agents.js'
 import type { HostContext, MethodsUnder } from './context.js'
@@ -121,15 +122,16 @@ export const attachmentMethods = {
   },
 
   'attachment/edit/write': async (ctx, params) => {
-    const { path, folder, project } = await updatable(ctx, params)
-    await rewriteAgentFile(folder, params.digest, (source) => {
+    const { path, project } = await updatable(ctx, params)
+    await ctx.authoring.rewriteAgent({ origin: params.origin, id: params.id, ...(project ? { root: project } : {}) }, (source) => {
+      if (digestOf(source) !== params.digest) throw new Error(staleUpdate(path))
       const edit = attachmentFieldEdit(source, { skills: params.skills, mcp: params.mcp })
       if ('refused' in edit) throw new Error(`${path} cannot be updated: ${edit.refused}.`)
       const parsed = parseAgentDefinition(edit.next, params.id)
       const brokenBy = parsed.problems.find((one) => one.level === 'error')
       if (brokenBy) throw new Error(`This change would leave ${path} unreadable: ${brokenBy.at} — ${brokenBy.text}.`)
       return edit.next
-    })
+    }, staleUpdate(path))
     ctx.push({ method: 'agent/changed', params: { project: params.origin === 'project' ? (project ?? null) : null } })
     return found(await ctx.agents.read(params.id, project), { id: params.id, origin: params.origin, path })
   },

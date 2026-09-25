@@ -44,6 +44,7 @@ const AGENTS: Readonly<Record<string, { ceiling: string; answers?: string; produ
   'editing-judge': { ceiling: 'edit', answers: '[picked, neither]', produces: '[review]', prefer: 'fake-b' },
   'code-reviewer': { ceiling: 'read', answers: '[approve, request-changes]', produces: '[review]', prefer: 'fake-b' },
   'security-reviewer': { ceiling: 'read', answers: '[approve, request-changes]', produces: '[review]', prefer: 'fake-b' },
+  'performance-reviewer': { ceiling: 'read', answers: '[approve, request-changes]', produces: '[review]', prefer: 'fake-b' },
   'api-reviewer': { ceiling: 'read', answers: '[approve, request-changes]', produces: '[review]', prefer: 'fake-b' },
   'test-reviewer': { ceiling: 'read', answers: '[approve, request-changes]', produces: '[review]', prefer: 'fake-b' },
 }

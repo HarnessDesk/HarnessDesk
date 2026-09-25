@@ -175,7 +175,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   switch: ['default'],
   table: ['default', 'framed', 'panel'],
   tabs: ['default', 'line'],
-  textarea: ['default', 'editor', 'inline', 'composer'],
+  textarea: ['default', 'editor', 'code', 'inline', 'composer'],
   toast: ['default'],
   'toggle-group': ['default', 'outline'],
   'tool-pane': ['default', 'integrated'],

@@ -1233,7 +1233,7 @@ export const ItemView = ({
       case 'review':
         return <Review item={item} />
       case 'publication':
-        return <Publication item={item as PublicationItem} />
+        return <Publication item={item as PublicationItem} root={root} />
       case 'error':
         return <ErrorRow item={item} />
     }

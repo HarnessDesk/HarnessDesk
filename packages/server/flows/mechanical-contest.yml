@@ -19,11 +19,12 @@ roles:
     exits:
       "0": first
       "1": second
+      "2": draw
     otherwise: no-contest
     timeout: 300
   referee:
     kind: person
-    outcomes: [merged]
+    outcomes: [merged, dropped]
 seed: { role: competitor, title: "{{task}}" }
 rules:
   - id: to-decide
@@ -37,8 +38,13 @@ rules:
     on: decide
     when: { every: [second] }
     then: { role: referee, title: "Merge the second attempt" }
+  - id: drawn
+    on: decide
+    when: { every: [draw] }
+    then: { role: referee, title: "Pick between two equally scoring attempts" }
 messaging: board-only
 # How far a run may go before it stops for a person: closed rounds in all, and
 # closed rounds in a row that brought no new evidence. Raise it for longer loops.
 budget: { rounds: 3, without-progress: 2 }
 wait: 240
+layout: {"frontDoor":{"contexts":["project"]}}

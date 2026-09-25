@@ -15,6 +15,7 @@ import { Notices, StatusBanner } from '../components/Notices'
 import { ChangesReview } from '../components/ChangesReview'
 import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
+import { FrontDoor } from '../components/FrontDoor'
 import { resolveSection, Settings, type Section } from '../components/Settings'
 import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
@@ -84,6 +85,12 @@ export const App = () => {
     if (libraryImport) setLibraryImport(false)
   }, [libraryImport])
   const [foldersOpen, setFoldersOpen] = useState(false)
+  // The front door, opened on one project at a time — from the palette today,
+  // and from any other place-scoped entry point that hands over its own
+  // resolved `root` rather than opening a chooser of its own. `null` is
+  // closed; this is the one instance the app renders for it.
+  const [frontDoorRoot, setFrontDoorRoot] = useState<string | null>(null)
+  const openFrontDoor = useCallback((root: string) => setFrontDoorRoot(root), [])
   // `true` opens the sign-in page where it thinks best; a runtime id pins it.
   const [signInOpen, setSignInOpen] = useState<boolean | RuntimeId>(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -470,6 +477,17 @@ export const App = () => {
             openSettings: (section, focus) => openSettingsAt(section, focus ?? null),
             openUsage: () => setUsageOpen(true),
             openAgents,
+            openFrontDoor,
+          }}
+        />
+      )}
+      {frontDoorRoot && (
+        <FrontDoor
+          context={{ kind: 'project', root: frontDoorRoot }}
+          onClose={() => setFrontDoorRoot(null)}
+          onStarted={(execution) => {
+            store.openGoal(execution.goal)
+            setFrontDoorRoot(null)
           }}
         />
       )}

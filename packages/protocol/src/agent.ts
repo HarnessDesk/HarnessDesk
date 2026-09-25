@@ -196,7 +196,8 @@ export type SeatReason =
   | { readonly kind: 'couldNotOpen'; readonly detail: string }
   /** It opened, and runs something other than the seat asked for: each field that differs, named in `differences`. */
   | { readonly kind: 'openedOtherwise'; readonly differences: readonly SeatDifference[] }
-  | { readonly kind: 'unheld'; readonly level: CeilingLevel; readonly detail: string | null }
+  /** `required`: the start itself — a front-door one — needs a held ceiling, whatever this Mac's own setting says. */
+  | { readonly kind: 'unheld'; readonly level: CeilingLevel; readonly detail: string | null; readonly required?: true }
 
 /**
  * What removes a reason, as a thing a surface can offer. Never a sentence:

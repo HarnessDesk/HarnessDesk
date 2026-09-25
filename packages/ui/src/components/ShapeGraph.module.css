@@ -1,0 +1,56 @@
+/*
+ * Geometry only — position, size and overflow for the canvas and its nodes.
+ * Every node's own appearance (border, radius, background, focus ring) comes
+ * from `Button variant="outline"`; nothing here draws a look of its own.
+ */
+
+.canvas {
+  position: relative;
+  overflow: auto;
+  /* Height comes from the component's own inline style — the graph's real
+     computed extent, node positions included — never a fixed value here. */
+}
+
+.edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* An edge line's own stroke is data geometry, drawn the same way chart.tsx's
+   own SVG marks are: as attributes on the element, not a screen appearance
+   rule (opacity alone is layout/behaviour, not appearance, and stays here). */
+.edgeLine {
+  opacity: 0.35;
+}
+
+.node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--hd-space-0-5);
+  white-space: normal;
+  text-align: left;
+}
+
+.nodeTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.nodeMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.moveFields {
+  display: flex;
+  gap: var(--hd-space-3);
+}

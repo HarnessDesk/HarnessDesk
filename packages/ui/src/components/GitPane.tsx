@@ -58,11 +58,13 @@ import {
   SidebarIcon,
   StashIcon,
   TagIcon,
+  TeamIcon,
   TrashIcon,
   UnlockIcon,
   WorktreeIcon,
 } from './Icons'
 import { ContextMenu, MenuItem, MenuLabel, MenuSeparator, useContextMenu } from '../design'
+import { FrontDoor } from './FrontDoor'
 import { ltr, ToolPaneHeader } from './ToolPaneHeader'
 import {
   CommitDialog,
@@ -166,6 +168,7 @@ type DialogState =
   | { readonly kind: 'reset'; readonly to: string; readonly subject: string }
   | { readonly kind: 'stash' }
   | { readonly kind: 'diffRange'; readonly from: string; readonly to: string }
+  | { readonly kind: 'review'; readonly branch: string }
   | {
       readonly kind: 'confirm'
       readonly title: string
@@ -1126,6 +1129,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             onDelete={() => setDialog({ kind: 'deleteBranch', name: railTarget.branch.name })}
             onCopy={() => doCopy(railTarget.branch.name, `Copied “${railTarget.branch.name}”.`)}
             onPullRequest={() => doPullRequest(railTarget.branch.name)}
+            onReview={() => setDialog({ kind: 'review', branch: railTarget.branch.name })}
           />
         )}
         {railTarget?.kind === 'remote' && (
@@ -1387,6 +1391,16 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       {dialog?.kind === 'diffRange' && (
         <DiffRangeDialog root={root} from={dialog.from} to={dialog.to} onDone={() => setDialog(null)} />
       )}
+      {dialog?.kind === 'review' && root && (
+        <FrontDoor
+          context={{ kind: 'branch', root, branch: dialog.branch }}
+          onClose={() => closeDialog(false)}
+          onStarted={(execution) => {
+            store.openGoal(execution.goal)
+            closeDialog(false)
+          }}
+        />
+      )}
       {dialog?.kind === 'confirm' && (
         <ConfirmDialog
           title={dialog.title}
@@ -1572,6 +1586,7 @@ const BranchMenu = ({
   onDelete,
   onCopy,
   onPullRequest,
+  onReview,
 }: {
   branch: GitBranchRef
   current: string | null
@@ -1585,6 +1600,7 @@ const BranchMenu = ({
   onDelete: () => void
   onCopy: () => void
   onPullRequest: () => void
+  onReview: () => void
 }) => {
   const itself = branch.current
   return (
@@ -1644,6 +1660,13 @@ const BranchMenu = ({
         label="Create pull request…"
         hint="On the branch's forge, in the browser."
         onSelect={onPullRequest}
+      />
+      <MenuSeparator />
+      <MenuItem
+        icon={<TeamIcon size={14} />}
+        label="Review…"
+        hint="Choose a shape and start a team on this branch."
+        onSelect={onReview}
       />
     </>
   )

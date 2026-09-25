@@ -37,6 +37,7 @@ import {
   SidebarIcon,
   SlashIcon,
   SlidersIcon,
+  TeamIcon,
   UsageIcon,
   UserIcon,
 } from './Icons'
@@ -90,6 +91,8 @@ export interface PaletteHost {
   readonly chooseFolder: () => void
   /** Opens the Agents window — the left-menu screen, never Settings — on one Agent, or the overview. */
   readonly openAgents: (agent?: string) => void
+  /** Opens the front door on the given project — the same chooser `NewSessionChoice` opens, one call up. */
+  readonly openFrontDoor: (root: string) => void
   readonly close: () => void
 }
 
@@ -268,6 +271,27 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           store.askNewWorktree(snapshot.workspace?.path ?? null)
         },
       },
+      /*
+       * A project is what the front door reads a catalogue from, so this row
+       * has nothing to open without one — left out entirely rather than
+       * shown to refuse, since typing "team" with no project open should
+       * find nothing rather than a row this dispatch cannot honour.
+       */
+      ...(snapshot.workspace?.path
+        ? [
+            {
+              id: 'start-team',
+              group: 'Actions' as const,
+              label: 'Start with a team',
+              hint: 'Choose a shape this project ships',
+              icon: <TeamIcon size={14} />,
+              run: () => {
+                close()
+                host.openFrontDoor(snapshot.workspace!.path)
+              },
+            },
+          ]
+        : []),
       {
         id: 'folder',
         group: 'Actions',
