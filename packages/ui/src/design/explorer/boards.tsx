@@ -2,7 +2,7 @@ import { useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -261,7 +261,7 @@ const StateBoard = () => (
         <Spinner size="sm" tone="brand" aria-label="Loading" />
       </Case>
       <Case label="text marks">
-        <span className="flex items-baseline gap-2"><TextMark role="row">•</TextMark><Text role="row">Planned</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row"><TodoPendingIcon size={12} /></TextMark><Text role="row">Planned</Text></span>
         <span className="flex items-baseline gap-2"><TextMark role="row" tone="success"><CheckIcon size={12} /></TextMark><Text role="row">Done</Text></span>
         <span className="flex items-baseline gap-2"><TextMark role="row" tone="warning"><CrossIcon size={12} /></TextMark><Text role="row">Failed</Text></span>
       </Case>
