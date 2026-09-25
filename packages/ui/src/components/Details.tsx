@@ -22,6 +22,7 @@ import {
   PanelFrame,
   PanelPill,
   PanelRow,
+  PanelRowDetail,
   PanelTools,
 } from './Panel'
 import { Trajectory } from './Trajectory'
@@ -159,13 +160,19 @@ export const ChangesView = () => {
       foot={foot}
       tools={
         <>
-          <PanelPill
+          {/* A toggle, drawn as one: pressed, it shows what is staged. It was a
+              pill beside the filter, which is the shape a status takes, so it
+              read as a fact about the panel rather than a thing to press. */}
+          <Button
+            type="button"
+            variant="quiet" size="sm"
+            aria-pressed={staged}
             {...(staged ? { 'data-on': '' } : {})}
             title="Show what is staged instead of what is not"
             onClick={() => setStaged((value) => !value)}
           >
-            staged
-          </PanelPill>
+            Staged
+          </Button>
           {/* Not the panel's expand glyph, which sits directly above this one
               in the panel's own strip. That one gives this panel the room; this
               one leaves the layout entirely for the review workspace. Two ⤢ an
@@ -196,13 +203,16 @@ export const TrajectoryView = () => {
       onQuery={setQuery}
       foot={foot}
       tools={
-        <PanelPill
+        <Button
+          type="button"
+          variant="quiet" size="sm"
+          aria-pressed={timedOnly}
           {...(timedOnly ? { 'data-on': '' } : {})}
           title="Show only steps the runtime timed"
           onClick={() => setTimedOnly((value) => !value)}
         >
-          timed
-        </PanelPill>
+          Timed
+        </Button>
       }
     >
       <Trajectory query={query} timedOnly={timedOnly} onFoot={onFoot} />
@@ -392,9 +402,9 @@ const Changes = ({
                   tooltip={file.path}
                   trail={<Counts added={count.added} removed={count.removed} />}
                 />
-                <div className="pt-1 pb-2">
+                <PanelRowDetail>
                   <DiffView diff={file.diff} />
-                </div>
+                </PanelRowDetail>
               </div>
             )
           })}
@@ -433,7 +443,7 @@ const Changes = ({
                 {...(count ? { trail: <Counts added={count.added} removed={count.removed} /> } : {})}
               />
               {selected === file.path && (
-                <div className="pt-1 pb-2">
+                <PanelRowDetail>
                   <div className={styles.fileActions}>
                     <Button
                       type="button"
@@ -459,7 +469,7 @@ const Changes = ({
                         : 'No diff to show.'}
                     </PanelEmpty>
                   )}
-                </div>
+                </PanelRowDetail>
               )}
             </div>
           )

@@ -1,6 +1,7 @@
 import { createElement, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 
 import { cn } from '../../lib/utils'
+import { Bar } from '../ui/bar'
 import { Button, buttonVariants } from '../ui/button'
 import { ChangeStats } from './Change'
 import { Chip, Dot, Search, Text } from './Settings'
@@ -22,12 +23,9 @@ const PanelFrame = ({ children, testId }: { children: ReactNode; testId?: string
 )
 
 const PanelTools = ({ children }: { children: ReactNode }) => (
-  <div
-    data-slot="inspector-tools"
-    className="flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border) px-(--hd-bar-pad)"
-  >
+  <Bar data-slot="inspector-tools" rule="bottom">
     {children}
-  </div>
+  </Bar>
 )
 
 const PanelBody = ({ children }: { children: ReactNode }) => (
@@ -37,12 +35,13 @@ const PanelBody = ({ children }: { children: ReactNode }) => (
 )
 
 const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => (
-  <div
+  <Bar
     data-slot="inspector-footer"
-    className="flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-t border-(--hd-border) px-(--hd-bar-pad) text-xs leading-(--hd-line-xs) text-(--hd-muted-foreground)"
+    rule="top"
+    className="text-xs leading-(--hd-line-xs) text-(--hd-muted-foreground)"
   >
     {left}<span className="flex-1" />{right}
-  </div>
+  </Bar>
 )
 
 /**
@@ -162,6 +161,17 @@ const PanelRow = ({
   )
 }
 
+/**
+ * What a row opens under itself — a file's patch and the two things to do
+ * with it. It stands at the row's own width, so the patch's edges carry on
+ * the row's, with a step of air above and a longer one before the next row.
+ */
+const PanelRowDetail = ({ children }: { children: ReactNode }) => (
+  <div data-slot="inspector-row-detail" className="pt-1 pb-2">
+    {children}
+  </div>
+)
+
 const Counts = ({ added, removed }: { added: number; removed: number }) => (
   <ChangeStats added={added} removed={removed} />
 )
@@ -228,6 +238,7 @@ export {
   PanelFrame,
   PanelPill,
   PanelRow,
+  PanelRowDetail,
   PanelTools,
   RowTime,
   RunDot,
