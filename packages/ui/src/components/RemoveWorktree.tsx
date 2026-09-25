@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { Worktree, WorktreeChanges } from '@harnessdesk/protocol'
 import { isBusy } from '@harnessdesk/protocol'
 
-import { ConfirmDialog } from '../design'
+import { CodeText, ConfirmDialog } from '../design'
 import { isPathInside } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { BranchIcon } from './Icons'
@@ -92,15 +92,17 @@ export const RemoveWorktree = ({
       onConfirm={() => void remove(dirty)}
       onCancel={onClose}
     >
+      {/* The folder is the subject, so it stands on its own line above the
+          sentence about it, rather than opening that sentence. */}
       <p>
-        <span className="font-mono break-all">{worktree.path}</span>
+        <CodeText className="block break-all">{worktree.path}</CodeText>
+        The folder goes, with anything git ignores in it.
         {worktree.branch && (
           <>
             {' '}
-            on branch <span className="font-mono">{worktree.branch}</span>
+            Its branch, <CodeText>{worktree.branch}</CodeText>, is kept either way.
           </>
         )}
-        . The branch is kept either way; the folder goes, with anything git ignores in it.
       </p>
 
       {error && <WorktreeProblem className={RHYTHM}>{error}</WorktreeProblem>}

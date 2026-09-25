@@ -63,6 +63,7 @@
 --hd-code-gutter-bg = transparent
 --hd-code-gutter-fg = rgb(107, 107, 107)
 --hd-code-heading = rgb(0, 92, 197)
+--hd-code-inline = max(12px, 0.92em)
 --hd-code-inset = 12px
 --hd-code-invalid = rgb(197, 34, 51)
 --hd-code-keyword = rgb(167, 42, 130)
@@ -514,6 +515,7 @@
 --hd-code-gutter-bg = transparent
 --hd-code-gutter-fg = rgb(177, 177, 177)
 --hd-code-heading = rgb(121, 192, 255)
+--hd-code-inline = max(12px, 0.92em)
 --hd-code-inset = 12px
 --hd-code-invalid = rgb(255, 123, 114)
 --hd-code-keyword = rgb(255, 123, 114)
@@ -969,6 +971,7 @@
 --hd-code-gutter-bg = transparent
 --hd-code-gutter-fg = rgb(107, 107, 107)
 --hd-code-heading = rgb(0, 92, 197)
+--hd-code-inline = max(12px, 0.92em)
 --hd-code-inset = 12px
 --hd-code-invalid = rgb(197, 34, 51)
 --hd-code-keyword = rgb(167, 42, 130)
@@ -1436,6 +1439,7 @@
 --hd-code-gutter-bg = transparent
 --hd-code-gutter-fg = rgb(177, 177, 177)
 --hd-code-heading = rgb(121, 192, 255)
+--hd-code-inline = max(12px, 0.92em)
 --hd-code-inset = 12px
 --hd-code-invalid = rgb(255, 123, 114)
 --hd-code-keyword = rgb(255, 123, 114)

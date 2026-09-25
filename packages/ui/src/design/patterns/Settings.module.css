@@ -1044,7 +1044,7 @@
 
 .mono {
   font-family: var(--hd-font-code);
-  font-size: 12.5px;
+  font-size: var(--hd-code-inline); /* desk: 12.5px → 0.92em of its sentence (12px floor), the code face follows the words around it */
 }
 
 .monoInherit {

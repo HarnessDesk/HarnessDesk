@@ -682,6 +682,14 @@ body {
   --hd-code-inset: var(--hd-space-3);
   --hd-code-text: var(--hd-text-xs);
   --hd-code-line: var(--hd-line-sm);
+  /* Code set inside a sentence (`CodeText`) follows the sentence rather than
+     taking a size of its own: 0.92 of it, which sets the monospace face's
+     x-height a touch under the interface face's (measured 0.547 against 0.530
+     of the em) to offset its wider, evenly weighted glyphs — at the same
+     size a path read a step larger than the words around it. Not a step of
+     the scale: it lands on whichever of the four steps the sentence is set
+     in, and never below the smallest of them. */
+  --hd-code-inline: max(var(--hd-text-xs), 0.92em);
   --hd-code-max-height: 380px;
   /* Diff rows sit inside the darker code fill. Resolve their state washes
      against the page as opaque colours so a gutter does not composite the

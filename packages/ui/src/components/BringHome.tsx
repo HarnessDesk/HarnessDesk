@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { isBusy, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
-import { ConfirmDialog } from '../design'
+import { CodeText, ConfirmDialog } from '../design'
 import { isPathInside } from '../lib/paths'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { HomeIcon } from './Icons'
@@ -133,10 +133,10 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
         {main?.branch && (
           <>
             {' '}
-            from <span className="font-mono">{main.branch}</span>
+            from <CodeText>{main.branch}</CodeText>
           </>
         )}{' '}
-        to <span className="font-mono">{worktree.branch}</span>, with every commit made here. The
+        to <CodeText>{worktree.branch}</CodeText>, with every commit made here. The
         worktree's folder is removed, and with it anything git ignores there; the branch is not.
       </p>
 
@@ -145,7 +145,7 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
       {mainChanges && carried > 0 && (
         <p>
           {folder} has {describeUncommitted(mainChanges)} not committed. Git carries{' '}
-          {carried === 1 ? 'it' : 'them'} onto <span className="font-mono">{worktree.branch}</span>, or refuses the
+          {carried === 1 ? 'it' : 'them'} onto <CodeText>{worktree.branch}</CodeText>, or refuses the
           switch if {carried === 1 ? 'it clashes' : 'they clash'} with it.
         </p>
       )}

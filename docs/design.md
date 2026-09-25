@@ -352,6 +352,15 @@ It is **not** for names that merely came from a machine. A branch, a folder, a
 file in a list of files is a name, and names are set in the interface's own font.
 A menu that mixes the two faces reads as two menus.
 
+Code set inside a sentence (`CodeText`) takes its size from the sentence:
+`--hd-code-inline`, 0.92em with the 12px step as its floor. The monospace
+face's x-height is larger than the interface face's (0.547 against 0.530 of
+the em) and its glyphs are wider and evenly weighted, so at the same size a
+path read a step larger than the words around it; at 0.92 it sits level with
+them. It adds no step to the scale — it lands on the step of whatever
+sentence holds it. A path that is the subject of a confirm stands on its own
+line above the sentence about it, rather than opening that sentence.
+
 So a skill's name, a hook's event, a plugin's id, a contribution, a workspace
 path, a worktree's branch and path, a route's endpoint and a changed file all
 read in the interface's face. They are names, whatever produced them.

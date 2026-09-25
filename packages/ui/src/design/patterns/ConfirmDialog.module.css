@@ -25,6 +25,13 @@
   padding: var(--hd-space-4);
 }
 
+/* A confirm's sentences are paragraphs, and paragraphs space themselves: the
+   reset the primitives share zeroes a `p`'s margin, so two of them ran
+   together as one block. */
+.body > p:not(:last-child) {
+  margin-bottom: var(--hd-space-3);
+}
+
 /* What a confirm holds is read in full: a long line wraps inside the body
    rather than running past an edge nobody can scroll to. */
 .body :where(pre, code) {
