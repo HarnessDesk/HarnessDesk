@@ -1,0 +1,15 @@
+/*
+ * What a burst of templated steps opens into. The steps are ordinary
+ * transcript items, each keeping its own rhythm (`TurnItem`), so this only
+ * places them: in the light register they hang under the fold's words, in the
+ * ordinary one they sit below a rule, inset from the card's edges.
+ */
+.body {
+  display: flex;
+  flex-direction: column;
+  margin: 0 var(--hd-space-2) var(--hd-space-1-5);
+}
+
+.body[data-register='light'] {
+  margin: calc(var(--hd-space-px) * -1) 0 var(--hd-space-px) var(--hd-space-5);
+}

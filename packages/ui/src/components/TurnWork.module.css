@@ -37,15 +37,6 @@
   white-space: nowrap;
 }
 
-.chevron {
-  flex: none;
-  transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
-}
-
-.chevron[data-open] {
-  transform: rotate(90deg);
-}
-
 /* The hairline that runs from the label to the column's edge: the system's
    separator, stretched to fill what the label leaves. */
 .rule {

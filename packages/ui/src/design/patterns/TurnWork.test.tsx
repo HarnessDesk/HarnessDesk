@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { StepFoldBody, TurnItem, TurnWorkChevron, TurnWorkHeaderLabel, TurnWorkLive, TurnWorkReceipt } from './TurnWork'
+import { TurnItem, TurnWorkHeaderLabel, TurnWorkLive } from './TurnWork'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -34,20 +34,6 @@ describe('the rhythm of transcript items', () => {
     expect(ordinary?.className).toContain('py-(--hd-space-1)')
     expect(light?.className).toContain('py-(--hd-space-px)')
   })
-
-  it('opens a step fold under its words in the light register and below a rule otherwise', () => {
-    act(() => root.render(
-      <>
-        <StepFoldBody register="light"><div>step</div></StepFoldBody>
-        <StepFoldBody><div>step</div></StepFoldBody>
-      </>,
-    ))
-    const [light, ordinary] = slot('step-fold-body')
-    for (const body of [light, ordinary]) expect(body?.className).toContain('[&>div]:py-0')
-    expect(light?.className).toContain('pl-(--hd-space-5)')
-    expect(light?.className).toContain('border-t-0')
-    expect(ordinary?.className).toContain('border-t border-(--hd-border)')
-  })
 })
 
 describe('the work header', () => {
@@ -64,27 +50,6 @@ describe('the work header', () => {
     expect(done?.className).not.toContain('text-(')
     expect(running?.className).toContain('text-(--hd-secondary-foreground)')
     expect(trouble?.className).toContain('text-(--hd-warning-ink)')
-  })
-
-  it('keeps a tally muted and trouble toned in the receipt and the chevron', () => {
-    act(() => root.render(
-      <>
-        <TurnWorkReceipt>· read 2 files</TurnWorkReceipt>
-        <TurnWorkReceipt tone="warning">· 1 declined</TurnWorkReceipt>
-        <TurnWorkReceipt tone="danger">· 1 failed</TurnWorkReceipt>
-        <TurnWorkChevron open={false} />
-        <TurnWorkChevron open trouble />
-      </>,
-    ))
-    const [tally, declined, failed] = slot('turn-work-receipt')
-    expect(tally?.className).toContain('text-(--hd-muted-foreground)')
-    expect(declined?.className).toContain('text-(--hd-warning-ink)')
-    expect(failed?.className).toContain('text-(--hd-danger-ink)')
-    const [closed, open] = slot('turn-work-chevron')
-    expect(closed?.hasAttribute('data-open')).toBe(false)
-    expect(closed?.getAttribute('class')).toContain('text-(--hd-muted-foreground)')
-    expect(open?.hasAttribute('data-open')).toBe(true)
-    expect(open?.getAttribute('class')).toContain('text-(--hd-warning-ink)')
   })
 })
 

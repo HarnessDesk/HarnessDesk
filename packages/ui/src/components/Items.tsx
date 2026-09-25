@@ -30,7 +30,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { stripAnsi } from '../lib/ansi'
-import { ActionError, Button, ChangeStats, CodeBlock, CopyButton, Lightbox, type LightboxImage } from '../design'
+import { ActionError, Button, ChangeStats, CodeBlock, CopyButton, Lightbox, TurnItem, type LightboxImage } from '../design'
 import { instant } from '../lib/clock'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
@@ -1242,7 +1242,7 @@ export const ItemView = ({
   if (body === null) return null
   return (
     <ItemRegister.Provider value={register}>
-      <div className={`${styles.item} ${register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'}`}>{body}</div>
+      <TurnItem register={register} className={styles.item}>{body}</TurnItem>
     </ItemRegister.Provider>
   )
 }
