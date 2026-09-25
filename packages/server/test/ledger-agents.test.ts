@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
@@ -560,7 +561,8 @@ test('a budgeted database refused because it changed while it was read says how 
       appendFileSync(path, 'x'.repeat(10))
       return value
     }, { byteLimit: before * 4 }),
-    (error: unknown) => error instanceof InsightSourceChangedError && error.bytesRead === before,
+    // Read in place, and grown by ten bytes before the second look: what the file held at its largest.
+    (error: unknown) => error instanceof InsightSourceChangedError && error.bytesRead === before + 10,
   )
 
   const busy = join(dir, 'busy-changed.db')
@@ -580,6 +582,41 @@ test('a budgeted database refused because it changed while it was read says how 
     'every copy thrown away was still read, and all of them count',
   )
   owner.close()
+})
+
+/*
+ * #940 review P3-6. The database's copy is read before its log's; when the
+ * log's copy then fails (a checkpoint removed it), what the database copy
+ * read still counts — every attempt's.
+ */
+test('a snapshot whose log copy fails still counts the database bytes it copied', (t) => {
+  const dir = scratch()
+  const path = join(dir, 'lost-log.db')
+  const owner = new DatabaseSync(path)
+  owner.exec('PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+  const dbSize = statSync(path).size
+  const fs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs')
+  const real = fs.copyFileSync
+  let n = 10
+  fs.copyFileSync = ((from: string, to: string) => {
+    if (String(from).endsWith('-wal')) {
+      // The owner commits (so the fingerprint moves) and the log is gone by the time it is copied.
+      owner.exec(`INSERT INTO t VALUES (${n++})`)
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    }
+    return real(from, to)
+  }) as typeof fs.copyFileSync
+  syncBuiltinESMExports()
+  t.after(() => {
+    fs.copyFileSync = real
+    syncBuiltinESMExports()
+    owner.close()
+  })
+  assert.throws(
+    () => readForeignDatabase(path, countRows, { byteLimit: 1024 * 1024 * 1024 }),
+    (error: unknown) => error instanceof InsightSourceChangedError && error.bytesRead === 3 * dbSize,
+    'three attempts, each of which read the database before its log failed',
+  )
 })
 
 test('a snapshot copy a commit made stale is spent from the budget, so a second copy that no longer fits is refused', () => {

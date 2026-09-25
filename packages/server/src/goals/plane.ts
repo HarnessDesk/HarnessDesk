@@ -927,9 +927,19 @@ export class GoalPlane {
    * the document no longer holds (a launch finished it) is forgotten; one
    * still refused stays, and says why. Cheap when nothing is stuck.
    */
+  /** Whether this Goal holds an operation that could not be set aside, and is waiting on `retryStuck`. */
+  isStuck(goal: string): boolean {
+    return this.#stuck.has(goal)
+  }
+
   retryStuck(): Promise<void> {
     if (this.#stuck.size === 0) return Promise.resolve()
-    return this.serial.run(async () => {
+    /* One retry at a time, queued or running. Setting aside writes the board
+       itself (releasing a claim), and that write asks for a retry: without
+       this, a set-aside that keeps failing past its release would queue the
+       next attempt from inside the last, for ever. */
+    if (this.#retrying) return this.#retrying
+    const retry = this.serial.run(async () => {
       for (const [goal, { operation, reason }] of [...this.#stuck]) {
         let staged: GoalOperation | null
         try {
@@ -947,8 +957,12 @@ export class GoalPlane {
         if (aside.settled) this.#stuck.delete(goal)
         await this.refresh(goal).catch(() => {})
       }
-    })
+    }).finally(() => { if (this.#retrying === retry) this.#retrying = null })
+    this.#retrying = retry
+    return retry
   }
+
+  #retrying: Promise<void> | null = null
 
   /**
    * Sets aside an assignment or a release that could not finish, and answers
@@ -972,7 +986,7 @@ export class GoalPlane {
     } catch (error) {
       return {
         settled: false,
-        sentence: `${what} could not finish: ${reason}. Setting it aside failed too (${error instanceof Error ? error.message : String(error)}). It is tried again after the next board save, and at the next launch.`,
+        sentence: `${what} could not finish: ${reason}. Setting it aside failed too (${error instanceof Error ? error.message : String(error)}). It is tried again the next time a board changes, and at the next launch.`,
       }
     }
     return {

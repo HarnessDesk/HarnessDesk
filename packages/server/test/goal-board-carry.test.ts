@@ -110,7 +110,7 @@ test('a Team save an assignment carries lands whole — messaging included — e
  * restarted. The next board save that lands — on any Goal — tries the
  * set-aside again, and the Goal takes work once it is set aside.
  */
-test('an assignment that could not even be set aside is set aside after the next board save lands, without a restart', async (t) => {
+const stuckDesk = async (t: { after(fn: () => Promise<void>): void }, failing: 'once' | 'always') => {
   const { GoalStore } = await import('../src/goals/store.js')
   const { GoalPlane } = await import('../src/goals/plane.js')
   const work = tempDir('hd-goal-stuck-retry-')
@@ -140,8 +140,8 @@ test('an assignment that could not even be set aside is set aside after the next
         phase = 'staged'
         // The card is blocked by hand while the Seat is being recorded, so its claim is refused.
         harness.host.teamPlane.intentAction(goal, card.id, 'block', 'Waiting on a decision')
-      } else if (phase === 'staged' && document.operation === null) {
-        // Setting the refused assignment aside fails once, too.
+      } else if ((phase === 'staged' || (phase === 'refused' && failing === 'always')) && document.operation === null) {
+        // Setting the refused assignment aside fails too: once, or every time.
         phase = 'refused'
         throw new Error('EIO')
       }
@@ -155,21 +155,32 @@ test('an assignment that could not even be set aside is set aside after the next
   assert.equal(phase, 'refused')
   const stuck = await client.call('goal/read', { goal }) as GoalView
   assert.match(stuck.problem ?? '', /Setting it aside failed too/)
-  assert.match(stuck.problem ?? '', /tried again after the next board save/)
+  assert.match(stuck.problem ?? '', /tried again the next time a board changes/)
   assert.notEqual((await onDisk(harness.stateDir, goal)).operation, null, 'still staged')
-
-  // Any board save that lands is the sign the desk can write again.
   const retries: Promise<void>[] = []
   GoalPlane.prototype.retryStuck = function (this: InstanceType<typeof GoalPlane>) {
     const retry = retryStuck.call(this)
     retries.push(retry)
     return retry
   }
-  await client.call('team/add', { room: other, title: 'Elsewhere' })
+  return { harness, client, goal, other, card, retries, done: () => { phase = 'done' } }
+}
+
+for (const where of ['another Goal', 'the stuck Goal itself'] as const) test(`an assignment that could not even be set aside is set aside once a board change is asked for on ${where}, without a restart`, async (t) => {
+  const { harness, client, goal, other, card, retries, done } = await stuckDesk(t, 'once')
+
+  // A board change asked for is the sign someone is working: a save that lands
+  // on another Goal, or a change to the stuck Goal itself, which it refuses
+  // while the operation is staged — and says it is trying again (review P2-1).
+  if (where === 'another Goal') {
+    await client.call('team/add', { room: other, title: 'Elsewhere' })
+  } else {
+    await assert.rejects(client.call('team/add', { room: goal, title: 'Refused while stuck' }), /being set aside again now/)
+  }
   await harness.host.teamPlane.flush()
-  assert.ok(retries.length > 0, 'the landed save asked for a retry')
+  assert.ok(retries.length > 0, 'the change asked for a retry')
   await Promise.all(retries)
-  phase = 'done'
+  done()
   assert.match((await client.call('goal/read', { goal }) as GoalView).problem ?? '', /assign the card again/)
   assert.equal((await onDisk(harness.stateDir, goal)).operation, null, 'set aside, durably')
   const view = await client.call('goal/read', { goal }) as GoalView
@@ -178,6 +189,25 @@ test('an assignment that could not even be set aside is set aside after the next
   await client.call('team/add', { room: goal, title: 'Next' })
   await harness.host.teamPlane.flush()
   assert.deepEqual((await client.call('goal/read', { goal }) as GoalView).board.intents.map((one) => one.id), [card.id, 2])
+})
+
+/*
+ * Setting aside writes the board itself, and a board write asks for a retry:
+ * a set-aside that keeps failing must not queue its next attempt from inside
+ * the last one, for ever. One attempt per change asked for.
+ */
+test('a set-aside that keeps failing is tried once per change asked for, never in a loop', async (t) => {
+  const { harness, client, goal, retries } = await stuckDesk(t, 'always')
+  await assert.rejects(client.call('team/add', { room: goal, title: 'Refused while stuck' }), /being set aside again now/)
+  await harness.host.teamPlane.flush()
+  for (let settled = -1, rounds = 0; settled !== retries.length; rounds += 1) {
+    assert.ok(rounds < 20, `retries kept coming: ${retries.length}`)
+    settled = retries.length
+    await Promise.allSettled(retries)
+  }
+  const attempts = new Set(retries).size
+  assert.ok(attempts <= 2, `one attempt for the one change, and at most the one its own board write coalesced into it — got ${attempts}`)
+  assert.match((await client.call('goal/read', { goal }) as GoalView).problem ?? '', /Setting it aside failed too/)
 })
 
 /*

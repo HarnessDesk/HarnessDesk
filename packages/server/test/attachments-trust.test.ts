@@ -379,3 +379,17 @@ test('a server review with values shown only as set lists them, and is approved 
   assert.deepEqual(plain.hidden, [])
   await trust.approve(plain.token)
 })
+
+test('the digests a collection keeps are null — keep everything — when the grants file cannot be read truthfully', async () => {
+  const dir = tempDir('hd-attach-trust-digests-')
+  const file = join(dir, 'attachment-trust.json')
+  const trust = new AttachmentTrust(file)
+  assert.deepEqual(await trust.digests(), new Set(), 'no file yet: nothing approved')
+  const review = await trust.preview(subject(), [resolvedOf(identity({ digest: 'digest-kept' }))])
+  await trust.approve(review.token)
+  assert.deepEqual(await trust.digests(), new Set(['digest-kept']))
+  await writeFile(file, JSON.stringify({ version: 99, grants: [] }))
+  assert.equal(await trust.digests(), null, 'a newer format')
+  await writeFile(file, '{"version":1,')
+  assert.equal(await trust.digests(), null, 'not JSON')
+})

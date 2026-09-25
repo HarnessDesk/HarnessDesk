@@ -431,3 +431,58 @@ test('a Seat whose seating fell back to another runtime says its content was app
   assert.equal(prepared.input.skills?.length, 0)
   assert.equal(prepared.declarations[0]!.problem, 'This was approved for First Agent, but this Seat runs on Second Agent instead, and an approval covers only the agent it was given for.')
 })
+
+/*
+ * #940 review P3-1. A reopen answered with a session the agent still held
+ * takes that session's receipt only when its key is one this Seat's own
+ * filter was handed under — never a receipt from another Seat's input whose
+ * loaded list merely fits inside this reopen's filter.
+ */
+test('a held session’s receipt counts only under a key this Seat’s own filter was handed', async () => {
+  const { receiptFrom } = await import('../src/attachments/plane.js')
+  const id = identity({ name: 'held', seed: 'held' })
+  const port = portFor({ scout: [declaration(id)] })
+  permit(port, subject(), id)
+  const plane = new AttachmentsPlane(tempDir('hd-attach-seat-held-key-'), port)
+  const opened = seat('seat-held')
+  const first = await plane.prepare(subject())
+  await plane.record(opened, first, { key: first.input.key, loaded: [{ kind: 'skill', name: 'held', digest: id.digest }], refused: [] })
+  const reopen = await plane.reapply(opened, { build: '1.0.0' })
+  assert.ok(reopen)
+  const answering = (key: string) => ({ attachmentReceipt: async () => ({ key, loaded: [{ kind: 'skill' as const, name: 'held', digest: id.digest }], refused: [] }) })
+  const own = await receiptFrom(answering(first.input.key), 's' as never, reopen.input.key, { reopen, seatKeys: plane.keysOf(opened.id) })
+  assert.equal(own.key, reopen.input.key)
+  assert.deepEqual(own.loaded.map((one) => one.name), ['held'], 'this Seat’s own earlier filter: taken, re-keyed')
+  const foreign = await receiptFrom(answering('another-seats-key'), 's' as never, reopen.input.key, { reopen, seatKeys: plane.keysOf(opened.id) })
+  assert.deepEqual(foreign.loaded, [], 'a key this Seat never had: nothing loaded')
+  assert.deepEqual(plane.keysOf(seat('seat-other').id), new Set())
+})
+
+/*
+ * #940 review P3-2. Collection lists `staged/skill` and `staged/mcp`: a link
+ * swapped in for either would have it collect in whatever folder it points
+ * at. A kind folder, or the staging folder itself, that is not a real folder
+ * is left alone.
+ */
+test('collection never follows a link swapped in for a staging folder', async () => {
+  const { mkdir, symlink, rename } = await import('node:fs/promises')
+  const folder = tempDir('hd-attach-seat-collect-link-')
+  const victim = tempDir('hd-attach-seat-collect-victim-')
+  const bystander = 'f'.repeat(64)
+  await mkdir(join(victim, bystander))
+  await writeFile(join(victim, 'notes.tmp'), 'keep me')
+  const orphan = identity({ name: 'orphan', seed: 'link' })
+  const port = portFor({ others: [declaration(orphan)] })
+  permit(port, subject({ agent: 'others' }), orphan)
+  await new AttachmentsPlane(folder, port).prepare(subject({ agent: 'others' }))
+  // The skill folder is moved away and a link to the victim put in its place.
+  await rename(join(folder, '.staged', 'skill'), join(folder, 'moved'))
+  await symlink(victim, join(folder, '.staged', 'skill'))
+  assert.equal(await new AttachmentsPlane(folder, port).collectStaged(new Set()), 0)
+  assert.deepEqual((await readdir(victim)).sort(), [bystander, 'notes.tmp'].sort(), 'nothing in the folder the link points at was touched')
+  // The staging folder itself swapped for a link: nothing collected either.
+  const outer = tempDir('hd-attach-seat-collect-outer-')
+  await rename(join(folder, '.staged'), join(outer, 'staged'))
+  await symlink(join(outer, 'staged'), join(folder, '.staged'))
+  assert.equal(await new AttachmentsPlane(folder, port).collectStaged(new Set()), 0)
+})

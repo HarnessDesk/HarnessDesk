@@ -659,15 +659,41 @@ skills and says why its servers did not. A server's review shows the command,
 arguments and environment that will run (a credential's value is shown only
 as set, and approving a review that hides any value asks the person to say
 they know what it is — a value that changes what the server does can hide
-behind a name that looks like a credential), and its command runs only when the Seat lists or calls its tools,
-through the desk's gate, in an empty host-owned folder — never the Seat's
-checkout, whose own configuration could change what an approved command
-resolves to.
+behind a name that looks like a credential), and its command runs only
+when the Seat lists or calls its tools, through the desk's gate, in an empty
+host-owned folder — never the Seat's checkout, whose own configuration could
+change what an approved command resolves to.
 
 **The rule:** trust and classification are host-computed from what was
 actually read, never taken from a repository's own claim about itself, and a
 runtime that cannot honor a Seat's declarations fails that seating in its own
 words rather than falling through to a different one nobody announced.
+
+## A person may seat an Agent above edit, asked or held, by choosing it
+
+An Agent whose ceiling is `publish` or `merge` was always seated at `edit`
+from the app, so the one Seat decision 13 lets load an external MCP server —
+one that may merge — could only be opened by a flow or a direct wire call.
+The Agent's page now offers *Start at a higher ceiling…*: a choice of level,
+up to the Agent's own ceiling and never past it, confirmed in a dialog that
+names each level's meaning and how the runtime that would take the seat
+keeps to it, in the words a ceiling chip already uses. `edit` stays the
+default, and the plain *Start* never asks.
+
+The owner's decision (2026-09-25) is that a level the runtime can only be
+*asked* to keep is offered too — labelled "asked, not held" — and not only a
+level it holds. No shipping runtime holds `publish` or `merge` today, so a
+held-only offer would leave the path this exists for unreachable. It is the
+same tolerance a watched conversation already has, and it follows the same
+setting: an asked level is offered only while this Mac's
+`unheldCeilings.watched` seats an unheld ceiling, and under `refuse` it is
+shown and not offered, with the reason. This is a watched, person-chosen
+Seat; it changes nothing the front door or a trigger starts, which still
+require a held ceiling.
+
+**The rule:** a ceiling above `edit` is only ever the person's explicit
+choice, never past the Agent's own, and an asked level is labelled as asked
+and offered only where this Mac already seats one.
 
 ---
 

@@ -307,12 +307,31 @@ export class AttachmentTrust {
 
   /**
    * Every digest a grant here names, signed or not — what a collection of
-   * staged copies must keep. Read conservatively: a grant that would not
-   * verify still keeps its copy, since keeping costs only disk.
+   * staged copies must keep — or null when the file cannot be read
+   * truthfully, which keeps every copy. Read conservatively: a grant that
+   * would not verify still keeps its copy, since keeping costs only disk.
    */
-  async digests(): Promise<ReadonlySet<string>> {
-    const { file } = await this.#read()
-    return new Set(file.grants.map((grant) => grant.digest))
+  async digests(): Promise<ReadonlySet<string> | null> {
+    let raw: string
+    try {
+      raw = await readFile(this.#file, 'utf8')
+    } catch (error) {
+      if (NOTHING_YET.has(errnoOf(error))) return new Set()
+      return null
+    }
+    /* Anything this build cannot read truthfully — not JSON, a newer format,
+       no grant list — is doubt, and doubt keeps every copy: null. */
+    try {
+      const record = JSON.parse(raw) as { version?: unknown; grants?: unknown } | null
+      if (typeof record !== 'object' || record === null || !Array.isArray(record.grants)) return null
+      if (typeof record.version !== 'number' || record.version > FORMAT) return null
+      return new Set(record.grants.flatMap((grant: unknown) => {
+        const digest = (grant as { digest?: unknown } | null)?.digest
+        return typeof digest === 'string' ? [digest] : []
+      }))
+    } catch {
+      return null
+    }
   }
 
   /** Drops expired pending reviews so a long-running host does not keep them forever. */

@@ -141,8 +141,11 @@ const readRollback = <T>(path: string, read: (database: DatabaseSync) => T, opti
   if (overBudget(before.size, options)) throw new InsightBudgetExceededError()
   const value = readIn(open(path), read)
   if (options.byteLimit !== undefined) {
-    // Read, then refused: the bytes were still read, and still count.
-    if (!sameStamp(before, stamp(path))) throw changed(path, before.size)
+    // Read, then refused: the bytes were still read, and still count — as
+    // many as the file held at either look, since SQLite reads it in place
+    // and a file that grew may have been read past its first size.
+    const after = stamp(path)
+    if (!sameStamp(before, after)) throw changed(path, Math.max(before.size, after?.size ?? 0))
     options.onSize?.(before.size)
   }
   return value
@@ -160,11 +163,13 @@ const readQuiescent = <T>(
     value = readIn(open(path, true), read)
   } catch (error) {
     // A file that moved under an immutable read can fail in any way at all.
-    if (!same(before, fingerprint(path))) throw changed(path, sizeOf(before))
+    const now = fingerprint(path)
+    if (!same(before, now)) throw changed(path, Math.max(sizeOf(before), now ? sizeOf(now) : 0))
     throw error
   }
   options.onCopied?.()
-  if (!same(before, fingerprint(path))) throw changed(path, sizeOf(before))
+  const now = fingerprint(path)
+  if (!same(before, now)) throw changed(path, Math.max(sizeOf(before), now ? sizeOf(now) : 0))
   options.onSize?.(sizeOf(before))
   return value
 }
@@ -183,9 +188,16 @@ const readSnapshot = <T>(path: string, read: (database: DatabaseSync) => T, opti
     if (overBudget(spent + sizeOf(before), options)) throw new InsightBudgetExceededError()
     const dir = mkdtempSync(join(tmpdir(), 'hd-foreign-'))
     try {
+      /* What each copy actually read is what it wrote, counted as each one
+         lands — never the size fingerprinted before it, and never lost when
+         the log's copy fails after the database's has already been read
+         (review P3-6 on #940). */
       copyFileSync(path, join(dir, 'db'))
-      if (before.wal !== null) copyFileSync(`${path}-wal`, join(dir, 'db-wal'))
-      spent += sizeOf(before)
+      spent += statSync(join(dir, 'db')).size
+      if (before.wal !== null) {
+        copyFileSync(`${path}-wal`, join(dir, 'db-wal'))
+        spent += statSync(join(dir, 'db-wal')).size
+      }
       options.onCopied?.()
       if (!same(before, fingerprint(path))) continue
       const value = readIn(open(join(dir, 'db')), read)

@@ -111,7 +111,11 @@ export async function receiptFrom(
   runtime: { attachmentReceipt?(session: SessionId): Promise<SessionAttachmentReceipt> } | undefined,
   session: SessionId,
   key: string,
-  options: { readonly reopen?: PreparedAttachments } = {},
+  options: {
+    readonly reopen?: PreparedAttachments
+    /** Every key this Seat's own filter was handed under in this process (`AttachmentsPlane.keysOf`). */
+    readonly seatKeys?: ReadonlySet<string>
+  } = {},
 ): Promise<SessionAttachmentReceipt> {
   const empty: SessionAttachmentReceipt = { key, loaded: [], refused: [] }
   if (!runtime?.attachmentReceipt) return empty
@@ -132,7 +136,10 @@ export async function receiptFrom(
      than keep it on content this Seat may no longer load. What it names is
      then checked against the frozen identities by `record`, never taken as more. */
   const reopen = options.reopen
-  if (!reopen || reopen.input.key !== key) return empty
+  /* Only a session this Seat's own filter was handed to: its key is one this
+     process recorded for this Seat. Any other key — another Seat's input, or
+     none this desk gave — is nothing loaded (review P3-1 on #940). */
+  if (!reopen || !options.seatKeys?.has(observed.key)) return empty
   const allowed = new Set(
     reopen.declarations
       .filter((one) => one.identity !== null && one.problem === null)
@@ -230,6 +237,13 @@ export class AttachmentsPlane {
   /** The prepared Seats that pinned their digests in `#opening`, so only their own `record` lets go. */
   readonly #pinned = new WeakSet<PreparedAttachments>()
   readonly #onStaging: ((digest: string, step: StagingStep) => Promise<void> | void) | undefined
+  /**
+   * The key of every input a Seat's filter was handed under and recorded, in
+   * this process. An adapter holds a session no longer than this process
+   * lives, so a held session's key is here exactly when this Seat's own
+   * filter opened it.
+   */
+  readonly #keys = new Map<SeatId, Set<string>>()
 
   constructor(
     folder: string,
@@ -298,11 +312,16 @@ export class AttachmentsPlane {
         removed += 1
       })
     }
+    // A real folder, never a link swapped in for one: listing through a link
+    // would collect in whatever folder it points at (review P3-2 on #940).
+    const realFolder = async (path: string): Promise<boolean> => (await lstat(path).catch(() => null))?.isDirectory() === true
+    if (!(await realFolder(this.#staging))) return 0
     for (const [kind, parse] of [
       ['skill', (name: string) => (digest.test(name) ? name : null)],
       ['mcp', (name: string) => (name.endsWith('.json') && digest.test(name.slice(0, -5)) ? name.slice(0, -5) : null)],
     ] as const) {
       const folder = join(this.#staging, kind)
+      if (!(await realFolder(folder))) continue
       const entries = await readdir(folder).catch(() => [] as string[])
       for (const name of entries) {
         const id = parse(name)
@@ -695,6 +714,9 @@ export class AttachmentsPlane {
       else this.#opening.delete(digest)
     }
     await this.#receipts.append(record)
+    const keys = this.#keys.get(seat.id) ?? new Set<string>()
+    keys.add(prepared.input.key)
+    this.#keys.set(seat.id, keys)
     if (prepared.input.mcp && seat.closed === null) {
       // Matched on kind *and* name, never name alone: a skill and a server
       // may share a name, and a skill that loaded must never make a server
@@ -710,6 +732,11 @@ export class AttachmentsPlane {
       })
     }
     return record
+  }
+
+  /** The keys this Seat's filter was handed under in this process. */
+  keysOf(seat: SeatId): ReadonlySet<string> {
+    return this.#keys.get(seat) ?? new Set()
   }
 
   async read(seat: SeatId): Promise<SeatAttachmentsRecord | null> {

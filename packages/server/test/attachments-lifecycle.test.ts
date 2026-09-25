@@ -461,6 +461,8 @@ test('a conversation seated as an Agent whose file is gone, with no record of it
   const session = (await desk.client.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work })) as Session
   await desk.halt()
   await rm(agentDir, { recursive: true, force: true })
+  // And no transcript kept here either: a read has to go to the agent.
+  await rm(join(desk.harness.stateDir, 'transcripts'), { recursive: true, force: true })
 
   const runtime = capableRuntime()
   const again = await start({ libraryHome: tempDir('hd-attach-life-gone-home-') }, desk.harness.stateDir, runtime)
@@ -476,4 +478,14 @@ test('a conversation seated as an Agent whose file is gone, with no record of it
   }
   assert.equal(runtime.resumes, 0, 'the runtime was never asked to reopen it')
   assert.equal(runtime.lastForkOptions, null)
+  // Reading it is not reopening it: an old conversation stays readable (review P3-3 on #940).
+  // The read goes to the agent (this rig's fresh fake runtime keeps nothing
+  // across the restart, so it answers that it has no record) — it is never
+  // refused for the unreadable Agent file.
+  const read = await client.call('session/read', { runtime: 'fake', sessionId: String(session.id) }).then(
+    (value) => (value as Session).id as string,
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  )
+  assert.doesNotMatch(read, /can no longer be read/)
+  assert.ok(read === String(session.id) || /has no record of conversation/.test(read), read)
 })

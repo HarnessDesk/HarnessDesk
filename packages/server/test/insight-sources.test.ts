@@ -625,20 +625,29 @@ test('a whole-file source is read in chunks, never into one buffer the size of t
   const padding = WHOLE_FILE_CHUNK - 1 - Buffer.byteLength(first, 'utf8') - at - 1
   await writeFile(path, `${first}${'x'.repeat(padding)}\n${second}`)
 
+  /* What is measured is what each read of the file is handed: the buffer it
+     fills. Every allocation in the process was measured before, and on Node
+     22 the one `Buffer.concat` of the whole file (a little over one chunk
+     here) goes through `Buffer.allocUnsafe` too — that is the file, joined
+     once at the size read, not a buffer of the budget (#940's CI). */
   let largest = 0
-  const alloc = Buffer.alloc.bind(Buffer)
-  const allocUnsafe = Buffer.allocUnsafe.bind(Buffer)
-  t.mock.method(Buffer, 'alloc', ((size: number, ...rest: unknown[]) => {
-    largest = Math.max(largest, size)
-    return (alloc as (...args: unknown[]) => Buffer)(size, ...rest)
-  }) as typeof Buffer.alloc)
-  t.mock.method(Buffer, 'allocUnsafe', ((size: number) => {
-    largest = Math.max(largest, size)
-    return allocUnsafe(size)
-  }) as typeof Buffer.allocUnsafe)
+  let reads = 0
+  const originalOpen = nodeFsPromises.open
+  t.mock.method(nodeFsPromises, 'open', (async (...args: Parameters<typeof nodeFsPromises.open>) => {
+    const handle = await originalOpen(...args)
+    if (args[0] !== path) return handle
+    const read = handle.read.bind(handle) as (...rest: unknown[]) => Promise<{ bytesRead: number; buffer: Buffer }>
+    t.mock.method(handle, 'read', (async (buffer: Buffer, ...rest: unknown[]) => {
+      reads += 1
+      largest = Math.max(largest, buffer.length)
+      return read(buffer, ...rest)
+    }) as unknown as typeof handle.read)
+    return handle
+  }) as typeof nodeFsPromises.open)
   const samples: import('../src/ledger/insight.js').UsageSample[] = []
   await scanGeminiChat({ runtime: 'gemini', kind: 'gemini', path, size: 0, mtime: 0 }, { emit: (sample) => samples.push(sample), byteLimit: 64 * 1024 * 1024 })
   t.mock.restoreAll()
-  assert.ok(largest <= WHOLE_FILE_CHUNK, `no buffer larger than one chunk (${WHOLE_FILE_CHUNK}), got ${largest}`)
+  assert.ok(reads >= 2, `read in more than one chunk (${reads})`)
+  assert.ok(largest <= WHOLE_FILE_CHUNK, `no read into a buffer larger than one chunk (${WHOLE_FILE_CHUNK}), got ${largest}`)
   assert.deepEqual(samples.map((sample) => sample.model).sort(), ['gemini', 'm€'])
 })
