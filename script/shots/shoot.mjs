@@ -954,6 +954,12 @@ rules:
       // catch it mid-turn. Waited out here so both themes photograph the same
       // settled state, the reason `scene.mjs` stages once for both to share.
       await sleep(3000)
+      // The fixture reports its own bookkeeping (`TOOLS_DECLARED …`) as a
+      // notice over the pane, the same way it does for every other scene on
+      // the native Codex adapter — dismissed here as `review` and the
+      // approval scenes do, so the frame shows the app, not the fixture's
+      // own echo of what it was asked (#946 review).
+      await dismissFixtureEchoes()
     } },
 
     /**
