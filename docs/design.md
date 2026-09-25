@@ -777,8 +777,8 @@ these is opening every tab in a browser.
 
 ### What the audit refuses
 
-`pnpm design:audit --strict` holds eighteen categories at a baseline.
-Seventeen are at zero; `screenAppearance` sits at 607 declarations —
+`pnpm design:audit --strict` holds nineteen categories at a baseline.
+Eighteen are at zero; `screenAppearance` sits at 820 declarations —
 appearance a screen still draws for itself instead of composing it, in
 whichever of three spellings it chose.
 
@@ -832,17 +832,44 @@ to import it directly — `RailSection` has one direct screen importer
 (Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
 and `AppWindowRailScroll`, which the app's shared window shell mounts for
 Settings, the Agents window and more, so `RailSection` reads as several areas
-rather than Sidebar's alone.
+rather than Sidebar's alone. A CSS-module class is charged to a single-area
+export only when nothing else in the module — another export, or a local
+helper neither exports — also reaches for it: `Settings.tsx`'s `RowMark`
+alone draws `.rowMark`, but `Row` and `RowButton` in the same file draw it
+too, and those are used everywhere, so that class stays uncharged even
+though `RowMark` itself is genuinely SignIn's alone.
+
+Screen areas are not asserted by hand — a handful of named roots
+(Conversation, Settings, TeamRoomPane/TeamBoardPane, AgentsWindow, GitPane,
+Workbench) seed the closure, and every other screen file's area is the
+closure of single-host files: a screen imported by only one already-resolved
+family belongs to it too, iterated to a fixed point. `pnpm design:audit`'s
+own test suite holds this to an invariant — a single-host screen file that
+sits outside its host's family fails the gate — the same way every other
+category here is held to a check that has been made to fail once, not only
+to pass.
 
 `design/ui/`'s primitives — the chart kit, `Board`, `ToolPane`, `Card`,
 `Bar`, `KeyValue`, `Spark`, `Dialog`, `Breadcrumb`, `Delta` and the rest — are
-never charged even when every screen that reaches for one sits in a single
-area today: a primitive is meant to exist before it has grown a second
-caller, the way a design system's own vocabulary always does, and charging
-one for that would make the strict zero unreachable without inventing a
-pointless second caller. `pnpm design:audit --verbose` lists a single-area
-primitive under "Single-area primitives (watch; not counted)" instead, so a
-reviewer can see it without the ceiling ever counting it.
+never charged to `screenAppearance` even when every screen that reaches for
+one sits in a single area today: a primitive is meant to exist before it has
+grown a second caller, the way a design system's own vocabulary always does,
+and charging one under `screenAppearance` for that would make that strict
+zero unreachable without inventing a pointless second caller. That does not
+make it nothing, though: `singleAreaPrimitive` is a burn-down ceiling of its
+own (57), so a single-area primitive is still held to "may only fall," and
+moving a genuine screen composition into `design/ui/` to dodge the
+`screenAppearance` charge just raises this one instead. `pnpm design:audit
+--verbose` lists each one by name.
+
+The workbench dock is the one deliberate exception to all of this: there is
+exactly one workbench, by design, so `panels/Workbench.tsx`'s thirteen own
+`design/patterns/DockPanel.tsx` exports (`WorkbenchRail`, `DockPanel`, and
+the rest of the dock chrome) are a named, documented exemption, the same way
+Markdown's prose ladder and the diff viewer's own ink are — a second consumer
+to compose them generically for is never coming, so charging them asks for a
+fix with no destination. `RailSection`, DockPanel.tsx's other export, needs
+no such exemption: it is not single-area at all, for the reason above.
 
 Three of those categories spent a long time reporting zero while they were
 simply unable to see:
@@ -929,9 +956,33 @@ simply unable to see:
   app's shared window shell mounts for Settings and the Agents window too.
   Restricting the charge to `design/patterns/` and resolving through
   design-to-design use, cycles guarded, closed both; the baseline rose from
-  480 to 607 (#914). (#924, open at the time, removes `AccessHeader`, one of
-  the `design/patterns/Settings.tsx` exports this closed on — expect that
-  finding to disappear once it merges.)
+  480 to 607.
+
+  A second review round found the closure itself still asserted by hand
+  rather than derived, and a false positive in what it charged. Screen
+  families are now the closure of single-host files (above), which corrected
+  two wrong assumptions the hand-written version made: Trajectory's real host
+  is Details.tsx, not Conversation, and Branch/Changes/NewWorktree were never
+  Git's — each is reached from a different, unhosted screen or from
+  `app/App.tsx`, which is not a screen source at all. A type-only import
+  (`import type`, `{ type X }`) is skipped in both the screen host graph and
+  `designImportsOf`: `CommandPalette.tsx` and `Sidebar.tsx` both `import type
+  { Section } from './Settings'`, and counting that as importing Settings.tsx
+  made a pattern used only by Settings.tsx read as shared with either of
+  them. And a stylesheet class is now charged to a single-area export only
+  when no other declaration in the module also reaches for it — `RowMark`
+  alone draws `.rowMark`, but `Row` and `RowButton` in the same module do
+  too, and those are used everywhere; the six `Settings.module.css [settings]`
+  findings the first pass reported were entirely that false positive.
+  `design/ui/` gained its own ceiling (`singleAreaPrimitive`) rather than
+  only ever being watched, design-to-design reach was widened to `export
+  function` composers, local helpers, namespace and dynamic imports, and the
+  workbench dock's own chrome (thirteen `DockPanel.tsx` exports
+  `panels/Workbench.tsx` alone uses) became a named exemption rather than a
+  charge with nowhere to be composed to. `screenAppearance` settled at 820
+  (607 plus Settings.tsx's newly-correct `settings`-area exports, minus the
+  workbench exemption and the false-positive class charge; #924 has since
+  removed `AccessHeader`, one of the SignIn-area exports this rule counts).
 
 All four have the same shape as the line-height ratios before them: name the
 spellings you happen to remember, and everything else is invisible —
