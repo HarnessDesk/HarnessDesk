@@ -52,7 +52,6 @@ import {
   NativeSelect,
   PageHead,
   PatchHeader,
-  PatchSection,
   Row,
   RowButton,
   Checkbox,
@@ -553,11 +552,11 @@ const BannerBoard = () => (
       <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
       <Card variant="flush">
         <PatchHeader>packages/ui/src/components/GitPane.tsx</PatchHeader>
-        <PatchSection className="flex items-center gap-2 px-3 py-2">
+        <section className="flex items-center gap-2 px-3 py-2">
           <FileState state="modified" />
           <span>One implementation for repository presentation</span>
           <ChangeStats added={12} removed={3} className="ml-auto" />
-        </PatchSection>
+        </section>
       </Card>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.

@@ -110,7 +110,7 @@ export {
   AppWindowSurface,
 } from './patterns/AppWindow'
 export * from './patterns/InspectorPanel'
-export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue } from './patterns/Change'
+export { ChangeStats, FileState, PatchHeader, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
 export {
