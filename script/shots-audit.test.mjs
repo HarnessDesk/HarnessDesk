@@ -216,7 +216,7 @@ test('the collector reads titles and alts, not only the body text (#296)', () =>
     body: { innerText: 'the body' },
     querySelectorAll: (selector) => {
       asked.push(selector)
-      if (selector === 'input, textarea') return []
+      if (selector === 'input:not([type=hidden]), textarea') return []
       return [
         { tagName: 'SPAN', className: 'path', getAttribute: (name) => (name === 'title' ? '~/work/storefront' : null) },
         { tagName: 'IMG', className: '', getAttribute: (name) => (name === 'alt' ? 'Codex' : null) },
@@ -224,7 +224,7 @@ test('the collector reads titles and alts, not only the body text (#296)', () =>
     },
   }
   const seen = new Function('document', `return ${COLLECT}`)(document)
-  assert.deepEqual(asked, ['[title], [alt]', 'input, textarea'], 'both attributes are asked for in one pass, then the fields')
+  assert.deepEqual(asked, ['[title], [alt]', 'input:not([type=hidden]), textarea'], 'both attributes are asked for in one pass, then the fields')
   assert.equal(seen.text, 'the body')
   assert.equal(seen.documentTitle, 'HarnessDesk')
   assert.deepEqual(seen.attributes, [
@@ -243,7 +243,7 @@ test('the collector reads what a field holds, which is neither text nor an attri
   const document = {
     title: 'HarnessDesk',
     body: { innerText: '' },
-    querySelectorAll: (selector) => (selector === 'input, textarea' ? [field, empty] : []),
+    querySelectorAll: (selector) => (selector === 'input:not([type=hidden]), textarea' ? [field, empty] : []),
   }
   const seen = new Function('document', `return ${COLLECT}`)(document)
   assert.deepEqual(seen.attributes, [['value', field.value, 'input', 'address']], 'an empty field adds nothing')
@@ -418,13 +418,13 @@ test('the substitution both drivers run covers attributes, not only text (#296)'
     createTreeWalker: () => ({ nextNode: () => text[next++] ?? null }),
     querySelectorAll: (selector) => {
       asked.push(selector)
-      return selector === 'input, textarea' ? [field] : [titled]
+      return selector === 'input:not([type=hidden]), textarea' ? [field] : [titled]
     },
   }
   new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4 })
   assert.equal(text[0].nodeValue, 'Opened ~/work/storefront')
   assert.equal(text[1].nodeValue, 'nothing to change')
-  assert.deepEqual(asked, ['[title]', 'input, textarea'])
+  assert.deepEqual(asked, ['[title]', 'input:not([type=hidden]), textarea'])
   assert.equal(titled.value, '~/work/storefront', 'the tooltip the recording used to leave standing')
   assert.equal(field.value, 'file://~/work/browse/index.html', 'the address bar, which is a field and not text')
 })

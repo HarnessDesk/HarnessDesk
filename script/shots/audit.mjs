@@ -143,7 +143,7 @@ export const TILDIFY = (home) => {
     }
     // A field's contents live in its \`value\` property, which neither the text
     // walk nor any attribute reaches — the browser pane's address bar is one.
-    for (const field of document.querySelectorAll('input, textarea')) {
+    for (const field of document.querySelectorAll('input:not([type=hidden]), textarea')) {
       const shortened = shorten(field.value)
       if (shortened !== field.value) field.value = shortened
     }
@@ -174,7 +174,7 @@ export const COLLECT = `(() => {
   }
   // What a field holds is not in innerText and not in any attribute: the
   // browser pane's address bar showed a real home path that passed unread.
-  for (const field of document.querySelectorAll('input, textarea')) {
+  for (const field of document.querySelectorAll('input:not([type=hidden]), textarea')) {
     if (typeof field.value === 'string' && field.value !== '') attributes.push([
       'value',
       field.value,
