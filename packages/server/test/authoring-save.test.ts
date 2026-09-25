@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdir, readdir, readFile, rename, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, rename, symlink, writeFile } from 'node:fs/promises'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { Agents } from '../src/agents.js'
 import { AuthoringPlane, CHANGED, type AuthoringHooks } from '../src/authoring/plane.js'
 import { TreeQueue } from '../src/flow-update.js'
+import { ConfinedTree } from '../src/confined-tree.js'
 import { tempDir } from './scratch.js'
 
 const agentSource = (name: string): string => `---\nname: ${name}\nceiling: read\nanswers: [done]\nprefer: [fixture]\n---\n\nDo the ${name} work.\n`
@@ -259,4 +261,130 @@ test('two previews cannot overwrite one another', async () => {
   assert.equal(one.state, 'applied', one.message)
   assert.deepEqual(two, { state: 'refused', written: [], message: CHANGED })
   assert.equal(await readFile(join(project, FLOW), 'utf8'), flowSource('writer', 'third', 'First'))
+})
+
+/** A prepared record planted beside the plane's own, as a crash or a tampered file would leave one. */
+const plantJournal = async (home: string, record: Record<string, unknown>): Promise<string> => {
+  const id = 'ab'.repeat(16)
+  await mkdir(join(home, 'authoring', 'transactions'), { recursive: true })
+  await writeFile(join(home, 'authoring', 'transactions', `${id}.json`), JSON.stringify({ version: 1, id, tx: 'planted', written: [], state: 'prepared', created: 1, ...record }))
+  return id
+}
+
+test('resume refuses a record whose folder is neither this desk’s own nor the project it names', async () => {
+  const { scratch, project, home, make } = await setup()
+  const outside = join(scratch, 'outside')
+  await mkdir(join(outside, 'agents'), { recursive: true })
+  await mkdir(join(outside, '.harnessdesk', 'flows'), { recursive: true })
+  const tree = await ConfinedTree.open(outside)
+  const plane = make()
+  // This person's scope, pointed somewhere other than the desk's own folder.
+  const user = await plantJournal(home, {
+    scope: 'user', root: tree.root, project: null, rootIdentity: tree.identity,
+    edits: [{ path: 'agents/planted/AGENT.md', before: null, after: agentSource('planted') }],
+  })
+  const refusedUser = await plane.resume(user)
+  assert.equal(refusedUser.token, null)
+  assert.match(refusedUser.issues[0]!.text, /neither your own HarnessDesk folder nor the project/)
+  // A project's scope whose root is not that project.
+  const projectRoot = (await ConfinedTree.open(project)).root
+  await plantJournal(home, {
+    scope: 'project', root: tree.root, project: projectRoot, rootIdentity: tree.identity,
+    edits: [{ path: '.harnessdesk/flows/planted.yml', before: null, after: flowSource('writer', 'checker') }],
+  })
+  const fresh = make()
+  const refusedProject = await fresh.resume(user)
+  assert.equal(refusedProject.token, null)
+  assert.match(refusedProject.issues[0]!.text, /neither your own HarnessDesk folder nor the project/)
+  await assert.rejects(readFile(join(outside, 'agents', 'planted', 'AGENT.md'), 'utf8'), { code: 'ENOENT' })
+  await assert.rejects(readFile(join(outside, '.harnessdesk', 'flows', 'planted.yml'), 'utf8'), { code: 'ENOENT' })
+})
+
+test('resume checks the document and the Agents it names again, at preview and at apply', async () => {
+  const { project, home, make, seedAgents } = await setup()
+  await seedAgents()
+  let failed = false
+  const first = make({ recorded: () => { if (!failed) { failed = true; throw new Error('The save record could not be written.') } } })
+  const target = { kind: 'flow', origin: 'project', id: 'pair', root: project } as const
+  const preview = await first.preview({ target, expected: null, source: flowSource('third', 'checker'), agents: [{ id: 'third', source: agentSource('third') }] })
+  assert.ok(preview.token, JSON.stringify(preview.issues))
+  assert.equal((await first.apply(preview.token!)).state, 'partial')
+  const [pending] = await first.pending()
+  assert.ok(pending)
+  const THIRD = '.harnessdesk/agents/third/AGENT.md'
+
+  // An Agent the flow names went away since: resuming would write a flow that names nothing.
+  const checker = await readFile(join(project, CHECKER), 'utf8')
+  await rename(join(project, '.harnessdesk', 'agents', 'checker'), join(project, 'checker-moved'))
+  const plane = make()
+  const missing = await plane.resume(pending.id)
+  assert.equal(missing.token, null)
+  assert.match(missing.issues[0]!.text, /“checker”, and there is no usable Agent/)
+
+  // The record's own bytes no longer read as a flow: never written as they are.
+  await rename(join(project, 'checker-moved'), join(project, '.harnessdesk', 'agents', 'checker'))
+  assert.equal(await readFile(join(project, CHECKER), 'utf8'), checker)
+  const file = join(home, 'authoring', 'transactions', `${pending.id}.json`)
+  const original = await readFile(file, 'utf8')
+  const record = JSON.parse(original) as { edits: { path: string; after: string }[] }
+  await writeFile(file, JSON.stringify({ ...record, edits: record.edits.map((edit) => edit.path === FLOW ? { ...edit, after: 'version: 2\nname: Broken\nroles: nope\n' } : edit) }))
+  const broken = await make().resume(pending.id)
+  assert.equal(broken.token, null)
+  assert.ok(broken.issues.length > 0)
+
+  // Checked again under the queue at apply: an Agent removed after the resume preview refuses the write.
+  await writeFile(file, original)
+  const again = make()
+  const resumed = await again.resume(pending.id)
+  assert.ok(resumed.token, JSON.stringify(resumed.issues))
+  await rename(join(project, '.harnessdesk', 'agents', 'checker'), join(project, 'checker-moved'))
+  const refused = await again.apply(resumed.token!)
+  assert.notEqual(refused.state, 'applied')
+  await assert.rejects(readFile(join(project, FLOW), 'utf8'), { code: 'ENOENT' })
+  assert.equal(await readFile(join(project, THIRD), 'utf8'), agentSource('third'))
+})
+
+test('two first reads of the save records share one, so a save made while the first is still reading is never lost', async () => {
+  const { home, make } = await setup()
+  await mkdir(join(home, 'authoring', 'transactions'), { recursive: true })
+  let failed = false
+  // A save that stops part-way, so its record stays listed as unfinished.
+  const plane = make({ recorded: () => { if (!failed) { failed = true; throw new Error('The save record could not be written.') } } })
+  /* The first read is held after it has listed the folder (still empty) and
+     before it answers: the one window where a second read, and a save
+     through it, can finish first. */
+  const promises = createRequire(import.meta.url)('node:fs/promises') as { lstat: typeof lstat }
+  const original = promises.lstat
+  let entered!: () => void
+  const inside = new Promise<void>((resolve) => { entered = resolve })
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let gated = false
+  promises.lstat = (async (...args: Parameters<typeof lstat>) => {
+    const result = await original(...args)
+    if (!gated && String(args[0]).endsWith('/authoring/transactions')) {
+      gated = true
+      entered()
+      await gate
+    }
+    return result
+  }) as typeof lstat
+  syncBuiltinESMExports()
+  try {
+    const first = plane.pending()
+    await inside
+    const second = plane.pending()
+    const saving = (async () => {
+      const preview = await plane.preview({ target: { kind: 'agent', origin: 'user', id: 'solo' }, expected: null, source: agentSource('solo') })
+      assert.ok(preview.token, JSON.stringify(preview.issues))
+      return plane.apply(preview.token!)
+    })()
+    await Promise.race([saving, new Promise((resolve) => setTimeout(resolve, 300))])
+    release()
+    await Promise.all([first, second, saving])
+  } finally {
+    promises.lstat = original
+    syncBuiltinESMExports()
+  }
+  assert.equal((await plane.pending()).length, 1, 'the unfinished save is still listed')
 })

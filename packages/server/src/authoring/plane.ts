@@ -207,7 +207,8 @@ export class AuthoringPlane {
   readonly #now: () => number
   readonly #tokens = new Map<string, Held>()
   readonly #applied = new Map<string, { readonly at: number; readonly result: Promise<AuthoringSaveResult> }>()
-  #index: Map<string, IndexEntry> | null = null
+  /** The journal index as it loads: every caller waits on the one read, so none is left holding a map another replaced. */
+  #index: Promise<Map<string, IndexEntry>> | null = null
   #closed = false
 
   constructor(options: AuthoringPlaneOptions) {
@@ -370,8 +371,18 @@ export class AuthoringPlane {
 
   // ---------------------------------------------------------------- journals
 
-  async #loadIndex(): Promise<Map<string, IndexEntry>> {
-    if (this.#index) return this.#index
+  #loadIndex(): Promise<Map<string, IndexEntry>> {
+    /* The promise, not the map it ends in: two first reads that each built
+       their own map would each keep one, and a journal saved into the first
+       in between would be missing from the second. */
+    this.#index ??= this.#readIndex().catch((error: unknown) => {
+      this.#index = null
+      throw error
+    })
+    return this.#index
+  }
+
+  async #readIndex(): Promise<Map<string, IndexEntry>> {
     const index = new Map<string, IndexEntry>()
     for (const name of await this.#journal.list(JOURNALS, 4096)) {
       const id = name.replace(/\.json$/, '')
@@ -385,7 +396,6 @@ export class AuthoringPlane {
         index.set(id, { corrupt: 'A record of an earlier save could not be read.' })
       }
     }
-    this.#index = index
     return index
   }
 
@@ -664,13 +674,25 @@ export class AuthoringPlane {
     if (!entry || 'corrupt' in entry || entry.journal.state !== 'prepared') return refuse('There is no unfinished save by that name.', 'Reload the list of unfinished saves.')
     const journal = entry.journal
     const display = journal.edits.map((edit) => ({ path: edit.path, before: edit.before, after: edit.after }))
+    const elsewhere = (): AuthoringSavePreview => refuse(
+      'This record names a folder that is neither your own HarnessDesk folder nor the project it was saved in.',
+      'Check the files by hand, then discard this record.', display,
+    )
     let tree: ConfinedTree
     try {
       if (journal.project) await this.#options.confine(journal.project)
+      /* A record is only ever a save into the desk's own folder or into the
+         project it names, never a folder it merely spells: a record edited
+         on disk cannot turn a resume into a write anywhere else. */
+      const home = journal.scope === 'user' ? (await this.#open(this.#options.home)).root : null
+      if (journal.scope === 'user' ? journal.project !== null || journal.root !== home : journal.project === null || journal.root !== journal.project) {
+        return elsewhere()
+      }
       tree = await this.#open(journal.root, journal.rootIdentity)
     } catch {
       return refuse('The folder this save was writing into changed.', 'Check the files by hand, then discard this record.', display)
     }
+    if (tree.root !== journal.root) return elsewhere()
     const writes = confinedWrites(tree, journal.scope === 'project' ? PROJECT_LAYOUT : USER_LAYOUT)
     for (const edit of journal.edits) {
       let current: string | null
@@ -679,6 +701,10 @@ export class AuthoringPlane {
         return refuse(`"${edit.path}" changed since this save began.`, 'Check that file by hand, then discard this record.', display)
       }
     }
+    // What a first save checked, asked again of the record's own bytes — here and once more under the queue at apply.
+    const check = (): Promise<readonly AuthoringIssue[]> => this.#recordIssues(journal)
+    const issues = await check()
+    if (issues.length > 0) return { token: null, edits: display, issues, resuming: true }
     const token = this.#mint({
       expires: this.#now() + TOKEN_LIFE,
       scope: journal.scope,
@@ -688,10 +714,39 @@ export class AuthoringPlane {
       layout: journal.scope === 'project' ? PROJECT_LAYOUT : USER_LAYOUT,
       id,
       edits: journal.edits,
-      check: async () => [],
+      check,
       resume: { id, tx: journal.tx },
     })
     return { token, edits: display, issues: [], resuming: true }
+  }
+
+  /**
+   * A recorded save's documents, read by their owning parsers again, and a
+   * flow's Agents resolved again: new Agents the same record creates count,
+   * anything else must be usable now. A person's own flow is resolved as it
+   * would be anywhere, against their own and built-in Agents only.
+   */
+  async #recordIssues(journal: SaveJournal): Promise<readonly AuthoringIssue[]> {
+    const agentPath = /(?:^|\/)agents\/([a-z0-9][a-z0-9-]{0,47})\/AGENT\.md$/
+    const flowPath = /(?:^|\/)flows\/([a-z0-9][a-z0-9_-]{0,63})\.ya?ml$/
+    const created = new Set(journal.edits.flatMap((edit) => {
+      const agent = edit.before === null ? agentPath.exec(edit.path) : null
+      return agent ? [agent[1]!] : []
+    }))
+    const root = journal.project ?? journal.root
+    const issues: AuthoringIssue[] = []
+    for (const edit of journal.edits) {
+      const agent = agentPath.exec(edit.path)
+      const flow = flowPath.exec(edit.path)
+      const target: AuthoringTarget = agent
+        ? { kind: 'agent', origin: journal.scope, id: agent[1]!, ...(journal.project ? { root: journal.project } : {}) }
+        : flow
+          ? { kind: 'flow', origin: journal.scope, id: flow[1]!, root }
+          : { kind: 'triggers', origin: 'project', root }
+      issues.push(...this.#documentIssues(target, journal.scope, edit.after, false))
+      if (flow) issues.push(...(await this.#dependencyIssues(journal.scope, root, edit.after, created)))
+    }
+    return issues
   }
 
   // -------------------------------------------------------------- rendering
