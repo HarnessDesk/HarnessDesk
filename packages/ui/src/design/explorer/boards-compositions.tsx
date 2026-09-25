@@ -21,6 +21,8 @@ import {
   AttachmentGroup,
   AttachmentMedia,
   AttachmentTitle,
+  Avatar,
+  AvatarFallback,
   AvatarStack,
   Bars,
   Breadcrumb,
@@ -622,6 +624,17 @@ const ListBoard = () => (
               title="Migrate the auth callers"
               subtitle="harnessdesk / src/api"
               trail={<Delta value={12} />}
+            />
+            {/* One face on its own, the primitive the stack is made of — the
+                catalogue's measured case for `avatar`. */}
+            <ListRow
+              lead={
+                <Avatar data-catalog-size="default">
+                  <AvatarFallback>SH</AvatarFallback>
+                </Avatar>
+              }
+              title="Review the migration"
+              subtitle="Shane · asked 5m ago"
             />
             <ListRow
               interactive

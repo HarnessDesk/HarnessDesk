@@ -408,7 +408,7 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
 export const CANONICAL_UI_MODULES = [
   ['alert', 'banner', 'Status and notification anatomy'],
   ['alert-dialog', 'dialog', 'Consequential question semantics'],
-  ['avatar', 'adopted', 'Identity image primitive'],
+  ['avatar', 'list', 'Identity image primitive'],
   ['attachment', 'adopted', 'File attachment states'],
   ['avatar-stack', 'adopted', 'Overlapping identity group'],
   ['badge', 'badge', 'Compact categorical state'],
