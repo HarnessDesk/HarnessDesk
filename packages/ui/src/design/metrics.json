@@ -103,6 +103,14 @@
     "pad": "6 10 6 10",
     "radius": 8
   },
+  "adopted/textarea/variant/code": {
+    "h": 32,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "4 8 4 8",
+    "radius": 8
+  },
   "adopted/textarea/variant/composer": {
     "h": 44,
     "text": 14,

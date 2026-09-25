@@ -136,14 +136,21 @@ describe('agents in words', () => {
   })
 
   it('says the front-door case truly: a required hold is not this Mac’s own setting, and never names a runtime id', () => {
+    // A required hold means the runtime is running but does not hold the
+    // level, or reads back holding a different one — never "not running",
+    // and never this Mac's own setting, which is not what refused it here.
     expect(reasonWords({ kind: 'unheld', level: 'edit', detail: null, required: true }, 'Codex')).toBe(
-      'Codex’s seat cannot hold edit yet: it is not running, or has not reported. Start Codex, or choose another Agent.',
+      'Codex cannot hold edit, and a start from here needs every Seat to hold its ceiling',
     )
-    // Never "this Mac refuses a seat whose ceiling is only asked" — that is
-    // a setting's own words, and a required hold is true whatever the
-    // setting says.
-    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: null, required: true }, 'Codex')).not.toContain(
-      'this Mac refuses',
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: 'reads back holding read, not edit', required: true }, 'Codex')).toBe(
+      'Codex cannot hold edit: reads back holding read, not edit, and a start from here needs every Seat to hold its ceiling',
+    )
+    expect(fixWords({ kind: 'seats' }, 'Codex')).toBe('Edit seats for this Mac')
+  })
+
+  it('never throws on a level this file does not recognize — shown as written, not indexed', () => {
+    expect(reasonWords({ kind: 'unheld', level: 'omniscient' as CeilingLevel, detail: null }, 'Claude')).toBe(
+      'Claude cannot hold omniscient, and this Mac refuses a seat whose ceiling is only asked',
     )
   })
 

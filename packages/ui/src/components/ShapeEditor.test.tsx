@@ -550,6 +550,61 @@ it('a stale render answering after a later edit’s own render never re-enables 
   expect(button('Start').hasAttribute('disabled')).toBe(false)
 })
 
+it('a var edit while a step edit’s own render is still out never reverts the step — its dry run waits for that edit’s own', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+
+  let resolveRender!: (value: { readonly source: string; readonly issues: readonly unknown[] }) => void
+  const previews: { readonly source: string; readonly vars: Readonly<Record<string, string>> }[] = []
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'authoring/shape/render') return new Promise((resolve) => { resolveRender = resolve as never })
+    if (method === 'authoring/start/preview') {
+      const { source, vars } = params as { source: string; vars: Readonly<Record<string, string>> }
+      previews.push({ source, vars })
+      const policy = JSON.parse(source) as FlowPolicy
+      return previewFor(policy, { vars })
+    }
+    if (method === 'agent/list') return [AGENT]
+    return null
+  }) as never)
+
+  // A step edit's own render is out — Start is disabled for the whole trip.
+  act(() => button('Agent').click())
+  expect(button('Start').hasAttribute('disabled')).toBe(true)
+
+  // A var typed while that render is still pending must not fire its own dry
+  // run against the pre-edit source: that would preview — and briefly show —
+  // the step edit undone, and once the edit's own render lands stale, undone
+  // for good.
+  const label = [...document.body.querySelectorAll('label')].find((one) => one.textContent === 'Task')!
+  const field = document.getElementById(label.getAttribute('for')!) as HTMLInputElement
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    setter.call(field, 'typed')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(previews).toHaveLength(0)
+
+  const rendered: FlowPolicy = {
+    version: 2, name: 'Your own shape', inputs: [{ id: 'task', label: 'Task' }],
+    roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }, { id: 'agent-1', kind: 'agent', uses: [], seats: [], isolate: false, grant: 'read', independentOf: [] }],
+    rules: [], seed: { role: 'review', title: '{{task}}' }, messaging: 'board-only', wait: 240,
+  }
+  await act(async () => {
+    resolveRender({ source: JSON.stringify(rendered), issues: [] })
+  })
+  await settle()
+
+  // The step edit's own dry run fired, on its own source, once — and carried
+  // the var typed while it was still out.
+  expect(previews).toHaveLength(1)
+  expect(JSON.parse(previews[0]!.source)).toMatchObject({ roles: [{ id: 'review' }, { id: 'agent-1' }] })
+  expect(previews[0]!.vars).toEqual({ task: 'typed' })
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+})
+
 it('a bound input takes the start target’s own value, never its own YAML default — a hand-written binding from a branch is not refused', async () => {
   const bound: FlowPolicy = {
     version: 2, name: 'Review', inputs: [{ id: 'branch', label: 'Branch', default: 'placeholder-default' }],

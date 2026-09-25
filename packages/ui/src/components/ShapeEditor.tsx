@@ -83,6 +83,21 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
   const [savedFlowId, setSavedFlowId] = useState<string | null>(document?.target.kind === 'flow' ? document.target.id : null)
   const [everyTime, setEveryTime] = useState(false)
   const sequence = useRef(0)
+  /**
+   * The shape's source, mirrored the same way `varsRef` mirrors `vars`:
+   * `editPolicy` is memoized against neither, so its own closure would
+   * otherwise see whatever `source` was when it was last recreated, not the
+   * last known-good one on screen when a deferred var edit needs it flushed.
+   */
+  const sourceRef = useRef<string>(source)
+  const setSourceBoth = (text: string): void => {
+    sourceRef.current = text
+    setSource(text)
+  }
+  /** Whether a step or rule edit's own `authoring/shape/render` is still out — narrower than `previewPending`, which a plain dry run also sets. */
+  const renderPending = useRef(false)
+  /** A var typed while `renderPending` was true, not yet given its own dry run. */
+  const varEditPending = useRef(false)
 
   useEffect(() => {
     store.agentsIn(root).then(
@@ -165,7 +180,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
         if (!live) return
         setLoadingDraft(false)
         if (rendered.issues.length === 0) {
-          setSource(rendered.source)
+          setSourceBoth(rendered.source)
           await runDryRun(rendered.source)
         } else {
           setFormIssues(rendered.issues)
@@ -183,7 +198,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
   }, [])
 
   const editSource = (text: string): void => {
-    setSource(text)
+    setSourceBoth(text)
     void runDryRun(text)
   }
 
@@ -203,6 +218,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
       // it, rather than re-enabling Start or racing it into `runDryRun` with
       // the wrong policy.
       const mine = ++sequence.current
+      renderPending.current = true
       setPolicy(next)
       setFormIssues([])
       setPreviewPending(true)
@@ -211,17 +227,31 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
         rendered = await store.renderShape(next)
       } catch (error) {
         if (mine !== sequence.current) return
+        renderPending.current = false
         setFormIssues([{ at: 'file', text: error instanceof Error ? error.message : 'This change could not be checked.', fix: 'Try again.' }])
         setPreviewPending(false)
+        // A var typed while this render was out got no dry run of its own —
+        // give it one now, against the last known-good source, rather than
+        // losing it because the edit that deferred it failed.
+        if (varEditPending.current) {
+          varEditPending.current = false
+          void runDryRun(sourceRef.current)
+        }
         return
       }
       if (mine !== sequence.current) return
+      renderPending.current = false
       if (rendered.issues.length > 0) {
         setFormIssues(rendered.issues)
         setPreviewPending(false)
+        if (varEditPending.current) {
+          varEditPending.current = false
+          void runDryRun(sourceRef.current)
+        }
         return
       }
-      setSource(rendered.source)
+      varEditPending.current = false
+      setSourceBoth(rendered.source)
       void runDryRun(rendered.source)
     },
     [runDryRun, store],
@@ -287,6 +317,16 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
   const setVar = (varId: string, value: string): void => {
     const next = { ...varsRef.current, [varId]: value }
     setVars(next)
+    if (renderPending.current) {
+      // A step or rule edit's own render is still out, so `source` here is
+      // the shape from before it — a dry run against it would preview, and
+      // once that edit's own answer lands stale, permanently show, the edit
+      // undone. That edit's own dry run already reads `varsRef.current`
+      // fresh when it fires; this only waits for it, flushing itself if the
+      // edit fails or is refused instead.
+      varEditPending.current = true
+      return
+    }
     void runDryRun(source)
   }
 
