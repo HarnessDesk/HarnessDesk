@@ -3149,6 +3149,7 @@ export class Host {
         confineGitRoot: (root) => this.#confineGitRoot(root),
         confineProvenanceRoot: (root) => this.#confineProvenanceRoot(root),
         topLevel: (path) => gitOps.topLevel(path),
+        realPath: (path) => this.#realPath(path),
         confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
         repoOf: (cwd) => this.#repoOf(cwd),

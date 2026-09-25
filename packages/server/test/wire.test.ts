@@ -757,6 +757,66 @@ test('workspaces persist across host restarts', async (t) => {
   assert.equal(recent[0]?.path, harness.stateDir)
 })
 
+/**
+ * #931 dedupes a non-git folder opened through a path alias by comparing
+ * `realPath` — the host's own resolution of the link, kept apart from `path`
+ * on purpose (`describeWorkspace`) — against the folder its sessions report.
+ * `workspace/open`'s own return already carried one (#907); `workspace/recent`
+ * did not, so the moment the open workspace is replaced by an entry read back
+ * from that list — a plain reload while the app keeps running, or the first
+ * read after a relaunch — the comparison key is gone and the alias splits
+ * back into two rows (#943). `realPath` is a comparison key only: this test
+ * never uses it to open, read or write anything, only to compare it against
+ * what a real `realpath` of the same link answers.
+ */
+test('a non-git folder opened through an alias keeps its realPath through a recent-list reload and a relaunch (#943)', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'hd-workspace-alias-'))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const real = join(scratch, 'real')
+  await mkdir(real)
+  const link = join(scratch, 'link')
+  await symlink(real, link)
+  const resolved = await realpath(link)
+  // The control: the link leads somewhere else, so a bare `path` comparison
+  // could never do this on its own.
+  assert.notEqual(resolved, link)
+
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  const opened = (await client.call('workspace/open', { path: link })) as { path: string; realPath?: string }
+  assert.equal(opened.path, link, 'kept at the spelling it was opened at')
+  assert.equal(opened.realPath, resolved, "workspace/open's own return already carries realPath (#907)")
+
+  // A reload while the app keeps running: `workspace/recent`, on the same
+  // host, must answer the alias with the same key.
+  const reloaded = (await client.call('workspace/recent', {})) as { path: string; realPath?: string }[]
+  const entry = reloaded.find((one) => one.path === link)
+  assert.equal(entry?.realPath, resolved, 'a list reload must not drop the comparison key #931s dedupe relies on')
+  client.close()
+  await harness.server.close()
+  await harness.host.dispose()
+
+  // A relaunch: a fresh host over the same state directory, which only ever
+  // wrote `path`/`name`/`lastOpenedAt` to disk (`WorkspaceRecord` carries no
+  // `realPath` of its own — it is a comparison key, not something to persist)
+  // must still answer `realPath` freshly, resolved the same way, once asked.
+  const runtime = new FakeRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(harness.stateDir, 'state.json')) })
+  host.register(runtime)
+  await host.start()
+  const server = await serve({ host, logger: silent, port: 0 })
+  t.after(async () => {
+    await server.close()
+    await host.dispose()
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  const reconnected = await Client.connect(server)
+  t.after(() => reconnected.close())
+  const afterRelaunch = (await reconnected.call('workspace/recent', {})) as { path: string; realPath?: string }[]
+  const relaunched = afterRelaunch.find((one) => one.path === link)
+  assert.equal(relaunched?.realPath, resolved, 'a relaunch must not drop the comparison key either')
+})
+
 test('interrupt and steer route to the live session', async (t) => {
   const harness = await start()
   t.after(() => stop(harness))

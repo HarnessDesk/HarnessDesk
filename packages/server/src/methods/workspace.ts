@@ -14,14 +14,24 @@ export const workspaceMethods = {
     // per folder ever opened.
     const [latest, ...rest] = ctx.state.state.workspaces
     if (!latest) return []
-    const [git, repo, checkoutRoot] = await Promise.all([
+    // `realPath` is a plain `realpath` (or its nearest existing ancestor's),
+    // never a git call, so every entry gets one — not only `latest` — the
+    // same way `#openWorkspace` puts one on the folder it just opened. Without
+    // it here, the renderer's own comparison key (`ownPathOf`,
+    // `projectGroupRootOf`) has nothing to correct a non-git alias with once
+    // the workspace it was opened with is replaced by one read back from this
+    // list — on a reload while the app keeps running, and again after a
+    // relaunch (#943).
+    const [git, repo, checkoutRoot, latestReal, restReal] = await Promise.all([
       gitService.status(latest.path).catch(() => null),
       ctx.workspaces.repoOf(latest.path),
       ctx.workspaces.topLevel(latest.path).catch(() => null),
+      ctx.workspaces.realPath(latest.path),
+      Promise.all(rest.map((entry) => ctx.workspaces.realPath(entry.path))),
     ])
     return [
-      { ...latest, git: git ? { branch: git.branch } : null, repo, checkoutRoot },
-      ...rest.map((entry) => ({ ...entry, git: null })),
+      { ...latest, git: git ? { branch: git.branch } : null, repo, checkoutRoot, realPath: latestReal },
+      ...rest.map((entry, index) => ({ ...entry, git: null, realPath: restReal[index] })),
     ]
   },
 
