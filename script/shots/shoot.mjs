@@ -1526,6 +1526,31 @@ rules:
     }
   } }
 
+  /** One account's page: Settings › Runtimes › Codex › its account. */
+  SCENES['settings-account-detail'] = { leaveOverlay: true, expect: 'Primary usage window', run: async () => {
+    await cdp.eval(`${STORE}.askSettings('agents'); true`)
+    await sleep(1200)
+    await cdp.eval(`document.querySelector('button[aria-label^="Show the accounts under"]')?.click(); true`)
+    await sleep(400)
+    /* A trusted press, as for the agent page above: the account is a
+       `RowButton`, and a synthetic click on its words opens nothing. */
+    const spot = await cdp.json(`(() => {
+      const rows = [...document.querySelectorAll('button')].filter((node) => /dev@example\\.com/.test(node.textContent ?? ''))
+      const row = rows.at(0)
+      if (!row) return false
+      const rect = row.getBoundingClientRect()
+      return { x: Math.round(rect.left + 60), y: Math.round(rect.top + rect.height / 2) }
+    })()`)
+    if (!spot) throw new Error('no account row to open in Settings › Runtimes')
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...spot })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...spot, button: 'left', clickCount: 1 })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...spot, button: 'left', clickCount: 1 })
+    await sleep(1200)
+    if (!await cdp.eval(`Boolean(document.querySelector('[class*="detailHead"]'))`)) {
+      throw new Error('the account page did not draw its detail head')
+    }
+  } }
+
   /* ------------------------------------ when an agent's own history is wrong */
 
   /**

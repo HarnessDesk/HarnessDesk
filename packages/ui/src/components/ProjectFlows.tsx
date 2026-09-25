@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
 
-import { Button, Chip, Note, Row, Rows, SectionHead } from '../design'
+import { Button, Chip, Note, Row, Rows, Section } from '../design'
 import { useStore } from '../state/context'
 import { FlowUpdate } from './FlowUpdate'
 
@@ -52,12 +52,10 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
   }
 
   return (
-    <section aria-label="Flows">
-      <SectionHead name="Flows" />
-      <Note>
-        Editable files in <code>.harnessdesk/flows</code>, versioned with the project’s code — its own first, then
-        yours, then the ones that ship as starting points.
-      </Note>
+    <Section
+      title="Flows"
+      description={<>Files in <code>.harnessdesk/flows</code>, versioned with its code: its own first, then yours, then the ones that ship.</>}
+    >
       <Rows>
         {problem && <Row title={problem} />}
         {!problem && entries === null && <Row title="Reading…" />}
@@ -76,7 +74,7 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
           onApplied={reload}
         />
       )}
-    </section>
+    </Section>
   )
 }
 

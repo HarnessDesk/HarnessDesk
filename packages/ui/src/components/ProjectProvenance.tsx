@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { Button, Chip, Note, Row, Rows, SectionHead, Switch } from '../design'
+import { Button, Chip, Note, Row, Rows, Section, Switch } from '../design'
 import { captureForRoot, captureWords } from '../lib/provenance'
 import { useSnapshot, useStore } from '../state/context'
 
@@ -37,7 +37,7 @@ export const ProjectProvenance = ({ root }: { readonly root: string }) => {
     catch { if (activeRoot.current === root) setProblem(enabled === undefined ? 'Capture could not be retried.' : 'The capture preference could not be saved.') }
     finally { if (activeRoot.current === root) setBusy(false) }
   }
-  return <section aria-label="Provenance"><SectionHead name="Provenance" />
+  return <Section title="Provenance">
     {snapshot.status !== 'open' ? <Note>Capture status is unavailable while disconnected.</Note>
       : knownNonGit ? <><Rows><Row title="Capture on this machine" control={<Switch checked={false} disabled aria-label="Capture provenance on this machine" />} /></Rows><Note>This folder has no Git history to capture.</Note></>
       : loading ? <Note>Reading capture status…</Note>
@@ -52,5 +52,5 @@ export const ProjectProvenance = ({ root }: { readonly root: string }) => {
       {problem && <Note>{problem}</Note>}
       <Button variant="secondary" disabled={busy || !health.enabled} onClick={() => void change()}>Retry capture</Button>
       {!health.enabled && <Note>Turn capture on before retrying.</Note>}</>}
-  </section>
+  </Section>
 }
