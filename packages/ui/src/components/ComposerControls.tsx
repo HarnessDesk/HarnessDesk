@@ -266,6 +266,9 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
  * keystrokes somewhere harmless to land while the menu is open, and Enter
  * picks the top match.
  */
+/** The keys a filter field keeps from the menu around it, beside any printable one. */
+const FIELD_KEYS = new Set(['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End'])
+
 const FilterableChoices = ({ option, close }: { option: SelectOption; close: () => void }) => {
   const store = useStore()
   const [query, setQuery] = useState('')
@@ -292,11 +295,13 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
         value={query}
         onChange={setQuery}
         onKeyDown={(event) => {
-          /* A letter is the field's, not the menu's. The menu jumps to the row
-             a typed letter starts, and takes the key to do it — so the field,
-             inside the menu, never received one: typing into it did nothing.
-             Keys that move or leave (the arrows, Tab, Escape) stay the menu's. */
-          if (event.key.length === 1 || event.key === 'Backspace' || event.key === 'Delete') {
+          /* Editing keys are the field's, not the menu's. The menu jumps to
+             the row a typed letter starts, and takes the key to do it — so the
+             field, inside the menu, never received one: typing into it did
+             nothing. ← → Home End move the caret, where the menu would close
+             the flyout or jump to a row. ↑ ↓ Tab Escape and Enter stay the
+             menu's: they move between rows, leave, or pick. */
+          if (event.key.length === 1 || FIELD_KEYS.has(event.key)) {
             event.stopPropagation()
             return
           }
@@ -635,16 +640,13 @@ const RuntimeBuildNote = () => {
           </div>
         )}
         {update && (
-          /* A shade warmer than the note around it, with the command in the
-             code face the runtime's own Settings page sets it in. A command is
-             copied whole, so it takes a line of its own before it breaks. */
+          /* A shade warmer than the note around it. The command is the shared
+             command block — the muted plate Settings sets a command on — on a
+             line of its own, folding only when it is wider than the menu. */
           <Text as="div" role="muted" className="mt-1" data-testid="runtime-update">
             {update.text}
             {update.command && (
-              <>
-                {' '}
-                <CodeText as="code" className="inline-block max-w-full">{update.command}</CodeText>
-              </>
+              <CodeText as="pre" block ground="muted" wrap className="mt-1">{update.command}</CodeText>
             )}
           </Text>
         )}

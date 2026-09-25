@@ -141,13 +141,56 @@ it('filters the long tail with the shared Search, and a letter typed there is th
   expect(store.setOption).toHaveBeenCalledWith('model', 'codex-one')
 })
 
-it('sets the update in a text role and its command in the code face', async () => {
+const openFilter = async () => {
+  await open()
+  const more = row('More models')
+  act(() => more.focus())
+  act(() => more.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+  await frame()
+  await frame()
+  return document.querySelector<HTMLElement>('[data-slot="search"] input') as HTMLInputElement
+}
+
+it.each(['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End'])('keeps %s in the filter: the field edits, the flyout stays', async (key) => {
+  await mount()
+  const field = await openFilter()
+  act(() => field.focus())
+  // The key is the field's alone: neither the menu nor anything past it hears it.
+  const past = vi.fn()
+  document.addEventListener('keydown', past)
+  const press = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+  act(() => { field.dispatchEvent(press) })
+  document.removeEventListener('keydown', past)
+  await frame()
+  await frame()
+  expect(press.defaultPrevented).toBe(false)
+  expect(past).not.toHaveBeenCalled()
+  expect(row('More models').getAttribute('aria-expanded')).toBe('true')
+  expect(document.activeElement).toBe(field)
+})
+
+it('leaves ↓ with the menu: it moves from the field to a row', async () => {
+  await mount()
+  const field = await openFilter()
+  act(() => field.focus())
+  act(() => { field.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })) })
+  await frame()
+  expect(document.activeElement).not.toBe(field)
+})
+
+it('sets the update in a text role and its command in the shared command block', async () => {
   await mount()
   await open()
   const update = document.querySelector<HTMLElement>('[data-testid="runtime-update"]')
   expect(update?.getAttribute('data-slot')).toBe('text')
   expect(update?.getAttribute('data-role')).toBe('muted')
-  expect(update?.querySelector('[data-slot="code-text"]')?.textContent).toBe('npm i -g @openai/codex@latest')
+  const command = update?.querySelector<HTMLElement>('[data-slot="code-text"]')
+  expect(command?.textContent).toBe('npm i -g @openai/codex@latest')
+  // The shared command block: a line of its own, on the muted plate, folding when it must.
+  expect(command?.tagName).toBe('PRE')
+  expect(command?.hasAttribute('data-block')).toBe(true)
+  expect(command?.getAttribute('data-ground')).toBe('muted')
+  expect(command?.hasAttribute('data-wrap')).toBe(true)
   // The build line is the note's own ink: nothing inside it redraws it.
   expect(document.querySelector('[data-testid="runtime-build"] span')).toBeNull()
 })
