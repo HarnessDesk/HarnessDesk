@@ -5,7 +5,7 @@ import { useSnapshot } from '../state/context'
 import type { SeatRefusal } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
 import { BriefIcon } from './Icons'
-import { Button, Dialog, Note, Row, Rows } from '../design'
+import { Button, Dialog, Row, Rows, SectionHead } from '../design'
 
 /**
  * The refusal sheet: an Agent that could not be seated here, and nothing
@@ -46,13 +46,15 @@ export const SeatSheet = ({
         </>
       }
     >
-      <Note>
-        {refusal.opened
-          ? 'It was not started — every seat it tried is shown below, with what each left behind.'
-          : refusal.blocked
-            ? 'Nothing was opened. It could not be weighed at all:'
-            : 'Nothing was opened. Each seat it would take, in its order, and what stands in the way:'}
-      </Note>
+      <SectionHead
+        name={
+          refusal.opened
+            ? 'It was not started — every seat it tried is shown below, with what each left behind.'
+            : refusal.blocked
+              ? 'Nothing was opened. It could not be weighed at all:'
+              : 'Nothing was opened. Each seat it would take, in its order, and what stands in the way:'
+        }
+      />
       <Rows>
         {refusal.blocked && <Row title={refusal.blocked} />}
         {!refusal.blocked && refusal.candidates.length === 0 && (

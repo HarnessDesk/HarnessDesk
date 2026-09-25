@@ -1635,7 +1635,7 @@ const MemberRow = ({
           <span className={`${styles.memberInbound} text-(--hd-muted-foreground)`}>{inboundState}</span>
         ) : member.onTask ? (
           <>
-            <span className="font-(family-name:--hd-font-code) text-(--hd-tint-violet-ink)">#{member.onTask.id}</span>{' '}
+            <span className="text-(--hd-tint-violet-ink)">#{member.onTask.id}</span>{' '}
             {member.onTask.title}
           </>
         ) : member.idleOnBoard ? (

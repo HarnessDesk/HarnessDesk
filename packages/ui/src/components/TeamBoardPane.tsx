@@ -919,7 +919,7 @@ const IntentCard = ({
     <BoardCard
       title={
         <>
-          <span className="font-(family-name:--hd-font-code) text-xs text-(--hd-muted-foreground)">
+          <span className="text-xs text-(--hd-muted-foreground)">
             #{intent.id}
           </span>{' '}
           {intent.title}
