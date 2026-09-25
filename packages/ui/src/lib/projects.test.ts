@@ -175,6 +175,36 @@ describe('groupByProject', () => {
     expect(groups[0]?.root).toBe(main)
   })
 
+  /**
+   * The public report (#907): opened through a path alias — a symlink, or
+   * macOS's own `/var` → `/private/var` — the same project showed up as two
+   * sidebar rows with different item counts, one of them empty. The workspace
+   * list keeps the folder at the spelling it was opened at (`describeWorkspace`
+   * never `realpath`'s it), but every session's `repo.root` is git's own
+   * canonical answer, which resolves straight through the link. Grouping by
+   * that canonical root, with the open workspace passed through so it claims
+   * the same row, is what keeps this to one group instead of splitting the
+   * populated one from an empty one at the raw spelling.
+   */
+  it('is one group, not an empty one and a populated one, for a workspace opened through an alias (#907)', () => {
+    const real = '/private/var/folders/x/work/widgets'
+    const link = '/var/folders/x/work/widgets'
+    const groups = groupByProject(
+      [
+        session('a', real, null, 1, at(real)),
+        session('b', real, null, 2, at(real)),
+        session('c', real, null, 3, at(real)),
+        session('d', real, null, 4, at(real)),
+        session('e', real, null, 5, at(real)),
+      ],
+      [link],
+      workspace(link, at(real)),
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(real)
+    expect(groups[0]?.sessions).toHaveLength(5)
+  })
+
   it('will not invent a project from a path nothing else vouches for', () => {
     const groups = groupByProject(
       [session('gone', '/Users/a/code/never-seen/.claude/worktrees/x', null, 9, null)],
