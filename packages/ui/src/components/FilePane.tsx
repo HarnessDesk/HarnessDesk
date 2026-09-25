@@ -4,6 +4,13 @@ import { editorLook } from '../lib/editor-prefs'
 import { useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { useTheme } from '../state/theme'
+import {
+  Button,
+  ToolPane,
+  ToolPaneBody,
+  ToolPaneMessage,
+  ToolPaneNotice,
+} from '../design'
 import { AlertIcon } from './Icons'
 import { ToolPaneHeader } from './ToolPaneHeader'
 import styles from './ToolPanes.module.css'
@@ -170,18 +177,18 @@ export const FilePane = () => {
   const editable = loaded !== null && !loaded.truncated && loaded.content.length <= MAX_EDITABLE
 
   return (
-    <div className={styles.pane}>
+    <ToolPane variant="integrated">
       <ToolPaneHeader title={path.split('/').pop() ?? path} subtitle={path}>
         {loaded && draft === null && editable && (
-          <button type="button" className={styles.headerButton} onClick={() => setDraft(loaded.content)}>
+          <Button variant="ghost" size="sm" onClick={() => setDraft(loaded.content)}>
             Edit
-          </button>
+          </Button>
         )}
         {draft !== null && (
           <>
-            <button
-              type="button"
-              className={styles.headerButton}
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 setDraft(null)
                 setConflict(null)
@@ -189,29 +196,27 @@ export const FilePane = () => {
               }}
             >
               {dirty ? 'Discard' : 'Done'}
-            </button>
-            <button
-              type="button"
-              className={styles.headerButton}
-              data-primary=""
+            </Button>
+            <Button
+              size="sm"
               disabled={!dirty || saving || !loaded}
               onClick={() => loaded && void save(loaded.hash)}
             >
               {saving ? 'Saving…' : 'Save'}
-            </button>
+            </Button>
           </>
         )}
       </ToolPaneHeader>
 
       {conflict && (
-        <div className={styles.banner} data-tone="alert">
+        <ToolPaneNotice tone="danger" placement="top">
           <AlertIcon size={13} />
-          <span>
+          <span className="flex-1">
             This file changed on disk since you loaded it — your save was refused so nothing was lost.
           </span>
-          <button
-            type="button"
-            className={styles.action}
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               setLoaded({ content: conflict.content, hash: conflict.hash, truncated: false })
               setDraft(null)
@@ -219,30 +224,30 @@ export const FilePane = () => {
             }}
           >
             Take theirs
-          </button>
-          <button type="button" className={styles.action} onClick={() => void save(conflict.hash)}>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void save(conflict.hash)}>
             Overwrite with mine
-          </button>
-        </div>
+          </Button>
+        </ToolPaneNotice>
       )}
       {changedOnDisk && !conflict && (
-        <div className={styles.banner} data-tone="warn">
+        <ToolPaneNotice tone="warning" placement="top">
           <AlertIcon size={13} />
-          <span>Changed on disk while you were editing.</span>
-          <button type="button" className={styles.action} onClick={() => void load().then(() => setDraft(null))}>
+          <span className="flex-1">Changed on disk while you were editing.</span>
+          <Button variant="outline" size="sm" onClick={() => void load().then(() => setDraft(null))}>
             Reload
-          </button>
-        </div>
+          </Button>
+        </ToolPaneNotice>
       )}
 
-      <div className={styles.body}>
+      <ToolPaneBody bleed className={styles.body}>
         {error ? (
           missing ? (
-            <div className={styles.message}>
+            <ToolPaneMessage as="div">
               <p style={{ margin: '0 0 10px' }}>{path.split('/').pop()} does not exist yet.</p>
-              <button
-                type="button"
-                className={styles.action}
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   // An empty file with an empty hash: the host treats a save
                   // of a file it cannot read as a creation, so the ordinary
@@ -253,13 +258,13 @@ export const FilePane = () => {
                 }}
               >
                 Create this file
-              </button>
-            </div>
+              </Button>
+            </ToolPaneMessage>
           ) : (
-            <p className={styles.message}>{error}</p>
+            <ToolPaneMessage>{error}</ToolPaneMessage>
           )
         ) : !loaded ? (
-          <p className={styles.message}>Loading…</p>
+          <ToolPaneMessage>Loading…</ToolPaneMessage>
         ) : (
           // The fallback is deliberately empty: the chunk arrives in a frame
           // or two off local disk, and a spinner that flashes for one frame
@@ -291,8 +296,8 @@ export const FilePane = () => {
             />
           </Suspense>
         )}
-        {loaded?.truncated && <p className={styles.message}>Showing the first part of a large file.</p>}
-      </div>
-    </div>
+        {loaded?.truncated && <ToolPaneMessage>Showing the first part of a large file.</ToolPaneMessage>}
+      </ToolPaneBody>
+    </ToolPane>
   )
 }

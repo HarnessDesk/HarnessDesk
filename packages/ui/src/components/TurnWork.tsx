@@ -1,11 +1,18 @@
+import {
+  DisclosureChevron,
+  Separator,
+  Text,
+  TurnWorkHeader,
+  TurnWorkHeaderLabel,
+  TurnWorkLive,
+} from '../design'
 import { useEffect, useState } from 'react'
 
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
 import { groupItems, isSilentReasoning } from '../lib/group-items'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
-import { ChevronIcon } from './Icons'
-import { ItemView } from './Items'
+import { ItemView, StepNameScope } from './Items'
 import { StepGroup } from './StepGroup'
 import styles from './TurnWork.module.css'
 
@@ -31,10 +38,9 @@ import styles from './TurnWork.module.css'
  * closing is remembered for as long as the transcript is mounted; a fresh
  * read starts in the posture the steps earn.
  *
- * The exception is trouble. A turn that failed, was interrupted, or that had a
- * step declined or fail keeps its work open and tints the line — folding a
- * blocked command away behind a duration is how a UI ends up looking calm
- * about something the user needed to see.
+ * Trouble does not change that posture: its count stays visible in the receipt,
+ * and each failed row keeps its output behind one more click so a long failure
+ * cannot take over the transcript.
  */
 
 /** A clock that only ticks while something is running. */
@@ -65,7 +71,7 @@ export const TurnWork = ({
   const now = useNow(running)
   const [choice, setChoice] = useState<boolean | null>(null)
   const line = describeTurnWork(turn, work, now)
-  const open = choice ?? (running || line.trouble || line.informative)
+  const open = choice ?? (running || line.informative)
 
   if (work.length === 0 && !running) return null
 
@@ -85,49 +91,51 @@ export const TurnWork = ({
       {...(line.trouble ? { 'data-trouble': '' } : {})}
       {...(line.informative ? { 'data-described': '' } : {})}
     >
-      <button
+      <TurnWorkHeader
+        trouble={line.trouble}
         type="button"
-        className={styles.head}
+        variant="row" size="row" className={`${styles.head} gap-1.5`}
         aria-expanded={open}
         onClick={() => setChoice(!open)}
         title={open ? 'Fold the work away' : 'Show what the agent did'}
       >
-        <span className={styles.headLabel}>{line.head}</span>
+        <TurnWorkHeaderLabel state={line.trouble ? 'trouble' : running ? 'running' : 'done'}>{line.head}</TurnWorkHeaderLabel>
         {/* The receipt stands in for the rows, so it shows when they do not:
             open, the sentences are the rows themselves, and a line repeating
             them above is the same story told twice. */}
-        {!open && line.receipt.length > 0 && <span className={styles.headReceipt}>· {line.receipt}</span>}
-        <ChevronIcon className={styles.chevron} size={13} {...(open ? { 'data-open': '' } : {})} />
-        <span className={styles.rule} />
-      </button>
+        {!open && line.receipt.length > 0 && <Text role="muted" ink="muted" className={styles.headReceipt}>· {line.receipt}</Text>}
+        {!open && line.declined > 0 && (
+          <Text role="muted" tone="warning" className={styles.declinedReceipt}>· {line.declined} declined</Text>
+        )}
+        {!open && line.failed > 0 && (
+          <Text role="muted" tone="danger" className={styles.failedReceipt}>· {line.failed} failed</Text>
+        )}
+        <DisclosureChevron open={open} tone={line.trouble ? 'warning' : 'neutral'} />
+        <Separator render={<span />} className={styles.rule} />
+      </TurnWorkHeader>
       {open && (
         <div className={styles.body} data-register="light">
-          {groupItems(shown).map((node) =>
-            node.kind === 'group' ? (
-              <StepGroup key={node.id} items={node.items} running={node.running} root={root} />
-            ) : (
-              <ItemView
-                key={node.item.id}
-                item={node.item}
-                root={root}
-                streaming={streamingItemId === node.item.id}
-              />
-            ),
-          )}
-          {/* The live line: what is happening this second, in the register of
-              a status rather than a record — faint, and moving. */}
-          {running && activity && (
-            <div className={styles.live} role="status" aria-live="polite">
-              <span className={styles.shimmer}>{activity}</span>
-            </div>
-          )}
+          <StepNameScope items={shown} root={root}>
+            {groupItems(shown).map((node) =>
+              node.kind === 'group' ? (
+                <StepGroup key={node.id} items={node.items} running={node.running} root={root} register="light" />
+              ) : (
+                <ItemView
+                  key={node.item.id}
+                  item={node.item}
+                  root={root}
+                  streaming={streamingItemId === node.item.id}
+                  register="light"
+                />
+              ),
+            )}
+            {/* The live line: what is happening this second, in the register of
+                a status rather than a record — faint, and moving. */}
+            {running && activity && <TurnWorkLive>{activity}</TurnWorkLive>}
+          </StepNameScope>
         </div>
       )}
-      {!open && running && activity && (
-        <div className={styles.live} role="status" aria-live="polite">
-          <span className={styles.shimmer}>{activity}</span>
-        </div>
-      )}
+      {!open && running && activity && <TurnWorkLive>{activity}</TurnWorkLive>}
     </section>
   )
 }

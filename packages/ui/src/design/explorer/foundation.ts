@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import tokensCss from '../tokens.css?raw'
+import tokensCss from '../foundation/tokens.css?raw'
 
 /**
  * A foundation is a set of token overrides — and so is a theme.
@@ -43,20 +43,6 @@ export const FOUNDATIONS: Foundation[] = [
       '--hd-card-fill': 'var(--hd-card)',
       '--hd-card-border': 'var(--hd-border-strong)',
       '--hd-card-radius': 'var(--hd-radius)',
-    },
-  },
-  {
-    id: 'sentence-labels',
-    title: 'Sentence labels',
-    // The other half of the same question. Uppercase tracked labels are what
-    // separates a group from its rows without a rule; they are also louder,
-    // and a column with six of them can read as shouted.
-    about: 'Group headings back to 13px sentence case, without the tracking.',
-    overrides: {
-      '--hd-label-size': 'var(--hd-text-sm)',
-      '--hd-label-transform': 'none',
-      '--hd-label-tracking': '0',
-      '--hd-label-weight': 'var(--hd-weight-normal)',
     },
   },
   {

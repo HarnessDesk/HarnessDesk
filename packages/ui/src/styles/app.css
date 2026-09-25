@@ -4,7 +4,7 @@
  * The raw palette comes from the DeepSeek Harness design platform (see
  * design-platform.css) and wears the `--hdp-` prefix; the design system's own
  * foundation — space, shape, type, motion and the semantic colour vocabulary,
- * all `--hd-` — is ../design/tokens.css, imported after it so it wins over
+ * all `--hd-` — is ../design/foundation/tokens.css, imported after it so it wins over
  * both vendored files. The palette overlays come after that again, because
  * varying the foundation is their entire job: editorial.css repaints it and
  * editor.css adds the code-face tokens on top.
@@ -18,7 +18,7 @@
 @import '../assets/fonts/fonts.css';
 @import './base.css';
 @import './design-platform.css';
-@import '../design/tokens.css';
+@import '../design/foundation/tokens.css';
 @import './editorial.css';
 @import './editor.css';
 @import './scrollbar.css';
@@ -28,12 +28,6 @@
 @import './shadcn-themes.css';
 
 body {
-  /* Tertiary carries more here than a design system usually gives it —
-     counts, times, keyboard hints — so it sits a step darker than the
-     platform default in both themes; a label nobody can read is not quiet,
-     it is missing. */
-  --hdp-alias-label-tertiary: rgb(112, 117, 125);
-
   /* macOS window chrome: the traffic lights sit in an inset title bar, so
      whichever row lands in the window's top-left reserves room for them. */
   /* 44: room for a 20px title line with 12px above and below, the band the
@@ -65,10 +59,6 @@ body {
   --titlebar-inset: 0px;
 }
 
-body[data-hd-dark-theme] {
-  --hdp-alias-label-tertiary: rgb(186, 190, 197);
-}
-
 * {
   box-sizing: border-box;
 }
@@ -85,8 +75,8 @@ body {
   font-family: var(--hd-font-family);
   font-size: var(--hd-text);
   line-height: var(--hd-line);
-  color: var(--hdp-alias-label-primary);
-  background: var(--hdp-alias-bg-base);
+  color: var(--hd-foreground);
+  background: var(--hd-background);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
@@ -100,7 +90,7 @@ button {
 code,
 pre,
 kbd {
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-variant-ligatures: none;
 }
 
@@ -135,17 +125,119 @@ a:hover {
   -webkit-app-region: drag;
 }
 
+/*
+ * The cadence: a line of text that is still being written.
+ *
+ * A whole-element opacity pulse says "this is disabled" as readily as it says
+ * "this is working" — it dims the words, and dim is the app's code for a
+ * control you cannot use. A light travelling along the line says the one thing
+ * and nothing else, because only a live thing moves.
+ *
+ * One element. The gradient paints the text itself through `background-clip`,
+ * so there is no second copy of the string in the accessibility tree and no
+ * wrapper for a caller to get wrong.
+ *
+ * The timing function is stepped rather than smooth, and that is the whole
+ * character of it: forty-eight ticks a second reads as a cadence — a thing
+ * working at a rate — where a continuous sweep reads as a decorative sheen.
+ *
+ * `app.css` takes every animation to a single instant under
+ * `prefers-reduced-motion`, and this keyframe has no fill mode, so the line
+ * simply stands still and legible there.
+ */
+/*
+ * A list with nothing in it, said in one line.
+ *
+ * Not the `EmptyState` panel, which is a page taking the space the missing content would
+ * have had and spending it on what to press instead. This is the other thing —
+ * a search that matched nothing, a folder with no children, a directory still
+ * being read — where the answer is a sentence and the surroundings already say
+ * where the reader is.
+ *
+ * It exists because three screens wrote it three times: at twenty, twenty-four
+ * and thirty-two pixels of padding, at thirteen and fourteen, centred twice and
+ * ranged once. One sentence, one shape.
+ *
+ * That shape is now `EmptyState variant="inline"` (design/ui/empty-state.tsx),
+ * which draws exactly these values. The class stays only for the two screens
+ * that still spell it — CommandPalette and TriggerMenu — and goes when they
+ * move to the part; do not reach for it in new code.
+ */
+.hd-empty-line {
+  padding: var(--hd-space-6) var(--hd-space-2-5);
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  text-align: center;
+}
+
+.hd-cadence {
+  background: linear-gradient(
+    90deg,
+    var(--hd-secondary-foreground) 42%,
+    var(--hd-foreground) 50%,
+    var(--hd-secondary-foreground) 58%
+  );
+  background-clip: text;
+  background-size: 250% 100%;
+  -webkit-text-fill-color: transparent;
+  animation: hd-cadence 1s steps(48, end) infinite;
+}
+
+@keyframes hd-cadence {
+  from {
+    background-position: 140% 0;
+  }
+
+  to {
+    background-position: -40% 0;
+  }
+}
+
+/* The transcript work line retains its sweep while the component sheet owns
+   geometry only. */
+@keyframes shimmer {
+  from {
+    background-position: 120% 0;
+  }
+
+  to {
+    background-position: -120% 0;
+  }
+}
+
 .hd-no-drag {
   -webkit-app-region: no-drag;
 }
 
+/*
+ * Motion reduced: every change arrives at once.
+ *
+ * Zero, and not the 0.01ms of the common reset. `transition-property` is
+ * `all` unless an element names its own, so 0.01ms made every property of
+ * every element a transition — the padding a hovered row takes, a menu's
+ * colours, a column's width — and a transition does not start until the next
+ * frame, holding the old value until then. Code that measured straight after
+ * a change read the box from before it, and every change fired transition
+ * events (#785). A zero duration starts no transition at all.
+ *
+ * A declared delay still stands, since a delay alone is enough to run a
+ * transition, and a delay can be the point where a duration is only ever
+ * motion. A delay that only waited out a motion has nothing left to wait
+ * for, and its surface says so itself, as the Workbench's scrim and sidebar
+ * do.
+ *
+ * An animation still happens, in an instant: its start and end events fire
+ * and a fill mode holds its last frame. What it no longer does is hold its
+ * first keyframe until the next frame starts it.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
+    animation-duration: 0s !important; /* desk: 0.01ms → 0s, no first keyframe held until the next frame (#785) */
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important; /* desk: 0.01ms → 0s, no transition started (#785) */
   }
 }
 
@@ -158,6 +250,7 @@ a:hover {
 }
 
 .hd-shellBody {
+  position: relative;
   flex: 1;
   min-height: 0;
 }
@@ -172,20 +265,61 @@ a:hover {
 
 .hd-floatingNotices {
   position: absolute;
+  /* `top`, `left` and `right` are all set inline, in `App.tsx`, from
+     `lib/notice-bounds.ts`: over the pane or panel being read, never the
+     sidebar or an unrelated pane beside it, at a width a card can be read
+     at, and below every toolbar it would otherwise cover (#896). These are
+     only the values before that effect has ever run; `46px` is
+     `NOTICE_FLOOR`, just under the window's header strip. */
   top: 46px;
   left: 0;
   right: 0;
-  z-index: 35;
+  z-index: var(--hd-z-notice);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
   padding: 0 16px;
   pointer-events: none;
+  transition:
+    top var(--hd-duration-slow) var(--hd-ease),
+    left var(--hd-duration-slow) var(--hd-ease),
+    right var(--hd-duration-slow) var(--hd-ease);
 }
 
 .hd-floatingNotices > * {
   pointer-events: auto;
+}
+
+/*
+ * The notice system's own contract for a pane that can sit under the stack
+ * above: read `--hd-notice-inset` once, at your own top edge, so nothing of
+ * yours starts underneath a notice that is showing. `Conversation.tsx` reads
+ * the same variable directly, for the single case that predates this
+ * attribute; every other consumer opts in with `data-notice-yield` instead
+ * of reaching for the variable itself, so the one place that measures the
+ * stack (`App.tsx`) is also the one place that says how a pane leaves room
+ * for it, and a future screen composes this rather than growing its own
+ * copy (#913).
+ *
+ * Reset to `0px` for everything underneath: an inset already spent once, at
+ * the yielding element's own top, must not be spent again by whatever it
+ * contains — the room's rail and its reading side share one top edge this
+ * way instead of each counting the same notice twice.
+ *
+ * Coarse on purpose, for now: this measures whether the stack is showing at
+ * all, not whether it actually reaches the pane it is applied to. A very
+ * wide pane, a docked panel, or the second pane of a split can all yield to
+ * a notice that never visually reaches them, which is a real gap — scoping
+ * this to the pane the stack's own rectangle actually overlaps is filed as a
+ * follow-up rather than carried here.
+ */
+[data-notice-yield] {
+  margin-top: var(--hd-notice-inset, 0px);
+}
+
+[data-notice-yield] > * {
+  --hd-notice-inset: 0px;
 }
 
 /*

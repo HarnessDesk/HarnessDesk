@@ -1,12 +1,23 @@
 import type { HostMethodName, HostParams, HostResult } from '@harnessdesk/protocol'
 
 import { accountMethods } from './accounts.js'
+import { agentMethods } from './agents.js'
 import { appMethods } from './app.js'
+import { attachmentMethods } from './attachments.js'
+import { authoringMethods } from './authoring.js'
 import type { HostContext, HostMethodTable } from './context.js'
 import { credentialMethods } from './credentials.js'
+import { evidenceMethods } from './evidence.js'
+import { findingMethods } from './findings.js'
+import { provenanceMethods } from './provenance.js'
 import { flowMethods } from './flows.js'
+import { goalMethods } from './goals.js'
 import { gitMethods } from './git.js'
+import { insightMethods } from './insight.js'
+import { intakeMethods } from './intake.js'
 import { libraryMethods } from './library.js'
+import { laneMethods } from './lanes.js'
+import { memoryMethods } from './memory.js'
 import { pluginMethods } from './plugins.js'
 import { runtimeExtensionMethods } from './runtime-extensions.js'
 import { runtimeMethods } from './runtimes.js'
@@ -33,9 +44,13 @@ export { TERMINAL_CHIP } from './plugins.js'
  * handler whose result disagrees with its declaration does not compile
  * either. Which module a method lives in follows its prefix, with two seams
  * named for what they are rather than for the prefix: `accounts` holds
- * `agents/*` and the account/API-key verbs, `runtime-extensions` holds a
- * runtime's own plugin, MCP and import verbs; both name the prefixes they
- * take, and `runtimes.ts` leaves exactly those out.
+ * `acp/*` — the ACP registry — the account/API-key verbs, and
+ * `runtime/installs*`; `runtime-extensions` holds a runtime's own plugin, MCP
+ * and import verbs; both name the prefixes they take, and `runtimes.ts`
+ * leaves exactly those out. `runtime/installs*` is named on the wire for what
+ * it is about — which copy of one runtime's CLI answers — and answered in
+ * `accounts.ts` because both verbs are gated on the writable registry that
+ * module owns, and both share its install scan with `acp/update`.
  */
 export const hostMethods: HostMethodTable = {
   ...appMethods,
@@ -44,7 +59,9 @@ export const hostMethods: HostMethodTable = {
   ...accountMethods,
   ...credentialMethods,
   ...usageMethods,
+  ...insightMethods,
   ...libraryMethods,
+  ...laneMethods,
   ...sessionMethods,
   ...turnMethods,
   ...workspaceMethods,
@@ -52,6 +69,15 @@ export const hostMethods: HostMethodTable = {
   ...worktreeMethods,
   ...teamMethods,
   ...flowMethods,
+  ...authoringMethods,
+  ...goalMethods,
+  ...memoryMethods,
+  ...agentMethods,
+  ...attachmentMethods,
+  ...evidenceMethods,
+  ...findingMethods,
+  ...intakeMethods,
+  ...provenanceMethods,
   ...gitMethods,
   ...pluginMethods,
 }
@@ -68,7 +94,9 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   accountMethods,
   credentialMethods,
   usageMethods,
+  insightMethods,
   libraryMethods,
+  laneMethods,
   sessionMethods,
   turnMethods,
   workspaceMethods,
@@ -76,6 +104,15 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   worktreeMethods,
   teamMethods,
   flowMethods,
+  authoringMethods,
+  goalMethods,
+  memoryMethods,
+  agentMethods,
+  attachmentMethods,
+  evidenceMethods,
+  findingMethods,
+  intakeMethods,
+  provenanceMethods,
   gitMethods,
   pluginMethods,
 ]

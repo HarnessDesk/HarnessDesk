@@ -1,0 +1,239 @@
+/* One set of rows for every menu with depth: the model control, the
+   workspace menu, and whatever comes next. A level inside a Popover borrows
+   its panel; a flyout and a context menu bring their own. */
+
+.level {
+  display: block;
+}
+
+.levelHost {
+  display: block;
+}
+
+/* The anchored Popover owns placement. The embedded menu still needs a real
+   anchor to finish Base UI's positioning lifecycle; without one its children
+   remain at opacity: 0 even though they are focusable and have layout boxes. */
+.embeddedPositioner {
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+}
+
+.surface,
+.flyout {
+  /* A floating panel is never a handle for moving the window. Electron's
+     drag region is geometric, not a matter of ancestry: the pane strip and
+     the conversation header each contribute one draggable rectangle, and a
+     panel that opens over one is inert unless it punches its own hole —
+     the trigger's `no-drag` only covers the trigger's own box. That is why
+     a right-click menu on a tab could be drawn but not clicked. */
+  -webkit-app-region: no-drag;
+
+  /* Narrow enough that a short menu — density, agent, sort — sizes to its
+     own words the way Codex's does, instead of holding a fixed slab open. */
+  min-width: 200px;
+  max-width: 380px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--hd-radius);
+  background: var(--hd-card);
+  box-shadow:
+    var(--hd-shadow), /* desk: 0 10px 30px rgba(0,0,0,.2) -> one floating rung */
+    inset 0 0 0 1px var(--hd-border-strong);
+}
+
+.contextPositioner {
+  z-index: var(--hd-z-popover);
+}
+
+.flyout {
+  min-width: 200px;
+}
+
+.submenu {
+  position: relative;
+}
+
+/* Menu rows read at the size everything else does: the sidebar's list, the
+   transcript, and the menus over them are one interface, not a document with
+   fine print attached. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--hd-row-h);
+  padding: var(--hd-space-1) 10px;
+  border: none;
+  border-radius: var(--hd-nav-radius); /* desk: var(--hd-radius-sm) → var(--hd-nav-radius), menus and rails use one row shape */
+  background: none;
+  color: var(--hd-foreground);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--hd-text-sm); /* desk: var(--hd-text) → var(--hd-text-sm), menu rows use the chrome step */
+  line-height: var(--hd-line-sm); /* desk: var(--hd-line) → var(--hd-line-sm), the line follows its type step */
+}
+
+/* An account menu has two rows whose content is taller than the ordinary
+   one-line action. Their padding is part of that anatomy, not the menu that
+   happens to contain them. */
+.row[data-layout='profile'] {
+  padding: var(--hd-space-2);
+}
+
+.row[data-layout='account'] {
+  padding: var(--hd-space-1-5) var(--hd-space-2);
+}
+
+.row:hover,
+.row:focus-visible,
+.row[data-open],
+.row[data-popup-open],
+.row[aria-expanded='true'] {
+  background: var(--hd-hover);
+  outline: none;
+}
+
+.row[data-current] {
+  background: var(--hd-accent-dim);
+}
+
+.row:disabled {
+  cursor: default;
+  color: var(--hd-muted-foreground);
+}
+
+.row:disabled:hover {
+  background: none;
+}
+
+.row[data-danger] {
+  color: var(--hd-danger);
+}
+
+.row[data-danger]:hover,
+.row[data-danger]:focus-visible {
+  background: var(--hd-danger-dim);
+}
+
+.icon {
+  flex: none;
+  display: inline-flex;
+  width: 18px;
+  justify-content: center;
+  color: var(--hd-secondary-foreground);
+}
+
+.row[data-danger] .icon {
+  color: inherit;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.hint {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
+  color: var(--hd-muted-foreground);
+  white-space: normal;
+}
+
+.badge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-card-raised, var(--hd-hover));
+  color: var(--hd-secondary-foreground);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
+  font-weight: var(--hd-weight-medium);
+}
+
+.shortcut,
+.value {
+  flex: none;
+  font-size: var(--hd-text-sm);
+  color: var(--hd-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A value is a fact about the row — an age, a count, a branch — and a branch
+   can be forty characters. It never takes more than a short name's room: past
+   that it ends in an ellipsis, and the row's title carries it whole. Without
+   the cap a long one set the width of the whole menu, and on a narrow window
+   pushed its own row's label out. A shortcut is exact and is never cut. */
+.value {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.check {
+  flex: none;
+  display: inline-flex;
+  width: 16px;
+  justify-content: flex-end;
+  color: var(--hd-accent);
+}
+
+.chevron {
+  flex: none;
+  color: var(--hd-muted-foreground);
+}
+
+.separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hd-border);
+}
+
+/* Section headers read as words, not as a filing cabinet: sentence case at
+   the size of a quiet label and no weight of their own, the way Codex writes
+   "Organize sidebar" over its own list controls. Uppercase, bold and
+   letter-spacing all shouted over the rows, which are the text that matters. */
+.label {
+  font-weight: var(--hd-weight-medium);
+  padding: 8px 10px var(--hd-space-1);
+  font-size: var(--hd-text-sm);
+  color: var(--hd-secondary-foreground);
+}
+
+.label[data-size='compact'] {
+  padding: var(--hd-space-1) var(--hd-space-2);
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  font-weight: var(--hd-weight-normal);
+}
+
+/* A note explains the rows; it never sets the menu's width. A menu sizes to
+   its words, and a note's words are a sentence: the model menu's footer —
+   "a newer build is available … npm i -g …" — stretched the menu across the
+   window, left its reasoning flyout no room at either side, and put that
+   flyout over the model list. Contained, a note wraps at the width the rows
+   give the menu. */
+.note {
+  contain: inline-size;
+  padding: 6px 10px 8px;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
+  color: var(--hd-muted-foreground);
+}
+
+/* The switch is the canonical primitive's compact mounting. A menu row
+   is itself the control, so it wears the shape rather than nesting a button
+   inside a button, and nothing about its appearance is spelled here. */

@@ -1,11 +1,45 @@
 # The decisions this is built on
 
-Eleven choices that shape everything else. Each is
+The choices that shape everything else. Each is
 stated as it stands today, not as it was argued — what the code does, and what
 it costs to keep doing it. Where a decision has a rule a reviewer can apply,
 the rule is the last line of its section.
 
 ---
+
+## Insight measures remain source-qualified
+
+Historical usage is read from runtime-owned local records rather than quota
+balances, current context occupancy, or a guessed allocation. The host keeps
+opaque source identity and missing-field information through the wire, so an
+explicit zero is distinct from an unavailable value. Reads do not refresh
+evidence or mutate a wrapped receipt.
+
+---
+
+## One foundation and one public UI vocabulary
+
+Every first-party surface is downstream of one design system. The editable
+foundation lives in `packages/ui/src/design/foundation`; generic interactive
+controls are Base UI-backed shadcn-style source in `design/ui`; HarnessDesk
+compositions live in `design/patterns`; and specialized renderers cross only
+the explicit contracts in `design/adapters`. Features import the public
+`design/index.ts` vocabulary instead of reaching into those layers.
+
+This replaces the former split between Kit, shadcn/Radix controls, and local
+overlay implementations. The cost is intentional constraint: a feature that
+needs a new generic state changes the canonical component or adds a named
+pattern before it changes a screen. In return, one edit propagates to Settings,
+conversation, rooms, tools, the live catalog, portals, editor and terminal
+bridges, and the generated native About foundation.
+
+The constraint is executable. `script/check-ui-system.mjs` reconciles every
+tracked UI-producing file, rejects legacy or alternate headless imports, and
+requires catalog coverage; `script/design-audit.mjs --strict` refuses every
+style-system finding and any non-zero saved baseline.
+
+**The rule:** product features compose the public design API; they do not own
+generic controls, overlay behavior, or foundation values.
 
 ## Native Codex first, ACP for everything else
 
@@ -300,3 +334,448 @@ second; a draft abandoned after that leaves the worktree, listed with the others
 **The rule:** nothing is made on disk for a conversation that has not been
 sent, and nothing git tracks is discarded to bring work home — what it ignores
 goes with the folder, and the dialog says so first.
+
+## A Codex profile is a bounded new-session input, not another configuration
+
+Codex's app-server cannot take the CLI's profile flag, but each thread verb can
+take configuration overrides. HarnessDesk therefore declares the available
+profile names as one ordinary new-session option. With **None** selected it
+sends nothing new. With a profile selected, the adapter reads that file when
+the conversation starts and carries only its root `model`,
+`model_context_window`, and `model_auto_compact_token_limit` values.
+
+The file is input, never a program: its name, byte count, UTF-8, strings and
+integers are bounded; commands, instructions, MCP tables and every other key
+remain inert. A malformed profile stays in the list with its refusal instead
+of disappearing. This is deliberately narrower than asking Codex to load the
+whole profile, which would execute capabilities the person did not choose on
+this surface.
+
+The values sent are not facts about the resulting conversation. The live
+model comes from the thread response, and the context ring remains empty until
+Codex reports its context window in usage. A profile can ask; only Codex can
+say what landed.
+
+**The rule:** profiles may contribute bounded start parameters; session state
+comes back from the agent.
+
+## Provenance preserves a defensible association
+
+A commit's author, message and trailers do not authenticate the Seat that made its changes. HarnessDesk associates only the patches explained by locally observed diff facts and the original Seat record. Stable and verbatim fingerprints must agree; surviving file changes can retain partial attribution through an amend. A squash compares its net change with bounded observed ranges and keeps every defensible contributor. Competing explanations, overlapping contributions that cannot be separated and unavailable source objects remain unattributed.
+
+Passive capture cannot recover a ref move whose reflog and objects Git no longer retains. The desk reads available transitions, preserves known gaps and says when capture is degraded or stopped. It installs no hooks, changes no Git configuration and never delays a turn to observe it.
+
+**The rule:** ambiguity remains visible; a rewritten association never refreshes the original checks, reviews or evidence.
+
+## A Goal is finite; Seats and receipts are the authority
+
+Rooms accumulated three competing truths: a member array, the conversations
+the host happened to hold, and Seat evidence. Goals keep the useful surface —
+board, channel and roster — but make the durable records authoritative. An open,
+non-restored Seat establishes membership. Assignment and Release are serialized
+host transactions; the renderer refreshes the resulting Goal instead of
+splicing a member into local state.
+
+Isolated Goal work receives a durable lane: retained checkout, disjoint port
+block and, by default, its own persistent browser partition. The host injects
+the lane environment into each agent invocation. Wrapping takes a reviewed
+snapshot and journals the receipt before cross-store settlement, so replay is
+idempotent and later mutation is refused. Backup restore deliberately removes
+execution authority: journals are cleared and lanes are released archives.
+
+**The rule:** active work is derived from open Seats; finished or restored work
+is read-only history.
+
+## A cloned tree is hostile; the person's own processes are not
+
+A project's `.harnessdesk` arrives with a clone, so its flows, Agent folders,
+planted links, hard links, odd names, oversized files and malformed YAML are
+the repository's, not the person's. That static tree is the threat. Another
+process running as the same person, swapping folders between two calls, is
+not: it can already write anything the person can, and Node's path-only fs
+API cannot close that race anyway, so the code does not pretend to.
+
+Every read and write the flow catalogue, the flow update, its journal and the
+Agent files it creates make goes through one module, `confined-tree.ts`. It
+resolves the root once and pins its identity, so an update previewed against
+one folder is refused against a folder that replaced it. Every open below the
+root uses macOS's `O_NOFOLLOW_ANY`, which refuses a link at any component.
+Where that flag does not exist, reads walk each component without following
+it, and every write fails closed with a refusal rather than falling back to a
+last-component `O_NOFOLLOW`. A file is replaced by writing a synced sibling,
+checking that the target still holds the previewed bytes (or already holds
+the new ones), renaming the sibling over it and syncing the folder. It is
+never truncated in place, a person's edit since the preview is kept, and a
+crash leaves the old bytes or the new ones, which the update journal, written
+the same way, can replay.
+
+**The rule:** no fs call on a project path bypasses the confined tree, and no
+write there happens on a platform without an any-component no-follow open.
+
+## An evidence guard judges revisions, found by card and revision, never by round
+
+A finished round's rule asks whether some work is good enough to move on,
+and the facts that answer are filed all over the run: a check on the check's
+own card, a judge's review on the judge's card, an observed diff or pull
+request on the writer's card with no round at all. The first version asked
+for a fact on the *subject's own card, in the finished round* — a join no
+fact the desk records ever satisfied, so every guarded rule waited forever,
+and a judge sitting in a clean Goal checkout was even taken for the thing
+being judged.
+
+So a guard judges *subjects*, and a subject is a revision: the head, read
+now, of the nearest cards back along `dependsOn` whose grant lets them change
+files and whose Agent does not produce reviews. A judge or reviewer is never
+a subject, whatever its grant; a check or a
+person round is walked through. The facts that may speak for a subject are
+those filed on any card that walk crossed — which is what scopes a fact to
+this run — at the subject's own revision, fresh, and observed here. The last
+observation of each question decides. Review guards are judged first and may
+single out one candidate every required reviewer (the finished round's own
+Seats) chose; every other guard is then judged at that revision. A writer
+whose checkout is dirty is kept as unsettled and waits, rather than being
+dropped from "every subject". The same walk, started from a card's own
+`dependsOn`, gives a check its fan-out width and a reviewer its candidates.
+Every durable append to the evidence store wakes waiting guards; a message
+never does.
+
+**The rule:** a fact counts for a rule by the card it is filed on and the
+revision it names, never by the round number it carries, and never for a
+checkout that could not have changed.
+
+---
+
+## A trigger's vocabulary is closed, and arming binds the whole file
+
+A project's `.harnessdesk` folder can declare that a pull request, an issue
+or a schedule opens work — but it declares from a fixed, finite vocabulary,
+never an expression, a template or a name that reaches a command, an
+environment variable or a ceiling. The alternative — letting a declaration
+name anything a flow already could — would make a cloned repository able to
+choose what runs on someone else's machine the moment they armed it, which is
+exactly the trust boundary a clone does not cross for any other file today.
+
+Arming does not consent to "this trigger" as a name; it consents to the exact
+bytes of the file, the exact resolved flow, every Seat and command that flow
+would open, and the forge account and repository bound at that moment. A
+comment-only edit to the file, a Seat's ceiling changing, or the bound
+account signing out all invalidate the arm before the next firing, and
+re-arming shows a fresh preview rather than assuming the old one still holds.
+Money follows the same discipline in the other direction: a budget is an
+observed stop threshold the desk watches spend against, never a pre-charge or
+an invoice, because no vendor here exposes a real one — a turn already in
+flight can still spend past the limit before its meter reports and the stop
+takes effect, and arming and Settings both say so rather than promising a
+number this design cannot back.
+
+**The rule:** nothing a trigger declares can become a command, a path, an
+environment key or a ceiling, and no dependency an arm was shown — file
+bytes, flow, Seats, commands, account — may change without invalidating it.
+
+## An arm binds what runs, not whether it can run now; a pause holds, a budget stops
+
+An arm is consent to content: the file, the flow, each Agent, each command,
+the seats each role would try and the ceiling it needs, and the forge
+account and repository. It is not a promise that a seat can be taken this
+minute. The first cut bound the seat plan's outcome — which candidate won
+and whether it held its ceiling — so a runtime that was down for a minute,
+or a sign-in that blinked, turned every firing in that minute into "changed
+since armed" and consumed it for good. Availability is now read again at
+dispatch (the firing waits, named, until a seat can be taken), and a read
+that cannot be made while answering a fact is no answer at all: the fact is
+kept and offered again.
+
+The same split decides pause and the daily cap. A pause, or a cap lowered
+below what is already committed, is a gate that lifts on its own, so it
+holds work — turns and checks interrupted, nothing recorded — and lifting it
+continues that work. A reached budget is not a gate: it is recorded, and a
+run it stops lets go of and interrupts every Seat, so nothing started under
+it keeps spending unmetered. The arming preview seats roles under the
+unattended policy for the same reason the binding excludes availability:
+consent has to describe what will actually run.
+
+**The rule:** bind content, recheck the world at dispatch; hold for what
+lifts on its own, stop for what does not.
+
+## Whose comment fires a trigger is the project's to say, and never the desk's own
+
+A trigger that reads issue comments started work for anyone who could
+comment, which on a public repository is anyone. The owner's decision
+(2026-09-24) is a closed, bounded `from:` — `me` by default, the account the
+arm is bound to; `collaborators`, anyone the forge says can write to the
+repository; or `anyone`, which the arming review warns about in plain words
+— because it is a product setting every user needs, not a constant. Authors
+are compared by the forge's numeric account id, digested the same way the
+arm binds the signed-in account; a login or a display name is never trusted,
+and an author or a permission that cannot be read never fires. The desk
+posts to the forge as that same account, so a comment it posted itself would
+pass `me` and fire again, a loop: everything the desk posts — a tool's
+comment, review or description, and every finding publication — opens with a
+marker line of the desk's own, any comment whose first line is exactly such a
+marker (the reconciliation rule, never a looser match) is skipped in every
+mode, and the id of every comment the desk posts is remembered across a
+restart, so a comment whose marker was edited away is still the desk's.
+
+## The front door's shapes are ordinary files, and its two clicks are a property of the dry run, not a wizard
+
+The front door names no use case in product code. "Fan out," "Review,"
+"Compare," "Relay," "Investigate," "Align" are six ordinary flow files that
+ship with the desk, read through the same `flow/catalog` a project's own
+Flows page already lists; a seventh, `mechanical-contest`, ships unordered on
+purpose, as the thing a person copies rather than one of the labelled six. A
+shape earns its place in the front door's own order and its context list
+(a branch, a pull request, a diff, a plain project) from `layout.frontDoor`,
+metadata the engine never reads and a person can edit like any other line in
+the file. The alternative — a `kind` the front door itself switches on — would
+have made "add a starting point" a code change forever, for something a
+project should be able to do by writing a file.
+
+Two clicks is what the plan promises, and it holds only because nothing
+between choosing a shape and pressing Start is allowed to ask a question the
+dry run itself does not already answer. A wizard, a confirmation step, or a
+second dialog to fill in what the dry run could have shown would each be one
+click away from three, quietly. What a click *does* buy — typing the
+sentence a Goal starts with, or building a shape from nothing in *Your own
+shape* — is not counted against the promise, because it is work a person
+chose to do, not a gate the front door put in the way of work they had
+already decided on.
+
+**The rule:** a shape is a file, ordered and gated by its own metadata, and a
+click that is not choosing a shape or pressing Start is a defect, not a
+feature, in the two-click path.
+
+## Starting a team requires a held ceiling; an asked one is a refusal shown, not a downgrade
+
+Phase 3's watched conversations tolerate a runtime that can only be *asked* to
+hold a ceiling — the standing order carries the limit, and the person is
+trusting the runtime to keep to it, because a person is watching. The front
+door starts a team that may run unattended for rounds at a time, with nobody
+necessarily reading every turn as it happens, so that same tolerance would be
+consent obtained under a materially different risk than the one it was
+designed for. A front-door run instead requires every Seat it ever opens —
+including a later or a recovered round — to *hold* its ceiling: the runtime
+must accept the control and read it back, or the candidate is passed over
+before it is given a brief, a tool or a card.
+
+This is why a fresh install with a runtime that can only be asked shows an
+honest refusal — a candidate name, a reason, a fix — rather than starting
+under a weaker policy and calling that success. The temptation the other way
+is real: silently relabelling an asked seat as held would make more desks
+pass the "two clicks from empty" demonstration, at the cost of the sentence
+that requirement is supposed to prove. A person can still explicitly widen a
+shape's own grants, or seat something asked-only by hand elsewhere — this
+decision governs only what the front door starts *for them*, by default,
+without them having read the file.
+
+**The rule:** a front-door run's requirement for held Seats is policy layered
+onto the existing seating path, not a second enforcement mechanism, and it
+never quietly becomes an asked run to make a demonstration succeed.
+
+## A shape's `layout:` is a shortcut a person can trust to be inert
+
+`layout.frontDoor` and `layout.positions` are the same reserved key the
+engine has always ignored, extended for two new readers: the front door's
+ordering and context list, and the graph's node positions. Both are read
+defensively — an unknown role, a value outside a stated bound, or a shape the
+reader does not recognise is dropped with a reason, never trusted, and never
+mistaken for a reason to stop reading the rest of the file. The alternative,
+trusting `layout:` enough to let it fill an input, choose a grant or route a
+round, would turn a canvas position into an attack surface: a cloned
+repository's own file could then shape what runs by shaping where a node
+happened to be drawn.
+
+Because nothing here can grant, seat, guard or route, the ordered editor and
+its graph can share one document with no risk that arranging a shape visually
+changes what it means: moving a node is exactly as consequential as
+scrolling a text file, and the render call that produces a shape's exact
+bytes (`authoring/shape/render`) never once inspects `layout:` to decide
+whether the result is valid.
+
+**The rule:** `layout:` may only ever offer a shortcut to a surface that
+already trusts nothing else in the file; the day it grants something is the
+day it needs to be a different key.
+
+## A review works at the commit it resolved, in checkouts of its own
+
+A "Review…" of a branch, a pull request or a diff used to guard only its
+Start: the resolved head and base were bound to the token, and then the run
+opened its Seats in the project's own checkout — whatever happened to be
+checked out — starting with a step that could edit it. The target decided
+whether Start was allowed, not what was reviewed.
+
+Now the resolved target travels from the token to the run (`target`), the
+run's Goal is pinned to its head (`Goal.at`, set by the host alone), and
+every Seat of a pinned Goal gets a lane cut from exactly that commit — the
+phase-6 lane an isolating role already gets, with its own ports and browser
+profile. Before a Seat is handed any work, git is read fresh in its
+checkout; a Seat anywhere else is released and the run stops with the
+reason. The shipped `review` shape reads only, is offered only for such
+starts, and the edit-first shapes are offered only for a plain project. A
+working tree has no commit to pin, so its reviewers read the project's own
+checkout and the token binds its snapshot. A reused Goal was never pinned,
+so a review of a committed change starts a Goal of its own.
+
+The alternatives were a single worktree for the whole Goal, or pinning by
+instruction alone. A single worktree would be a second checkout plane beside
+lanes, with its own recovery; an instruction is exactly the kind of claim
+that is worth only its recording. Lanes already had recovery, retention on
+wrap and a registry.
+
+**The rule:** a run that says what it reviews works there, and proves it
+before any work is handed out.
+
+## A declared attachment is a catalogue name, never an executable spec
+
+An Agent's `skills:`/`mcp:` lines name entries by identifier, not by command
+or path. Reading a cloned repository's `AGENT.md` and the `skills/` folder
+beside it starts no process and runs no script; it only ever produces the
+identities and bytes a person reviews before anything is trusted to load.
+Agent-local content is hashed whole — every referenced script and resource,
+not only `SKILL.md` — and bound to the repository's own incarnation, the
+Agent's origin and id, that bundle's digest, the runtime build and the
+effective ceiling; any one of those changing means review again. An external
+MCP server is classified `merge` by default, whatever a repository or the
+server's own tool annotations claim, and is only ever reached through the
+desk's own gateway, which can identify and gate every call — a runtime never
+holds a server's real address. A runtime that cannot suppress its own
+unapproved auto-loading for one Seat is refused outright before any session
+exists, never seated unscoped and hoped honest.
+
+One identity per attachment, taken from one read: a skill's is SHA-256 over
+its whole bundle, a server's is SHA-256 over `canonicalMcp` of the spec that
+would run (never the Library's 16-hex display digest). The same identity
+gates the review, the approval, preparation, staging, the runtime's receipt
+and the gateway. The host stages what it approved — the exact bytes under
+`attachments/staged/skill/<digest>/`, the exact spec under
+`attachments/staged/mcp/<digest>.json` — and a runtime is handed that staged
+copy, never the Agent's or the Library's own folder, which can change after
+a person looked. The bundled bridge re-reads the staged folder with the same
+bounds, hashes what it copies, and reports that hash; anything else is not
+loaded. A review is for the runtime `agent/seat` will actually choose, at the
+Agent's own ceiling, and the grant covers any Seat at or below that ceiling —
+a narrower Seat is less authority. An external server still needs a Seat that
+may merge, so the default (`edit`) seating of a merge-ceiling Agent loads its
+skills and says why its servers did not. A server's review shows the command,
+arguments and environment that will run (a credential's value is shown only
+as set, and approving a review that hides any value asks the person to say
+they know what it is — a value that changes what the server does can hide
+behind a name that looks like a credential), and its command runs only
+when the Seat lists or calls its tools, through the desk's gate, in an empty
+host-owned folder — never the Seat's checkout, whose own configuration could
+change what an approved command resolves to.
+
+**The rule:** trust and classification are host-computed from what was
+actually read, never taken from a repository's own claim about itself, and a
+runtime that cannot honor a Seat's declarations fails that seating in its own
+words rather than falling through to a different one nobody announced.
+
+## A person may seat an Agent above edit, asked or held, by choosing it
+
+An Agent whose ceiling is `publish` or `merge` was always seated at `edit`
+from the app, so the one Seat decision 13 lets load an external MCP server —
+one that may merge — could only be opened by a flow or a direct wire call.
+The Agent's page now offers *Start at a higher ceiling…*: a choice of level,
+up to the Agent's own ceiling and never past it, confirmed in a dialog that
+names each level's meaning and how the runtime that would take the seat
+keeps to it, in the words a ceiling chip already uses. `edit` stays the
+default, and the plain *Start* never asks.
+
+The owner's decision (2026-09-25) is that a level the runtime can only be
+*asked* to keep is offered too — labelled "asked, not held" — and not only a
+level it holds. No shipping runtime holds `publish` or `merge` today, so a
+held-only offer would leave the path this exists for unreachable. It is the
+same tolerance a watched conversation already has, and it follows the same
+setting: an asked level is offered only while this Mac's
+`unheldCeilings.watched` seats an unheld ceiling, and under `refuse` it is
+shown and not offered, with the reason. This is a watched, person-chosen
+Seat; it changes nothing the front door or a trigger starts, which still
+require a held ceiling.
+
+**The rule:** a ceiling above `edit` is only ever the person's explicit
+choice, never past the Agent's own, and an asked level is labelled as asked
+and offered only where this Mac already seats one.
+
+---
+
+## A Seat freezes its attachments; nothing it loaded can change after it opens
+
+What a Seat's runtime loads is decided once, at open, from the Agent's
+declarations as they stood then — not re-read on reconnect, not widened by a
+later approval, not narrowed by an edit to the Agent's file. `prepare` runs
+before a runtime session exists so the isolated input it is given can
+actually reflect what was decided; `record` durably appends one epoch to
+that Seat's own append-only history only after the runtime's own readback
+says what it loaded, so a Seat's history is what was *observed*, never what
+was merely requested. A later reconnect or resume revalidates those same
+frozen inputs and appends a new epoch; it never re-derives from the Agent's
+current wishes. History persists after a Seat closes and after a restart,
+and a restored (backup-imported) epoch is marked so and never reads as a
+live "currently loaded" — retention is a fact about the past, not a
+standing grant.
+
+The frozen filter survives everything a conversation outlives. A Seat keeps
+what it decided at open in machine state (`attachments/frozen/`), and a
+resume, a load, or a reconnect after its runtime restarts hands the runtime
+that same filter — revalidated against the staged copies, the approval for
+the runtime build now running, and the Seat's ceiling — then appends the
+reopen's receipt as a new epoch. A reopen whose runtime can no longer keep
+unapproved content out is refused; one it cannot record is closed. A fork is
+refused outright: it would be a new conversation on the runtime's defaults,
+and it is not the Seat. No session method accepts `attachments` from a
+client; only `agent/seat` sets it.
+
+**The rule:** a Seat's attachment record is append-only and observed, never
+rewritten and never optimistic; "declared, not loaded", "loaded" and "not
+recorded" are three different facts and no code path collapses one into
+another to look tidier.
+
+---
+
+## A memory citation retains bytes before the Goal ever references them
+
+Citing a wrapped Goal's committed memory file into another Goal is a person
+action, never an automatic link: `.harnessdesk/memory/<slug>.md` is ordinary
+committed prose, and a citation names a full commit, a literal path and the
+exact wrapped receipt a person selected — "Source selected by you", never a
+claim the file itself makes about its own origin. Retention is
+durable-before-reference: the exact bytes, the source Goal's receipt and the
+Seats that were there are written to content-addressed storage first, and
+only a successful write is ever referenced from the citing Goal's own index —
+a failure past that point leaves at most an unreferenced object, never a
+citation pointing at nothing. The source Goal, its checkout or the whole
+desk that made it may later disappear; the retained copy still resolves,
+honestly labeled `Source Goal unavailable` or `Original revision
+unavailable` rather than silently going quiet. None of this grants a tool,
+moves an evidence column, or lets a citation someone merely restored from a
+backup satisfy a dependency a live Goal never actually earned.
+
+Retention is for project memory only. `goal/cite` keeps the reach phase 5
+gave it — any committed document at a full revision may be cited — and
+retains a snapshot only when the path is a memory file; any other citation is
+checked at its revision and waits on its source like any other dependency.
+The plan narrows what memory is (decision 1), not what a Goal may cite.
+Memory is read from an ordinary checkout or from a linked worktree, which is
+what every Agent lane is: `.git` → `gitdir` → `commondir` is followed hop by
+hop, each reached through no link, the gitdir must be one its repository
+registered under its own common directory, and its back-pointer must name
+this very checkout — anything else is refused. A backup's index is a claim:
+a link is accepted only when the archive it names carries that exact
+citation, and restored history never replaces or collides with a citation
+this desk registered itself.
+
+**The rule:** retention happens before the Goal mutation that references it,
+a citation is data a person carries on purpose, and no archived or restored
+record may authorize dispatch, membership or tools by itself.
+
+---
+
+## A ceiling chip's tone is a report, not a warning
+
+Most runtimes have no control that holds a ceiling at all, so `asked` is the
+ordinary state for nearly every seat and every built-in Agent — not a
+warning about this particular one. `ceilingTone` returns neutral, always;
+`held` and `asked` are told apart in the chip's own words and its hover
+explanation, never in its colour.
+
+**The rule:** a ceiling chip's colour never carries a fact its words do not
+already say.

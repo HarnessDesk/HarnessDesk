@@ -61,7 +61,7 @@ const session = (id: string, cwd: string, repo: { root: string; worktree: boolea
 const workspace = (path: string, repo: { root: string; worktree: boolean }): WorkspaceEntry =>
   ({ path, name: path.split('/').at(-1) ?? path, lastOpenedAt: 1, repo })
 
-const render = (history: SessionSummary[], open: WorkspaceEntry): void => {
+const render = (history: SessionSummary[], open: WorkspaceEntry, over: Partial<AppSnapshot> = {}): void => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -70,6 +70,7 @@ const render = (history: SessionSummary[], open: WorkspaceEntry): void => {
     history,
     workspace: open,
     workspaces: [open],
+    ...over,
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -130,4 +131,63 @@ it('still gives a folder you have just opened a row of its own', () => {
 
   expect(projects().sort()).toEqual(['other', 'repo'])
   expect(currentProject()).toBe('other')
+})
+
+it('only a stopped project adds capture text, including its folded canonical alias', () => {
+  const tree = `${REPO}/.claude/worktrees/hours-bug`
+  const off = { project: REPO, enabled: false, state: 'stopped' as const, reason: 'Capture is off.', nextStep: 'Turn capture on.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 }
+  render(
+    [session('a', REPO, { root: REPO, worktree: false }), session('b', tree, { root: REPO, worktree: true })],
+    workspace(tree, { root: REPO, worktree: true }),
+    { captureHealth: new Map([[REPO, off]]) },
+  )
+  expect(container.textContent).toContain('Capture stopped')
+  render([session('a', REPO, { root: REPO, worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { captureHealth: new Map([[REPO, { ...off, enabled: true, state: 'healthy' }]]) })
+  expect(container.textContent).not.toContain('Capture stopped')
+})
+
+it('a trigger Goal’s room is named by its Goal, with no origin line of its own, and no row asks Intake for one', async () => {
+  const room = {
+    id: 'room-1', name: 'Fix the retry bug', updatedAt: 2, members: [], root: REPO,
+    intents: [], channel: [], messaging: true,
+  } as unknown as import('@harnessdesk/protocol').TeamState
+  const goal = {
+    goal: { id: 'room-1', root: REPO, cwd: REPO, sentence: 'Fix the retry bug', state: 'open', revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' }, createdAt: 1, updatedAt: 2, receipt: null },
+    activity: 'working', waitingOn: [], members: [], board: room, receipt: null, problem: null,
+  } as unknown as import('@harnessdesk/protocol').GoalView
+  const triggerGoal = vi.fn(async () => ({
+    goal: 'room-1', trigger: 'review-pr', source: 'pull-request' as const, label: 'from PR #12', url: null, budget: null, waits: [],
+  }))
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    runtimes: [runtime],
+    history: [session('a', REPO, { root: REPO, worktree: false })],
+    workspace: workspace(REPO, { root: REPO, worktree: false }),
+    workspaces: [workspace(REPO, { root: REPO, worktree: false }), workspace('/other', { root: '/other', worktree: false })],
+    teams: new Map([['room-1', room]]),
+    goals: new Map([['room-1', goal]]),
+  } as unknown as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    setListPrefs: vi.fn(),
+    setProjectsCollapsed: vi.fn(),
+    toggleProjectCollapsed: vi.fn(),
+    setOthersOpen: vi.fn(),
+    triggerGoal,
+  } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={2} />
+      </StoreProvider>,
+    )
+  })
+  // Where the Goal came from is its room's own header chip; the sidebar
+  // names the Goal and never asks.
+  expect(triggerGoal).not.toHaveBeenCalled()
+  expect(container.textContent).toContain('Fix the retry bug')
+  expect(container.textContent).not.toContain('from PR #12')
 })

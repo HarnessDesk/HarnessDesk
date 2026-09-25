@@ -19,8 +19,15 @@
  *   SHOT_STORE        conversation store, in `seed.mjs`'s shape
  *   SHOT_MODELS       `id:Name,id:Name` — the composer's model picker
  *   SHOT_TURN         which of the four scripted turns this seat plays
+ *
+ * Two files beside the store, read on every listing rather than at start, so a
+ * scene can bend the history while the app runs and put it back:
+ *   <store>.list-fails   `session/list` fails as an agent whose index is locked does
+ *   <store>.prompt-fails `session/prompt` fails as an agent whose session another process holds does
+ *   <store>.page         a number: `session/list` answers that many rows a page
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 
 const NAME = process.env['SHOT_AGENT_NAME'] ?? 'agent'
@@ -39,6 +46,18 @@ const readStore = () => {
   }
 }
 
+/** A file beside the store, named for it: `claude-code.json` has `claude-code.page`. */
+const beside = (suffix) => (STORE ? join(dirname(STORE), `${basename(STORE, '.json')}.${suffix}`) : null)
+const readPage = () => {
+  const file = beside('page')
+  if (!file) return 0
+  try {
+    return Number(readFileSync(file, 'utf8'))
+  } catch {
+    return 0
+  }
+}
+
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`)
 const reply = (id, result) => send({ jsonrpc: '2.0', id, result })
 const fail = (id, message) => send({ jsonrpc: '2.0', id, error: { code: -32600, message } })
@@ -53,6 +72,19 @@ const newSession = (id, cwd) => {
   const state = { id, cwd, modelId: MODELS[0].modelId, modeId: 'default' }
   sessions.set(id, state)
   return state
+}
+
+const remember = (state) => {
+  if (!STORE) return
+  const store = readStore()
+  store[state.id] = {
+    sessionId: state.id,
+    cwd: state.cwd,
+    title: `${NAME} conversation`,
+    updatedAt: new Date().toISOString(),
+    turns: [],
+  }
+  writeFileSync(STORE, `${JSON.stringify(store, null, 2)}\n`)
 }
 
 /* ------------------------------------------------------------------ the turn */
@@ -207,6 +239,7 @@ const handlers = {
   'session/new': (id, params) => {
     seq += 1
     const state = newSession(`s-${seq}`, params?.cwd ?? process.cwd())
+    remember(state)
     reply(id, {
       sessionId: state.id,
       models: { currentModelId: state.modelId, availableModels: MODELS },
@@ -220,15 +253,24 @@ const handlers = {
     })
   },
 
-  'session/list': (id) => {
-    const store = readStore()
+  'session/list': (id, params) => {
+    const failing = beside('list-fails')
+    if (failing && existsSync(failing)) {
+      return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { details: 'the index is locked' } } })
+    }
+    const rows = Object.values(readStore()).map((entry) => ({
+      sessionId: entry.sessionId,
+      cwd: entry.cwd,
+      title: entry.title,
+      updatedAt: entry.updatedAt,
+    }))
+    const perPage = readPage()
+    if (!(perPage > 0)) return reply(id, { sessions: rows })
+    // ACP's paging: a page, and a cursor for the next one while there is one.
+    const from = Number(params?.cursor ?? 0)
     reply(id, {
-      sessions: Object.values(store).map((entry) => ({
-        sessionId: entry.sessionId,
-        cwd: entry.cwd,
-        title: entry.title,
-        updatedAt: entry.updatedAt,
-      })),
+      sessions: rows.slice(from, from + perPage),
+      ...(from + perPage < rows.length ? { nextCursor: String(from + perPage) } : {}),
     })
   },
 
@@ -264,6 +306,10 @@ const handlers = {
   },
 
   'session/prompt': async (id, params) => {
+    const failing = beside('prompt-fails')
+    if (failing && existsSync(failing)) {
+      return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { details: 'the session is owned by another process' } } })
+    }
     const sessionId = params.sessionId
     cancelled.delete(sessionId)
     const stopReason = await playTurn(sessionId)

@@ -8,8 +8,8 @@ import {
 } from '@harnessdesk/protocol'
 
 import { RuntimeMark } from './BrandIcons'
-import { Rows, RowButton, kit } from '../design/primitives/Kit'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../design/ui'
+import { CodeText, IconTile, Monogram, Rows, RowButton, Text } from '../design'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../design'
 import { REACH_SENTENCE } from '../lib/reach-states'
 import type { LibraryColumn } from './LibraryActions'
 import styles from './SkillRow.module.css'
@@ -17,7 +17,7 @@ import styles from './SkillRow.module.css'
 /**
  * A skill, as a line in a list of things you have.
  *
- * ——— why this is a Kit row ———
+ * ——— why this is a canonical Settings row ———
  *
  * It was a card grid first. Claude's skills directory and Codex's skills page
  * are both card grids, copying them read well in a fixture of six entries,
@@ -30,24 +30,21 @@ import styles from './SkillRow.module.css'
  *
  * The reason was the *component*. Every other page in Settings — Plugins,
  * Extensions, the per-agent Skills page, Accounts — draws its list with
- * `Kit.Rows` and `Kit.RowButton`: one bordered container at `--hd-radius-lg`,
- * 14/16 padding, a 34px neutral mark with an inset hairline, title over
- * description, controls and a chevron on the right. A settings page that
- * hand-rolls its own row out of a lower layer is a page that will drift from
- * its neighbours on the next density change, and had already drifted on this
- * one.
+ * the shared `Rows` and `RowButton` pattern: one bordered container, canonical
+ * padding, a neutral mark, title over description, controls and a chevron on
+ * the right. A settings page that hand-rolls its own row out of a lower layer
+ * is a page that will drift from its neighbours on the next density change,
+ * and had already drifted on this one.
  *
  * So this *is* a Plugins row — the same component, not a copy of its look.
- * That is the only version of "consistent" that survives someone editing
- * Kit.module.css. The repo's rule is `design/ui` for new surfaces and `Kit`
- * for the rest; a list inside Settings is not a new surface, it is the same
- * list Settings has always had, with one more thing to say in the control
- * slot. `SkillSheet` stays on `design/ui`, because a dialog is its own
- * surface and every dialog in the app is already that layer.
+ * That is the only version of "consistent" that survives someone editing the
+ * canonical pattern. A list inside Settings is the same presentation contract
+ * as its neighbours, with one more thing to say in the control slot.
+ * `SkillSheet` composes the canonical dialog policy for the same reason.
  *
  * The information design is unchanged — that part was right:
  *
- *   the description is content, not a subtitle    it gets two full lines
+ *   the description is a caption, not content            one line, clamped
  *   the name is also a command                    `/name`, beside the title
  *   who loads it is the thing only we know        agent marks, in the control
  *   reading it is one press                       the chevron, into the sheet
@@ -66,7 +63,7 @@ import styles from './SkillRow.module.css'
  * is recognisable — and the first two letters where it is a single word,
  * because one letter on a tile is a placeholder and two is a monogram.
  *
- * On Kit's own neutral ground, not a tint. A tint would be legitimate by
+ * On the Settings pattern's neutral ground, not a tint. A tint would be legitimate by
  * `IconTile`'s rule (it identifies rather than judges) and at a hundred rows
  * a hundred pastel squares stop identifying and start reading as decoration —
  * and every other mark in Settings is this grey.
@@ -104,24 +101,28 @@ const ReachFace = ({
   const sentence = note ? `${REACH_SENTENCE[state]} — ${note}` : REACH_SENTENCE[state]
   return (
     <Tooltip>
-      {/* `asChild`: this is Radix, and its Trigger renders a <button> by
-          default — a button inside the row's own button is invalid markup
-          that React warns about and the browser un-nests. */}
-      <TooltipTrigger asChild>
-        <span
-          data-slot="skill-reach"
-          data-state={state}
-          {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
-          aria-label={`${column.label}: ${sentence}`}
-          role="img"
-          className={styles.face}
-        >
-          {column.info ? (
-            <RuntimeMark runtime={column.info} size={12} />
-          ) : (
-            <span className={styles.initial}>{column.label[0]}</span>
-          )}
-        </span>
+      <TooltipTrigger
+        render={
+          /* The agent's mark on its round tile: the warning ground for a
+             problem, the neutral one where it loads, the same tile faded
+             for every other "not this one". */
+          <IconTile
+            size="xs"
+            shape="round"
+            tone={isReachProblem(state) ? 'warning' : 'neutral'}
+            data-reach={state}
+            {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
+            role="img"
+            aria-label={`${column.label}: ${sentence}`}
+            className={state === 'reaches' || isReachProblem(state) ? undefined : 'opacity-40'}
+          />
+        }
+      >
+        {column.info ? (
+          <RuntimeMark runtime={column.info} size={12} />
+        ) : (
+          <Monogram>{column.label[0]}</Monogram>
+        )}
       </TooltipTrigger>
       <TooltipContent>
         {column.label} · {name} — {sentence}
@@ -219,34 +220,34 @@ export const SkillRow = ({
       data-slot="skill-row"
       {...(entryHasProblem(entry) ? { 'data-problem': '' } : {})}
       onClick={onOpen}
-      mark={<span className={styles.monogram}>{monogramFor(entry.name)}</span>}
+      mark={<Monogram>{monogramFor(entry.name)}</Monogram>}
       title={
         <span className={styles.name}>
-          <span className={styles.label}>{entry.title ?? entry.name}</span>
+          {/* The row's title weight, as every other settings row's name. */}
+          <span className="min-w-0 truncate">{entry.title ?? entry.name}</span>
           {/* The name written the way it is typed. The identity a skill has on
               disk is the directory name; the identity it has in a composer is
               `/name`, and showing only the first leaves the second to
               guesswork. MCP servers get no slash — they are loaded, not
               invoked. */}
-          <code className={`${kit.mono} ${styles.command}`}>
-            {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
-          </code>
+          <Text role="muted" ink="muted">
+            <CodeText as="code" size="inherit">
+              {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
+            </CodeText>
+          </Text>
         </span>
       }
-      desc={
-        /* Clamped at two lines, unlike a plugin's description, because these
-           are not ours: a real machine holds skills whose frontmatter runs to
-           a paragraph, and one of them unclamped is taller than six rows. */
-        <span className={styles.desc}>
-          {entry.description ?? <span className={styles.blank}>No description in its frontmatter</span>}
-        </span>
-      }
+      desc={entry.description ?? 'No description in its frontmatter'}
       control={
         <>
           {finding && (
-            <span className={styles.finding} data-tone={finding.tone}>
+            <Text
+              role="muted"
+              ink="muted"
+              {...(finding.tone === 'warn' ? { tone: 'warning' as const } : {})}
+            >
               {finding.text}
-            </span>
+            </Text>
           )}
           <span className={styles.faces}>
             {entry.reach.map((reach, index) => {
@@ -272,7 +273,7 @@ export const SkillRow = ({
 /**
  * The rows together, in the container every other Settings list uses.
  *
- * `Kit.Rows` owns the border, the radius and the hairlines — including the
+ * `Rows` owns the border, the radius and the hairlines — including the
  * `:last-child` exception that a per-row border always forgets.
  */
 export const SkillList = ({ children }: { children: React.ReactNode }) => (

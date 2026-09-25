@@ -119,6 +119,29 @@ const PAIRS: [ink: string, fill: string][] = [
   ),
 ]
 
+describe('the three text inks clear AA on every surface ground', () => {
+  const resolved = faces()
+  const inks = ['--hd-foreground', '--hd-secondary-foreground', '--hd-muted-foreground'] as const
+  const grounds = ['--hd-background', '--hd-card', '--hd-sidebar', '--hd-popover'] as const
+
+  for (const face of ['light', 'dark'] as const) {
+    it(`keeps every tier readable on every ground (${face})`, () => {
+      const failures: string[] = []
+      for (const inkName of inks) {
+        const ink = parse(faceOf(resolved, face).get(inkName) ?? '') as Rgb
+        expect(ink, `${face}: ${inkName} missing`).not.toBeNull()
+        for (const groundName of grounds) {
+          const ground = parse(faceOf(resolved, face).get(groundName) ?? '') as Rgb
+          expect(ground, `${face}: ${groundName} missing`).not.toBeNull()
+          const ratio = contrast(over(ink, ground), ground)
+          if (ratio < AA) failures.push(`${inkName} on ${groundName}: ${ratio.toFixed(2)}:1`)
+        }
+      }
+      expect(failures, `${face} text tier below ${AA}:1`).toEqual([])
+    })
+  }
+})
+
 describe('tinted text is readable', () => {
   const resolved = faces()
 

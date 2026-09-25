@@ -16,19 +16,23 @@ import {
 } from '../lib/profile'
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
 import {
-  Btn,
+  Button,
+  Card,
   DetailHead,
   Face,
   Input,
-  kit,
+  Keycap,
+  Note,
+  RowValue,
   PageHead,
   Row,
   Rows,
   SectionHead,
   Segmented,
-  Select,
-  Toggle,
-} from '../design/primitives/Kit'
+  NativeSelect,
+  Switch,
+  Text,
+} from '../design'
 import styles from './SettingsYou.module.css'
 
 /**
@@ -125,9 +129,9 @@ export const ProfileSection = () => {
         blurb="Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."
         actions={
           isDefaultProfile(live) ? undefined : (
-            <Btn variant="outline" onClick={reset}>
+            <Button variant="outline" onClick={reset}>
               Reset to default
-            </Btn>
+            </Button>
           )
         }
       />
@@ -177,17 +181,18 @@ export const ProfileSection = () => {
         onChange={(avatar) => store.setProfile({ avatar })}
       />
       {keeps && (
-        <p id={noteId} className={styles.pageNote}>
+        <Note id={noteId} className={styles.pageNote}>
           Your profile holds a face this version of HarnessDesk cannot draw, so it shows as the house mark. It is kept
           as it is until you choose one here.
-        </p>
+        </Note>
       )}
     </>
   )
 }
 
 /**
- * Eight to a row: Default and the twenty-three faces make three even rows.
+ * Eight to a row: Default and the mark's six colourways fill the first row and
+ * a tile over, and the twenty-three whales run on to the end of the fourth.
  * The grid takes its column count from here (`--face-columns`), so the step
  * Up and Down take and the row the eye sees are one number.
  */
@@ -203,7 +208,7 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
 /**
  * Every face you could wear, as one radio group.
  *
- * One stop on the tab order, not twenty-four: Tab lands on the face you wear,
+ * One stop on the tab order, not thirty: Tab lands on the face you wear,
  * and the arrow keys walk the grid — across, and down a row of eight — the
  * way a radio group has always moved, choosing as they go. Home and End are
  * left out on purpose: in a group that chooses as it moves, a stray Home
@@ -213,7 +218,7 @@ const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: str
  * tile, holding a face this build keeps with nothing checked, a Left that
  * chose would be that same silent reset. Otherwise Left and Right run on
  * across the rows, in reading order. A face's name is its label and its description the
- * hover, because twenty-four captions under twenty-four pictures would turn a
+ * hover, because thirty captions under thirty pictures would turn a
  * glance into a read.
  *
  * A face this build cannot draw — one a later build stored — checks no tile at
@@ -253,17 +258,18 @@ const FacePicker = ({
   }
 
   return (
-    <div
-      className={styles.faces}
-      style={{ '--face-columns': FACE_COLUMNS } as CSSProperties}
-      role="radiogroup"
-      aria-label="Picture"
-      {...(describedBy ? { 'aria-describedby': describedBy } : {})}
-    >
-      {FACE_CHOICES.map((choice, index) => {
+    <Card spacing="compact" radius="lg">
+      <div
+        className={styles.faces}
+        style={{ '--face-columns': FACE_COLUMNS } as CSSProperties}
+        role="radiogroup"
+        aria-label="Picture"
+        {...(describedBy ? { 'aria-describedby': describedBy } : {})}
+      >
+        {FACE_CHOICES.map((choice, index) => {
         const on = index === current
         return (
-          <button
+          <Button
             key={choice.id ?? 'default'}
             ref={(node) => {
               buttons.current[index] = node
@@ -274,7 +280,8 @@ const FacePicker = ({
             aria-label={choice.label}
             title={`${choice.label} — ${choice.about}`}
             tabIndex={index === stop ? 0 : -1}
-            className={styles.faceChoice}
+            variant="ghost" size="inline" className={styles.faceChoice}
+            data-swatch
             {...(on ? { 'data-on': '' } : {})}
             onClick={() => onChange(choice.id)}
             onKeyDown={(event) => {
@@ -290,10 +297,11 @@ const FacePicker = ({
             }}
           >
             <Face avatar={choice.id} size={44} className={styles.faceTile} />
-          </button>
+          </Button>
         )
-      })}
-    </div>
+        })}
+      </div>
+    </Card>
   )
 }
 
@@ -314,8 +322,8 @@ export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
     <Rows>
       <Row
         title="Everything stays on this Mac"
-        desc="Settings, registered agents and transcripts live in ~/.harnessdesk. Nothing syncs or uploads."
-        control={<span className={kit.rowFixed}>Local</span>}
+        desc="Everything lives in ~/.harnessdesk; nothing syncs or uploads."
+        control={<RowValue>Local</RowValue>}
       />
       <Row
         title="Agent sign-ins belong to the agents"
@@ -368,25 +376,24 @@ const AccentSwatches = () => {
   return (
     <span className={styles.swatches} role="radiogroup" aria-label="Accent">
       {ACCENTS.map((entry) => (
-        <button
+        <Button
           key={entry.value}
           type="button"
           role="radio"
           aria-checked={accent === entry.value}
           aria-label={entry.label}
           title={entry.label}
-          className={styles.swatch}
+          variant="ghost" size="icon-circle"
           {...(accent === entry.value ? { 'data-on': '' } : {})}
-          style={{
-            background:
-              (dark ? entry.dark : entry.colour) ??
-              /* "Default" is the palette's own accent: the live token while it
-                 is the one in use, and the palette's recorded value otherwise
-                 — the token on `body` would report whichever accent is on. */
-              (accent === 'default'
-                ? 'var(--hd-accent)'
-                : (PALETTE_ACCENT[palette]?.[dark ? 1 : 0] ?? 'var(--hd-accent)')),
-          }}
+          swatch={
+            (dark ? entry.dark : entry.colour) ??
+            /* "Default" is the palette's own accent: the live token while it
+               is the one in use, and the palette's recorded value otherwise
+               — the token on `body` would report whichever accent is on. */
+            (accent === 'default'
+              ? 'var(--hd-accent)'
+              : (PALETTE_ACCENT[palette]?.[dark ? 1 : 0] ?? 'var(--hd-accent)'))
+          }
           onClick={() => store.setAccent(entry.value)}
         />
       ))}
@@ -461,7 +468,7 @@ export const AppearanceSection = () => {
           /* Earned under the second-line rule: the accent used to be every
              filled control in the app and is now the marks that say where you
              are, so the label alone would over-promise. */
-          desc="The row you are on, a switch that is on, a focus ring, a link. Buttons are ink in every accent."
+          desc="The selected row, a switch that is on, a focus ring, a link."
           control={<AccentSwatches />}
         />
         <Row
@@ -488,12 +495,13 @@ export const AppearanceSection = () => {
           title="Font"
           desc={faces.length === 0 ? 'No coding fonts were found on this Mac.' : 'Only fonts installed on this Mac are listed.'}
           control={
-            <Select
-              label="Code font"
+            <NativeSelect
+              aria-label="Code font"
               value={current}
-              options={faceOptions}
-              onChange={(next) => store.setEditorPrefs({ fontFamily: next })}
-            />
+              onChange={(event) => store.setEditorPrefs({ fontFamily: event.target.value })}
+            >
+              {faceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </NativeSelect>
           }
         />
         <Row
@@ -510,20 +518,20 @@ export const AppearanceSection = () => {
         <Row
           title="Line numbers"
           control={
-            <Toggle
-              label="Line numbers"
-              on={snapshot.editorPrefs.lineNumbers}
-              onChange={(lineNumbers) => store.setEditorPrefs({ lineNumbers })}
+            <Switch
+              aria-label="Line numbers"
+              checked={snapshot.editorPrefs.lineNumbers}
+              onCheckedChange={(lineNumbers) => store.setEditorPrefs({ lineNumbers })}
             />
           }
         />
         <Row
           title="Wrap long lines"
           control={
-            <Toggle
-              label="Wrap long lines"
-              on={snapshot.editorPrefs.wrap}
-              onChange={(wrap) => store.setEditorPrefs({ wrap })}
+            <Switch
+              aria-label="Wrap long lines"
+              checked={snapshot.editorPrefs.wrap}
+              onCheckedChange={(wrap) => store.setEditorPrefs({ wrap })}
             />
           }
         />
@@ -611,14 +619,14 @@ export const NotificationsSection = () => {
         blurb="What HarnessDesk tells you outside a conversation."
         actions={
           silenced.length > 0 ? (
-            <Btn
+            <Button
               variant="outline"
               onClick={() => {
                 for (const entry of silenced) store.setNoticeMuted(entry.kind, false)
               }}
             >
               Turn all back on
-            </Btn>
+            </Button>
           ) : undefined
         }
       />
@@ -629,10 +637,10 @@ export const NotificationsSection = () => {
           title="System notifications"
           desc="Through macOS, when the window is not in front."
           control={
-            <Toggle
-              label="System notifications"
-              on={snapshot.systemNotifications['enabled'] !== false}
-              onChange={(next) => store.setSystemNotification('enabled', next)}
+            <Switch
+              aria-label="System notifications"
+              checked={snapshot.systemNotifications['enabled'] !== false}
+              onCheckedChange={(next) => store.setSystemNotification('enabled', next)}
             />
           }
         />
@@ -643,10 +651,10 @@ export const NotificationsSection = () => {
               title={entry.title}
               desc={entry.detail}
               control={
-                <Toggle
-                  label={`Notify for ${entry.title}`}
-                  on={systemNotificationOn(snapshot.systemNotifications, entry.kind)}
-                  onChange={(next) => store.setSystemNotification(entry.kind, next)}
+                <Switch
+                  aria-label={`Notify for ${entry.title}`}
+                  checked={systemNotificationOn(snapshot.systemNotifications, entry.kind)}
+                  onCheckedChange={(next) => store.setSystemNotification(entry.kind, next)}
                 />
               }
             />
@@ -671,19 +679,19 @@ export const NotificationsSection = () => {
                   {record ? (
                     <>
                       {' '}
-                      <span className={styles.putAway}>
+                      <Text role="meta">
                         Put away {record.count === 1 ? 'once' : `${record.count} times`}
                         {record.at > 0 ? `, last ${formatAge(record.at, now)}` : ''}.
-                      </span>
+                      </Text>
                     </>
                   ) : null}
                 </>
               }
               control={
-                <Toggle
-                  label={`Show "${entry.title}"`}
-                  on={!muted}
-                  onChange={(next) => store.setNoticeMuted(entry.kind, !next)}
+                <Switch
+                  aria-label={`Show "${entry.title}"`}
+                  checked={!muted}
+                  onCheckedChange={(next) => store.setNoticeMuted(entry.kind, !next)}
                 />
               }
             />
@@ -691,9 +699,9 @@ export const NotificationsSection = () => {
         })}
       </Rows>
 
-      <p className={styles.pageNote}>
+      <Note className={styles.pageNote}>
         A lost connection is not on this list: it is the one message the app must always make.
-      </p>
+      </Note>
     </>
   )
 }
@@ -711,7 +719,7 @@ const GROUPS: readonly Shortcut['group'][] = [...new Set(SHORTCUTS.map((s) => s.
 const ChordRow = ({ shortcut }: { shortcut: Shortcut }) => (
   <Row
     title={shortcut.label}
-    control={<kbd className={styles.chord}>{chordOf(shortcut)}</kbd>}
+    control={<Keycap className={styles.chord}>{chordOf(shortcut)}</Keycap>}
   />
 )
 
@@ -742,10 +750,10 @@ export const ShortcutsSection = () => (
 
     <SectionHead name="In the composer" />
     <Rows>
-      <Row title="Send" control={<kbd className={styles.chord}>↵</kbd>} />
-      <Row title="New line" control={<kbd className={styles.chord}>⇧↵</kbd>} />
-      <Row title="Commands" control={<kbd className={styles.chord}>/</kbd>} />
-      <Row title="Mention a file" control={<kbd className={styles.chord}>@</kbd>} />
+      <Row title="Send" control={<Keycap className={styles.chord}>↵</Keycap>} />
+      <Row title="New line" control={<Keycap className={styles.chord}>⇧↵</Keycap>} />
+      <Row title="Commands" control={<Keycap className={styles.chord}>/</Keycap>} />
+      <Row title="Mention a file" control={<Keycap className={styles.chord}>@</Keycap>} />
     </Rows>
   </>
 )

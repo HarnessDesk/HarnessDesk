@@ -31,7 +31,7 @@ export interface AcpCommandSpec {
 
 export interface AcpAccountCommands {
   /** Prints who is signed in: JSON (`loggedIn`, `email`) or `Logged in as …`. */
-  readonly status: AcpCommandSpec
+  readonly status?: AcpCommandSpec
   /** Starts the browser sign-in; prints its URL; exits 0 when signed in. */
   readonly login?: AcpCommandSpec
   readonly logout?: AcpCommandSpec
@@ -73,6 +73,10 @@ export class CliAccount {
     const methods = this.commands.login
       ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }]
       : []
+    // Some CLIs expose authentication only through their interactive prompt.
+    // They can still drive login/logout, but probing status would start that
+    // prompt and potentially block waiting for a browser flow.
+    if (!this.commands.status) return { accounts: [], signInMethods: methods }
     try {
       const stdout = await this.#run(this.commands.status)
       const parsed = parseStatus(stdout)

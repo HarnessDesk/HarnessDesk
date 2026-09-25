@@ -37,7 +37,7 @@ describe('the dim over a narrow window', () => {
        nothing. */
     const closed = blockAfter('.scrim {')
     expect(closed).toMatch(/visibility:\s*hidden/)
-    expect(closed).toMatch(/visibility 0s linear var\(--hdp-transition-duration-slow\)/)
+    expect(closed).toMatch(/visibility 0s linear var\(--hd-duration-slow\)/)
     expect(closed).not.toMatch(/pointer-events:\s*none/)
     expect(blockAfter('.scrim[data-open] {')).toMatch(/visibility:\s*visible/)
   })
@@ -47,7 +47,7 @@ describe('the dim over a narrow window', () => {
        with Tab" — a rule nothing held until now. */
     const hidden = blockAfter('.sidebar[data-hidden] {')
     expect(hidden).toMatch(/visibility:\s*hidden/)
-    expect(hidden).toMatch(/visibility 0s linear var\(--hdp-transition-duration-slow\)/)
+    expect(hidden).toMatch(/visibility 0s linear var\(--hd-duration-slow\)/)
   })
 
   it('slides the sidebar out of the way in a narrow window, and draws it in full while it floats', () => {
@@ -64,10 +64,14 @@ describe('the dim over a narrow window', () => {
     expect(blockAfter('.shell[data-narrow] .right {')).toMatch(/position:\s*absolute;[^}]*inset:\s*0/)
   })
 
-  it('has no fade to wait out when motion is reduced', () => {
-    /* The app shortens every transition's duration then, but not a delay:
-       without this the dim would be gone at once and still in the way,
-       unseen, for the whole span. */
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.scrim\s*\{\s*transition:\s*none;?\s*\}\s*\}/)
+  it('has no fade or slide to wait out when motion is reduced', () => {
+    /* The app zeroes every transition's duration then, but not a delay:
+       without this the dim would be gone at once and still in the way, and
+       the sidebar gone from sight with its controls still in reach of Tab,
+       for the whole span. How that reads in a browser is
+       e2e/ui-system/reduced-motion.spec.ts. */
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.scrim,\s*\.sidebar\[data-hidden\],\s*\.shell\[data-narrow\] \.sidebar\s*\{\s*transition:\s*none;?\s*\}\s*\}/,
+    )
   })
 })

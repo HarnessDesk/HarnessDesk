@@ -1,217 +1,273 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 
-import { Btn, Dialog, Input } from '../design'
-import { FlowStart, type FlowChoice } from './FlowStart'
+import type { AgentEntry, SeatPlan } from '@harnessdesk/protocol'
+
+import { agentName, firstReason, inForce, seatTaken } from '../lib/agents'
+import {
+  ActionError,
+  Button,
+  ChoiceList,
+  Dialog,
+  Field,
+  FormStack,
+  Input,
+  NativeSelect,
+  Text,
+} from '../design'
 import { projectRootOf } from '../lib/projects'
+import { useShell } from '../panels/views'
 import { useSnapshot, useStore } from '../state/context'
-import { AgentIcon, TeamIcon } from './Icons'
-import { projectRoots, useProjectGroups } from './SessionTree'
-import styles from './NewSessionChoice.module.css'
+import { AgentIcon, FlowIcon, GoalIcon, TeamIcon } from './Icons'
+import { FlowStart, type FlowChoice } from './FlowStart'
+import { FrontDoor } from './FrontDoor'
+import { GoalCreate } from './GoalCreate'
+
+/** What this dialog can start. Order is the order a person reads them in. */
+type Kind = 'session' | 'goal' | 'flow' | 'team'
+
+const PLAIN = 'plain'
 
 /**
- * What are you starting: one agent, or several?
- *
- * The two are different shapes of work and the app had a door for only one of
- * them. "New session" made a solo draft, and a Room appeared later — after
- * agents happened to be in the folder — which meant the collaborative half of
- * the product was something you discovered rather than something you chose.
- * Somebody who came to run three agents on one repository had no way to say so.
- *
- * The dialog is on the *button*, not on the verb: ⌘N still goes straight to a
- * session, because a shortcut is for the thing you already decided, and the
- * command palette's own "New session" is unchanged. Nobody who knows what they
- * want has to answer a question about it.
- *
- * Choosing a room asks for its name before making it. A project holds as many
- * rooms as the work wants — the same way it holds sessions — so "the room" is
- * not a thing a folder can point at, and an unnamed one is a row in the tree
- * that nobody can tell from the row above it. Picking "A room" used to open a
- * surface keyed by the folder that had never been created at all: nothing was
- * written, nothing was listed, and the next launch had no memory of it.
+ * What an Agent says in the "Run as" list and under it: its name and mark
+ * for the row, and one line — its description with the seat it would take,
+ * or the reason it cannot be seated here — for the hint under the Select.
+ * One place to work this out, so the closed trigger, the open list and the
+ * hint underneath it can never disagree about a given Agent.
+ */
+const runAsInfo = (entry: AgentEntry, agentPlans: ReadonlyMap<string, SeatPlan>) => {
+  const plan = agentPlans.get(entry.id)
+  const seat = seatTaken(plan)
+  const refused = plan !== undefined && seat === null
+  const reason = refused && plan ? firstReason(plan) : null
+  return { name: agentName(entry), seat, refused, reason }
+}
+
+/**
+ * "What are you starting?" asks one question first — a Session, a Goal, a
+ * Flow, or a team shape — and only then, for a Session, who runs it. Every
+ * created Agent used to lead this dialog as its own row; with more than a
+ * couple in force that was a scrolling column of identical tiles with the
+ * plain choice — what ⌘N does — buried under all of them. An Agent is now an
+ * answer to "who runs the session", not a fifth kind of thing to start.
  */
 export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  /* The *project*, not the folder the window happens to be pointed at. A
-     linked worktree is a real folder with a path of its own, and a room keyed
-     by that path is grouped nowhere the tree looks — it groups a worktree
-     under its project. The host resolves a worktree the same way, so those
-     two agree; a subfolder is where they part — this names the subfolder and
-     the host names the repository above it — which is why the room count
-     below asks the tree for every spelling rather than comparing one string. */
   const root = projectRootOf(snapshot.workspace)
+  const [kind, setKind] = useState<Kind>('session')
+  const [runAs, setRunAs] = useState<string>(PLAIN)
+  const [creatingGoal, setCreatingGoal] = useState(false)
+  const [startingFlow, setStartingFlow] = useState(false)
+  const [startingFrontDoor, setStartingFrontDoor] = useState(false)
 
-  /** Once the room door is chosen, this holds the name being typed. */
-  const [naming, setNaming] = useState(false)
-  const [name, setName] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-  /**
-   * The flow this room should run, if any.
-   *
-   * Here rather than on a page of its own because this is where the person
-   * said it should be: "when a user starts a room, the user can choose an
-   * agent as well as set up a workflow". A room with no flow stays exactly the
-   * room it was — the choice defaults to none and costs a glance.
-   */
-  const [flow, setFlow] = useState<FlowChoice | null>(null)
+  useEffect(() => { void store.loadAgents() }, [store])
+  const shell = useShell()
+  const agents = inForce(snapshot.agents ?? [])
+  /* What is shown is what runs. A kind that needs a folder falls back to
+     Session once the folder is gone, and an Agent that has left the roster
+     falls back to Plain session — never a Start that acts on a choice the
+     dialog no longer draws. */
+  const shownKind: Kind = kind !== 'session' && !root ? 'session' : kind
+  const showRunAs = shownKind === 'session' && agents.length > 0
+  const chosenAgent = runAs === PLAIN ? null : agents.find((one) => one.id === runAs) ?? null
+  const chosenInfo = chosenAgent ? runAsInfo(chosenAgent, snapshot.agentPlans) : null
 
-  /* How many conversations already live here — the sidebar's own number, from
-     the sidebar's own selector.
-
-     Three earlier attempts each resembled it and none matched. `sessions`
-     counted a draft the tree had not listed. `history` by path prefix missed
-     what `groupByProject` folds — roots, subfolders, worktrees. Grouping the
-     full history missed the agent filter the sidebar applies *first*, so with
-     the list narrowed to one agent the tree said 1 and this said 2, directly
-     beneath it. A rule that resembles another rule is a rule that will
-     disagree with it, so this calls the same hook. */
-  const groups = useProjectGroups()
-  const here = useMemo(
-    () => groups.find((group) => group.root === root)?.sessions.length ?? 0,
-    [groups, root],
-  )
-
-  /* How many rooms this project already has, which is what makes the name
-     worth asking for: the second one has to be tellable from the first. */
-  const rooms = useMemo(() => {
-    /* Every spelling of this folder, not just the one `projectRootOf` gave —
-       the same identity the tree matches rooms on. An open subfolder is its
-       project's home here and in the sidebar, while the host keys the room
-       that gets made at the repository, so comparing the two as strings read
-       "no rooms yet" for a project that had several. */
-    const here = groups.find((group) => group.root === root)
-    const roots = new Set(here ? projectRoots(here) : root ? [root] : [])
-    return [...snapshot.teams.values()].filter((team) => roots.has(team.root))
-  }, [groups, snapshot.teams, root])
-
-  const create = async (): Promise<void> => {
-    const called = name.trim()
-    if (!root || called === '') return
-    setBusy(true)
-    setProblem(null)
-    let room: string
-    try {
-      room = await store.createRoom(root, called)
-    } catch (error) {
-      setBusy(false)
-      setProblem(error instanceof Error ? error.message : 'The host did not make that room.')
-      return
-    }
-    if (!flow) {
-      onClose()
-      return
-    }
-    /* The room first, the flow into it. Seating opens conversations and spends
-       a request each, so a flow that fails halfway leaves a room the person
-       can look at — and the seats it did open are in it — rather than nothing
-       and a sentence. */
-    try {
-      await store.startFlow(room, flow.source, { path: flow.path, vars: flow.vars })
-      onClose()
-    } catch (error) {
-      setBusy(false)
-      setProblem(
-        `${called} was made, but the flow did not start: ${
-          error instanceof Error ? error.message : 'the host refused it'
-        }`,
-      )
-    }
-  }
-
-  if (naming) {
+  if (creatingGoal && root) return <GoalCreate root={root} onClose={onClose} />
+  if (startingFlow && root) return <FlowGoalCreate root={root} onClose={onClose} />
+  if (startingFrontDoor && root) {
     return (
-      <Dialog
-        title="Name this room"
-        size="sm"
+      <FrontDoor
+        context={{ kind: 'project', root }}
         onClose={onClose}
-        footer={
-          <>
-            <Btn variant="primary" disabled={busy || name.trim() === ''} onClick={() => void create()}>
-              {busy
-                ? flow
-                  ? 'Seating…'
-                  : 'Creating…'
-                : flow
-                  ? 'Create room and start'
-                  : 'Create room'}
-            </Btn>
-            <Btn disabled={busy} onClick={() => setNaming(false)}>
-              Back
-            </Btn>
-          </>
-        }
-      >
-        <div className={styles.naming}>
-          <Input
-            aria-label="Room name"
-            autoFocus
-            value={name}
-            placeholder="Checkout rewrite"
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void create()
-            }}
-          />
-          <p className={styles.note}>
-            {rooms.length > 0
-              ? `${rooms.length === 1 ? 'One room' : `${rooms.length} rooms`} already in this project: ${rooms
-                  .map((one) => one.name)
-                  .join(', ')}. The name is how you tell them apart in the sidebar.`
-              : 'A room has a board of its own and reaches only the agents you put in it. The name is what the sidebar shows.'}
-          </p>
-          {root && <FlowStart root={root} disabled={busy} onChange={setFlow} />}
-          {problem && (
-            <p className={styles.problem} role="alert">
-              {problem}
-            </p>
-          )}
-        </div>
-      </Dialog>
+        onStarted={(execution) => {
+          store.openGoal(execution.goal)
+          onClose()
+        }}
+      />
     )
   }
 
-  return (
-    <Dialog title="What are you starting?" size="sm" onClose={onClose}>
-      <div className={styles.choices}>
-        <button
-          type="button"
-          className={styles.choice}
-          onClick={() => {
-            onClose()
-            store.newDraft()
-          }}
-        >
-          <span className={styles.mark}>
-            <AgentIcon size={16} />
-          </span>
-          <span className={styles.text}>
-            <span className={styles.name}>A session</span>
-            <span className={styles.note}>
-              One agent, working in this folder. What ⌘N does.
-            </span>
-          </span>
-        </button>
 
-        <button
-          type="button"
-          className={styles.choice}
-          disabled={!root}
-          onClick={() => setNaming(true)}
-        >
-          <span className={styles.mark} data-tone="team">
-            <TeamIcon size={16} />
-          </span>
-          <span className={styles.text}>
-            <span className={styles.name}>A room</span>
-            <span className={styles.note}>
-              {here > 0
-                ? `Several agents share one board. ${here} ${here === 1 ? 'conversation is' : 'conversations are'} already in this project — you choose which of them join.`
-                : 'Several agents share one board — work is claimed, and nobody edits the same file twice.'}
-            </span>
-          </span>
-        </button>
+  const activate = (): void => {
+    if (shownKind === 'session') {
+      onClose()
+      if (chosenAgent) void store.startAsAgent(chosenAgent.id)
+      else store.newDraft()
+      return
+    }
+    if (shownKind === 'goal') setCreatingGoal(true)
+    else if (shownKind === 'flow') setStartingFlow(true)
+    else setStartingFrontDoor(true)
+  }
+
+  const openAgents = (): void => {
+    onClose()
+    shell.openAgents()
+  }
+
+  /*
+   * Enter does the footer's one filled act from anywhere in the dialog —
+   * Start, or Continue for the kind that is selected — except inside "Run
+   * as", where Enter is the platform's own way to close its list. `capture`
+   * runs ahead of a radio row's native Enter, so Enter on a kind proceeds
+   * rather than only selecting it again.
+   */
+  const onKeyDownCapture = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Enter' || event.target instanceof HTMLSelectElement) return
+    event.preventDefault()
+    event.stopPropagation()
+    activate()
+  }
+
+  const rootDescription = (own: string): string => (root ? own : 'Open a folder to start one.')
+
+  return (
+    <Dialog
+      title="What are you starting?"
+      size="sm"
+      onClose={onClose}
+      footer={(
+        <>
+          <Button variant="default" onClick={activate}>
+            {shownKind === 'session' ? 'Start' : 'Continue'}
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        </>
+      )}
+      footerAside={<Button type="button" variant="quiet" onClick={openAgents}>Manage Agents…</Button>}
+    >
+      <div onKeyDownCapture={onKeyDownCapture}>
+        <FormStack>
+        <ChoiceList
+          label="What are you starting?"
+          value={shownKind}
+          onChange={setKind}
+          autoFocusSelected
+          onActivate={activate}
+          options={[
+            {
+              value: 'session',
+              title: 'Session',
+              description: 'One agent working in this folder.',
+              icon: <AgentIcon size={16} />,
+              trailing: <Text as="span" role="meta">⌘N</Text>,
+            },
+            {
+              value: 'goal',
+              title: 'Goal',
+              description: rootDescription('A finishable effort with a shared board and a receipt.'),
+              icon: <GoalIcon size={16} />,
+              disabled: !root,
+            },
+            {
+              value: 'flow',
+              title: 'Flow',
+              description: rootDescription('Routes work between several Agents on one Goal.'),
+              icon: <FlowIcon size={16} />,
+              disabled: !root,
+            },
+            {
+              value: 'team',
+              title: 'Team',
+              description: rootDescription('Starts from a shape this project ships.'),
+              icon: <TeamIcon size={16} />,
+              disabled: !root,
+            },
+          ]}
+        />
+        {showRunAs && (
+          <Field
+            label="Run as"
+            /* Plain says nothing the Session row above has not; an Agent says what
+               it does and where it would sit, or once, why it cannot. */
+            {...(chosenInfo ? { hint: chosenInfo.refused
+                ? `${chosenInfo.reason ? `Can’t start here: ${chosenInfo.reason}.` : 'Can’t start here.'} Start shows every seat it would take.`
+                : [chosenAgent?.definition?.description, chosenInfo.seat ? `It would sit on ${chosenInfo.seat.label}.` : null].filter(Boolean).join(' ') || undefined } : {})}
+          >
+            {(control) => (
+                <NativeSelect
+                  id={control.id}
+                  aria-describedby={control['aria-describedby']}
+                  value={chosenAgent ? chosenAgent.id : PLAIN}
+                  onChange={(event) => setRunAs(event.target.value)}
+                >
+                  <option value={PLAIN}>Plain session</option>
+                  {agents.map((entry) => {
+                    const info = runAsInfo(entry, snapshot.agentPlans)
+                    return (
+                      <option key={entry.id} value={entry.id}>
+                        {info.refused ? `${info.name} (can’t start here)` : info.name}
+                      </option>
+                    )
+                  })}
+                </NativeSelect>
+            )}
+          </Field>
+        )}
+        </FormStack>
       </div>
+    </Dialog>
+  )
+}
+
+/**
+ * A flow's own Goal: one host operation, `flow/start-goal`, rather than an
+ * empty Goal made first and a flow started into it after — the run and its
+ * Goal are minted together, so a flow that fails to seat never leaves a bare
+ * Goal behind for someone to notice was never actually running anything.
+ */
+const FlowGoalCreate = ({ root, onClose }: { readonly root: string; readonly onClose: () => void }) => {
+  const store = useStore()
+  const [sentence, setSentence] = useState('')
+  const [choice, setChoice] = useState<FlowChoice | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  const valid = choice !== null && sentence.trim().length > 0 && sentence.trim().length <= 2000
+
+  const start = async (): Promise<void> => {
+    if (!valid || !choice || busy) return
+    setBusy(true)
+    setProblem(null)
+    try {
+      const execution = await store.startFlowGoal({ root, source: choice.source, token: choice.token, sentence: sentence.trim(), vars: choice.vars })
+      store.openGoal(execution.goal)
+      onClose()
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : 'The desk did not start this flow.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog
+      title="Run a flow"
+      size="md"
+      onClose={onClose}
+      footer={(
+        <>
+          <Button variant="default" disabled={!valid || busy} onClick={() => void start()}>{busy ? 'Starting…' : 'Start'}</Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
+        </>
+      )}
+    >
+      <Field
+        label="What finishes this?"
+        error={sentence.trim().length > 2000 ? 'Keep it to 2,000 characters.' : undefined}
+      >
+        {(control) => (
+          <Input
+            {...control}
+            aria-label="What finishes this?"
+            autoFocus
+            value={sentence}
+            onChange={(event) => setSentence(event.target.value)}
+          />
+        )}
+      </Field>
+      <FlowStart root={root} disabled={busy} onChange={setChoice} />
+      {problem && <ActionError>{problem}</ActionError>}
     </Dialog>
   )
 }

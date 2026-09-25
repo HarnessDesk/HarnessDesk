@@ -1,8 +1,8 @@
 .conversation {
   position: relative;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  height: 100%;
   min-height: 0;
 }
 
@@ -10,14 +10,10 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: var(--hd-titlebar-height);
-  /* With the sidebar away this header can be the window's top-left, and the
-     macOS window buttons are drawn over it — so it starts after whatever room
-     the shell says this box owes them. See `--titlebar-inset` in
-     `app.css`; with the sidebar up, or in the browser, that is nothing. */
-  padding: 0 12px 0 max(16px, var(--titlebar-inset, 0px)); /* desk: unchanged at 16, the inset is 0 unless this row is the corner */
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  gap: var(--hd-bar-gap); /* desk: 8 → 6, the bar's own gap */
+  /* The controls at the right are boxes and sit at the bar's inset; the title
+     at the left is words with no box, so it states where a composed control's
+     label lands and reads level with them. */
   /* The plan strip gives way to the session's name by the width of this row,
      not the window's: a narrow centre column on a wide screen is still narrow. */
   container-type: inline-size;
@@ -33,10 +29,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
-  font-size: var(--hd-text-lg);
-  line-height: 22px;
-  letter-spacing: -0.01em;
 }
 
 .status {
@@ -44,91 +36,26 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 11px;
-  font-size: var(--hd-text);
-  color: var(--hdp-alias-label-secondary);
-  background: var(--hdp-alias-bg-module-platform);
 }
 
 .statusDot {
   width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--hdp-alias-label-tertiary);
 }
 
-.status[data-status='running'] .statusDot {
-  background: var(--hd-accent);
-  animation: pulse 1.2s ease-in-out infinite;
-}
+/* Status appearance (color, background, height, border-radius, padding)
+   composed on the elements via Tailwind. */
 
-.status[data-status='waiting'] {
-  color: var(--hd-warning-ink); /* desk: the platform ramp → the ink solved for this wash */
-  background: var(--hd-warning-dim); /* desk: a forked literal → the token it was a copy of */
-}
-
-.status[data-status='waiting'] .statusDot {
-  background: var(--hd-warning);
-}
-
-.status[data-status='failed'] {
-  color: var(--hd-danger);
-  background: var(--hd-danger-dim);
-}
-
-.status[data-status='failed'] .statusDot {
-  background: var(--hd-danger);
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
-/* The header's word on background work: the same pill as the status beside
-   it, because it states a fact about this conversation, and a control only
-   in that pressing it opens the panel. Green while something runs — the
-   colour the background-task registry has always worn here, for a process
-   that is up — and quiet once everything has ended. */
 .tasksChip {
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 22px;
-  padding: 0 9px;
-  border: none;
-  border-radius: 11px;
-  font: inherit;
-  font-size: var(--hd-text);
-  color: var(--hdp-alias-label-secondary);
-  background: var(--hdp-alias-bg-module-platform);
-  cursor: pointer;
+
   white-space: nowrap;
 }
 
-.tasksChip:hover,
-.tasksChip[aria-pressed='true'] {
-  color: var(--hdp-alias-label-primary);
-}
-
-.tasksChip[data-live] {
-  color: var(--hd-success-ink);
-  background: var(--hd-success-dim);
-}
-
-/* The turn of the chip's mark; `spin` is declared once, further down. */
-.tasksSpinner {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid var(--hdp-alias-border-l3);
-  border-top-color: var(--hd-success);
-  animation: spin 0.7s linear infinite;
-}
+/* Appearance (height, border-radius, border, border-top-color) for spinners
+   composed on the elements via Tailwind. */
 
 .branch {
   flex: none;
@@ -136,22 +63,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 0 8px;
-  height: 22px;
-  line-height: 22px;
-  border-radius: 11px;
-  font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-  background: var(--hdp-alias-bg-module-platform);
 }
 
 .branchButton {
-  border: none;
   cursor: pointer;
-}
-
-.branchButton:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }
 
 .headerSlot:empty {
@@ -162,9 +77,7 @@
 .headerRule {
   flex: none;
   width: 1px;
-  height: 18px;
-  margin: 0 3px;
-  background: var(--hdp-alias-border-l2);
+  margin: 0 var(--hd-space-1); /* desk: canonical One UI System scale */
 }
 
 .headerButton {
@@ -172,25 +85,16 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 28px;
+
   min-width: 28px;
-  padding: 0 5px;
-  border: none;
-  border-radius: var(--hd-radius-md); /* desk: 7 → 8, onto the control rung */
-  background: none;
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-  font-size: var(--hd-text-sm);
+ /* desk: canonical One UI System scale */
+
+ /* desk: 7 → 8, onto the control rung */
+
 }
 
-.headerButton:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
-}
-
-.headerButton[data-active] {
-  background: var(--hd-accent-dim);
-  color: var(--hd-accent);
+.headerButtonWrap {
+  display: inline-flex;
 }
 
 /* --- a narrow header ------------------------------------------------------
@@ -211,7 +115,6 @@
   .gitWords .gitBadge {
     position: absolute;
     width: 1px;
-    height: 1px;
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
@@ -224,22 +127,18 @@
 @container hd-header (max-width: 400px) {
   .status[data-status='idle'],
   .headerRule,
-  .headerButton[data-folds] {
+  .headerButtonWrap[data-folds] {
     display: none;
   }
 }
 
 /* Inside the reading column with everything else: a notice that runs the
-   full width of the pane reads as a page-level alarm, not as this turn's. */
+   full width of the pane reads as a page-level alarm, not as this turn's.
+   The alert draws itself; a reason can be one long path, so it may break
+   anywhere rather than push the column wide. */
 .turnError {
   max-width: var(--hd-column);
   margin: 6px auto 2px;
-  padding: 8px 12px;
-  border-radius: var(--hd-radius);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
-  line-height: 18px;
   overflow-wrap: anywhere;
 }
 
@@ -249,7 +148,6 @@
   overflow-y: auto;
   /* Room for the floating composer, plus a breath: at scroll-bottom the last
      message sits fully above it; at scroll-top nothing changes. */
-  padding: calc(8px + var(--hd-notice-inset, 0px)) 24px calc(var(--composer-h, 150px) + 16px);
   /* The transcript and the composer are both `--hd-column` and both centred,
      but only one of them scrolls — so this box lost 8px to its own scrollbar
      off the right edge alone and carried its column 4px left of the box the
@@ -268,34 +166,30 @@
   z-index: 5;
   display: flex;
   flex-direction: column;
-  padding-top: 14px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    var(--hdp-alias-bg-layer-0, var(--hdp-alias-bg-layer-1)) 26%
-  );
+  pointer-events: none;
+}
+
+/* The gradient overlay passes clicks through; each interactive strip
+   beneath it opts itself back in. */
+.dockArea > * {
+  pointer-events: auto;
 }
 
 .turnDivider {
   max-width: var(--hd-column);
-  margin: 14px auto 6px;
-  height: 1px;
-  background: var(--hdp-alias-border-l1);
+  margin: var(--hd-space-4) auto 6px; /* desk: canonical One UI System scale */
 }
 
 .turnTail {
   max-width: var(--hd-column);
-  margin: 6px auto 18px;
+  margin: 6px auto var(--hd-space-5); /* desk: canonical One UI System scale */
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
 }
 
-/* One line, always: the numbers shorten from the right before they wrap. */
-.turnTailStats {
+/* The visible end of the turn; its figures wait on the time's tooltip. */
+.turnTailTime {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -307,62 +201,6 @@
   flex: 1;
 }
 
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  height: 100%;
-  padding: 40px;
-  text-align: center;
-  color: var(--hdp-alias-label-tertiary);
-}
-
-.emptyTitle {
-  font-family: var(--hd-font-display);
-  font-size: 22px;
-  font-weight: 500;
-  color: var(--hdp-alias-label-primary);
-}
-
-.emptyBody {
-  max-width: 460px;
-  font-size: var(--hd-text);
-  line-height: 22px;
-}
-
-.emptyAction {
-  height: 32px;
-  padding: 0 18px;
-  border: none;
-  border-radius: 16px;
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground); /* desk: #fff → the ink named for a brand fill */
-  font-size: var(--hd-text);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.emptyAction:hover {
-  background: var(--hd-accent-hover);
-}
-
-.emptyLink {
-  padding: 0;
-  border: none;
-  /* A link, not a box: the radius exists for the focus ring alone. */
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  font: inherit;
-  color: var(--hd-accent);
-  cursor: pointer;
-}
-
-.emptyLink:hover {
-  text-decoration: underline;
-}
-
 .jumpButton {
   position: absolute;
   bottom: calc(var(--composer-h, 150px) + 14px);
@@ -371,17 +209,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  padding: 0 12px;
-  border: none;
-  border-radius: 15px;
-  background: var(--hdp-alias-bg-layer-1);
-  box-shadow:
-    0 2px 10px rgba(0, 0, 0, 0.12),
-    inset 0 0 0 1px var(--hdp-alias-border-l2);
-  color: var(--hdp-alias-label-secondary);
-  font-size: var(--hd-text-sm);
-  cursor: pointer;
+
   z-index: 3;
 }
 
@@ -398,24 +226,6 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 40px;
-  font-size: var(--hd-text);
-  color: var(--hdp-alias-label-tertiary);
-}
-
-.loadingSpinner {
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  border: 1.5px solid var(--hdp-alias-border-l3);
-  border-top-color: var(--hd-accent);
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* Ambient state between the transcript and the composer. Zero height when
@@ -425,7 +235,7 @@
    24px: nothing below the transcript scrolls, but everything below it has to
    line up with something that does. `.scroll` reserves a scrollbar gutter on
    both of its edges, so the reading column up there is held off the pane by
-   24px *plus* that gutter — `--hdp-scrollbar-width`, the same 8px the
+   24px *plus* that gutter — `--hd-scrollbar-width`, the same 8px the
    `::-webkit-scrollbar` rule lays out. Adding it back here makes the two
    exactly the same width at every pane size rather than merely centred on the
    same line. Above a ~800px pane both cap at `--hd-column` and none of this
@@ -433,7 +243,6 @@
    `Composer.module.css` carries the same padding for the same reason. */
 .bars {
   flex: none;
-  padding: 0 calc(24px + var(--hdp-scrollbar-width, 8px)); /* desk: 24 → 32, the gutter the transcript above reserves */
 }
 
 /* The git control's label: branch or folder, in the interface's own font —
@@ -443,7 +252,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--hd-text-sm);
 }
 
 /* The chip's words — the branch, and the worktree badge when there is one —
@@ -459,92 +267,15 @@
   min-width: 0;
 }
 
-/* Medium: the badge goes first. The glyph already says "worktree", and this
-   is the width the plan strip folds its promoted chips at, for the same
-   reason — past here each chip costs the session's name more than it is
-   worth. Measured at 150% zoom with the sidebar open, the badge's chip held
-   269px while the name had 88. Two classes, because a container query adds no
-   specificity and the badge's own utilities would win the tie. */
+/* Medium: the badge goes first. */
 @container hd-header (max-width: 760px) {
   .gitWords .gitBadge {
     position: absolute;
     width: 1px;
-    height: 1px;
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
   }
 }
 
-.gitRow {
-  cursor: default;
-}
-
-.gitRow:hover {
-  background: none;
-}
-
-/* The turn summary: what the turn amounts to, as a row of small facts. */
-.turnSummary {
-  max-width: var(--hd-column);
-  margin: 8px auto 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.turnSummaryItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  min-width: 0;
-  max-width: 100%;
-  padding: 0 8px;
-  border: none;
-  border-radius: 11px;
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  font: inherit;
-  font-size: var(--hd-text-xs);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-/* The glyph keeps its size; only the words give way. A chip that wraps stops
-   being a chip — it becomes a two-line block with rounded ends, which is what
-   a narrow column used to do to a long file name. */
-.turnSummaryItem svg {
-  flex: none;
-}
-
-.turnSummaryLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.turnSummaryItem[data-static] {
-  cursor: default;
-}
-
-.turnSummaryItem:not([data-static]):hover {
-  color: var(--hdp-alias-label-primary);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-}
-
-.turnSummaryItem[data-tone='good'] {
-  color: var(--hd-success);
-}
-
-.turnSummaryItem[data-tone='bad'] {
-  color: var(--hd-danger);
-  background: var(--hd-danger-dim);
-}
-
-.turnSummaryItem[data-tone='ask'] {
-  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
-}
+/* @design-owners TurnTail */

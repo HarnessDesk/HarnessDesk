@@ -1,0 +1,200 @@
+.anchor {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.anchor[data-full-width],
+.anchor[data-full-width] > button {
+  width: 100%;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hd-secondary-foreground);
+  font-size: var(--hd-text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 100%;
+  /* A floor rather than zero. The words shorten before the trigger overflows
+     its row — that is the rule below, and it is the `span`'s job — but a
+     trigger whose label is only a glyph has nothing to shorten, so `0` let
+     the box itself be squeezed to 21 against a 26-tall target. */
+  min-width: var(--hd-target-min); /* desk: 0 → 24, the target floor */
+}
+
+/* Words in a trigger shorten before the trigger overflows its row. */
+.trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trigger:hover,
+.trigger[data-open] {
+  background: var(--hd-hover);
+  color: var(--hd-foreground);
+}
+
+.positioner {
+  z-index: var(--hd-z-popover);
+}
+
+.panel {
+  /* A floating panel is never a handle for moving the window. Electron's
+     drag region is geometric, not a matter of ancestry: the pane strip and
+     the conversation header each contribute one draggable rectangle, and a
+     panel that opens over one is inert unless it punches its own hole —
+     the trigger's `no-drag` only covers the trigger's own box. That is why
+     a right-click menu on a tab could be drawn but not clicked. */
+  -webkit-app-region: no-drag;
+
+  /* Short menus size to their own words rather than holding a fixed slab
+     open — Codex's list controls are about this wide. Anything with hints
+     or long labels still grows past it. */
+  min-width: 180px;
+  /* Never wider than the window it opens in, less the margin the placement
+     keeps at each side (`Popover.tsx`): on a phone-width window a menu with
+     a long value otherwise ran to the glass. */
+  max-width: calc(100vw - 2 * var(--hd-space-2));
+  /* The height is the window's to give: set at open time from the room under
+     the trigger (`Popover.tsx`). Only a window shorter than the menu scrolls. */
+  max-height: max(120px, var(--available-height, calc(100vh - 16px)));
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--hd-radius);
+  background: var(--hd-surface-fill);
+  box-shadow:
+    var(--hd-shadow), /* desk: 0 8px 28px rgba(0,0,0,.18) -> one floating rung */
+    inset 0 0 0 1px var(--hd-border-strong);
+}
+
+.panel[data-limit='trigger'] {
+  max-height: 300px;
+}
+
+/* The row that opened it, unfolded: exactly the trigger's width, which Base
+   UI's positioner measures as `--anchor-width`. The panel's 180px floor
+   still holds, so a sidebar dragged to its narrowest keeps a readable menu
+   that overhangs the column rather than wrapping every label. */
+.panel[data-width='trigger'] {
+  width: var(--anchor-width, auto); /* desk: content width → the trigger's, for a menu opened from a full-width row */
+}
+
+.groupLabel {
+  font-size: var(--hd-text-sm);
+  color: var(--hd-secondary-foreground);
+}
+
+.groupLabel[data-inset='true'] {
+  padding: 8px 8px 4px;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: var(--hd-space-2) 10px;
+  border: none;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.option:hover {
+  background: var(--hd-hover);
+}
+
+.option:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.option:disabled:hover {
+  background: none;
+}
+
+/* The gutter before a row's label. A check marks the chosen row, in the
+   accent; an icon names what an action row does, in the quiet colour. Both
+   are 18px and share the same baseline offset, so a row that swaps its icon
+   for a check does not shift the label beside it — measured in the app, both
+   themes, with the ⋯ menu's View group.
+
+   What they do not do is rank by weight on dark. The accent is one blue for
+   both themes (3.85:1 on this panel) while the quiet colour is deliberately
+   strengthened for dark reading (8.4:1, see app.css), so on dark the unchosen
+   rows are the louder ones. Both clear the 3:1 bar for non-text and the shape
+   carries the meaning, but if the selection should also lead by weight, that
+   needs an accent lifted for dark — a palette decision, not this rule's. */
+.optionCheck,
+.optionIcon {
+  flex: none;
+  display: inline-flex;
+  width: 18px;
+  margin-top: var(--hd-space-1);
+}
+
+.optionCheck {
+  color: var(--hd-accent);
+}
+
+.optionIcon {
+  color: var(--hd-muted-foreground);
+}
+
+.optionBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.optionLabel {
+  display: block;
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+}
+
+.optionHint {
+  display: block;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
+  color: var(--hd-muted-foreground);
+}
+
+/* A row whose view has something still going — set after the label, on its
+   line, in the green every "process that is up" wears in this app. A dot
+   rather than a word: the row's label already names the view, and the mark
+   only has to say "look". */
+.optionLive {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: var(--hd-space-2);
+  border-radius: 50%;
+  background: var(--hd-success);
+  vertical-align: middle;
+}
+
+/* Risk tone. The permission control is the one place in the composer where a
+   neutral colour would be a disservice. */
+.trigger[data-tone='warn'] {
+  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+}
+
+.trigger[data-tone='alert'] {
+  color: var(--hd-danger);
+}
+
+.trigger[data-tone='warn']:hover,
+.trigger[data-tone='alert']:hover {
+  background: var(--hd-hover);
+}

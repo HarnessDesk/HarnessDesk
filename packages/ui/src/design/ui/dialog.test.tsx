@@ -5,7 +5,7 @@ import themeSheet from 'tailwindcss/theme.css?raw'
 import utilitiesSheet from 'tailwindcss/utilities.css?raw'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import dialogSheet from '../primitives/Dialog.module.css?raw'
+import dialogSheet from '../patterns/ModalDialog.module.css?raw'
 import shadcnSheet from '../../styles/shadcn.css?raw'
 import { AlertDialogFooter } from './alert-dialog'
 import { DialogFooter } from './dialog'

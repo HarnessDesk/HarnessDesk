@@ -1,0 +1,175 @@
+import { useEffect, useState } from 'react'
+
+import type { AuthoringDocument, FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
+
+import { Button, Chip, Note, Row, Rows, Section, SectionHead } from '../design'
+import { useStore } from '../state/context'
+import { FlowUpdate } from './FlowUpdate'
+import { ShapeEditor } from './ShapeEditor'
+
+export interface ProjectFlowsProps {
+  readonly root: string
+  readonly current: boolean
+}
+
+/*
+ * The layers, in the order they are read. Each is a sub-group of the section
+ * under its own label, not a chip repeated on every row: "Ships with
+ * HarnessDesk" beside eight rows was one fact paid for eight times, and the
+ * chip is the part of a row a label does better once.
+ */
+const LAYERS: readonly { readonly origin: FlowOrigin; readonly label: string }[] = [
+  { origin: 'project', label: 'In this project' },
+  { origin: 'user', label: 'Yours' },
+  { origin: 'builtin', label: 'Built in' },
+]
+
+/**
+ * Workspaces › a project › its flows: the layered catalogue a Goal would
+ * start from — its own, then this Mac's, then the ones that ship — read the
+ * same way the Agents section above it reads its roster.
+ *
+ * Reading never creates `.harnessdesk`: an empty or unopened project is read
+ * exactly as it is, and the note below explains where one would live rather
+ * than making the folder to say so. Inspecting, updating and customizing a
+ * flow all work for a project that is not the open one; only actually
+ * starting it needs that project open, which happens from the composer, not
+ * from here.
+ */
+export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
+  const store = useStore()
+  const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [dialog, setDialog] = useState<{ readonly id: string; readonly mode: 'update' | 'customize' } | null>(null)
+  const [editing, setEditing] = useState<AuthoringDocument | null>(null)
+  const [editProblem, setEditProblem] = useState<string | null>(null)
+
+  useEffect(() => {
+    let live = true
+    setProblem(null)
+    store.flowCatalog(root).then(
+      (list) => {
+        if (live) setEntries(list)
+      },
+      (error: unknown) => {
+        if (live) setProblem(error instanceof Error ? error.message : 'Its flows could not be read.')
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [store, root])
+
+  const reload = (): void => {
+    void store.flowCatalog(root).then(setEntries, () => {})
+  }
+
+  const openEditor = async (id: string): Promise<void> => {
+    setEditProblem(null)
+    try {
+      setEditing(await store.readAuthoring({ kind: 'flow', origin: 'project', id, root }))
+    } catch (error) {
+      setEditProblem(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  return (
+    <Section
+      title="Flows"
+      description={<>Files in <code>.harnessdesk/flows</code>, versioned with its code: its own first, then yours, then the ones that ship.</>}
+    >
+      {editProblem && <Rows><Row title="This shape could not be read" desc={editProblem} /></Rows>}
+      {(problem || entries === null || entries.length === 0) && (
+        <Rows>
+          {problem && <Row title={problem} />}
+          {!problem && entries === null && <Row title="Reading…" />}
+          {entries?.length === 0 && <Row title="No flows of its own" desc="Customize a shipped one, below, to give this project its own." />}
+        </Rows>
+      )}
+      {!problem && entries && LAYERS.map(({ origin, label }) => {
+        const layer = entries.filter((entry) => entry.origin === origin)
+        return layer.length === 0 ? null : [
+          <SectionHead key={`${origin}-head`} name={label} />,
+          <Rows key={origin} aria-label={label}>
+            {layer.map((entry) => (
+              <FlowRow key={entry.id} root={root} entry={entry} onOpen={(mode) => setDialog({ id: entry.id, mode })} onEdit={() => void openEditor(entry.id)} />
+            ))}
+          </Rows>,
+        ]
+      })}
+      {!current && entries && entries.length > 0 && <Note>Open this project to start its flow.</Note>}
+      {dialog && (
+        <FlowUpdate
+          root={root}
+          id={dialog.id}
+          mode={dialog.mode}
+          onClose={() => setDialog(null)}
+          onApplied={reload}
+        />
+      )}
+      {editing && (
+        <ShapeEditor
+          root={root}
+          context={{ kind: 'project', root }}
+          document={editing}
+          onClose={() => setEditing(null)}
+          onStarted={(execution) => {
+            setEditing(null)
+            store.openGoal(execution.goal)
+          }}
+        />
+      )}
+    </Section>
+  )
+}
+
+const FlowRow = ({
+  root, entry, onOpen, onEdit,
+}: {
+  readonly root: string
+  readonly entry: FlowEntry
+  readonly onOpen: (mode: 'update' | 'customize') => void
+  readonly onEdit: () => void
+}) => {
+  const store = useStore()
+  const legacy = entry.format === 'legacy'
+  const broken = entry.problem !== null
+  const shadowPlace = (origin: FlowOrigin): string =>
+    origin === 'project' ? 'in the project' : origin === 'user' ? 'on your Mac' : 'that ships with HarnessDesk'
+  const shadowNote = entry.shadows.length > 0
+    ? `It shadows a flow ${entry.shadows.map((one) => shadowPlace(one.origin)).join(' and ')}.`
+    : null
+  const sentence = (text: string | null): string | null => (text ? (text.endsWith('.') || text.endsWith('!') || text.endsWith('?') ? text : `${text}.`) : null)
+  const desc = [
+    sentence(entry.problem),
+    !entry.problem && legacy ? 'This flow uses the old format.' : sentence(entry.description),
+    shadowNote,
+  ].filter((part): part is string => Boolean(part)).join(' ')
+
+  // Editing the ordered shape is only offered for a project's own current-format
+  // flow: a legacy file needs Update first, and a shipped or your-Mac flow is
+  // edited through Customize into the project, never in place.
+  const editable = !broken && !legacy && entry.origin === 'project' && entry.format === 'agents'
+
+  const action = broken
+    ? <Chip state="broken" label="Will not run" />
+    : legacy && entry.origin === 'project'
+      ? <Button size="sm" variant="outline" onClick={() => onOpen('update')}>Update…</Button>
+      : entry.origin === 'project'
+        ? <Button size="sm" variant="outline" onClick={() => store.openFile(`${root}/${entry.path}`)}>Open file</Button>
+        : <Button size="sm" variant="outline" onClick={() => onOpen('customize')}>Customize…</Button>
+
+  return (
+    <Row
+      title={entry.name}
+      wrapDesc
+      {...(desc ? { desc } : {})}
+      control={(
+        <span className="inline-flex items-center gap-(--hd-space-2)">
+          {editable && <Button size="sm" variant="outline" onClick={onEdit}>Edit shape…</Button>}
+          {action}
+        </span>
+      )}
+    />
+  )
+}

@@ -125,6 +125,38 @@ test('a summary-shaped read never erases a transcript', (t) => {
   assert.equal(summary.turns[0]?.items.length, 4)
 })
 
+test('a fork inherits notice classifications without becoming a seated session', () => {
+  const registry = new SessionRegistry()
+  const opening = itemId('opening')
+  registry.upsert(
+    session([
+      {
+        id: turnId('t-1'),
+        status: 'completed',
+        items: [{ id: opening, type: 'notice', text: 'the standing order' }],
+      },
+    ]),
+    null,
+  )
+
+  const fork = registry.upsert(
+    session(
+      [
+        {
+          id: turnId('t-1'),
+          status: 'completed',
+          items: [{ id: opening, type: 'userMessage', content: [{ type: 'text', text: 'the standing order' }] }],
+        },
+      ],
+      { id: sessionId('fork'), forkedFrom: ID },
+    ),
+    null,
+  ).session
+
+  assert.equal(fork.turns[0]?.items[0]?.type, 'notice')
+  assert.equal(fork.settings?.agent, undefined)
+})
+
 test('a rollback takes the dropped turns out of the host\'s copy as well', () => {
   // #34: only the host's claims on them went, and the turns stayed until the next read.
   const registry = new SessionRegistry()
@@ -136,4 +168,32 @@ test('a rollback takes the dropped turns out of the host\'s copy as well', () =>
   )
   registry.forgetTurns(RUNTIME, ID, 0)
   assert.equal(registry.get(RUNTIME, ID)?.session.turns.length, 2, 'forgetting none forgets none')
+})
+
+test('the Seat attachments were frozen under survives a settings re-announcement, exactly like seatedAs', () => {
+  const registry = new SessionRegistry()
+  registry.upsert(session([]), null)
+  assert.equal(registry.attachmentSeatOf(RUNTIME, ID), null, 'nothing recorded yet for a plain conversation')
+
+  registry.recordAttachmentSeat(RUNTIME, ID, 'seat-1')
+  assert.equal(registry.attachmentSeatOf(RUNTIME, ID), 'seat-1')
+
+  // A model change, or any other re-announcement, replaces the whole session
+  // read — the runtime has never heard of this Seat, so if the fold read it
+  // from the incoming `Session` rather than keeping what is already held,
+  // this would silently go back to null.
+  registry.apply(RUNTIME, {
+    type: 'session/settings',
+    sessionId: ID,
+    settings: { cwd: '/w', model: 'a-different-model' },
+  })
+  assert.equal(registry.attachmentSeatOf(RUNTIME, ID), 'seat-1', 'a settings re-announcement must not forget it')
+
+  const reread = registry.upsert(session([], { settings: { cwd: '/w', model: 'a-different-model' } }), null)
+  assert.equal(reread.attachmentSeat, 'seat-1', 'a fresh read folded through upsert must not forget it either')
+
+  // A second, unrelated live conversation never sees the first one's Seat.
+  const other = sessionId('s-2')
+  registry.upsert(session([], { id: other }), null)
+  assert.equal(registry.attachmentSeatOf(RUNTIME, other), null, 'one conversation’s Seat must never leak to another')
 })

@@ -74,6 +74,18 @@ export interface IntentClaim {
    * claim on it the moment this ships.
    */
   readonly leaseUntil?: number
+  /**
+   * The commit its holder's checkout was at when it took the card: where the
+   * card's own work began, which a diff on a shared branch is measured from.
+   * Null when there was no commit; absent on a claim written before this was.
+   */
+  readonly head?: string | null
+  /**
+   * Where the remote's copy of the holder's branch stood when it took the
+   * card: what a diff sets aside when the checkout keeps no record of which
+   * commits were made in it. Null when there was none.
+   */
+  readonly upstream?: string | null
 }
 
 /**
@@ -142,15 +154,28 @@ export interface Intent {
   readonly note?: string | null
   /** The goal this belongs to, when it came from one. */
   readonly plan?: number | null
+  /**
+   * The host's key for a card a flow run opened — run, round and slot — so
+   * inserting it again after a crash finds this card instead of adding a
+   * second. Absent on every card a person or an agent added.
+   */
+  readonly dispatch?: string | null
   readonly createdAt: number
   readonly updatedAt: number
 }
 
 // ---------------------------------------------------------------- the channel
 
-/** Who wrote a channel entry. The user's posts carry authority; agents' never do. */
+/**
+ * Who wrote a channel entry. The user's posts carry authority; agents' never
+ * do. A trigger's own run adds cards unattended — nobody read a dry run or
+ * pressed anything — so its signals are attributed to the trigger that opened
+ * the run, never to the person, and never folded into `'agent'`, which always
+ * names a conversation the entry can point back to.
+ */
 export type TeamActor =
   | { readonly kind: 'user' }
+  | { readonly kind: 'trigger'; readonly trigger: string }
   | {
       readonly kind: 'agent'
       readonly runtime: RuntimeId
@@ -314,6 +339,8 @@ export interface TeamState {
   readonly id: string
   /** What a person calls it, chosen when the room was made. */
   readonly name: string
+  /** When the room last changed, used to order rooms beside conversations. */
+  readonly updatedAt: number
   /**
    * The conversations in it, keyed `runtime\u0000sessionId`.
    *

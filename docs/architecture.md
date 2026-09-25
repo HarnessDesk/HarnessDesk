@@ -50,7 +50,7 @@ Eighteen packages make up the repository:
 | `packages/codex` | Generated Codex JSON-RPC protocol client | Zero dependencies |
 | `packages/adapter-acp` | ACP adapter driving stdio peers | `protocol`, `transport-acp` |
 | `packages/transport-acp` | ACP line framing and transport | Zero dependencies |
-| `packages/claude-acp` | Bundled Claude Code ACP bridge | `@zed-industries/claude-code-acp`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk` |
+| `packages/claude-acp` | Bundled Claude Code ACP bridge | `@agentclientprotocol/claude-agent-acp`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk` |
 | `packages/cursor-acp` | Bundled Cursor ACP bridge for `cursor-agent` | Zero runtime dependencies |
 | `packages/adapter-testkit` | Conformance suite for any `AgentRuntime` | `protocol` |
 | `packages/cordis-host` | In-process extension kernel, capability gates | `protocol`, `@deepseek-ai/cordis` |
@@ -77,7 +77,7 @@ An adapter turns one agent into an `AgentRuntime`. Three ship:
 Two ACP bridges ship in this repository because the published ones were not
 enough:
 
-- **`claude-acp`** — a thin layer over `@zed-industries/claude-code-acp` that
+- **`claude-acp`** — a thin compatibility layer over `@agentclientprotocol/claude-agent-acp` that
   forwards reasoning effort and remembers it per session.
 - **`cursor-acp`** — a real bridge onto `cursor-agent --print
   --output-format stream-json` (the npm `cursor-agent-acp` is a stub that
@@ -121,6 +121,14 @@ name when none is available.
 
 ## The host
 
+### Insight reads
+
+Insight is a host-owned, pull-only plane over the ledger's agent-owned source
+files, durable transcript metadata, Seats and immutable Goal documents. It has
+no evidence or receipt writer port. Its wire methods return source and
+coverage-qualified observations; a local seating apply accepts only a
+host-minted reviewed stamp and checks the seating file in its write queue.
+
 `packages/server` owns everything that must not live in a browser:
 
 - **Sessions and events.** One registry, fanned out to every connected client;
@@ -129,8 +137,13 @@ name when none is available.
   — a catalogue refresh when the window regains focus, a stored key changing —
   drops the live handle but not the transcript, and the next thing said in that
   conversation reopens it (`resumeSession`, free of tokens). Only an agent that
-  is *down*, or one that keeps nothing to resume from, refuses — and then it
-  says which, rather than asking for a resume the interface does not offer.
+  is *down*, one that keeps nothing to resume from, or one that cannot say
+  which folder the conversation worked in refuses — and then it says which,
+  rather than asking for a resume the interface does not offer. The folder is
+  the agent's word or nothing: an ACP conversation reopens in the folder its
+  agent's `session/list` records — or, for an agent that keeps no listing, the
+  one it accepted when this run of the app opened the conversation — never in
+  the host's own working directory.
 - **Transcripts** (`transcripts.ts`) — the host records what the backend does
   not keep. Codex's own protocol says it "explicitly do[es] not persist all
   agent interactions, such as command executions"; Cursor keeps nothing
@@ -153,9 +166,49 @@ name when none is available.
   coordination in `team/`: shared intent boards, non-overlapping file claim
   enforcement, and attributed, quarantined inter-agent messages with loop guards
   and delivery tracking.
+- **Goals, Seats and lanes** — finite work lives in `goals/`, while append-only
+  Seat/evidence records say who belonged. Isolated Seats receive a retained git
+  worktree, a durable port block and an invocation-scoped browser profile. The
+  six-value lane environment is supplied by the host to each new/resumed agent
+  process; the renderer never reads or invents it.
+- **Reviewed receipts** — wrapping snapshots cards, Seats, answers, evidence,
+  revisions, lanes and citations before committing an immutable receipt. A
+  small operation journal makes restart recovery idempotent; wrapped and
+  backup-restored Goals are read-only.
 - **Spend ledger and usage** — token counts, cache hit ratios, and vendor
   rate-limit windows calculated across backends (`packages/server/src/ledger/`,
   `packages/server/src/usage/`).
+- **Intake** (`packages/server/src/intake/`, [multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own))
+  — a project's committed trigger declarations, this machine's per-trigger
+  consent, bounded polling of the signed-in person's own forge, and a durable
+  admission journal that opens a Goal and a round through `GoalPlane` and
+  `Flows` exactly once per firing. An arm binds content only; whether a seat
+  can be taken is read again at dispatch, a pause or the daily cap holds a
+  trigger's run (`FlowIntake.heldFor`) rather than stopping it, and a firing
+  whose effects keep failing holds only its own project. Machine consent and
+  its signing key are excluded from backup; the declaration itself is an
+  ordinary project file.
+- **Authoring and the front door** (`packages/server/src/authoring/`) — the
+  one owner of an Agent's file, a flow and a project's triggers, read exactly
+  and written only through a preview a person saw: `authoring/read`,
+  `authoring/agent/patch` and `authoring/save/*` share one journaled
+  transaction on the queue flow updates already use, so a new Agent a saved
+  shape names lands before the flow that references it, and an interrupted
+  save is listed, resumable or discardable, never silently retried.
+  `authoring/shape/render` and `authoring/triggers/render` turn a policy or a
+  trigger list into the exact bytes `writeShape`/`writeTriggers` would write,
+  refusing (never guessing) a value that would not read back as itself — the
+  ordered shape editor's source pane and its graph, and Intake's *Every
+  time…*, both render through this rather than a private serializer.
+  `authoring/start/preview` (`FrontDoor` in `authoring/start.ts`) resolves
+  what a start is *about* — a branch, a pull request, a diff, or a bounded
+  working-tree snapshot that can never masquerade as a committed head — and
+  binds a strict, held-Seats-only flow preview to it; `flow/start-goal`
+  redeems that same token, so what a person saw is what runs. `layout:`'s
+  `frontDoor` and `positions` keys are read defensively for this and for the
+  graph alike (`authoring/model.ts`'s `readShapeLayout`) and never trusted for
+  more than a shortcut or a view default — the engine itself still never
+  reads them.
 - **Background tasks** ([background-tasks.md](background-tasks.md)) — the
   agent's own long-running work, relayed from whichever runtime keeps a
   registry of it and held here so a reload does not lose sight of a job that
@@ -164,6 +217,29 @@ name when none is available.
 - **Credentials** — the broker (`credentials.json`); values are encrypted with
   the OS keystore by the Electron shell and never reach the renderer.
 - **The tool gateway** (`tool-gateway.ts`) — see the extension plane.
+- **Agent attachments** (`attachments/`) — an Agent's declared skills and MCP
+  servers, resolved against a bounded catalog reader and a person-reviewed
+  local trust store (`attachment-trust.json`) before any of it is ever passed
+  to a runtime. A Seat's attachments are decided once, at open (`prepare`),
+  and durably frozen from what the runtime's own readback reported
+  (`record`, append-only per Seat under `attachments/seats/`) — never
+  re-derived on reconnect or widened by a later approval. What was approved
+  is staged by the host (`attachments/staged/`) and a runtime is handed that
+  copy; each Seat's decided filter is kept in `attachments/frozen/` and
+  re-applied, revalidated, on a resume, a load or a reconnect. External MCP
+  servers are reached only through the existing gateway
+  (`attachments/wiring.ts`), at a conservative default classification (`merge`) no
+  repository or server can lower, run in `attachments/run/`, and are torn
+  down with the desk.
+- **Project memory** (`goals/memory-archive/`) — content-addressed, durable
+  snapshots of a committed `.harnessdesk/memory/*.md` file a person cited
+  into a Goal: the exact bytes, the source Goal's wrapped receipt and the
+  Seats that were there, retained before the citing Goal's own index ever
+  references the object. A citation still resolves once its source Goal, its
+  Git history, or the desk that made it, is gone — labeled honestly rather
+  than guessed at. `memory/list` and `memory/read` are the only reads; the
+  host never writes memory itself, and no citation, live or backup-restored,
+  authorizes anything beyond satisfying the one dependency edge it created.
 
 The wire is a token-gated loopback WebSocket. `packages/protocol/src/wire.ts`
 declares every method with its params and result, `wire-validators.ts` checks
@@ -189,7 +265,10 @@ State lives in `~/.harnessdesk/` (overridable by `HARNESSDESK_HOME`):
 and fallback commands), `credentials.json`, `usage.sqlite` (the spend ledger),
 `transcripts/`, `plugins/`, `worktrees/`, `logs/` (`host.ndjson`),
 `audit.ndjson`, `run/` (`tools.sock`), `accounts.json`, `archive.json`,
-`names.json`, `team/`, `acp-registry.json`, and `downloads/`.
+`names.json`, `team/`, `acp-registry.json`, `downloads/`,
+`attachment-trust.json` and `attachments/seats/` (a person's local approvals
+and every Seat's frozen attachment history), and `goals/memory-archive/`
+(retained citation snapshots, beside `goals/` itself).
 
 ## The extension plane
 
@@ -291,7 +370,7 @@ These only exist because no vendor owns the desk:
 - **Gateway accounts** — an account of an agent that pays its own way, through
   the same loopback gateway: the models stay the agent's own, and the
   credential stays in the broker
-  ([agents.md](agents.md#gateway-accounts)).
+  ([runtimes.md](runtimes.md#gateway-accounts)).
 - **Model routes** — a backend's conversations against another
   Responses-speaking endpoint, through a per-route loopback gateway
   (`packages/responses-gateway`) that holds the key in its own process
@@ -332,3 +411,9 @@ second runtimes and kernels adapters rather than rewrites:
 
 See [AGENTS.md](../AGENTS.md) for the maintainer rules and
 [extending.md](extending.md) for how to add a runtime adapter or plugin.
+
+## Provenance capture
+
+The host owns a `ProvenancePlane` beside the evidence plane. It registers open projects, reads admitted Git metadata through a private Git view and journals observations beneath the evidence project's folder. Metadata watches and polling enqueue bounded work; startup resumes durable catch-up. Neither a turn nor a Git action waits for capture. History reads one bounded batch of indexed provenance beside its ordinary Git log.
+
+An association needs a locally observed diff fact, a matching checkout and a compatible Seat lifetime. Reconciliation adds links to immutable original observations; it does not move checks or reviews to a rewritten commit. Capture preferences belong to this machine, default to on, and are shared by a project's linked checkouts.

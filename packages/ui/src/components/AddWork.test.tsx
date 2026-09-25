@@ -103,6 +103,19 @@ const field = (label: string): HTMLInputElement | HTMLTextAreaElement => {
   return found
 }
 
+/** A checkbox by its accessible name: the words of the label that names it. */
+const checkboxNamed = (name: string): HTMLElement => {
+  const found = [...document.querySelectorAll<HTMLElement>('[role="checkbox"]')].find(
+    (node) =>
+      (node.getAttribute('aria-labelledby') ?? '')
+        .split(' ')
+        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .join(' ') === name,
+  )
+  if (!found) throw new Error(`no checkbox named ${name}`)
+  return found
+}
+
 const type = (label: string, value: string): void => {
   act(() => {
     const node = field(label)
@@ -144,9 +157,9 @@ it('says what the files buy, and what their absence costs', () => {
   const { store, intents } = rig()
   render(store, intents)
 
-  expect(container.textContent).toContain('the job is reserved but the code is not')
+  expect(document.body.textContent).toContain('the job is reserved but the code is not')
   type('Files it will own', 'src/limiter.js')
-  expect(container.textContent).toContain('overlapping src/limiter.js')
+  expect(document.body.textContent).toContain('overlapping src/limiter.js')
 })
 
 it('offers only work that could still hold this up', () => {
@@ -159,9 +172,9 @@ it('offers only work that could still hold this up', () => {
     intent({ id: 3, title: 'Given up on', state: 'abandoned' }),
   ])
 
-  expect(container.textContent).toContain('Still open')
-  expect(container.textContent).not.toContain('Already finished')
-  expect(container.textContent).not.toContain('Given up on')
+  expect(document.body.textContent).toContain('Still open')
+  expect(document.body.textContent).not.toContain('Already finished')
+  expect(document.body.textContent).not.toContain('Given up on')
 })
 
 it('records what a job waits for', async () => {
@@ -170,7 +183,8 @@ it('records what a job waits for', async () => {
   render(store, intents)
 
   type('What needs doing', 'Round the money')
-  act(() => field('Waits for #4').click())
+  // The dependency is named by its label's words, as a role query would find it.
+  act(() => checkboxNamed('#4 The refill fix').click())
   press('Add to board')
   await act(async () => {
     await Promise.resolve()
@@ -210,37 +224,7 @@ it('shows the refusal when the board will not own a path', async () => {
   })
 
   expect(onClose).not.toHaveBeenCalled()
-  expect(container.textContent).toContain('outside this workspace')
-})
-
-/**
- * The goal a job belongs to, chosen where the job is written.
- *
- * A Room is permanent and a goal is not, and a job added to no goal is a job
- * that can never be wrapped up with the rest of its batch. Setting it used to
- * be reachable only by an agent passing `plan`.
- */
-it('puts a job on a goal, and starts on the goal it was opened from', async () => {
-  const { store } = rig()
-  render(store, [], vi.fn(), {
-    plans: [
-      { id: 7, goal: 'Ship the limiter', state: 'running', createdAt: 1 },
-      { id: 8, goal: 'Docs pass', state: 'running', createdAt: 2 },
-    ],
-    plan: 8,
-  })
-
-  // Opened from a goal, so nobody picks it out of a menu they were just in.
-  expect((field('Goal') as unknown as HTMLSelectElement).value).toBe('8')
-  choose('Goal', '7')
-  type('What needs doing', 'Fix the token refill')
-  press('Add to board')
-  await act(async () => {})
-
-  expect(store.teamAdd).toHaveBeenCalledWith('room-1', {
-    title: 'Fix the token refill',
-    plan: 7,
-  })
+  expect(document.body.textContent).toContain('outside this workspace')
 })
 
 /**

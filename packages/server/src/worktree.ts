@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import type { RepoInfo, Worktree, WorktreeChanges } from '@harnessdesk/protocol'
 
 import { defaultStateDir } from './state.js'
+import { assertAbsolute } from './workspace.js'
 
 import { parsePorcelain } from './porcelain.js'
 
@@ -355,7 +356,8 @@ export const changes = async (path: string): Promise<WorktreeChanges> => {
 }
 
 /**
- * Refuses a worktree whose repository no open workspace is part of. The verbs
+ * The main checkout of the repository a path is in, or null when it is in none,
+ * refused when no open workspace is part of that repository. The verbs
  * that change a repository — removing one of its checkouts, switching its main
  * checkout's branch — answer to the boundary the rest of the git surface does:
  * the folders opened here (the projects the desk remembers and the folders of
@@ -364,9 +366,13 @@ export const changes = async (path: string): Promise<WorktreeChanges> => {
  * main checkout, as a folder inside it, or as the worktree itself — or sitting
  * inside an open folder, as it does for every other git read.
  */
-export const confineToOpenRepository = async (path: string, roots: readonly string[]): Promise<void> => {
+export const openRepositoryRoot = async (path: string, roots: readonly string[]): Promise<string | null> => {
+  // Before git reads it. `git -C` takes a relative path from the host's
+  // working directory, wherever the app happened to be started, so the
+  // repository judged below was that of a folder the request never named.
+  assertAbsolute(path)
   const main = await repositoryRoot(path)
-  if (!main) throw new Error(`${path} is not a git worktree.`)
+  if (!main) return null
   // Every checkout of the repository from one listing, then path arithmetic
   // against the open roots: no git per root, and the roots are resolved
   // together rather than one after another, so a refusal does not cost a
@@ -391,8 +397,13 @@ export const confineToOpenRepository = async (path: string, roots: readonly stri
       ? normInner.toLowerCase().startsWith(prefix.toLowerCase())
       : normInner.startsWith(prefix)
   }
-  if (opened.some((root) => checkouts.some((checkout) => within(root, checkout) || within(checkout, root)))) return
+  if (opened.some((root) => checkouts.some((checkout) => within(root, checkout) || within(checkout, root)))) return main
   throw new Error(`${path} belongs to ${main}, which is not a project opened here. Open it first.`)
+}
+
+/** `openRepositoryRoot` for the verbs that take a worktree, where a path in no repository is refused too. */
+export const confineToOpenRepository = async (path: string, roots: readonly string[]): Promise<void> => {
+  if ((await openRepositoryRoot(path, roots)) === null) throw new Error(`${path} is not a git worktree.`)
 }
 
 /**

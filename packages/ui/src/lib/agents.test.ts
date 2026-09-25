@@ -1,0 +1,543 @@
+import { describe, expect, it } from 'vitest'
+
+import type { AgentEntry, CeilingLevel, RuntimeInfo, SeatCandidate, SeatLeft, SeatPlan, SeatReason, Session } from '@harnessdesk/protocol'
+
+import {
+  anyBroken,
+  anyOpened,
+  blockedWords,
+  bySection,
+  ceilingWords,
+  ceilingMeaning,
+  copyTargets,
+  fileWords,
+  firstParagraph,
+  firstReason,
+  fixWords,
+  ledBy,
+  leftWords,
+  markFor,
+  originWords,
+  passedWords,
+  projectName,
+  projectOfAgent,
+  reasonWords,
+  refusalOf,
+  sameSeat,
+  seatOf,
+  seatWordsOf,
+  seatCautions,
+  seatCeilingWords,
+  seatTaken,
+  shadowWords,
+  stateWords,
+  wordList,
+  wordOf,
+} from './agents'
+
+describe('the seat a conversation is on', () => {
+  const on = (options: unknown[], model = 'fallback-model'): Session =>
+    ({ id: 's', runtime: 'claude-code', cwd: '/w', settings: { cwd: '/w', model }, options }) as unknown as Session
+  const select = (id: string, value: string, label: string) => ({
+    id,
+    label: id,
+    type: 'select',
+    currentValue: value,
+    choices: [{ value, label }],
+  })
+
+  it('is read from its model, effort and thinking controls, as seating reads one back', () => {
+    const session = on([
+      select('model', 'opus-5', 'Opus 5'),
+      select('effort', 'high', 'High'),
+      { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true },
+    ])
+    expect(seatOf(session)).toEqual({ runtime: 'claude-code', model: 'opus-5', effort: 'high', thinking: true })
+    const runtimes = [{ id: 'claude-code', presentation: { name: 'Claude' } }] as unknown as RuntimeInfo[]
+    expect(seatWordsOf(session, runtimes)).toBe('Claude · Opus 5 · High · thinking')
+  })
+
+  it('takes the model from the settings where there is no model control, and names nothing it was not told', () => {
+    expect(seatOf(on([]))).toEqual({ runtime: 'claude-code', model: 'fallback-model' })
+    expect(seatOf(on([], ''))).toEqual({ runtime: 'claude-code' })
+  })
+})
+
+/**
+ * Agents in words: never a wire id, a seat spec or a digest, and every
+ * ceiling asked rather than held until something holds it.
+ */
+
+const entry = (id: string, over: Partial<AgentEntry> = {}): AgentEntry => ({
+  id,
+  origin: 'builtin',
+  path: `/Applications/HarnessDesk.app/agents/${id}/AGENT.md`,
+  digest: 'd',
+  shadows: [],
+  problems: [],
+  definition: {
+    id,
+    name: id,
+    description: null,
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
+    answers: [],
+    produces: [],
+    skills: [],
+    mcp: [],
+    prefer: [{ runtime: 'claude-code' }],
+    brief: 'First.\n\nSecond.',
+  },
+  ...over,
+})
+
+const plan = (over: Partial<SeatPlan> = {}): SeatPlan => ({
+  id: 'code-reviewer',
+  from: 'prefer',
+  winner: 1,
+  blocked: null,
+  ceiling: { level: 'edit', hold: 'asked' },
+  candidates: [
+    {
+      seat: { runtime: 'cursor' },
+      label: 'Cursor',
+      runtimeName: 'Cursor',
+      state: 'passed',
+      reason: { kind: 'signedOut' },
+      fix: { kind: 'signIn', runtime: 'cursor' },
+    },
+    { seat: { runtime: 'claude-code' }, label: 'Claude', runtimeName: 'Claude', state: 'taken', reason: null, fix: null },
+  ],
+  ...over,
+})
+
+describe('agents in words', () => {
+  it("says an Agent's ceiling as its word on the ladder, and a seat's with whether its runtime holds it", () => {
+    expect(['read', 'edit', 'publish', 'merge'].map((level) => ceilingWords(level as CeilingLevel))).toEqual([
+      'Read',
+      'Edit',
+      'Publish',
+      'Merge',
+    ])
+    expect(seatCeilingWords({ level: 'read', hold: 'held' })).toBe('Read · held')
+    expect(seatCeilingWords({ level: 'edit', hold: 'asked' })).toBe('Edit · asked')
+    expect(ceilingMeaning('read')).toBe('Changes nothing: it reads, searches and reports.')
+    expect(ceilingMeaning('edit')).toBe('May change files and commit in its own checkout, and never push.')
+  })
+
+  it('says a runtime that cannot hold a ceiling, and where that is decided', () => {
+    expect(reasonWords({ kind: 'unheld', level: 'read', detail: null }, 'Claude')).toBe(
+      'Claude cannot hold read, and this Mac refuses a seat whose ceiling is only asked',
+    )
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: 'Sandbox reads back as Full access' }, 'Codex')).toBe(
+      'Codex cannot hold edit: Sandbox reads back as Full access, and this Mac refuses a seat whose ceiling is only asked',
+    )
+    expect(fixWords({ kind: 'ceilings' }, 'Claude')).toBe('Change what happens when a ceiling cannot be held')
+  })
+
+  it('says the front-door case truly: a required hold is not this Mac’s own setting, and never names a runtime id', () => {
+    // A required hold means the runtime is running but does not hold the
+    // level, or reads back holding a different one — never "not running",
+    // and never this Mac's own setting, which is not what refused it here.
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: null, required: true }, 'Codex')).toBe(
+      'Codex cannot hold edit, and a start from here needs every Seat to hold its ceiling',
+    )
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: 'reads back holding read, not edit', required: true }, 'Codex')).toBe(
+      'Codex cannot hold edit: reads back holding read, not edit, and a start from here needs every Seat to hold its ceiling',
+    )
+    expect(fixWords({ kind: 'seats' }, 'Codex')).toBe('Edit seats for this Mac')
+  })
+
+  it('never throws on a level this file does not recognize — shown as written, not indexed', () => {
+    expect(reasonWords({ kind: 'unheld', level: 'omniscient' as CeilingLevel, detail: null }, 'Claude')).toBe(
+      'Claude cannot hold omniscient, and this Mac refuses a seat whose ceiling is only asked',
+    )
+  })
+
+  it('heads each section by where it was found, the project by its name', () => {
+    expect(originWords('project', 'storefront')).toBe('In storefront')
+    expect(originWords('user', 'storefront')).toBe('Yours')
+    expect(originWords('builtin', null)).toBe('Built in')
+    expect(
+      projectName({
+        path: '/w/storefront/pkg',
+        name: 'pkg',
+        lastOpenedAt: 1,
+        repo: { root: '/w/storefront', worktree: false },
+        checkoutRoot: '/w/storefront',
+      }),
+    ).toBe('storefront')
+    expect(
+      projectName({
+        path: '/w/tree',
+        name: 'tree',
+        lastOpenedAt: 1,
+        repo: { root: '/w/storefront', worktree: true },
+        checkoutRoot: '/w/tree',
+      }),
+    ).toBe('tree')
+    /*
+     * A linked worktree opened at a subfolder of itself: `repo.root` is the
+     * *main* checkout on purpose (so the session list can group the worktree
+     * under the project it is a checkout of), which is the wrong folder to
+     * name this project after — it is `checkoutRoot`, the worktree's own top,
+     * that says what folder this actually is.
+     */
+    expect(
+      projectName({
+        path: '/w/tree/pkg',
+        name: 'pkg',
+        lastOpenedAt: 1,
+        repo: { root: '/w/storefront', worktree: true },
+        checkoutRoot: '/w/tree',
+      }),
+    ).toBe('tree')
+    // No `checkoutRoot` at all (an older host, or outside git): the open folder itself is the best that is known.
+    expect(projectName({ path: '/w/lone', name: 'lone', lastOpenedAt: 1 })).toBe('lone')
+  })
+
+  it('names a shipped Agent inside the app, and anything else by its path from home', () => {
+    expect(fileWords({ id: 'judge', origin: 'builtin', path: '/Applications/HarnessDesk.app/x/judge/AGENT.md' }, '/Users/dev')).toBe(
+      'HarnessDesk › agents/judge/AGENT.md',
+    )
+    expect(fileWords({ id: 'scout', origin: 'user', path: '/Users/dev/.harnessdesk/agents/scout/AGENT.md' }, '/Users/dev')).toBe(
+      '~/.harnessdesk/agents/scout/AGENT.md',
+    )
+  })
+
+  /*
+   * Every kind `SeatReason` names today (`packages/protocol/src/agent.ts`),
+   * so a kind nobody worded here is caught by this test rather than by a
+   * blank row in the app. `reasonWords`'s own switch has no `default`, so a
+   * kind added later fails the typecheck first.
+   */
+  it('words every reason by the runtime\'s name, never its id', () => {
+    expect(reasonWords({ kind: 'notInstalled', added: false }, 'Codex')).toBe('Codex is not added to HarnessDesk')
+    expect(reasonWords({ kind: 'notInstalled', added: true }, 'Codex')).toBe('Codex is not installed on this Mac')
+    expect(reasonWords({ kind: 'unknownRuntime' }, 'Wanda')).toBe('Wanda is not a runtime HarnessDesk knows how to add')
+    expect(reasonWords({ kind: 'unavailable', detail: 'crashed on launch' }, 'Codex')).toBe('Codex is unavailable: crashed on launch')
+    // No number in the words, whatever `after` was — a person acts on "it did not answer", not on a millisecond count.
+    expect(reasonWords({ kind: 'noAnswer', after: 4_000 }, 'Cursor')).toBe('Cursor did not answer in time')
+    expect(reasonWords({ kind: 'signedOut' }, 'Cursor')).toBe('Cursor is signed out')
+    expect(reasonWords({ kind: 'spent' }, 'Codex')).toBe("Codex's plan window is used up")
+    expect(reasonWords({ kind: 'spentModel', model: 'opus-5' }, 'Claude')).toBe("Claude's window for opus-5 is used up")
+    expect(reasonWords({ kind: 'modelsUnread', model: 'opus-5' }, 'Claude')).toBe("Claude's models could not be read")
+    expect(reasonWords({ kind: 'noModel', model: 'opus-5' }, 'Claude')).toBe('Claude does not offer opus-5')
+    // Effort always reads by its known word — there is no excuse for a raw "xhigh" when this vocabulary is universal.
+    expect(reasonWords({ kind: 'noEffort', effort: 'xhigh' }, 'Claude')).toBe('Claude does not offer Extra high effort')
+    expect(reasonWords({ kind: 'couldNotOpen', detail: 'timed out' }, 'Cursor')).toBe('Cursor could not open a conversation: timed out')
+    expect(
+      reasonWords({ kind: 'openedOtherwise', differences: [{ field: 'model', asked: 'opus-5', running: 'sonnet-5' }] }, 'Claude'),
+    ).toBe('Claude opened it on sonnet-5, instead of opus-5')
+    expect(
+      reasonWords(
+        {
+          kind: 'openedOtherwise',
+          differences: [
+            { field: 'effort', asked: 'high', running: 'low' },
+            { field: 'thinking', asked: true, running: false },
+          ],
+        },
+        'Claude',
+      ),
+    ).toBe('Claude opened it at Low effort, instead of High, and without thinking, though it was asked for')
+  })
+
+  /*
+   * A model catalogue is per runtime and nobody has one to hand `reasonWords`
+   * yet, so it falls back to the raw id everywhere above. This proves the
+   * seam is real rather than merely typed: given a resolver, a known model
+   * reads by its label, and an unknown one still falls back to raw — never a
+   * blank, never a thrown error.
+   */
+  it('names a model by the runtime\'s own label once a caller has one to give — raw only when nobody does', () => {
+    const label = (id: string) => (id === 'opus-5' ? 'Opus 5' : null)
+    expect(reasonWords({ kind: 'noModel', model: 'opus-5' }, 'Claude', label)).toBe('Claude does not offer Opus 5')
+    expect(reasonWords({ kind: 'noModel', model: 'unknown-model' }, 'Claude', label)).toBe('Claude does not offer unknown-model')
+    expect(reasonWords({ kind: 'spentModel', model: 'opus-5' }, 'Claude', label)).toBe("Claude's window for Opus 5 is used up")
+    expect(
+      reasonWords(
+        { kind: 'openedOtherwise', differences: [{ field: 'model', asked: 'opus-5', running: 'unknown-model' }] },
+        'Claude',
+        label,
+      ),
+    ).toBe('Claude opened it on unknown-model, instead of Opus 5')
+  })
+
+  it('words a reason\'s fix by the runtime\'s name, never its id', () => {
+    expect(fixWords({ kind: 'signIn', runtime: 'cursor' }, 'Cursor')).toBe('Sign in to Cursor')
+    expect(fixWords({ kind: 'add', runtime: 'codex' }, 'Codex')).toBe('Add Codex')
+    expect(fixWords({ kind: 'install', runtime: 'codex' }, 'Codex')).toBe('Install Codex')
+    expect(fixWords({ kind: 'usage', runtime: 'codex' }, 'Codex')).toBe('See when it resets')
+    expect(fixWords({ kind: 'runtime', runtime: 'codex' }, 'Codex')).toBe('Open Codex in Settings')
+    expect(fixWords({ kind: 'seats' }, 'Claude')).toBe('Edit seats for this Mac')
+  })
+
+  it('reads a plan: the seat it takes, or the first thing wrong', () => {
+    expect(seatTaken(plan())?.label).toBe('Claude')
+    expect(firstReason(plan())).toBeNull()
+    const refused = plan({ winner: null, candidates: [plan().candidates[0]!] })
+    expect(seatTaken(refused)).toBeNull()
+    expect(firstReason(refused)).toBe('Cursor is signed out')
+    expect(firstReason(plan({ winner: null, candidates: [] }))).toBe('It names no seat to try')
+  })
+
+  /*
+   * `plan.blocked` is the host's own sentence (`unusable()` in
+   * `methods/agents.ts`) and starts with the Agent file's absolute path — a
+   * fact this file never shows raw. A blocked plan reads as one plain
+   * sentence instead, whatever the host's string said.
+   */
+  it('never lets a blocked plan\'s sentence — or the path inside it — reach the words', () => {
+    const blocked = plan({
+      winner: null,
+      candidates: [],
+      blocked: '/Users/dev/.harnessdesk/agents/draft/AGENT.md will not parse: "admin" is not a permission',
+    })
+    expect(firstReason(blocked)).toBe('Its file has a problem')
+    expect(firstReason(blocked)).not.toMatch(/\//)
+  })
+
+  it('splits the roster by where it was found, and knows when one will not parse', () => {
+    const roster = [entry('a', { origin: 'project' }), entry('b', { origin: 'user' }), entry('c')]
+    expect(Object.values(bySection(roster)).map((one) => one.map((item) => item.id))).toEqual([['a'], ['b'], ['c']])
+    expect(anyBroken(roster)).toBe(false)
+    expect(anyBroken([...roster, entry('d', { definition: null, problems: [{ level: 'error', at: 'brief', text: 'x' }] })])).toBe(true)
+    // A warning is not a failure to parse.
+    expect(anyBroken([entry('e', { problems: [{ level: 'warning', at: 'name', text: 'x' }] })])).toBe(false)
+  })
+
+  it('draws a runtime nobody added by the name the desk gave it', () => {
+    const runtimes = [{ id: 'claude-code', presentation: { name: 'Claude' } }] as unknown as RuntimeInfo[]
+    expect(markFor(plan().candidates[1]!, runtimes)).toBe(runtimes[0])
+    expect(markFor(plan().candidates[0]!, runtimes)).toEqual({ id: 'cursor', presentation: { name: 'Cursor' } })
+  })
+
+  it('opens a brief on its first paragraph', () => {
+    expect(firstParagraph('You review a change.\nSomebody else wrote it.\n\n## What to review')).toBe(
+      'You review a change. Somebody else wrote it.',
+    )
+  })
+
+  it('keeps the exhaustive switch honest: every SeatReason kind is a case above', () => {
+    // A compile-time check as much as a runtime one: if this file's switch
+    // ever drops a branch, the object below stops satisfying `SeatReason` and
+    // the typecheck — not just this test — fails.
+    const kinds: readonly SeatReason['kind'][] = [
+      'notInstalled',
+      'unknownRuntime',
+      'unavailable',
+      'noAnswer',
+      'signedOut',
+      'spent',
+      'spentModel',
+      'modelsUnread',
+      'noModel',
+      'noEffort',
+      'couldNotOpen',
+      'openedOtherwise',
+    ]
+    expect(new Set(kinds).size).toBe(kinds.length)
+  })
+
+  /*
+   * `refusalOf` reads a wire refusal, so every candidate is narrowed rather
+   * than cast — the Task 5 review's carry-forward for this file.
+   */
+  it('reads a seatRefused error’s candidates, and only a seatRefused error’s', () => {
+    const candidate = {
+      seat: { runtime: 'cursor' },
+      label: 'Cursor',
+      runtimeName: 'Cursor',
+      state: 'passed',
+      reason: { kind: 'signedOut' },
+      fix: { kind: 'signIn', runtime: 'cursor' },
+    }
+    expect(refusalOf({ code: 'seatRefused', data: { candidates: [candidate] } })).toEqual([candidate])
+    // Not that code: not a refusal, whatever shape `data` has.
+    expect(refusalOf({ code: 'notFound', data: { candidates: [candidate] } })).toBeNull()
+    expect(refusalOf(new Error('boom'))).toBeNull()
+    expect(refusalOf(null)).toBeNull()
+  })
+
+  it('drops a malformed candidate rather than sinking the whole refusal', () => {
+    const good = {
+      seat: { runtime: 'codex' },
+      label: 'Codex',
+      runtimeName: 'Codex',
+      state: 'passed',
+      reason: { kind: 'signedOut' },
+      fix: { kind: 'signIn', runtime: 'codex' },
+    }
+    const missingRuntime = { ...good, seat: {} }
+    const unknownReasonKind = { ...good, reason: { kind: 'somethingNew' } }
+    const badLeft = { ...good, left: { kind: 'kept' } } // no `archived`
+    for (const bad of [missingRuntime, unknownReasonKind, badLeft]) {
+      expect(refusalOf({ code: 'seatRefused', data: { candidates: [bad, good] } })).toEqual([good])
+    }
+    // Never the error's own message: that is the host's sentence, with a runtime id and a seat spec in it.
+    expect(refusalOf({ code: 'seatRefused', message: 'seat cursor=opus-5 refused', data: { candidates: [good] } })).toEqual([good])
+  })
+
+  it('reads an "unheld" reason rather than dropping the candidate it is on', () => {
+    const heldCandidate = {
+      seat: { runtime: 'codex' },
+      label: 'Codex',
+      runtimeName: 'Codex',
+      state: 'passed',
+      reason: { kind: 'unheld', level: 'edit', detail: null, required: true },
+      fix: { kind: 'seats' },
+    }
+    expect(refusalOf({ code: 'seatRefused', data: { candidates: [heldCandidate] } })).toEqual([heldCandidate])
+    const withoutRequired = { ...heldCandidate, reason: { kind: 'unheld', level: 'read', detail: 'Sandbox reads back as Full access' } }
+    expect(refusalOf({ code: 'seatRefused', data: { candidates: [withoutRequired] } })).toEqual([withoutRequired])
+  })
+
+  /*
+   * Every `SeatLeft` kind (`packages/protocol/src/agent.ts`), and every
+   * `SeatArchived` value where a kind carries one.
+   */
+  it('words what a passed-over seat may have left behind, for every kind and every archived value', () => {
+    expect(leftWords({ kind: 'kept', archived: 'here' }, 'Codex')).toBe(
+      'Codex may keep the empty conversation it opened — it was put here',
+    )
+    expect(leftWords({ kind: 'kept', archived: 'runtime' }, 'Codex')).toBe(
+      "Codex may keep the empty conversation it opened — it was put in Codex's own archive",
+    )
+    expect(leftWords({ kind: 'kept', archived: 'failed' }, 'Codex')).toBe(
+      'Codex may keep the empty conversation it opened — it was put nowhere, because archiving it failed, so it may still be listed',
+    )
+    expect(leftWords({ kind: 'undeleted', detail: 'no permission', archived: 'here' }, 'Cursor')).toBe(
+      'Cursor refused to delete it ("no permission") — it was put here',
+    )
+    expect(leftWords({ kind: 'undeleted', detail: 'no permission', archived: 'runtime' }, 'Cursor')).toBe(
+      'Cursor refused to delete it ("no permission") — it was put in Cursor\'s own archive',
+    )
+    expect(leftWords({ kind: 'undeleted', detail: 'no permission', archived: 'failed' }, 'Cursor')).toBe(
+      'Cursor refused to delete it ("no permission") — it was put nowhere, because archiving it failed, so it may still be listed',
+    )
+    expect(leftWords({ kind: 'inUse' }, 'Claude')).toBe('Somebody used the conversation while it was open, so it was left as it is')
+    expect(leftWords({ kind: 'alreadyHeld' }, 'Claude')).toBe(
+      'Claude answered with a conversation already open here, which was left untouched',
+    )
+    expect(leftWords({ kind: 'unasked' }, 'Gemini CLI')).toBe(
+      'Gemini CLI was gone before it could be asked to delete it, so it may still be in its history',
+    )
+  })
+
+  it('keeps the exhaustive switch honest: every SeatLeft kind is a case above', () => {
+    const kinds: readonly SeatLeft['kind'][] = ['kept', 'undeleted', 'inUse', 'alreadyHeld', 'unasked']
+    expect(new Set(kinds).size).toBe(kinds.length)
+  })
+
+  it('says whether a candidate shows a real attempt, never from the dry run alone', () => {
+    const passedOver: SeatCandidate = {
+      seat: { runtime: 'cursor' },
+      label: 'Cursor',
+      runtimeName: 'Cursor',
+      state: 'passed',
+      reason: { kind: 'signedOut' },
+      fix: { kind: 'signIn', runtime: 'cursor' },
+    }
+    expect(anyOpened([passedOver])).toBe(false)
+    expect(anyOpened([{ ...passedOver, left: { kind: 'kept', archived: 'here' } }])).toBe(true)
+    expect(anyOpened([{ ...passedOver, reason: { kind: 'couldNotOpen', detail: 'timed out' } }])).toBe(true)
+    expect(
+      anyOpened([{ ...passedOver, reason: { kind: 'openedOtherwise', differences: [{ field: 'model', asked: 'a', running: 'b' }] } }]),
+    ).toBe(true)
+  })
+
+  /*
+   * `plan.blocked` is never shown raw (the test above, on `firstReason`) —
+   * this is the sheet's own, roomier wording, read from the entry rather
+   * than the host's sentence.
+   */
+  it('words why an Agent could not be weighed at all, from its own entry — never the host’s path', () => {
+    const broken = entry('draft', {
+      origin: 'user',
+      path: '/Users/dev/.harnessdesk/agents/draft/AGENT.md',
+      problems: [{ level: 'error', at: 'prefer[1]', text: '"cursor=" names no seat after the equals sign' }],
+    })
+    expect(blockedWords(broken, '/Users/dev')).toBe(
+      '~/.harnessdesk/agents/draft/AGENT.md: prefer[1] — "cursor=" names no seat after the equals sign',
+    )
+    // A seating-file problem, or an id nothing answers to, has no entry to read: generic, and names no folder.
+    expect(blockedWords(undefined, '/Users/dev')).not.toMatch(/\/Users|~\//)
+    expect(blockedWords(entry('clean'), '/Users/dev')).not.toMatch(/\/Users|~\//)
+  })
+})
+
+describe('a conversation seated as an Agent, in words', () => {
+  it('leads a title with the Agent, once', () => {
+    expect(ledBy('Code reviewer', 'Code reviewer')).toBe('Code reviewer')
+    expect(ledBy('Code reviewer', 'Checkout review')).toBe('Code reviewer · Checkout review')
+    expect(ledBy(null, 'Checkout review')).toBe('Checkout review')
+    expect(wordOf('code-reviewer')).toBe('Code reviewer')
+  })
+
+  it('names the project a project Agent lives in, and no other', () => {
+    expect(projectOfAgent(entry('a', { origin: 'project', path: '/w/storefront/.harnessdesk/agents/a/AGENT.md' }))).toBe('storefront')
+    expect(projectOfAgent(entry('a'))).toBeNull()
+  })
+
+  it('warns when the brief has moved on, or the Agent is gone — and says nothing while it is being read, or on a failed read', () => {
+    expect(seatCautions(undefined, 'd')).toEqual([])
+    expect(seatCautions(entry('a'), 'd')).toEqual([])
+    expect(seatCautions(entry('a', { digest: 'e' }), 'd')).toEqual(['The brief has changed since this started.'])
+    expect(seatCautions(null, 'd')).toEqual(['Its Agent is not in this project any more.'])
+  })
+
+  it('says each seat passed over with why, built from reasonWords and leftWords rather than repeating either', () => {
+    expect(passedWords(plan().candidates[0]!)).toBe('Cursor — Cursor is signed out')
+    expect(
+      passedWords({
+        seat: { runtime: 'gemini' },
+        label: 'Gemini CLI',
+        runtimeName: 'Gemini CLI',
+        state: 'passed',
+        reason: { kind: 'openedOtherwise', differences: [{ field: 'effort', asked: 'high', running: 'low' }] },
+        fix: { kind: 'seats' },
+        left: { kind: 'kept', archived: 'here' },
+      }),
+    ).toBe(
+      'Gemini CLI — Gemini CLI opened it at Low effort, instead of High. Gemini CLI may keep the empty conversation it opened — it was put here',
+    )
+  })
+})
+
+describe('an Agent’s page in words', () => {
+  it('says each candidate’s state on this Mac', () => {
+    const [passed, taken] = plan().candidates
+    expect(stateWords(taken!)).toBe('The seat it takes here')
+    expect(stateWords(passed!)).toBe('Cursor is signed out')
+    expect(stateWords({ ...taken!, state: 'untried' })).toBe('Not reached: a seat before it is free')
+  })
+
+  it('reads an Agent’s own words as words', () => {
+    expect(wordList(['approve', 'request-changes'])).toBe('Approve · Request changes')
+    expect(wordList([])).toBe('None')
+  })
+
+  it('says what a copy in force comes first over', () => {
+    expect(shadowWords(entry('a'))).toBeNull()
+    expect(
+      shadowWords(entry('a', { origin: 'project', shadows: [{ origin: 'user', path: '/u' }, { origin: 'builtin', path: '/b' }] })),
+    ).toBe('Comes first over yours and the one that ships')
+  })
+
+  it('copies only to somewhere that comes first', () => {
+    expect(copyTargets('builtin', true)).toEqual(['project', 'user'])
+    expect(copyTargets('builtin', false)).toEqual(['user'])
+    expect(copyTargets('user', true)).toEqual(['project'])
+    expect(copyTargets('user', false)).toEqual([])
+    expect(copyTargets('project', true)).toEqual([])
+  })
+})
+
+describe('sameSeat', () => {
+  it('knows one seat from another by everything it asks for', () => {
+    expect(sameSeat({ runtime: 'codex' }, { runtime: 'codex', model: null })).toBe(true)
+    expect(sameSeat({ runtime: 'codex', effort: 'high' }, { runtime: 'codex' })).toBe(false)
+    expect(sameSeat({ runtime: 'cursor', thinking: true }, { runtime: 'cursor', thinking: false })).toBe(false)
+  })
+})

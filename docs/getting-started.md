@@ -13,7 +13,7 @@ curl https://cursor.com/install -fsS | bash
 
 **Codex** is spoken natively. **Claude Code** and **Cursor** arrive through the
 ACP adapter, using the bridges in this repository — both are one click in
-Settings › Agents › **Add agent**, as is **Gemini CLI**. Every other agent the
+Settings › Runtimes › **Add a runtime**, as is **Gemini CLI**. Every other agent the
 [public ACP registry](https://agentclientprotocol.com) lists (~40 of them) is
 one click in the same dialog and on the sign-in page: HarnessDesk reads the
 registry, says which entries can run on your machine, and adding one either
@@ -41,10 +41,10 @@ not know is the custom-command form in the same dialog, or one entry in
 ] }
 ```
 
-`account` is what lets Settings › Agents show who is signed in and sign in for
+`account` is what lets Settings › Runtimes show who is signed in and sign in for
 you; `executable` matters when the command is a bridge that embeds its own copy
 of the agent, pointing the bridge at the newest installed CLI on your machine.
-Details in [agents.md](agents.md) and [interface.md](interface.md).
+Details in [runtimes.md](runtimes.md) and [interface.md](interface.md).
 
 ### DeepSeek Harness
 
@@ -86,8 +86,8 @@ and the session projections, so the overlay is short; `dsh-acp` ships it as
       name: '@harnessdesk/dsh-acp'
       config:
         provider: deepseek-official
-        model: deepseek-v4-flash
-        models: [deepseek-v4-flash, deepseek-v4-pro]
+        model: deepseek-flash
+        models: [deepseek-flash, deepseek-v4-pro]
 ```
 
 Link the package into the profile once (`ln -s <dsh-acp-checkout>
@@ -108,6 +108,13 @@ source on 2026-09-05: boot, session listing, model switch, close, replaying
 past conversations, and the reopened conversation continuing on the model it had
 chosen.
 
+DeepSeek's official `@deepseek-ai/dsh-acp` remains the automation-only bridge.
+HarnessDesk uses `@harnessdesk/dsh-acp` for renderer-facing sessions; the
+official bridge is used only by the adapter's opt-in automation compatibility
+probe. The picker labels these routes **DeepSeek V4.1 Flash** and
+**DeepSeek V4 Pro**; the legacy `deepseek-v4-flash` identifier remains
+readable in historical session logs but is not a new-session choice.
+
 **On earlier versions** (up to `0.1.1`), mount it beside the example spine:
 
 ```yaml
@@ -120,7 +127,7 @@ chosen.
   config:
     provider: deepseek-official
     model: deepseek-v4-pro
-    models: [deepseek-v4-pro, deepseek-v4-flash]
+    models: [deepseek-flash, deepseek-v4-pro]
 
 # The session store. Without it a DeepSeek conversation lives only as long as
 # the process: the sidebar is empty on the next launch and nothing can be
@@ -153,7 +160,7 @@ chosen.
   name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
   config:
     provider: deepseek-official
-    model: deepseek-v4-flash
+    model: deepseek-flash
 
 # HarnessDesk's plugin tools. The bridge finds the tool gateway through the
 # HD_TOOLS_SOCKET the host sets in the agent's environment; outside
@@ -234,7 +241,7 @@ is not shareable and is regenerated on every launch.
 
 ## Sign in
 
-Settings › Agents signs in each agent through its own flow. For Codex the
+Settings › Runtimes signs in each agent through its own flow. For Codex the
 first-run screen offers
 **Sign in with ChatGPT** (opens your browser) or **Sign in with a code** (for a
 machine whose browser cannot reach localhost). Codex runs the flow and keeps the
@@ -246,7 +253,7 @@ codex login
 ```
 
 For Claude Code and Cursor, sign in through their CLIs or the button in
-Settings › Agents:
+Settings › Runtimes:
 
 ```bash
 claude auth login
@@ -254,7 +261,7 @@ cursor-agent login
 ```
 
 Agents requiring an API key (such as Gemini CLI or DeepSeek Harness) accept it in
-Settings › Agents or from their environment variables. HarnessDesk stores
+Settings › Runtimes or from their environment variables. HarnessDesk stores
 pasted keys in the host credential broker (backed by macOS Keychain in the
 desktop app) and passes them to the agent environment at startup.
 

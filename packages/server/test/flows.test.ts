@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { sessionKey, type RuntimeId, type TeamState } from '@harnessdesk/protocol'
+import { sessionKey, type FlowPermission, type FlowSeat, type RuntimeId, type SeatId, type SeatRecord, type TeamState } from '@harnessdesk/protocol'
 
-import { Flows, runCheck, type FlowPort } from '../src/flows.js'
+import { FLOW_DIR, Flows as DurableFlows, runCheck, type FlowPort as DurableFlowPort } from '../src/flows.js'
+import { FlowCatalog } from '../src/flow-catalog.js'
 import { Team, type TeamPeer, type TeamPort } from '../src/team.js'
 
 /**
@@ -33,6 +34,10 @@ interface Rig {
   readonly orders: { key: string; text: string }[]
   /** Worktrees an isolating role asked for. */
   readonly isolated: string[]
+  /** Folders the engine asked the desk to hold to what is open, in order. */
+  readonly confined: string[]
+  /** A folder the desk does not have open, which it refuses. */
+  closed?: string
   /** What a check's command is told to answer. */
   exits: Map<string, number>
   readonly ran: { command: string; cwd: string }[]
@@ -72,6 +77,74 @@ const peerOf = (runtime: string, sessionId: string, cwd: string, model: string):
   here: true,
 })
 
+/** Old fake-desk spelling retained only inside this test; production has one durable Seat port. */
+type FlowPort = Omit<DurableFlowPort, 'openLegacySeat' | 'releaseGoalSeat' | 'recovery'> & {
+  seat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<{
+    readonly runtime: string; readonly sessionId: string; readonly label: string
+  }>
+  join(room: string, runtime: string, sessionId: string): Promise<void>
+  isolate?(root: string, name: string): Promise<string>
+  recorded?(room: string, seat: unknown): void
+}
+
+/**
+ * The Seat book this fake desk keeps, per board: what a restart reads back.
+ * Shared by every engine built over one Team, the way the host's book
+ * outlives an engine. (Added for recovery; the rest of this rig is unchanged.)
+ */
+const seatBooks = new WeakMap<Team, SeatRecord[]>()
+
+const durablePort = (team: Team, legacy: FlowPort): DurableFlowPort => {
+  const opened = new Map<SeatId, { runtime: string; sessionId: string }>()
+  const { seat, join: joinRoom, isolate, recorded: _recorded, ...port } = legacy
+  const book = seatBooks.get(team) ?? []
+  seatBooks.set(team, book)
+  return {
+    ...port,
+    recovery: {
+      goal: (room) => ({ exists: team.hasRoom(room), writable: team.hasRoom(room) }),
+      seats: (room) => book.filter((record) => record.board === room),
+    },
+    openLegacySeat: async (input: {
+      goal: string; spec: FlowSeat; permission: FlowPermission; role: string
+      isolate: boolean; title: string; lane?: string
+    }): Promise<SeatRecord> => {
+      const board = team.stateFor(input.goal)
+      const folder = board.cwd ?? board.root
+      const cwd = input.isolate ? await isolate?.(folder, input.lane ?? input.role) : folder
+      if (!cwd) throw new Error('This test port cannot isolate a Seat.')
+      const live = await seat(input.spec, { cwd, title: input.title })
+      await joinRoom(input.goal, live.runtime, live.sessionId)
+      team.setRole(input.goal, live.runtime, live.sessionId, input.role)
+      const id = `test-${live.runtime}-${live.sessionId}` as SeatId
+      opened.set(id, live)
+      const record: SeatRecord = {
+        id, agent: null, briefDigest: null, seat: input.spec, seatLabel: live.label,
+        passedOver: [], standing: { kind: 'permission', permission: input.permission }, ceiling: null,
+        checkout: { cwd, project: board.root, branch: null, head: null },
+        session: { runtime: live.runtime, sessionId: live.sessionId }, board: input.goal,
+        role: input.role, openedAt: Date.now(), closed: null,
+      }
+      book.push(record)
+      return record
+    },
+    releaseGoalSeat: async (goal, id) => {
+      const live = opened.get(id)
+      const kept = book.findIndex((record) => record.id === id)
+      if (kept !== -1) book[kept] = { ...book[kept]!, closed: { at: Date.now(), why: 'released' } }
+      if (!live) return
+      team.setRole(goal, live.runtime, live.sessionId, null)
+      team.leaveRoom(goal, live.runtime as RuntimeId, live.sessionId)
+    },
+  }
+}
+
+class Flows extends DurableFlows {
+  constructor(dir: string, team: Team, port: FlowPort) {
+    super(dir, team, durablePort(team, port))
+  }
+}
+
 const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> => {
   /* Built up as we go, because the fake desk's own verbs read its state — an
      order that fails has to be able to see the counter that says so. */
@@ -81,6 +154,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
   const seated: Rig['seated'] = []
   const orders: Rig['orders'] = []
   const isolated: string[] = []
+  const confined: string[] = []
   const ran: Rig['ran'] = []
   const reseated: Rig['reseated'] = []
   const logged: Rig['logged'] = []
@@ -130,6 +204,10 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
     join: async (id, runtime, sessionId) => {
       await team.joinRoom(id, runtime as RuntimeId, sessionId)
     },
+    confine: async (folder) => {
+      confined.push(folder)
+      if (folder === rig.closed) throw new Error(`${folder} is not open here.`)
+    },
     isolate: async (root, name) => {
       const path = `${root}/.worktrees/${name}`
       isolated.push(path)
@@ -154,7 +232,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> =>
     const peer = peers.find((one) => one.runtime === seat.runtime && one.sessionId === seat.sessionId)
     if (peer) Object.assign(peer, { busy: false })
   }
-  Object.assign(rig, { team, flows, room, dir, peers, seated, orders, isolated, exits, ran, kill, reseated, logged, retired })
+  Object.assign(rig, { team, flows, room, dir, peers, seated, orders, isolated, confined, exits, ran, kill, reseated, logged, retired })
   return rig as Rig
 }
 
@@ -420,6 +498,39 @@ rules:
   )
 })
 
+test('a flow starts only in a folder the desk has open, asked before anybody is seated', async (t) => {
+  const one = await rig(t)
+  // A room made in a folder inside its project, so the folder its seats open
+  // in is not the root the room is keyed by.
+  const room = (await one.team.createRoom('/repo/app', 'App room')).id
+  /* The reader comes first. Seated, it is a conversation the desk holds in
+     the room's folder, and that folder then counts as open to the desk — so a
+     question asked any later than this would be answered by the seat. */
+  const PAIR = `
+name: Pair
+roles:
+  reader: { kind: agent, seat: cursor, outcomes: [done] }
+  writer: { kind: agent, seat: cursor, isolate: true, outcomes: [done] }
+seed: { role: writer, title: Write it }
+`
+  one.closed = '/repo/app'
+  await assert.rejects(one.flows.start({ room, source: PAIR }), { message: '/repo/app is not open here.' })
+  assert.deepEqual(one.confined, ['/repo/app'])
+  assert.equal(one.seated.length, 0, 'nobody was seated')
+  assert.equal(one.isolated.length, 0, 'and no worktree was cut')
+  assert.deepEqual(one.orders, [])
+  assert.deepEqual(one.flows.runsFor(room), [])
+  assert.deepEqual(one.team.stateFor(room).intents, [])
+
+  // The control: open, the same flow seats both, in the folder it asked about.
+  delete one.closed
+  await one.flows.start({ room, source: PAIR })
+  assert.deepEqual(one.confined, ['/repo/app', '/repo/app'])
+  assert.equal(one.seated[0]?.cwd, '/repo/app')
+  assert.match(one.seated[1]?.cwd ?? '', /^\/repo\/app\/\.worktrees\/writer-1-/)
+  assert.deepEqual(one.isolated, [one.seated[1]?.cwd])
+})
+
 test('a run picks up where it left off when the desk restarts mid-round', async (t) => {
   const one = await rig(t)
   await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
@@ -440,6 +551,7 @@ test('a run picks up where it left off when the desk restarts mid-round', async 
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -885,6 +997,7 @@ test('a restart wakes a seat that stopped while the desk was down', async (t) =>
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1321,6 +1434,7 @@ test('standDown and reArm do not crash when a persisted run has non-array seats 
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1396,6 +1510,7 @@ test('Flows.load refuses a running run that omits rounds instead of crashing (#5
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1433,6 +1548,7 @@ test('Flows.load refuses a running run that has malformed flow object (#422)', a
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1526,6 +1642,7 @@ test('Flows.stop does not crash when a run has non-array record data (#505)', as
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1621,6 +1738,7 @@ test('Flows.load stops running flows whose room no longer exists (#441)', async 
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async () => ({ status: 0 }),
     changed: () => {},
@@ -1630,8 +1748,12 @@ test('Flows.load stops running flows whose room no longer exists (#441)', async 
   await second.flush()
   const run = second.runsFor('non-existent-room-id')[0]
   assert.ok(run)
-  assert.equal(run.state, 'stopped')
-  assert.equal(run.ended, 'the room this flow ran in is gone')
+  /* Edited for phase 6 recovery: a run whose Goal is gone is held with the
+     reason and its file is left exactly as it was, rather than rewritten as
+     stopped — restoring the Goal lets it go on. */
+  assert.equal(run.state, 'stalled')
+  assert.equal(run.ended, 'This run’s Goal is missing. Restore its Goal before continuing.')
+  assert.equal(JSON.parse(await readFile(join(flowDir, 'orphaned-run.json'), 'utf8')).state, 'running')
 })
 
 test('deleting a room stops active flow runs and allows seats to stand down (#419)', async (t) => {
@@ -1728,6 +1850,7 @@ rules:
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async (command, where) => {
       secondRan.push({ command, cwd: where.cwd })
@@ -1744,11 +1867,19 @@ rules:
   assert.equal(secondRan.length, 0, 'load does not issue check commands')
   assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'open')
 
-  // On resume, the desk wakes seats and resumes open check commands:
+  /* Edited for phase 6 recovery: old storage cannot say whether the check
+     ran before the desk stopped, so a restart never runs it again by itself.
+     The run is held with the reason until the person chooses Run again. */
   await second.resume()
   await second.flush()
+  assert.equal(secondRan.length, 0, 'an interrupted check is not replayed on resume')
+  const held = second.runsFor(one.room).at(-1)!
+  assert.equal(held.state, 'stalled')
+  assert.equal(held.ended, 'This check was interrupted. Inspect its effects, then choose Run again.')
 
-  assert.equal(secondRan.length, 1, 'check command should have been run after restart')
+  await second.runAgain(held.id)
+  await second.flush()
+  assert.equal(secondRan.length, 1, 'the person asked for it, so it runs once')
   assert.equal(secondRan[0]?.command, 'pnpm verify')
   assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'done')
   assert.equal(board(one).intents.find((i) => i.id === 2)?.outcome, 'pass')
@@ -1759,7 +1890,7 @@ test('restart recovers and runs interrupted seed check round (#437)', async (t) 
   const one = await rig(t)
   const flowDir = join(one.dir, 'flows')
   await mkdir(flowDir, { recursive: true })
-  const card = one.team.addIntentForFlow(one.room, { title: 'Run the gate first', role: 'tests' })
+  const card = one.team.addIntentForFlow(one.room, { title: 'Run the gate first', role: 'tests' }, { kind: 'user' })
   await writeFile(
     join(flowDir, 'seed-run.json'),
     JSON.stringify({
@@ -1779,7 +1910,8 @@ test('restart recovers and runs interrupted seed check round (#437)', async (t) 
       },
       state: 'running',
       vars: {},
-      seats: [{ key: 'cursor\u0000x', role: 'fixer', runtime: 'cursor', sessionId: 'x', seat: 'cursor', spec: 'cursor', permission: 'publish', cwd: '/repo' }],
+      // Edited for phase 6 recovery: no seat, so only the check's own state decides.
+      seats: [],
       rounds: [{ role: 'tests', intents: [card.id], round: 0 }],
       record: [],
       startedAt: 1,
@@ -1793,6 +1925,7 @@ test('restart recovers and runs interrupted seed check round (#437)', async (t) 
     reseat: async () => 'cursor',
     retire: async () => {},
     join: async () => {},
+    confine: async () => {},
     isolate: async () => '/repo',
     run: async (command, where) => {
       secondRan.push({ command, cwd: where.cwd })
@@ -1807,10 +1940,14 @@ test('restart recovers and runs interrupted seed check round (#437)', async (t) 
 
   assert.equal(secondRan.length, 0, 'load does not issue check commands')
 
+  // Edited for phase 6 recovery: held on resume, run only when the person asks.
   await second.resume()
   await second.flush()
+  assert.equal(secondRan.length, 0, 'an interrupted seed check is not replayed on resume')
+  await second.runAgain('seed-run')
+  await second.flush()
 
-  assert.equal(secondRan.length, 1, 'check command should have been run after restart')
+  assert.equal(secondRan.length, 1, 'check command should have been run after Run again')
   assert.equal(secondRan[0]?.command, 'pnpm verify')
   assert.equal(board(one).intents.find((i) => i.id === card.id)?.state, 'done')
   assert.equal(board(one).intents.find((i) => i.id === card.id)?.outcome, 'pass')
@@ -1850,4 +1987,186 @@ rules:
   // Reviewer can claim card 3
   const claimed = await one.team.claimNext(reviewer)
   assert.match(claimed, /^Claimed #3/)
+})
+
+/*
+ * A folder that cannot be opened is not a folder with nothing in it.
+ *
+ * Both readers here — the project's flows and the desk's own runs — answered
+ * every failure to open their folder with nothing, so a mode, a bad mount or a
+ * name the filesystem will not take arrived as "no flows" or "no runs": the
+ * same answer as the truth, with no path and no reason in it to act on. The
+ * tests below use real filesystem conditions rather than stubs — a mode-000
+ * folder for EACCES, and a 300-character name for ENAMETOOLONG, which no mode
+ * and no user can skip, so each guarantee still holds where the mode test
+ * skips as root.
+ */
+
+/** A desk that only notes what it was asked, so a refusal can be shown to have cost nothing. */
+const asking = (asked: string[]): FlowPort => ({
+  seat: async () => {
+    asked.push('seat')
+    return { runtime: 'cursor', sessionId: 'x', label: 'cursor' }
+  },
+  order: async () => void asked.push('order'),
+  reseat: async () => 'cursor',
+  retire: async () => {},
+  join: async () => void asked.push('join'),
+  confine: async () => {},
+  isolate: async () => '/repo',
+  run: async () => ({ status: 0 }),
+  changed: () => {},
+  log: () => {},
+})
+
+const errno = (expected: string) => (error: unknown) => {
+  assert.equal((error as { code?: unknown }).code, expected)
+  return true
+}
+
+test('a flows folder that cannot be read is raised, not listed as a project with none', async (t) => {
+  const one = await rig(t)
+  const root = join(one.dir, 'project')
+  const folder = join(root, FLOW_DIR)
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, 'review.yml'), REVIEW, 'utf8')
+  // Readable, it lists: so the refusal below is the mode's doing and nothing else's.
+  assert.deepEqual(
+    (await one.flows.list(root)).map((file) => file.name),
+    ['Fix and review'],
+  )
+
+  await chmod(folder, 0o000)
+  try {
+    const readable = await readdir(folder).then(
+      () => true,
+      () => false,
+    )
+    // Modes do not apply to root, so there is no refusal here to observe.
+    if (readable) return t.skip('this user can read a directory with mode 000')
+
+    await assert.rejects(one.flows.list(root), errno('EACCES'))
+  } finally {
+    await chmod(folder, 0o700)
+  }
+})
+
+test('a project root the filesystem refuses outright is raised as well', async (t) => {
+  const one = await rig(t)
+  await assert.rejects(one.flows.list(join(one.dir, 'n'.repeat(300))), errno('ENAMETOOLONG'))
+})
+
+test('a project with no flows folder, or with a .harnessdesk that is a file, offers none', async (t) => {
+  const one = await rig(t)
+  const bare = join(one.dir, 'bare')
+  await mkdir(bare, { recursive: true })
+  assert.deepEqual(await one.flows.list(bare), [])
+
+  /* The other half of the rule, and why ENOTDIR is not raised here: a project
+     that keeps a `.harnessdesk` *file* has no flows in it, and refusing every
+     listing it asks for would be a worse answer than an empty one. This passes
+     against the old catch-all too, on purpose — it is what stops a later
+     tidy-up from promoting ENOTDIR to an error without reddening. */
+  const marked = join(one.dir, 'marked')
+  await mkdir(marked, { recursive: true })
+  await writeFile(join(marked, '.harnessdesk'), 'somebody touched this instead of making it\n', 'utf8')
+  assert.deepEqual(await one.flows.list(marked), [])
+})
+
+test('legacy list and read delegate to the layered catalogue without changing project paths', async (t) => {
+  const one = await rig(t)
+  const root = join(one.dir, 'catalogue-project')
+  const user = join(one.dir, 'catalogue-user')
+  await mkdir(join(root, FLOW_DIR), { recursive: true })
+  await mkdir(user)
+  await writeFile(join(root, FLOW_DIR, 'review.yml'), REVIEW, 'utf8')
+  await writeFile(join(user, 'starter.yml'), REVIEW.replace('Fix and review', 'Personal starter'), 'utf8')
+  const flows = new DurableFlows(join(one.dir, 'catalogue-runs'), one.team, durablePort(one.team, asking([])), new FlowCatalog({ userRoot: user, confine: async () => {} }))
+  const listed = await flows.list(root)
+  assert.deepEqual(listed.map((flow) => flow.path), ['.harnessdesk/flows/review.yml', 'starter.yml'])
+  assert.equal(await flows.source(root, '.harnessdesk/flows/review.yml'), REVIEW)
+})
+
+test('stored runs that cannot be read are raised, and no flow starts on top of them', async (t) => {
+  const one = await rig(t)
+  await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  await one.flows.flush()
+  const folder = join(one.dir, 'flows')
+
+  const asked: string[] = []
+  const second = new Flows(folder, one.team, asking(asked))
+  await chmod(folder, 0o000)
+  try {
+    const readable = await readdir(folder).then(
+      () => true,
+      () => false,
+    )
+    if (readable) return t.skip('this user can read a directory with mode 000')
+
+    await assert.rejects(second.load(), errno('EACCES'))
+    /* The run above is live in this room, on disk, where this desk cannot see
+       it. "No runs" would let a second flow open cards into the same board —
+       the one thing a room running one flow at a time exists to prevent — so
+       the refusal says what could not be read, and where. */
+    const names = (error: unknown): boolean =>
+      error instanceof Error && error.message.includes(folder) && /EACCES/.test(error.message)
+    await assert.rejects(
+      second.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it again' } }),
+      names,
+    )
+    assert.throws(() => second.runsFor(one.room), names)
+    assert.deepEqual(asked, [], 'nobody was seated, joined or spoken to')
+  } finally {
+    await second.flush()
+    await chmod(folder, 0o700)
+  }
+})
+
+test('a runs folder the filesystem refuses outright is raised as well, mode or no mode', async (t) => {
+  const one = await rig(t)
+  const asked: string[] = []
+  const second = new Flows(join(one.dir, 'n'.repeat(300)), one.team, asking(asked))
+  try {
+    await assert.rejects(second.load(), errno('ENAMETOOLONG'))
+    await assert.rejects(
+      second.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } }),
+      /ENAMETOOLONG/,
+    )
+    assert.throws(() => second.runsFor(one.room), /ENAMETOOLONG/)
+    assert.deepEqual(asked, [])
+  } finally {
+    await second.flush()
+  }
+})
+
+test('a file where the runs folder goes is raised: the desk could keep no run there', async (t) => {
+  const one = await rig(t)
+  const folder = join(one.dir, 'runs')
+  await writeFile(folder, 'somebody touched this instead of making it\n', 'utf8')
+  /* Unlike a project's `.harnessdesk`, which is somebody else's to make a file
+     of, this folder is written by the desk and nothing else. A file in its
+     place is not a desk with no runs — it is a desk where every save would
+     fail and every run would be gone on the next launch — so ENOTDIR is
+     raised here, and only ENOENT is "none yet". */
+  const asked: string[] = []
+  const second = new Flows(folder, one.team, asking(asked))
+  try {
+    await assert.rejects(second.load(), errno('ENOTDIR'))
+    await assert.rejects(
+      second.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } }),
+      /ENOTDIR/,
+    )
+    assert.deepEqual(asked, [])
+  } finally {
+    await second.flush()
+  }
+})
+
+test('a desk that has never kept a run loads none, and starts one', async (t) => {
+  // The control for the three above: a folder nobody has made is the one "nothing".
+  const one = await rig(t)
+  await one.flows.load()
+  assert.deepEqual(one.flows.runsFor(one.room), [])
+  const run = await one.flows.start({ room: one.room, source: REVIEW, vars: { work: 'Fix it' } })
+  assert.equal(run.state, 'running')
 })

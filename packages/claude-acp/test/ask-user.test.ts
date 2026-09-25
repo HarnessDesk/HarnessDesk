@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
-
 import {
   answerFor,
   answeredInput,
@@ -102,17 +99,10 @@ test('several questions in one call are several requests, and a dismissed one an
   assert.equal(answerFor(asked[1]!, { outcome: 'cancelled' }), null)
 })
 
-test('the base bridge still disallows AskUserQuestion in the line the port removes', () => {
-  // The ported createSession in bridge.ts exists to leave that one line out.
-  // The day the base stops writing it — or writes it differently — the port
-  // is a copy of code that no longer needs copying, and this says so.
-  const require = createRequire(import.meta.url)
-  const base = require.resolve('@zed-industries/claude-code-acp/dist/acp-agent.js')
-  const source = readFileSync(base, 'utf8')
-  assert.ok(
-    source.includes('const disallowedTools = ["AskUserQuestion"];'),
-    'the base bridge no longer disallows AskUserQuestion the way the port assumes — re-examine #createSession in bridge.ts',
-  )
+test('the official bridge keeps AskUserQuestion available to the HarnessDesk adapter', () => {
+  assert.equal(typeof questionTitled, 'function')
+  const passthrough = questionTitled({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } as never) as { sessionUpdate?: string }
+  assert.equal(passthrough.sessionUpdate, 'agent_message_chunk')
 })
 
 test('several questions in one call get one tool-call id each, so their cards do not land on each other', () => {

@@ -1,3 +1,4 @@
+import { Button, Chip, Progress, Separator, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -7,8 +8,7 @@ import { describeLane, formatAge, formatMoney } from '../lib/usage'
 import { useActiveSession, useSnapshot } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { RosterIcon, SignInIcon, UsageIcon } from './Icons'
-import { Menu } from './Menu'
-import { Popover } from './Popover'
+import { Menu, Popover } from '../design'
 import styles from './PlanMeters.module.css'
 
 /**
@@ -53,6 +53,7 @@ export const PlanMeters = ({
         runtimes: snapshot.runtimes,
         usage: snapshot.usage,
         accountsByRuntime: snapshot.accountsByRuntime,
+        accountPrefs: snapshot.accountPrefs,
         health: snapshot.health,
         activeRuntime: snapshot.activeRuntime,
         sessionRuntime: session?.runtime ?? null,
@@ -62,6 +63,7 @@ export const PlanMeters = ({
       snapshot.runtimes,
       snapshot.usage,
       snapshot.accountsByRuntime,
+      snapshot.accountPrefs,
       snapshot.health,
       snapshot.activeRuntime,
       session?.runtime,
@@ -83,15 +85,15 @@ export const PlanMeters = ({
         <Meter view={anchor.meter} now={now} onOpen={() => onOpen(anchor.meter.runtime)} />
       )}
       {anchor?.kind === 'signIn' && (
-        <button
+        <Button
           type="button"
-          className={styles.signInChip}
+          variant="primary" size="chip" className={`${styles.signInChip} truncate`}
           onClick={() => onSignIn(anchor.info.id)}
           title={`${anchor.info.presentation.name} has no account here — sign in to use it`}
         >
           <SignInIcon size={12} />
           {anchor.info.presentation.name}
-        </button>
+        </Button>
       )}
       {/* An agent that is out and is not this conversation's is the one piece
           of roster news worth its own space: the token can say how many are
@@ -127,11 +129,11 @@ const Meter = ({
     title={view.title}
     drop="down"
     align="right"
-    triggerClassName={styles.trigger}
     label={
       <span
+        data-slot="plan-meter"
         className={styles.meter}
-        data-tone={view.tone}
+        data-tone={toneOf(view.tone)}
         {...(view.low ? { 'data-low': '' } : {})}
         {...(promoted ? { 'data-promoted': '' } : {})}
       >
@@ -139,67 +141,79 @@ const Meter = ({
         {/* A promoted chip's whole content is the countdown, so a full red
             track beside it would only say the same thing twice. */}
         {!promoted && (
-          <span className={styles.track}>
-            <span className={styles.fill} style={{ width: `${view.lane.remainingPercent ?? 0}%` }} />
-          </span>
+          <Progress
+            className={styles.stripProgress}
+            value={view.lane.remainingPercent}
+            measure="remaining"
+            label={false}
+            size="sm"
+            aria-label={`${view.lane.title} — what is left`}
+          />
         )}
-        <span className={styles.figure}>{view.figure}</span>
+        {promoted ? (
+          <Chip tone="danger">{view.figure}</Chip>
+        ) : (
+          <Text className={styles.figure} role="meta" tone={toneOf(view.tone)} numeric>{view.figure}</Text>
+        )}
       </span>
     }
   >
     {(close) => (
       <Menu close={close}>
         <div className={styles.panel}>
-          <button
+          <Button
             type="button"
-            className={styles.panelHead}
+            variant="row" size="row" className={styles.panelHead}
             onClick={() => {
               close()
               onOpen()
             }}
           >
             <RuntimeMark runtime={view.info} size={14} />
-            <span className={styles.panelName}>{view.name}</span>
-            <span className={styles.panelOpen}>Open</span>
-          </button>
+            <Text role="subject" truncate className={styles.panelName}>{view.name}</Text>
+            <Text role="subject" tone="brand">Open</Text>
+          </Button>
           {(view.report.plan || view.report.account) && (
-            <p className={styles.identity}>
+            <Text as="p" role="muted" className={styles.identity}>
               {[view.report.plan, view.report.account].filter(Boolean).join(' · ')}
-            </p>
+            </Text>
           )}
           <div className={styles.lanes}>
             {view.report.lanes.map((raw) => {
               const lane = describeLane(raw, now, view.report.lanes)
               return (
                 <div key={lane.id} className={styles.laneRow} data-tone={lane.tone}>
-                  <span className={styles.laneName}>{lane.title}</span>
-                  <span className={styles.laneTrack}>
-                    <span
-                      className={styles.laneFill}
-                      style={{ width: `${lane.remainingPercent ?? 0}%` }}
-                    />
-                  </span>
-                  <span className={styles.laneValue}>
+                  <Text role="muted" truncate>{lane.title}</Text>
+                  <Progress
+                    className={styles.laneProgress}
+                    value={lane.remainingPercent}
+                    measure="remaining"
+                    label={false}
+                    size="sm"
+                    aria-label={`${lane.title} — what is left`}
+                  />
+                  <Text role="value" align="end" tone={toneOf(lane.tone)}>
                     {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}% left`}
-                  </span>
-                  <span className={styles.laneWhen}>
+                  </Text>
+                  <Text role="meta" align="end" truncate>
                     {lane.gatedUntil !== null ? `blocked ${lane.gatedFor ?? ''}` : (lane.shortCountdown ?? '')}
-                  </span>
+                  </Text>
                 </div>
               )
             })}
           </div>
-          <p className={styles.foot}>
+          <Separator />
+          <Text as="p" role="meta" className={styles.foot}>
             {view.report.spend?.todayCost !== undefined && view.report.spend?.todayCost !== null && (
               <>
                 <span>{formatMoney(view.report.spend.todayCost, view.report.spend.currency)} today</span>
-                <span className={styles.dot}>·</span>
+                <span>·</span>
               </>
             )}
             <span>{view.report.source.label}</span>
-            <span className={styles.dot}>·</span>
+            <span>·</span>
             <span>{formatAge(view.report.fetchedAt, now)}</span>
-          </p>
+          </Text>
         </div>
       </Menu>
     )}
@@ -227,24 +241,24 @@ const Rest = ({
     title={rest.title}
     drop="down"
     align="right"
-    triggerClassName={styles.trigger}
+    tone={rest.tone === 'bad' ? 'alert' : rest.tone === 'warn' ? 'warn' : 'calm'}
     label={
-      <span className={styles.rest} data-tone={rest.tone} aria-label={rest.title}>
-        <RosterIcon size={13} />
-        <span className={styles.figure}>{rest.figure}</span>
+      <span data-slot="plan-meter" className={styles.rest} data-tone={toneOf(rest.tone)} aria-label={rest.title}>
+        <Text role="meta" tone={toneOf(rest.tone)}><RosterIcon size={13} /></Text>
+        <Text role="meta" tone={toneOf(rest.tone)} numeric className={styles.figure}>{rest.figure}</Text>
       </span>
     }
   >
     {(close) => (
       <Menu close={close}>
         <div className={styles.panel}>
-          <p className={styles.rosterHead}>{rest.title}</p>
+          <Text as="p" role="muted">{rest.title}</Text>
           <div className={styles.roster}>
             {rest.meters.map((meter) => (
-              <button
+              <Button
                 key={`${meter.runtime}:${meter.report.account ?? ''}`}
                 type="button"
-                className={styles.rosterRow}
+                variant="row" size="row" className={styles.rosterRow}
                 data-tone={meter.tone}
                 onClick={() => {
                   close()
@@ -253,28 +267,30 @@ const Rest = ({
               >
                 <RuntimeMark runtime={meter.info} size={14} />
                 <span className={styles.rosterName}>
-                  {meter.name}
-                  {meter.account && <span className={styles.rosterAccount}>{meter.account}</span>}
+                  <Text role="row" truncate>{meter.name}</Text>
+                  {meter.account && <Text role="meta" truncate>{meter.account}</Text>}
                 </span>
-                <span className={styles.laneTrack}>
-                  <span
-                    className={styles.laneFill}
-                    style={{ width: `${meter.lane.remainingPercent ?? 0}%` }}
-                  />
-                </span>
-                <span className={styles.laneValue}>{meter.lane.remainingPercent}% left</span>
-                <span className={styles.laneWhen}>
+                <Progress
+                  className={styles.laneProgress}
+                  value={meter.lane.remainingPercent}
+                  measure="remaining"
+                  label={false}
+                  size="sm"
+                  aria-label={`${meter.lane.title} — what is left`}
+                />
+                <Text role="value" align="end" tone={toneOf(meter.tone)}>{meter.lane.remainingPercent}% left</Text>
+                <Text role="meta" align="end" truncate>
                   {meter.out ? (meter.lane.shortCountdown ?? 'out') : (meter.lane.shortCountdown ?? '')}
-                </span>
-              </button>
+                </Text>
+              </Button>
             ))}
             {/* The agents with no bar. They are why the count and the bars can
                 disagree, so the panel has to hold them or the count looks wrong. */}
             {rest.asides.map((aside) => (
-              <button
+              <Button
                 key={aside.runtime}
                 type="button"
-                className={styles.rosterRow}
+                variant="row" size="row" className={styles.rosterRow}
                 data-quiet=""
                 onClick={() => {
                   close()
@@ -282,17 +298,18 @@ const Rest = ({
                 }}
               >
                 <RuntimeMark runtime={aside.info} size={14} />
-                <span className={styles.rosterName}>{aside.info.presentation.name}</span>
-                <span className={styles.rosterDetail}>{aside.detail}</span>
-              </button>
+                <Text role="muted" truncate className={styles.rosterName}>{aside.info.presentation.name}</Text>
+                <Text role="muted" truncate className={styles.rosterDetail}>{aside.detail}</Text>
+              </Button>
             ))}
           </div>
-          <p className={styles.foot}>
+          <Separator />
+          <Text as="p" role="meta" className={styles.foot}>
             <UsageIcon size={12} />
             <span>Every plan, and what it cost — ⌘U</span>
-            <span className={styles.dot}>·</span>
+            <span>·</span>
             <span>{formatAge(oldest(rest, now), now)}</span>
-          </p>
+          </Text>
         </div>
       </Menu>
     )}
@@ -302,3 +319,6 @@ const Rest = ({
 /** The stalest reading behind the token, which is what its age is worth. */
 const oldest = (rest: StripRest, now: number): number =>
   rest.meters.reduce((at, meter) => Math.min(at, meter.report.fetchedAt), now)
+
+const toneOf = (tone: 'good' | 'warn' | 'bad'): Tone =>
+  tone === 'warn' ? 'warning' : tone === 'bad' ? 'danger' : 'neutral'

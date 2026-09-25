@@ -57,10 +57,10 @@
      family; the ladder simply starts a rung and a half above the body rather
      than at it. Multiplying rather than naming pixels is what keeps the whole
      thing true if the body size ever moves. */
-  --prose-h1: calc(var(--hd-text-lg) * 1.5); /* 24 */
-  --prose-h2: calc(var(--hd-text-lg) * 1.25); /* 20, and --hd-heading exactly */
-  --prose-h3: calc(var(--hd-text-lg) * 1.125); /* 18 */
-  --prose-h4: var(--hd-text-lg); /* 16: a run-in head, held by weight */
+  --prose-h1: calc(var(--hd-text) * 1.5); /* 21 */
+  --prose-h2: calc(var(--hd-text) * 1.25); /* 17.5 */
+  --prose-h3: calc(var(--hd-text) * 1.125); /* 15.75 */
+  --prose-h4: var(--hd-text); /* 14: a run-in head, held by weight */
 
   /* A ratio, not a pixel count, so it follows the size. 1.625 is the reading
      ratio the transcript was set at, against 1.5 for the interface: prose
@@ -75,9 +75,9 @@
   --prose-heading-line: 1.4;
   --prose-gap: var(--hd-space-4); /* desk: 12 → 16, see the rhythm note above */
 
-  font-size: var(--hd-text-lg);
+  font-size: var(--hd-text); /* desk: 16 → 14, the reading size, and the ladder above follows it */
   line-height: var(--prose-line, 1.625); /* desk: 26px → 1.625, the same 26px spelled as the ratio it is */
-  color: var(--hdp-alias-label-primary);
+  color: var(--hd-foreground);
   /* `anywhere` rather than `break-word`, and the difference is not what it
      looks like: the two break a too-long word IDENTICALLY, and `anywhere`
      additionally lets the box shrink below its longest word when a min-content
@@ -126,15 +126,15 @@
 }
 
 .markdown h1 {
-  font-size: var(--prose-h1, 24px); /* desk: 21 → 24, the ladder's top rung */
+  font-size: var(--prose-h1, var(--hd-title)); /* desk: 24 → 21, the ladder's top rung, a step and a half over the body */
 }
 
 .markdown h2 {
-  font-size: var(--prose-h2, 20px); /* desk: 18 → 20, one rung up */
+  font-size: var(--prose-h2, var(--hd-heading)); /* desk: 20 → 17.5, one rung down with the body */
 }
 
 .markdown h3 {
-  font-size: var(--prose-h3, 18px); /* desk: 16 → 18, one rung up */
+  font-size: var(--prose-h3, var(--hd-text-lg)); /* desk: 18 → 15.75, one rung down with the body */
 }
 
 /*
@@ -147,7 +147,7 @@
  * fourth level, where it reads as a caption on the third.
  */
 .markdown h4 {
-  font-size: var(--prose-h4, 16px);
+  font-size: var(--prose-h4, var(--hd-text)); /* desk: 16 → 14, the body it runs into */
   margin-bottom: 0; /* desk: 8 → 0, so it sits on its own paragraph */
 }
 
@@ -193,7 +193,7 @@
 }
 
 .markdown ::marker {
-  color: var(--hdp-alias-label-tertiary);
+  color: var(--hd-muted-foreground);
 }
 
 .markdown li {
@@ -213,14 +213,14 @@
 .markdown blockquote {
   margin: 0 0 var(--prose-gap, 16px); /* desk: 12 → 16, the block gap; see the rhythm note at the head of this file */
   padding: 0 0 0 var(--prose-gap, 16px); /* desk: 2px 0 2px 14px → the gap, with the rule making up the inset */
-  border-left: 2px solid var(--hdp-alias-border-l3);
-  color: var(--hdp-alias-label-secondary);
+  border-left: 2px solid var(--hd-border-emphasis);
+  color: var(--hd-secondary-foreground);
 }
 
 .markdown hr {
   margin: calc(var(--prose-gap, 16px) * 2) 0; /* desk: 20 → 24, twice the gap */
   border: none;
-  border-top: 1px solid var(--hdp-alias-border-l2);
+  border-top: 1px solid var(--hd-border-strong);
 }
 
 /* --- code ----------------------------------------------------------------
@@ -233,7 +233,7 @@
  *
  * It names its face. `<code>` inherits whatever the engine calls `monospace`
  * unless told otherwise, and `docs/design.md` names
- * `--hdp-font-family-code` for exactly this job.
+ * `--hd-font-code` for exactly this job.
  *
  * `design/ui/turn.tsx` spells the same answer in utilities — the semantic
  * surface, the small radius, four pixels of padding, the code face, no border.
@@ -243,7 +243,7 @@
   padding: 1px var(--hd-space-1); /* desk: 5 → 4 */
   border-radius: var(--hd-radius-sm); /* desk: 5 → 6, the ladder's mark rung */
   background: var(--hd-muted);
-  font-family: var(--hdp-font-family-code);
+  font-family: var(--hd-font-code);
   font-size: 0.875em;
   overflow-wrap: anywhere;
 }
@@ -258,13 +258,39 @@
  * with shiki's — `block.parentElement?.replaceWith(shiki)`, and shiki's root
  * element is itself a `<pre class="shiki github-light">`.
  */
-.markdown pre {
+.codeBlock {
   margin: 0 0 var(--prose-gap, 16px); /* desk: 12 → 16, the block gap; see the rhythm note at the head of this file */
-  padding: 0;
-  border-radius: var(--hd-radius);
+  border-radius: var(--hd-code-radius);
   overflow: hidden;
-  background: var(--hd-muted);
-  box-shadow: var(--hd-hairline);
+  background: var(--hd-code-fill);
+  box-shadow: var(--hd-code-edge);
+}
+
+.codeHeader {
+  display: flex;
+  align-items: center;
+  min-height: var(--hd-icon-target);
+  padding: var(--hd-space-2) var(--hd-code-inset) 0;
+  color: var(--hd-muted-foreground);
+  font-family: var(--hd-font-family);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+}
+
+.codeHeader [data-code-language] {
+  margin-right: auto;
+}
+
+.codeCopy {
+  margin: calc(var(--hd-space-1) * -1);
+  margin-left: auto;
+}
+
+.markdown pre {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent; /* desk: var(--hd-code-fill) → transparent, the outer code plate owns the shared fill */
 }
 
 /*
@@ -282,20 +308,43 @@
  * nothing.
  */
 .markdown pre:global(.shiki) {
-  background: var(--hd-muted) !important;
+  background: var(--hd-code-fill) !important;
 }
 
 /* The text inside, from either renderer: shiki's `<code>` is a child of its
    own `pre`, ours is a child of ours, and this reaches both. */
 .markdown pre code {
   display: block;
-  padding: var(--prose-gap, 16px); /* desk: 12px 14px → the gap, on all four sides */
+  padding: var(--hd-code-inset); /* desk: 16 → 12, the shared code-plate inset */
   border-radius: 0;
   background: none;
   box-shadow: none;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 20 → 18, the line the 13px step is set on */
+  font-size: var(--hd-code-text); /* desk: 13 → 12, one code size across prose and steps */
+  line-height: var(--hd-code-line);
   overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.codeBlock:hover pre code,
+.codeBlock:focus-within pre code,
+.codeBlock[data-scrolling] pre code {
+  scrollbar-color: var(--hd-scrollbar-fill) transparent;
+}
+
+.markdown pre code::-webkit-scrollbar {
+  height: var(--hd-scrollbar-width);
+}
+
+.markdown pre code::-webkit-scrollbar-thumb {
+  border-radius: var(--hd-radius-full);
+  background: transparent;
+}
+
+.codeBlock:hover pre code::-webkit-scrollbar-thumb,
+.codeBlock:focus-within pre code::-webkit-scrollbar-thumb,
+.codeBlock[data-scrolling] pre code::-webkit-scrollbar-thumb {
+  background: var(--hd-scrollbar-fill);
 }
 
 /* --- tables --------------------------------------------------------------
@@ -320,16 +369,16 @@
 .markdown td {
   padding: var(--hd-space-1-5) var(--hd-space-3) var(--hd-space-1-5) 0; /* desk: 6px 10px → the scale, and the last column pays no right padding it does not need */
   border: none; /* desk: a box round every cell → one rule under each row */
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
+  border-bottom: 1px solid var(--hd-border);
   text-align: left;
   vertical-align: top;
   overflow-wrap: anywhere;
 }
 
 .markdown th {
-  border-bottom: 1px solid var(--hdp-alias-border-l3);
+  border-bottom: 1px solid var(--hd-border-emphasis);
   font-weight: var(--hd-weight-semibold);
-  color: var(--hdp-alias-label-secondary);
+  color: var(--hd-secondary-foreground);
 }
 
 .markdown tr:last-child td {
@@ -396,6 +445,7 @@
 .chat {
   font-size: inherit;
   line-height: inherit;
+  color: inherit; /* desk: foreground → inherit, a message's ink is its row's, as its size is */
 
   /* The document ladder at half pitch: 1.125 per rung becomes its square root,
      so h1 lands one full rung above the row and h2 half of one. A message is

@@ -42,6 +42,15 @@ test("a row under Antigravity's retired name gets today's name, its reader and i
   assert.equal(overlay.name, 'Antigravity')
   assert.deepEqual(overlay.resolveIdentity?.(), { kind: 'agent', label: 'Google account', anonymous: true })
   assert.equal(typeof overlay.usageRecord?.since, 'function', 'the store it counts its usage in')
+  /* And no account commands — #749. The two this row used to carry were the
+     `agy` CLI, which is a different download from the ACP server the row
+     runs: `agy --print /help` exits 0 without starting a sign-in, so the desk
+     reported one that never happened, and `agy --print /logout` exits 2
+     always, print mode refusing a command whose effect outlives the run. The
+     server declares ACP's own `logout` instead, which the adapter drives. */
+  assert.equal(overlay.account, undefined)
+  assert.equal(knownAgent('antigravity-acp')?.auth.login, undefined)
+  assert.equal(knownAgent('antigravity-acp')?.auth.logout, undefined)
 })
 
 test('Gemini CLI gets a reader and no record; an agent the desk does not know keeps its name and gets neither', () => {
@@ -53,6 +62,20 @@ test('Gemini CLI gets a reader and no record; an agent the desk does not know ke
   assert.equal(gemini.usageRecord, undefined)
   const custom = knowledgeOverlay({ id: 'my-agent', name: 'Google Antigravity', command: 'my-agent' }, undefined, { env: {} })
   assert.deepEqual(custom, { name: 'Google Antigravity' }, 'a retired name is retired only for the agent it belonged to')
+})
+
+test('OpenCode asks its CLI nothing and reads its own record instead — #749', (t) => {
+  const data = folder(t, { 'opencode/auth.json': { opencode: { type: 'api', key: 'secret' } } })
+  const overlay = knowledgeOverlay({ id: 'opencode', name: 'OpenCode', command: 'opencode', args: ['acp'] }, knownAgent('opencode'), {
+    env: { XDG_DATA_HOME: data },
+  })
+  /* `opencode auth list` drew a box of provider names that never parsed as an
+     account, and a declared status replaces the session observation — so the
+     desk reported OpenCode signed out for good and put a sign-in wall where
+     its composer should be. No command now, and the record answers. */
+  assert.equal(overlay.account, undefined)
+  assert.equal(knownAgent('opencode')?.auth.status, undefined)
+  assert.deepEqual(overlay.resolveIdentity?.(), { kind: 'agent', label: 'opencode', anonymous: true })
 })
 
 test("a Cline row's relative --data-dir is read where that row runs", (t) => {
@@ -95,4 +118,13 @@ test("a managed update leaves the row's name as it was, and the overlay still sh
   const config = directory.configOf('antigravity-acp')
   assert.ok(config)
   assert.equal(knowledgeOverlay(config, knownAgent('antigravity-acp'), { env: {} }).name, 'Antigravity')
+})
+
+test('a row the desk knows gets a reader for which vendor its models come from; an unknown row gets none', async () => {
+  const env = { ANTHROPIC_BASE_URL: 'https://proxy.example.com' }
+  const claude = knowledgeOverlay({ id: 'claude-code', name: 'Claude Code', command: 'claude-acp' }, knownAgent('claude-code'), { env })
+  assert.equal(typeof claude.resolveProvider, 'function')
+  assert.equal(await claude.resolveProvider?.(), null, 'read with the environment the row is started with')
+  const stranger = knowledgeOverlay({ id: 'someone-else', name: 'Someone', command: 'someone' }, undefined, { env: {} })
+  assert.equal(stranger.resolveProvider, undefined)
 })

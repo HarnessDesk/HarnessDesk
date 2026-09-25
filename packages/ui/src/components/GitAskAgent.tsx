@@ -3,8 +3,18 @@ import { useMemo, useState } from 'react'
 import type { RuntimeId, UserContent } from '@harnessdesk/protocol'
 
 import { useSnapshot, useStore } from '../state/context'
-import { Dialog } from '../design/primitives/Dialog'
-import { Btn } from '../design/primitives/Kit'
+import {
+  ActionError,
+  Alert,
+  AlertContent,
+  AlertDescription,
+  Button,
+  Dialog,
+  Field,
+  Note,
+  Text,
+  Textarea,
+} from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon, CheckIcon } from './Icons'
 import { troubleHeadline, troublePrompt, type GitTrouble } from '../lib/git-trouble'
@@ -80,62 +90,64 @@ export const AskAgentDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || !runtime || prompt.trim().length === 0} onClick={start}>
+          <Button variant="default" disabled={busy || !runtime || prompt.trim().length === 0} onClick={start}>
             {busy ? 'Starting…' : 'Start session'}
-          </Btn>
-          <Btn disabled={busy} onClick={() => onDone(false)}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={() => onDone(false)}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
       <div className={styles.body}>
-        <p className={styles.headline}>{troubleHeadline(trouble)}</p>
+        <Text as="p" role="subject">{troubleHeadline(trouble)}</Text>
 
         {runtimes.length === 0 ? (
-          <div className={styles.error}>
+          <ActionError>
             No agents are set up yet, so there is nobody to ask. Add one in Settings first.
-          </div>
+          </ActionError>
         ) : (
           <div className={styles.agents} role="radiogroup" aria-label="Which agent">
             {runtimes.map((entry) => (
-              <button
+              <Button
                 key={entry.id}
                 type="button"
                 role="radio"
                 aria-checked={runtime === entry.id}
-                className={styles.agent}
+                variant="choice" size="row" className={styles.agent}
                 {...(runtime === entry.id ? { 'data-on': '' } : {})}
                 onClick={() => setRuntime(entry.id)}
               >
                 <RuntimeMark runtime={entry} size={16} />
-                <span className={styles.agentName}>{entry.presentation.name}</span>
+                <Text role="row">{entry.presentation.name}</Text>
                 {runtime === entry.id && (
-                  <span className={styles.agentTick}>
+                  <Text tone="brand">
                     <CheckIcon size={12} />
-                  </span>
+                  </Text>
                 )}
-              </button>
+              </Button>
             ))}
           </div>
         )}
 
-        <label className={styles.field}>
-          <span className={styles.label}>What it will be asked — yours to edit</span>
-          <textarea
-            className={styles.prompt}
-            value={prompt}
-            rows={12}
-            spellCheck={false}
-            aria-label="The prompt the agent is sent"
-            onChange={(event) => setPrompt(event.target.value)}
-          />
-        </label>
+        <Field label="What it will be asked — yours to edit">
+          {(control) => (
+            <Textarea
+              {...control}
+              variant="editor" controlSize="compact" className={styles.prompt}
+              value={prompt}
+              rows={12}
+              spellCheck={false}
+              aria-label="The prompt the agent is sent"
+              onChange={(event) => setPrompt(event.target.value)}
+            />
+          )}
+        </Field>
 
-        <span className={styles.note}>
+        <Note>
           A new conversation starts in {folder}, and this is its first message. Nothing is sent to the
           conversation you are in now.
-        </span>
+        </Note>
       </div>
     </Dialog>
   )
@@ -157,13 +169,15 @@ export const TroubleNote = ({
   trouble: GitTrouble | null
   onAsk: (trouble: GitTrouble) => void
 }) => (
-  <div className={styles.trouble}>
-    <span className={styles.troubleWhat}>{message}</span>
+  <Alert tone="danger" role="alert" className={styles.trouble}>
+    <AlertContent className={styles.troubleWhat}>
+      <AlertDescription>{message}</AlertDescription>
+    </AlertContent>
     {trouble && (
-      <Btn small className={styles.troubleDo} onClick={() => onAsk(trouble)}>
+      <Button variant="secondary" size="sm" className={styles.troubleDo} onClick={() => onAsk(trouble)}>
         <AgentIcon size={13} />
         Ask an agent to fix this
-      </Btn>
+      </Button>
     )}
-  </div>
+  </Alert>
 )

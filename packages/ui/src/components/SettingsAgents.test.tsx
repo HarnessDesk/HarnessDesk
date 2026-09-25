@@ -14,7 +14,7 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { AddAgents, AgentsSection } from './SettingsAgents'
+import { AddAgents, RuntimesSection } from './SettingsAgents'
 
 /**
  * Adding an agent from the interface — the door the audit found missing.
@@ -99,17 +99,17 @@ const mount = async (
 }
 
 const button = (label: string): HTMLButtonElement | undefined =>
-  [...container.querySelectorAll('button')].find((node) => node.textContent?.includes(label))
+  [...document.body.querySelectorAll('button')].find((node) => node.textContent?.includes(label))
 
 /** A form field, by the visible label `Field` points at it — the name a person reads. */
 const byLabel = (text: string): string => {
-  const label = [...container.querySelectorAll('label')].find((node) => node.textContent?.trim() === text)
+  const label = [...document.body.querySelectorAll('label')].find((node) => node.textContent?.trim() === text)
   if (!label) throw new Error(`no label ${text}`)
   return `[id="${label.htmlFor}"]`
 }
 
 const type = (selector: string, value: string): void => {
-  const field = container.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | null
+  const field = document.body.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | null
   if (!field) throw new Error(`no field ${selector}`)
   act(() => {
     const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement
@@ -123,15 +123,15 @@ it('renders the catalogue with honesty per row', async () => {
   await mount()
 
   // Available: name, tagline, a live Add button.
-  expect(container.textContent).toContain('Agent One')
-  expect(container.textContent).toContain('The one that works.')
+  expect(document.body.textContent).toContain('Agent One')
+  expect(document.body.textContent).toContain('The one that works.')
 
   // Unavailable: the reason and the way out, not a bare grey button.
-  expect(container.textContent).toContain('two is not installed on this machine.')
-  expect(container.textContent).toContain('npm install -g two')
+  expect(document.body.textContent).toContain('two is not installed on this machine.')
+  expect(document.body.textContent).toContain('npm install -g two')
 
   // Registered: said, not re-offered.
-  expect(container.textContent).toContain('Added')
+  expect(document.body.textContent).toContain('Added')
 })
 
 it('adds a template and re-reads the catalogue', async () => {
@@ -148,7 +148,7 @@ it('adds a template and re-reads the catalogue', async () => {
 
 it('a template that cannot be added has no live button', async () => {
   await mount()
-  const buttons = [...container.querySelectorAll('button')].filter(
+  const buttons = [...document.body.querySelectorAll('button')].filter(
     (node) => node.textContent?.includes('Add') && !node.textContent.includes('agent'),
   )
   const disabled = buttons.filter((node) => node.disabled)
@@ -166,7 +166,7 @@ it('sends the custom form as typed, arguments split by line', async () => {
   type(byLabel('Arguments'), '--acp\n--config /tmp/x.yml\n')
 
   await act(async () => {
-    button('Add agent')?.click()
+    button('Add runtime')?.click()
   })
 
   expect(addAgent).toHaveBeenCalledWith({
@@ -188,12 +188,12 @@ it('forgets what was typed when the custom form is cancelled', async () => {
   await act(async () => {
     button('Cancel')?.click()
   })
-  expect(container.querySelector('[role="dialog"][aria-label="Add a custom agent"]')).toBeNull()
+  expect(document.body.querySelector('[role="dialog"][aria-label="Add a custom runtime"]')).toBeNull()
   await act(async () => {
     button('Set up…')?.click()
   })
-  const name = container.querySelector(byLabel('Name')) as HTMLInputElement
-  const command = container.querySelector(byLabel('Command')) as HTMLInputElement
+  const name = document.body.querySelector(byLabel('Name')) as HTMLInputElement
+  const command = document.body.querySelector(byLabel('Command')) as HTMLInputElement
   expect(name.value).toBe('')
   expect(command.value).toBe('')
 })
@@ -206,9 +206,9 @@ it('says so, in the dialog, when adding fails', async () => {
   type(byLabel('Name'), 'My Harness')
   type(byLabel('Command'), '/usr/local/bin/my-harness')
   await act(async () => {
-    button('Add agent')?.click()
+    button('Add runtime')?.click()
   })
-  const dialog = container.querySelector('[role="dialog"][aria-label="Add a custom agent"]')
+  const dialog = document.body.querySelector('[role="dialog"][aria-label="Add a custom runtime"]')
   expect(dialog).not.toBeNull()
   const alert = dialog?.querySelector('[role="alert"]')
   expect(alert?.textContent).toContain('could not add it')
@@ -224,9 +224,9 @@ it('says so when adding throws', async () => {
   type(byLabel('Name'), 'My Harness')
   type(byLabel('Command'), 'nope')
   await act(async () => {
-    button('Add agent')?.click()
+    button('Add runtime')?.click()
   })
-  const alert = container.querySelector('[role="dialog"] [role="alert"]')
+  const alert = document.body.querySelector('[role="dialog"] [role="alert"]')
   expect(alert?.textContent).toContain('exited with 127')
 })
 
@@ -281,15 +281,25 @@ const REGISTRY: AcpRegistryAgentInfo[] = [
 it('renders the registry with the same honesty per row', async () => {
   await mount(CATALOG, REGISTRY)
 
-  expect(container.textContent).toContain('From the ACP registry')
+  expect(document.body.textContent).toContain('From the ACP registry')
   // Addable: the registry's own words under the name.
-  expect(container.textContent).toContain('A local, extensible agent.')
+  expect(document.body.textContent).toContain('A local, extensible agent.')
   // Blocked: the reason where the description would be.
-  expect(container.textContent).toContain('Needs uvx (uv), which is not on PATH.')
+  expect(document.body.textContent).toContain('Needs uvx (uv), which is not on PATH.')
   // Registered: two Added chips now — the template's and Gemini's.
-  expect(container.textContent).toContain('Gemini CLI')
+  expect(document.body.textContent).toContain('Gemini CLI')
   // Unverified binary build: carries the unverified badge on its cell.
-  expect(container.textContent).toContain('Unverified')
+  expect(document.body.textContent).toContain('Unverified')
+  // Every entry is a plate card, compact — the card the transcript's cards
+  // are, not a box drawn for the registry alone.
+  const cells = REGISTRY.map((agent) =>
+    [...document.body.querySelectorAll('[data-slot="card"]')].find((card) => card.textContent?.includes(agent.name)),
+  )
+  expect(cells.every(Boolean)).toBe(true)
+  for (const cell of cells) {
+    expect(cell?.getAttribute('data-variant')).toBe('plate')
+    expect(cell?.getAttribute('data-spacing')).toBe('compact')
+  }
 })
 
 it('adds a registry entry by its id and re-reads the registry', async () => {
@@ -321,9 +331,9 @@ it('search appears with the long list and narrows it to the words a person knows
   await mount(CATALOG, many)
 
   type('input[aria-label="Search the ACP registry"]', 'extensible')
-  expect(container.textContent).toContain('goose')
-  expect(container.textContent).not.toContain('fast-agent')
-  expect(container.textContent).not.toContain('Filler 3')
+  expect(document.body.textContent).toContain('goose')
+  expect(document.body.textContent).not.toContain('fast-agent')
+  expect(document.body.textContent).not.toContain('Filler 3')
 })
 
 /**
@@ -410,7 +420,7 @@ const mountList = async (
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsSection onSignIn={() => {}} />
+        <RuntimesSection onSignIn={() => {}} />
       </StoreProvider>,
     )
   })
@@ -418,7 +428,7 @@ const mountList = async (
 
 /** The name of every agent currently drawn, in order — read off its caret. */
 const listed = (): string[] =>
-  [...container.querySelectorAll('button[aria-expanded]')].map(
+  [...document.body.querySelectorAll('button[aria-expanded]')].map(
     (node) => node.getAttribute('aria-label')?.replace(/^(Show|Hide) the accounts under /, '') ?? '',
   )
 
@@ -426,19 +436,19 @@ it("each agent's header summarises the accounts under it, and stays quiet when i
   await mountList()
 
   // Counted across the agent's runtimes, not just its first one.
-  expect(container.textContent).toContain('2 accounts')
-  expect(container.textContent).toContain('1 account')
+  expect(document.body.textContent).toContain('2 accounts')
+  expect(document.body.textContent).toContain('1 account')
   // How the credential arrives, read from the flows the runtime declares.
-  expect(container.textContent).toContain('Browser sign-in')
-  expect(container.textContent).toContain('API key')
+  expect(document.body.textContent).toContain('Browser sign-in')
+  expect(document.body.textContent).toContain('API key')
 
   // The header answers with a count and a state, and nothing where it has
   // neither: a page of ten agents each saying "No account needed" is one
   // sentence of information and ten rows of height. See docs/design.md.
-  expect(container.textContent).not.toContain('No account')
+  expect(document.body.textContent).not.toContain('No account')
   // The state is named, never left as a coloured dot to decode — and only
   // where it is not the state everything is meant to be in.
-  const chips = [...container.querySelectorAll('[class*=chip]')].map((node) => node.textContent)
+  const chips = [...document.body.querySelectorAll('[class*=chip]')].map((node) => node.textContent)
   expect(chips).toContain('Needs sign-in')
   expect(chips).toContain('Default')
   expect(chips).not.toContain('Ready')
@@ -464,17 +474,23 @@ it('an agent that will not start shows its own words, its lines kept, and the re
 
   // The agent's own output keeps its line breaks; a validator writes one
   // finding per line and a paragraph of them is what nobody read.
-  const block = container.querySelector('pre')
+  const block = document.body.querySelector('pre')
+  // It scrolls inside a window of 170px rather than pushing the agents below
+  // it off the screen, and the window is a flush card that keeps its corners.
+  const window = block?.closest('[data-slot="card-viewport"]') as HTMLElement | null
+  expect(window?.getAttribute('data-size')).toBe('lines')
+  expect(window?.style.maxHeight).toBe('170px')
+  expect(window?.closest('[data-slot="card"]')?.getAttribute('data-variant')).toBe('flush')
   expect(block?.textContent).toContain('\u00d7 x.json:12')
   expect(block?.textContent).toContain('config is invalid: ~/.delta/x.json')
   // Our sentence introduces the block rather than being buried inside it,
   // and its lead-in colon does not dangle.
   expect(block?.textContent).not.toContain('refuses its own configuration')
-  expect(container.textContent).toContain('Delta refuses its own configuration')
-  expect(container.textContent).not.toContain('configuration:')
+  expect(document.body.textContent).toContain('Delta refuses its own configuration')
+  expect(document.body.textContent).not.toContain('configuration:')
   // The repair is a command, set as one — not backticks printed on screen.
-  expect(container.textContent).not.toContain('`delta doctor --fix`')
-  expect([...container.querySelectorAll('code')].map((node) => node.textContent)).toContain(
+  expect(document.body.textContent).not.toContain('`delta doctor --fix`')
+  expect([...document.body.querySelectorAll('code')].map((node) => node.textContent)).toContain(
     'delta doctor --fix',
   )
 })
@@ -483,56 +499,56 @@ it('a healthy agent arrives folded; one that needs attention arrives open', asyn
   await mountList()
 
   // Alpha is signed in and healthy, so its account rows wait behind the caret.
-  expect(container.textContent).not.toContain('ada@example.com')
+  expect(document.body.textContent).not.toContain('ada@example.com')
   // Gamma is waiting on a sign-in — that story is why anyone is here, so it
   // is already open and saying so.
-  expect(container.textContent).toContain('has no credential here yet')
+  expect(document.body.textContent).toContain('has no credential here yet')
 })
 
 it('the caret opens an agent and folds it again, leaving the rest alone', async () => {
   await mountList()
 
-  const caret = [...container.querySelectorAll('button[aria-expanded]')][0] as HTMLButtonElement
+  const caret = [...document.body.querySelectorAll('button[aria-expanded]')][0] as HTMLButtonElement
   await act(async () => caret.click())
-  expect(container.textContent).toContain('ada@example.com')
+  expect(document.body.textContent).toContain('ada@example.com')
 
   await act(async () => caret.click())
-  expect(container.textContent).not.toContain('ada@example.com')
+  expect(document.body.textContent).not.toContain('ada@example.com')
   // Folded, not filtered: the agent is still on the page, and so is everyone else.
   expect(listed()).toEqual(['Alpha', 'Beta', 'Gamma'])
-  expect(container.textContent).toContain('2 accounts')
+  expect(document.body.textContent).toContain('2 accounts')
 })
 
 it('Expand all opens every block, and Collapse all folds the roster flat', async () => {
   await mountList()
 
   await act(async () => button('Expand all')?.click())
-  expect(container.textContent).toContain('ada@example.com')
+  expect(document.body.textContent).toContain('ada@example.com')
 
   // With everything open, the same control offers the way back.
   expect(button('Expand all')).toBeUndefined()
   await act(async () => button('Collapse all')?.click())
-  expect(container.textContent).not.toContain('ada@example.com')
+  expect(document.body.textContent).not.toContain('ada@example.com')
   // Collapse all is a say-so: it folds even the agent that opened itself.
-  expect(container.textContent).not.toContain('has no credential here yet')
+  expect(document.body.textContent).not.toContain('has no credential here yet')
   expect(listed()).toEqual(['Alpha', 'Beta', 'Gamma'])
 })
 
 it('search finds an agent by the address of an account under it', async () => {
   await mountList()
-  type('input[aria-label="Search agents or accounts"]', 'grace@')
+  type('input[aria-label="Search runtimes or accounts"]', 'grace@')
 
   expect(listed()).toEqual(['Alpha'])
   // A hit is shown open — hiding what was searched for would be the wrong answer.
-  expect(container.textContent).toContain('grace@example.com')
+  expect(document.body.textContent).toContain('grace@example.com')
 })
 
 it('a search that finds nothing offers the way back', async () => {
   await mountList()
-  type('input[aria-label="Search agents or accounts"]', 'nobody')
+  type('input[aria-label="Search runtimes or accounts"]', 'nobody')
 
   expect(listed()).toEqual([])
-  expect(container.textContent).toContain('No agent matches')
+  expect(document.body.textContent).toContain('No runtime matches')
 
   await act(async () => button('Clear filters')?.click())
   expect(listed()).toEqual(['Alpha', 'Beta', 'Gamma'])
@@ -540,7 +556,7 @@ it('a search that finds nothing offers the way back', async () => {
 
 it('the status filter answers with the agents in that state', async () => {
   await mountList()
-  const select = container.querySelector('select[aria-label="Filter by status"]') as HTMLSelectElement
+  const select = document.body.querySelector('select[aria-label="Filter by status"]') as HTMLSelectElement
 
   const pick = async (value: string): Promise<void> => {
     await act(async () => {
@@ -562,14 +578,14 @@ it('the status filter answers with the agents in that state', async () => {
 it('an account row says its plan and which way its figure counts', async () => {
   await mountList()
   // The row lives inside Alpha's block, which arrives folded.
-  const caret = [...container.querySelectorAll('button[aria-expanded]')][0] as HTMLButtonElement
+  const caret = [...document.body.querySelectorAll('button[aria-expanded]')][0] as HTMLButtonElement
   await act(async () => caret.click())
 
-  expect(container.textContent).toContain('Pro')
-  // The tightest lane decides, and the number says what it means: 73% of the
-  // weekly lane spent is 27% left, not 70% from the 5-hour one.
-  expect(container.textContent).toContain('27% left')
-  expect(container.textContent).not.toMatch(/\b73%/)
+  expect(document.body.textContent).toContain('Pro')
+  // Automatic uses the shortest reported account-wide window: 70% remains in
+  // the 5-hour lane, while the longer weekly lane has 27% remaining.
+  expect(document.body.textContent).toContain('70% left')
+  expect(document.body.textContent).not.toMatch(/\b27% left/)
 })
 
 it('a pin on a copy that has gone says so, and names the copy that runs (#219)', async () => {
@@ -597,13 +613,13 @@ it('a pin on a copy that has gone says so, and names the copy that runs (#219)',
     accountsByRuntime: { opencode: signedIn([], []) },
     store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
   })
-  const open = [...container.querySelectorAll('button')].find((node) => node.className.includes('headOpen')) as HTMLButtonElement
+  const open = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="text"][data-role="subject"]')) as HTMLButtonElement
   await act(async () => open.click())
-  expect(container.textContent).toContain('Running 1.18.29 · via Homebrew')
-  expect(container.textContent).not.toContain('Pinned to')
-  expect(container.textContent).toContain('The pinned copy is gone or too old')
+  expect(document.body.textContent).toContain('Running 1.18.29 · via Homebrew')
+  expect(document.body.textContent).not.toContain('Pinned to')
+  expect(document.body.textContent).toContain('The pinned copy is gone or too old')
   // The pin is recorded, so it can still be cleared.
-  expect(container.textContent).toContain('Use newest')
+  expect(document.body.textContent).toContain('Use newest')
 })
 
 /** One agent's own page, opened on one install — the Install section it draws. */
@@ -622,7 +638,7 @@ const openInstall = async (install: InstallInfo): Promise<void> => {
     accountsByRuntime: { opencode: signedIn([], []) },
     store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
   })
-  const head = [...container.querySelectorAll('button')].find((node) => node.className.includes('headOpen')) as
+  const head = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="text"][data-role="subject"]')) as
     | HTMLButtonElement
     | undefined
   if (head) await act(async () => head.click())
@@ -653,12 +669,12 @@ it('a pin recorded with nothing new enough left says no installed copy answers (
   await openInstall({ copies: [tooOld, unreadable], chosen: null, policy: 'pinned', fallback: null, minVersion: '1.18.0', checkedAt: 0 })
 
   // The title line says none of them qualifies, and says it either way.
-  expect(container.textContent).toContain('No installed copy qualifies, and there is no fallback')
+  expect(document.body.textContent).toContain('No installed copy qualifies, and there is no fallback')
   // The line under it used to promise the copy the line above it had denied.
-  expect(container.textContent).toContain('so no installed copy answers')
-  expect(container.textContent).not.toContain('the newest copy that is new enough answers until you pin another')
+  expect(document.body.textContent).toContain('so no installed copy answers')
+  expect(document.body.textContent).not.toContain('the newest copy that is new enough answers until you pin another')
   // The pin is recorded, so it can still be cleared.
-  expect(container.textContent).toContain('Use newest')
+  expect(document.body.textContent).toContain('Use newest')
 })
 
 it('a pin that holds still reads as one — the control for #251', async () => {
@@ -672,8 +688,8 @@ it('a pin that holds still reads as one — the control for #251', async () => {
     updateCommand: 'brew upgrade opencode',
   }
   await openInstall({ copies: [pinned], chosen: pinned, policy: 'pinned', fallback: null, checkedAt: 0 })
-  expect(container.textContent).toContain('Pinned to 1.18.29 · via Homebrew')
-  expect(container.textContent).toContain('A pinned copy answers even when a newer one is installed.')
+  expect(document.body.textContent).toContain('Pinned to 1.18.29 · via Homebrew')
+  expect(document.body.textContent).toContain('A pinned copy answers even when a newer one is installed.')
 })
 
 /*
@@ -708,9 +724,9 @@ const NEWEST_ANSWERS = 'The newest copy that is new enough answers'
 
 it('no pin and nothing new enough says so, with no fallback to run (#251)', async () => {
   await openInstall({ copies: [TOO_OLD, UNREADABLE], chosen: null, policy: 'newest', fallback: null, minVersion: '1.18.0', checkedAt: 0 })
-  expect(container.textContent).toContain('No installed copy qualifies, and there is no fallback')
-  expect(container.textContent).toContain('No copy installed is new enough')
-  expect(container.textContent).not.toContain(NEWEST_ANSWERS)
+  expect(document.body.textContent).toContain('No installed copy qualifies, and there is no fallback')
+  expect(document.body.textContent).toContain('No copy installed is new enough')
+  expect(document.body.textContent).not.toContain(NEWEST_ANSWERS)
 })
 
 it('no pin and nothing new enough says so while the fallback runs (#251)', async () => {
@@ -722,16 +738,16 @@ it('no pin and nothing new enough says so while the fallback runs (#251)', async
     minVersion: '1.18.0',
     checkedAt: 0,
   })
-  expect(container.textContent).toContain('no installed copy qualifies')
-  expect(container.textContent).toContain('No copy installed is new enough')
-  expect(container.textContent).not.toContain(NEWEST_ANSWERS)
+  expect(document.body.textContent).toContain('no installed copy qualifies')
+  expect(document.body.textContent).toContain('No copy installed is new enough')
+  expect(document.body.textContent).not.toContain(NEWEST_ANSWERS)
 })
 
 it('a machine with no copy at all is told that, not that the newest answers (#251)', async () => {
   await openInstall({ copies: [], chosen: null, policy: 'newest', fallback: null, minVersion: '1.18.0', checkedAt: 0 })
-  expect(container.textContent).toContain('Not installed')
-  expect(container.textContent).toContain('No copy is installed')
-  expect(container.textContent).not.toContain(NEWEST_ANSWERS)
+  expect(document.body.textContent).toContain('Not installed')
+  expect(document.body.textContent).toContain('No copy is installed')
+  expect(document.body.textContent).not.toContain(NEWEST_ANSWERS)
 })
 
 it('a copy that does qualify still reads as the newest answering — the control for #251', async () => {
@@ -745,8 +761,8 @@ it('a copy that does qualify still reads as the newest answering — the control
     updateCommand: 'brew upgrade opencode',
   }
   await openInstall({ copies: [chosen, TOO_OLD], chosen, policy: 'newest', fallback: null, minVersion: '1.18.0', checkedAt: 0 })
-  expect(container.textContent).toContain('Running 1.19.0 · via Homebrew')
-  expect(container.textContent).toContain(
+  expect(document.body.textContent).toContain('Running 1.19.0 · via Homebrew')
+  expect(document.body.textContent).toContain(
     'The newest copy that is new enough answers; a copy installed or updated later is picked up on the next check.',
   )
 })
@@ -799,39 +815,51 @@ it("an agent's own page shows every copy on the machine, and offers the two verb
   })
 
   // The agent's name opens its own page; the caret only folds its accounts.
-  const open = [...container.querySelectorAll('button')].find((node) =>
+  const open = [...document.body.querySelectorAll('button')].find((node) =>
     node.className.includes('headOpen'),
   ) as HTMLButtonElement
   await act(async () => open.click())
 
   expect(installsFor).toHaveBeenCalledWith('opencode')
   // Every copy, its road, and why each stands where it does.
-  expect(container.textContent).toContain('Running 1.18.29 · via Homebrew (1 other copy found)')
-  expect(container.textContent).toContain('/opt/homebrew/bin/opencode')
-  expect(container.textContent).toContain('1.18.20 · via npm')
+  expect(document.body.textContent).toContain('Running 1.18.29 · via Homebrew (1 other copy found)')
+  expect(document.body.textContent).toContain('/opt/homebrew/bin/opencode')
+  expect(document.body.textContent).toContain('1.18.20 · via npm')
   // An outranked copy says what to do about it; the one in use says where it
   // is, which is the fact you check against your own terminal.
-  expect(container.textContent).toContain('npm install -g opencode-ai@latest')
-  expect([...container.querySelectorAll('[class*=chip]')].map((node) => node.textContent)).toEqual(
+  expect(document.body.textContent).toContain('npm install -g opencode-ai@latest')
+  expect([...document.body.querySelectorAll('[class*=chip]')].map((node) => node.textContent)).toEqual(
     expect.arrayContaining(['In use', 'Older']),
   )
   // The desk updates what it downloaded, and names the command for the rest.
   // The desk updates the build it downloaded, from the fallback's own row.
-  expect(container.textContent).toContain('Update to 1.18.30')
+  expect(document.body.textContent).toContain('Update to 1.18.30')
   // Where it keeps its own world, and how it is signed into.
-  expect(container.textContent).toContain('~/.local/share/opencode')
-  expect(container.textContent).toContain('opencode auth login')
+  expect(document.body.textContent).toContain('~/.local/share/opencode')
+  expect(document.body.textContent).toContain('opencode auth login')
 
   // Every copy that could answer offers the pin: the one in use, to freeze
   // today's winner, and the one outranked, to override the rule.
-  const pins = [...container.querySelectorAll('button')].filter((node) => node.textContent === 'Pin')
+  const pins = [...document.body.querySelectorAll('button')].filter((node) => node.textContent === 'Pin')
   expect(pins).toHaveLength(2)
   await act(async () => (pins[1] as HTMLButtonElement).click())
   expect(useInstall).toHaveBeenCalledWith('opencode', '/Users/x/.npm-global/bin/opencode')
 
-  const update = [...container.querySelectorAll('button')].find((node) =>
+  const update = [...document.body.querySelectorAll('button')].find((node) =>
     node.textContent?.includes('Update to'),
   )
   await act(async () => (update as HTMLButtonElement).click())
   expect(updateAgent).toHaveBeenCalledWith('opencode')
+})
+
+it('closes an open agent with a bar of its account actions, ruled off above', async () => {
+  await mountList()
+  const fold = [...document.body.querySelectorAll('button')].find(
+    (node) => node.getAttribute('aria-label') === 'Show the accounts under Alpha',
+  ) as HTMLButtonElement
+  await act(async () => fold.click())
+  const bar = [...document.body.querySelectorAll('[data-slot="bar"]')].find((node) =>
+    node.textContent?.includes('Add account'),
+  )
+  expect(bar?.getAttribute('data-rule')).toBe('top')
 })

@@ -174,8 +174,8 @@ it('keeps what was typed when the page closes with the field still held', () => 
 
 it('wears the face you pick, and walks the faces with the arrow keys', () => {
   const { profile } = mount()
-  expect(tiles()).toHaveLength(24)
-  // One stop on the tab order, not twenty-four: the face you wear.
+  expect(tiles()).toHaveLength(30)
+  // One stop on the tab order, not thirty: the face you wear.
   expect(tiles().filter((tile) => tile.tabIndex === 0).map((tile) => tile.getAttribute('aria-label'))).toEqual([
     'Default',
   ])
@@ -322,9 +322,10 @@ it('chooses nothing with an arrow that has nowhere to go', () => {
   // A key the group does not use is still the page's.
   expect(pressed(first, 'Home')).toBe(false)
   expect(profile()).toEqual({ avatar: 'pirate' })
-  // The control: a key with somewhere to go still chooses as it moves.
+  // The control: a key with somewhere to go still chooses as it moves — one
+  // to the right of Default is the first of the mark's own colourways.
   press(first, 'ArrowRight')
-  expect(profile()).toEqual({ avatar: 'blue' })
+  expect(profile()).toEqual({ avatar: 'mark-paper' })
 })
 
 it('chooses nothing with Right or Down on the last face', () => {

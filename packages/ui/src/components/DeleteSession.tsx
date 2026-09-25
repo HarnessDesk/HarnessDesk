@@ -6,8 +6,8 @@ import { sessionLabel } from '../lib/sessions'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { TrashIcon } from './Icons'
-import { Btn, Note } from '../design/primitives/Kit'
-import { Dialog } from '../design/primitives/Dialog'
+import { Button, Note, Text } from '../design'
+import { Dialog } from '../design'
 import styles from './DeleteSession.module.css'
 
 /**
@@ -78,13 +78,13 @@ export const DeleteSession = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="danger" disabled={busy} onClick={() => void remove()}>
+          <Button variant="danger" disabled={busy} onClick={() => void remove()}>
             {busy ? 'Deleting…' : 'Delete'}
-          </Btn>
+          </Button>
           {/* Not offered from the archive screen: it is already archived
               there, and a button that does nothing reads as one that failed. */}
           {!summary.archived && (
-            <Btn
+            <Button variant="secondary"
               disabled={busy}
               onClick={() => {
                 void store.archiveSession(
@@ -96,18 +96,18 @@ export const DeleteSession = ({
               }}
             >
               Archive instead
-            </Btn>
+            </Button>
           )}
-          <Btn disabled={busy} onClick={onClose}>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Keep
-          </Btn>
+          </Button>
         </>
       }
     >
-      <p className={styles.subject}>
+      <Text as="p" role="subject" className={styles.subject}>
         {runtime && <RuntimeMark runtime={runtime} size={13} />}
         <span>{label}</span>
-      </p>
+      </Text>
       <p>
         This removes the conversation from {agent}, and the transcript HarnessDesk kept of it.
         It will not be in either window afterwards.

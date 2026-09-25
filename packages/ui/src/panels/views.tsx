@@ -275,28 +275,31 @@ export const useViewTitle = (): ((view: PaneView) => string) => {
 // ------------------------------------------------------------------- shell
 
 /**
- * The four things a view may need from the window it is inside: choose a
- * project, sign in, open Usage, open the agent settings.
+ * The things a view may need from the window it is inside: choose a project,
+ * sign in, open Usage, open Runtimes, open the Agents window.
  *
  * They are here, in a context, because they are the last thing that was passed
  * down through the layout as props — and props threaded through a layout are
- * exactly what couples a feature to its position. `Panes` carried all four
- * through three components so that a conversation nested inside the team room
- * could reach them; a view mounted in the bottom panel would have needed a
- * fifth path. One provider at the shell serves every mount point there will
+ * exactly what couples a feature to its position. `Panes` carried the first
+ * four through three components so that a conversation nested inside the team
+ * room could reach them; a view mounted in the bottom panel would have needed
+ * a fifth path. One provider at the shell serves every mount point there will
  * ever be.
  */
 export interface ShellActions {
   readonly chooseProject: () => void
   readonly signIn: (runtime?: RuntimeId) => void
   readonly openUsage: (runtime: RuntimeId) => void
-  readonly openAgents: () => void
+  readonly openRuntimes: () => void
+  /** Opens the Agents window — the left-menu screen, never Settings — on one Agent, or the overview. */
+  readonly openAgents: (focus?: string) => void
 }
 
 const NONE: ShellActions = {
   chooseProject: () => undefined,
   signIn: () => undefined,
   openUsage: () => undefined,
+  openRuntimes: () => undefined,
   openAgents: () => undefined,
 }
 

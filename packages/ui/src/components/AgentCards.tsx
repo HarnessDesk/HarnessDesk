@@ -1,10 +1,10 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type FocusEvent as ReactFocusEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
@@ -24,14 +24,16 @@ import {
 } from '@harnessdesk/protocol'
 
 import { accountIdentity, accountKey, accountName, runtimeTint } from '../lib/accounts'
+import { originWords, passedWords, projectOfAgent, seatCautions } from '../lib/agents'
 import { elapsedSince } from '../lib/clock'
 import { describeContext, formatTokens } from '../lib/context-usage'
 import { formatElapsed } from '../lib/turn-view'
 import { bindingLane, describeLane } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
+import { useSeatAgent, type SeatAgent } from '../state/seat-agent'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
-import { AgentCard, type AgentCardAction, type AgentCardSubject } from '../design/patterns/AgentCard'
+import { AgentCard, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from '../design'
 import {
   HOVER_CARD_COLLISION_PADDING,
   HOVER_CARD_OPEN_DELAY,
@@ -40,7 +42,7 @@ import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from '../design/ui'
+} from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon } from './Icons'
 
@@ -142,9 +144,8 @@ const onPointerMove = (event: Event): void => {
  * tap that moved no focus left set — the next keyboard lost its card — and
  * which a stylus, pressing the same way, never set at all.
  *
- * Only a key and a press move it, because only they can move focus. Radix's
- * menus keep a flag like this and clear it on `pointermove` as well, because
- * a menu's highlight follows the mouse; here the question is only what a
+ * Only a key and a press move it, because only they can move focus. Unlike
+ * a menu's highlight that follows the mouse, here the question is only what a
  * focus followed, and for a focus that follows a key or a press this answers
  * it as Chromium's own `:focus-visible` does. Measured in this app's shell
  * (Chromium 148), a focus moved by a script matched it after a key, after a
@@ -238,7 +239,7 @@ const beside = (side: CardSide): side is 'left' | 'right' => side === 'left' || 
  * is the one direction that produces a trade.
  *
  * The rem is passed in rather than read here. This runs on every answer the
- * positioner writes, Radix's own style writes included, and the root's font
+ * positioner writes, Base UI's own style writes included, and the root's font
  * size cannot change under an open card without the window resizing — so it
  * is read once, as the card opens, and that reading is current for that open.
  *
@@ -320,7 +321,7 @@ const sideFor = (trigger: HTMLElement, wanted: CardSide, rem: number): CardSide 
  * "The mark, never the row" had two reasons, and both are dealt with here
  * rather than avoided:
  *
- *   Focus.    Radix opens a card for focus as well as for the pointer, and
+ *   Focus.    The controlled card accepts focus as well as the pointer, and
  *             where the trigger is one thing to focus — a publication's link —
  *             that is how a keyboard reaches its card, so it stays, for a
  *             keyboard's focus (see `keyboard`). A row is different: it holds
@@ -343,14 +344,14 @@ const sideFor = (trigger: HTMLElement, wanted: CardSide, rem: number): CardSide 
  * the case — its title says which column a pick will take away, and a card
  * beside that sentence would be saying something else. It sits at the row's
  * trailing edge, the edge a pointer coming from the chat crosses first, and
- * moving on from it to the name is the same visit to the trigger: Radix hears
+ * moving on from it to the name is the same visit to the trigger: Base UI hears
  * no second arrival and asks nothing. So the card is asked for again as the
  * pointer moves off the control, after the delay of any rest.
  *
  * The trigger is a `span`, or a `div` where it wraps a block, and `asChild` is
- * not offered to callers. Radix's own default is an `<a>`, and these triggers
- * sit inside rows that are already buttons — an anchor inside a button is
- * invalid HTML, and browsers resolve it by breaking one of the two. A span
+ * not offered to callers. These explicitly rendered noninteractive hosts
+ * sit inside rows that are already buttons; another interactive host there
+ * would be invalid HTML. A span
  * nests anywhere and lets the row keep its click.
  *
  * ---------------------------------------------------------------------------
@@ -404,14 +405,15 @@ export const AgentHoverCard = ({
    */
   readonly as?: 'span' | 'div'
   /**
-   * Whether a keyboard's focus arriving inside the trigger opens the card, as
-   * Radix does. False for a trigger that holds controls of its own, where
+   * Whether a keyboard's focus arriving inside the trigger opens the card.
+   * False for a trigger that holds controls of its own, where
    * focus then neither opens the card nor closes it. See the note above.
    */
   readonly openOnFocus?: boolean
   /** The surface has nothing worth a card; the mark renders bare. */
   readonly disabled?: boolean
 }) => {
+  const triggerId = useId()
   const [open, setOpen] = useState(false)
   /* Where it opens — see `sideFor`. */
   const [placed, setPlaced] = useState<CardSide>(side ?? 'right')
@@ -424,8 +426,8 @@ export const AgentHoverCard = ({
      to the element that is there. */
   const [redrawn, setRedrawn] = useState(0)
   /* What the card may open for — a pointer resting on the trigger, or a
-     keyboard's focus inside it where `openOnFocus`. Radix asks to open for
-     either and cannot say which, so these say it. */
+     keyboard's focus inside it where `openOnFocus`. These refs enforce the
+     product policy for every Base UI open request and delayed re-ask. */
   const resting = useRef(false)
   const focused = useRef(false)
   /* Held shut: pressed since the pointer arrived, until it leaves. */
@@ -448,8 +450,8 @@ export const AgentHoverCard = ({
     wanted.current = side ?? 'right'
   })
   /* The card's element while it is drawn: the positioner's output, which the
-     watch on the card's side reads. State rather than a ref, because Radix's
-     portal draws the card a render after it opens, and the watch has to start
+     watch on the card's side reads. State rather than a ref, because the
+     portal can mount after the open render, and the watch has to start
      again when it arrives. */
   const [card, setCard] = useState<HTMLDivElement | null>(null)
   /* What a rem is, read as the card opens and used for every measurement of
@@ -457,7 +459,7 @@ export const AgentHoverCard = ({
   const rem = useRef(16)
   useWindowWatch()
 
-  /* The one way a card opens: Radix's requests come here, and so does every
+  /* The one way a card opens: Base UI's requests come here, and so does every
      re-ask. Its first line is what keeps a re-ask off an open card — every
      open passes through here and cancels whatever re-ask was pending, so
      none is left to land on the card it has just opened. */
@@ -582,7 +584,7 @@ export const AgentHoverCard = ({
     }
   }, [open, placed, redrawn, card])
 
-  /* Disabling the card must also close it. The state outlives the Radix
+  /* Disabling the card must also close it. The state outlives the Base UI
      tree below, which unmounts while `disabled` holds — so a card that was
      open when a menu took the seat came straight back, unhovered, the moment
      the menu closed. The pointer is forgotten with it: a trigger unmounted
@@ -605,70 +607,62 @@ export const AgentHoverCard = ({
   return (
     <HoverCard
       open={open}
-      onOpenChange={(next) => {
+      triggerId={triggerId}
+      onOpenChange={(next, details) => {
         if (next) ask()
+        else if (details.reason === 'trigger-focus' && resting.current) details.cancel()
         else setOpen(false)
       }}
     >
-      <HoverCardTrigger asChild>
-        {/* The card is supplementary — every fact on it is reachable through
-            the row's own action — so the trigger stays out of the tab order
-            rather than adding a stop before every row in a list of sixty. */}
-        <Trigger
-          ref={(node: HTMLElement | null) => {
-            /* Null between React letting go of one callback and taking up the
-               next, which is every render; only a different element counts. */
-            if (!node) return
-            if (triggerRef.current && triggerRef.current !== node) setRedrawn((count) => count + 1)
-            triggerRef.current = node
-          }}
-          className={className}
-          tabIndex={-1}
-          onPointerEnter={() => {
-            resting.current = true
-          }}
-          onPointerOver={(event: ReactPointerEvent<HTMLElement>) => {
-            const control = (event.target as Element).closest('[data-no-card]')
-            const onControl = control !== null && event.currentTarget.contains(control)
-            if (onControl === quiet.current) return
-            quiet.current = onControl
-            window.clearTimeout(again.current)
-            if (onControl) setOpen(false)
-            else again.current = window.setTimeout(() => ask(), HOVER_CARD_OPEN_DELAY)
-          }}
-          onPointerLeave={() => {
-            resting.current = false
-            pressed.current = false
-            quiet.current = false
-            window.clearTimeout(again.current)
-          }}
-          onPointerDown={() => {
-            pressed.current = true
-            window.clearTimeout(again.current)
-            setOpen(false)
-          }}
-          onFocus={(event: ReactFocusEvent<HTMLElement>) => {
-            /* Refused before Radix sees it: its handler runs after this one and
-               skips an event already prevented, so a row's focus neither opens
-               the card nor — on the way out — closes it. */
-            if (!openOnFocus) {
-              event.preventDefault()
-              return
-            }
-            focused.current = keyboard
-          }}
-          onBlur={(event: ReactFocusEvent<HTMLElement>) => {
-            if (!openOnFocus) {
-              event.preventDefault()
-              return
-            }
-            focused.current = false
-          }}
-        >
-          {children}
-        </Trigger>
+      <HoverCardTrigger
+        id={triggerId}
+        render={
+          <Trigger
+            ref={(node: HTMLElement | null) => {
+              if (!node) return
+              if (triggerRef.current && triggerRef.current !== node) setRedrawn((count) => count + 1)
+              triggerRef.current = node
+            }}
+            className={className}
+            tabIndex={-1}
+            onPointerEnter={() => {
+              resting.current = true
+            }}
+            onPointerOver={(event: ReactPointerEvent<HTMLElement>) => {
+              const control = (event.target as Element).closest('[data-no-card]')
+              const onControl = control !== null && event.currentTarget.contains(control)
+              if (onControl === quiet.current) return
+              quiet.current = onControl
+              window.clearTimeout(again.current)
+              if (onControl) setOpen(false)
+              else again.current = window.setTimeout(() => ask(), HOVER_CARD_OPEN_DELAY)
+            }}
+            onPointerLeave={() => {
+              resting.current = false
+              pressed.current = false
+              quiet.current = false
+              window.clearTimeout(again.current)
+            }}
+            onPointerDown={() => {
+              pressed.current = true
+              window.clearTimeout(again.current)
+              setOpen(false)
+            }}
+            onFocus={() => {
+              // ask() refuses focus-driven opens unless this ref authorizes them.
+              if (!openOnFocus) return
+              focused.current = keyboard
+            }}
+            onBlur={() => {
+              if (!openOnFocus) return
+              focused.current = false
+            }}
+          />
+        }
+      >
+        {children}
       </HoverCardTrigger>
-      {/* `body()` builds an element; Radix's portal keeps it unmounted until
+      {/* `body()` builds an element; Base UI's portal keeps it unmounted until
           the card opens, so the hooks inside it — the store subscription and
           the clock — do not run before then, and stop when it closes. Creating
           an element is a couple of object allocations and no more. Not drawn
@@ -679,22 +673,15 @@ export const AgentHoverCard = ({
           /* A card of its own per side, so the watch's first read can never
              meet an answer for the side before.
 
-             `data-side` is Radix's rendering of Floating UI's *state*, and
-             that state is seeded with the side asked for and replaced only
-             when the positioner resolves; Radix passes no `open` to
-             `useFloating`, so nothing resets it on close, and a card closed
-             other than abruptly stays mounted through its exit. Opened again
-             on a different side inside that window, it would be read as traded
-             and closed. Nothing reaches that today — every open comes a full
-             open delay after the event that armed it, and the exit is about
-             150ms — so it was held by a timing margin. This holds it by
-             construction, at the cost of a remount only when the side
-             actually changes. */
+             The popup exposes the resolved position through `data-side`.
+             A side change gets a fresh element so the observer cannot read
+             a previous placement during mounting or an exit transition.
+             This does not depend on the headless library's internal timing. */
           key={placed}
           ref={setCard}
           side={placed}
           {...(align ? { align } : {})}
-          className="p-0"
+          bleed
           /* A verb dismisses the card that offered it. Every action here opens,
              renames or addresses something *behind* this card, and review found
              it left floating over the destination until the pointer happened to
@@ -819,10 +806,33 @@ const turnStartedAt = (live: Session | undefined): number | null => {
 const busyNow = (live: Session | undefined): boolean =>
   live !== undefined && Array.isArray(live.turns) && isBusy(live)
 
+import { CeilingChip } from './CeilingChip'
+
+/** The Agent band for a conversation seated as one, and what its card should warn about it. */
+const seatedOf = (
+  live: Session | undefined,
+  seated: SeatAgent | null,
+): { readonly agent: AgentCardSubject['agent']; readonly cautions: readonly AgentCardCaution[] } => {
+  if (!live || !seated || seated.name === null) return { agent: null, cautions: [] }
+  const settings = live.settings
+  const definition = seated.entry?.definition ?? null
+  return {
+    agent: {
+      name: seated.name,
+      ceiling: <CeilingChip ceiling={settings?.ceiling ?? { level: definition?.ceiling ?? 'read', hold: 'asked' }} note={settings?.ceilingNote} />,
+      description: definition?.description ?? null,
+      origin: seated.entry ? originWords(seated.entry.origin, projectOfAgent(seated.entry)) : null,
+      seat: settings?.seatLabel ?? null,
+      passedOver: (settings?.passedOver ?? []).map(passedWords),
+    },
+    cautions: seatCautions(seated.entry, settings?.briefDigest).map((text) => ({ tone: 'warning' as const, text })),
+  }
+}
+
 /**
  * Once a second, so a turn timer counts while it is being read.
  *
- * Only ever called from a card *body*, which Radix mounts when the card opens
+ * Only ever called from a card *body*, which Base UI mounts when the card opens
  * and unmounts when it closes — so this is one timer while a card is on
  * screen and none otherwise. It used to sit in the wrapper, where it was one
  * timer per mark in the window; see `AgentHoverCard`.
@@ -874,11 +884,14 @@ const MemberCardBody = ({
 }) => {
   const snapshot = useSnapshot()
   const now = useTick()
+  const seated = useSeatAgent(snapshot.sessions.get(member.key))
 
   const subject = useMemo<AgentCardSubject>(() => {
     const info = snapshot.runtimes.find((one) => one.id === member.peer.runtime) ?? null
     const live = snapshot.sessions.get(member.key)
+    const { agent, cautions: agentCautions } = seatedOf(live, seated)
     const cautions: AgentCardSubject['cautions'] = [
+      ...agentCautions,
       ...(!member.canUseBoard
         ? ([
             {
@@ -923,6 +936,7 @@ const MemberCardBody = ({
       identity: identityOf(snapshot, info, member.peer.agent),
       tint: tintFor(snapshot, member.peer.runtime),
       mark: info ? <RuntimeMark runtime={info} size={16} /> : <AgentIcon size={16} />,
+      agent,
       working: member.busy,
       running: {
         model: member.peer.model ?? live?.settings?.model ?? null,
@@ -947,7 +961,7 @@ const MemberCardBody = ({
       ...(choice ? { choice } : {}),
       ...(actions ? { actions } : {}),
     }
-  }, [snapshot, member, actions, choice, now])
+  }, [snapshot, member, actions, choice, now, seated])
 
   return <AgentCard subject={subject} />
 }
@@ -1002,14 +1016,16 @@ const SessionCardBody = ({
 }) => {
   const snapshot = useSnapshot()
   const now = useTick()
+  const key = sessionKey(session.runtime, session.id)
+  const seated = useSeatAgent(snapshot.sessions.get(key))
 
   const subject = useMemo<AgentCardSubject>(() => {
     const info = snapshot.runtimes.find((one) => one.id === session.runtime) ?? null
-    const key = sessionKey(session.runtime, session.id)
     const live = snapshot.sessions.get(key)
     const busy = busyNow(live)
     const agentName = info?.presentation.name ?? session.runtime
     const gone = snapshot.foldersGone.get(session.cwd) ?? null
+    const { agent, cautions: agentCautions } = seatedOf(live, seated)
 
     return {
       kind: 'session',
@@ -1019,6 +1035,7 @@ const SessionCardBody = ({
       identity: identityOf(snapshot, info, agentName),
       tint: tintFor(snapshot, session.runtime),
       mark: info ? <RuntimeMark runtime={info} size={16} /> : <AgentIcon size={16} />,
+      agent,
       working: busy,
       running: {
         model: live?.settings?.model ?? null,
@@ -1032,6 +1049,7 @@ const SessionCardBody = ({
          carry: the band above already prints the folder, and this says what
          has happened to it. */
       cautions: [
+        ...agentCautions,
         ...(gone
           ? [{ tone: 'warning' as const, text: `${gone} The transcript is read-only.` }]
           : []),
@@ -1041,7 +1059,7 @@ const SessionCardBody = ({
       ],
       ...(actions ? { actions } : {}),
     }
-  }, [snapshot, session, actions, now])
+  }, [snapshot, session, actions, now, key, seated])
 
   return <AgentCard subject={subject} />
 }
@@ -1143,7 +1161,7 @@ const AccountCardBody = ({
          Surfacing it instead would have been the wrong repair — a band headed
          "Running" holding nothing but `0.153.0` is the divider-for-one-fact
          that `AgentCard`'s own test forbids, and an account is not running
-         anything. Settings › Agents is where a version is the subject. */
+         anything. Settings › Runtimes is where a version is the subject. */
       /* The same band as a session's context, a different budget: both answer
          "how much of this can I still spend". `remainingPercent` is null when
          the source gave a figure that cannot be read as one, and the band

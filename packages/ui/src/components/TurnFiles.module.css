@@ -1,20 +1,16 @@
 /* The files card under an answer: one header line with the verdict and the
-   two actions, then the files. Quiet — a list, not a dashboard.
+   two actions, then the files when there are several. Quiet — a list, not a
+   dashboard.
 
-   It is the conversation's one real card, so it joins the `--hd-card-*`
-   family: under Studio it fills with the brand wash and drops its hairline,
-   the same as every card in Settings. Its own values are the fallbacks, so
-   Desk keeps the 10%-black edge it has always drawn — a shade stronger than
-   the settings card's, because this one sits on a transcript rather than on
-   a page of its own. */
+   It is the conversation's one real card, so it is the system's `plate`
+   card, which joins the `--hd-card-*` family: under Studio it fills with the
+   brand wash and drops its hairline, the same as every card in Settings, and
+   Desk keeps the 10%-black edge it has always drawn. Everything below is the
+   arrangement inside it. */
 .card {
   width: 100%;
   max-width: var(--hd-column);
   margin: 10px auto 4px;
-  border-radius: var(--hd-card-radius, var(--hd-radius-lg));
-  background: var(--hd-card-fill, var(--hdp-alias-bg-layer-1));
-  box-shadow: inset 0 0 0 1px var(--hd-card-border, var(--hdp-alias-border-l2));
-  overflow: hidden;
 }
 
 .card[data-reverted] {
@@ -23,26 +19,13 @@
 
 /* Wraps rather than overlaps: in a squeezed column — a second pane open, or
    the window zoomed — the buttons drop to their own row instead of printing
-   themselves over "Edited 1 file". */
+   themselves over a long file name. */
 .head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   row-gap: 8px;
-  padding: 12px 14px 12px 12px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-}
-
-.glyph {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
 }
 
 .title {
@@ -57,33 +40,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--hd-text);
-  font-weight: 500;
-  color: var(--hdp-alias-label-primary);
-}
-
-.revertedTag {
-  padding: 0 6px;
-  border-radius: 8px;
-  background: var(--hdp-alias-bg-module-platform);
-  font-size: var(--hd-text-xs);
-  font-weight: 500;
-  color: var(--hdp-alias-label-tertiary);
-}
-
-.counts {
-  flex: none;
-  font-size: var(--hd-text-sm);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.added {
-  color: var(--hd-success); /* desk: a stale fallback that no longer matched the token */
-}
-
-.removed {
-  color: var(--hd-danger);
 }
 
 .actions {
@@ -98,34 +54,20 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  padding: 0 12px;
-  border: none;
-  border-radius: var(--hd-radius);
-  background: none;
-  color: var(--hdp-alias-label-primary);
-  font: inherit;
-  font-size: var(--hd-text);
-  cursor: pointer;
 }
 
-.action:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+/* The rule under the head runs to the card's edges, through its padding.
+   Scoped under the card so it outranks the separator's own full width. */
+.card > .rule[data-orientation] {
+  width: auto;
+  margin-inline: calc(var(--hd-space-3) * -1);
 }
 
-.action:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.actionPrimary {
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-}
-
+/* The files hang under the title's words, not under the tile: the tile is
+   32px, the head's gap 12, and a row insets its own words by the nav inset. */
 .files {
   list-style: none;
-  margin: 0;
-  padding: 4px 0;
+  margin: 0 0 0 calc(var(--hd-space-8) + var(--hd-space-3) - var(--hd-nav-inset)); /* desk: 0 (the list's UA indent, which the card's reset removes) → the title's column */
 }
 
 .file {
@@ -133,17 +75,11 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 34px;
-  padding: 5px 14px 5px 14px;
-  border: none;
-  background: none;
-  font: inherit;
   text-align: left;
-  cursor: pointer;
 }
 
-.file:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+.more {
+  width: 100%;
 }
 
 .path {
@@ -152,16 +88,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--hd-text);
-  color: var(--hdp-alias-label-primary);
+  direction: rtl;
+  text-align: left;
 }
 
-.dir {
-  color: var(--hdp-alias-label-tertiary);
-}
-
+/* A physical margin, because the path runs right to left so that it keeps
+   its file name when it is cut: a logical one landed on the far side and ran
+   "refs.tsnew" together. */
 .kind {
-  margin-left: 8px;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  margin-left: var(--hd-space-2);
 }

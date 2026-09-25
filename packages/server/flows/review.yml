@@ -1,0 +1,37 @@
+version: 2
+name: "Review"
+description: "Three specialists — security, performance and API — read one change at the commit it was when you started, each in a checkout of its own, and none of them can change it."
+inputs:
+  head:
+    label: "Commit to review"
+    default: "the uncommitted work in this checkout"
+  base:
+    label: "Compared with"
+    default: "the commit it was based on, which this start did not name"
+  pr:
+    label: "Pull request"
+    default: "none"
+roles:
+  specialists:
+    kind: agent
+    uses: [security-reviewer, performance-reviewer, api-reviewer]
+    grant: read
+    independentOf: []
+  decide:
+    kind: person
+    outcomes: [done]
+seed: { role: specialists, title: "Review {{head}}", detail: "Compare it with {{base}}. Pull request: {{pr}}. Read only: report what you find, and change nothing." }
+rules:
+  - id: to-decide
+    on: specialists
+    then: { role: decide, title: "Read the three reviews" }
+messaging: board-only
+# How far a run may go before it stops for a person: closed rounds in all, and
+# closed rounds in a row that brought no new evidence. Raise it for longer loops.
+budget: { rounds: 2, without-progress: 1 }
+wait: 240
+# Front-door metadata only: no grant, seat or route lives here. This shape is
+# offered for a change — a branch, a pull request, a range or the working
+# tree — and never for a plain project, where the six starting points are.
+# Its inputs are filled from what the start resolved, never typed.
+layout: {"frontDoor":{"order":1,"contexts":["branch","pull-request","diff","working-diff"],"bindings":[{"input":"head","value":"head"},{"input":"base","value":"base"},{"input":"pr","value":"pr"}]}}

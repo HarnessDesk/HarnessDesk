@@ -7,7 +7,7 @@
  * every test and every dev launch — the workspace serves the bridges as
  * ordinary files. This script is the check that runs against the artifact a
  * user would download: it boots the app with a throwaway home and profile,
- * reads `agents/catalog` through the real renderer, and fails on the one
+ * reads `acp/catalog` through the real renderer, and fails on the one
  * sentence that means the build is missing a bridge: "This build of
  * HarnessDesk does not carry …". Rows that are unavailable because a CLI is
  * not installed on this machine are fine — that is the machine's fact, not
@@ -109,7 +109,17 @@ const home = mkdtempSync(join(tmpdir(), 'hd-smoke-home-'))
 const profile = mkdtempSync(join(tmpdir(), 'hd-smoke-profile-'))
 const child = spawn(
   binary,
-  [`--user-data-dir=${profile}`, `--remote-debugging-port=${PORT}`],
+  [
+    `--user-data-dir=${profile}`,
+    `--remote-debugging-port=${PORT}`,
+    // A newly ad-hoc-signed bundle has a new Keychain identity on every
+    // build. Letting Chromium ask the login Keychain for its Safe Storage key
+    // can suspend app.ready behind an OS prompt before a renderer exists — the
+    // package smoke has an empty, disposable credential store and must never
+    // inspect or modify the developer's real one. Chromium's own test switch
+    // preserves the safeStorage code path with an isolated mock keychain.
+    '--use-mock-keychain',
+  ],
   { env: { ...process.env, HARNESSDESK_HOME: home }, stdio: ['ignore', 'ignore', 'pipe'] },
 )
 let stderr = ''
@@ -117,11 +127,26 @@ child.stderr.on('data', (chunk) => (stderr += String(chunk)))
 let exited = null
 child.on('exit', (code) => (exited = code ?? -1))
 
+// The Agents that ship with the app. A build that lost the folder lists none,
+// and nothing else in a packaged launch would say so.
+const SHIPPED_AGENTS = [
+  'api-reviewer',
+  'code-reviewer',
+  'implementer',
+  'judge',
+  'performance-reviewer',
+  'requirements-analyst',
+  'researcher',
+  'security-reviewer',
+  'test-reviewer',
+]
+
 try {
   // The window, then the store: both take a moment, and an app that dies
   // early should say so with its own stderr rather than a timeout.
   const deadline = Date.now() + READY_MS
   let rows = null
+  let socketUrl = null
   let lastProblem = 'the debugger never answered'
   while (Date.now() < deadline && rows === null) {
     if (exited !== null) {
@@ -136,6 +161,7 @@ try {
         lastProblem = 'no renderer page yet'
         continue
       }
+      socketUrl = page.webSocketDebuggerUrl
       rows = await evaluate(
         page.webSocketDebuggerUrl,
         `window.__hdStore ? window.__hdStore.agentCatalog() : Promise.reject(new Error('store not mounted'))`,
@@ -165,15 +191,37 @@ try {
     )
   }
   console.log(`smoke: ok — every bridge this build promises is on disk (${rows.length} rows)`)
+
+  const roster = await evaluate(socketUrl, `window.__hdStore.transport.request('agent/list', {})`)
+  const built = (Array.isArray(roster) ? roster : []).filter((entry) => entry.origin === 'builtin')
+  const broken = SHIPPED_AGENTS.filter(
+    (id) => !built.some((entry) => entry.id === id && entry.definition && entry.problems.length === 0),
+  )
+  if (broken.length > 0) {
+    throw new Error(
+      `this build is missing shipped Agents, or ships them broken: ${broken.join(', ')} — ` +
+        `check build.files and build.asarUnpack in packages/desktop/package.json (packaging.test.mjs pins both)`,
+    )
+  }
+  console.log(`smoke: ok — the ${SHIPPED_AGENTS.length} shipped Agents are on disk and parse`)
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 } finally {
+  const waitForExit = (timeout) => {
+    if (exited !== null) return Promise.resolve(true)
+    return Promise.race([
+      new Promise((resolve) => child.once('exit', () => resolve(true))),
+      sleep(timeout).then(() => false),
+    ])
+  }
   if (exited === null) {
     child.kill('SIGTERM')
-    await Promise.race([new Promise((resolve) => child.on('exit', resolve)), sleep(3000)])
-    if (exited === null) child.kill('SIGKILL')
+    if (!(await waitForExit(3000))) {
+      child.kill('SIGKILL')
+      await waitForExit(3000)
+    }
   }
-  rmSync(home, { recursive: true, force: true })
-  rmSync(profile, { recursive: true, force: true })
+  rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 process.exit(process.exitCode ?? 0)

@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { Btn, Dialog } from '../design'
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+  Button,
+  Dialog,
+  EmptyState,
+  NavigationList,
+} from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { FolderIcon } from './Icons'
 import styles from './FolderPicker.module.css'
@@ -71,29 +81,31 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
       flush
       onClose={onClose}
       subhead={
-        <nav className={styles.crumbs} aria-label="Location" title={listing?.path}>
+        <Breadcrumb aria-label="Location" title={listing?.path}>
+          <BreadcrumbList className={styles.crumbs}>
           {listing ? (
             crumbsOf(listing.path).map((crumb, index, all) => (
-              <span key={crumb.path} className={styles.crumbWrap}>
-                {index > 1 && <span className={styles.crumbSep}>/</span>}
+              <BreadcrumbItem key={crumb.path}>
+                {index > 1 && <BreadcrumbSeparator>/</BreadcrumbSeparator>}
                 {index === all.length - 1 ? (
-                  <span className={styles.crumbCurrent}>{crumb.name}</span>
+                  <BreadcrumbPage>{crumb.name}</BreadcrumbPage>
                 ) : (
-                  <button type="button" className={styles.crumb} onClick={() => browse(crumb.path)}>
+                  <Button type="button" variant="row" size="row" onClick={() => browse(crumb.path)}>
                     {crumb.name}
-                  </button>
+                  </Button>
                 )}
-              </span>
+              </BreadcrumbItem>
             ))
           ) : (
-            <span className={styles.crumbCurrent}>…</span>
+            <BreadcrumbItem><BreadcrumbPage>…</BreadcrumbPage></BreadcrumbItem>
           )}
-        </nav>
+          </BreadcrumbList>
+        </Breadcrumb>
       }
       footer={
         <>
-          <Btn
-            variant="primary"
+          <Button
+            variant="default"
             disabled={!listing}
             onClick={() => {
               if (!listing) return
@@ -102,29 +114,29 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
             }}
           >
             Open {listing ? `“${crumbsOf(listing.path).at(-1)?.name ?? listing.path}”` : 'folder'}
-          </Btn>
-          <Btn onClick={onClose}>Cancel</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
       footerAside="Click a folder to enter it; open the one you are in."
     >
-      <div className={styles.list}>
-        {loading && <p className={styles.empty}>Loading…</p>}
+      <NavigationList className={styles.list}>
+        {loading && <EmptyState variant="inline" title="Loading…" />}
         {!loading && listing?.entries.length === 0 && (
-          <p className={styles.empty}>No sub-folders here.</p>
+          <EmptyState variant="inline" title="No sub-folders here." />
         )}
         {listing?.entries.map((entry) => (
-          <button
+          <Button
             key={entry.path}
             type="button"
-            className={styles.entry}
+            variant="row" size="row" className={styles.entry}
             onClick={() => browse(entry.path)}
           >
             <FolderIcon size={13} />
             {entry.name}
-          </button>
+          </Button>
         ))}
-      </div>
+      </NavigationList>
     </Dialog>
   )
 }

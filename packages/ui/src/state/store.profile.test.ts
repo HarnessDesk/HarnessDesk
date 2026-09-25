@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 
 import type { HostMethodName } from '@harnessdesk/protocol'
 
+import type { DesktopBridge } from '../lib/desktop'
 import { AppStore } from './store'
 
 /**
@@ -18,11 +19,16 @@ let store: AppStore
 let calls: { method: HostMethodName; params: unknown }[]
 /** What the host answers, per method. Everything else is `null`. */
 let answers: Partial<Record<HostMethodName, unknown>>
+let setDockIcon: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   store = new AppStore('ws://localhost:0/')
   calls = []
   answers = {}
+  setDockIcon = vi.fn()
+  ;(window as { harnessdesk?: Partial<DesktopBridge> }).harnessdesk = {
+    setDockIcon,
+  } as Partial<DesktopBridge> as DesktopBridge
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
     calls.push({ method, params })
     return answers[method] ?? null
@@ -59,6 +65,30 @@ it('resets to the default desk', () => {
   store.setProfile({ name: null, avatar: null })
   expect(store.getSnapshot().profile).toEqual({})
   expect(writes().at(-1)).toEqual({ patch: { profile: {} } })
+})
+
+it('syncs avatar changes and reset with the optional desktop Dock bridge', () => {
+  store.setProfile({ avatar: 'wizard' })
+  store.setProfile({ name: 'Jane' })
+  store.setProfile({ avatar: null })
+  expect(setDockIcon).toHaveBeenCalledWith('wizard')
+  expect(setDockIcon).toHaveBeenLastCalledWith(null)
+  expect(setDockIcon).toHaveBeenCalledTimes(2)
+})
+
+it('persists the profile when the optional desktop Dock bridge throws', () => {
+  setDockIcon.mockImplementationOnce(() => {
+    throw new Error('Dock unavailable')
+  })
+  store.setProfile({ avatar: 'wizard' })
+  expect(store.getSnapshot().profile).toEqual({ avatar: 'wizard' })
+  expect(writes()).toEqual([{ patch: { profile: { avatar: 'wizard' } } }])
+})
+
+it('reapplies a stored avatar when preferences load', async () => {
+  answers['app/state/get'] = { profile: { avatar: 'dj' } }
+  await store.loadPreferences()
+  expect(setDockIcon).toHaveBeenLastCalledWith('dj')
 })
 
 it('comes back on the next launch, and a file it cannot read is the default desk', async () => {

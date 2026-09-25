@@ -1,11 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
 
 import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { wholeFileOf } from '../lib/diff'
+import { folderShown } from '../lib/projects'
 import { DiffView } from './Diff'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
+import {
+  ApprovalChoiceHint,
+  ApprovalCode,
+  ApprovalDialog,
+  ApprovalFilePath,
+  ApprovalMeta,
+  ApprovalPermissionList,
+  ApprovalQuestionText,
+  ApprovalReason,
+  Button,
+  Text,
+  type ApprovalDialogAction,
+} from '../design'
 import styles from './Approvals.module.css'
 
 /**
@@ -36,6 +50,16 @@ const INTENT_ICON = {
  * was doing, so answering it should not require reaching for the mouse.
  */
 
+/** Where a key belongs to the field, not to an approval. */
+const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])'
+
+/**
+ * How long a key reaching a docked card that took the focus from the composer
+ * is still the sentence the person was typing: longer than the gap between
+ * two keystrokes of fluent typing, shorter than reading a one-line question.
+ */
+const TYPED_THROUGH_MS = 500
+
 const titles = (agent: string): Record<Approval['type'], string> => ({
   command: 'Run this command?',
   fileChange: 'Apply these changes?',
@@ -48,46 +72,49 @@ const titles = (agent: string): Record<Approval['type'], string> => ({
 const commandTitle = (approval: Extract<Approval, { type: 'command' }>): string =>
   approval.kind === 'stdin' ? 'Send this input to the running command?' : 'Run this command?'
 
-const CommandBody = ({ approval }: { approval: Extract<Approval, { type: 'command' }> }) =>
+/**
+ * Where a command runs, the way the rest of the app names a folder: the
+ * project's short name, or a home-shortened path, with the full path one
+ * hover away. In the interface's own type — a folder is a place, and only
+ * the command itself is set as code.
+ */
+const FolderMeta = ({ cwd, home, project }: { cwd: string; home: string | null; project: string | null }) => (
+  <ApprovalMeta label="in" kind="folder" title={cwd}>{folderShown(cwd, home, project)}</ApprovalMeta>
+)
+
+const CommandBody = ({ approval, home, project }: {
+  approval: Extract<Approval, { type: 'command' }>
+  home: string | null
+  project: string | null
+}) =>
   approval.kind === 'stdin' ? (
     // Input to a program that is already running: the text goes first,
     // because it is the thing being approved, and the command it goes to is
     // the context. Codex 0.153.0 asks this for a terminal the agent left
     // running; read as a command to run it said "(unknown command)".
     <>
-      {approval.reason && <p className={styles.reason}>{approval.reason}</p>}
-      <pre className={styles.command}>{approval.input ?? ''}</pre>
-      <div className={styles.meta}>
-        <span className={styles.metaLabel}>to</span>
-        <span className={styles.metaValue}>{approval.command}</span>
-      </div>
-      {approval.cwd && (
-        <div className={styles.meta}>
-          <span className={styles.metaLabel}>in</span>
-          <span className={styles.metaValue}>{approval.cwd}</span>
-        </div>
-      )}
+      {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
+      <ApprovalCode className={styles.command}>{approval.input ?? ''}</ApprovalCode>
+      <ApprovalMeta label="to">{approval.command}</ApprovalMeta>
+      {approval.cwd && <FolderMeta cwd={approval.cwd} home={home} project={project} />}
     </>
   ) : (
     <>
-      {approval.reason && <p className={styles.reason}>{approval.reason}</p>}
-      <pre className={styles.command}>{approval.command}</pre>
-      <div className={styles.meta}>
-        <span className={styles.metaLabel}>in</span>
-        <span className={styles.metaValue}>{approval.cwd}</span>
-      </div>
+      {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
+      <ApprovalCode className={styles.command}>{approval.command}</ApprovalCode>
+      {approval.cwd && <FolderMeta cwd={approval.cwd} home={home} project={project} />}
     </>
   )
 
 const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fileChange' }> }) => (
   <>
-    {approval.reason && <p className={styles.reason}>{approval.reason}</p>}
+    {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
     {approval.changes.length === 0 && (
-      <p className={styles.reason}>The agent wants to write changes to disk.</p>
+      <ApprovalReason className={styles.reason}>The agent wants to write changes to disk.</ApprovalReason>
     )}
     {approval.changes.map((change) => (
       <div key={change.path} className={styles.fileBlock}>
-        <div className={styles.filePath}>{change.path}</div>
+        <ApprovalFilePath className={styles.filePath}>{change.path}</ApprovalFilePath>
         <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} />
       </div>
     ))}
@@ -96,25 +123,25 @@ const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fil
 
 const PermissionBody = ({ approval }: { approval: Extract<Approval, { type: 'permission' }> }) => (
   <>
-    <p className={styles.reason}>{approval.summary}</p>
+    <ApprovalReason className={styles.reason}>{approval.summary}</ApprovalReason>
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
-    {approval.reason && <p className={styles.reason}>{approval.reason}</p>}
+    {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
     {(approval.filesystem?.length ?? 0) > 0 && (
       <>
-        <div className={styles.metaLabel}>Filesystem</div>
-        <ul className={styles.permissionList}>
+        <Text role="muted" as="div">Filesystem</Text>
+        <ApprovalPermissionList>
           {approval.filesystem?.map((path) => <li key={path}>{path}</li>)}
-        </ul>
+        </ApprovalPermissionList>
       </>
     )}
     {(approval.network?.length ?? 0) > 0 && (
       <>
-        <div className={styles.metaLabel}>Network</div>
-        <ul className={styles.permissionList}>
+        <Text role="muted" as="div">Network</Text>
+        <ApprovalPermissionList>
           {approval.network?.map((host) => <li key={host}>{host}</li>)}
-        </ul>
+        </ApprovalPermissionList>
       </>
     )}
   </>
@@ -132,23 +159,22 @@ const UserInputBody = ({
   <>
     {approval.questions.map((question) => (
       <div key={question.id} className={styles.question}>
-        <p className={styles.questionText}>{question.question}</p>
+        <ApprovalQuestionText>{question.question}</ApprovalQuestionText>
         <div className={styles.choices}>
           {question.options.map((option) => (
-            <button
+            <Button
               key={option.id}
-              type="button"
-              className={styles.choice}
+              type="button" variant="choice" size="row" className={styles.choice}
               {...(answers[question.id]?.includes(option.id) ? { 'data-selected': '' } : {})}
               onClick={() => onAnswer(question.id, option.id)}
             >
               <span>
                 {option.label}
                 {option.description && (
-                  <span className={styles.choiceHint}>{option.description}</span>
+                  <ApprovalChoiceHint className={styles.choiceHint}>{option.description}</ApprovalChoiceHint>
                 )}
               </span>
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -162,8 +188,21 @@ const UserInputBody = ({
  * there is never a question of which conversation is asking. Keyboard
  * shortcuts answer only in the focused pane — two agents asking at once must
  * not share one Escape key.
+ *
+ * `placement="docked"` draws the same question as a card in a composer's
+ * slot rather than over the pane — the room's own use, where the thread above
+ * belongs to everyone in it and stays readable while one member waits. A
+ * docked card traps nothing, so its keys are its own: they answer only from
+ * inside the card, never from a field anywhere else in the window. It takes
+ * focus only when `takeFocus` says the person was in the composer it
+ * replaced — and then a key already on its way from that sentence is not an
+ * answer (`TYPED_THROUGH_MS`).
  */
-export const Approvals = () => {
+export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
+  placement?: 'overlay' | 'docked'
+  /** Docked only: the person was in the composer this card replaces, so it takes the focus. */
+  takeFocus?: boolean
+} = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
@@ -177,33 +216,28 @@ export const Approvals = () => {
   const TITLES = titles(runtime.presentation.name)
   const title = approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
+  const scope = useRef<HTMLDivElement>(null)
+  const docked = placement === 'docked'
+  /* Until when a key reaching a card that took the focus mid-sentence is
+     still the sentence's. Focus alone cannot tell the two apart — the
+     keystroke in flight lands on the card exactly as a deliberate one does —
+     so this is the one window it cannot close; a press on the card itself
+     is deliberate and closes it at once. */
+  const typedThrough = useRef(0)
+  useLayoutEffect(() => {
+    typedThrough.current = docked && takeFocus && approval ? Date.now() + TYPED_THROUGH_MS : 0
+  }, [docked, takeFocus, approval?.id])
+  useEffect(() => {
+    const node = scope.current
+    if (!docked || !node) return
+    const deliberate = (): void => { typedThrough.current = 0 }
+    node.addEventListener('pointerdown', deliberate)
+    return () => node.removeEventListener('pointerdown', deliberate)
+  }, [docked, approval?.id])
 
   useEffect(() => {
     setAnswers({})
   }, [approval?.id])
-
-  const surface = useRef<HTMLDivElement>(null)
-
-  // An approval interrupts, so the window's attention moves onto the card and
-  // goes back to whatever the user was doing once it is answered.
-  //
-  // Not for the shortcuts — those are answered on the window below and never
-  // depended on this. It is for Tab and the screen reader, which until now
-  // started at the top of the window rather than at the question; and it takes
-  // the caret out of a composer the user has stopped looking at, where the
-  // digit they typed next would have answered the approval instead.
-  //
-  // Only in the focused pane. A background pane renders its approval too, and
-  // an agent asking over there must not pull the caret out of the conversation
-  // you are typing in.
-  useEffect(() => {
-    if (!approval || !focused) return
-    const returnTo = document.activeElement as HTMLElement | null
-    // The surface, not a button: landing on one means a stray Return answers
-    // a question nobody read — and here the answer runs a command.
-    surface.current?.focus()
-    return () => returnTo?.focus?.()
-  }, [approval?.id, focused])
 
   const options: readonly ApprovalOption[] = useMemo(
     () =>
@@ -247,9 +281,17 @@ export const Approvals = () => {
   // Number keys pick an option; Escape denies. An approval blocks the agent, so
   // the fastest safe answer should always be one keystroke away.
   useEffect(() => {
-    if (!approval || !focused) return
+    // Docked, the card's own focus is the gate (below), not the pane's.
+    if (!approval || (!docked && !focused)) return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (docked) {
+        const target = event.target
+        // Only from inside the card, and never from a field in it.
+        if (!(target instanceof Node) || !scope.current?.contains(target)) return
+        if (target instanceof Element && target.closest(EDITABLE)) return
+        if (Date.now() < typedThrough.current) return
+      }
       /* Not for a key something else already spent. This listens on the
          window, after everything on the document, so a menu open anywhere —
          the sidebar's account menu, a popover — takes Escape first and says
@@ -261,7 +303,7 @@ export const Approvals = () => {
       // window makes the pane inert, and the keys are the sidebar's then —
       // Escape puts it away rather than denying a command nobody can see, and
       // a digit typed into its filter is a digit, not an answer.
-      if (surface.current?.closest('[inert]')) return
+      if (scope.current?.closest('[inert]')) return
       if (event.key === 'Escape') {
         event.preventDefault()
         const deny = options.find((option) => option.intent === 'deny') ?? options[options.length - 1]
@@ -277,21 +319,44 @@ export const Approvals = () => {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [approval, choose, focused, options])
+  }, [approval, choose, docked, focused, options])
 
   if (!approval) return null
 
-  return (
-    <div className={styles.backdrop} role="dialog" aria-modal="true" aria-label={title}>
-      <div className={styles.dialog} ref={surface} tabIndex={-1}>
-        <div className={styles.header}>
-          <AlertIcon className={styles.headerIcon} />
-          <span className={styles.title}>{title}</span>
-          {mine.length > 1 && <span className={styles.queue}>1 of {mine.length}</span>}
-        </div>
+  const actions: ApprovalDialogAction[] = [
+    ...options.filter((option) => option.intent === 'deny' || option.intent === 'cancel'),
+    ...options
+      .filter((option) => option.intent === 'approve' || option.intent === 'approveAlways')
+      .sort(approvingLast),
+  ].map((option) => ({
+    id: option.id,
+    label: option.label,
+    description: option.description,
+    icon: INTENT_ICON[option.intent],
+    shortcut: options.indexOf(option) + 1,
+    placement: option.intent === 'deny' || option.intent === 'cancel' ? 'safe' : 'proceed',
+    tone: option.intent === 'deny' ? 'destructive' : 'default',
+    onSelect: () => choose(option),
+  }))
 
-        <div className={styles.body}>
-          {approval.type === 'command' && <CommandBody approval={approval} />}
+  return (
+    <ApprovalDialog
+      ref={scope}
+      title={title}
+      icon={<AlertIcon />}
+      queue={mine.length > 1 ? `1 of ${mine.length}` : undefined}
+      focused={docked ? takeFocus : focused}
+      focusKey={approval.id}
+      actions={actions}
+      placement={placement}
+    >
+          {approval.type === 'command' && (
+            <CommandBody
+              approval={approval}
+              home={snapshot.home ?? null}
+              project={(key && snapshot.sessions.get(key)?.cwd) || snapshot.workspace?.path || null}
+            />
+          )}
           {approval.type === 'fileChange' && <FileChangeBody approval={approval} />}
           {approval.type === 'permission' && <PermissionBody approval={approval} />}
           {approval.type === 'userInput' && (
@@ -315,49 +380,10 @@ export const Approvals = () => {
           )}
           {approval.type === 'elicitation' && (
             <>
-              <p className={styles.reason}>{approval.message}</p>
-              <pre className={styles.command}>{JSON.stringify(approval.schema, null, 2)}</pre>
+              <ApprovalReason className={styles.reason}>{approval.message}</ApprovalReason>
+              <ApprovalCode className={styles.command}>{JSON.stringify(approval.schema, null, 2)}</ApprovalCode>
             </>
           )}
-        </div>
-
-        <div className={styles.footer}>
-          {options
-            .filter((option) => option.intent === 'deny' || option.intent === 'cancel')
-            .map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={styles.button}
-                data-intent={option.intent}
-                onClick={() => choose(option)}
-                title={option.description}
-              >
-                {INTENT_ICON[option.intent]}
-                {option.label}
-                <span className={styles.shortcut}>{options.indexOf(option) + 1}</span>
-              </button>
-            ))}
-          <span className={styles.spacer} />
-          {options
-            .filter((option) => option.intent === 'approve' || option.intent === 'approveAlways')
-            .sort(approvingLast)
-            .map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className={styles.button}
-                data-intent={option.intent === 'approve' ? 'approve' : undefined}
-                onClick={() => choose(option)}
-                title={option.description}
-              >
-                {INTENT_ICON[option.intent]}
-                {option.label}
-                <span className={styles.shortcut}>{options.indexOf(option) + 1}</span>
-              </button>
-            ))}
-        </div>
-      </div>
-    </div>
+    </ApprovalDialog>
   )
 }

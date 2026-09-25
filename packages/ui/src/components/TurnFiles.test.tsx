@@ -43,7 +43,7 @@ const CHANGES: readonly FileChange[] = [
   { path: '/work/storefront/src/retry.ts', kind: { type: 'update' }, diff: '@@ -1,2 +1,2 @@\n-one\n+1\n two\n' },
 ]
 
-const rig = async (answers: TurnUndo[]) => {
+const rig = async (answers: TurnUndo[], changes: readonly FileChange[] = CHANGES) => {
   const snapshot = { ...emptySnapshot(), status: 'open', activeSessionKey: KEY } as unknown as AppSnapshot
   const revertTurn = vi.fn(async () => answers.shift() ?? { done: true, unrecoverable: false })
   const store = {
@@ -57,7 +57,7 @@ const rig = async (answers: TurnUndo[]) => {
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <TurnFiles turn={TURN} changes={CHANGES} root="/work/storefront" />
+        <TurnFiles turn={TURN} changes={changes} root="/work/storefront" />
       </StoreProvider>,
     )
   })
@@ -101,4 +101,60 @@ it('an undo that went through offers a redo, and nothing to skip', async () => {
 
   expect(button('Redo')).toBeDefined()
   expect(button('Undo the rest')).toBeUndefined()
+})
+
+it('names one edited file in the title with its totals', async () => {
+  await rig([])
+
+  expect(container.textContent).toContain('Edited retry.ts')
+  expect(container.textContent).toContain('+1')
+  expect(container.textContent).toContain('−1')
+  expect(container.textContent).not.toContain('Edited 1 file')
+  expect(container.querySelector('button[title="Open src/retry.ts"]')).toBeNull()
+})
+
+it('names a one-file addition as created', async () => {
+  await rig([], [{
+    path: '/work/storefront/src/new.ts',
+    kind: { type: 'add' },
+    diff: 'export const ready = true\n',
+  }])
+
+  expect(container.textContent).toContain('Created new.ts')
+  expect(container.textContent).not.toContain('Edited new.ts')
+})
+
+it('names a one-file removal as deleted', async () => {
+  await rig([], [{
+    path: '/work/storefront/src/old.ts',
+    kind: { type: 'delete' },
+    diff: 'export const retired = true\n',
+  }])
+
+  expect(container.textContent).toContain('Deleted old.ts')
+  expect(container.textContent).not.toContain('Edited old.ts')
+})
+
+it('shows three file rows and expands the rest from an N more row', async () => {
+  const changes = Array.from({ length: 5 }, (_, index): FileChange => ({
+    path: `/work/storefront/src/file-${index + 1}.ts`,
+    kind: { type: 'update' },
+    diff: '@@ -1 +1 @@\n-old\n+new\n',
+  }))
+  await rig([], changes)
+
+  const fileRows = () => [...container.querySelectorAll<HTMLButtonElement>('button[title^="Open src/file-"]')]
+  expect(container.textContent).toContain('Edited 5 files')
+  // The counts are the app's one reading of additions and removals, and the
+  // card is the system's plate card rather than a drawing of its own.
+  const head = container.querySelector('[data-slot="card"] [data-slot="change-stats"]')
+  expect(head?.textContent).toBe('+5−5')
+  expect(container.querySelector('[data-slot="card"]')?.getAttribute('data-variant')).toBe('plate')
+  expect(fileRows()).toHaveLength(3)
+  expect(fileRows()[0]?.querySelector('[data-slot="change-stats"]')?.textContent).toBe('+1−1')
+  expect(button('2 more')).toBeDefined()
+
+  act(() => button('2 more')?.click())
+  expect(fileRows()).toHaveLength(5)
+  expect(button('2 more')).toBeUndefined()
 })

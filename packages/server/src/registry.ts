@@ -1,6 +1,8 @@
 import {
   emptyQueue,
   mergeRead,
+  permissionOfCeiling,
+  preserveNoticeItems,
   reduceSession,
   sessionKey,
   type AgentEvent,
@@ -10,10 +12,15 @@ import {
   type BackgroundTask,
   type QueuedMessage,
   type RuntimeId,
+  type SeatCandidate,
+  type SeatCeiling,
+  type SeatId,
   type Session,
   type SessionId,
   type SessionKey,
   type SessionQueue,
+  type SessionSettings,
+  type StandingOrder,
   type Turn,
   type TurnId,
   type UserContent,
@@ -84,6 +91,123 @@ export interface SessionRecord {
    * second registry that could disagree with it.
    */
   tasks: readonly BackgroundTask[]
+  /**
+   * The Agent this conversation was seated as, the brief it was handed and the
+   * permission it was told it holds, or null when it was not seated as one.
+   *
+   * Beside the session rather than only inside it, for the reason the queue
+   * is: a runtime re-announcing its settings — a model change does — replaces
+   * them whole, and has never heard of any of it. So it is kept here and
+   * laid back over the settings on every fold (`seatedSession`).
+   */
+  seatedAs: SeatedAs | null
+  /**
+   * The Seat this conversation's attachments were frozen under, when it has
+   * one — kept beside the session for the same reason `seatedAs` is: a
+   * runtime re-announcing its settings has never heard of it, and folding a
+   * fresh read must not lose the desk's own record of what this conversation
+   * was scoped to. `null` for a plain conversation, and for one seated before
+   * this field existed. This is the tool gateway's own way to resolve a live
+   * caller token back to the Seat whose frozen server list it may reach —
+   * never laid over `session.settings`, unlike `seatedAs`.
+   */
+  attachmentSeat: SeatId | null
+}
+
+/**
+ * Which Agent a conversation was seated as, the digest of the brief it was
+ * handed, the permission its standing order told it it holds, what the seat
+ * runs as read back when it was kept, and the candidates passed over on the way.
+ */
+export interface SeatedAs {
+  readonly agent: string
+  /**
+   * The Agent's name when it was seated — what a room calls the member. Not
+   * laid over the conversation's settings: a renderer reads the Agent itself
+   * (`agent/read`) for what it is called now.
+   */
+  readonly name: string
+  readonly briefDigest: string
+  /** The order in the vocabulary its Agent file used. */
+  readonly standing: StandingOrder
+  readonly seatLabel: string
+  readonly passedOver: readonly SeatCandidate[]
+  /**
+   * The ceiling this seat actually runs under, and whether the runtime holds it
+   * or it was only asked of the agent — the seam with phase 3, which fills it.
+   * Null until then. Not laid over the conversation's settings here: which
+   * surface draws it, and how, is phase 3's.
+   */
+  readonly ceiling: SeatCeiling | null
+  readonly ceilingNote: string | null
+}
+
+/**
+ * Settings with the host's record of which Agent this is laid over them — and
+ * nobody else's.
+ *
+ * All five fields are the host's to write. A runtime that re-announces its
+ * settings drops them; a renderer can name them in a patch that a runtime
+ * echoes back, or in the options it opens a conversation with. So they are put
+ * back from the record after every fold, and taken off a conversation the host
+ * never seated as an Agent: when one is there, it is the host's. A permission
+ * anybody could write would be a permission anybody could raise.
+ */
+export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | null): SessionSettings => {
+  if (seated) {
+    if (
+      settings.agent === seated.agent &&
+      settings.briefDigest === seated.briefDigest &&
+      settings.ceiling === (seated.ceiling ?? undefined) &&
+      settings.ceilingNote === (seated.ceilingNote ?? undefined) &&
+      settings.permission === permissionOfCeiling(seated.ceiling?.level ?? 'read') &&
+      settings.seatLabel === seated.seatLabel &&
+      settings.passedOver === seated.passedOver
+    ) {
+      return settings
+    }
+    const { ceiling: _theirCeiling, ceilingNote: _theirCeilingNote, permission: _theirPermission, ...rest } = settings
+    const permission = permissionOfCeiling(seated.ceiling?.level ?? 'read')
+    return {
+      ...rest,
+      agent: seated.agent,
+      briefDigest: seated.briefDigest,
+      ...(seated.ceiling ? { ceiling: seated.ceiling } : {}),
+      ...(seated.ceilingNote ? { ceilingNote: seated.ceilingNote } : {}),
+      ...(permission ? { permission } : {}),
+      seatLabel: seated.seatLabel,
+      passedOver: seated.passedOver,
+    }
+  }
+  if (
+    settings.agent === undefined &&
+    settings.briefDigest === undefined &&
+    settings.ceiling === undefined &&
+    settings.ceilingNote === undefined &&
+    settings.permission === undefined &&
+    settings.seatLabel === undefined &&
+    settings.passedOver === undefined
+  ) {
+    return settings
+  }
+  const {
+    agent: _agent,
+    briefDigest: _briefDigest,
+    ceiling: _ceiling,
+    ceilingNote: _ceilingNote,
+    permission: _permission,
+    seatLabel: _seatLabel,
+    passedOver: _passedOver,
+    ...theirs
+  } = settings
+  return theirs
+}
+
+/** `seatedSettings`, on a whole session. One without settings has nothing to lay it over yet. */
+export const seatedSession = (session: Session, seated: SeatedAs | null): Session => {
+  if (!session.settings) return session
+  const settings = seatedSettings(session.settings, seated)
+  return settings === session.settings ? session : { ...session, settings }
 }
 
 /**
@@ -93,6 +217,24 @@ export interface SessionRecord {
  */
 export const QUEUE_LIMIT = 25
 export const QUEUE_CHAR_LIMIT = 100_000
+
+/**
+ * A fork copies history under a new session id. Carry only the source's
+ * notice classifications into that copied history: the fork itself is not a
+ * seated Agent, and its next message must remain ordinary speech.
+ */
+const noticesFromFork = (fork: Session, source: Session | undefined): Session => {
+  if (!source) return fork
+  const held = source.turns.flatMap((turn) => turn.items)
+  let changed = false
+  const turns = fork.turns.map((turn) => {
+    const items = preserveNoticeItems(turn.items, held)
+    if (items === turn.items) return turn
+    changed = true
+    return { ...turn, items }
+  })
+  return changed ? { ...fork, turns } : fork
+}
 
 const charsOf = (input: readonly UserContent[]): number =>
   input.reduce((total, part) => total + (part.type === 'text' ? part.text.length : 0), 0)
@@ -104,6 +246,18 @@ const charsOf = (input: readonly UserContent[]): number =>
  */
 export class SessionRegistry {
   readonly #records = new Map<SessionKey, SessionRecord>()
+  /**
+   * Where a conversation seen for the first time learns which Agent it was
+   * seated as, from the desk's durable Seat records — so a restarted desk shows
+   * a seated conversation as its Agent, not as a plain one. Null until the host
+   * gives one (`restoreSeatedAs`); a registry with none restores nothing.
+   */
+  #restore: ((runtime: RuntimeId, id: SessionId) => SeatedAs | null) | null = null
+
+  /** Gives the registry the durable record to restore a conversation's Agent from. Once, by the host. */
+  restoreSeatedAs(restore: (runtime: RuntimeId, id: SessionId) => SeatedAs | null): void {
+    this.#restore = restore
+  }
 
   /**
    * Folds a read of a session — from a runtime's store, or the summary a
@@ -119,8 +273,9 @@ export class SessionRegistry {
   upsert(session: Session, live: AgentSession | null): SessionRecord {
     const existing = this.#records.get(sessionKey(session.runtime, session.id))
     if (existing) {
-      existing.session = mergeRead(existing.session, this.#settle(existing, session), (turn) =>
-        existing.watched.has(turn.id),
+      existing.session = seatedSession(
+        mergeRead(existing.session, this.#settle(existing, session), (turn) => existing.watched.has(turn.id)),
+        existing.seatedAs,
       )
       if (live) {
         existing.live = live
@@ -129,8 +284,11 @@ export class SessionRegistry {
       }
       return existing
     }
+    const inherited = session.forkedFrom
+      ? noticesFromFork(session, this.get(session.runtime, session.forkedFrom)?.session)
+      : session
     const record: SessionRecord = {
-      session,
+      session: inherited,
       runtime: session.runtime,
       live,
       detached: false,
@@ -140,8 +298,10 @@ export class SessionRegistry {
       running: new Set(),
       queue: emptyQueue(),
       tasks: [],
+      seatedAs: this.#restore?.(session.runtime, session.id) ?? null,
+      attachmentSeat: null,
     }
-    record.session = this.#settle(record, session)
+    record.session = seatedSession(this.#settle(record, inherited), record.seatedAs)
     this.#records.set(sessionKey(session.runtime, session.id), record)
     return record
   }
@@ -339,8 +499,48 @@ export class SessionRegistry {
     if (!target) return undefined
     const record = this.get(runtime, target)
     if (!record) return undefined
-    record.session = reduceSession(record.session, event)
+    record.session = seatedSession(reduceSession(record.session, event), record.seatedAs)
     return record
+  }
+
+  /**
+   * Records that a conversation was seated as an Agent, and lays it over its
+   * settings from here on. Answers the record, now wearing it.
+   *
+   * Where the held session has no settings — a read that carried none replaced
+   * them — the live handle is asked for them, so a conversation opened a moment
+   * ago always wears the record at once. One with neither keeps it on the
+   * record and wears it as soon as its settings arrive.
+   */
+  seatAs(runtime: RuntimeId, id: SessionId, seated: SeatedAs): SessionRecord {
+    const record = this.get(runtime, id)
+    if (!record) throw new Error(`No conversation ${id} is open to be seated.`)
+    record.seatedAs = seated
+    const settings = record.session.settings ?? record.live?.settings()
+    record.session = seatedSession(settings ? { ...record.session, settings } : record.session, seated)
+    return record
+  }
+
+  /**
+   * Records which Seat this conversation's attachments were frozen under —
+   * called once, after phase 12's transaction durably opens the Seat. Kept
+   * beside the session, like `seatedAs`, so a runtime re-announcing its
+   * settings (`upsert`, `reduceSession`) can never make the desk forget it.
+   */
+  recordAttachmentSeat(runtime: RuntimeId, id: SessionId, seat: SeatId): void {
+    const record = this.get(runtime, id)
+    if (!record) throw new Error(`No conversation ${id} is open to record a Seat's attachments for.`)
+    record.attachmentSeat = seat
+  }
+
+  /**
+   * The Seat this live conversation's attachments were frozen under, or
+   * `null` for a plain conversation, one seated before this field existed, or
+   * one no longer open at all. The tool gateway's own way to resolve a live
+   * caller token to the Seat whose frozen server list it may reach.
+   */
+  attachmentSeatOf(runtime: RuntimeId, id: SessionId): SeatId | null {
+    return this.get(runtime, id)?.attachmentSeat ?? null
   }
 
   /**

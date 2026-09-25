@@ -14,22 +14,12 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-1-5);
-  min-height: var(--hd-chip-h);
-  padding: var(--hd-space-0-5) 0;
-  color: var(--hdp-alias-label-secondary);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm);
 }
 
 .publicationIcon {
   flex: none;
   display: inline-grid;
   place-items: center;
-  color: var(--hdp-alias-label-tertiary);
-}
-
-.publicationVerb {
-  flex: none;
 }
 
 /* The thing itself, as a link that looks like one: the forge's mark, then
@@ -37,26 +27,11 @@
    page. The hairline rather than a fill, so it reads as an object beside the
    state pill and not as a second pill. */
 .publicationChip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1);
   min-width: 0;
-  height: var(--hd-chip-h);
-  padding: 0 var(--hd-space-2);
-  border-radius: var(--hd-radius-full);
-  box-shadow: var(--hd-hairline);
-  background: var(--hdp-alias-bg-layer-1);
-  color: var(--hdp-alias-label-primary);
-  text-decoration: none;
-}
-
-.publicationChip:hover {
-  background: var(--hd-hover);
 }
 
 .publicationAddress {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--hdp-font-family-code);
 }

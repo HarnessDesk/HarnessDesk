@@ -82,7 +82,7 @@ const detail = (): HTMLElement => {
   return pane
 }
 
-const mount = async (over: Partial<AppSnapshot>, on = 'codex'): Promise<void> => {
+const mount = async (over: Partial<AppSnapshot>, on = 'codex', onClose: () => void = () => {}): Promise<void> => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -103,7 +103,7 @@ const mount = async (over: Partial<AppSnapshot>, on = 'codex'): Promise<void> =>
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <SignIn runtime={on as never} onClose={() => {}} />
+        <SignIn runtime={on as never} onClose={onClose} />
       </StoreProvider>,
     )
   })
@@ -145,6 +145,9 @@ it('names the account already held before sending you to the browser', async () 
   )
 
   expect(detail().textContent).toContain('Sign in as somebody else')
+  // It is a labelled group — the section head every group on the page wears — over its note.
+  const caution = [...detail().querySelectorAll('[data-slot="section-name"]')].find((node) => node.textContent === 'Sign in as somebody else')
+  expect(caution?.closest('[data-section-head]')?.nextElementSibling?.getAttribute('data-slot')).toBe('note')
   // In the card, not the rail — the roster prints that same label for the
   // primary row, so `container` would pass with the warning missing.
   expect(detail().textContent).toContain('ada@example.com')
@@ -206,8 +209,11 @@ it('a starting account is not counted as connected, and the rail does not call i
 
   const rail = container.querySelector('nav[aria-label="Agents"]')
   expect(rail?.textContent).not.toContain('Runs without one')
-  expect(rail?.textContent).toContain('Starting')
-  expect(rail?.textContent).toContain('1 of 2 connected')
+  // It waits with the ones not connected, saying it is starting, and the
+  // connected group counts only the account that answered.
+  const waiting = rail?.querySelector('[role="group"][aria-label="Not connected"]')
+  expect(waiting?.textContent).toContain('Starting')
+  expect(rail?.querySelector('[role="group"][aria-label="Connected"]')?.textContent).toContain('ada@example.com')
 })
 
 it('says an account did not start, rather than spinning on an answer that is not coming', async () => {
@@ -252,13 +258,222 @@ it('shows a connected account once, with its credential home on a line of its ow
   expect(emails).toHaveLength(1)
   expect(card.textContent).toContain('team')
 
-  // The path is its own element, so it can wrap instead of overrunning.
-  const path = [...container.querySelectorAll('code')].map((node) => node.textContent)
-  expect(path).toContain('~/.codex')
+  // The path is a fact of its own — the facts card's path row, which gives up
+  // its middle rather than overrunning the column — with its consequence as
+  // that fact's note.
+  const fact = card.querySelector('[data-slot="summary-item"][data-kind="path"]')
+  expect(fact?.querySelector('dt')?.textContent).toBe('Credential')
+  expect(fact?.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain('~/.codex')
+  expect(fact?.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Signing out here signs that CLI out too')
 
   // Both actions on one row, the one you came for first.
   const actions = [...container.querySelectorAll('button')]
     .map((node) => node.textContent?.trim())
     .filter((text) => text === 'Add another account' || text === 'Sign out')
   expect(actions).toEqual(['Add another account', 'Sign out'])
+})
+
+it('composes the shared roster, state and text roles', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: status(
+        [{ kind: 'chatgpt', label: 'ada@example.com', email: 'ada@example.com', planType: 'team' }],
+        ['browser'],
+      ),
+      'codex-7f3a91': status([], ['browser']),
+    },
+  } as never)
+
+  // The rail is the window rail, one list stretch of groups — what needs you
+  // first, each counted in its head — and the work beside it is the dialog's
+  // reading body.
+  const rail = container.querySelector('nav[aria-label="Agents"]')
+  expect(rail?.getAttribute('data-slot')).toBe('app-window-nav')
+  expect([...(rail?.querySelectorAll(':scope > [data-slot="rail-section"]') ?? [])].map((node) => node.getAttribute('data-stretch')))
+    .toEqual(['list'])
+  expect(rail?.querySelector(':scope > [data-slot="section-footer"]')?.textContent).toContain('Credentials stay on this machine')
+  // Named groups rather than region landmarks; the count is the head's to show.
+  expect(rail?.querySelector('section')).toBeNull()
+  expect([...(rail?.querySelectorAll('[role="group"]') ?? [])].map((node) => node.getAttribute('aria-label')))
+    .toEqual(['Not connected', 'Connected'])
+  expect([...(rail?.querySelectorAll('[role="group"] [data-slot="section-name"]') ?? [])].map((node) => node.parentElement?.parentElement?.textContent))
+    .toEqual(['Not connected1', 'Connected1'])
+  expect(detail().getAttribute('data-slot')).toBe('modal-dialog-body')
+  expect(detail().getAttribute('data-layout')).toBe('reading')
+
+  // Under "Not connected" a row does not repeat its group's name.
+  const out = rail?.querySelector('[role="group"][aria-label="Not connected"]')
+  expect(out?.querySelector('[data-slot="list-row"]')?.textContent).toBe('Codex')
+
+  // The card opens on the agent: its mark in a tile, in the subject's ink,
+  // and its name at the subject step — under the dialog's own title, never
+  // above it.
+  const head = detail().querySelector('[data-slot="sign-in-head"]')
+  const headMark = head?.querySelector('svg')?.closest('[data-slot="text"]')
+  expect(headMark?.getAttribute('data-role')).toBe('subject')
+  expect(headMark?.closest('[data-slot="icon-tile"]')).not.toBeNull()
+  expect(head?.tagName).toBe('DIV')
+  expect(head?.querySelector('h2')?.getAttribute('data-role')).toBe('subject')
+
+  // The account is a settings row in its group card, its state a toned
+  // round tile as its mark.
+  const account = detail().querySelector('[data-slot="sign-in-account"]')
+  expect(account?.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tone')).toBe('success')
+  expect(account?.textContent).toContain('ada@example.com')
+  expect(account?.textContent).toContain('team')
+})
+
+it('says an agent\u2019s refusal once, and offers its ways in as rows of one card', async () => {
+  // The refusal was appended to every method's description, raw JSON and
+  // all, so the same sentence stood under each of them.
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [],
+        refusal: 'Authentication required: Use the agent CLI to authenticate first.',
+        signInMethods: [
+          { id: 'a', flow: 'browser', label: 'Use an API key', description: 'Requires setting `OPENAI_API_KEY`' },
+          { id: 'b', flow: 'browser', label: 'Use a Responses key', description: 'Requires setting `OPENAI_API_KEY`' },
+        ],
+      },
+    },
+  } as never)
+
+  const card = detail()
+  expect(card.textContent?.match(/Authentication required/g)).toHaveLength(1)
+  const group = card.querySelector('[role="group"][aria-label="Ways to connect"]')
+  expect(group?.querySelectorAll('button')).toHaveLength(2)
+  // The agent's backticks are set as code, not drawn.
+  expect(group?.textContent).not.toContain('`')
+  expect(group?.querySelector('code')?.textContent).toBe('OPENAI_API_KEY')
+})
+
+it('draws one key open under the ways in', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [],
+        signInMethods: [
+          { id: 'web', flow: 'browser', label: 'Sign in with a browser' },
+          { id: 'key', flow: 'apiKey', label: 'API key', keyLabel: 'Codex API key' },
+        ],
+      },
+    },
+  } as never)
+
+  const card = detail()
+  expect(card.querySelector('[role="group"][aria-label="Ways to connect"]')?.textContent).toBe('Sign in with a browser')
+  const input = card.querySelector('input[type="password"]')
+  expect(input?.getAttribute('placeholder')).toBe('Paste your Codex API key')
+  // A key under a button does not take the focus from it.
+  expect(document.activeElement).not.toBe(input)
+})
+
+it('sets a one-time code verbatim on the code plate, at the page step', async () => {
+  await mount({
+    accountsByRuntime: { codex: status([], ['deviceCode']) },
+    logins: {
+      codex: {
+        method: 'm0',
+        start: { type: 'deviceCode', loginId: 'l1', url: 'https://example.com/device', code: 'WDJB-MJHT' },
+        outcome: { type: 'pending' },
+      },
+    },
+  } as never)
+
+  const code = detail().querySelector('[aria-label="One-time code"]')
+  expect(code?.tagName).toBe('CODE')
+  expect(code?.getAttribute('data-slot')).toBe('code-text')
+  expect(code?.hasAttribute('data-block')).toBe(true)
+  expect(code?.getAttribute('data-ground')).toBe('muted')
+  // Spaced, so its groups read across a room.
+  expect(code?.hasAttribute('data-spaced')).toBe(true)
+  const words = code?.querySelector('[data-slot="text"]')
+  expect(words?.getAttribute('data-role')).toBe('page')
+  expect(words?.textContent).toBe('WDJB-MJHT')
+})
+
+it('labels a way in it cannot drive the way it labels every group, with its sentence under it', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [],
+        signInMethods: [{ id: 'x', flow: 'external', label: 'Signed in from a terminal', description: 'Run codex login.' }],
+      },
+    },
+  } as never)
+
+  const label = [...detail().querySelectorAll('[data-slot="section-name"]')].find((node) => node.textContent === 'Signed in from a terminal')
+  expect(label).toBeTruthy()
+  expect(label?.closest('[data-section-head]')?.nextElementSibling?.getAttribute('data-slot')).toBe('note')
+  expect(label?.closest('[data-section-head]')?.nextElementSibling?.textContent).toBe('Run codex login.')
+})
+
+it('wears the head every dialog wears, and its way out closes the sheet', async () => {
+  // It drew a title band of its own — its own inset and rule, a larger cross
+  // at another gap — beside every other dialog's head.
+  const onClose = vi.fn()
+  await mount({ accountsByRuntime: { codex: status([], ['browser']) } } as never, 'codex', onClose)
+  const dialog = container.querySelector('[role=dialog]')
+  const head = dialog?.querySelector('[data-slot="dialog-head"]')
+  expect(head?.textContent).toBe('Sign in')
+  const close = head?.querySelector('button[aria-label="Close"]')
+  expect(close).toBeTruthy()
+  // The way out is the dialog's own step: a 13px cross, as on every dialog.
+  expect(close?.querySelector('svg')?.getAttribute('width')).toBe('13')
+  await act(async () => {
+    close?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  expect(onClose).toHaveBeenCalled()
+})
+
+it('lists an agent signed out as not connected, whatever its ways in are', async () => {
+  // Only ways in taken elsewhere, and no account: signed out all the same.
+  // And a refusal with no way in at all: it said it needs one, so it is
+  // neither "connected" nor an agent that "needs no account here".
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [],
+        signInMethods: [{ id: 'x', flow: 'external', label: 'Use an API key', description: 'Set `OPENAI_API_KEY`.' }],
+      },
+      'codex-7f3a91': { accounts: [], signInMethods: [], refusal: 'Please log in to use it.' },
+    },
+  } as never, 'codex-7f3a91')
+
+  const rail = container.querySelector('nav[aria-label="Agents"]')
+  expect(rail?.querySelector('[role="group"][aria-label="Connected"]')).toBeNull()
+  const out = rail?.querySelector('[role="group"][aria-label="Not connected"]')
+  expect(out?.querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
+  // The way in taken elsewhere is the line, because it differs.
+  expect(out?.textContent).toContain('Use an API key')
+
+  const card = detail()
+  expect(card.textContent).toContain('Please log in to use it.')
+  expect(card.textContent).not.toContain('needs no account here')
+})
+
+it('names a connected account once: no second line that only says it is connected', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: status([{ kind: 'agent', label: 'Signed in', anonymous: true }], []),
+    },
+  } as never)
+  const rail = container.querySelector('nav[aria-label="Agents"]')
+  const connected = rail?.querySelector('[role="group"][aria-label="Connected"]')
+  expect(connected?.querySelector('[data-slot="list-row"]')?.textContent).toBe('Codex')
+  const account = detail().querySelector('[data-slot="sign-in-account"]')
+  expect(account?.textContent).toBe('Signed in')
+})
+
+it('opens an agent whose only way in is a key on its field, with the label on the input', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: { accounts: [], signInMethods: [{ id: 'key', flow: 'apiKey', label: 'API key', keyLabel: 'Codex API key' }] },
+    },
+  } as never)
+  const input = detail().querySelector('input[type="password"]') as HTMLInputElement | null
+  expect(input).not.toBeNull()
+  expect(document.activeElement).toBe(input)
+  expect(detail().querySelector(`label[for="${input?.id}"]`)?.textContent).toBe('Codex API key')
 })

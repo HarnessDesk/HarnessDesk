@@ -2,7 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { Popover, dismissOverlays } from './Popover'
+import { Popover, buttonVariants, dismissOverlays } from '../design'
 
 /**
  * The popover's contract, exercised through the DOM. Chiefly: a menu is not a
@@ -43,7 +43,7 @@ const render = (): void => {
 }
 
 const trigger = (): HTMLButtonElement => {
-  const button = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')
+  const button = container.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')
   if (!button) throw new Error('no trigger')
   return button
 }
@@ -55,34 +55,85 @@ const click = (el: Element): void => {
 }
 
 describe('Popover', () => {
+  it('draws a trigger dressed as a button the way the button draws: its classes merged, so an outline keeps its edge', () => {
+    act(() => {
+      root.render(
+        <Popover label="Filter" title="Filter the list" triggerVariant={{ variant: 'outline' }}>
+          {() => null}
+        </Popover>,
+      )
+    })
+    const classes = trigger().className.split(/\s+/)
+    // The base's transparent border lost to the variant's colour, as in `Button`.
+    expect(classes).toContain('border-(--hd-btn-border)')
+    expect(classes).not.toContain('border-transparent')
+  })
+
+  it('passes a trigger class of its own through untouched, and hands the trigger to a caller that asks', () => {
+    let node: HTMLButtonElement | null = null
+    const own = buttonVariants({ variant: 'navigation', size: 'navigation' })
+    act(() => {
+      root.render(
+        <Popover label="Seat" title="Seat" triggerClassName={own} triggerRef={(one) => { node = one }}>
+          {() => null}
+        </Popover>,
+      )
+    })
+    expect(trigger().className).toBe(own)
+    expect(node).toBe(trigger())
+  })
+
+  it('announces the popup role it opens and names that popup from the trigger', () => {
+    render()
+    click(trigger())
+    const popup = document.querySelector<HTMLElement>('[data-slot="popover-popup"]')!
+    expect(trigger().getAttribute('aria-haspopup')).toBe(popup.getAttribute('role'))
+    expect(popup.getAttribute('aria-labelledby')).toBe(trigger().id)
+    expect(document.getElementById(popup.getAttribute('aria-labelledby')!)?.textContent).toBe('Menu')
+  })
+
   it('opts its box out of the window drag region, so the press reaches the trigger', () => {
     render()
     const anchor = trigger().parentElement as HTMLElement
     expect(anchor.className.split(/\s+/)).toContain('hd-no-drag')
   })
 
-  it('the trigger opens the menu and closes it again', () => {
+  it('the trigger opens the anchored popup and closes it again', () => {
     render()
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
     click(trigger())
     expect(trigger().getAttribute('aria-expanded')).toBe('true')
-    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).not.toBeNull()
     click(trigger())
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
+  })
+
+  it('can place a popup beside and align it to the end of its trigger', () => {
+    act(() => {
+      root.render(
+        <Popover label="Menu" side="right" sideAlign="end">
+          {() => <span>Beside</span>}
+        </Popover>,
+      )
+    })
+    click(trigger())
+    const popup = document.querySelector<HTMLElement>('[data-slot="popover-popup"]')
+    expect(popup?.dataset['side']).toBe('right')
+    expect(popup?.dataset['align']).toBe('end')
   })
 
   it('a row closes the menu, and Escape returns focus to the trigger', () => {
     render()
     click(trigger())
-    const row = document.querySelector('[role="menu"] button') as HTMLButtonElement
+    const row = document.querySelector('[data-slot="popover-popup"] button') as HTMLButtonElement
     click(row)
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
 
     click(trigger())
     act(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     })
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
     expect(document.activeElement).toBe(trigger())
   })
 
@@ -93,9 +144,9 @@ describe('Popover', () => {
     // A dialog opened from the keyboard is neither a press nor an Escape.
     render()
     click(trigger())
-    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).not.toBeNull()
     act(dismissOverlays)
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
   })
 
   it('asked to give focus back, it gives it to its trigger — and takes it from nothing else', () => {
@@ -103,31 +154,30 @@ describe('Popover', () => {
     // when it came: the trigger, then, and not a row unmounted in between.
     render()
     click(trigger())
-    act(() => (document.querySelector('[role="menu"] button') as HTMLButtonElement).focus())
+    act(() => (document.querySelector('[data-slot="popover-popup"] button') as HTMLButtonElement).focus())
     act(() => dismissOverlays({ returnFocus: true }))
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
     expect(document.activeElement).toBe(trigger())
 
     const elsewhere = document.body.appendChild(document.createElement('button'))
     click(trigger())
     act(() => elsewhere.focus())
     act(() => dismissOverlays({ returnFocus: true }))
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
     expect(document.activeElement).toBe(elsewhere)
     elsewhere.remove()
   })
 
-  it('dismissed by a window that gives nothing back, it leaves focus off its trigger', () => {
-    /* Settings and Usage take no focus when they open. Handed to a trigger
-       behind the window, focus answered Enter by opening the menu again,
-       above the window — measured in a real engine. */
+  it('dismissed without an explicit focus handoff, it leaves focus off its trigger', () => {
+    /* A window owns its own focus entry. Menu cleanup must not focus the
+       trigger behind that window. */
     render()
     click(trigger())
-    const row = document.querySelector('[role="menu"] button') as HTMLButtonElement
+    const row = document.querySelector('[data-slot="popover-popup"] button') as HTMLButtonElement
     act(() => row.focus())
     expect(document.activeElement).toBe(row)
     act(() => dismissOverlays())
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
     expect(document.activeElement).not.toBe(trigger())
   })
 
@@ -147,29 +197,28 @@ describe('Popover', () => {
       render()
       trigger().getBoundingClientRect = () => ({ top: 20, bottom: 46, left: 0, right: 40, width: 40, height: 26, x: 0, y: 20, toJSON: () => ({}) })
       click(trigger())
-      const panel = document.querySelector<HTMLElement>('[role="menu"]')!
-      // 900 - 8 margin - (46 + 6) top: everything under the trigger.
-      expect(panel.style.maxHeight).toBe('840px')
-      expect(panel.style.top).toBe('52px')
+      const panel = document.querySelector<HTMLElement>('[data-slot="popover-popup"]')!
+      const positioner = document.querySelector<HTMLElement>('[data-slot="popover-positioner"]')!
+      // Base UI owns the measurement and publishes the available room to the
+      // popup; the product layer consumes that variable rather than writing a
+      // second placement algorithm.
+      expect(positioner.style.position).toBe('fixed')
+      expect(getComputedStyle(panel).maxHeight).toContain('--available-height')
     } finally {
       if (originalHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', originalHeight)
       if (originalInner) Object.defineProperty(window, 'innerHeight', originalInner)
     }
   })
 
-  it('a press outside closes it; one on the trigger or the panel does not', () => {
+  it('a press on the Base UI popup does not dismiss it as an outside press', () => {
     render()
     click(trigger())
     act(() => {
-      document
-        .querySelector('[role="menu"]')
-        ?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+      const panel = document.querySelector('[data-slot="popover-popup"]')
+      panel?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }))
+      panel?.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse' }))
     })
-    expect(document.querySelector('[role="menu"]')).not.toBeNull()
-    act(() => {
-      document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
-    })
-    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.querySelector('[data-slot="popover-popup"]')).not.toBeNull()
   })
 })
 
@@ -238,7 +287,7 @@ describe('Escape', () => {
   it('closes the menu and marks the key as spent', () => {
     render()
     click(trigger())
-    expect(document.body.querySelector('[role="menu"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-slot="popover-popup"]')).not.toBeNull()
 
     const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
     act(() => {
@@ -246,6 +295,6 @@ describe('Escape', () => {
     })
 
     expect(escape.defaultPrevented).toBe(true)
-    expect(document.body.querySelector('[role="menu"]')).toBeNull()
+    expect(document.body.querySelector('[data-slot="popover-popup"]')).toBeNull()
   })
 })

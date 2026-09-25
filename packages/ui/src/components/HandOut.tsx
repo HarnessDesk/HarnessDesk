@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 
 import type { Intent, RuntimeId, SessionId, TeamPeerInfo } from '@harnessdesk/protocol'
 
-import { Btn, Dialog, Textarea } from '../design'
+import { ActionError, Button, CodeBlock, Dialog, Field, FormStack, Note, Text, Textarea } from '../design'
 import { useStore } from '../state/context'
 import styles from './HandOut.module.css'
 
@@ -151,17 +151,17 @@ export const HandOut = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || pairs.length === 0 || template.trim() === ''} onClick={() => void send()}>
+          <Button variant="default" disabled={busy || pairs.length === 0 || template.trim() === ''} onClick={() => void send()}>
             {busy ? 'Handing out…' : `Hand out ${pairs.length} ${pairs.length === 1 ? 'card' : 'cards'}`}
-          </Btn>
-          <Btn disabled={busy} onClick={onClose}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
-      <div className={styles.body}>
-        <p className={styles.hint} data-slot="handout-pairing">
+      <FormStack>
+        <Note ink="muted" data-slot="handout-pairing">
           {pairs.length === 0
             ? openCards === 0
               ? 'Nothing is open on the board.'
@@ -171,39 +171,35 @@ export const HandOut = ({
               (openCards > pairs.length ? `; ${openCards - pairs.length} more ${openCards - pairs.length === 1 ? 'card stays' : 'cards stay'} open` : '') +
               (idle > pairs.length ? `; ${idle - pairs.length} ${idle - pairs.length === 1 ? 'member gets' : 'members get'} nothing` : '') +
               '.'}
-        </p>
+        </Note>
 
-        <label className={styles.field}>
-          <span className={styles.label}>What every member is told</span>
-          <Textarea
-            aria-label="What every member is told"
-            className={styles.area}
-            rows={7}
-            value={template}
-            onChange={(event) => setTemplate(event.target.value)}
-          />
-          <span className={styles.hint}>
-            Slots the host fills per member: {SLOTS.map((slot) => `{{${slot}}}`).join(' · ')}
-          </span>
-        </label>
+        <Field
+          label="What every member is told"
+          hint={<>Slots the host fills per member: {SLOTS.map((slot) => `{{${slot}}}`).join(' · ')}</>}
+        >
+          {(control) => (
+            <Textarea
+              {...control}
+              aria-label="What every member is told"
+              variant="editor" controlSize="compact" className={styles.area}
+              rows={7}
+              value={template}
+              onChange={(event) => setTemplate(event.target.value)}
+            />
+          )}
+        </Field>
 
         {first && (
-          <div className={styles.field}>
-            <span className={styles.label}>
-              What {first.member.nickname} will read, for card #{first.card.id}
-            </span>
-            <pre className={styles.preview} data-slot="handout-preview">
-              {preview}
-            </pre>
+          <div className={styles.field} data-slot="handout-preview">
+            <Text role="row">What {first.member.nickname} will read, for card #{first.card.id}</Text>
+            <CodeBlock className={styles.preview} output={preview} />
           </div>
         )}
 
         {problem && (
-          <p className={styles.problem} role="alert">
-            {problem}
-          </p>
+          <ActionError>{problem}</ActionError>
         )}
-      </div>
+      </FormStack>
     </Dialog>
   )
 }

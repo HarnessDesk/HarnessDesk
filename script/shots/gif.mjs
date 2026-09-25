@@ -31,10 +31,10 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import { closeDesk, deskInUse, dismissNotices, launchDesk, seat, sleep, STORE } from '../lib/desk.mjs'
-import { ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
+import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable, refuseUnvouchedAccounts } from './audit.mjs'
 import { REPOS } from './cast.mjs'
-import { HOME, WORK } from './seed.mjs'
+import { HOME, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 const run = promisify(execFile)
@@ -58,6 +58,8 @@ const FRAMES = join(HOME, 'frames')
 const say = (line) => process.stdout.write(`  ${line}\n`)
 const q = (value) => JSON.stringify(value)
 
+requireSeeded()
+
 const busy = await deskInUse(HOME)
 if (busy) {
   process.stderr.write(`\n  A desk is already open on ${HOME} (pid ${busy}). Quit it first.\n\n`)
@@ -73,9 +75,9 @@ say(`frame  ${WIDTH}x${HEIGHT} @${FPS}fps`)
 const desk = await launchDesk({
   app: APP,
   home: HOME,
-  port: 9760 + Math.floor(Math.random() * 60),
   userDataDir: `${HOME}/electron`,
   logPath: `${HOME}/app.log`,
+  env: SHOT_ENV,
 })
 const { cdp } = desk
 
@@ -130,6 +132,17 @@ try {
      real home standing through the take that has no frame-by-frame backstop.
      One copy now, in `audit.mjs`. */
   await cdp.eval(TILDIFY(homedir()))
+  // `WORK` is a "person" folder nested one level inside the staged home
+  // (`config.mjs`), never under this machine's real home — so its *parent*,
+  // not `WORK` itself, is what gets hidden, leaving `work/<repo>` standing
+  // and a recorded frame reading `~/work/storefront` (`shoot.mjs` mirrors this).
+  await cdp.eval(TILDIFY(dirname(WORK)))
+  // The desk's own home, `HOME`, is a separate folder from `WORK`'s parent —
+  // an Agent file read from directly under it never sat in either
+  // substitution above, so it is mapped to `~/.harnessdesk`, the way a real
+  // desk shows it, after the more specific `WORK` substitution runs
+  // (`shoot.mjs` mirrors this; #928 review).
+  await cdp.eval(TILDIFY(HOME, '~/.harnessdesk'))
 
   const frames = []
   const collected = []
@@ -151,7 +164,7 @@ try {
    * early refusal is why the full audit runs here and only the account half
    * runs during the recording.
    */
-  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, subject: 'recording' })
+  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), subject: 'recording' })
 
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 88, maxWidth: WIDTH, maxHeight: HEIGHT, everyNthFrame: 1 })
   const startedAt = Date.now()
@@ -171,7 +184,7 @@ try {
   /* And once more before a single frame reaches the disk. Account state can
      change mid-take, and the frames are written below — so this is the last
      moment at which refusing still costs nothing but the take. */
-  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, subject: 'recording' })
+  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), subject: 'recording' })
 
   say(`frames ${collected.length}`)
   if (collected.length === 0) throw new Error('the screencast delivered no frames')

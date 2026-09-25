@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import css from './TeamRoomPane.module.css?raw'
+import source from './TeamRoomPane.tsx?raw'
+import appCss from '../styles/app.css?raw'
 
 /**
  * Two things about the room's stylesheet that no rendered test in this suite
@@ -90,5 +92,124 @@ describe("the room's top row", () => {
     // which room it is.
     expect(facts).toMatch(/flex:\s*0 100 auto/)
     expect(facts).toMatch(/min-width:\s*0/)
+  })
+})
+
+describe('watched conversation layout', () => {
+  it('gives watched columns a definite full height for their embedded conversations', () => {
+    /* `.columnBody` and the Conversation beneath it both size through their
+       flex ancestors. Without this definite height on the grid, the columns
+       shrink to their headers instead of filling the room body. */
+    expect(body('.columns')).toMatch(/height:\s*100%/)
+  })
+})
+
+describe('appearance ownership', () => {
+  it('composes the room roles instead of drawing them, and keeps only geometry in its stylesheet', () => {
+    /* A source assertion, because jsdom computes none of the roles' own
+       classes: the pane is the view's plate, its top row and a column's head
+       are the window's bar, the rail is the sidebar's sections, the presence
+       light is the system's dot, and the thread's tail docks with the
+       conversation's composer. */
+    for (const part of [
+      '<PaneSurface',
+      '<Bar as="header" corner inset="ink" rule="bottom"',
+      '<Bar as="header" rule="bottom"',
+      '<RailSection stretch="head" ruled',
+      '<RailSection stretch="list"',
+      '<NavigationGroupHeader label="Agents">',
+      '<Dot state="ready" variant="presence"',
+      '<ComposerDock>',
+    ]) expect(source, part).toContain(part)
+    // No colour, ground, edge or type step is spelled in the stylesheet.
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(code).not.toMatch(/^\s*(?:color|background[\w-]*|border[\w-]*|box-shadow|font[\w-]*|padding[\w-]*|line-height)\s*:/m)
+  })
+
+  it('takes the rail’s edge away only when the narrow room makes the rail the whole pane', () => {
+    /* The edge is a `Separator` beside the rail. The same named room
+       container that makes the rail the whole pane must drop it, or it leaves
+       a stray rule at widths below 38rem. */
+    expect(source).toContain('<Separator orientation="vertical" className={styles.railEdge} />')
+    const query = css.indexOf('@container hd-room (max-width: 38rem)')
+    expect(query).toBeGreaterThan(-1)
+    const block = css.slice(query, css.indexOf('\n}\n', query))
+    expect(block).toMatch(/\.railEdge\s*\{\s*display:\s*none;?\s*\}/)
+  })
+})
+
+describe('the narrow rail and the narrow header', () => {
+  /** The declarations of the rule for `selector` inside the container query that opens with `query`. */
+  const inQuery = (query: string, selector: string): string => {
+    const open = css.indexOf(query)
+    expect(open, `${query} is gone from this stylesheet`).toBeGreaterThan(-1)
+    const block = css.slice(open, css.indexOf('\n}\n', open))
+    const at = block.indexOf(`${selector} {`)
+    expect(at, `${selector} is not inside ${query}`).toBeGreaterThan(-1)
+    return block.slice(at, block.indexOf('}', at)).replace(/\/\*[\s\S]*?\*\//g, '')
+  }
+
+  it('drops a roster row to its avatar below a 7rem rail, the name and job staying on its card', () => {
+    expect(inQuery('@container hd-room-rail (max-width: 7rem)', '.memberRow [data-slot="list-row-content"]')).toMatch(/display:\s*none/)
+  })
+
+  it('never breaks a member’s name or job mid-word, whatever the shared row allows', () => {
+    expect(body('.memberRow [data-slot="list-row-subtitle"]')).toMatch(/overflow-wrap:\s*normal/)
+  })
+
+  it('folds messaging and Wrap into the More menu below a 22rem header', () => {
+    expect(inQuery('@container hd-header (max-width: 22rem)', '.barWrapFull')).toMatch(/display:\s*none/)
+    expect(inQuery('@container hd-header (max-width: 22rem)', '.barVerbsCompact')).toMatch(/display:\s*inline-flex/)
+    // And outside it the full verbs stand and the menu does not.
+    expect(body('.barWrapFull')).toMatch(/display:\s*inline-flex/)
+    expect(body('.barVerbsCompact')).toMatch(/display:\s*none/)
+  })
+})
+
+/**
+ * The app's floating notice stack (`.hd-floatingNotices` in `App.tsx`) sits
+ * over the whole pane area, starting right under the window's own 46px
+ * header — which is also where a room's rail starts. Measured live (#913):
+ * with a standing banner showing, its "Board" row was entirely hidden under
+ * it and "Chat" was cut through its top half, both unclickable until the
+ * banner was dismissed.
+ *
+ * `Conversation.tsx` already answers this for a plain transcript by reading
+ * `--hd-notice-inset` — the height `App.tsx`'s `ResizeObserver` writes onto
+ * the pane area — as scroll padding, so its content starts below whatever
+ * notice is showing. The rail never read that variable at all, so it never
+ * moved. Giving the rail the same padding is what "the rail leaves room for
+ * it" (the fix #913 itself offers, alongside sitting only over the reading
+ * side) comes down to: Board, Chat and Findings stay below a notice's
+ * height, at zero cost when `--hd-notice-inset` is unset.
+ */
+/**
+ * The app's floating notice stack (`.hd-floatingNotices` in `App.tsx`) sits
+ * over the whole pane area, starting right under the window's own 46px
+ * header — which is also where a room's rail starts. Measured live (#913):
+ * with a standing banner showing, its "Board" row was entirely hidden under
+ * it and "Chat" was cut through its top half, both unclickable until the
+ * banner was dismissed.
+ *
+ * The fix belongs to the notice system, not the rail: `data-notice-yield`
+ * (declared once, in `app.css`, beside `.hd-floatingNotices` itself) reads
+ * `--hd-notice-inset` and resets it for what it contains. The room's own
+ * `.split` opts in, so the rail, the reading side and Board's own header row
+ * all move together — not just the rail, which used to leave the reading
+ * side's own top edge, and Board's header with it, exactly where it was.
+ */
+describe('the room under a standing notice', () => {
+  it('opts the whole split into the notice system’s own contract, not just the rail', () => {
+    expect(source).toContain('<div className={styles.split} data-notice-yield>')
+  })
+
+  it('does not keep its own copy of the inset — that is the notice system’s job now', () => {
+    expect(body('.rail')).not.toMatch(/margin-top|padding-top/)
+    expect(body('.split')).not.toMatch(/margin-top|padding-top/)
+  })
+
+  it('is declared once, beside the stack it measures, and reset for whatever it contains', () => {
+    expect(appCss).toMatch(/\[data-notice-yield\]\s*{[^}]*margin-top:\s*var\(--hd-notice-inset,\s*0px\)/s)
+    expect(appCss).toMatch(/\[data-notice-yield\]\s*>\s*\*\s*{[^}]*--hd-notice-inset:\s*0px/s)
   })
 })

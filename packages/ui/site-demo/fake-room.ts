@@ -207,6 +207,7 @@ export class StagedRoom {
   }
 
   #commit(): void {
+    this.#state['updatedAt'] = Date.now()
     this.#push({ method: 'team/changed', params: { state: deepClone(this.#state) } })
   }
 

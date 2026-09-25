@@ -33,7 +33,9 @@
     "@harnessdesk/adapter-testkit": "workspace:*"
   },
   "files": [
-    "dist"
+    "dist",
+    "agents",
+    "flows"
   ],
   "license": "MIT"
 }

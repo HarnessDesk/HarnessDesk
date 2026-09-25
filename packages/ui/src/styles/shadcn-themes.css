@@ -137,7 +137,12 @@ body[data-hd-palette='shadcn'] {
      Reversible in one block: delete this and the palette is a palette again. */
   --hd-control-h: 32px;
   --hd-control-h-sm: 28px;
-  --hd-row-h: 32px;
+  /* `--hd-row-h` is not set here on purpose: it is `var(--hd-nav-h)`, and a
+     palette that restates the alias holds the two apart by arithmetic. This
+     block raises the type step, and `--hd-nav-h` is solved from the type, so
+     both land on 32 — today, and only because 16 × 1.5 + 8 happens to be the
+     literal that used to sit here. Moving the source keeps them equal by
+     construction, which is what `row-height-alias.test.ts` now holds. */
   --hd-chip-h: 20px;
   --hd-btn-padding: 0 10px;
   --hd-btn-padding-sm: 0 10px;
@@ -381,15 +386,19 @@ body[data-hd-accent='mono'][data-hd-dark-theme] {
  */
 
 body[data-hd-corners='square'] {
+  --hd-radius-xs: 0;
   --hd-radius-sm: 4px;
   --hd-radius-md: 5px;
   --hd-radius: 6px;
   --hd-radius-lg: 8px;
+  --hd-radius-xl: 0;
 }
 
 body[data-hd-corners='round'] {
+  --hd-radius-xs: 5px;
   --hd-radius-sm: 8px;
   --hd-radius-md: 10px;
   --hd-radius: 12px;
   --hd-radius-lg: 16px;
+  --hd-radius-xl: 18px;
 }

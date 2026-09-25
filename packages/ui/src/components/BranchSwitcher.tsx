@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { useStore } from '../state/context'
-import { BranchIcon, PlusIcon, SearchIcon } from './Icons'
-import { MenuItem, MenuLabel } from './Menu'
+import { BranchIcon, PlusIcon } from './Icons'
+import { ActionError, Button, Input, MenuItem, MenuLabel, MenuNote, Search } from '../design'
 import styles from './BranchSwitcher.module.css'
 
 /**
@@ -73,22 +73,20 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
     <>
       {branches && branches.length >= FILTER_FROM && (
         <div className={styles.search}>
-          <SearchIcon size={14} className={styles.searchIcon} />
-          <input
+          <Search
             className={styles.filter}
             placeholder={`Search ${folder} branches`}
             value={query}
             autoFocus
-            spellCheck={false}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={setQuery}
           />
         </div>
       )}
       <MenuLabel>Branches</MenuLabel>
       <div className={styles.list}>
-        {branches === null && <div className={styles.note}>Reading branches…</div>}
+        {branches === null && <MenuNote>Reading branches…</MenuNote>}
         {branches !== null && shown.length === 0 && (
-          <div className={styles.note}>{query ? 'No branch matches.' : 'No branches — not a git repository?'}</div>
+          <MenuNote>{query ? 'No branch matches.' : 'No branches — not a git repository?'}</MenuNote>
         )}
         {shown.map((branch) => (
           <MenuItem
@@ -103,7 +101,9 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
           />
         ))}
       </div>
-      {error && <div className={styles.error}>{error}</div>}
+      {error && (
+        <ActionError>{error}</ActionError>
+      )}
       {creating ? (
         <form
           className={styles.create}
@@ -112,8 +112,8 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
             if (name.trim()) void checkout(name.trim(), true)
           }}
         >
-          <input
-            className={styles.filter}
+          <Input
+            variant="quiet" controlSize="compact" className={styles.filter}
             placeholder="new-branch-name"
             value={name}
             autoFocus
@@ -126,9 +126,9 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
               }
             }}
           />
-          <button type="submit" className={styles.createButton} disabled={!name.trim() || busy !== null}>
+          <Button type="submit" variant="default" size="sm" className={styles.createButton} disabled={!name.trim() || busy !== null}>
             Create
-          </button>
+          </Button>
         </form>
       ) : (
         <MenuItem

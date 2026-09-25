@@ -1,27 +1,25 @@
 import { describe, expect, it } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
 
-import kitSheet from '../primitives/Kit.module.css?raw'
-import tokenSheet from '../tokens.css?raw'
+import tokenSheet from '../foundation/tokens.css?raw'
 import checkboxSource from './checkbox.tsx?raw'
 import radioSource from './radio-group.tsx?raw'
 import switchSource from './switch.tsx?raw'
 import buttonSource from './button.tsx?raw'
-import { buttonVariants } from './button'
+import { Button, buttonVariants } from './button'
 
 /**
- * One button, two spellings, one source of numbers.
- *
- * While surfaces migrate from Kit to the shadcn layer, the app carries two
- * button implementations — and the contract (AGENTS.md, design/index.ts) is
- * that they may never disagree about what a button *is*: both read the
- * `--hd-btn-*` component tokens, so a foundation that remaps them (Pill,
- * Squared) restyles every button at once, and a sizing or focus fix is a
- * token edit rather than a hunt across idioms. This pins the coupling from
- * both sides; the failure mode it exists for is someone vendoring a fresh
- * copy of button.tsx and shipping its stock `h-9` back in.
+ * One button implementation, with every visual decision sourced from the
+ * shared component tokens.
  */
 
-describe('the button, in both spellings', () => {
+describe('the canonical button', () => {
+  it('leaves the one focus ring to the platform rule', () => {
+    const base = buttonVariants({})
+    expect(base).not.toContain('outline-none')
+    expect(base).not.toMatch(/focus-visible:(?:border|shadow)-/)
+  })
+
   it('the shadcn Button draws every number from the component tokens', () => {
     const base = buttonVariants({})
     expect(base).toContain('h-(--hd-btn-h)')
@@ -46,7 +44,15 @@ describe('the button, in both spellings', () => {
     expect(primary).toContain('text-(--hd-btn-primary-foreground)')
     expect(primary).toContain('hover:bg-(--hd-btn-primary-hover)')
 
-    expect(buttonVariants({ variant: 'outline' })).toContain('border-(--hd-btn-border)')
+    const outline = buttonVariants({ variant: 'outline' })
+    expect(outline).toContain('border-(--hd-btn-border)')
+    expect(outline.split(/\s+/)).toContain('text-(--hd-foreground)')
+
+    const floating = buttonVariants({ variant: 'floating' })
+    expect(floating).toContain('rounded-full')
+    expect(floating).toContain('bg-(--hd-card)')
+    expect(floating).toContain('var(--hd-shadow-raised)')
+    expect(floating).toContain('var(--hd-border-strong)')
 
     /* The destructive button is the one both spellings used to draw
        differently — solid red here, soft danger-ink in Kit. It is soft in
@@ -67,25 +73,83 @@ describe('the button, in both spellings', () => {
     }
   })
 
-  it('Kit’s Btn reads the same tokens, so neither spelling owns the numbers', () => {
-    for (const token of [
-      '--hd-btn-h',
-      '--hd-btn-h-sm',
-      '--hd-btn-padding',
-      '--hd-btn-radius',
-      '--hd-btn-text',
-      '--hd-btn-text-sm',
-      '--hd-btn-weight',
-      '--hd-btn-border',
-      '--hd-btn-primary-fill',
-      '--hd-btn-primary-foreground',
-      '--hd-btn-primary-hover',
-      '--hd-btn-danger-ink',
-      '--hd-btn-danger-hover',
-    ]) {
-      expect(kitSheet, `Kit.module.css stopped reading ${token}`).toContain(`var(${token})`)
+  it('never changes the label weight for a chosen state', () => {
+    for (const variant of ['row', 'navigation', 'choice'] as const) {
+      const classes = buttonVariants({ variant })
+      expect(classes).not.toMatch(/(?:data-\[(?:selected|active|current|open|on)\]|aria-checked):font-/)
     }
   })
+
+  it('keeps every row and a wrapped consequence left aligned', () => {
+    for (const variant of ['row', 'navigation', 'choice'] as const) {
+      expect(buttonVariants({ variant })).toContain('text-left')
+    }
+  })
+
+  /* The weight left, so the fill is now the only mark a chosen row has. Each
+     state a caller uses to choose one must carry a fill, or that choice is
+     drawn by nothing — the browser contract measures the fills themselves. */
+  it('gives every state a caller chooses with a fill of its own', () => {
+    const chosen = {
+      row: ['data-[selected]', 'data-[current]', 'data-[on]', 'aria-checked'],
+      navigation: ['data-[selected]', 'data-[current]'],
+      choice: ['data-[selected]', 'data-[on]', 'aria-checked'],
+    } as const
+    for (const [variant, states] of Object.entries(chosen)) {
+      const classes = buttonVariants({ variant: variant as keyof typeof chosen })
+      for (const state of states) {
+        expect(classes, `${variant} ${state} has no fill`).toContain(`${state}:bg-`)
+      }
+    }
+  })
+
+  /* A refused row's own dimming is a canonical Button concern (see
+     NewSessionChoice.tsx's comment on its `.group` rule): `ghost` and
+     `floating` already fade on `data-refused` for a runtime an attachment
+     can't reach, so `choice` — the picker variant a refused Agent row also
+     uses — must fade the same way rather than reading identically to a
+     seatable row (#871). */
+  it('fades a refused ghost or floating control as a whole', () => {
+    for (const variant of ['ghost', 'floating'] as const) {
+      expect(buttonVariants({ variant }), `${variant} does not fade data-refused`).toContain('data-[refused]:opacity-45')
+    }
+  })
+
+  /*
+   * `choice` cannot fade as a whole the way `ghost`/`floating` do: an Agent
+   * choice carries its refusal reason in the same control, and a caller
+   * measured the review-flagged version at ~1.9:1 in light mode — a reason
+   * a person is refused specifically so they can read it has to clear body
+   * text contrast, not merely exist. Only the lead glyph and the name fade;
+   * the reason (never marked `data-role=row`, the name's own role) keeps
+   * its ink.
+   */
+  it('fades a refused choice by its lead and name only, leaving its reason at full ink', () => {
+    const choice = buttonVariants({ variant: 'choice' })
+    expect(choice).not.toContain('data-[refused]:opacity-45')
+    expect(choice).toContain('data-[refused]:[&_[data-slot=icon-tile]]:opacity-45')
+    expect(choice).toContain('data-[refused]:[&_[data-role=row]]:opacity-45')
+  })
+
+  it('carries navigation ink into named text roles and owns arrange markers', () => {
+    const navigation = buttonVariants({ variant: 'navigation' })
+    expect(navigation).toContain('data-[active]:[&_[data-slot=text]]:text-')
+    expect(navigation).toContain('data-[active]:[&_[data-role=meta]]:text-')
+    expect(navigation).toContain('data-[insert=before]:shadow-')
+    expect(navigation).toContain('data-[insert=after]:shadow-')
+    expect(navigation).toContain('data-[dragging]:opacity-40')
+    expect(navigation).toContain('[&_[data-chevron][data-open]]:rotate-90')
+  })
+
+  it('owns borderless and default-cursor row postures without a feature override', () => {
+    const markup = renderToStaticMarkup(
+      <Button variant="row" bordered={false} cursor="default">History row</Button>,
+    )
+    expect(markup).toContain('border-0')
+    expect(markup).toContain('cursor-default')
+    expect(markup).toContain('select-none')
+  })
+
 })
 
 /**
@@ -145,53 +209,20 @@ describe('the on-states follow the accent dial', () => {
 })
 
 
-/**
- * `outline` means one thing, and two files have to agree about it.
- *
- * This is the coupling the usage layer exists to create, and it was the one
- * thing about it with no test: Kit had no `outline` at all until recently, so
- * a screen built on it fell back to grey and three "add a thing" buttons in
- * one settings window came out three different ways. Adding the variant fixed
- * the screens; nothing stopped the two definitions drifting apart again.
- *
- * The comparison is the *tokens*, not the syntax, because the two spellings
- * cannot share syntax — one is a CSS rule and the other a string of Tailwind
- * utilities. Both are read as raw text, so the CSS is the real stylesheet
- * rather than the empty string Vitest hands back for an imported `.css`.
- */
-describe('outline is the same variant in both spellings', () => {
-  /** Every `--hd-` token a chunk of styling names. */
-  const tokensIn = (text: string) => new Set([...text.matchAll(/--hd-[a-z0-9-]+/g)].map((hit) => hit[0]))
+it('keeps the outline border stable on hover', () => {
+  expect(/\boutline:\s*'([^']*)'/.exec(buttonSource)?.[1] ?? '').not.toMatch(/hover:border-/)
+})
 
-  /** The declarations of every rule whose selector mentions `selector`. */
-  const rulesFor = (sheet: string, selector: string) =>
-    [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter((rule) => (rule[1] ?? '').includes(selector))
-      .map((rule) => rule[2])
-      .join('\n')
+it('fills a swatch with the colour it offers and keeps it under the pointer', () => {
+  const markup = renderToStaticMarkup(<Button variant="ghost" size="icon-circle" swatch="#e5484d" aria-label="Red" />)
+  expect(markup).toContain('data-swatch')
+  expect(markup).toContain('--swatch:#e5484d')
+  expect(markup).toContain('bg-(--swatch)')
+  expect(markup).toContain('hover:bg-(--swatch)')
+  // Filled to its edge: the ring the chosen swatch wears sits outside it.
+  expect(markup).toContain('bg-clip-border')
 
-  it('names the same tokens on both sides', () => {
-    const kit = tokensIn(rulesFor(kitSheet, "[data-variant='outline']"))
-    const shadcn = tokensIn(/\boutline:\s*'([^']*)'/.exec(buttonSource)?.[1] ?? '')
-
-    /* Not vacuous in either direction: both sides have to have been found. */
-    expect(kit.size).toBeGreaterThan(0)
-    expect(shadcn.size).toBeGreaterThan(0)
-    expect([...kit].sort()).toEqual([...shadcn].sort())
-
-    /* And they are these, so a drift that happened to move both together
-       still has to be a deliberate edit here. */
-    expect([...kit].sort()).toEqual(['--hd-background', '--hd-btn-border', '--hd-foreground', '--hd-hover'])
-  })
-
-  it('does not move its border on hover in either spelling', () => {
-    /* The rest-state comparison above passed while the two hovered
-       differently: Kit's base `.btn:hover` moves the border to a darker
-       platform step, and the outline rule did not override it, so the same
-       semantic variant hovered one way in Kit and another in shadcn. A parity
-       check that reads only the outline-specific rules cannot see an
-       inherited declaration, so the invariant is stated directly. */
-    expect(rulesFor(kitSheet, "[data-variant='outline']:hover")).toContain('border-color: var(--hd-btn-border)')
-    expect(/\boutline:\s*'([^']*)'/.exec(buttonSource)?.[1] ?? '').not.toMatch(/hover:border-/)
-  })
+  const plain = renderToStaticMarkup(<Button variant="ghost" size="icon-circle" aria-label="Plain" />)
+  expect(plain).not.toContain('data-swatch')
+  expect(plain).not.toContain('--swatch')
 })

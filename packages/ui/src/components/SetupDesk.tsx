@@ -5,7 +5,7 @@ import type { RuntimeId } from '@harnessdesk/protocol'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { Btn } from '../design/primitives/Kit'
+import { Button, Card, Chip, IconTile, ListRow, ListRows, Text } from '../design'
 import styles from './SetupDesk.module.css'
 
 /**
@@ -20,10 +20,10 @@ import styles from './SetupDesk.module.css'
  */
 export const SetupDesk = ({
   onSignIn,
-  onOpenAgents,
+  onOpenRuntimes,
 }: {
   onSignIn: (runtime?: RuntimeId) => void
-  onOpenAgents: () => void
+  onOpenRuntimes: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -49,7 +49,8 @@ export const SetupDesk = ({
 
   return (
     <>
-      <div className={styles.list}>
+      <Card variant="flush" className={styles.list}>
+        <ListRows>
         {snapshot.runtimes.map((info) => {
           const health = snapshot.healthByRuntime[info.id] ?? null
           const account = snapshot.accountsByRuntime[info.id] ?? null
@@ -70,38 +71,37 @@ export const SetupDesk = ({
                   : (info.presentation.tagline ?? 'Ready.')
           const which = whichOf(info)
           return (
-            <div key={info.id} className={styles.row}>
-              <span className={styles.rowMark}>
+            <ListRow
+              key={info.id}
+              lead={<IconTile size="sm">
                 <RuntimeMark runtime={info} size={14} />
-              </span>
-              <span className={styles.rowText}>
-                <span className={styles.rowName}>
-                  {info.presentation.name}
-                  {which && <span className={styles.rowWhich}>{which}</span>}
-                </span>
-                <span className={styles.rowState}>{sentence}</span>
-              </span>
-              <span className={styles.rowAction}>
-                {state === 'signin' ? (
-                  <Btn small variant="primary" onClick={() => onSignIn(info.id)}>
+              </IconTile>}
+              title={<span className={styles.rowName}>
+                <Text role="subject">{info.presentation.name}</Text>
+                {which && <Chip tone="neutral" size="sm">{which}</Chip>}
+              </span>}
+              subtitle={<Text role="muted">{sentence}</Text>}
+              wrapSubtitle
+              trail={state === 'signin' ? (
+                  <Button size="sm" variant="default" onClick={() => onSignIn(info.id)}>
                     Sign in
-                  </Btn>
+                  </Button>
                 ) : state === 'ready' && info.id !== snapshot.activeRuntime ? (
-                  <Btn small onClick={() => void store.selectRuntime(info.id)}>
+                  <Button variant="secondary" size="sm" onClick={() => void store.selectRuntime(info.id)}>
                     Use this agent
-                  </Btn>
+                  </Button>
                 ) : null}
-              </span>
-            </div>
+            />
           )
         })}
-      </div>
-      <p className={styles.foot}>
-        Another agent on this machine?{' '}
-        <button type="button" className={styles.footLink} onClick={onOpenAgents}>
-          Add an agent…
-        </button>
-      </p>
+        </ListRows>
+      </Card>
+      <Text as="p" role="muted">
+        Another agent program on this Mac?{' '}
+        <Button variant="link" size="content" onClick={onOpenRuntimes}>
+          Add a runtime…
+        </Button>
+      </Text>
     </>
   )
 }

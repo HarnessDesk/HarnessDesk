@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Menu } from './Menu'
+import { Menu, Submenu } from '../design'
 import { BranchSwitcher } from './BranchSwitcher'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -69,7 +69,7 @@ it('disables the in-flight branch and prevents duplicate checkouts (#391)', asyn
 
   const alphaBtn = items.find((btn) => btn.textContent?.includes('feature/alpha'))!
   expect(alphaBtn).toBeDefined()
-  expect(alphaBtn.disabled).toBe(false)
+  expect(alphaBtn.getAttribute('aria-disabled')).not.toBe('true')
 
   // Click feature/alpha to start checkout
   act(() => {
@@ -80,7 +80,7 @@ it('disables the in-flight branch and prevents duplicate checkouts (#391)', asyn
   expect(checkoutBranch).toHaveBeenCalledWith('/repo', 'feature/alpha', { create: false })
 
   // While in flight, feature/alpha itself must be disabled!
-  expect(alphaBtn.disabled).toBe(true)
+  expect(alphaBtn.getAttribute('aria-disabled')).toBe('true')
   expect(alphaBtn.textContent).toContain('…')
 
   // Clicking it again while in flight must not trigger another checkout
@@ -93,4 +93,66 @@ it('disables the in-flight branch and prevents duplicate checkouts (#391)', asyn
   await act(async () => {
     resolveCheckout(true)
   })
+})
+
+it('announces a failed checkout in the canonical alert', async () => {
+  await rig({ checkoutBranch: vi.fn(async () => false) })
+
+  const alpha = [...container.querySelectorAll<HTMLButtonElement>('button[role="menuitemradio"]')]
+    .find((button) => button.textContent?.includes('feature/alpha'))
+  await act(async () => {
+    alpha?.click()
+  })
+
+  const alert = container.querySelector('[data-slot="alert"]')
+  expect(alert?.getAttribute('role')).toBe('alert')
+  expect(alert?.textContent).toContain(
+    'Could not switch to feature/alpha. The working tree may have uncommitted changes.',
+  )
+})
+
+it('→ on the branch row steps in while the branches are still being read, and their arrival leaves the focus where it is', async () => {
+  // The flyout is drawn before the list is read, with one row in it: the
+  // create row at its foot. → lands there, where Enter lands too, and the
+  // branches arriving above it do not take the focus from it.
+  let read!: (list: readonly { name: string; current: boolean; committedAt: number }[]) => void
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => ({ ...emptySnapshot(), status: 'open' }) as AppSnapshot,
+    listBranches: vi.fn(() => new Promise((resolve) => { read = resolve })),
+    checkoutBranch: vi.fn(async () => true),
+  } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <Menu close={() => {}}>
+          <Submenu label="Branch main">
+            <BranchSwitcher root="/repo" onDone={() => {}} />
+          </Submenu>
+        </Menu>
+      </StoreProvider>,
+    )
+  })
+  const frame = () => act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)) })
+  const button = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('button')].find((node) => node.textContent?.startsWith(label))
+  await frame()
+  const row = button('Branch main')!
+  act(() => row.focus())
+  act(() => {
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+  })
+  await frame()
+  expect(row.getAttribute('aria-expanded')).toBe('true')
+  expect(document.activeElement).toBe(button('Create and checkout new branch'))
+
+  await act(async () => {
+    read([
+      { name: 'main', current: true, committedAt: 1000 },
+      { name: 'feature/alpha', current: false, committedAt: 2000 },
+    ])
+  })
+  await frame()
+  expect(button('feature/alpha')).toBeDefined()
+  expect(document.activeElement).toBe(button('Create and checkout new branch'))
 })

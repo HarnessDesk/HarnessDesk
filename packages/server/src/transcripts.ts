@@ -10,9 +10,11 @@ import type {
   TranscriptHit,
   Turn,
   AgentItem,
+  TurnInsightContext,
 } from '@harnessdesk/protocol'
-import { openingOf } from '@harnessdesk/protocol'
+import { openingOf, preserveNoticeItems } from '@harnessdesk/protocol'
 
+import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { publicationsIn, withPublications } from './publications.js'
 
 /**
@@ -64,6 +66,8 @@ interface Stored {
   readonly preview?: string | null
   readonly cwd?: string
   readonly updatedAt?: number
+  /** Optional historical observation metadata; old transcript files deliberately read without it. */
+  readonly insight?: readonly TurnInsightContext[]
 }
 
 const FORMAT = 1
@@ -71,6 +75,15 @@ const SETTLE_MS = 800
 
 /** A file name that survives any session id the backends mint. */
 const fileNameOf = (id: string): string => `${encodeURIComponent(id)}.json`
+
+/** Why a backup was refused: a folder of conversations it could not read. */
+const unexported = (error: unknown): Error =>
+  new Error(
+    `The backup was not made: the conversations this desk keeps could not all be read — ${
+      error instanceof Error ? error.message : String(error)
+    }. A backup without them would still look complete, and could not bring them back. Fix that folder, then export again.`,
+    { cause: error },
+  )
 
 /**
  * How a stored turn is recognised in a fresh read.
@@ -164,8 +177,11 @@ const restorableUsage = (
 const keyOf = (runtime: RuntimeId, id: SessionId): string => `${runtime}\0${id}`
 
 export class TranscriptStore {
-  readonly #pending = new Map<string, { timer: ReturnType<typeof setTimeout>; session: Session }>()
+  readonly #pending = new Map<string, { timer: ReturnType<typeof setTimeout>; session: Session; insight: readonly TurnInsightContext[] }>()
   readonly #writes = new Map<string, Promise<void>>()
+  readonly #insight = new Map<string, readonly TurnInsightContext[]>()
+  /** Folders a search has already named, so one searching per keystroke names each once. */
+  readonly #unsearched = new Set<string>()
 
   constructor(
     private readonly directory: string,
@@ -176,24 +192,39 @@ export class TranscriptStore {
     return join(this.directory, encodeURIComponent(runtime), fileNameOf(id))
   }
 
+  #unsearchable(folder: string, error: unknown): void {
+    if (this.#unsearched.has(folder)) return
+    this.#unsearched.add(folder)
+    this.log('a folder of stored conversations could not be searched', {
+      folder,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
   /**
    * Notes the session's current transcript for writing. `now` skips the
    * settle delay — the end of a turn is worth a write of its own.
    */
-  record(session: Session, options: { readonly now?: boolean } = {}): void {
+  record(session: Session, options: { readonly now?: boolean; readonly insight?: readonly TurnInsightContext[] } = {}): void {
     if (!session.itemsLoaded) return
-    if (!session.turns.some((turn) => turn.items.length > 0)) return
+    if (!session.turns.some((turn) => turn.items.length > 0) && !(options.insight?.length)) return
     const key = keyOf(session.runtime, session.id)
+    if (options.insight?.length) {
+      const previous = this.#insight.get(key) ?? []
+      const byTurn = new Map(previous.map((context) => [context.turn, context]))
+      for (const context of options.insight) byTurn.set(context.turn, context)
+      this.#insight.set(key, [...byTurn.values()].slice(-2000))
+    }
     const pending = this.#pending.get(key)
     if (pending) clearTimeout(pending.timer)
     const timer = setTimeout(() => {
       this.#pending.delete(key)
-      void this.#write(session)
+      void this.#write(session, this.#insight.get(key) ?? [])
     }, options.now ? 0 : SETTLE_MS)
-    this.#pending.set(key, { timer, session })
+    this.#pending.set(key, { timer, session, insight: this.#insight.get(key) ?? [] })
   }
 
-  async #write(session: Session): Promise<void> {
+  async #write(session: Session, insight: readonly TurnInsightContext[] = []): Promise<void> {
     const key = keyOf(session.runtime, session.id)
     const previous = this.#writes.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
@@ -208,6 +239,7 @@ export class TranscriptStore {
         preview: session.preview ?? null,
         cwd: session.cwd,
         updatedAt: session.updatedAt,
+        ...(insight.length ? { insight } : {}),
       }
       const file = this.#pathOf(session.runtime, session.id)
       try {
@@ -251,6 +283,12 @@ export class TranscriptStore {
     } catch {
       return null
     }
+  }
+
+  /** Historical metadata is unavailable, not person-caused, when an old file has none. */
+  async readInsight(runtime: RuntimeId, id: SessionId): Promise<readonly TurnInsightContext[] | null> {
+    const stored = await this.#read(runtime, id)
+    return stored?.insight ?? null
   }
 
   /**
@@ -310,10 +348,15 @@ export class TranscriptStore {
       // rollout that stored more than it streamed — would drop the row the
       // host recorded. Put back at its place, whichever list stands.
       const published = publicationsIn(kept.items)
-      const carry = (items: readonly AgentItem[]): readonly AgentItem[] => withPublications(items, published)
+      const carry = (items: readonly AgentItem[]): readonly AgentItem[] => {
+        const classified = preserveNoticeItems(items, kept.items)
+        return published.every(({ item }) => classified.some((entry) => entry.id === item.id))
+          ? classified
+          : withPublications(classified, published)
+      }
       if (kept.items.length <= turn.items.length) {
         const items = carry(turn.items)
-        if (items.length === turn.items.length) return turn
+        if (items === turn.items) return turn
         changed = true
         return { ...turn, items }
       }
@@ -324,7 +367,7 @@ export class TranscriptStore {
         })
       ) {
         const items = carry(turn.items)
-        if (items.length === turn.items.length) return turn
+        if (items === turn.items) return turn
         changed = true
         return { ...turn, items }
       }
@@ -366,14 +409,24 @@ export class TranscriptStore {
     let runtimes: string[] = []
     try {
       runtimes = await readdir(this.directory)
-    } catch {
-      return [] // No transcript was ever written; nothing to search is a fine answer.
+    } catch (error) {
+      // No transcript was ever written; nothing to search is a fine answer.
+      // A store that will not open is not that, and "no hits" over it is not
+      // an answer at all.
+      if (NOTHING_YET.has(errnoOf(error))) return []
+      throw error
     }
     for (const dir of runtimes) {
       let names: string[] = []
       try {
         names = await readdir(join(this.directory, dir))
-      } catch {
+      } catch (error) {
+        /* A stray file beside the agents' folders — Finder leaves `.DS_Store`
+           — or a folder removed mid-walk is nothing. One that will not open is
+           passed over, because a lookup must not lose every agent to one
+           folder, and named once, because a palette searches on every
+           keystroke. */
+        if (!NOTHING_HERE.has(errnoOf(error))) this.#unsearchable(join(this.directory, dir), error)
         continue
       }
       for (const name of names) {
@@ -414,21 +467,27 @@ export class TranscriptStore {
   /**
    * Every stored transcript, raw, for the backup file. Corrupt files are
    * skipped: a backup that cannot be restored is worse than one file short.
+   *
+   * A *folder* that will not open is different, and refuses the backup: it
+   * is every conversation in it short at once, under a count — "Exported 3
+   * agents and 12 conversations" — that reads as the whole of it.
    */
   async exportAll(): Promise<readonly { runtime: string; id: string; data: unknown }[]> {
     const out: { runtime: string; id: string; data: unknown }[] = []
     let runtimes: string[] = []
     try {
       runtimes = await readdir(this.directory)
-    } catch {
-      return []
+    } catch (error) {
+      if (NOTHING_YET.has(errnoOf(error))) return []
+      throw unexported(error)
     }
     for (const dir of runtimes) {
       let names: string[] = []
       try {
         names = await readdir(join(this.directory, dir))
-      } catch {
-        continue
+      } catch (error) {
+        if (NOTHING_HERE.has(errnoOf(error))) continue
+        throw unexported(error)
       }
       for (const name of names) {
         if (!name.endsWith('.json')) continue
@@ -505,6 +564,7 @@ export class TranscriptStore {
       clearTimeout(pending.timer)
       this.#pending.delete(key)
     }
+    this.#insight.delete(key)
     // Wait out a write already in flight, or the unlink races it.
     await this.#writes.get(key)?.catch(() => {})
     this.#writes.delete(key)
@@ -533,14 +593,23 @@ export class TranscriptStore {
     if (pending) {
       clearTimeout(pending.timer)
       this.#pending.delete(key)
-      await this.#write(pending.session)
+      await this.#write(pending.session, pending.insight)
     }
     await this.#writes.get(key)?.catch(() => {})
-    const stored = await this.recover(runtime, id)
+    const stored = await this.#read(runtime, id)
     if (!stored) return
     const kept = Math.max(0, stored.turns.length - count)
     if (kept === 0) await this.forget(runtime, id)
-    else await this.#write({ ...stored, turns: stored.turns.slice(0, kept) })
+    else {
+      const turns = stored.turns.slice(0, kept)
+      const retainedSession = await this.recover(runtime, id)
+      if (!retainedSession) return
+      const retained = new Set(turns.map((turn) => String(turn.id)))
+      const insight = (stored.insight ?? []).filter((context) => retained.has(context.turn))
+      if (insight.length) this.#insight.set(key, insight)
+      else this.#insight.delete(key)
+      await this.#write({ ...retainedSession, turns }, insight)
+    }
   }
 
   /** Writes whatever is still waiting. Call on shutdown. */
@@ -548,7 +617,7 @@ export class TranscriptStore {
     const waiting = [...this.#pending.values()]
     for (const entry of waiting) clearTimeout(entry.timer)
     this.#pending.clear()
-    await Promise.all(waiting.map((entry) => this.#write(entry.session)))
+    await Promise.all(waiting.map((entry) => this.#write(entry.session, entry.insight)))
     await Promise.all([...this.#writes.values()])
   }
 }

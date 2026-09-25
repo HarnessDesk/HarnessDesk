@@ -20,7 +20,7 @@ import { ModelControl, PermissionControl } from './ComposerControls'
  * jsdom lays nothing out, so the toolbar is as wide as this file says.
  */
 
-vi.mock('../design', () => ({ Btn: () => null, Dialog: () => null }))
+vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeof import('../design')>()), Button: () => null, Dialog: () => null }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let width = 1000
@@ -52,6 +52,7 @@ const resize = (to: number): void => {
 
 let container: HTMLDivElement
 let root: Root
+let testStore: AppStore
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', Measured)
@@ -107,6 +108,13 @@ const options: readonly ConfigOption[] = [
       { value: 'auto', label: 'Auto' },
     ],
   },
+  {
+    id: 'auto_approve',
+    label: 'Auto-approve tools',
+    category: '_permissions',
+    type: 'boolean',
+    currentValue: false,
+  },
 ] as unknown as readonly ConfigOption[]
 
 const draw = (at: number): void => {
@@ -118,14 +126,14 @@ const draw = (at: number): void => {
     activeRuntime: agent.id,
     draftOptions: options,
   }
-  const store = {
+  testStore = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     setOption: vi.fn(async () => {}),
   } as unknown as AppStore
   act(() => {
     root.render(
-      <StoreProvider store={store}>
+      <StoreProvider store={testStore}>
         <PermissionControl />
         <ModelControl />
       </StoreProvider>,
@@ -134,12 +142,16 @@ const draw = (at: number): void => {
 }
 
 const triggers = (): HTMLButtonElement[] => [
-  ...container.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]'),
+  ...container.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="dialog"]'),
 ]
 const model = (): HTMLButtonElement => {
   const found = triggers().find((trigger) => /model and reasoning/i.test(trigger.title))
   if (!found) throw new Error('no model control')
   return found
+}
+
+const click = (element: Element): void => {
+  act(() => element.dispatchEvent(new MouseEvent('click', { bubbles: true })))
 }
 
 it('says the model, and how hard it thinks, when the toolbar has the room', () => {
@@ -205,6 +217,20 @@ it('keeps every control’s words, the model’s among them, while there is room
   const permission = triggers().find((trigger) => /what the agent may do/i.test(trigger.title))
   expect(permission?.textContent).toContain('Ask first')
   expect(model().textContent).toContain('Small')
+})
+
+it('puts boolean auto-approval in the permission control', () => {
+  draw(700)
+  const permission = triggers().find((trigger) => /what the agent may do/i.test(trigger.title))
+  expect(permission).toBeDefined()
+  click(permission!)
+
+  const toggle = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find((button) =>
+    button.textContent?.includes('Auto-approve tools'),
+  )
+  expect(toggle).toBeDefined()
+  click(toggle!)
+  expect(testStore.setOption).toHaveBeenCalledWith('auto_approve', true)
 })
 
 it('keeps the chevrons while there is room for them, and folds them at a phone’s width', () => {

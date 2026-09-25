@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { ChildProcess } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import type { AgentEvent } from '@harnessdesk/protocol'
@@ -7,6 +11,7 @@ import type { AgentEvent } from '@harnessdesk/protocol'
 import { EventEmitter } from 'node:events'
 
 import { CliAccount } from '../src/account.js'
+import { firstSentence } from '../src/runtime.js'
 import { AcpRuntime, parseStatus, type AcpAgentConfig } from '../src/index.js'
 
 /**
@@ -76,6 +81,21 @@ test('signed out is an empty list, not an error — even when status exits 1', a
       await runtime.dispose()
     }
   }
+})
+
+test('an account with no status command keeps its browser methods', async () => {
+  const account = new CliAccount(
+    {
+      login: { command: FAKE_CLI, args: ['login'] },
+      logout: { command: FAKE_CLI, args: ['logout'] },
+    },
+    'fake-acp' as never,
+    () => {},
+  )
+  assert.deepEqual((await account.status()).signInMethods, [
+    { id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' },
+  ])
+  assert.deepEqual((await account.status()).accounts, [])
 })
 
 test('login returns the URL the CLI printed and completion arrives as an event', async () => {
@@ -151,12 +171,52 @@ test('logout runs the command and announces the change', async () => {
   }
 })
 
+test('a no-status account uses the observed identity and clears it after logout', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    account: {
+      login: { command: FAKE_CLI, args: ['login'] },
+      logout: { command: FAKE_CLI, args: ['logout'] },
+    },
+    resolveIdentity: () => ({ kind: 'agent', label: 'Google account', anonymous: true }),
+  })
+  await runtime.start()
+  try {
+    assert.deepEqual((await runtime.getAccount()).accounts, [])
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Google account', anonymous: true }])
+    await runtime.logout()
+    assert.deepEqual((await runtime.getAccount()).accounts, [])
+    assert.equal((await runtime.getAccount()).signInMethods[0]?.flow, 'browser')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 /**
  * The other kind of agent: no status command, no stored key — nothing the
  * desk can ask. Its sign-in is observed from its own answers, and until one
  * has been given the desk claims nothing, which is what keeps "Needs sign-in"
  * off an agent that is in the middle of opening pull requests.
  */
+/** The first event that matches, or a failure naming what did arrive. */
+const until = async (
+  events: readonly AgentEvent[],
+  matches: (event: AgentEvent) => boolean,
+  timeoutMs = 5000,
+): Promise<AgentEvent> => {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const found = events.find(matches)
+    if (found) return found
+    if (Date.now() > deadline) throw new Error(`timed out; saw ${events.map((e) => e.type).join(', ')}`)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
 const bare = (env: Record<string, string> = {}): AcpRuntime =>
   new AcpRuntime({
     id: 'fake-acp',
@@ -196,9 +256,16 @@ test('an agent that refuses a session for want of a sign-in says so, in its decl
     assert.equal(status.signInMethods.length, 1)
     assert.equal(status.signInMethods[0]?.id, 'acp:device')
     assert.equal(status.signInMethods[0]?.label, 'Sign in on the agent side')
-    assert.equal(status.signInMethods[0]?.flow, 'external', 'the desk does not drive ACP authenticate')
-    assert.match(status.signInMethods[0]?.description ?? '', /Run the agent login\./)
-    assert.match(status.signInMethods[0]?.description ?? '', /Authentication required/)
+    assert.equal(status.signInMethods[0]?.flow, 'browser', 'the agent asked to be called, so the desk offers a button')
+    /* The method keeps its own words, and the refusal is said once, for the
+       account: appended to every method it printed the same sentence under
+       each of them. The whole line, because it used to show the agent's
+       `error.data` as a brace: `Authentication required: {"message":"No
+       authentication method selected.` — cut mid-record, since the sentence
+       it is trimmed to ended inside the JSON. The fake refuses in
+       Antigravity's own shape, `data.message` (#749). */
+    assert.equal(status.signInMethods[0]?.description, 'Run the agent login.')
+    assert.equal(status.refusal, 'Authentication required: No authentication method selected.')
   } finally {
     await runtime.dispose()
   }
@@ -264,8 +331,8 @@ test('a prompt-time auth refusal moves an observed agent to sign-in required', a
     assert.equal(status.signInMethods.length, 1)
     assert.equal(status.signInMethods[0]?.id, 'acp:devin-browser')
     assert.equal(status.signInMethods[0]?.label, 'Log in with browser')
-    assert.equal(status.signInMethods[0]?.flow, 'external')
-    assert.match(status.signInMethods[0]?.description ?? '', /Please log in to use Devin/)
+    assert.equal(status.signInMethods[0]?.flow, 'browser')
+    assert.match(status.refusal ?? '', /Please log in to use Devin/)
     assert.ok(
       events.some((event) => event.type === 'account/changed'),
       'account/changed event was announced on prompt-time auth refusal',
@@ -302,6 +369,256 @@ test('a prompt-time non-auth error leaves an observed agent signed in (control)'
     assert.deepEqual(status.signInMethods, [])
   } finally {
     await runtime.dispose()
+  }
+})
+
+/**
+ * Sign-in over ACP itself — #749.
+ *
+ * `authenticate` takes one of the ids from `initialize`'s `authMethods` and
+ * answers nothing; the agent does whatever signing in means for it, and for
+ * Antigravity's server that is opening Google in the browser from inside the
+ * call. So the desk starts the flow, hands back no URL, and waits for the
+ * reply. Before this, an agent's declared methods were `external` — a
+ * sentence and nothing to press — which for an agent whose CLI is a
+ * different program left no way in at all.
+ */
+test('a declared ACP method is a sign-in the desk can drive, and hands back no URL to open', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_REQUIRED: '1' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const offered = (await runtime.getAccount()).signInMethods[0]
+    assert.equal(offered?.flow, 'browser', 'the agent asked to be called; that is a button')
+    assert.equal(offered?.id, 'acp:device')
+
+    const started = await runtime.login(offered!.id)
+    assert.equal(started.type, 'browser')
+    assert.equal(started.type === 'browser' ? started.url : 'x', undefined, 'the agent opened the browser, not the desk')
+
+    const completed = (await until(events, (e) => e.type === 'account/loginCompleted')) as Extract<
+      AgentEvent,
+      { type: 'account/loginCompleted' }
+    >
+    assert.equal(completed.success, true)
+    assert.equal(completed.loginId, started.loginId)
+    assert.ok(events.some((event) => event.type === 'account/changed'))
+
+    // It took: the agent opens sessions again, and the desk says signed in.
+    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    await runtime.createSession({ cwd: process.cwd() })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a sign-in the agent refuses completes as a failure, in the agent’s own words', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_REQUIRED: '1', FAKE_ACP_AUTH_FAILS: '1' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const started = await runtime.login('acp:device')
+    const completed = (await until(events, (e) => e.type === 'account/loginCompleted')) as Extract<
+      AgentEvent,
+      { type: 'account/loginCompleted' }
+    >
+    assert.equal(completed.success, false)
+    assert.equal(completed.loginId, started.loginId)
+    // One sentence, not the agent's whole paragraph.
+    assert.equal(completed.error, 'the browser flow was refused.')
+    assert.deepEqual((await runtime.getAccount()).accounts, [], 'still signed out')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a cancelled ACP sign-in ends at once, and the agent signing in anyway still tells the desk to look', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_REQUIRED: '1', FAKE_ACP_AUTH_MS: '400' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const started = await runtime.login('acp:device')
+    await runtime.cancelLogin(started.loginId)
+    const completed = (await until(events, (e) => e.type === 'account/loginCompleted')) as Extract<
+      AgentEvent,
+      { type: 'account/loginCompleted' }
+    >
+    assert.equal(completed.success, false)
+    assert.equal(completed.error, 'Sign-in was cancelled.')
+
+    /* The request was already sent and cannot be recalled, so the agent goes
+       on and signs in. That is one ending for the flow — the cancel — and a
+       changed account the desk must still hear about.
+       Counted, not matched: the refusal above already emitted one, and
+       waiting for "an account/changed" found that one and returned before
+       the agent had finished. */
+    const changedByNow = events.filter((e) => e.type === 'account/changed').length
+    await until(events, () => events.filter((e) => e.type === 'account/changed').length > changedByNow)
+    assert.equal(
+      events.filter((e) => e.type === 'account/loginCompleted').length,
+      1,
+      'the flow ended once, however the agent finished',
+    )
+    const after = await runtime.getAccount()
+    assert.deepEqual(after.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    assert.equal(after.refusal, undefined, 'a refusal is not kept past the sign-in that answered it')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a refusal keeps its sentence and drops only a record the agent appended', () => {
+  // Qwen Code's own shape: a sentence, then its `error.data` as JSON.
+  assert.equal(
+    firstSentence('Authentication required: Use Qwen Code CLI to authenticate first.: {"authMethods":[{"id":"openai"}]}'),
+    'Authentication required: Use Qwen Code CLI to authenticate first.',
+  )
+  assert.equal(firstSentence('Sign-in failed: [{"code":1}]'), 'Sign-in failed')
+  // A reason written in brackets is the clue, not a record.
+  assert.equal(firstSentence('Sign-in failed: [Errno 13] Permission denied'), 'Sign-in failed: [Errno 13] Permission denied')
+  assert.equal(firstSentence('Sign-in failed: [auth] token expired'), 'Sign-in failed: [auth] token expired')
+})
+
+test('an agent that declared no methods is still refused a sign-in in words', async () => {
+  const runtime = bare({ FAKE_ACP_AUTH_METHODS: '[]' })
+  await runtime.start()
+  try {
+    await assert.rejects(runtime.login('cli-browser'), /declares no sign-in command/)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/**
+ * Sign-out over ACP itself — #749.
+ *
+ * Google Antigravity's ACP server is the case this exists for: its
+ * credentials are its own, the `agy` CLI beside it is a different program,
+ * and `agy --print /logout` is refused by print mode because clearing
+ * credentials outlives the run. The server does declare ACP's `logout` in
+ * `agentCapabilities.auth`, so that is what the desk drives. The fixture
+ * declares and serves it the same way, and refuses to open anything after.
+ */
+test('an agent that declares ACP logout is signed out over the protocol, with no CLI to ask', async () => {
+  const runtime = bare({ FAKE_ACP_LOGOUT: '1' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+
+    await runtime.logout()
+    assert.ok(events.some((event) => event.type === 'account/changed'), 'the surface was told to look again')
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [], 'signed out, and the desk says so')
+    assert.equal(status.signInMethods[0]?.id, 'acp:device', 'the way back in is the agent’s own declared method')
+    assert.equal(status.signInMethods[0]?.flow, 'browser', 'and it is one the desk can drive — signing out is not a dead end')
+    // And it took: the agent itself now refuses to open anything.
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent that declares no sign-out at all is refused in words, not asked anyway', async () => {
+  const runtime = bare()
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await assert.rejects(runtime.logout(), /declares no sign-out command/)
+    assert.deepEqual(
+      (await runtime.getAccount()).accounts,
+      [{ kind: 'agent', label: 'Signed in', anonymous: true }],
+      'a refusal to try changes nothing about the account',
+    )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a sign-out the agent refuses leaves the account standing, in the agent’s words', async () => {
+  const runtime = bare({ FAKE_ACP_LOGOUT_FAILS: '1' })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await assert.rejects(runtime.logout(), /keychain refused/)
+    assert.deepEqual(
+      (await runtime.getAccount()).accounts,
+      [{ kind: 'agent', label: 'Signed in', anonymous: true }],
+      'the credentials are still there, so the surface must not say otherwise',
+    )
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/**
+ * A row that names a sign-out command keeps it: the registry's instruction is
+ * explicit, works with the agent stopped, and is what Claude Code and Cursor
+ * are driven by. ACP's own is the fallback for an agent whose CLI cannot be
+ * asked, never a replacement.
+ */
+/**
+ * The other half of ACP's rule, and the defect review caught in this PR.
+ *
+ * "If `agentCapabilities.auth.logout` is omitted or `null`, the Agent does
+ * not support `logout`" — and the client **MUST NOT** call it in either
+ * case. The capability read was `!== undefined`, which let the null form
+ * through: the desk sent the forbidden request and surfaced the agent's
+ * "Method not found" as if the agent had failed, when it was the desk that
+ * broke the rule. The fake refuses `logout` in this mode for exactly that
+ * reason — a client that obeys never reaches the refusal.
+ */
+test('a logout capability of null is no capability, and the request is never sent', async () => {
+  const runtime = bare({ FAKE_ACP_LOGOUT_NULL: '1' })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await assert.rejects(
+      runtime.logout(),
+      /declares no sign-out command/,
+      'refused here, rather than by the agent after the desk broke the rule',
+    )
+    assert.deepEqual(
+      (await runtime.getAccount()).accounts,
+      [{ kind: 'agent', label: 'Signed in', anonymous: true }],
+      'nothing was attempted, so nothing about the account changed',
+    )
+    // And the session the agent had open is still open, since it never signed out.
+    await runtime.createSession({ cwd: process.cwd() })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a declared logout command outranks the agent’s ACP logout', async () => {
+  const calls = mkdtempSync(join(tmpdir(), 'hd-logout-'))
+  const marker = join(calls, 'logged-out')
+  const runtime = new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    env: { FAKE_ACP_LOGOUT: '1' },
+    account: { logout: { command: FAKE_CLI, args: ['logout'], env: { FAKE_CLI_TOUCH: marker } } },
+  })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await runtime.logout()
+    assert.equal(existsSync(marker), true, 'the CLI ran')
+    // The agent was never asked, so it still opens sessions.
+    await runtime.createSession({ cwd: process.cwd() })
+  } finally {
+    await runtime.dispose()
+    rmSync(calls, { recursive: true, force: true })
   }
 })
 
@@ -875,21 +1192,65 @@ test('two sign-ins at once each end once, and cancelling one leaves the other', 
   )
 })
 
-test('a cancelled sign-in with a real child ends once, and the kill it causes adds nothing', async () => {
+/**
+ * Watches the sign-in child, and resolves `left`, with how it left, once it has gone and the adapter has had its turn
+ * with the exit.
+ *
+ * A flow that has ended reports nothing of the exit its kill causes, so there is no event to wait on, and a sleep
+ * passes having seen nothing whenever the exit comes later than it does. The wait is on the child. The adapter hears
+ * of the exit in a listener on the child's own events, and whatever it does then, promise reactions included, is
+ * finished before the loop goes on to another callback, so a `setImmediate` after the child's `close` (the last event
+ * a child emits) runs after all of it, however late the exit arrives. Nothing here is timed.
+ *
+ * A socket the child holds open, which closes when it dies, does not stand in for this. It says the process is gone,
+ * not that the adapter has been handed the exit, and the two arrive in either order: measured, the exit was still
+ * undelivered a turn after the socket had closed.
+ *
+ * `runtime.login()` does not hand out the child it spawns, so the one place to listen from is
+ * `ChildProcess.prototype.emit`. The wrapper calls through, answers only to the sign-in command, and is put back
+ * when the test ends. `seen()` says whether it has heard that child at all: a wrapper that matched nothing would leave
+ * `left` waiting on nothing, and the agent the test never got to dispose would keep the file's process alive to the
+ * job's timeout, so the test asks it right after `login()` and fails by name instead.
+ */
+type Left = { code: number | null; signal: NodeJS.Signals | null }
+
+const watchSignInChild = (t: TestContext): { left: Promise<Left>; seen: () => boolean } => {
+  let seen = false
+  const left = new Promise<Left>((resolve) => {
+    const emit = ChildProcess.prototype.emit as (this: ChildProcess, event: string | symbol, ...args: unknown[]) => boolean
+    t.mock.method(ChildProcess.prototype, 'emit', function (this: ChildProcess, event: string | symbol, ...args: unknown[]) {
+      const heard = emit.call(this, event, ...args)
+      if (this.spawnfile === FAKE_CLI && this.spawnargs[1] === 'login') {
+        seen = true
+        if (event === 'close') {
+          const [code, signal] = args as [number | null, NodeJS.Signals | null]
+          setImmediate(() => resolve({ code, signal }))
+        }
+      }
+      return heard
+    })
+  })
+  return { left, seen: () => seen }
+}
+
+test('a cancelled sign-in with a real child ends once, and the kill it causes adds nothing', async (t) => {
   // Round 10 of #134: cancel was tested on a child the test drives by hand, never on a process.
   const runtime = make({ FAKE_CLI_LOGIN: 'hang' })
   await runtime.start()
   const events: AgentEvent[] = []
   runtime.subscribe((event) => events.push(event))
+  const watch = watchSignInChild(t)
   try {
     const start = await runtime.login('cli-browser')
+    assert.ok(watch.seen(), 'the watcher heard the sign-in child, so the wait below can end')
     await runtime.cancelLogin(start.loginId)
-    /* Time for the SIGTERM's exit to arrive and be ignored. A best effort (review, round 15): a kill's exit carries
-       no code, so nothing is emitted to wait on instead, and where the exit comes later than this the test passes
-       without having seen the second completion it is here to catch. */
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    /* The exit the kill causes emits nothing on a healthy adapter, so what is waited on is the child going and the
+       adapter having heard it. A sleep in its place passes, having seen nothing, whenever the exit is later than the
+       sleep is long. */
+    const left = await watch.left
+    assert.equal(left.code, null, 'the cancel killed the child; it did not leave on its own')
     const ended = events.filter((event) => event.type === 'account/loginCompleted') as { error?: string }[]
-    assert.equal(ended.length, 1)
+    assert.equal(ended.length, 1, 'the flow ended once, by its cancel, and the exit the kill caused added nothing')
     assert.equal(ended[0]?.error, 'Sign-in was cancelled.')
   } finally {
     await runtime.dispose()

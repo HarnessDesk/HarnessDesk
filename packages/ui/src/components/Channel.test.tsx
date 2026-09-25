@@ -59,6 +59,7 @@ const ENVELOPE = wrapContext('Message from Codex — “API migration”', 'the 
 const state: TeamState = {
   id: 'room-1',
   name: 'Checkout rewrite',
+  updatedAt: 1,
   root: '/repo',
   members: [],
   messaging: true,
@@ -175,6 +176,32 @@ const button = (text: string): HTMLButtonElement => {
   if (!found) throw new Error(`no button labelled ${text}`)
   return found
 }
+
+/**
+ * A card a trigger's own run opens is the trigger's doing, unattended — the
+ * chat used to read "You added #1" for it, the misattribution this whole fix
+ * started from. `actorName`'s trigger branch had no test of its own.
+ */
+it('names the trigger, not the person at the keyboard, for a card its own run opened', async () => {
+  const { store } = rig({
+    channel: [
+      {
+        id: 'trigger-added',
+        at: 6,
+        kind: 'signal',
+        by: { kind: 'trigger', trigger: 'triage-issue' } as never,
+        signal: 'added',
+        intent: 3,
+        title: 'Do this work',
+        detail: null,
+      },
+    ],
+  })
+  await render(store)
+
+  expect(container.textContent).toContain('The trigger triage-issue added #3 — Do this work')
+  expect(container.textContent).not.toContain('You added')
+})
 
 it('a held message is one press from delivered', async () => {
   const { store } = rig()
@@ -604,13 +631,13 @@ it('draws you in the face the seat wears — the one you chose, or the house mar
   ] as unknown as TeamEntry[]
 
   await render(you({ name: 'Jane', avatar: 'astronaut' }), said)
-  const face = container.querySelector('[data-slot="avatar"]')
+  const face = container.querySelector('[data-channel="message"] [data-slot="icon-tile"]')
   expect(face?.querySelector('img')?.getAttribute('src')).toMatch(/\/astronaut\.png$/)
   // Still "You" in words: the face is decoration, and the header says who spoke.
   expect(container.textContent).toContain('You')
 
   await render(you({}), said)
-  const mark = container.querySelector('[data-slot="avatar"]')
+  const mark = container.querySelector('[data-channel="message"] [data-slot="icon-tile"]')
   expect(mark?.querySelector('img')).toBeNull()
   expect(mark?.querySelector('.brand-harnessdesk')).not.toBeNull()
 })
@@ -634,7 +661,7 @@ it('draws your face at the cost of anyone else’s row — no subscription of it
       reason: null,
     })) as unknown as TeamEntry[]
     await render(store, said)
-    if (from === 'user') expect(container.querySelectorAll('[data-slot="avatar"] img')).toHaveLength(3)
+    if (from === 'user') expect(container.querySelectorAll('[data-channel="message"] [data-slot="icon-tile"] img')).toHaveLength(3)
     act(() => root.unmount())
     root = createRoot(container)
     return subscribe.mock.calls.length

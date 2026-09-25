@@ -9,9 +9,34 @@ import {
   type KeyboardEvent,
 } from 'react'
 
-import { isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
+import { currentTurn, isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
 
-import { Btn, Dialog, Input } from '../design'
+import {
+  Attachment as AttachmentTile,
+  AttachmentMedia,
+  Button,
+  ComposerChip,
+  ComposerChips,
+  ComposerDropHint,
+  ComposerDock,
+  ComposerGap,
+  ComposerSend,
+  ComposerShell,
+  ComposerText,
+  ComposerTools,
+  Dialog,
+  IconTile,
+  Input,
+  Lightbox,
+  Popover,
+  PopoverGroupLabel,
+  PopoverOption,
+  PopoverOptionBody,
+  PopoverOptionHint,
+  PopoverOptionLabel,
+  PopoverOptionMark,
+  Text,
+} from '../design'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
 import { contributionsHere, scopeHere } from '../lib/contributions'
 import { opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
@@ -49,8 +74,6 @@ import {
 } from './Icons'
 import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
-import { Lightbox } from './Lightbox'
-import { Popover, popoverStyles } from './Popover'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import styles from './Composer.module.css'
 
@@ -200,8 +223,13 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const acceptsImages = runtime.capabilities.imageInput
   // Whether this agent can take a message into a turn already running. Only
   // some can; the ones that cannot say so by refusing, so the shortcut is
-  // offered by capability rather than tried and apologised for.
-  const canSteer = runtime.capabilities.steer
+  // offered by capability rather than tried and apologised for. A review is
+  // a turn nobody can add to — Codex refuses ("cannot steer a review turn"),
+  // and a refused steer has already emptied the box — so while one runs, a
+  // message waits for it like any other.
+  const reviewing =
+    busy && session !== null && (currentTurn(session)?.items.some((item) => item.type === 'review' && item.phase === 'entered') ?? false)
+  const canSteer = runtime.capabilities.steer && !reviewing
   const agentName = brandOf(runtime.name)
   const images = useMemo(() => attachments.filter((entry) => entry.kind === 'image'), [attachments])
   const addContext = useCallback((provider: (typeof chipProviders)[number], ref?: string) => {
@@ -902,20 +930,21 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         : undefined
 
   return (
-    <div className={styles.composer}>
+    <ComposerDock>
       <Slot name="composer.row" />
-      <div
-        className={`${styles.shell} ${styles.anchor}${dragging ? ` ${styles.dropping}` : ''}`}
+      <ComposerShell
+        className={`${styles.shell} ${styles.anchor}`}
+        {...(dragging ? { 'data-dropping': '' } : {})}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
         {dragging && (
-          <div className={styles.dropHint} aria-hidden>
+          <ComposerDropHint>
             <ImageIcon size={18} />
             {acceptsImages ? 'Drop images to attach' : `${agentName} does not accept images`}
-          </div>
+          </ComposerDropHint>
         )}
         {menuOpen && (
           <TriggerMenu
@@ -929,72 +958,72 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         )}
 
         {images.length > 0 && (
-          <div className={styles.tiles} role="list" aria-label="Attached images">
+          <ComposerChips className={styles.tiles} role="list" aria-label="Attached images">
             {images.map((image, index) => (
-              <div
+              <AttachmentTile
                 key={image.id}
                 role="listitem"
-                className={`${styles.tile}${acceptsImages ? '' : ` ${styles.tileRefused}`}`}
+                orientation="tile"
                 title={acceptsImages ? image.name : `${image.name} — ${agentName} does not accept images`}
               >
-                <button
+                <Button
                   type="button"
-                  className={styles.tileOpen}
+                  variant="ghost" size="fill"
+                  {...(!acceptsImages ? { 'data-refused': '' } : {})}
                   aria-label={`View ${image.name}`}
                   onClick={() => setPreview(index)}
                 >
-                  <img className={styles.thumb} src={image.path} alt={image.name} draggable={false} />
-                </button>
-                <button
+                  <AttachmentMedia variant="image">
+                    <img className={styles.thumb} src={image.path} alt={image.name} draggable={false} />
+                  </AttachmentMedia>
+                </Button>
+                <Button
                   type="button"
-                  className={styles.tileRemove}
+                  variant="destructive" size="icon-circle" data-overlay="" className={styles.tileRemove}
                   aria-label={`Remove ${image.name}`}
                   onClick={() => setAttachments((current) => current.filter((entry) => entry.id !== image.id))}
                 >
                   <CrossIcon size={11} />
-                </button>
+                </Button>
                 {!acceptsImages && (
-                  <span className={styles.tileBadge}>
+                  <IconTile tone="warning" size="xs" shape="round" className={styles.tileBadge}>
                     <AlertIcon size={11} />
-                  </span>
+                  </IconTile>
                 )}
-              </div>
+              </AttachmentTile>
             ))}
-          </div>
+          </ComposerChips>
         )}
 
         {(attachments.length > images.length || handoff) && (
-          <div className={styles.attachments}>
+          <ComposerChips>
             {handoff && (
-              <span
-                className={`${styles.chip} ${styles.chipHandoff}`}
+              <ComposerChip
                 title={`${CARRY_LABEL[handoff.carry]} of “${handoff.title}” will be sent first. Click to read the original — the hand-off waits for the next new conversation.`}
+                removeLabel="Remove the hand-off"
+                onRemove={() => store.clearDraftHandoff()}
               >
-                <button
+                <Button
                   type="button"
-                  className={styles.chipLink}
+                  variant="link" size="content" className={styles.chipLink}
                   onClick={() => void store.openSession(handoff.sessionId, { runtime: handoff.runtime })}
                 >
                   <HandoffIcon size={12} />
                   <span className={styles.chipText}>
                     From {brandOf(handoff.agentName)} — {handoff.title}
                   </span>
-                  <span className={styles.chipMeta}>{CARRY_LABEL[handoff.carry]}</span>
-                </button>
-                <button
-                  type="button"
-                  className={styles.chipRemove}
-                  aria-label="Remove the hand-off"
-                  onClick={() => store.clearDraftHandoff()}
-                >
-                  <CrossIcon size={10} />
-                </button>
-              </span>
+                  <Text role="meta">{CARRY_LABEL[handoff.carry]}</Text>
+                </Button>
+              </ComposerChip>
             )}
             {attachments.filter((entry) => entry.kind !== 'image').map((attachment) => (
-              <span
+              <ComposerChip
                 key={attachment.id}
-                className={styles.chip}
+                tone="brand"
+                removeLabel={`Remove ${attachment.name}`}
+                onRemove={() =>
+                  setAttachments((current) => current.filter((entry) => entry.id !== attachment.id))
+                }
                 title={
                   attachment.kind === 'context'
                     ? 'Resolved by its plugin when you send.'
@@ -1013,24 +1042,13 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                   <FileIcon size={12} />
                 )}
                 <span className={styles.chipText}>{attachment.name}</span>
-                <button
-                  type="button"
-                  className={styles.chipRemove}
-                  aria-label={`Remove ${attachment.name}`}
-                  onClick={() =>
-                    setAttachments((current) => current.filter((entry) => entry.id !== attachment.id))
-                  }
-                >
-                  <CrossIcon size={10} />
-                </button>
-              </span>
+              </ComposerChip>
             ))}
-          </div>
+          </ComposerChips>
         )}
 
-        <textarea
+        <ComposerText
           ref={textarea}
-          className={styles.input}
           value={text}
           rows={1}
           placeholder={placeholder}
@@ -1052,8 +1070,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           spellCheck
         />
 
-        <div className={styles.toolbar}>
-          <input
+        <ComposerTools>
+          <Input
             ref={filePicker}
             type="file"
             accept="image/png,image/jpeg,image/gif,image/webp"
@@ -1067,9 +1085,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           <Popover title="Add" drop="up" align="left" label={<PlusIcon size={14} />}>
             {(close) => (
               <>
-                <button
-                  type="button"
-                  className={popoverStyles.option}
+                <PopoverOption
                   disabled={!acceptsImages}
                   // The other ways in ride on hover: they are a shortcut for
                   // the row, not a thing to know before taking it. The refusal
@@ -1081,94 +1097,86 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                     close()
                   }}
                 >
-                  <span className={popoverStyles.optionIcon}>
+                  <PopoverOptionMark>
                     <ImageIcon size={13} />
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <span className={popoverStyles.optionLabel}>Attach images…</span>
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>Attach images…</PopoverOptionLabel>
                     {!acceptsImages && (
-                      <div className={popoverStyles.optionHint}>{agentName} does not accept images.</div>
+                      <PopoverOptionHint>{agentName} does not accept images.</PopoverOptionHint>
                     )}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className={popoverStyles.option}
+                  </PopoverOptionBody>
+                </PopoverOption>
+                <PopoverOption
                   onClick={() => {
                     onChange(text.length > 0 && !text.endsWith(' ') ? `${text} @` : `${text}@`)
                     textarea.current?.focus()
                     close()
                   }}
                 >
-                  <span className={popoverStyles.optionIcon}>
+                  <PopoverOptionMark>
                     <AtIcon size={13} />
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <span className={popoverStyles.optionLabel}>Add a file — @</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className={popoverStyles.option}
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>Add a file — @</PopoverOptionLabel>
+                  </PopoverOptionBody>
+                </PopoverOption>
+                <PopoverOption
                   onClick={() => {
                     onChange('/')
                     textarea.current?.focus()
                     close()
                   }}
                 >
-                  <span className={popoverStyles.optionIcon}>
+                  <PopoverOptionMark>
                     <SlashIcon size={13} />
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <span className={popoverStyles.optionLabel}>Slash commands — /</span>
-                  </span>
-                </button>
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>Slash commands — /</PopoverOptionLabel>
+                  </PopoverOptionBody>
+                </PopoverOption>
                 {chipProviders.length > 0 && (
                   <>
-                    <div className={popoverStyles.groupLabel}>Add context</div>
+                    <PopoverGroupLabel>Add context</PopoverGroupLabel>
                     {chipProviders.map((provider) => (
-                      <button
+                      <PopoverOption
                         key={provider.id}
-                        type="button"
-                        className={popoverStyles.option}
                         onClick={() => {
                           close()
                           if (provider.chip?.prompt) setRefPrompt(provider)
                           else addContext(provider)
                         }}
                       >
-                        <span className={popoverStyles.optionIcon}>
+                        <PopoverOptionMark>
                           <PaperclipIcon size={13} />
-                        </span>
-                        <span className={popoverStyles.optionBody}>
-                          <span className={popoverStyles.optionLabel}>
+                        </PopoverOptionMark>
+                        <PopoverOptionBody>
+                          <PopoverOptionLabel>
                             {provider.label}
                             {provider.chip?.prompt ? '…' : ''}
-                          </span>
+                          </PopoverOptionLabel>
                           {provider.chip?.description && (
-                            <div className={popoverStyles.optionHint}>{provider.chip.description}</div>
+                            <PopoverOptionHint>{provider.chip.description}</PopoverOptionHint>
                           )}
-                        </span>
-                      </button>
+                        </PopoverOptionBody>
+                      </PopoverOption>
                     ))}
-                    <div className={popoverStyles.groupLabel}>Project</div>
+                    <PopoverGroupLabel>Project</PopoverGroupLabel>
                   </>
                 )}
-                <button
-                  type="button"
-                  className={popoverStyles.option}
+                <PopoverOption
                   onClick={() => {
                     onChooseProject()
                     close()
                   }}
                 >
-                  <span className={popoverStyles.optionIcon}>
+                  <PopoverOptionMark>
                     <FolderOpenIcon size={13} />
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <span className={popoverStyles.optionLabel}>Change project folder…</span>
-                  </span>
-                </button>
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>Change project folder…</PopoverOptionLabel>
+                  </PopoverOptionBody>
+                </PopoverOption>
               </>
             )}
           </Popover>
@@ -1179,7 +1187,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           <PermissionControl />
           <ModeControl />
           <Slot name="composer.action" />
-          <span className={styles.spacer} />
+          <ComposerGap />
           <MoreControl />
           <ContextUsage />
           <ModelControl />
@@ -1195,9 +1203,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               Two saturated coins side by side read as two competing primary
               buttons, which is what this replaces. */}
           {(!busy || canSend) && (
-            <button
+            <ComposerSend
               type="button"
-              className={styles.send}
               data-when={!canSend ? 'nothing' : deferred ? 'later' : 'now'}
               disabled={!canSend}
               onClick={() => void submit()}
@@ -1205,21 +1212,20 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               {...(sendTitle ? { title: sendTitle } : {})}
             >
               <SendIcon size={15} />
-            </button>
+            </ComposerSend>
           )}
           {busy && (
-            <button
+            <ComposerSend
               type="button"
-              className={`${styles.send} ${styles.stop}`}
               onClick={() => void store.interrupt(key)}
               aria-label="Stop"
               title="Stop this turn"
             >
               <StopIcon size={12} />
-            </button>
+            </ComposerSend>
           )}
-        </div>
-      </div>
+        </ComposerTools>
+      </ComposerShell>
       {preview != null && images[preview] && (
         <Lightbox
           images={images.map((image) => ({ url: image.path, name: image.name }))}
@@ -1240,7 +1246,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           }}
         />
       )}
-    </div>
+    </ComposerDock>
   )
 }
 
@@ -1266,10 +1272,10 @@ const RefPrompt = ({
       onClose={onCancel}
       footer={
         <>
-          <Btn variant="primary" disabled={!value.trim()} onClick={() => onConfirm(value)}>
+          <Button variant="default" disabled={!value.trim()} onClick={() => onConfirm(value)}>
             Attach
-          </Btn>
-          <Btn onClick={onCancel}>Don&rsquo;t attach</Btn>
+          </Button>
+          <Button variant="secondary" onClick={onCancel}>Don&rsquo;t attach</Button>
         </>
       }
       footerAside="⏎ to attach"

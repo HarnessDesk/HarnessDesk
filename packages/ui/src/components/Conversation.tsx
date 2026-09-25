@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { allItems, currentTurn, isBusy, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
@@ -19,6 +19,7 @@ import { Slot } from '../slots/registry'
 import { Composer } from './Composer'
 import {
   BranchIcon,
+  BriefIcon,
   CheckIcon,
   CommitIcon,
   CompactIcon,
@@ -37,10 +38,31 @@ import {
   NewWorktreeIcon,
 } from './Icons'
 import { worktreeBranch } from '../lib/worktree-branch'
-import { Menu, MenuItem, MenuLabel, Submenu } from './Menu'
-import { Popover, popoverStyles } from './Popover'
-import { Badge } from '../design/ui/badge'
-import { STATUS_LABEL, paneStatus } from '../lib/pane-status'
+import {
+  Bar,
+  Button,
+  ConversationEmptyState,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  Popover,
+  PopoverGroupLabel,
+  PopoverOption,
+  PopoverOptionBody,
+  PopoverOptionHint,
+  PopoverOptionLabel,
+  PopoverOptionLive,
+  PopoverOptionMark,
+  Separator,
+  Spinner,
+  Submenu,
+  Text,
+  dotTone,
+  softTone,
+  type Tone,
+} from '../design'
+import { Badge } from '../design'
+import { STATUS_LABEL, paneStatus, type PaneStatus } from '../lib/pane-status'
 import { splitTurn } from '../lib/turn-view'
 import { ItemView } from './Items'
 import { BranchSwitcher } from './BranchSwitcher'
@@ -48,17 +70,65 @@ import { TurnFiles } from './TurnFiles'
 import { TurnWork } from './TurnWork'
 import { GoalBar, JobsBar } from './SessionBars'
 import { splitTasks, tasksChipLabel } from '../lib/tasks'
+import { ConversationMap } from './ConversationMap'
 import { MessageQueue } from './MessageQueue'
 import { RemoveWorktree } from './RemoveWorktree'
 import { BringHome } from './BringHome'
 import { FolderGone } from './FolderGone'
+import { FrontDoor } from './FrontDoor'
 import { SetupDesk } from './SetupDesk'
 import { TurnTail } from './TurnTail'
 import { describeLimits } from '../lib/limits'
 import { sessionLabel } from '../lib/sessions'
+import { ledBy } from '../lib/agents'
+import { useSeatAgent } from '../state/seat-agent'
 import { PlanMeters } from './PlanMeters'
 import { WindowControls } from './WindowControls'
+import { SaveAsAgentDialog } from './SaveAsAgent'
 import styles from './Conversation.module.css'
+
+/** Scroll padding: top clears the notice banner, sides set the reading column's
+ *  gutter (matching what the scrollbar-gutter reserves), bottom clears the
+ *  floating composer. Composed here because padding is in the appearance family. */
+const SCROLL_PADDING = 'calc(8px + var(--hd-notice-inset, 0px)) 24px calc(var(--composer-h, 150px) + 16px)'
+const BARS_PADDING = '0 calc(24px + var(--hd-scrollbar-width, 8px))'
+
+/** An empty-state title, in the page role at its own weight. */
+const EmptyTitle = ({ children }: { children: ReactNode }) => (
+  <Text as="div" role="page" weight="medium">
+    {children}
+  </Text>
+)
+/** An empty-state sentence, in the reading role. */
+const EmptyBody = ({ children }: { children: ReactNode }) => (
+  <Text as="p" role="prose" className="m-0 max-w-[460px]">
+    {children}
+  </Text>
+)
+
+/** The dot's own tone: brand while a turn is running, so the one moving mark
+    is the one that says so. */
+const STATUS_TONE: Record<PaneStatus, Tone> = {
+  running: 'brand',
+  waiting: 'warning',
+  failed: 'danger',
+  idle: 'neutral',
+}
+
+/**
+ * The pill's own ground — its own judgement, not the dot's.
+ *
+ * Running is the most common live state, so its pill stays the neutral tone
+ * idle already wears; only the dot inside it turns brand. A pill that also
+ * went brand while running left the header shouting through most of a turn,
+ * and named only "failed" as worth a colour of its own.
+ */
+const STATUS_PILL_TONE: Record<PaneStatus, Tone> = {
+  running: 'neutral',
+  waiting: 'warning',
+  failed: 'danger',
+  idle: 'neutral',
+}
 
 /**
  * The transcript.
@@ -70,13 +140,14 @@ import styles from './Conversation.module.css'
 
 const NEAR_BOTTOM_PX = 120
 
-const EmptyState = ({
+const ConversationEmpty = ({
   onSignIn,
-  onOpenAgents,
+  onOpenRuntimes,
 }: {
   onSignIn: (runtime?: RuntimeId) => void
-  onOpenAgents: () => void
+  onOpenRuntimes: () => void
 }) => {
+  const store = useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
   // This pane's agent's own health and account. The singular slots are the
@@ -90,20 +161,21 @@ const EmptyState = ({
      draft's sentence in the wrong pane. */
   const session = useActiveSession()
   const folder = session?.cwd ? (session.cwd.split('/').filter(Boolean).pop() ?? null) : null
+  const [startingTeam, setStartingTeam] = useState(false)
 
   if (health && health.state === 'unavailable') {
     // Not just this agent's bad news: the whole desk, surveyed, with the one
     // next move per agent. A dead agent's empty pane is exactly where the
     // user is standing when they need to know what else would work.
     return (
-      <div className={styles.empty}>
-        <div className={styles.emptyTitle}>{words.name} isn’t available</div>
-        <p className={styles.emptyBody}>
+      <ConversationEmptyState>
+        <EmptyTitle>{words.name} isn’t available</EmptyTitle>
+        <EmptyBody>
           {health.message}
           {health.remediation ? ` ${health.remediation}` : ''}
-        </p>
-        <SetupDesk onSignIn={onSignIn} onOpenAgents={onOpenAgents} />
-      </div>
+        </EmptyBody>
+        <SetupDesk onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
+      </ConversationEmptyState>
     )
   }
 
@@ -113,27 +185,27 @@ const EmptyState = ({
     const driveable = account.signInMethods.some((method) => method.flow !== 'external')
     const external = account.signInMethods.find((method) => method.flow === 'external')
     return (
-      <div className={styles.empty}>
-        <div className={styles.emptyTitle}>Sign in to {words.name}</div>
-        <p className={styles.emptyBody}>
+      <ConversationEmptyState>
+        <EmptyTitle>Sign in to {words.name}</EmptyTitle>
+        <EmptyBody>
           HarnessDesk uses your existing {words.name} installation and never stores your
           credentials.
-        </p>
+        </EmptyBody>
         {driveable ? (
           /* This pane's agent, by name: an empty member column on another
              agent must not open the default's sign-in. */
-          <button type="button" className={styles.emptyAction} onClick={() => onSignIn(runtime.id)}>
+          <Button type="button" variant="quiet" size="content" onClick={() => onSignIn(runtime.id)}>
             Sign in
-          </button>
+          </Button>
         ) : (
-          <p className={styles.emptyBody}>
+          <EmptyBody>
             {external?.description ??
               (words.signIn?.command
                 ? `Run ${words.signIn.command} in a terminal; this window updates on its own.`
                 : `Sign in to ${words.name}; this window updates on its own.`)}
-          </p>
+          </EmptyBody>
         )}
-      </div>
+      </ConversationEmptyState>
     )
   }
 
@@ -145,38 +217,60 @@ const EmptyState = ({
       : null
   if (blocked) {
     return (
-      <div className={styles.empty}>
-        <div className={styles.emptyTitle}>{blocked.title}</div>
-        <p className={styles.emptyBody}>
+      <ConversationEmptyState>
+        <EmptyTitle>{blocked.title}</EmptyTitle>
+        <EmptyBody>
           {words.name} is signed in and healthy. {blocked.detail}
-        </p>
-      </div>
+        </EmptyBody>
+      </ConversationEmptyState>
     )
   }
 
   return (
-    <div className={styles.empty}>
-      <div className={styles.emptyTitle}>What should we build?</div>
-      <p className={styles.emptyBody}>
+    <ConversationEmptyState>
+      <EmptyTitle>What should we build?</EmptyTitle>
+      <EmptyBody>
         {folder
           ? `Describe what you want done in ${folder}.`
           : 'Pick a project folder and describe what you want done.'}
         {words.historySource
           ? ` Sessions you start in ${words.historySource} appear in the sidebar too.`
           : ''}
-      </p>
+      </EmptyBody>
+      {/* This pane already knows its folder — the front door reads the same
+          root. With none chosen yet there is no catalogue to read, so the
+          text above stays the whole of the pitch; opening a folder is what
+          the composer, ⌘O and the palette already offer. */}
+      {session?.cwd && (
+        <EmptyBody>
+          <Button type="button" variant="link" size="content" onClick={() => setStartingTeam(true)}>
+            Start with a team…
+          </Button>{' '}
+          to choose a shape this project ships instead.
+        </EmptyBody>
+      )}
       {snapshot.runtimes.length === 1 && (
         /* The one-agent desk is the first-run desk. Said here rather than
            left for settings to reveal: the other agents on this machine can
            join without anyone hand-editing a file. */
-        <p className={styles.emptyBody}>
-          {words.name} is the only agent here.{' '}
-          <button type="button" className={styles.emptyLink} onClick={onOpenAgents}>
-            Add another agent…
-          </button>
-        </p>
+        <EmptyBody>
+          {words.name} is the only runtime here.{' '}
+          <Button type="button" variant="link" size="content" onClick={onOpenRuntimes}>
+            Add another runtime…
+          </Button>
+        </EmptyBody>
       )}
-    </div>
+      {startingTeam && session?.cwd && (
+        <FrontDoor
+          context={{ kind: 'project', root: session.cwd }}
+          onClose={() => setStartingTeam(false)}
+          onStarted={(execution) => {
+            store.openGoal(execution.goal)
+            setStartingTeam(false)
+          }}
+        />
+      )}
+    </ConversationEmptyState>
   )
 }
 
@@ -193,6 +287,7 @@ const ConversationMenu = () => {
   const session = useActiveSession()
   const capabilities = runtime.capabilities
   const [confirmUndo, setConfirmUndo] = useState(false)
+  const [saving, setSaving] = useState(false)
   if (!session) return null
   const memoryOn = session.memory === true
 
@@ -200,17 +295,16 @@ const ConversationMenu = () => {
   const several = snapshot.layout.root.kind === 'split'
 
   return (
-    <Popover
-      align="right"
-      title="Conversation"
-      label={<MoreIcon size={15} />}
-    >
-      {(close) => (
-        <>
+    <>
+      <Popover
+        align="right"
+        title="Conversation"
+        label={<MoreIcon size={15} />}
+      >
+        {(close) => (
+          <>
           {capabilities.memory && (
-            <button
-              type="button"
-              className={popoverStyles.option}
+            <PopoverOption
               role="menuitemcheckbox"
               aria-checked={memoryOn}
               onClick={() => {
@@ -218,48 +312,45 @@ const ConversationMenu = () => {
                 close()
               }}
             >
-              <span className={popoverStyles.optionCheck}>{memoryOn && <CheckIcon size={13} />}</span>
-              <span className={popoverStyles.optionBody}>
-                <span className={popoverStyles.optionLabel}>Remember this conversation</span>
-                <span className={popoverStyles.optionHint}>
+              <PopoverOptionMark checked>{memoryOn && <CheckIcon size={13} />}</PopoverOptionMark>
+              <PopoverOptionBody>
+                <PopoverOptionLabel>Remember this conversation</PopoverOptionLabel>
+                <PopoverOptionHint>
                   Let {runtime.presentation.name} carry what it learns here into new ones.
-                </span>
-              </span>
-            </button>
+                </PopoverOptionHint>
+              </PopoverOptionBody>
+            </PopoverOption>
           )}
           {capabilities.compaction && (
-            <button
-              type="button"
-              className={popoverStyles.option}
+            <PopoverOption
               onClick={() => {
                 void store.compact()
                 close()
               }}
             >
-              <span className={popoverStyles.optionIcon}>
+              <PopoverOptionMark>
                 <CompactIcon size={13} />
-              </span>
-              <span className={popoverStyles.optionBody}>
-                <span className={popoverStyles.optionLabel}>Compact now</span>
-                <span className={popoverStyles.optionHint}>Summarise older turns to free up context.</span>
-              </span>
-            </button>
+              </PopoverOptionMark>
+              <PopoverOptionBody>
+                <PopoverOptionLabel>Compact now</PopoverOptionLabel>
+                <PopoverOptionHint>Summarise older turns to free up context.</PopoverOptionHint>
+              </PopoverOptionBody>
+            </PopoverOption>
           )}
           {capabilities.undo &&
             (confirmUndo ? (
-              <div className={popoverStyles.option} style={{ cursor: 'default', display: 'block' }}>
-                <div className={popoverStyles.optionLabel}>Undo the last turn?</div>
-                <div className={popoverStyles.optionHint} style={{ margin: '2px 0 6px' }}>
+              <PopoverOption as="div" style={{ cursor: 'default', display: 'block' }}>
+                <PopoverOptionLabel>Undo the last turn?</PopoverOptionLabel>
+                <PopoverOptionHint className="my-0.5 mb-1.5">
                   Drops it from history. Files it changed on disk are <strong>not</strong> reverted.
-                </div>
+                </PopoverOptionHint>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button type="button" className={styles.headerButton} onClick={() => setConfirmUndo(false)}>
+                  <Button variant="secondary" size="sm" onClick={() => setConfirmUndo(false)}>
                     Keep
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.headerButton}
-                    data-active=""
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
                     onClick={() => {
                       void store.rollback(1)
                       setConfirmUndo(false)
@@ -267,25 +358,37 @@ const ConversationMenu = () => {
                     }}
                   >
                     Undo turn
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </PopoverOption>
             ) : (
-              <button
-                type="button"
-                className={popoverStyles.option}
+              <PopoverOption
                 onClick={() => setConfirmUndo(true)}
               >
-                <span className={popoverStyles.optionIcon}>
+                <PopoverOptionMark>
                   <UndoIcon size={13} />
-                </span>
-                <span className={popoverStyles.optionBody}>
-                  <span className={popoverStyles.optionLabel}>Undo the last turn</span>
-                  <span className={popoverStyles.optionHint}>History only — files are left as they are.</span>
-                </span>
-              </button>
+                </PopoverOptionMark>
+                <PopoverOptionBody>
+                  <PopoverOptionLabel>Undo the last turn</PopoverOptionLabel>
+                  <PopoverOptionHint>History only — files are left as they are.</PopoverOptionHint>
+                </PopoverOptionBody>
+              </PopoverOption>
             ))}
-          {/* Every view of this conversation, so the panel's own tab row is
+            <PopoverOption
+              onClick={() => {
+                setSaving(true)
+                close()
+              }}
+            >
+              <PopoverOptionMark>
+                <BriefIcon size={13} />
+              </PopoverOptionMark>
+              <PopoverOptionBody>
+                <PopoverOptionLabel>Save as an Agent…</PopoverOptionLabel>
+                <PopoverOptionHint>This seat, a brief and a ceiling, under a name to start again.</PopoverOptionHint>
+              </PopoverOptionBody>
+            </PopoverOption>
+            {/* Every view of this conversation, so the panel's own tab row is
               not the only way to reach one — it cannot be seen until the panel
               is open. Changes is the exception: it belongs to the workspace
               chip beside this menu, which carries the file count with it, and
@@ -295,7 +398,7 @@ const ConversationMenu = () => {
               view is one click away and one click back, so guessing wrong
               costs nothing, and three lines of prose under three names is
               what turned this group into a wall. */}
-          <div className={popoverStyles.groupLabel}>View</div>
+          <PopoverGroupLabel>View</PopoverGroupLabel>
           {summonable()
             /* Changes is the exception: it belongs to the workspace chip beside
                this menu, which carries the file count with it, and a second
@@ -305,10 +408,8 @@ const ConversationMenu = () => {
               const Glyph = definition.icon
               const open = shownView(snapshot.workbench, definition.kind)
               return (
-                <button
+                <PopoverOption
                   key={definition.kind}
-                  type="button"
-                  className={popoverStyles.option}
                   role="menuitemcheckbox"
                   aria-checked={open}
                   /* The description the comment above promises. It rode on a
@@ -322,49 +423,45 @@ const ConversationMenu = () => {
                     close()
                   }}
                 >
-                  <span className={open ? popoverStyles.optionCheck : popoverStyles.optionIcon}>
+                  <PopoverOptionMark checked={open}>
                     {open ? <CheckIcon size={13} /> : <Glyph size={13} />}
-                  </span>
-                  <span className={popoverStyles.optionBody}>
-                    <div className={popoverStyles.optionLabel}>
+                  </PopoverOptionMark>
+                  <PopoverOptionBody>
+                    <PopoverOptionLabel>
                       {definition.label}
                       {/* The view has something still going — a task in the
                           background. A dot on its door, so the menu says
                           there is something to look at before it is opened. */}
                       {definition.live?.(snapshot) === true && (
-                        <span
-                          className={popoverStyles.optionLive}
-                          role="img"
-                          aria-label="Something is still running"
-                          title="Something is still running"
-                        />
+                        <PopoverOptionLive />
                       )}
-                    </div>
-                  </span>
-                </button>
+                    </PopoverOptionLabel>
+                  </PopoverOptionBody>
+                </PopoverOption>
               )
             })}
           {pane && several && (
-            <button
-              type="button"
-              className={popoverStyles.option}
+            <PopoverOption
               onClick={() => {
                 store.closePane(pane.paneId)
                 close()
               }}
             >
-              <span className={popoverStyles.optionIcon}>
+              <PopoverOptionMark>
                 <CrossIcon size={13} />
-              </span>
-              <span className={popoverStyles.optionBody}>
-                <div className={popoverStyles.optionLabel}>Close this pane</div>
-                <div className={popoverStyles.optionHint}>⌘W. The conversation stays in the sidebar.</div>
-              </span>
-            </button>
+              </PopoverOptionMark>
+              <PopoverOptionBody>
+                <PopoverOptionLabel>Close this pane</PopoverOptionLabel>
+                <PopoverOptionHint>⌘W. The conversation stays in the sidebar.</PopoverOptionHint>
+              </PopoverOptionBody>
+            </PopoverOption>
           )}
-        </>
-      )}
-    </Popover>
+          </>
+        )}
+      </Popover>
+      {/* Outside the menu: the menu closes as the dialog opens. */}
+      {saving && <SaveAsAgentDialog session={session} onClose={() => setSaving(false)} />}
+    </>
   )
 }
 
@@ -388,9 +485,7 @@ const TasksChip = () => {
   const live = split.running.length > 0
   const open = shownView(snapshot.workbench, 'tasks')
   return (
-    <button
-      type="button"
-      className={`${styles.tasksChip} hd-no-drag`}
+    <Button variant="quiet" size="inline" className={`${styles.tasksChip} hd-no-drag`}
       data-testid="tasks-chip"
       {...(live ? { 'data-live': '' } : {})}
       aria-pressed={open}
@@ -403,9 +498,9 @@ const TasksChip = () => {
       }`}
       onClick={() => store.showView('tasks')}
     >
-      {live ? <span className={styles.tasksSpinner} aria-hidden="true" /> : <CheckIcon size={11} />}
+      {live ? <Spinner size="sm" tone="success" aria-hidden="true" /> : <CheckIcon size={11} />}
       <span className={styles.tasksLabel}>{tasksChipLabel(split)}</span>
-    </button>
+    </Button>
   )
 }
 
@@ -427,9 +522,9 @@ export const TerminalToggle = ({ folds = false }: { folds?: boolean } = {}) => {
   // runtime has answered reads the dock as empty and opens a second shell.
   const on = terminals(snapshot.workbench).length > 0 || opening
   return (
-    <button
-      type="button"
-      className={`${styles.headerButton} hd-no-drag`}
+    <span className={styles.headerButtonWrap} {...(folds ? { 'data-folds': '' } : {})}>
+      <Button
+      variant="ghost" size="icon-sm" className={`${styles.headerButton} hd-no-drag`}
       {...(folds ? { 'data-folds': '' } : {})}
       {...(on ? { 'data-active': '' } : {})}
       onClick={() => {
@@ -449,9 +544,10 @@ export const TerminalToggle = ({ folds = false }: { folds?: boolean } = {}) => {
           : 'Open a terminal beside this conversation, in its directory and under its permissions'
       }
       aria-label={on ? 'Close terminal' : 'Open terminal'}
-    >
+      >
       <TerminalIcon size={14} />
-    </button>
+      </Button>
+    </span>
   )
 }
 
@@ -459,12 +555,12 @@ export const Conversation = ({
   onChooseProject,
   onSignIn,
   onOpenUsage,
-  onOpenAgents,
+  onOpenRuntimes,
 }: {
   onChooseProject: () => void
   onSignIn: (runtime?: RuntimeId) => void
   onOpenUsage: (runtime: RuntimeId) => void
-  onOpenAgents: () => void
+  onOpenRuntimes: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -540,7 +636,7 @@ export const Conversation = ({
           itself, and that was wrong twice over — it indented this header when
           a tool pane was in the corner instead, and it left every other header
           in the app printing its title under the buttons. */}
-      <header className={`${styles.header} hd-drag`}>
+      <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.header} hd-drag`}>
         {/* The window's own controls, whenever the sidebar is not standing
             beside this header to carry them: put away, or floating over the
             conversation in a narrow window. Only the middle's own header takes
@@ -549,10 +645,14 @@ export const Conversation = ({
         {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
           <WindowControls />
         )}
-        <span className={styles.title}>{titleOf(session)}</span>
+        <HeaderTitle session={session} />        {session && <span className="hd-no-drag inline-flex flex-none"><HeaderCeiling session={session} /></span>}
         {session && (
-          <span className={`${styles.status} hd-no-drag`} data-status={status} title={STATUS_LABEL[status]}>
-            <span className={styles.statusDot} />
+          <span
+            className={`${styles.status} h-[22px] px-(--hd-space-2) rounded-(--hd-radius-md) text-base hd-no-drag ${softTone({ tone: STATUS_PILL_TONE[status] })}`}
+            data-status={status}
+            title={STATUS_LABEL[status]}
+          >
+            <span className={`${styles.statusDot} h-[7px] rounded-full ${dotTone({ tone: STATUS_TONE[status] })} ${status === 'running' ? 'animate-[hd-pulse_1.2s_ease-in-out_infinite]' : ''}`} />
             {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
           </span>
         )}
@@ -575,34 +675,38 @@ export const Conversation = ({
         {/* Everything to the left of this states a fact; everything to the
             right does something. Without the rule they ran together as one
             undifferentiated row of chrome. */}
-        {pane && <span className={styles.headerRule} />}
+        {pane && <span className={`${styles.headerRule} h-[18px] bg-(--hd-border-strong)`} />}
         {/* A door to a view folds into ⋯ › View at a phone's width — where
             there is a ⋯ to fold into. A draft has none, so its browser button
             stays: folded, it was a door closed with nothing in its place. */}
         {pane && (
-          <button
-            type="button"
-            className={`${styles.headerButton} hd-no-drag`}
+          <span className={styles.headerButtonWrap} {...(session ? { 'data-folds': '' } : {})}>
+            <Button
+            variant="ghost" size="icon-sm" className={`${styles.headerButton} hd-no-drag`}
             {...(session ? { 'data-folds': '' } : {})}
             onClick={() => store.openBrowser()}
             title="Open the browser beside this conversation — the page agents' browser tools drive"
             aria-label="Open browser"
           >
             <GlobeIcon size={14} />
-          </button>
+            </Button>
+          </span>
         )}
         {pane && session && <TerminalToggle folds />}
         {session && <ConversationMenu />}
-      </header>
+      </Bar>
 
       <div className={styles.body}>
+        {/* Beside the transcript, not in it: the rail is a picture of the
+            scroller and must not scroll with what it pictures. */}
+        {session && <ConversationMap turns={session.turns} scroll={scroll} />}
         {loading && items.length === 0 ? (
-          <div className={styles.loading}>
-            <span className={styles.loadingSpinner} />
-            Loading transcript…
+          <div className={`${styles.loading} p-10`}>
+            <Spinner size="sm" tone="brand" />
+            <Text role="prose" ink="muted">Loading transcript…</Text>
           </div>
         ) : session && items.length > 0 ? (
-          <div className={styles.scroll} ref={scroll} onScroll={onScroll}>
+          <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,
@@ -611,15 +715,27 @@ export const Conversation = ({
               const streamingId =
                 busy && turn.id === live?.id ? (turn.items[turn.items.length - 1]?.id ?? null) : null
               return (
-                <div key={turn.id}>
-                  {turnIndex > 0 && <div className={styles.turnDivider} />}
-                  {view.prompt.map((item) => (
-                    <ItemView key={item.id} item={item} root={session.cwd} sentAt={turn.startedAt ?? undefined} />
-                  ))}
+                <div key={turn.id} data-turn={turn.id}>
+                  {turnIndex > 0 && <Separator className={styles.turnDivider} />}
+                  {/* The two halves are marked separately because the rail on the
+                      left has a dash for each, and a dash that previews the answer
+                      has to land on the answer rather than on the top of the turn
+                      that contains it. */}
+                  {view.prompt.length > 0 && (
+                    <div data-turn={turn.id} data-part="prompt">
+                      {view.prompt.map((item) => (
+                        <ItemView key={item.id} item={item} root={session.cwd} sentAt={turn.startedAt ?? undefined} />
+                      ))}
+                    </div>
+                  )}
                   <TurnWork turn={turn} work={view.work} root={session.cwd} streamingItemId={streamingId} />
-                  {view.answer.map((item) => (
-                    <ItemView key={item.id} item={item} root={session.cwd} streaming={streamingId === item.id} />
-                  ))}
+                  {view.answer.length > 0 && (
+                    <div data-turn={turn.id} data-part="answer">
+                      {view.answer.map((item) => (
+                        <ItemView key={item.id} item={item} root={session.cwd} streaming={streamingId === item.id} />
+                      ))}
+                    </div>
+                  )}
                   {view.trailing.map((item) => (
                     <ItemView key={item.id} item={item} root={session.cwd} />
                   ))}
@@ -628,7 +744,6 @@ export const Conversation = ({
                     <TurnTail
                       turn={turn}
                       session={session}
-                      hideFiles={view.changes.length > 0}
                       answer={view.answer
                         .map((item) => (item.type === 'assistantMessage' ? item.text : ''))
                         .join('\n\n')}
@@ -650,30 +765,37 @@ export const Conversation = ({
           // there were none. Nothing failed — nothing has happened yet — so
           // the pitch below is the honest answer, and `updatedAt` moving past
           // `createdAt` is what separates the two.
-          <div className={styles.scroll} ref={scroll} onScroll={onScroll}>
-            <div className={styles.empty}>
-              <div className={styles.emptyTitle}>Nothing to show</div>
-              <p className={styles.emptyBody}>
+          <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
+            <ConversationEmptyState>
+              <EmptyTitle>Nothing to show</EmptyTitle>
+              <EmptyBody>
                 {snapshot.runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The agent'}{' '}
                 couldn’t restore this conversation’s messages. Sending a message continues the
                 same session.
-              </p>
-            </div>
+              </EmptyBody>
+            </ConversationEmptyState>
           </div>
         ) : (
-          <div className={styles.scroll} ref={scroll} onScroll={onScroll}>
-            <EmptyState onSignIn={onSignIn} onOpenAgents={onOpenAgents} />
+          <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
+            <ConversationEmpty onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
           </div>
         )}
 
         {!pinned && items.length > 0 && (
-          <button type="button" className={styles.jumpButton} onClick={jumpToBottom}>
-            Jump to latest
-          </button>
+          <span className={styles.jumpButton}>
+            <Button
+              type="button"
+              variant="floating"
+              size="sm"
+              onClick={jumpToBottom}
+            >
+              Jump to latest
+            </Button>
+          </span>
         )}
       </div>
 
-      <div className={styles.dockArea} ref={dockArea}>
+      <div className={`${styles.dockArea} pt-(--hd-space-4) bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]`} ref={dockArea}>
         {/* Stacked by lifetime, shortest first: the jobs strip goes when this
             turn does, the queue happens after it. That order puts the thing
             you can act on nearest the composer and the transcript's own
@@ -681,7 +803,7 @@ export const Conversation = ({
             outlives the turn — are not a strip any more: they have a panel,
             summoned from the ⋯ menu, and the header wears a chip while any
             are listed. */}
-        <div className={styles.bars}>
+        <div className={styles.bars} style={{ padding: BARS_PADDING }}>
           <JobsBar />
           <GoalBar />
           <MessageQueue />
@@ -726,6 +848,9 @@ export const GitControl = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
+  // This control's own conversation — a room column's member, not whichever
+  // one the window has focused — so a review is of the changes it names.
+  const key = useSessionKey()
   const runtime = useRuntime()
   // A draft pointed at a worktree will start there, and one armed with a new
   // worktree will start in the one it cuts — so that is where this says it
@@ -814,7 +939,7 @@ export const GitControl = ({
             <FolderIcon size={13} />
           )}
           <span className={styles.gitWords}>
-            <span className={styles.gitLabel}>{branch ?? folder}</span>
+            <Text as="span" role="navigation" className={styles.gitLabel}>{branch ?? folder}</Text>
             {linked && (
               <Badge variant="secondary" className={styles.gitBadge}>
                 worktree
@@ -879,12 +1004,12 @@ export const GitControl = ({
               onSelect={onRemoveWorktree}
             />
           )}
-          {session && runtime.capabilities.review && (
+          {session && key && runtime.capabilities.review && (
             <MenuItem
               icon={<ReviewIcon size={16} />}
               label="Review uncommitted changes"
               title="On a side thread, leaving this one as it is."
-              onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' })}
+              onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' }, key)}
             />
           )}
           {session && (
@@ -908,6 +1033,17 @@ export const GitControl = ({
   )
 }
 
+import { CeilingChip } from './CeilingChip'
+import { seatCeilingOf } from '../lib/ceilings'
+
+/** The ceiling governing this conversation, or nothing on the plain path. */
+const HeaderCeiling = ({ session }: { readonly session: Session }) => {
+  const snapshot = useSnapshot()
+  const runs = useMemo(() => [...snapshot.flowRuns.values()].flat(), [snapshot.flowRuns])
+  const shown = seatCeilingOf(session.settings, runs, String(session.runtime), String(session.id))
+  return shown ? <CeilingChip ceiling={shown.ceiling} note={shown.note} /> : null
+}
+
 /**
  * What the header calls the conversation. A fresh session has no stored
  * preview until the list is re-read, so the first thing the user wrote stands
@@ -929,4 +1065,10 @@ const titleOf = (session: Session | null): string => {
   const label = sessionLabel(session.title, session.preview ?? spoken, 'New session')
   // A first message is a paragraph; a title is a line.
   return label.length > 72 ? `${label.slice(0, 71).trimEnd()}…` : label
+}
+
+/** The header's title: the conversation's own, led by the Agent it was seated as. */
+const HeaderTitle = ({ session }: { readonly session: Session | null }) => {
+  const seated = useSeatAgent(session)
+  return <Text as="span" role="subject" className={styles.title}>{ledBy(seated?.name ?? null, titleOf(session))}</Text>
 }

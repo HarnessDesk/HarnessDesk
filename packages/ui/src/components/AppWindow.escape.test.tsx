@@ -7,7 +7,7 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Popover, useEscapeSurface } from './Popover'
+import { Menu, MenuItem, Popover, useEscapeSurface } from '../design'
 import { Settings } from './Settings'
 import { Usage } from './Usage'
 
@@ -105,7 +105,7 @@ const escape = async (): Promise<boolean> => {
   return event.defaultPrevented
 }
 
-const menu = (): HTMLElement | null => document.querySelector('[role="menu"]')
+const menu = (): HTMLElement | null => document.querySelector('[data-slot="popover-popup"]')
 const window_ = (label: string): HTMLElement | null =>
   document.querySelector(`[role="dialog"][aria-label="${label}"]`)
 
@@ -149,6 +149,34 @@ const mount = async (which: 'Settings' | 'Dashboard'): Promise<() => boolean> =>
 }
 
 for (const which of ['Settings', 'Dashboard'] as const) {
+  it(`${which} returns to the menu trigger after opening from a menu action`, async () => {
+    const Harness = () => {
+      const [open, setOpen] = useState(false)
+      return <>
+        <Popover label="Account">{close => <Menu close={close}>
+          <MenuItem label={`Open ${which}`} onSelect={() => setOpen(true)} />
+        </Menu>}</Popover>
+        {open && (which === 'Settings'
+          ? <Settings section="appearance" onSection={() => {}} onClose={() => setOpen(false)} onSignIn={() => {}} />
+          : <Usage onClose={() => setOpen(false)} onSignIn={() => {}} />)}
+      </>
+    }
+    const frame = () => act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
+    await act(async () => root.render(<StoreProvider store={makeStore()}><Harness /></StoreProvider>))
+    const trigger = container.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')!
+    trigger.focus()
+    await act(async () => trigger.click())
+    const action = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!
+    action.focus()
+    await act(async () => action.click())
+    await frame()
+    expect(document.activeElement).toBe(window_(which))
+    await escape()
+    await frame()
+    expect(window_(which)).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+  })
+
   it(`${which} stays for an Escape the menu open inside it spent (#206)`, async () => {
     const up = await mount(which)
     // The controls, both true before this was fixed: the window is up, and the
@@ -156,7 +184,7 @@ for (const which of ['Settings', 'Dashboard'] as const) {
     // well on a menu that never rendered.
     expect(window_(which)).not.toBeNull()
     expect(up()).toBe(true)
-    act(() => container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.click())
+    act(() => container.querySelector<HTMLButtonElement>('button[title="Range"]')!.click())
     expect(menu()).not.toBeNull()
 
     // One press: the menu goes, the window stays. This is what closed both.

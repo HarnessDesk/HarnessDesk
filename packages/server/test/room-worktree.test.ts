@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import type { Page, SessionSummary, TeamState } from '@harnessdesk/protocol'
+import type { GoalView, Page, SessionSummary, TeamState } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore, serve } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -39,6 +39,14 @@ const git = async (cwd: string, ...args: string[]): Promise<string> =>
   (await run('git', ['-C', cwd, ...args], { env })).stdout
 
 const silent = new Logger('test', { level: 'error', console: false })
+
+const createGoal = (client: Client, root: string, sentence: string): Promise<GoalView> =>
+  client.call('goal/create', { root, sentence }) as Promise<GoalView>
+
+const assign = async (client: Client, goal: string, runtime: string, sessionId: string): Promise<void> => {
+  const card = await client.call('team/add', { room: goal, title: 'Join the Goal' }) as { id: number }
+  await client.call('goal/assign', { goal, card: card.id, session: { runtime, sessionId } })
+}
 
 /** A repository with one commit, and a linked worktree hanging off it. */
 const repoWithWorktree = async (): Promise<{ main: string; tree: string; clean(): Promise<void> }> => {
@@ -98,7 +106,7 @@ test('a stopped conversation cannot join a room in another project', async () =>
   try {
     await client.call('workspace/open', { path: a })
     await client.call('workspace/open', { path: b })
-    const room = (await client.call('team/room/create', { root: a, name: 'Project A' })) as TeamState
+    const room = await createGoal(client, a, 'Project A')
 
     // A conversation in the *other* project, then stopped.
     const away = (await client.call('session/create', {
@@ -108,12 +116,12 @@ test('a stopped conversation cannot join a room in another project', async () =>
     await client.call('session/close', { runtime: 'fake', sessionId: away.id })
 
     await assert.rejects(
-      () => client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: away.id }),
-      /outside/,
+      () => assign(client, room.goal.id, 'fake', away.id),
+      /Choose a conversation from this project that its runtime can still open/,
     )
 
     const rooms = (await client.call('team/rooms', { root: a })) as readonly TeamState[]
-    assert.deepEqual(rooms.find((one) => one.id === room.id)?.members, [])
+    assert.deepEqual(rooms.find((one) => one.id === room.goal.id)?.members, [])
   } finally {
     client.close()
     await server.close()
@@ -140,23 +148,16 @@ test('a join that names no conversation is refused, not written down', async () 
 
   try {
     await client.call('workspace/open', { path: dir })
-    const room = (await client.call('team/room/create', {
-      root: dir,
-      name: 'Refund flow',
-    })) as TeamState
+    const room = await createGoal(client, dir, 'Refund flow')
 
     await assert.rejects(
       () =>
-        client.call('team/room/join', {
-          room: room.id,
-          runtime: 'fake',
-          sessionId: 'never-existed',
-        }),
-      /no fake conversation never-existed/,
+        assign(client, room.goal.id, 'fake', 'never-existed'),
+      /Choose a conversation from this project that its runtime can still open/,
     )
 
     const rooms = (await client.call('team/rooms', { root: dir })) as readonly TeamState[]
-    assert.deepEqual(rooms.find((one) => one.id === room.id)?.members, [])
+    assert.deepEqual(rooms.find((one) => one.id === room.goal.id)?.members, [])
   } finally {
     client.close()
     await server.close()
@@ -187,22 +188,19 @@ test('a conversation in an opened worktree joins its project’s room', async ()
     await client.call('workspace/open', { path: tree })
 
     // A room made from the worktree still belongs to the project.
-    const room = (await client.call('team/room/create', {
-      root: tree,
-      name: 'Checkout rewrite',
-    })) as TeamState
-    assert.equal(room.root, main, 'the room is keyed by the project, not the worktree')
-    assert.equal(room.cwd, tree, 'the room remembers the chosen worktree folder for seats')
+    const room = await createGoal(client, tree, 'Checkout rewrite')
+    assert.equal(room.goal.root, main, 'the Goal is keyed by the project, not the worktree')
+    assert.equal(room.goal.cwd, tree, 'the Goal remembers the chosen worktree folder for seats')
 
     // And a conversation working *in the worktree* can join it.
     const started = (await client.call('session/create', {
       runtime: 'fake',
       options: { cwd: tree },
     })) as { id: string }
-    await client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: started.id })
+    await assign(client, room.goal.id, 'fake', started.id)
 
     const rooms = (await client.call('team/rooms', { root: main })) as readonly TeamState[]
-    const back = rooms.find((one) => one.id === room.id)
+    const back = rooms.find((one) => one.id === room.goal.id)
     assert.equal(back?.members.length, 1, `the worktree conversation is in the room: ${JSON.stringify(back?.members)}`)
   } finally {
     client.close()
@@ -259,11 +257,8 @@ test('a room in a submodule is keyed by the submodule, not the superproject', as
     // The superproject is the folder somebody opened — the half that made the
     // old fallback answer with it.
     await client.call('workspace/open', { path: superproject })
-    const room = (await client.call('team/room/create', {
-      root: sub,
-      name: 'Library work',
-    })) as TeamState
-    assert.equal(room.root, sub, 'the room is keyed by the submodule it was made in')
+    const room = await createGoal(client, sub, 'Library work')
+    assert.equal(room.goal.root, sub, 'the Goal is keyed by the submodule it was made in')
 
     // And it is the same string the session list groups that folder under.
     // `session/list` fills `repo` from `repositoryOf`, which is what the tree
@@ -285,12 +280,12 @@ test('a room in a submodule is keyed by the submodule, not the superproject', as
     const page = (await client.call('session/list', { runtime: 'fake' })) as Page<SessionSummary>
     assert.equal(
       page.data.find((one) => String(one.id) === started.id)?.repo?.root,
-      room.root,
-      'the room and its own conversation name the project the same way',
+      room.goal.root,
+      'the Goal and its own conversation name the project the same way',
     )
-    await client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: started.id })
+    await assign(client, room.goal.id, 'fake', started.id)
     const rooms = (await client.call('team/rooms', { root: sub })) as readonly TeamState[]
-    assert.equal(rooms.find((one) => one.id === room.id)?.members.length, 1)
+    assert.equal(rooms.find((one) => one.id === room.goal.id)?.members.length, 1)
   } finally {
     client.close()
     await server.close()
@@ -332,19 +327,16 @@ test('a room in a repository under an open parent folder is keyed by the reposit
   try {
     // The parent is open; the repository itself is not.
     await client.call('workspace/open', { path: dir })
-    const room = (await client.call('team/room/create', {
-      root: repo,
-      name: 'API',
-    })) as TeamState
-    assert.equal(room.root, repo, 'the repository is the project, not the folder above it')
+    const room = await createGoal(client, repo, 'API')
+    assert.equal(room.goal.root, repo, 'the repository is the project, not the folder above it')
 
     const started = (await client.call('session/create', {
       runtime: 'fake',
       options: { cwd: repo },
     })) as { id: string }
-    await client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: started.id })
+    await assign(client, room.goal.id, 'fake', started.id)
     const rooms = (await client.call('team/rooms', { root: repo })) as readonly TeamState[]
-    assert.equal(rooms.find((one) => one.id === room.id)?.members.length, 1)
+    assert.equal(rooms.find((one) => one.id === room.goal.id)?.members.length, 1)
   } finally {
     client.close()
     await server.close()
@@ -393,12 +385,16 @@ test('a room made through a symlinked path is keyed the same way its sessions ar
 
   try {
     // Opened, and the room made, through the link — the path a person's
-    // shortcut or scratch directory actually hands over.
+    // shortcut or scratch directory actually hands over. `workspace/open`'s
+    // own answer (the workspace keeps the raw spelling, its `repo.root`
+    // reads the real path) is a fact about the host that has not changed
+    // here — the renderer's project grouping is what reads it, and
+    // `packages/ui/src/lib/projects.test.ts` is where that reading is
+    // pinned and provably fails without its own fix (#905's review: an
+    // assertion repeated here proved nothing, since nothing on this side of
+    // the wire moved).
     await client.call('workspace/open', { path: alias })
-    const room = (await client.call('team/room/create', {
-      root: alias,
-      name: 'Through the link',
-    })) as TeamState
+    const room = await createGoal(client, alias, 'Through the link')
     const started = (await client.call('session/create', {
       runtime: 'fake',
       options: { cwd: alias },
@@ -414,11 +410,11 @@ test('a room made through a symlinked path is keyed the same way its sessions ar
     } as unknown as SessionSummary)
     const page = (await client.call('session/list', { runtime: 'fake' })) as Page<SessionSummary>
     const seen = page.data.find((one) => String(one.id) === started.id)?.repo?.root
-    assert.equal(room.root, seen, 'the room and its conversation name the project the same way')
-    assert.equal(room.root, repo, 'and both name the folder git names')
-    await client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: started.id })
+    assert.equal(room.goal.root, seen, 'the Goal and its conversation name the project the same way')
+    assert.equal(room.goal.root, repo, 'and both name the folder git names')
+    await assign(client, room.goal.id, 'fake', started.id)
     const rooms = (await client.call('team/rooms', { root: repo })) as readonly TeamState[]
-    assert.equal(rooms.find((one) => one.id === room.id)?.members.length, 1)
+    assert.equal(rooms.find((one) => one.id === room.goal.id)?.members.length, 1)
   } finally {
     client.close()
     await server.close()
@@ -468,10 +464,7 @@ test('a room made in an opened subfolder is keyed by the checkout, as its sessio
   try {
     // Only the subfolder is open — the checkout above it is not.
     await client.call('workspace/open', { path: inner })
-    const room = (await client.call('team/room/create', {
-      root: inner,
-      name: 'Renderer',
-    })) as TeamState
+    const room = await createGoal(client, inner, 'Renderer')
     const started = (await client.call('session/create', {
       runtime: 'fake',
       options: { cwd: inner },
@@ -487,11 +480,11 @@ test('a room made in an opened subfolder is keyed by the checkout, as its sessio
     } as unknown as SessionSummary)
     const page = (await client.call('session/list', { runtime: 'fake' })) as Page<SessionSummary>
     const seen = page.data.find((one) => String(one.id) === started.id)?.repo?.root
-    assert.equal(room.root, seen, 'the room and its conversation name the project the same way')
-    assert.equal(room.root, repo, 'and both name the checkout, not the folder that was opened')
-    await client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: started.id })
+    assert.equal(room.goal.root, seen, 'the Goal and its conversation name the project the same way')
+    assert.equal(room.goal.root, repo, 'and both name the checkout, not the folder that was opened')
+    await assign(client, room.goal.id, 'fake', started.id)
     const rooms = (await client.call('team/rooms', { root: repo })) as readonly TeamState[]
-    assert.equal(rooms.find((one) => one.id === room.id)?.members.length, 1)
+    assert.equal(rooms.find((one) => one.id === room.goal.id)?.members.length, 1)
   } finally {
     client.close()
     await server.close()

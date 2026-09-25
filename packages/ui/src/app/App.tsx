@@ -1,21 +1,29 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
-import { desktop, isDesktop, onOpenSession, onShortcut, setTraySummary, setWindowTitle } from '../lib/desktop'
+import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySummary, setWindowTitle } from '../lib/desktop'
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { describeTray } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { ImportOffer } from '../components/ImportOffer'
-import { Toaster } from '../design/ui'
+import { GoalMigrationBanner } from '../components/GoalMigrationBanner'
+import { Toaster } from '../design'
 import { Notices, StatusBanner } from '../components/Notices'
 import { ChangesReview } from '../components/ChangesReview'
 import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
+import { FrontDoor } from '../components/FrontDoor'
 import { resolveSection, Settings, type Section } from '../components/Settings'
 import { NewWorktree } from '../components/NewWorktree'
+import { SeatSheet } from '../components/SeatSheet'
+import { RaceStart } from '../components/RaceStart'
+import { projectRootOf } from '../lib/projects'
+import { NOTICE_BAR_SELECTOR, noticePlacement } from '../lib/notice-bounds'
+import { AgentsWindow } from '../components/AgentsWindow'
+import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
 import { SignIn } from '../components/SignIn'
 import { Usage } from '../components/Usage'
@@ -41,6 +49,31 @@ export const App = () => {
   // request naming the page this one already held could not move the window,
   // because nothing here changed and so neither did the prop.
   const [settingsOpen, setSettingsOpen] = useState<false | Section>(false)
+  // The thing the page was opened on. Keep it with the route until a person
+  // chooses another Settings page or closes the window: clearing it in an
+  // effect made the one-shot race the store request that opened the window,
+  // and Strict Mode could mount Workspaces only after the project was gone.
+  const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
+  const openSettingsAt = useCallback((section: Section, focus: string | null) => {
+    setSettingsOpen(section)
+    setSettingsFocus(focus)
+  }, [])
+  /**
+   * The Agents window (Task 13's owner decision: the roster lives in the left
+   * menu, never in Settings) — `false`, or open on the Agent named by `focus`
+   * (`null` for the overview). Set here because the refusal sheet's *Edit
+   * seats for this Mac* and the palette's *Open <Agent>* both need a door to
+   * it before the window itself exists; Task 13 reads this state and draws it.
+   */
+  const [agentsOpen, setAgentsOpen] = useState<false | { focus: string | null }>(false)
+  const openAgents = useCallback((focus?: string) => {
+    // Top-level destinations replace one another. In particular, a project
+    // Agent row lives inside Settings but opens the app's one Agents window;
+    // leaving Settings underneath made Back return to the page it had left.
+    setSettingsOpen(false)
+    setSettingsFocus(null)
+    setAgentsOpen({ focus: focus ?? null })
+  }, [])
   // One-shot: the import banner routes here, and the Library opens with the
   // import flow already up. Cleared when Settings closes, like any dialog.
   const [libraryImport, setLibraryImport] = useState(false)
@@ -52,6 +85,12 @@ export const App = () => {
     if (libraryImport) setLibraryImport(false)
   }, [libraryImport])
   const [foldersOpen, setFoldersOpen] = useState(false)
+  // The front door, opened on one project at a time — from the palette today,
+  // and from any other place-scoped entry point that hands over its own
+  // resolved `root` rather than opening a chooser of its own. `null` is
+  // closed; this is the one instance the app renders for it.
+  const [frontDoorRoot, setFrontDoorRoot] = useState<string | null>(null)
+  const openFrontDoor = useCallback((root: string) => setFrontDoorRoot(root), [])
   // `true` opens the sign-in page where it thinks best; a runtime id pins it.
   const [signInOpen, setSignInOpen] = useState<boolean | RuntimeId>(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -68,7 +107,6 @@ export const App = () => {
   // The resolved face, for anything that needs telling rather than styling —
   // Sonner paints its own surface and takes the theme as a value.
   const theme = useTheme()
-
   // One way to choose a folder per build: the desktop app uses the system
   // dialog, as Claude Code and Codex do; the browser build, which has none,
   // gets the in-app picker. The picker is also the fallback should the
@@ -108,7 +146,7 @@ export const App = () => {
           store.setDetailsTab('changes')
           return
         case 'settings':
-          setSettingsOpen('agents')
+          openSettingsAt('runtimes', null)
           return
         case 'sign-in':
           setSignInOpen((subject as RuntimeId | undefined) ?? true)
@@ -126,7 +164,7 @@ export const App = () => {
           return
       }
     },
-    [store, snapshot.layout.focused],
+    [store, snapshot.layout.focused, openSettingsAt],
   )
 
   useEffect(() => onShortcut(run), [run])
@@ -136,9 +174,24 @@ export const App = () => {
   // closing the window does not reopen it.
   useEffect(() => {
     if (!snapshot.settingsFor) return
-    setSettingsOpen(resolveSection(snapshot.settingsFor))
+    openSettingsAt(resolveSection(snapshot.settingsFor), snapshot.settingsFocus)
     store.askSettings(null)
-  }, [snapshot.settingsFor, store])
+  }, [snapshot.settingsFor, snapshot.settingsFocus, store, openSettingsAt])
+
+  // A fix asked for from anywhere — the refusal sheet, an Agent's page, a
+  // name card — goes where it is fixed, from here, where the sign-in, the
+  // usage window and Settings live (and, once Task 13 lands, the Agents
+  // window).
+  useEffect(() => {
+    const asked = snapshot.seatFix
+    if (!asked) return
+    store.askSeatFix(null)
+    const route = routeFor(asked.fix, asked.agent)
+    if (route.kind === 'signIn') setSignInOpen(route.runtime)
+    else if (route.kind === 'usage') setUsageOpen(route.runtime)
+    else if (route.kind === 'agent') openAgents(route.agent)
+    else openSettingsAt(route.section, route.focus)
+  }, [snapshot.seatFix, store, openSettingsAt, openAgents])
 
   // A clicked macOS notification lands on the conversation it was about.
   useEffect(
@@ -150,6 +203,7 @@ export const App = () => {
       ),
     [store],
   )
+  useEffect(() => onOpenGoal(({ goal }) => store.openGoal(goal)), [store])
 
   /**
    * The menu bar's status item.
@@ -167,6 +221,7 @@ export const App = () => {
           runtimes: snapshot.runtimes,
           usage: snapshot.usage,
           accountsByRuntime: snapshot.accountsByRuntime,
+          accountPrefs: snapshot.accountPrefs,
           health: snapshot.health,
           activeRuntime: snapshot.activeRuntime,
           now: Date.now(),
@@ -181,6 +236,7 @@ export const App = () => {
     snapshot.runtimes,
     snapshot.usage,
     snapshot.accountsByRuntime,
+    snapshot.accountPrefs,
     snapshot.health,
     snapshot.activeRuntime,
   ])
@@ -197,9 +253,13 @@ export const App = () => {
   // `<webview>` nobody is looking at stops painting, and screenshots blank.
   useEffect(() => {
     const bridge = desktop()
-    const offShow = bridge?.onBrowserShow?.(({ url }) => store.openBrowser(url === 'about:blank' ? undefined : url)) ?? (() => {})
-    const offClose = bridge?.onBrowserClose?.(() => store.closeBrowser()) ?? (() => {})
-    const offFocus = bridge?.onBrowserFocus?.(() => store.focusDrivenBrowserTab()) ?? (() => {})
+    const offShow = bridge?.onBrowserShow?.(({ url, profile }) =>
+      store.openBrowser(url === 'about:blank' ? undefined : url, { profile })) ?? (() => {})
+    const offClose = bridge?.onBrowserClose?.(({ profile }) => store.closeBrowser(profile)) ?? (() => {})
+    const offFocus = bridge?.onBrowserFocus?.(({ profile, request }) => {
+      store.focusDrivenBrowserTab(profile)
+      requestAnimationFrame(() => requestAnimationFrame(() => bridge.browserFocused?.(request)))
+    }) ?? (() => {})
     // A download a page started lands in the Downloads folder; the notice
     // says so, and offers the file. Listened for here rather than in the
     // pane, because a download outlives the tab that began it.
@@ -281,31 +341,75 @@ export const App = () => {
     return () => observer.disconnect()
   }, [])
 
+  /*
+   * A standing banner rides the pane being read (#896) — `noticeArea` in
+   * `state/workbench.ts` says which one, from the layout model, and marks it
+   * `[data-notice-host]`: the split tree's expanded or first pane, or the
+   * panel a zoom or a narrow window has given the room. This reads that box
+   * live rather than reconstructing it from saved sizes, which a zoom or a
+   * narrow window overrides without changing, and `noticePlacement` keeps
+   * the stack at a readable width and below every bar it would otherwise lie
+   * across, so it never takes a click meant for another pane's toolbar. The
+   * observers fire for a window resize, a split drag, a zoom or a panel
+   * opening alike; the effect itself only runs again when the marked element
+   * could be a different one.
+   */
+  useLayoutEffect(() => {
+    const stack = notices.current
+    const area = stack?.parentElement
+    if (!stack || !area) return
+    const content = document.querySelector<HTMLElement>('[data-notice-bounds]')
+    const host = document.querySelector<HTMLElement>('[data-notice-host]')
+    const apply = (): void => {
+      const box = area.getBoundingClientRect()
+      const bars = [...document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)]
+        // A hidden tab, a zoomed-away area or the collapsed half of an
+        // expansion keeps its box but is not on screen; a header inside a
+        // notice is the stack's own, and would only chase it down the page.
+        .filter((bar) => !stack.contains(bar) && (bar.checkVisibility?.({ visibilityProperty: true }) ?? true))
+        .map((bar) => bar.getBoundingClientRect())
+      const placement = noticePlacement({
+        container: box,
+        content: content?.getBoundingClientRect() ?? box,
+        host: host?.getBoundingClientRect() ?? null,
+        bars,
+      })
+      stack.style.left = `${placement.left}px`
+      stack.style.right = `${placement.right}px`
+      stack.style.top = `${placement.top}px`
+    }
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(area)
+    if (content) observer.observe(content)
+    if (host) observer.observe(host)
+    // A bar that wraps onto a second line moves the edge the stack clears.
+    for (const bar of document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)) observer.observe(bar)
+    return () => observer.disconnect()
+  }, [snapshot.layout, snapshot.workbench, snapshot.narrowWindow])
+
   return (
+    /* One shell, one set of actions — including the app windows mounted
+       beside the workbench. A project page lives in Settings, and its Agent
+       rows must reach the same window as the left menu rather than falling
+       outside the provider into its inert default. */
+    <ShellProvider
+      actions={{
+        chooseProject: chooseFolder,
+        signIn: (runtime) => setSignInOpen(runtime ?? true),
+        openUsage: (runtime) => setUsageOpen(runtime),
+        openRuntimes: () => openSettingsAt('runtimes', null),
+        openAgents,
+      }}
+    >
     <div className="hd-shell">
       <div className="hd-shellBody">
-        {/*
-         * One shell, one set of actions.
-         *
-         * The four callbacks below used to be threaded down through `Panes`,
-         * every pane and the team room to reach a conversation. They are a
-         * context now, which is what lets a feature be mounted in any panel
-         * without somebody first remembering to pass its props along a fourth
-         * path. See `panels/views.tsx`.
-         */}
-        <ShellProvider
-          actions={{
-            chooseProject: chooseFolder,
-            signIn: (runtime) => setSignInOpen(runtime ?? true),
-            openUsage: (runtime) => setUsageOpen(runtime),
-            openAgents: () => setSettingsOpen('agents'),
-          }}
-        >
           <Workbench
             sidebar={
               <Sidebar
-                onOpenSettings={(section) => setSettingsOpen(section ?? 'agents')}
-                onOpenPlugins={() => setSettingsOpen('plugins')}
+                onOpenSettings={(section) => openSettingsAt(section ?? 'runtimes', null)}
+                onOpenPlugins={() => openSettingsAt('plugins', null)}
+                onOpenAgents={() => openAgents()}
                 onOpenUsage={(runtime) => setUsageOpen(runtime ?? true)}
                 onBrowseFolders={chooseFolder}
                 onSignIn={(runtime) => setSignInOpen(runtime ?? true)}
@@ -321,16 +425,20 @@ export const App = () => {
               is so marked inert with the conversation, so this stack goes
               under its curtain wherever it is drawn, and a notice raised while
               the sidebar is open arrives inside something already inert. */}
-          <div className="hd-floatingNotices" data-over-conversation ref={notices}>
+          <div
+            className="hd-floatingNotices"
+            data-over-conversation
+            ref={notices}
+          >
             <StatusBanner onSignIn={() => setSignInOpen(true)} />
+            <GoalMigrationBanner />
             <ImportOffer
               onReview={() => {
                 setLibraryImport(true)
-                setSettingsOpen('library')
+                openSettingsAt('library', null)
               }}
             />
           </div>
-        </ShellProvider>
       </div>
       <Notices />
       {/* Sonner, from the registry's `toast`. Mounted beside the notice stack
@@ -343,10 +451,12 @@ export const App = () => {
       {settingsOpen && (
         <Settings
           section={settingsOpen}
+          focus={settingsFocus}
           libraryImport={libraryImport}
-          onSection={setSettingsOpen}
+          onSection={(section) => openSettingsAt(section, null)}
           onClose={() => {
             setSettingsOpen(false)
+            setSettingsFocus(null)
             setLibraryImport(false)
           }}
           onSignIn={(runtime) => setSignInOpen(runtime)}
@@ -359,6 +469,13 @@ export const App = () => {
           runtime={typeof usageOpen === 'string' ? usageOpen : null}
         />
       )}
+      {agentsOpen && (
+        <AgentsWindow
+          focus={agentsOpen.focus}
+          onClose={() => setAgentsOpen(false)}
+          onFocus={(id) => setAgentsOpen({ focus: id })}
+        />
+      )}
       {reviewOpen && <ChangesReview onClose={() => setReviewOpen(false)} />}
       {foldersOpen && <FolderPicker onClose={() => setFoldersOpen(false)} />}
       {/* One mount for a dialog three places raise: the sidebar's worktree
@@ -369,13 +486,46 @@ export const App = () => {
           onClose={() => store.askNewWorktree(null)}
         />
       )}
+      {/* /race opens dialog state only; the store no longer picks a second
+          runtime or creates two drafts itself — see AppStore.raceAgents. */}
+      {snapshot.raceStart && projectRootOf(snapshot.workspace) && (
+        <RaceStart
+          root={projectRootOf(snapshot.workspace)!}
+          task={snapshot.raceStart.task}
+          onClose={() => store.closeRaceStart()}
+        />
+      )}
+      {/* One mount for the sheet every door that starts an Agent can raise. */}
+      {snapshot.seatRefusal && (
+        <SeatSheet
+          refusal={snapshot.seatRefusal}
+          onClose={() => store.dismissSeatRefusal()}
+          onFix={(fix) => {
+            const agent = snapshot.seatRefusal?.agent ?? ''
+            store.dismissSeatRefusal()
+            store.askSeatFix(fix, agent)
+          }}
+        />
+      )}
       {paletteOpen && (
         <CommandPalette
           host={{
             close: () => setPaletteOpen(false),
             chooseFolder,
-            openSettings: (section) => setSettingsOpen(section),
+            openSettings: (section, focus) => openSettingsAt(section, focus ?? null),
             openUsage: () => setUsageOpen(true),
+            openAgents,
+            openFrontDoor,
+          }}
+        />
+      )}
+      {frontDoorRoot && (
+        <FrontDoor
+          context={{ kind: 'project', root: frontDoorRoot }}
+          onClose={() => setFrontDoorRoot(null)}
+          onStarted={(execution) => {
+            store.openGoal(execution.goal)
+            setFrontDoorRoot(null)
           }}
         />
       )}
@@ -386,5 +536,6 @@ export const App = () => {
         />
       )}
     </div>
+    </ShellProvider>
   )
 }

@@ -2,8 +2,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionId, sessionKey, turnId, itemId, type Session } from '@harnessdesk/protocol'
+import { sessionId, sessionKey, turnId, itemId, type AgentEntry, type Session } from '@harnessdesk/protocol'
 
+import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Conversation } from './Conversation'
@@ -52,7 +53,11 @@ const session = (over: Partial<Session> = {}): Session =>
     ...over,
   }) as Session
 
-const rig = (one: Session | null, foldersGone: ReadonlyMap<string, string> = new Map()) => {
+const rig = (
+  one: Session | null,
+  foldersGone: ReadonlyMap<string, string> = new Map(),
+  over: Partial<AppSnapshot> = {},
+) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -71,6 +76,7 @@ const rig = (one: Session | null, foldersGone: ReadonlyMap<string, string> = new
     ] as unknown as AppSnapshot['runtimes'],
     sessions: one ? new Map([[KEY, one]]) : new Map(),
     activeSessionKey: one ? KEY : null,
+    ...over,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -84,6 +90,17 @@ const rig = (one: Session | null, foldersGone: ReadonlyMap<string, string> = new
     refreshTasks: vi.fn(),
     loadHistory: vi.fn(),
     resumeSession: vi.fn(),
+    readSeatAgent: vi.fn(),
+    // Not recorded — these fixtures never made any Agent declare an attachment.
+    seatRecord: vi.fn(async () => null),
+    readSeatAttachments: vi.fn(async () => null),
+    // The front door the ready empty pane opens, once its own project (this
+    // session's folder) is known — an empty catalogue is enough to mount it.
+    openFrontDoor: vi.fn(),
+    closeFrontDoor: vi.fn(),
+    flowCatalog: vi.fn(async () => []),
+    agentsIn: vi.fn(async () => []),
+    openGoal: vi.fn(),
   } as unknown as AppStore
   return { store }
 }
@@ -103,7 +120,7 @@ const render = (store: AppStore, key: string | null = KEY): void => {
             onChooseProject={() => undefined}
             onSignIn={() => undefined}
             onOpenUsage={() => undefined}
-            onOpenAgents={() => undefined}
+            onOpenRuntimes={() => undefined}
           />
         </PaneProvider>
       </StoreProvider>,
@@ -157,6 +174,21 @@ it('with no session at all, offers the opening pitch rather than a failure', () 
   expect(container.textContent).not.toContain('restore')
 })
 
+it('a ready, empty pane whose folder is known offers to start with a team there', async () => {
+  const { store } = rig(session())
+  render(store)
+
+  const start = [...container.querySelectorAll('button')].find((one) => one.textContent?.trim().startsWith('Start with a team'))!
+  await act(async () => start.click())
+
+  expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'project', root: '/repo' }, undefined)
+})
+
+it('with no session at all — no folder to read a catalogue from — offers no team action', () => {
+  render(rig(null).store, null)
+  expect([...container.querySelectorAll('button')].some((one) => one.textContent?.trim().startsWith('Start with a team'))).toBe(false)
+})
+
 it('carries the window’s own controls whenever the sidebar is not standing beside it', () => {
   const { store } = rig(session())
   const base = store.getSnapshot()
@@ -172,7 +204,7 @@ it('carries the window’s own controls whenever the sidebar is not standing bes
               onChooseProject={() => undefined}
               onSignIn={() => undefined}
               onOpenUsage={() => undefined}
-              onOpenAgents={() => undefined}
+              onOpenRuntimes={() => undefined}
             />
           </PaneProvider>
         </StoreProvider>,
@@ -259,7 +291,7 @@ it('the empty pane’s Sign in names this pane’s agent, not the default', () =
     root.render(
       <StoreProvider store={scoped}>
         <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}>
-          <Conversation onChooseProject={() => undefined} onSignIn={onSignIn} onOpenUsage={() => undefined} onOpenAgents={() => undefined} />
+          <Conversation onChooseProject={() => undefined} onSignIn={onSignIn} onOpenUsage={() => undefined} onOpenRuntimes={() => undefined} />
         </PaneProvider>
       </StoreProvider>,
     )
@@ -297,4 +329,55 @@ it('leaves the composer alone when the folder is where it always was', () => {
 
   expect(container.textContent).not.toContain('folder is gone')
   expect(container.querySelector('textarea')).not.toBeNull()
+})
+
+it('a conversation seated as an Agent is headed by it — once, while its title is the Agent’s name', () => {
+  const settings = { cwd: '/repo', model: 'gpt-5.6-sol', agent: 'code-reviewer', briefDigest: 'd', ceiling: { level: 'edit' as const, hold: 'asked' as const }, seatLabel: 'Codex', passedOver: [] }
+  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } } as AgentEntry
+  const over = { seatAgents: new Map([[seatAgentKey('/repo', 'code-reviewer'), entry]]) }
+  const header = (): string => container.querySelector('header')?.textContent ?? ''
+
+  render(rig(session({ title: 'Checkout review', settings }), new Map(), over).store)
+  expect(header()).toContain('Code reviewer · Checkout review')
+
+  render(rig(session({ title: 'Code reviewer', settings }), new Map(), over).store)
+  expect(header()).toContain('Code reviewer')
+  expect(header()).not.toContain('Code reviewer · Code reviewer')
+})
+
+it('a plain conversation’s header is unchanged, and asks nothing about an Agent', () => {
+  const { store } = rig(session({ title: 'Checkout review' }))
+  render(store)
+  expect(container.querySelector('header')?.textContent).toContain('Checkout review')
+  expect(store.readSeatAgent).not.toHaveBeenCalled()
+})
+
+it('a conversation seated as an Agent carries its ceiling beside its title — held or asked — and a plain one carries none', () => {
+  render(
+    rig(
+      session({
+        settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'reviewer', ceiling: { level: 'read', hold: 'held' }, ceilingNote: 'Read-only sandbox; anything past it asks you' },
+      }),
+    ).store,
+  )
+  const chip = container.querySelector('header [data-ceiling]') as HTMLElement | null
+  expect(chip?.textContent).toBe('Read · held')
+  expect(chip?.title).toMatch(/Held: Read-only sandbox/)
+
+  render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
+  expect(container.querySelector('header [data-ceiling]')?.getAttribute('data-hold')).toBe('asked')
+
+  render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6' } })).store)
+  expect(container.querySelector('[data-ceiling]')).toBeNull()
+})
+
+it('the conversation’s menu offers Save as an Agent…', () => {
+  render(rig(session()).store)
+  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="Conversation"]')?.click())
+  const item = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
+    one.textContent?.startsWith('Save as an Agent…'),
+  )
+  if (!item) throw new Error('no Save as an Agent… in the menu')
+  act(() => item.click())
+  expect(document.body.querySelector('[role="dialog"][aria-label="Save as an Agent"]')).not.toBeNull()
 })

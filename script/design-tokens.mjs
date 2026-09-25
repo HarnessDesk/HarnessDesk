@@ -18,12 +18,10 @@ import path from 'node:path'
 export const TOKEN_SOURCES = [
   'packages/ui/src/styles/base.css',
   'packages/ui/src/styles/design-platform.css',
-  'packages/ui/src/design/tokens.css',
+  'packages/ui/src/design/foundation/tokens.css',
+  'packages/ui/src/styles/editorial.css',
   // The code-face tokens are declared at default scope and are the app's own
   // vocabulary, so they belong under the same guard as everything else.
-  // editorial.css is deliberately absent: it only ever declares under
-  // `body[data-hd-palette=…]`, which is a foundation varying the snapshot
-  // rather than the snapshot itself.
   'packages/ui/src/styles/editor.css',
   // The scrollbar skin declares its own layout width on `body`, and a surface
   // that has to line up beside a space-consuming bar reads it — the transcript
@@ -32,6 +30,7 @@ export const TOKEN_SOURCES = [
   // in the browser, so the audit reported drift the app did not have and the
   // interface check compared against `calc(24px + )`.
   'packages/ui/src/styles/scrollbar.css',
+  'packages/ui/src/styles/shadcn-themes.css',
   'packages/ui/src/styles/app.css',
 ]
 
@@ -80,14 +79,25 @@ const declarationsOf = (css) => {
  * palette overlay (`body[data-hd-palette=…]`) stays out of the snapshot — it
  * varies the snapshot rather than being it.
  */
-const applies = (selector, { dark, studio }) =>
+const applies = (selector, { dark, studio, palette = 'harnessdesk', accent = 'default', corners = 'default' }) =>
   selector.some((one) => {
     const trimmed = one.trim()
     if (trimmed === ':root' || trimmed === 'html' || trimmed === 'body') return true
-    if (trimmed === 'body[data-hd-dark-theme]' || trimmed === '[data-hd-dark-theme]') return dark
-    if (trimmed === "body[data-hd-interface='studio']") return studio
-    if (trimmed === "body[data-hd-interface='studio'][data-hd-dark-theme]") return studio && dark
-    return false
+    // Foundation selectors are one root plus exact appearance attributes.
+    // Descendant selectors and pseudo-elements are component styling, not
+    // token authority, and therefore do not participate in resolution.
+    if (!/^(?:(?:body|html|:root))?(?:\[data-hd-[^\]]+\])+$/.test(trimmed)) return false
+    const wantsDark = trimmed.includes('[data-hd-dark-theme]')
+    if (wantsDark && !dark) return false
+    const value = (name) => new RegExp(`\\[${name}=['\"]([^'\"]+)['\"]\\]`).exec(trimmed)?.[1]
+    const wantedInterface = value('data-hd-interface')
+    const wantedPalette = value('data-hd-palette')
+    const wantedAccent = value('data-hd-accent')
+    const wantedCorners = value('data-hd-corners')
+    return (!wantedInterface || wantedInterface === (studio ? 'studio' : 'desk'))
+      && (!wantedPalette || wantedPalette === palette)
+      && (!wantedAccent || wantedAccent === accent)
+      && (!wantedCorners || wantedCorners === corners)
   })
 
 /**
@@ -163,13 +173,20 @@ const splitTopLevel = (text) => {
  * @param {{root?: string, dark?: boolean, studio?: boolean}} options
  * @returns {Map<string, string>} token name -> computed value, sorted by name.
  */
-export const resolveTokens = ({ root = process.cwd(), dark = false, studio = false } = {}) => {
+export const resolveTokens = ({
+  root = process.cwd(),
+  dark = false,
+  studio = false,
+  palette = 'harnessdesk',
+  accent = 'default',
+  corners = 'default',
+} = {}) => {
   const table = new Map()
   for (const file of TOKEN_SOURCES) {
     const full = path.join(root, file)
     if (!fs.existsSync(full)) continue
     for (const entry of declarationsOf(fs.readFileSync(full, 'utf8'))) {
-      if (applies(entry.selector, { dark, studio })) table.set(entry.name, entry.value)
+      if (applies(entry.selector, { dark, studio, palette, accent, corners })) table.set(entry.name, entry.value)
     }
   }
   const resolved = new Map()
@@ -202,4 +219,82 @@ export const snapshot = (root = process.cwd()) => {
     lines.push('')
   }
   return lines.join('\n')
+}
+
+/**
+ * The small resolved contract consumed by first-party native HTML.
+ *
+ * Electron's About window lives outside Vite, so it cannot import the
+ * renderer stylesheet at runtime. Checking in a second palette would make it
+ * a second design system. This generated sheet is the seam instead: values
+ * are resolved from the same cascade above, while the native asset owns only
+ * its app-icon geometry and layout.
+ */
+export const NATIVE_TOKENS = [
+  '--hd-background',
+  '--hd-foreground',
+  '--hd-card',
+  '--hd-muted',
+  '--hd-muted-foreground',
+  '--hd-border',
+  '--hd-font-family',
+  '--hd-text-sm',
+  '--hd-text-xs',
+  '--hd-heading',
+  '--hd-radius-lg',
+  '--hd-shadow-lg',
+]
+
+const nativeDeclarations = (tokens, indent = '  ') =>
+  NATIVE_TOKENS.map((name) => {
+    const value = tokens.get(name)
+    if (!value || value === '<undefined>') throw new Error(`native foundation token ${name} does not resolve`)
+    return `${indent}${name}: ${value};`
+  }).join('\n')
+
+const nativeDifferences = (root, face, base) => {
+  const tokens = resolveTokens({ root, ...face })
+  return new Map(NATIVE_TOKENS
+    .filter((name) => tokens.get(name) !== base.get(name))
+    .map((name) => [name, tokens.get(name)]))
+}
+
+const nativeDifferenceDeclarations = (tokens, indent) =>
+  [...tokens].map(([name, value]) => `${indent}${name}: ${value};`).join('\n')
+
+const nativeVariation = (root, selector, face) => {
+  const lightBase = resolveTokens({ root, dark: false })
+  const darkBase = resolveTokens({ root, dark: true })
+  const light = nativeDifferences(root, { ...face, dark: false }, lightBase)
+  const dark = nativeDifferences(root, { ...face, dark: true }, darkBase)
+  const sections = []
+  if (light.size > 0) sections.push(`${selector} {\n${nativeDifferenceDeclarations(light, '  ')}\n}`)
+  if (dark.size > 0) sections.push(`@media (prefers-color-scheme: dark) {\n  ${selector} {\n${nativeDifferenceDeclarations(dark, '    ')}\n  }\n}`)
+  return sections.join('\n\n')
+}
+
+export const nativeFoundation = (root = process.cwd()) => {
+  const variations = [
+    nativeVariation(root, ":root[data-hd-interface='studio']", { studio: true }),
+    nativeVariation(root, ":root[data-hd-palette='editorial']", { palette: 'editorial' }),
+    nativeVariation(root, ":root[data-hd-palette='shadcn']", { palette: 'shadcn' }),
+    ...['violet', 'green', 'rose', 'orange', 'mono'].map((accent) =>
+      nativeVariation(root, `:root[data-hd-accent='${accent}']`, { accent })),
+    ...['square', 'round'].map((corners) =>
+      nativeVariation(root, `:root[data-hd-corners='${corners}']`, { corners })),
+  ].filter(Boolean)
+  return `/* Generated by script/check-design-tokens.mjs. Do not edit. */
+:root {
+  color-scheme: light dark;
+${nativeDeclarations(resolveTokens({ root, dark: false }))}
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+${nativeDeclarations(resolveTokens({ root, dark: true }), '    ')}
+  }
+}
+
+${variations.join('\n\n')}
+`
 }

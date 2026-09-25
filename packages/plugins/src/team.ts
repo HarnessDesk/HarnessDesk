@@ -1,11 +1,12 @@
 import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
+import type { FindingAnchor, FindingCategory, FindingView } from '@harnessdesk/protocol'
 
 /**
  * Working together: the shared board and messages between conversations.
  *
  * The state and every decision live in the host's team plane — claiming is a
  * transaction there, message routing applies one set of guards there — and
- * this plugin is the doorway: eleven tools, delivered to Codex as dynamic
+ * this plugin is the doorway: eighteen tools, delivered to Codex as dynamic
  * tools and to every ACP agent over the MCP bridge, exactly like any other
  * plugin tool. The projection layer is what makes coordination cross-vendor
  * without asking any vendor for anything.
@@ -18,6 +19,14 @@ import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
  * Every execute passes its `scope` through: which conversation is calling is
  * the substance of a claim and the safety of a message, and the host refuses
  * unscoped writes rather than guessing.
+ *
+ * `review_candidates` and `record_review` are the one narrow way a judgment
+ * becomes evidence (phase 6): the candidate is always one this process
+ * minted and handed back, never a revision the caller names on its own, and
+ * the verdict is a fact a flow's evidence guard reads — never text scraped
+ * from a message or a `complete_claim` outcome. The four finding tools
+ * (phase 7) record a review's findings the same way: structured, attributed
+ * by the host, and never carried by a message.
  */
 
 const text = { type: 'string' } as const
@@ -205,6 +214,27 @@ export const teamPlugin: HarnessPlugin = {
       })
 
       ctx.tools.register({
+        name: 'await_member',
+        description:
+          'Wait for one member’s current turn to finish without messaging, waking or polling it. Pass the returned cycle on the next call.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            member: { type: 'string', description: 'The member name shown on this Goal.' },
+            cycle: { type: 'number', description: 'The cycle returned by the previous wait. Start at 0.' },
+            block_ms: { type: 'number', description: 'How long to wait, from 1000 to 50000 milliseconds.' },
+          },
+          required: ['member'],
+        },
+        execute: (args: { member: string; cycle?: number; block_ms?: number }, scope) =>
+          ctx.team.awaitMember({
+            member: String(args.member ?? ''),
+            ...(args.cycle !== undefined ? { cycle: Number(args.cycle) } : {}),
+            ...(args.block_ms !== undefined ? { blockMs: Number(args.block_ms) } : {}),
+          }, scope),
+      })
+
+      ctx.tools.register({
         name: 'check_conflicts',
         description:
           'Ask whether paths you are about to touch are owned by another conversation’s live claim — before editing them, especially before changing something another agent’s work calls. A conflict is answered with a message to the holder, never by editing a file you do not hold.',
@@ -328,6 +358,176 @@ export const teamPlugin: HarnessPlugin = {
             },
             scope,
           ),
+      })
+
+      ctx.tools.register({
+        name: 'review_candidates',
+        description:
+          'Observed predecessor revisions you may judge for this card — each an id, its exact revision, and what has already been observed of it. This is the only source of a revision to review: never pick one out of the conversation, a message, or a branch name someone mentioned. Ask again if the list looks stale; a candidate goes out of date if the checkout it names moves on.',
+        inputSchema: {
+          type: 'object',
+          properties: { intent: { type: 'number', description: 'The card you hold — the one your review is for.' } },
+          required: ['intent'],
+        },
+        execute: async (args: { intent: number }, scope) => {
+          const candidates = await ctx.team.reviewCandidates(Number(args.intent), scope)
+          if (candidates.length === 0) return 'There is nothing to review for this card yet.'
+          return candidates
+            .map((one) => `${one.id} — at ${one.at.slice(0, 12)}${one.branch ? ` on ${one.branch}` : ''}${one.evidence.length ? `, evidence: ${one.evidence.join(', ')}` : ', no other evidence observed yet'}`)
+            .join('\n')
+        },
+      })
+
+      ctx.tools.register({
+        name: 'record_review',
+        description:
+          'Record your structured judgment of one candidate from `review_candidates` — the verdict a rule branches on, never inferred from prose. `candidate` must be an id `review_candidates` just gave you; `verdict` must be one of your card\'s own accepted answers. This is what a merge or advance step actually reads — completing the card with an outcome is not enough where a review is required.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The card you hold.' },
+            candidate: { type: 'string', description: 'A candidate id from review_candidates.' },
+            verdict: { type: 'string', description: 'Your verdict, one of your card\'s accepted answers.' },
+            against: {
+              type: 'array',
+              items: text,
+              description: 'Revisions this verdict was judged against, if any — a requirement, a base.',
+            },
+          },
+          required: ['intent', 'candidate', 'verdict'],
+        },
+        execute: async (args: { intent: number; candidate: string; verdict: string; against?: readonly string[] }, scope) => {
+          const record = await ctx.team.recordReview(
+            {
+              intent: Number(args.intent),
+              candidate: String(args.candidate),
+              verdict: String(args.verdict),
+              ...(Array.isArray(args.against) ? { against: args.against.map(String) } : {}),
+            },
+            scope,
+          )
+          const at = record.fact.kind === 'review' ? record.fact.at.slice(0, 12) : ''
+          return `Recorded: ${args.verdict} on ${at}.`
+        },
+      })
+
+      /*
+       * The findings ledger (phase 7). A finding is a structured claim the
+       * desk records once and keeps its identity through repairs and later
+       * Goals — never a message, and never text scraped from a completion.
+       * None of these tools takes a Seat, a revision or a permission: the host
+       * reads who is calling, which card it holds and which candidate it was
+       * offered, and refuses an input that tries to say otherwise.
+       */
+      const findingLine = (view: FindingView): string =>
+        `${view.id} — ${view.title || 'details not recorded'} · ${view.lifecycle.state}${view.lifecycle.state === 'repaired' && !view.lifecycle.confirmed ? ' (claimed, not yet confirmed)' : view.lifecycle.confirmed ? ' (confirmed)' : ''}` +
+        `${view.blocking ? ' · blocking' : ''} · sequence ${view.sequence}${view.problem ? ` · cannot be trusted: ${view.problem}` : ''}`
+
+      ctx.tools.register({
+        name: 'raise_finding',
+        description:
+          'Record one finding from your review: a specific problem in the candidate `review_candidates` gave you. `request` is your own token for this finding — retry with the same token and the same words and it is the same finding, never a second one. `blocking` says whether the work should not go on until it is fixed. `category` is ordinary, regression or security; it is your claim, not a certification. `anchor` points at a changed line when there is one. One call per finding: the ledger, not your prose, is what the next round reads.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The review card you hold.' },
+            candidate: { type: 'string', description: 'A candidate id from review_candidates.' },
+            request: { type: 'string', description: 'Your own token for this finding; reuse it only to retry.' },
+            title: { type: 'string', description: 'One line, at most 200 characters.' },
+            body: { type: 'string', description: 'What is wrong and why, at most 4096 characters.' },
+            category: { type: 'string', enum: ['ordinary', 'regression', 'security'] },
+            blocking: { type: 'boolean' },
+            related: { type: 'string', description: 'An earlier finding this one is linked to, if any.' },
+            anchor: {
+              type: 'object',
+              properties: { path: text, line: { type: 'number' }, side: { type: 'string', enum: ['LEFT', 'RIGHT'] } },
+              required: ['path', 'line', 'side'],
+            },
+          },
+          required: ['intent', 'candidate', 'request', 'title', 'body', 'category', 'blocking'],
+        },
+        execute: async (args: Record<string, unknown>, scope) => {
+          const view = await ctx.team.raiseFinding({
+            intent: Number(args['intent']), candidate: String(args['candidate'] ?? ''), request: String(args['request'] ?? ''),
+            title: String(args['title'] ?? ''), body: String(args['body'] ?? ''),
+            category: String(args['category'] ?? '') as FindingCategory, blocking: args['blocking'] as boolean,
+            ...(args['related'] !== undefined ? { related: String(args['related']) } : {}),
+            ...(args['anchor'] !== undefined ? { anchor: args['anchor'] as FindingAnchor } : {}),
+          }, scope)
+          return `Recorded: ${findingLine(view)}`
+        },
+      })
+
+      ctx.tools.register({
+        name: 'repair_finding',
+        description:
+          'Say you repaired a finding on the card you hold — after committing the fix. The desk records it at your checkout’s committed head; a checkout with uncommitted changes is refused. A repair is only your claim: the finding stays open and blocking until the reviewer that raised it confirms it in a later round. `expected` is the sequence list_findings last showed you for it.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The card you hold.' },
+            finding: { type: 'string', description: 'The finding id.' },
+            request: { type: 'string', description: 'Your own token for this claim; reuse it only to retry.' },
+            expected: { type: 'number', description: 'The sequence you last read for this finding.' },
+            note: { type: 'string', description: 'What you changed, at most 4096 characters.' },
+          },
+          required: ['intent', 'finding', 'request', 'expected', 'note'],
+        },
+        execute: async (args: Record<string, unknown>, scope) => {
+          const view = await ctx.team.repairFinding({
+            intent: Number(args['intent']), finding: String(args['finding'] ?? ''), request: String(args['request'] ?? ''),
+            expected: Number(args['expected']), note: String(args['note'] ?? ''),
+          }, scope)
+          return `Recorded: ${findingLine(view)}`
+        },
+      })
+
+      ctx.tools.register({
+        name: 'decide_finding',
+        description:
+          'Judge a finding you raised in an earlier review, against a candidate `review_candidates` gave you now: `repaired` confirms a claimed repair, `open` says it is still wrong, `withdrawn` takes it back (say why). Only the Agent that raised a finding may decide it, and only from a later review card. A confirmed finding never reopens — raise a new, related one instead.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The review card you hold.' },
+            candidate: { type: 'string', description: 'A candidate id from review_candidates.' },
+            finding: { type: 'string', description: 'The finding id.' },
+            request: { type: 'string', description: 'Your own token for this verdict; reuse it only to retry.' },
+            expected: { type: 'number', description: 'The sequence you last read for this finding.' },
+            state: { type: 'string', enum: ['open', 'repaired', 'withdrawn'] },
+            note: { type: 'string', description: 'Why, at most 4096 characters. Required to withdraw.' },
+          },
+          required: ['intent', 'candidate', 'finding', 'request', 'expected', 'state', 'note'],
+        },
+        execute: async (args: Record<string, unknown>, scope) => {
+          const view = await ctx.team.decideFinding({
+            intent: Number(args['intent']), candidate: String(args['candidate'] ?? ''), finding: String(args['finding'] ?? ''),
+            request: String(args['request'] ?? ''), expected: Number(args['expected']),
+            state: String(args['state'] ?? '') as 'open' | 'repaired' | 'withdrawn', note: String(args['note'] ?? ''),
+          }, scope)
+          return `Recorded: ${findingLine(view)}`
+        },
+      })
+
+      ctx.tools.register({
+        name: 'list_findings',
+        description:
+          'The findings on your Goal, for the card you hold: each id, its title, where it stands, whether it blocks, and its sequence (pass that as `expected` when you repair or decide it). `filter` is all, open or blocking. More than 200 is refused rather than cut short.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The card you hold.' },
+            filter: { type: 'string', enum: ['all', 'open', 'blocking'] },
+          },
+          required: ['intent'],
+        },
+        execute: async (args: Record<string, unknown>, scope) => {
+          const views = await ctx.team.listFindings({
+            intent: Number(args['intent']),
+            ...(args['filter'] !== undefined ? { filter: String(args['filter']) as 'all' | 'open' | 'blocking' } : {}),
+          }, scope)
+          return views.length === 0 ? 'There are no findings of that kind on this Goal.' : views.map(findingLine).join('\n')
+        },
       })
 
       // The board as a composer chip: attached when the person wants an agent

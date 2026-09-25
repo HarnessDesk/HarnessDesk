@@ -87,6 +87,7 @@ export interface BrowserTab {
 }
 
 export interface BrowserView {
+  readonly profile?: string | null
   readonly kind: 'browser'
   /** Never empty: closing the last tab closes the pane. */
   readonly tabs: readonly BrowserTab[]
@@ -231,8 +232,7 @@ export const sameView = (a: PaneView, b: PaneView): boolean => {
     case 'preview':
       return a.path === (b as typeof a).path && a.runtime === (b as typeof a).runtime
     case 'browser':
-      // There is one browser; a second "open" goes to it wherever it is.
-      return true
+      return (a.profile ?? null) === ((b as typeof a).profile ?? null)
     case 'git':
       // Belongs to a repository, so a second open re-points the pane rather
       // than growing a column.
@@ -304,9 +304,9 @@ export const emptyLayout = (): Layout => {
 export const newBrowserTab = (url: string = BLANK): BrowserTab => ({ id: nextId('tab'), url })
 
 /** A browser showing one page — what `openBrowser` starts from. */
-export const browserView = (url: string = BLANK): BrowserView => {
+export const browserView = (url: string = BLANK, profile: string | null = null): BrowserView => {
   const tab = newBrowserTab(url)
-  return { kind: 'browser', tabs: [tab], active: tab.id, driven: tab.id }
+  return { kind: 'browser', ...(profile ? { profile } : {}), tabs: [tab], active: tab.id, driven: tab.id }
 }
 
 /** The tab on screen. Falls back to the first, so a stale id cannot blank the pane. */
@@ -807,6 +807,13 @@ const readNode = (raw: unknown): LayoutNode | null => {
  * degrades to a blank tab rather than to no browser.
  */
 const readBrowser = (record: Record<string, unknown>): BrowserView => {
+  const profile = record['profile'] ?? null
+  if (
+    profile !== null &&
+    (typeof profile !== 'string' || !/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))
+  ) {
+    return browserView(BLANK)
+  }
   const raw = Array.isArray(record['tabs']) ? record['tabs'] : []
   const tabs = raw.flatMap((entry): BrowserTab[] => {
     if (typeof entry !== 'object' || entry === null) return []
@@ -825,10 +832,11 @@ const readBrowser = (record: Record<string, unknown>): BrowserView => {
       },
     ]
   })
-  if (tabs.length === 0) return browserView(typeof record['url'] === 'string' ? record['url'] : BLANK)
+  if (tabs.length === 0) return browserView(typeof record['url'] === 'string' ? record['url'] : BLANK, profile)
   const has = (id: unknown): id is string => typeof id === 'string' && tabs.some((tab) => tab.id === id)
   return {
     kind: 'browser',
+    ...(profile ? { profile } : {}),
     tabs,
     active: has(record['active']) ? record['active'] : tabs[0]!.id,
     driven: has(record['driven']) ? record['driven'] : tabs[0]!.id,

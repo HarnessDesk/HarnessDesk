@@ -10,38 +10,6 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--hdp-alias-bg-layer-1);
-  --lane-0: var(--hd-tint-blue-ink);
-  --lane-1: var(--hd-tint-rose-ink);
-  --lane-2: var(--hd-tint-amber-ink);
-  --lane-3: var(--hd-tint-violet-ink);
-  --lane-4: var(--hd-tint-teal-ink);
-  --lane-5: var(--hd-tint-orange-ink);
-  --lane-6: var(--hd-tint-sky-ink);
-  --lane-7: var(--hd-tint-green-ink);
-}
-
-.headerButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 26px;
-  min-width: 26px;
-  padding: 0 4px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-}
-
-.headerButton:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
-}
-
-.headerButton[data-on] {
-  color: var(--hd-accent);
 }
 
 /* --- the action bar ------------------------------------------------------
@@ -49,163 +17,51 @@
    what makes and joins branches. Counts ride the buttons the way they ride
    that toolbar — work waiting to commit, commits waiting to push or pull. */
 
-.actionBar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 34px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-}
-
-.action {
+.actionLayout {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 8px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.action:hover:not(:disabled) {
-  background: var(--hdp-alias-interactive-bg-hover);
-  color: var(--hdp-alias-label-primary);
-}
-
-.action:disabled {
-  color: var(--hdp-alias-label-quaternary, var(--hdp-alias-label-tertiary));
-  cursor: default;
-}
-
-.actionBadge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 15px;
-  padding: 0 4px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
-  font-size: var(--hd-text-xs);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.action:disabled .actionBadge {
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-tertiary);
 }
 
 .actionSep {
   flex: none;
   width: 1px;
-  height: 16px;
   margin: 0 6px;
-  background: var(--hdp-alias-border-l1);
-}
-
-.working {
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  white-space: nowrap;
 }
 
 /* --- the tool row -------------------------------------------------------- */
 
 .tools {
-  flex: none;
+  display: flex;
+  flex-wrap: wrap; /* desk: nowrap → wrap, a pane narrower than the controls stacks them rather than cutting the last */
+  align-content: center; /* desk: normal → center, one line of controls sits centred in the row as it did */
+  align-items: center;
+  gap: 4px 8px; /* desk: 8px → 4px 8px, the same 8px across, and 4px between wrapped lines */
+  container: hd-git-tools / inline-size; /* desk: none → hd-git-tools / inline-size, the count asks how wide the bar is */
+}
+
+/* The search keeps room for its own words; in a narrow pane the count gives
+   way first, because it is the one thing on this bar nobody acts on, and
+   narrower still the row wraps rather than cutting off the select. The
+   search grows from its floor, so it has already given up its extra width
+   before anything wraps. */
+.historySearch {
+  flex: 1 1 120px; /* desk: 1 → 1 1 120px, it grows from its floor, so it gives way before the row wraps */
+  width: 120px; /* desk: auto → 120px, the width the row measures it at, rather than the input's own default size */
+  min-width: 120px; /* desk: 60px → 120px, never narrower than its own words */
+  max-width: 260px;
+}
+
+/* The field and its qualifier wrap as one control: the group takes the row's
+   spare width, and the line never breaks between the two. */
+.searchGroup {
+  flex: 1 1 auto; /* desk: 1 → 1 1 auto, the field and its qualifier grow and wrap as one control */
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-}
-
-.scope {
-  flex: none;
-  display: inline-flex;
-  padding: 2px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hdp-alias-bg-module-platform);
-}
-
-.scopeTab {
-  border: none;
-  background: none;
-  padding: 2px 8px;
-  border-radius: var(--hd-radius-full);
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.scopeTab[data-on] {
-  background: var(--hdp-alias-bg-layer-1);
-  color: var(--hdp-alias-label-primary);
-  box-shadow: 0 0 0 1px var(--hdp-alias-border-l1);
-}
-
-.find {
-  flex: 1;
-  min-width: 60px;
-  max-width: 260px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  color: var(--hdp-alias-label-tertiary);
-}
-
-.find:focus-within {
-  box-shadow: inset 0 0 0 1px var(--hd-ring);
-}
-
-.find input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: none;
-  outline: none;
-  font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-primary);
-}
-
-.findClear {
-  display: inline-flex;
-  border: none;
-  background: none;
-  padding: 2px;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.findClear:hover {
-  color: var(--hdp-alias-label-primary);
 }
 
 .searchScope {
   flex: none;
-  height: 24px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  font-size: var(--hd-text-xs);
-  padding: 0 4px;
+
 }
 
 .space {
@@ -213,11 +69,20 @@
 }
 
 .count {
-  flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
+  flex: 0 1 auto; /* desk: none → 0 1 auto, the count gives way before the search does */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The row's controls and a four-figure count need about 500px between its
+   padding. Below that the count leaves whole: cut to "10…" it is a number
+   without its noun, which answers nothing. The pane opens at about 460px. */
+@container hd-git-tools (max-width: 500px) {
+  .count {
+    display: none; /* desk: shown → none below the row's width, a cut count answers nothing */
+  }
 }
 
 /* --- the body ------------------------------------------------------------ */
@@ -235,23 +100,6 @@
   flex-direction: column;
 }
 
-.empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  color: var(--hdp-alias-label-secondary);
-  font-size: var(--hd-text);
-  text-align: center;
-}
-
-.quiet {
-  padding: 16px;
-  color: var(--hdp-alias-label-tertiary);
-  font-size: var(--hd-text-sm);
-}
-
 /* The working tree's own row, pinned over the history it is not part of. */
 .dirtyRow {
   flex: none;
@@ -259,44 +107,27 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 4px 12px;
-  border: none;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-  background: var(--hd-warning-dim);
-  color: var(--hd-warning-ink);
-  font-size: var(--hd-text-sm);
-  cursor: pointer;
-  text-align: left;
-}
 
-.dirtyDot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-warning);
+  text-align: left;
 }
 
 .dirtyHint {
   margin-left: auto;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
 }
 
 /* --- the table ----------------------------------------------------------- */
 
 /* The table's head. It sits above the list rather than inside it, so it does
-   not scroll away — the columns line up because both read the same widths. */
-.head {
+   not scroll away — the columns line up because both read the same widths,
+   and because it keeps the rows' own right inset (`CommitRow`'s). A table
+   only this pane draws, so its head is this pane's, not a shared part. */
+.tableHead {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-right: 12px;
-  height: 24px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  user-select: none;
+  gap: var(--hd-space-2-5);
+  height: var(--hd-control-h-sm); /* desk: GitHistoryTableHeader's h-(--hd-control-h-sm) → here, the head of a table only this pane has */
+  padding-right: var(--hd-space-3); /* desk: GitHistoryTableHeader's pr-3 → here, the rows' own right inset */
 }
 
 /* No `overflow: hidden` here: the handle straddles the column's right edge,
@@ -327,15 +158,6 @@
 }
 
 /* Lanes the graph column cannot draw, counted rather than silently dropped. */
-.headMore {
-  flex: none;
-  padding: 0 4px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
 /* The handle straddles the column edge: a 9px target for a 1px line, which is
    the difference between a resize and a fight. */
 .headGrip {
@@ -348,34 +170,11 @@
   touch-action: none;
 }
 
-.headGrip::after {
-  content: '';
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: 1px;
-  background: var(--hdp-alias-border-l2);
-}
-
 /* A column dragged to nothing would hang its handle off the left edge of the
    table, where half of it is unreachable. Tuck it inside instead. */
-.headGrip:focus-visible {
-  outline: 2px solid var(--hd-ring);
-  outline-offset: -1px;
-  border-radius: var(--hd-radius-sm);
-}
-
 .headGrip[data-tight] {
   right: auto;
   left: 0;
-}
-
-.headGrip:hover::after,
-.headGrip[data-on]::after {
-  top: 0;
-  bottom: 0;
-  background: var(--hd-accent);
 }
 
 .list {
@@ -383,7 +182,6 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  outline: none;
   position: relative;
 }
 
@@ -394,22 +192,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-right: 12px;
-  font-size: var(--hd-text-sm);
-  cursor: default;
-  user-select: none;
-}
-
-.row:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-}
-
-.row[data-selected] {
-  background: var(--hd-accent-dim);
-}
-
-.row[data-merge] .subjectText {
-  color: var(--hdp-alias-label-tertiary);
 }
 
 .gutter {
@@ -420,18 +202,6 @@
 
 .graph {
   display: block;
-}
-
-.graph line,
-.graph path {
-  stroke-width: 1.5;
-}
-
-/* A commit on a lane too far right to draw: marked, not invented. */
-.offGraph {
-  stroke: var(--hdp-alias-label-tertiary);
-  stroke-width: 1.5;
-  stroke-dasharray: 2 2;
 }
 
 .subject {
@@ -448,20 +218,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--hdp-alias-label-primary);
 }
 
 .chip {
   flex: 0 1 auto;
   min-width: 56px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 190px;
-  padding: 1px 6px;
-  border-radius: var(--hd-radius-full);
-  font-size: var(--hd-text-xs);
-  line-height: 16px;
 }
 
 /* The ellipsis has to live on the text itself: an inline-flex box clips its
@@ -473,41 +234,12 @@
   white-space: nowrap;
 }
 
-.chip[data-kind='head'] {
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
-}
-
-.chip[data-kind='branch'] {
-  background: var(--hd-tint-blue-fill);
-  color: var(--hd-tint-blue-ink);
-  box-shadow: inset 0 0 0 1px var(--hd-tint-blue-edge);
-}
-
-.chip[data-kind='remote'] {
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-}
-
-.chip[data-kind='tag'] {
-  background: var(--hd-tint-amber-fill);
-  color: var(--hd-tint-amber-ink);
-  box-shadow: inset 0 0 0 1px var(--hd-tint-amber-edge);
-}
-
 .sha {
   flex: none;
-  font-family: var(--hdp-font-family-code);
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
 }
 
 .date {
   flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -515,8 +247,6 @@
 
 .author {
   flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -530,55 +260,21 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--hdp-alias-border-l1);
-  background: var(--hdp-alias-bg-layer-1);
 }
 
-.railFind {
+.railSearch {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
   margin: 8px 8px 2px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  color: var(--hdp-alias-label-tertiary);
-}
-
-.railFind input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: none;
-  outline: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-primary);
 }
 
 .railError {
   margin: 6px 8px 0;
-  padding: 6px 8px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-xs);
 }
 
 .railScroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 10px;
-}
-
-.railHead {
-  padding: 12px 10px 4px;
-  font-size: var(--hd-text-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--hdp-alias-label-tertiary);
 }
 
 .railRow,
@@ -587,27 +283,9 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 2px 10px;
-  border: none;
-  background: none;
+
   text-align: left;
-  font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-}
 
-.railRow:hover,
-.railFolder:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-}
-
-.railRow[data-indent] {
-  padding-left: 24px;
-}
-
-.railRow[data-current] {
-  color: var(--hdp-alias-label-primary);
-  font-weight: 600;
 }
 
 .railName {
@@ -617,45 +295,23 @@
   white-space: nowrap;
 }
 
-.railHere {
-  flex: none;
-  padding: 0 4px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
-  font-size: var(--hd-text-xs);
-  font-weight: 500;
-  line-height: 15px;
-}
-
 .railTrack {
   flex: none;
   margin-left: auto;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.railFolder {
-  color: var(--hdp-alias-label-secondary);
 }
 
 .railCount {
   margin-left: auto;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
 }
 
 /* --- the commit, opened -------------------------------------------------- */
 
 .detail {
   flex: none;
-  min-height: 160px;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--hdp-alias-border-l1);
   position: relative;
+  min-height: var(--hd-history-detail-min-h); /* desk: GitHistoryCommitDetail's min-h → here, the floor of the one resizable detail this pane has */
 }
 
 .detailHandle {
@@ -663,30 +319,16 @@
   top: -3px;
   left: 0;
   right: 0;
-  height: 6px;
   cursor: row-resize;
   z-index: 1;
 }
 
-.detailHandle:hover {
-  background: var(--hd-accent-dim);
-}
-
+/* The commit's head sets its glyph, id and subject a word apart: it reads as
+   one line of text rather than a row of controls, and never wraps — its
+   subject ellipsises instead. */
 .detailHead {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-  color: var(--hdp-alias-label-secondary);
-  font-size: var(--hd-text-sm);
-}
-
-.detailHead code {
-  font-family: var(--hdp-font-family-code);
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
+  flex-wrap: nowrap;
+  gap: var(--hd-space-2);
 }
 
 .detailTitle {
@@ -694,7 +336,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--hdp-alias-label-primary);
 }
 
 .detailSplit {
@@ -709,8 +350,17 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--hdp-alias-border-l1);
   overflow-y: auto;
+}
+
+.detailCard {
+  margin: var(--hd-space-3);
+}
+
+.bodyCopy {
+  margin: var(--hd-space-2) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .detailRight {
@@ -726,26 +376,6 @@
   overflow-y: auto;
 }
 
-.card {
-  padding: 12px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-}
-
-.cardSubject {
-  font-size: var(--hd-text);
-  font-weight: 600;
-  color: var(--hdp-alias-label-primary);
-}
-
-.cardBody {
-  margin: 8px 0 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-family: inherit;
-  font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-}
-
 .cardChips {
   display: flex;
   flex-wrap: wrap;
@@ -758,64 +388,25 @@
   grid-template-columns: auto 1fr;
   gap: 4px 12px;
   margin: 12px 0 0;
-  font-size: var(--hd-text-xs);
-}
-
-.cardMeta dt {
-  color: var(--hdp-alias-label-tertiary);
 }
 
 .cardMeta dd {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-  color: var(--hdp-alias-label-secondary);
-}
-
-.cardMeta code {
-  font-family: var(--hdp-font-family-code);
 }
 
 .cardCopy {
   display: inline-flex;
   vertical-align: -2px;
   margin-left: 6px;
-  padding: 1px;
-  border: none;
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
-}
 
-.cardCopy:hover {
-  color: var(--hdp-alias-label-primary);
 }
 
 .parentLink {
-  border: none;
-  background: none;
-  padding: 0;
+
   margin-right: 8px;
-  font-family: var(--hdp-font-family-code);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-accent);
-  cursor: pointer;
-}
 
-.parentLink:hover {
-  text-decoration: underline;
-}
-
-.fileHead {
-  padding: 10px 12px 4px;
-  font-size: var(--hd-text-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--hdp-alias-label-tertiary);
-}
-
-.files {
-  padding-bottom: 8px;
 }
 
 .fileRow {
@@ -823,47 +414,9 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 2px 12px;
-  border: none;
-  background: none;
+
   text-align: left;
-  font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-}
 
-.fileRow:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
-}
-
-.fileRow[data-selected] {
-  background: var(--hd-accent-dim);
-  color: var(--hdp-alias-label-primary);
-}
-
-.fileStatus {
-  flex: none;
-  width: 14px;
-  font-family: var(--hdp-font-family-code);
-  font-size: var(--hd-text-xs);
-  font-weight: 600;
-}
-
-.fileStatus[data-status='added'] {
-  color: var(--hd-success);
-}
-
-.fileStatus[data-status='deleted'],
-.fileStatus[data-status='conflicted'] {
-  color: var(--hd-danger);
-}
-
-.fileStatus[data-status='modified'] {
-  color: var(--hd-warning-ink);
-}
-
-.fileStatus[data-status='renamed'] {
-  color: var(--hd-tint-violet-ink);
 }
 
 .filePath {
@@ -876,58 +429,16 @@
   text-align: left;
 }
 
-.fileCounts {
-  flex: none;
-  display: inline-flex;
-  gap: 6px;
-  font-size: var(--hd-text-xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--hdp-alias-label-tertiary);
-}
-
-.added {
-  color: var(--hd-success);
-}
-
-.removed {
-  color: var(--hd-danger);
-}
-
 .diffHead {
   flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-secondary);
 }
 
 .fileAction {
-  border: none;
-  background: none;
-  padding: 2px 6px;
-  border-radius: var(--hd-radius-sm);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-accent);
-  cursor: pointer;
+
   white-space: nowrap;
-}
-
-.fileAction:hover {
-  background: var(--hd-accent-dim);
-}
-
-.diffScroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 10px 12px;
-}
-
-.inlineDiff {
-  padding: 4px 12px 12px;
 }
 
 /* --- create branch ------------------------------------------------------- */
@@ -942,17 +453,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: var(--hd-text-sm);
-  color: var(--hdp-alias-label-secondary);
-}
-
-.createError {
-  padding: 8px 10px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
-  overflow-wrap: anywhere;
 }
 
 /* The conflicts a verb left behind. A toast fades; a half-made merge does
@@ -962,17 +462,11 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 8px 12px;
-  background: var(--hd-warning-dim);
-  border-bottom: 1px solid var(--hdp-alias-border-l1);
 }
 
 .troubleWhat {
   flex: 1 1 200px;
   min-width: 0;
-  font-size: var(--hd-text-sm);
-  line-height: 1.45;
-  color: var(--hd-warning-ink);
 }
 
 .troubleClose {
@@ -980,15 +474,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-}
+  width: var(--hd-target-min); /* desk: canonical One UI System scale */
+ /* desk: canonical One UI System scale */
 
-.troubleClose:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
 }

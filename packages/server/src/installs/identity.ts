@@ -45,6 +45,8 @@ export const identityReaderFor = (
       return () => geminiIdentity(context)
     case 'antigravity-acp':
       return () => antigravityIdentity(context)
+    case 'opencode':
+      return () => openCodeIdentity(context)
     case 'cline':
       return () => clineIdentity(context)
     case 'devin':
@@ -146,6 +148,38 @@ const antigravityIdentity = (context: IdentityContext): Account | null => {
 }
 
 /**
+ * OpenCode has no account — it has providers, one credential each, all of
+ * them in `auth.json` under its XDG data folder. `opencode auth list` draws
+ * that file as a box of names and a count, which is why the row asks it
+ * nothing (see `known-agents.ts`, and #749): the file is the record, and
+ * this reads it the way OpenCode does.
+ *
+ * What comes back names the providers rather than a person, because that is
+ * all there is to name — `anonymous`, so a surface that names accounts uses
+ * OpenCode's own name and keeps this for the line beneath. An empty or
+ * missing file is nobody, and the observation says "Signed in" instead.
+ * Measured against opencode 1.18.30 on 2026-09-17: `{"opencode":{"type":
+ * "api","key":"…"}}`, one object per provider id, and `XDG_DATA_HOME` moves
+ * the whole folder (checked by pointing it at an empty one, which listed
+ * zero credentials).
+ */
+const openCodeIdentity = (context: IdentityContext): Account | null => {
+  const env = context.env ?? process.env
+  const data = nonEmpty(env['XDG_DATA_HOME']) ?? join(context.home ?? homedir(), '.local', 'share')
+  const auth = readJson(join(data, 'opencode', 'auth.json'))
+  if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) return null
+  // Only the keys. The values are the credentials themselves, and nothing
+  // here reads one — see the note at the top of this file.
+  const providers = Object.keys(auth).filter((name) => name.trim() !== '')
+  if (providers.length === 0) return null
+  return signedInWith(
+    providers.length > 3
+      ? `${providers.slice(0, 3).join(', ')} +${providers.length - 3} more`
+      : providers.join(', '),
+  )
+}
+
+/**
  * Cline writes every provider it has signed in to into
  * `data/settings/providers.json` and names the one in use
  * (`lastUsedProvider`); signed in to an account, that provider's
@@ -153,17 +187,30 @@ const antigravityIdentity = (context: IdentityContext): Account | null => {
  * bare key names nobody. `--data-dir` on the row moves the folder; a row
  * that moves only `--config` is not guessed at.
  */
+/**
+ * The folder `--data-dir` on the row points Cline at, resolved the way Cline
+ * itself resolves it: relative to where Cline runs (the row's `cwd`, or the
+ * desk's own directory, which an agent started without one inherits), `~`
+ * expanded against the given home. Null when the row does not move it —
+ * Cline has no environment variable for `--data-dir`, so this argument is
+ * the only place a moved account is named. Shared with the usage binding
+ * (`bootstrap.ts`), so a moved account is read the same way whichever asks.
+ */
+export const clineDataDirOverride = (context: Pick<IdentityContext, 'args' | 'cwd' | 'home'>): string | null => {
+  const dataDir = flagValue(context.args ?? [], '--data-dir')
+  if (dataDir === null) return null
+  const home = context.home ?? homedir()
+  return resolve(context.cwd ?? process.cwd(), dataDir.replace(/^~(?=$|\/)/, home))
+}
+
 const clineIdentity = (context: IdentityContext): Account | null => {
   const args = context.args ?? []
-  const dataDir = flagValue(args, '--data-dir')
-  if (dataDir === null && flagValue(args, '--config') !== null) return null
+  const override = clineDataDirOverride(context)
+  // A row that moves only `--config` is not guessed at: that flag says
+  // nothing about where the data — and the account inside it — living.
+  if (override === null && flagValue(args, '--config') !== null) return null
   const home = context.home ?? homedir()
-  // A relative folder is relative to where Cline runs: the row's `cwd`, or
-  // the desk's own directory, which an agent started without one inherits.
-  const folder =
-    dataDir === null
-      ? join(home, '.cline', 'data')
-      : resolve(context.cwd ?? process.cwd(), dataDir.replace(/^~(?=$|\/)/, home))
+  const folder = override ?? join(home, '.cline', 'data')
   const settings = readJson(join(folder, 'settings', 'providers.json'))
   const provider = flagValue(args, '--provider', '-P') ?? nonEmpty(at(settings, 'lastUsedProvider')) ?? 'cline'
   const auth = at(settings, 'providers', provider, 'settings', 'auth')

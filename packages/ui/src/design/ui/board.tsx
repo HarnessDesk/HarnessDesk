@@ -1,9 +1,10 @@
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { Children, createContext, forwardRef, useContext, useEffect, useRef, useState } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
 import { MoreIcon, PaperclipIcon, PlusIcon, ReviewIcon } from '@/components/Icons'
 import { AvatarStack, type StackMember } from './avatar-stack'
+import { EmptyState } from './empty-state'
 import { dotTint, softTone, softTint, type Tint, type Tone } from './tone'
 
 /**
@@ -54,6 +55,8 @@ import { dotTint, softTone, softTint, type Tint, type Tone } from './tone'
  */
 
 type BoardProps = React.ComponentProps<'div'> & {
+  /** Marks a board whose columns report facts and therefore cannot accept moves or additions. */
+  derived?: boolean
   /**
    * Let the columns flow onto a second row instead of scrolling sideways.
    *
@@ -74,22 +77,27 @@ type BoardProps = React.ComponentProps<'div'> & {
   wrap?: boolean
 }
 
-const Board = ({ className, wrap = false, ...props }: BoardProps) => (
-  <div
-    data-slot="board"
-    {...(wrap ? { 'data-wrap': '' } : {})}
-    className={cn(
-      'items-start gap-3 pb-2',
-      wrap
-        ? /* The parent decides the column is fluid; the column keeps its own
-             fixed width for every other board, and knows nothing about this. */
-          'grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] content-start ' +
-          '[&>[data-slot=board-column]]:w-auto [&>[data-slot=board-column]]:min-w-0'
-        : 'flex overflow-x-auto',
-      className,
-    )}
-    {...props}
-  />
+const BoardContext = createContext(false)
+
+const Board = ({ className, wrap = false, derived = false, ...props }: BoardProps) => (
+  <BoardContext.Provider value={derived}>
+    <div
+      data-slot="board"
+      {...(wrap ? { 'data-wrap': '' } : {})}
+      {...(derived ? { 'data-derived': '' } : {})}
+      className={cn(
+        'items-start gap-3 pb-2',
+        wrap
+          ? /* The parent decides the column is fluid; the column keeps its own
+               fixed width for every other board, and knows nothing about this. */
+            'grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] content-start ' +
+            '[&>[data-slot=board-column]]:w-auto [&>[data-slot=board-column]]:min-w-0'
+          : 'flex overflow-x-auto',
+        className,
+      )}
+      {...props}
+    />
+  </BoardContext.Provider>
 )
 
 type BoardColumnProps = Omit<React.ComponentProps<'div'>, 'title'> & {
@@ -133,8 +141,11 @@ const BoardColumn = ({
   addPlaceholder = 'What needs doing?',
   children,
   ...props
-}: BoardColumnProps) => (
-  <section
+}: BoardColumnProps) => {
+  const derived = useContext(BoardContext)
+  const empty = Children.toArray(children).length === 0
+
+  return <section
     data-slot="board-column"
     className={cn(
       /* The border is the half of "a column is a panel" that was missing, and
@@ -146,7 +157,7 @@ const BoardColumn = ({
          than how wide the pane is. The two are the same question on a board
          of one column and a very different one on a board of five inside a
          room's right half. */
-      '@container/board-column flex w-[280px] min-h-40 shrink-0 flex-col gap-2 rounded-(--hd-radius)',
+      '@container/board-column flex w-(--hd-board-column-width) min-h-40 shrink-0 flex-col gap-2 rounded-(--hd-radius)',
       'border border-(--hd-border-strong) bg-(--hd-muted) p-2.5',
       className,
     )}
@@ -165,13 +176,13 @@ const BoardColumn = ({
           {count}
         </span>
       )}
-      {onAdd && (
+      {!derived && onAdd && (
         <button
           type="button"
           onClick={onAdd}
           title={addLabel}
           aria-label={addLabel}
-          className="inline-flex size-5 shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5"
+          className="inline-flex size-(--hd-icon-target) shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5"
         >
           <PlusIcon />
         </button>
@@ -179,10 +190,13 @@ const BoardColumn = ({
       {actions}
     </header>
     <div className="flex min-w-0 flex-col gap-2">{children}</div>
+    {derived && empty && (
+      <EmptyState variant="inline" data-slot="board-empty" className="my-auto" title="Nothing here" />
+    )}
     {/* The second entry point, at the foot where the eye ends after reading the
         column. A composer when the column can take a title on the spot, and a
         plain slot when adding means opening something. */}
-    {onAddTitle ? (
+    {!derived && (onAddTitle ? (
       <BoardAddCard onAdd={onAddTitle} label={addLabel} placeholder={addPlaceholder} />
     ) : (
       onAdd && (
@@ -196,9 +210,9 @@ const BoardColumn = ({
           {addLabel}
         </button>
       )
-    )}
+    ))}
   </section>
-)
+}
 
 /**
  * The slot at the foot of a column, which becomes a field when pressed.
@@ -242,6 +256,7 @@ const BoardAddCard = ({
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const field = useRef<HTMLInputElement>(null)
+  const derived = useContext(BoardContext)
 
   useEffect(() => {
     if (open) field.current?.focus()
@@ -253,6 +268,8 @@ const BoardAddCard = ({
     setTitle('')
     onAdd(text)
   }
+
+  if (derived) return null
 
   if (!open) {
     return (
@@ -329,7 +346,11 @@ type BoardCardProps = Omit<React.ComponentProps<'div'>, 'title'> & {
    * "blocked" and not why.
    */
   note?: React.ReactNode
-  /** The foot's left end: a timestamp, a dependency count, anything small. */
+  /**
+   * The foot's left end: a timestamp, a dependency count, anything small. An
+   * item in it that needs the card's width marks itself `data-board-row` and
+   * gets a line of its own above the rest (see the foot below).
+   */
   meta?: React.ReactNode
   actions?: React.ReactNode
 }
@@ -379,7 +400,7 @@ const BoardCard = ({
           through its own edge, across the column beside it and out of the
           pane — which is what it did until this fixture was written. */}
       <div className="flex min-w-0 flex-col gap-1">
-        <h4 className="text-base leading-snug font-medium break-words">{title}</h4>
+        <h4 className="text-base leading-(--hd-line) font-medium break-words">{title}</h4>
         {note && (
           /* Clamped at two lines, and reachable in full on hover when it is
              plain text. The clamp is the right call — a card that grows with
@@ -388,7 +409,7 @@ const BoardCard = ({
              the third, which is the trip to the channel this line exists to
              save. */
           <p
-            className="line-clamp-2 text-xs leading-snug break-words text-(--hd-muted-foreground)"
+            className="line-clamp-2 text-xs leading-(--hd-line-sm) break-words text-(--hd-muted-foreground)"
             {...(typeof note === 'string' ? { title: note } : {})}
           >
             {note}
@@ -454,7 +475,19 @@ const BoardCard = ({
         </div>
       )}
       {hasFoot && (
-        <div className="flex items-center gap-3 border-t border-(--hd-border) pt-2 text-xs text-(--hd-muted-foreground)">
+        /* A meta item that needs the card's whole width — a row of evidence
+           chips, whose facts are sentences — marks itself `data-board-row`.
+           The foot then flattens the group holding it into its own items and
+           wraps: the row takes a line of its own at the full width, and the
+           small facts and the ⋯ share the last line, the ⋯ at its end as on
+           every other card. Without the mark the foot is one line, as it
+           always was. */
+        <div
+          className={cn(
+            'flex items-center gap-3 border-t border-(--hd-border) pt-2 text-xs text-(--hd-muted-foreground)',
+            '[&:has(>*>[data-board-row])]:flex-wrap [&:has(>*>[data-board-row])]:gap-y-1.5 [&>:has(>[data-board-row])]:contents',
+          )}
+        >
           {meta}
           {attachments != null && (
             <span className="inline-flex items-center gap-1 [&_svg]:size-3.5" title="Attachments">
@@ -468,8 +501,11 @@ const BoardCard = ({
               <span className="tabular-nums">{comments}</span>
             </span>
           )}
-          <span className="flex-1" />
-          {actions}
+          {/* Pushed to the end by a margin rather than a spacer: an empty
+              spacer is one more flex item, and the gap on each side of it
+              took 12px from the meta beside it — the width a card's evidence
+              chips need to show their fact whole. */}
+          {actions != null && <span className="ms-auto flex shrink-0 items-center gap-3">{actions}</span>}
         </div>
       )}
     </article>
@@ -491,7 +527,10 @@ const BoardMenuButton = forwardRef<HTMLButtonElement, React.ComponentProps<'butt
       type="button"
       aria-label="More"
       className={cn(
-        'inline-flex size-5 shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5',
+        /* `--hd-icon-target`, not `size-5`: this was 20px, four under the floor
+           the system declares, on the one control a card's whole menu hangs
+           from. The corner of a card is empty, so it grows into nothing. */
+        'inline-flex size-(--hd-icon-target) shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5',
         className,
       )}
       {...props}

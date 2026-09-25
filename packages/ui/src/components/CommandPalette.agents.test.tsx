@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId, type RuntimeInfo } from '@harnessdesk/protocol'
+import { runtimeId, type AgentEntry, type RuntimeInfo, type SeatPlan } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -40,7 +40,49 @@ const CLAUDE = runtimeId('claude-code')
 const runtime = (id: string, name: string): RuntimeInfo =>
   ({ id, name, capabilities: {}, presentation: { name } }) as unknown as RuntimeInfo
 
-const mount = async (): Promise<{ selectRuntime: ReturnType<typeof vi.fn>; newDraft: ReturnType<typeof vi.fn> }> => {
+const reviewer = (id: string, name: string): AgentEntry => ({
+  id,
+  origin: 'builtin',
+  path: `/app/agents/${id}/AGENT.md`,
+  digest: 'd',
+  shadows: [],
+  problems: [],
+  definition: {
+    id,
+    name,
+    description: `${name}.`,
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
+    answers: [],
+    produces: [],
+    skills: [],
+    mcp: [],
+    prefer: [{ runtime: 'claude-code' }],
+    brief: 'Review.',
+  },
+})
+
+const PLANS = new Map<string, SeatPlan>([
+  [
+    'code-reviewer',
+    {
+      id: 'code-reviewer',
+      from: 'prefer',
+      winner: 0,
+      blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
+      candidates: [{ seat: { runtime: 'claude-code' }, label: 'Claude', runtimeName: 'Claude', state: 'taken', reason: null, fix: null }],
+    },
+  ],
+])
+
+const mount = async (over: Partial<AppSnapshot> = {}): Promise<{
+  selectRuntime: ReturnType<typeof vi.fn>
+  newDraft: ReturnType<typeof vi.fn>
+  store: AppStore
+  openAgents: ReturnType<typeof vi.fn>
+  openFrontDoor: ReturnType<typeof vi.fn>
+}> => {
   const selectRuntime = vi.fn(async () => {})
   const newDraft = vi.fn()
   const snapshot: AppSnapshot = {
@@ -48,6 +90,9 @@ const mount = async (): Promise<{ selectRuntime: ReturnType<typeof vi.fn>; newDr
     status: 'open',
     runtimes: [runtime(CODEX, 'OpenAI Codex'), runtime(CLAUDE, 'Claude Code')],
     activeRuntime: CODEX,
+    agents: [reviewer('code-reviewer', 'Code reviewer')],
+    agentPlans: PLANS,
+    ...over,
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -55,8 +100,12 @@ const mount = async (): Promise<{ selectRuntime: ReturnType<typeof vi.fn>; newDr
     transport: { request: vi.fn(async () => ({ data: [], nextCursor: null })) },
     selectRuntime,
     newDraft,
+    loadAgents: vi.fn(async () => {}),
+    startAsAgent: vi.fn(async () => null),
   } as unknown as AppStore
-  const host = { close: () => {}, chooseFolder: () => {}, openSettings: () => {}, openUsage: () => {} }
+  const openAgents = vi.fn()
+  const openFrontDoor = vi.fn()
+  const host = { close: () => {}, chooseFolder: () => {}, openSettings: () => {}, openUsage: () => {}, openAgents, openFrontDoor }
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
@@ -64,7 +113,7 @@ const mount = async (): Promise<{ selectRuntime: ReturnType<typeof vi.fn>; newDr
       </StoreProvider>,
     )
   })
-  return { selectRuntime, newDraft }
+  return { selectRuntime, newDraft, store, openAgents, openFrontDoor }
 }
 
 const type = (value: string): void => {
@@ -107,4 +156,33 @@ it('starting with the agent already chosen opens the draft, and still puts the p
   // The draft is opened after the pick, in the same tick: `selectRuntime`
   // patches the default before its first await, so the draft reads it.
   expect(selectRuntime.mock.invocationCallOrder[0]).toBeLessThan(newDraft.mock.invocationCallOrder[0]!)
+})
+
+it('Start as <Agent> starts a conversation as it, and says where it would sit', async () => {
+  const { store } = await mount()
+  type('start as code')
+  const start = row('Start as Code reviewer')
+  expect(start.textContent).toContain('Claude')
+  act(() => start.click())
+  expect(store.startAsAgent).toHaveBeenCalledWith('code-reviewer')
+})
+
+it('Open <Agent> opens the Agents window on it, never Settings', async () => {
+  const { openAgents } = await mount()
+  type('open code reviewer')
+  act(() => row('Open Code reviewer').click())
+  expect(openAgents).toHaveBeenCalledWith('code-reviewer')
+})
+
+it('Start with a team opens one front door through the host, closing the palette first', async () => {
+  const { openFrontDoor } = await mount({ workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 } } as Partial<AppSnapshot>)
+  type('start with a team')
+  act(() => row('Start with a team').click())
+  expect(openFrontDoor).toHaveBeenCalledWith('/repo')
+})
+
+it('offers no team command with no project open — a context the front door has nothing to read', async () => {
+  await mount()
+  type('start with a team')
+  expect(container.querySelector('[role="option"]')).toBeNull()
 })

@@ -1,4 +1,4 @@
-import type { CodexAppServer, CodexProtocol } from '@harnessdesk/codex'
+import { CodexRpcError, type CodexAppServer, type CodexProtocol } from '@harnessdesk/codex'
 import {
   findOption,
   refuseOptionValue,
@@ -10,6 +10,8 @@ import {
   type ApprovalId,
   type ConfigOption,
   type OptionValue,
+  type ResolvedModelRoute,
+  type ReviewRequest,
   type RuntimeId,
   type SessionId,
   type CapabilityRegistry,
@@ -23,12 +25,16 @@ import {
 
 import { automaticContext, contextPreamble, type ToolProjection } from './capabilities.js'
 import type { ApprovalRouter } from './approvals.js'
+import { undoTurns } from './history.js'
 import {
+  sameSandbox,
   sessionOptions,
   settingsFromState,
   settingsUpdateFor,
+  startParamsLike,
   stateFromThreadSettings,
   type Catalog,
+  type LikeParams,
   type ThreadState,
 } from './mapping/options.js'
 import { CODEX_RUNTIME_ID, mapSummary, mapUsage, nameFromMessage, stripContext } from './mapping/session.js'
@@ -38,11 +44,23 @@ import { CODEX_RUNTIME_ID, mapSummary, mapUsage, nameFromMessage, stripContext }
  *
  * The thread's settings are held in Codex's own vocabulary (`ThreadState`) and
  * projected into options on demand. Changes go through
- * `thread/settings/update`, and Codex answers every one with a
- * `thread/settings/updated` notification carrying the whole settings record —
- * that notification, not the request, is what the state is replaced from, so
- * the interface always shows what Codex believes rather than what was asked.
+ * `thread/settings/update`, and Codex follows every one that changes anything
+ * with a `thread/settings/updated` notification carrying the whole settings
+ * record — that notification, not the request, is what the state is replaced
+ * from, so the interface always shows what Codex believes rather than what was
+ * asked. `setOption` says how a change waits for it.
  */
+
+/**
+ * How long a settings change waits for Codex to say where it landed, once
+ * Codex has taken it without saying so yet.
+ *
+ * Codex writes `thread/settings/updated` straight after its answer — a
+ * millisecond after it, measured on 0.149.0 — so this only runs out when that
+ * word is not coming, and running out refuses a change that may have been
+ * made. Generous for that reason: it ends a wait, it does not race one.
+ */
+const SETTLE_MS = 5_000
 
 export interface CodexSessionDeps {
   /** Which Codex account owns this thread — the runtime it was started on. */
@@ -63,6 +81,25 @@ export interface CodexSessionDeps {
    * name; anything Codex made is Codex's to name, and it does.
    */
   readonly created?: boolean
+  /** How long a settings change waits for Codex's word on it; `SETTLE_MS` when absent. */
+  readonly settleMs?: number
+  /**
+   * The model route this thread was opened on, if any. Its provider is
+   * defined only in the `config` the thread was started with, so a thread set
+   * up like this one needs the route again, not just the provider's name.
+   */
+  readonly route?: ResolvedModelRoute | null
+  readonly environment?: Readonly<Record<string, string>> | undefined
+  /**
+   * Starts a new thread set up like the one given and registers it with the
+   * runtime, as `createSession` would — see `CodexRuntime.#startBeside`.
+   */
+  readonly startBeside?: (like: CodexSession) => Promise<CodexSession>
+  /**
+   * The turn `turn/interrupt` has to name to stop the one given, which is not
+   * always that one: a review's is its reviewer's (`ReviewTurns.interruptible`).
+   */
+  readonly interruptible?: (threadId: string, turnId: string) => string
 }
 
 export class CodexSession implements AgentSession {
@@ -84,6 +121,21 @@ export class CodexSession implements AgentSession {
    * `turn/interrupt`, so the session has to know which turn is live.
    */
   #currentTurnId: string | null = null
+  /**
+   * Turns opened with `recordAs: 'notice'` — an Agent's standing order, not a
+   * person's words. Codex still runs the turn and reports its opening item
+   * back as `userMessage` on its own wire; this is what tells `#track`
+   * (`CodexRuntime`) to hand that one item back to the host as a `notice`
+   * instead. Cleared once the turn ends: only its opening item needs this.
+   */
+  readonly #silentTurnIds = new Set<string>()
+  /**
+   * A silent `turn/start` whose id is not known yet. Armed before the request
+   * is written, then consumed by `noteTurnStarted`: the app-server can put its
+   * response and opening notifications in one stdout chunk, whose synchronous
+   * dispatch runs before the request promise resumes.
+   */
+  #pendingSilentOrder = false
   /** Tool count Codex was told about at thread/start, for staleness detection. */
   readonly #projectedTools: number
   /**
@@ -112,6 +164,15 @@ export class CodexSession implements AgentSession {
    * the same reason, and in the same place, `AcpSession` holds its own.
    */
   #usage: SessionUsage | null = null
+  /**
+   * How many times Codex has said what this thread's settings are
+   * (`thread/settings/updated`). A setter compares it before and after its
+   * call: whatever Codex said while the call was open is its word on where the
+   * change landed, and the state already holds it.
+   */
+  #announced = 0
+  /** Setters waiting on Codex's next word about the settings; `noteSettings` wakes them. */
+  readonly #listening = new Set<() => void>()
 
   constructor(private readonly deps: CodexSessionDeps) {
     this.runtime = deps.runtime ?? CODEX_RUNTIME_ID
@@ -178,14 +239,64 @@ export class CodexSession implements AgentSession {
     return this.#state.permissions
   }
 
+  /**
+   * How a new thread is set up like this one, as of now: the fields
+   * `thread/start` takes, the route those fields cannot carry on their own,
+   * the sandbox when no profile is active, for what of it they cannot say
+   * either (`setSandbox`), and the controls the verb has no field for — mode
+   * before effort, since a mode brings an effort of its own and this
+   * thread's is the one to keep. Only controls this thread declares: a model
+   * the catalogue does not know has no effort to carry.
+   */
+  startLike(): {
+    readonly start: LikeParams
+    readonly route: ResolvedModelRoute | null
+    readonly environment: Readonly<Record<string, string>> | undefined
+    readonly sandbox: CodexProtocol.v2.SandboxPolicy | null
+    readonly after: readonly (readonly [string, OptionValue])[]
+  } {
+    const options = this.options()
+    return {
+      start: startParamsLike(this.#state),
+      route: this.deps.route ?? null,
+      environment: this.deps.environment,
+      sandbox: this.#state.sandbox,
+      after: ['mode', 'effort'].flatMap((id) => {
+        const value = findOption(options, id)?.currentValue
+        return value === undefined || value === null ? [] : [[id, value] as const]
+      }),
+    }
+  }
+
   options(): readonly ConfigOption[] {
     return sessionOptions(this.#state, this.#catalog)
   }
 
   /**
-   * Applies a change through `thread/settings/update`. The value is checked
-   * against the declared choices first: Codex accepts an unknown model id
-   * without complaint and only fails later, at the first turn.
+   * Asks Codex to move one control, and then holds where Codex says it moved
+   * to — which need not be where it was asked to go.
+   *
+   * The value is checked against the declared choices first: Codex accepts an
+   * unknown model id without complaint and only fails later, at the first turn.
+   *
+   * `thread/settings/update` is answered with `{}`, which says only that the
+   * change was taken; where it landed is `thread/settings/updated`, and the
+   * state is replaced from that (`noteSettings`), never from the request. This
+   * once wrote the request in the moment the answer came. Where Codex put a
+   * change elsewhere, the thread reported the request until the notification
+   * caught up — and when both arrived in one read, for good, because the
+   * notification is dispatched before the answer's continuation runs, so the
+   * request was written over it. Every reader above repeated the claim as a
+   * fact: a seat's read-back, a flow's label, the picker.
+   *
+   * So the call resolves when Codex has said where the change landed: at its
+   * answer when that word came before it or with it, or when it follows. An
+   * update that moves nothing Codex last reported is announced by nothing at
+   * all (measured on 0.149.0: `{}`, and no notification), so that one resolves
+   * at its answer, on what Codex already said. A change Codex took and never
+   * announced within `settleMs` is refused out loud, as a feature Codex
+   * silently declines to flip is: the control keeps what Codex last said, and
+   * the request is written nowhere a reader could take it for a reading.
    */
   async setOption(id: string, value: OptionValue): Promise<void> {
     const option = findOption(this.options(), id)
@@ -193,16 +304,73 @@ export class CodexSession implements AgentSession {
     const refusal = refuseOptionValue(option, value)
     if (refusal) throw new Error(refusal)
     const update = settingsUpdateFor(id, value, this.#state, this.#catalog)
+    const moves = movesAnything(this.#state, update)
+    const before = this.#announced
     await this.deps.server.request('thread/settings/update', { threadId: this.id, ...update })
-    // Codex also sends `thread/settings/updated`, which replaces this
-    // wholesale; applying the known effect now means the interface does not
-    // show the old value during the gap.
-    this.#replaceState(applyUpdate(this.#state, update))
+    if (moves && this.#announced === before && !(await this.#nextAnnouncement())) {
+      const held = findOption(this.options(), id) ?? option
+      throw new Error(
+        `Codex took the change to ${option.label} (${labelOf(option, value)}) without saying where it landed — the last it said was ${labelOf(held, held.currentValue)}.`,
+      )
+    }
+    this.deps.emit({ type: 'session/options', sessionId: this.id, options: this.options() })
+  }
+
+  /**
+   * Puts this thread under exactly `policy`, as `setOption` moves a control:
+   * the call resolves when Codex has said where the sandbox landed, and one
+   * Codex took without saying so is refused out loud. So is one Codex put
+   * anywhere else, since a sandbox is not a setting to come near: given a
+   * workspace sandbox, Codex adds the configuration's writable roots to it
+   * (measured on 0.145.0 and 0.155.0), which is a larger one. The thread is
+   * held where Codex put it, as a control is.
+   *
+   * For what `thread/start` cannot say (`startParamsLike`): a read-only
+   * sandbox with network access, and an external sandbox. Codex takes both
+   * as given (measured on the same versions). A thread already under this
+   * policy is left alone.
+   */
+  async setSandbox(policy: CodexProtocol.v2.SandboxPolicy): Promise<void> {
+    if (sameSandbox(this.#state.sandbox, policy)) return
+    const before = this.#announced
+    await this.deps.server.request('thread/settings/update', { threadId: this.id, sandboxPolicy: policy })
+    if (this.#announced === before && !(await this.#nextAnnouncement())) {
+      throw new Error('Codex took the sandbox without saying where it landed.')
+    }
+    if (!sameSandbox(this.#state.sandbox, policy)) {
+      throw new Error('Codex put the thread in a different sandbox from the one asked for.')
+    }
+  }
+
+  /**
+   * True at Codex's next word on this thread's settings; false once `settleMs`
+   * has passed without one.
+   *
+   * Running out is only decided after the pipe has been read once more: a
+   * timer due while the host was busy runs before the input that waited
+   * behind it, so a notification already written would lose to its own
+   * deadline — `setImmediate` runs after that read. Never unref'd: the timer
+   * is the promise's one sure resolver, and an awaited promise whose resolver
+   * does not hold the event loop is one Node 22 abandons.
+   */
+  #nextAnnouncement(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const settle = (said: boolean) => {
+        clearTimeout(timer)
+        this.#listening.delete(heard)
+        resolve(said)
+      }
+      const heard = () => settle(true)
+      const timer = setTimeout(() => setImmediate(() => settle(false)), this.deps.settleMs ?? SETTLE_MS)
+      this.#listening.add(heard)
+    })
   }
 
   /** Called by the runtime on `thread/settings/updated` — Codex's word on the matter. */
   noteSettings(settings: CodexProtocol.v2.ThreadSettings): void {
+    this.#announced += 1
     this.#replaceState(stateFromThreadSettings(settings, this.#state))
+    for (const heard of [...this.#listening]) heard()
   }
 
   /** Called by the runtime when the catalogue was refetched, e.g. after sign-in. */
@@ -271,29 +439,50 @@ export class CodexSession implements AgentSession {
   /** Called by the runtime as turns open and close on this thread. */
   noteTurnStarted(turnId: string): void {
     this.#currentTurnId = turnId
+    if (this.#pendingSilentOrder) {
+      this.#silentTurnIds.add(turnId)
+      this.#pendingSilentOrder = false
+    }
   }
 
   noteTurnEnded(turnId: string): void {
     if (this.#currentTurnId === turnId) this.#currentTurnId = null
+    this.#silentTurnIds.delete(turnId)
   }
 
   get activeTurnId(): TurnId | null {
     return this.#currentTurnId ? makeTurnId(this.#currentTurnId) : null
   }
 
-  async send(input: readonly UserContent[]): Promise<TurnId> {
+  /** Whether `turnId`'s opening item is a standing order, not a person's turn — see `#silentTurnIds`. */
+  isSilentTurn(turnId: string): boolean {
+    return this.#silentTurnIds.has(turnId)
+  }
+
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId> {
     const overrides = this.#pendingOverrides
     this.#pendingOverrides = {}
     const enriched = await this.#withContext(input)
-    const response = await this.deps.server.request('turn/start', {
-      threadId: this.id,
-      input: enriched.map(toCodexInput),
-      ...overrides,
-    })
+    const silent = opts?.recordAs === 'notice'
+    if (silent) this.#pendingSilentOrder = true
+    let response: CodexProtocol.v2.TurnStartResponse
+    try {
+      response = await this.deps.server.request('turn/start', {
+        threadId: this.id,
+        input: enriched.map(toCodexInput),
+        ...overrides,
+      })
+    } catch (error) {
+      if (silent) this.#pendingSilentOrder = false
+      throw error
+    }
     this.#currentTurnId = response.turn.id
-    // What the person sent, not what the adapter put in front of it: a hand-off to Codex was called "Git" (review of #231).
-    this.#noteOpening(input)
-    void this.#nameFromOpeningMessage(enriched)
+    if (!silent) {
+      // What the person sent, not what the adapter put in front of it: a hand-off to Codex was called "Git" (review of #231).
+      // Skipped for a standing order: it is not what opened this conversation for a person, and must not name the row after it.
+      this.#noteOpening(input)
+      void this.#nameFromOpeningMessage(enriched)
+    }
     return makeTurnId(response.turn.id)
   }
 
@@ -359,9 +548,28 @@ export class CodexSession implements AgentSession {
     })
   }
 
+  /**
+   * Stops the turn running on this thread.
+   *
+   * Codex checks a stop against the turn it holds as running and, refusing
+   * one that names another, says which it holds: "expected active turn id …
+   * but found …". Codex's own terminal client stops that turn instead, once
+   * — "Review flows can swap the active turn before the TUI processes the
+   * corresponding notification" (`tui/src/app/thread_routing.rs`, 0.145.0;
+   * the same retry in 0.155.0) — and so does this. The turn named first is
+   * the one `interruptible` says, which for a review is already the one
+   * Codex holds; the retry is for a Codex that holds another.
+   */
   async interrupt(): Promise<void> {
     const turnId = this.#requireActiveTurn('interrupt')
-    await this.deps.server.request('turn/interrupt', { threadId: this.id, turnId })
+    const named = this.deps.interruptible?.(this.id, turnId) ?? turnId
+    try {
+      await this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: named })
+    } catch (error) {
+      const held = heldTurn(error)
+      if (held === null || held === named) throw error
+      await this.deps.server.request('turn/interrupt', { threadId: this.id, turnId: held })
+    }
   }
 
   /**
@@ -420,9 +628,13 @@ export class CodexSession implements AgentSession {
   /**
    * Drops the last `turns` turns. Codex changes the thread; the files it
    * wrote stay on disk, which the interface warns about before calling.
+   *
+   * With the verb the thread's history takes (`undoTurns`): `thread/rollback`
+   * is refused a paginated thread — every thread Codex has started since
+   * 0.151.0 — after a deprecation notice, so Undo failed there under two toasts.
    */
   async rollback(turns: number): Promise<void> {
-    await this.deps.server.request('thread/rollback', { threadId: this.id, numTurns: turns })
+    await undoTurns(this.deps.server, this.deps.thread, turns)
   }
 
   async compact(): Promise<void> {
@@ -439,12 +651,59 @@ export class CodexSession implements AgentSession {
     this.deps.emit({ type: 'session/memory', sessionId: this.id, enabled })
   }
 
-  async review(target: import('@harnessdesk/protocol').ReviewRequest): Promise<void> {
+  /**
+   * Reviews a set of changes — and never with Codex's own `"detached"`
+   * delivery.
+   *
+   * That delivery forked this thread's whole history into a sub-agent. Codex
+   * 0.155.0 deprecates it: every request for it is answered with a
+   * `deprecationNotice`, which reached the person as a toast of wire names,
+   * and one on a thread with paginated history — every thread 0.155.0 starts
+   * — is then refused outright. Codex's advice is the route taken here: a new
+   * thread (`thread/start`), and an inline review on it. 0.145.0, the oldest
+   * Codex this adapter runs, takes every call of it; the evidence is
+   * `script/probe/review-side-thread.mjs`, run against both.
+   *
+   * So `detached` is a conversation of its own: set up like this one, named
+   * for what it reviews, registered like any other so its turn streams to the
+   * interface, and handed back for the shell to open. This thread hears
+   * nothing of it. The reviewer reads the working tree, not this
+   * conversation, as Codex's own inline review always has.
+   */
+  async review(target: ReviewRequest): Promise<CodexSession | null> {
+    if (target.delivery !== 'detached') {
+      await this.#startReview(target)
+      return null
+    }
+    if (!this.deps.startBeside) throw new Error('This Codex session cannot start another beside it.')
+    const side = await this.deps.startBeside(this)
+    try {
+      await side.#startReview(target)
+    } catch (error) {
+      await side.close()
+      throw error
+    }
+    // Named once the review is under way, so one Codex refused leaves no
+    // named, empty thread behind. A name is a courtesy: a thread that will
+    // not take one is still reviewing.
+    await side.setTitle(reviewTitle(target)).catch(() => {})
+    return side
+  }
+
+  /**
+   * `review/start`, inline on this thread. The review's turn is not taken
+   * from the answer, as a sent message's is: the notifications carry its
+   * start and its end in order (`ReviewTurns`), and the answer is not ordered
+   * against them — taken after a quick review's end, it would hold the
+   * thread busy for good.
+   */
+  async #startReview(target: ReviewRequest): Promise<void> {
     await this.deps.server.request('review/start', {
       threadId: this.id,
       target: toCodexReviewTarget(target),
-      ...(target.delivery ? { delivery: target.delivery } : {}),
+      delivery: 'inline',
     })
+    this.#touchedAt = Date.now()
   }
 
   /** Sets or clears the session's standing objective. */
@@ -459,6 +718,9 @@ export class CodexSession implements AgentSession {
   async setTitle(title: string): Promise<void> {
     await this.deps.server.request('thread/name/set', { threadId: this.id, name: title })
     this.#name = title
+    // Named now, so the opening message never names it again — a review's
+    // side thread is named before anyone has written in it.
+    this.#nameable = false
   }
 
   async close(): Promise<void> {
@@ -478,7 +740,26 @@ const settingsChanged = (a: ThreadState, b: ThreadState): boolean =>
   a.modelProvider !== b.modelProvider ||
   a.workspaceRoots.join('\0') !== b.workspaceRoots.join('\0')
 
-/** The state a successful `thread/settings/update` with these fields leaves behind. */
+/**
+ * Whether an update moves anything Codex last reported — which is whether
+ * Codex will say anything about it: it announces a change, and answers one
+ * that moves nothing with `{}` alone (measured on 0.149.0). Every value an
+ * option writes is a string or null, so identity is the comparison.
+ */
+const movesAnything = (
+  state: ThreadState,
+  update: Omit<CodexProtocol.v2.ThreadSettingsUpdateParams, 'threadId'>,
+): boolean => {
+  const next = applyUpdate(state, update)
+  return (Object.keys(next) as (keyof ThreadState)[]).some((key) => next[key] !== state[key])
+}
+
+/** A value as its control words it: the choice's label, or the value itself where the control has none. */
+const labelOf = (option: ConfigOption, value: OptionValue): string =>
+  (option.type === 'select' ? option.choices.find((choice) => choice.value === value)?.label : undefined) ??
+  String(value)
+
+/** What a `thread/settings/update` with these fields asks for, laid over the state — a prediction, never a reading. */
 const applyUpdate = (
   state: ThreadState,
   update: Omit<CodexProtocol.v2.ThreadSettingsUpdateParams, 'threadId'>,
@@ -488,7 +769,7 @@ const applyUpdate = (
   ...(update.effort !== undefined ? { effort: update.effort } : {}),
   ...(update.approvalPolicy != null ? { approvalPolicy: update.approvalPolicy } : {}),
   ...(update.approvalsReviewer != null ? { approvalsReviewer: update.approvalsReviewer } : {}),
-  ...(update.permissions != null ? { permissions: update.permissions } : {}),
+  ...(update.permissions != null ? { permissions: update.permissions, sandbox: null } : {}),
   ...(update.serviceTier !== undefined ? { serviceTier: update.serviceTier } : {}),
   ...(update.collaborationMode
     ? {
@@ -513,9 +794,36 @@ const toCodexInput = (content: UserContent): CodexProtocol.v2.UserInput => {
   }
 }
 
-const toCodexReviewTarget = (
-  target: import('@harnessdesk/protocol').ReviewRequest,
-): CodexProtocol.v2.ReviewTarget => {
+/**
+ * The turn Codex holds as running, from its refusal of a stop that named
+ * another — read the way Codex's own terminal client reads it
+ * (`active_turn_interrupt_race`, `tui/src/app.rs`, 0.145.0 and 0.155.0),
+ * and checked against both by `script/probe/review-side-thread.mjs`. Null for
+ * any other failure.
+ */
+const heldTurn = (error: unknown): string | null => {
+  if (!(error instanceof CodexRpcError)) return null
+  return /^expected active turn id .*? but found (.+)$/.exec(error.message)?.[1] ?? null
+}
+
+/**
+ * What a review's own thread is called: what it reviews, since that is all
+ * there is to tell one from another in a list.
+ */
+const reviewTitle = (target: ReviewRequest): string => {
+  switch (target.type) {
+    case 'uncommitted':
+      return 'Review of uncommitted changes'
+    case 'baseBranch':
+      return `Review of changes against ${target.branch}`
+    case 'commit':
+      return `Review of commit ${target.sha.slice(0, 7)}`
+    case 'custom':
+      return `Review: ${nameFromMessage(target.instructions, 48) ?? 'custom instructions'}`
+  }
+}
+
+const toCodexReviewTarget = (target: ReviewRequest): CodexProtocol.v2.ReviewTarget => {
   switch (target.type) {
     case 'uncommitted':
       return { type: 'uncommittedChanges' }

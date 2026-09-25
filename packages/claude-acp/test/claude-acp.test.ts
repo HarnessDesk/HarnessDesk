@@ -32,6 +32,7 @@ const make = (extra: Record<string, string> = {}): AcpRuntime =>
     args: [BRIDGE],
     env: {
       CLAUDE_CODE_EXECUTABLE: FAKE,
+      CLAUDE_CONFIG_DIR: scratch('claude-config-'),
       CLAUDE_ACP_STATE_DIR: scratch('claude-acp-state-'),
       CLAUDECODE: '',
       ...extra,
@@ -95,6 +96,35 @@ test('the effort control is declared from the model the agent reports, beside th
   } finally {
     await runtime.dispose()
   }
+})
+
+test('the shared ACP adapter keeps Claude effort controls in the reasoning category', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    const effort = effortOf(session.options())
+    assert.ok(effort)
+    assert.equal(effort.category, 'thought_level')
+    assert.equal(session.options().find((option) => option.id === 'mode')?.category, 'mode')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('the bridge uses the official Claude ACP package contract', () => {
+  const manifest = JSON.parse(readFileSync(join(process.cwd(), 'packages/claude-acp/package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>
+  }
+  assert.deepEqual(manifest.dependencies, {
+    '@harnessdesk/protocol': 'workspace:*',
+    '@agentclientprotocol/claude-agent-acp': '0.77.0',
+    '@agentclientprotocol/sdk': '1.4.0',
+    '@anthropic-ai/claude-agent-sdk': '0.3.272',
+    '@modelcontextprotocol/sdk': '1.30.0',
+    zod: '4.6.5',
+  })
+  assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@zed-industries/claude-code-acp'), false)
 })
 
 test("the catalogue carries each model's own levels — including the model that has none", async () => {
@@ -434,7 +464,9 @@ test('context fill and turn usage reach the client, from the agent\'s own counts
     const after = (await runtime.readSession(session.id)).usage
     assert.ok(after)
     // The fake's first call: 12 fresh + 3000 cache written + 20000 cache read in, 40 out.
-    assert.equal(after.contextUsed, 23012, 'what the latest call put in context')
+    // ACP 1.4 forwards the Agent SDK's message-start usage, whose output stub
+    // is one token before the terminal result supplies the exact turn totals.
+    assert.equal(after.contextUsed, 23013, 'what the latest call put in context')
     assert.equal(after.contextWindow, 200000, 'the window, from modelUsage')
     assert.deepEqual(after.last, {
       totalTokens: 23052,
@@ -459,7 +491,7 @@ test('context fill and turn usage reach the client, from the agent\'s own counts
     await ask(runtime, session, 'second', tape)
     const again = (await runtime.readSession(session.id)).usage
     assert.ok(again)
-    assert.equal(again.contextUsed, 43012, 'the context grew by the previous call')
+    assert.equal(again.contextUsed, 43013, 'the context grew by the previous call')
     assert.equal(again.total.totalTokens, 23052 + 43052, 'two turns summed')
     assert.equal(again.last.totalTokens, 43052, 'last is the latest turn alone')
     assert.ok(again.cost && Math.abs(again.cost.amount - 0.0246) < 1e-9, 'cost is cumulative')

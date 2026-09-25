@@ -1,11 +1,13 @@
+import { Button, DisclosureChevron, Separator, Spinner, TurnItem } from '../design'
 import { useState } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
 import { describeGroup } from '../lib/group-items'
-import { ChevronIcon, ToolIcon } from './Icons'
+import { ToolIcon } from './Icons'
 import { ItemView } from './Items'
 import styles from './Items.module.css'
+import own from './StepGroup.module.css'
 
 /**
  * A collapsed burst of agent steps.
@@ -22,10 +24,12 @@ export const StepGroup = ({
   items,
   running,
   root,
+  register,
 }: {
   items: readonly AgentItem[]
   running: boolean
   root?: string
+  register?: 'light'
 }) => {
   const [open, setOpen] = useState(false)
   const [pinned, setPinned] = useState(false)
@@ -38,34 +42,33 @@ export const StepGroup = ({
   const expanded = pinned ? open : running
 
   return (
-    <div className={styles.item}>
+    <TurnItem register={register} className={styles.item}>
       <div className={styles.group}>
-        <button
+        <Button
           type="button"
-          className={styles.groupHeader}
+          variant="quiet" size="row" className={styles.groupHeader}
           aria-expanded={expanded}
           onClick={() => {
             setPinned(true)
             setOpen(!expanded)
           }}
         >
-          <ChevronIcon
-            className={styles.chevron}
-            size={12}
-            {...(expanded ? { 'data-open': '' } : {})}
-          />
+          <DisclosureChevron open={expanded} size="sm" />
           <ToolIcon size={13} />
           <span className={styles.groupSummary}>{describeGroup(items)}</span>
-          {running && <span className={styles.spinner} />}
-        </button>
+          {running && <Spinner size="sm" tone="brand" />}
+        </Button>
         {expanded && (
-          <div className={styles.groupBody}>
-            {items.map((item) => (
-              <ItemView key={item.id} item={item} root={root} />
-            ))}
-          </div>
+          <>
+            {register !== 'light' && <Separator />}
+            <div className={own.body} data-register={register}>
+              {items.map((item) => (
+                <ItemView key={item.id} item={item} root={root} register={register} />
+              ))}
+            </div>
+          </>
         )}
       </div>
-    </div>
+    </TurnItem>
   )
 }

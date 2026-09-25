@@ -1,3 +1,4 @@
+import { Button, Card, CardViewport, Text } from '../design'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 
 import { editorLook } from '../lib/editor-prefs'
@@ -95,7 +96,8 @@ const Mini = ({ dark, both }: { dark: boolean; both?: boolean }) => {
     )
   }
   return (
-    <svg className={styles.mini} viewBox="0 0 240 160" aria-hidden="true">
+    <Card as="span" variant="flush" radius="lg" className={styles.mini}>
+      <svg className={styles.miniArt} viewBox="0 0 240 160" aria-hidden="true">
       {both ? (
         <>
           <defs>
@@ -112,7 +114,8 @@ const Mini = ({ dark, both }: { dark: boolean; both?: boolean }) => {
       ) : (
         draw(dark)
       )}
-    </svg>
+      </svg>
+    </Card>
   )
 }
 
@@ -129,18 +132,18 @@ export const ThemeCards = () => {
   return (
     <div className={styles.cards} role="radiogroup" aria-label="Theme">
       {THEMES.map((entry) => (
-        <button
+        <Button
           key={entry.value}
           type="button"
           role="radio"
           aria-checked={theme === entry.value}
-          className={styles.card}
+          variant="choice" size="row" className={styles.card}
           {...(theme === entry.value ? { 'data-on': '' } : {})}
           onClick={() => store.setTheme(entry.value)}
         >
           <Mini dark={entry.dark} both={entry.both} />
-          <span className={styles.cardLabel}>{entry.label}</span>
-        </button>
+          <Text role="row">{entry.label}</Text>
+        </Button>
       ))}
     </div>
   )
@@ -152,21 +155,23 @@ export const EditorSample = () => {
   const dark = useResolvedDark()
   const appearance = useMemo(() => editorLook(editorPrefs), [editorPrefs])
   return (
-    <div className={styles.sample} aria-label="Code editor preview">
-      <Suspense fallback={<div className={styles.sampleBlank} />}>
-        <CodeEditor
-          className={styles.sampleEditor}
-          value={SAMPLE}
-          path="plan.ts"
-          readOnly
-          dark={dark}
-          look={appearance}
-          lineNumbers={editorPrefs.lineNumbers}
-          wrap={editorPrefs.wrap}
-          tabSize={editorPrefs.tabSize}
-          ariaLabel="Code editor preview"
-        />
-      </Suspense>
-    </div>
+    <Card variant="flush" radius="lg" className={styles.sample} aria-label="Code editor preview">
+      <CardViewport size="editor">
+        <Suspense fallback={<div className={styles.sampleBlank} />}>
+          <CodeEditor
+            className={styles.sampleEditor}
+            value={SAMPLE}
+            path="plan.ts"
+            readOnly
+            dark={dark}
+            look={appearance}
+            lineNumbers={editorPrefs.lineNumbers}
+            wrap={editorPrefs.wrap}
+            tabSize={editorPrefs.tabSize}
+            ariaLabel="Code editor preview"
+          />
+        </Suspense>
+      </CardViewport>
+    </Card>
   )
 }

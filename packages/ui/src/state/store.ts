@@ -8,8 +8,14 @@ import {
   type ExtensionEvent,
   type PluginInstance,
   type BackgroundTask,
+  type BoardEvidence,
+  type CheckUnseen,
+  type SeatRecord,
+  type ProjectChecks,
+  type AgentEntry,
   type AgentEvent,
   type AgentItem,
+  type AgentOrigin,
   type ApprovalDecision,
   type ApprovalId,
   type CapabilityContribution,
@@ -18,6 +24,7 @@ import {
   findOption,
   type EditorDocument,
   type EditorEvent,
+  type MachineSeating,
   type ModelInfo,
   type NoticeLevel,
   type McpServer,
@@ -26,6 +33,8 @@ import {
   type ScopeQuery,
   type RuntimeCatalog,
   type RuntimePlugin,
+  type SeatFix,
+  type SeatPlan,
   type LedgerQuery,
   type LedgerReport,
   type RateLimits,
@@ -47,20 +56,74 @@ import {
   type TeamInbound,
   type TeamPeerInfo,
   type TeamState,
+  type TriggerArmPreview,
+  type TriggerGoalStatus,
+  type TriggerHistoryPage,
+  type TriggerPreferences,
+  type TriggerProjectView,
+  type TriggerView,
   type FlowDryRun,
+  type FlowEntry,
+  type FlowExecution,
   type FlowFile,
+  type FlowOrigin,
+  type FlowPreview,
+  type FlowStartRequest,
+  type FlowUpdatePreview,
+  type FlowUpdateResult,
+  type CarryFindingsInput,
+  type CeilingLevel,
+  type FindingDetailPage,
+  type FindingRunView,
+  type FindingPublicationsView,
+  type FindingView,
   type FlowRun,
+  type FlowSeat,
+  type GoalCreateInput,
+  type GoalId,
+  type GoalReceipt,
+  type GoalSeatRequest,
+  type GoalView,
+  type HostParams,
+  type Lane,
+  type LanePreferences,
+  type SessionPointer,
+  type WrapChoices,
+  type WrapPreview,
   type TerminalSize,
   type UiDecoration,
   type UserContent,
   type WireNotification,
+  type InsightQuery,
+  type InsightReport,
+  type InsightCompareQuery,
+  type InsightComparison,
+  type InsightOrderQuery,
+  type InsightOrderPreview,
   type Worktree,
+  type AgentFieldEdit,
+  type AuthoringDocument,
+  type AuthoringPending,
+  type AuthoringSaveInput,
+  type AuthoringSavePreview,
+  type AuthoringSaveResult,
+  type AuthoringIssue,
+  type AuthoringTarget,
+  type FlowPolicy,
+  type FrontDoorPreview,
+  type FrontDoorPreviewInput,
+  type StartContext,
+  type TriggerDefinition,
+  type TriggerSource,
+  type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
+import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
-import { openExternal } from '../lib/desktop'
+import { emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
+import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
 import { readColumnWidths } from '../lib/git-columns'
@@ -72,6 +135,7 @@ import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
+import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
 import {
   afterDismiss,
   readNoticePolicy,
@@ -163,6 +227,20 @@ import { applyLoginCompleted, startedLogin, type LoginState } from './login'
 import { readCustomPresets, type AgentPreset } from './presets'
 import { Transport, transportUrl } from '../lib/transport'
 
+const summaryOfSession = (session: Session): SessionSummary => ({
+  id: session.id,
+  runtime: session.runtime,
+  title: session.title ?? null,
+  preview: session.preview ?? null,
+  cwd: session.cwd,
+  status: session.status,
+  createdAt: session.createdAt,
+  updatedAt: session.updatedAt,
+  git: session.git ?? null,
+  repo: null,
+  archived: session.archived ?? false,
+})
+
 /**
  * Renderer state.
  *
@@ -183,6 +261,7 @@ import {
   type PendingApproval,
   type PolicyRule,
   type RouteInfo,
+  type SeatRefusal,
   type StoredCredential,
 } from './snapshot'
 
@@ -196,11 +275,200 @@ export type {
   PendingApproval,
   PolicyRule,
   RouteInfo,
+  SeatRefusal,
   StoredCredential,
 } from './snapshot'
 export { emptySnapshot } from './snapshot'
 
+export type UnheldCeilings = 'seat' | 'refuse'
+
 export class AppStore {
+  #captureEpoch = 0
+  #captureList = 0
+  /**
+   * Bumped on a workspace switch or a lost connection: a flow surface binds
+   * an in-flight catalogue read, preview or update preview to the value it
+   * held when the request began, and discards the reply once this has moved
+   * on — the same shape as `#agentsGeneration`, for the same reason a stale
+   * preview must read as though it never arrived rather than replace what a
+   * newer root or a fresh connection already answered.
+   */
+  #flowGeneration = 0
+
+  #keepCaptureHealth(health: import('@harnessdesk/protocol').CaptureHealth): void {
+    if (health.revision < (this.#snapshot.provenanceRevision.get(health.project) ?? -1)) return
+    this.#patch({
+      captureHealth: new Map(this.#snapshot.captureHealth).set(health.project, health),
+      provenanceRevision: new Map(this.#snapshot.provenanceRevision).set(health.project, health.revision),
+    })
+  }
+
+  async readProvenance(root: string, shas: readonly string[]): Promise<import('@harnessdesk/protocol').ProjectProvenance> {
+    const epoch = this.#captureEpoch
+    const value = await this.transport.request('provenance/commits', { root, shas })
+    if (epoch === this.#captureEpoch) this.#keepCaptureHealth(value.health)
+    return value
+  }
+
+  readProvenanceSeat(root: string, seat: string): Promise<import('@harnessdesk/protocol').ProvenanceSeatDetail> {
+    return this.transport.request('provenance/seat', { root, seat })
+  }
+
+  async loadCaptureHealth(root?: string): Promise<void> {
+    const epoch = this.#captureEpoch
+    const sequence = root === undefined ? ++this.#captureList : this.#captureList
+    const before = this.#snapshot.captureHealth
+    const values = await this.transport.request('provenance/status', root === undefined ? {} : { root })
+    if (epoch !== this.#captureEpoch || (root === undefined && sequence !== this.#captureList)) return
+    if (root === undefined) {
+      const present = new Set(values.map((value) => value.project))
+      const captureHealth = new Map(this.#snapshot.captureHealth)
+      const provenanceRevision = new Map(this.#snapshot.provenanceRevision)
+      for (const [project, health] of before) {
+        if (!present.has(project) && captureHealth.get(project) === health) {
+          captureHealth.delete(project)
+          provenanceRevision.delete(project)
+        }
+      }
+      this.#patch({ captureHealth, provenanceRevision })
+    }
+    for (const health of values) this.#keepCaptureHealth(health)
+  }
+
+  async setCapture(root: string, enabled: boolean): Promise<import('@harnessdesk/protocol').CaptureHealth> {
+    const epoch = this.#captureEpoch
+    const health = await this.transport.request('provenance/capture', { root, enabled })
+    if (epoch === this.#captureEpoch) this.#keepCaptureHealth(health)
+    return health
+  }
+
+  async retryCapture(root: string): Promise<import('@harnessdesk/protocol').CaptureHealth> {
+    const epoch = this.#captureEpoch
+    const health = await this.transport.request('provenance/retry', { root })
+    if (epoch === this.#captureEpoch) this.#keepCaptureHealth(health)
+    return health
+  }
+
+  // -------------------------------------------------------------- intake
+  /**
+   * A project's own consent revision only ever grows. A `trigger/list` reply
+   * carries its own, and `trigger/changed` pushes it independently — a list
+   * request started before an arm can land after it, and its older number
+   * must not walk the revision back down, which is what a component's
+   * `useEffect` on `triggerRevisions[root]` depends on to know to re-read.
+   * The host stays authoritative for armed state and history: this counter
+   * is invalidation only, never a cache of the view itself.
+   */
+  #keepTriggerRevision(project: string, revision: number): void {
+    if (revision <= (this.#snapshot.triggerRevisions[project] ?? -1)) return
+    this.#patch({ triggerRevisions: { ...this.#snapshot.triggerRevisions, [project]: revision } })
+  }
+
+  async projectTriggers(root: string): Promise<TriggerProjectView> {
+    const view = await this.transport.request('trigger/list', { root })
+    // The host names a project by its canonical path; this window may have opened it by another (a symlink).
+    const roots = this.#triggerRoots.get(view.project) ?? new Set<string>()
+    this.#triggerRoots.set(view.project, roots.add(root))
+    this.#keepTriggerRevision(root, view.revision)
+    return view
+  }
+
+  /** The roots this window read each canonical project's triggers by. */
+  readonly #triggerRoots = new Map<string, Set<string>>()
+
+  /**
+   * A `trigger/changed` push is news whatever number it carries — a source's
+   * status can move without a new consent revision, and the host numbers its
+   * journal and its consent apart — so it invalidates by moving each
+   * affected revision forward: the project it names, every root this window
+   * read that project by, and every one of them for the machine's own
+   * controls (no project). Never backwards.
+   */
+  #triggersChanged(project: string, revision: number): void {
+    const keys = project === '' ? [...this.#triggerRoots.values()].flatMap((roots) => [...roots]) : [project, ...(this.#triggerRoots.get(project) ?? [])]
+    for (const key of new Set(keys)) this.#keepTriggerRevision(key, Math.max(revision, (this.#snapshot.triggerRevisions[key] ?? 0) + 1))
+  }
+
+  previewTrigger(root: string, id: string): Promise<TriggerArmPreview> {
+    return this.transport.request('trigger/preview', { root, id })
+  }
+
+  async armTrigger(root: string, id: string, token: string): Promise<TriggerView> {
+    const view = await this.transport.request('trigger/arm', { root, id, token })
+    // The exact new consent revision arrives on `trigger/changed`; bumping
+    // ahead of it here only nudges a mounted `ProjectTriggers` to re-read
+    // immediately rather than wait for that round trip, and the guard above
+    // keeps the eventual real number from ever being walked backwards.
+    this.#keepTriggerRevision(root, (this.#snapshot.triggerRevisions[root] ?? 0) + 1)
+    return view
+  }
+
+  async disarmTrigger(root: string, id: string): Promise<TriggerView> {
+    const view = await this.transport.request('trigger/disarm', { root, id })
+    this.#keepTriggerRevision(root, (this.#snapshot.triggerRevisions[root] ?? 0) + 1)
+    return view
+  }
+
+  /** A trigger's source stopped at a gap watches from now: what changed in the gap is skipped, never replayed. */
+  async rebaselineTrigger(root: string, id: string): Promise<TriggerView> {
+    const view = await this.transport.request('trigger/rebaseline', { root, id })
+    this.#keepTriggerRevision(root, (this.#snapshot.triggerRevisions[root] ?? 0) + 1)
+    return view
+  }
+
+  triggerHistory(root: string, id: string, cursor?: string): Promise<TriggerHistoryPage> {
+    return this.transport.request('trigger/history', cursor === undefined ? { root, id } : { root, id, cursor })
+  }
+
+  triggerPreferences(): Promise<TriggerPreferences> {
+    return this.transport.request('trigger/preferences', {})
+  }
+
+  async setTriggerPreferences(revision: number, paused: boolean, dailyUsd: number): Promise<TriggerPreferences> {
+    const next = await this.transport.request('trigger/preferences/set', { revision, paused, dailyUsd })
+    this.#patch({ triggerPreferences: next })
+    return next
+  }
+
+  triggerGoal(goal: string): Promise<TriggerGoalStatus | null> {
+    return this.transport.request('trigger/goal', { goal: goal as GoalId })
+  }
+
+  /** What happens when a Goal a trigger opened cannot hold a Seat's ceiling. Mirrors `loadUnheldCeilings`. */
+  async loadUnattendedCeilings(): Promise<UnheldCeilings> {
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      const unattended = typeof stored === 'object' && stored !== null
+        ? (stored as { unattended?: unknown }).unattended
+        : undefined
+      return unattended === 'seat' ? 'seat' : 'refuse'
+    } catch {
+      return 'refuse'
+    }
+  }
+
+  /**
+   * Writes only the unattended unheld-ceiling preference, first reading the
+   * current object so the watched value already there is never erased: the
+   * host's `app/state/set` replaces `unheldCeilings` whole rather than
+   * merging inside it.
+   */
+  async setUnattendedCeilings(value: UnheldCeilings): Promise<void> {
+    let watched: unknown
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      watched = typeof stored === 'object' && stored !== null ? (stored as { watched?: unknown }).watched : undefined
+    } catch {
+      watched = undefined
+    }
+    await this.#writePreference(
+      { unheldCeilings: { ...(watched === 'seat' || watched === 'refuse' ? { watched } : {}), unattended: value } },
+      'What happens when a trigger’s Goal cannot hold a ceiling',
+    )
+  }
+
   #snapshot: AppSnapshot = emptySnapshot()
   #listeners = new Set<() => void>()
   readonly transport: Transport
@@ -209,6 +477,10 @@ export class AppStore {
     this.transport = new Transport(url, {
       onEvent: (runtime, event) => this.#onEvent(runtime, event),
       onNotification: (notification) => {
+        if (notification.method === 'provenance/changed') {
+          const { project, revision, health } = notification.params
+          if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
+        }
         if (notification.method === 'sync') {
           const sessions = new Map(this.#snapshot.sessions)
           const rawSessions = Array.isArray(notification.params.sessions)
@@ -293,6 +565,8 @@ export class AppStore {
             this.#patch({ runtimes: [...this.#snapshot.runtimes, info] })
           }
           void this.loadAccounts()
+          // A runtime just added may be exactly what an Agent's `prefer` names.
+          if (this.#agentsRequested) void this.loadAgentPlans()
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
@@ -316,6 +590,51 @@ export class AppStore {
             history: this.#snapshot.history.filter((entry) => entry.runtime !== runtime),
             historyCursor: anchored ? null : this.#snapshot.historyCursor,
           })
+          // Whatever a plan had it seated on may no longer be offered at all.
+          if (this.#agentsRequested) void this.loadAgentPlans()
+        }
+        if (notification.method === 'session/removed') {
+          this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
+        }
+        if (notification.method === 'agent/changed') {
+          /* A file under the roster moved, or this machine's seats did. Read
+             again only when a load has been asked for at least once — a
+             window that never showed an Agent has nothing drawn from the
+             roster to go stale — and only for a project this window shows:
+             `null` is this machine's roster or `seating.json`, either of
+             which touches every open project; a named one is the watched
+             project root, which for a folder opened inside its checkout is
+             that checkout's top rather than the folder itself — so both
+             spellings of "this window's project" are checked. `checkoutRoot`,
+             never `workspace.repo?.root`: for a linked worktree the latter is
+             deliberately the *main* checkout, which the watch does not name.
+             The dry run asks every runtime a question, so a notice for a
+             project nobody here is looking at is not worth that. */
+          const { project } = notification.params
+          const open = this.#snapshot.workspace?.path ?? null
+          const top = this.#snapshot.workspace?.checkoutRoot ?? null
+          if (this.#agentsRequested && (project === null || project === open || project === top)) {
+            void this.loadAgents()
+          }
+          // Every Agent a conversation was seated as, read again: a brief that moved on says so on its card.
+          for (const key of this.#snapshot.seatAgents.keys()) {
+            const [cwd, id] = JSON.parse(key) as [string, string]
+            this.readSeatAgent(cwd, id)
+          }
+          // This Mac's seats may be what changed; read them again only where a
+          // page has read them. A seating notice says which host revision it
+          // represents, so one already drawn needs no round trip. Roster
+          // notices carry none and preserve the older conservative reload.
+          if (
+            this.#snapshot.seating !== null &&
+            (notification.params.revision === undefined ||
+              notification.params.revision > this.#snapshot.seating.revision)
+          ) {
+            void this.loadSeating()
+          }
+        }
+        if (notification.method === 'session/removed') {
+          this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
         }
         if (notification.method === 'usage/updated') {
           // One account at a time, so a slow source never holds up a fast one.
@@ -338,6 +657,14 @@ export class AppStore {
           teams.set(state.id, state)
           this.#patch({ teams })
         }
+        if (notification.method === 'goal/changed') {
+          this.#goalEvents += 1
+          this.#keepGoal(notification.params.view)
+        }
+        if (notification.method === 'finding/changed') {
+          // Invalidation only, never a claim's body: reload the affected Goal, coalesced against a burst of these.
+          this.#findingsRefresh(notification.params.goal)
+        }
         if (notification.method === 'flow/changed') {
           // Whole, for the reason the board is: a round opening changes what
           // every card beside it means.
@@ -346,11 +673,34 @@ export class AppStore {
           flowRuns.set(room, runs)
           this.#patch({ flowRuns })
         }
+        if (notification.method === 'flow/execution-changed') {
+          // Whole, for the same reason: a round or an evidence write changes
+          // what a run status surface should be showing right now.
+          const { execution } = notification.params
+          const flowExecutions = new Map(this.#snapshot.flowExecutions)
+          flowExecutions.set(execution.id, execution)
+          this.#patch({ flowExecutions })
+        }
+        if (notification.method === 'evidence/changed') {
+          const { room, evidence } = notification.params
+          this.#keepBoardEvidence(room, evidence)
+        }
+        if (notification.method === 'trigger/changed') this.#triggersChanged(notification.params.project, notification.params.revision)
+        if (notification.method === 'trigger/attention') {
+          const { attention } = notification.params
+          this.#patch({
+            triggerAttention: { ...this.#snapshot.triggerAttention, [attention.id]: attention },
+          })
+        }
         if (notification.method === 'team/removed') {
           const { room } = notification.params
           const teams = new Map(this.#snapshot.teams)
           teams.delete(room)
-          this.#patch({ teams })
+          const boardEvidence = new Map(this.#snapshot.boardEvidence)
+          boardEvidence.delete(room)
+          const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+          boardEvidenceFailed.delete(room)
+          this.#patch({ teams, boardEvidence, boardEvidenceFailed })
           /* A pane pointed at a room that no longer exists is a surface backed
              by nothing — it would draw the empty board rather than say why. It
              goes with the room, and whatever the pane was replacing comes
@@ -373,7 +723,17 @@ export class AppStore {
           }
         }
       },
-      onStatus: (status) => this.#patch({ status }),
+      onStatus: (status) => {
+        const previous = this.#snapshot.status
+        if (status !== 'open') {
+          this.#captureEpoch += 1
+          this.#flowGeneration += 1
+          this.#patch({ status, captureHealth: new Map(), provenanceRevision: new Map() })
+        } else {
+          this.#patch({ status })
+          if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
+        }
+      },
     })
     this.#watchWindowWidth()
   }
@@ -396,11 +756,17 @@ export class AppStore {
       activeRuntime: this.#snapshot.activeRuntime ?? hello.runtimes[0]?.id ?? null,
       credentialProtection: hello.credentialProtection,
       home: hello.home,
+      stateDir: hello.stateDir,
+      goalMigrationPending: hello.goalMigrationPending,
     })
     // Preferences first: they may restore the runtime the user last worked
     // with, and everything below loads for whichever runtime is active.
     await this.loadPreferences()
     await Promise.all([this.refreshRuntime(), this.loadWorkspaces(), this.loadPlugins(), this.loadAccounts()])
+    // Goal history is additive to the ordinary conversation path. A damaged
+    // migration stays visible as Goal-specific recovery state without making
+    // the rest of the desk unusable.
+    await this.loadGoals().catch(() => undefined)
     // The header strip is up from the first frame, so what every plan has left
     // is loaded once here rather than on the first ⌘U. Cached readings answer
     // most of these without anyone being asked again.
@@ -989,8 +1355,10 @@ export class AppStore {
       return
     }
     await this.startLogin(runtime, method.id)
-    const start = this.#snapshot.logins[runtime]?.start
-    if (start) openExternal(start.url)
+    // No URL means the agent opened the browser itself — ACP's `authenticate`
+    // does — so there is nothing here to open and nothing to report.
+    const url = this.#snapshot.logins[runtime]?.start.url
+    if (url) openExternal(url)
   }
 
   /**
@@ -1104,7 +1472,7 @@ export class AppStore {
    * about the machine right now — a CLI installed since the last look counts.
    */
   async agentCatalog(): Promise<readonly AgentTemplateInfo[]> {
-    return this.transport.request('agents/catalog', {}).catch(() => [])
+    return this.transport.request('acp/catalog', {}).catch(() => [])
   }
 
   /**
@@ -1113,7 +1481,7 @@ export class AppStore {
    * with the sentence saying so rather than an error.
    */
   async acpRegistry(): Promise<AcpRegistryCatalogInfo> {
-    return this.transport.request('agents/registry', {}).catch(() => ({
+    return this.transport.request('acp/registry', {}).catch(() => ({
       agents: [],
       fetchedAt: null,
       unavailable: 'The ACP registry could not be read.',
@@ -1144,7 +1512,7 @@ export class AppStore {
     request: AgentRegisterRequest,
   ): Promise<{ runtime: RuntimeId } | { error: string }> {
     try {
-      const { runtime } = await this.transport.request('agents/register', request)
+      const { runtime } = await this.transport.request('acp/register', request)
       return { runtime }
     } catch (error) {
       return { error: describe(error) }
@@ -1158,13 +1526,13 @@ export class AppStore {
    * knowledge of this agent, which is what the page says then.
    */
   async installsFor(runtime: RuntimeId): Promise<InstallInfo | null> {
-    return this.transport.request('agents/installs', { runtime }).catch(() => null)
+    return this.transport.request('runtime/installs', { runtime }).catch(() => null)
   }
 
   /** Pins one copy as the one that answers, or clears the pin with null. */
   async useInstall(runtime: RuntimeId, path: string | null): Promise<InstallInfo | null> {
     try {
-      return await this.transport.request('agents/installs/use', { runtime, path })
+      return await this.transport.request('runtime/installs/use', { runtime, path })
     } catch (error) {
       this.notice('error', `The install could not be chosen: ${describe(error)}`)
       return null
@@ -1174,7 +1542,7 @@ export class AppStore {
   /** Replaces a download HarnessDesk made with the registry's current build. */
   async updateAgent(runtime: RuntimeId): Promise<boolean> {
     try {
-      await this.transport.request('agents/update', { runtime })
+      await this.transport.request('acp/update', { runtime })
       return true
     } catch (error) {
       this.notice('error', `The update did not go through: ${describe(error)}`)
@@ -1184,7 +1552,7 @@ export class AppStore {
 
   async removeAgent(runtime: RuntimeId): Promise<boolean> {
     try {
-      await this.transport.request('agents/remove', { runtime })
+      await this.transport.request('acp/remove', { runtime })
       return true
     } catch (error) {
       this.notice('error', describe(error))
@@ -1320,6 +1688,21 @@ export class AppStore {
   async ledger(query: LedgerQuery): Promise<LedgerReport | null> {
     return this.transport.request('usage/ledger', query).catch(() => null)
   }
+
+  /** Insight is intentionally pull-only: hidden screens never trigger a corpus read. */
+  readGoalInsight(goal: string): Promise<InsightReport> { return this.transport.request('insight/goal', { goal }) }
+  readUsageInsight(query: InsightQuery): Promise<InsightReport> { return this.transport.request('insight/usage', query) }
+  readAgentInsight(root: string | undefined, agent: string, origin: AgentOrigin): Promise<InsightReport> {
+    return this.transport.request('insight/agent', { ...(root ? { root } : {}), agent, origin })
+  }
+  compareInsight(query: InsightCompareQuery): Promise<InsightComparison> { return this.transport.request('insight/compare', query) }
+  previewInsightOrder(query: InsightOrderQuery): Promise<InsightOrderPreview> { return this.transport.request('insight/order/preview', query) }
+  async applyInsightOrder(stamp: string): Promise<MachineSeating> {
+    const seating = await this.transport.request('insight/order/apply', { stamp })
+    this.#patch({ seating })
+    return seating
+  }
+  clearInsightRequests(): void { /* request owners use generations; no global cache is retained */ }
 
   /** Starts a transcript scan; progress arrives as a notification. */
   async scanUsage(full = false): Promise<void> {
@@ -1484,6 +1867,18 @@ export class AppStore {
     return changed ? next : null
   }
 
+  #ensureHistorySummary(session: Session): void {
+    const key = String(sessionKey(session.runtime, session.id))
+    if (this.#snapshot.history.some((entry) => String(sessionKey(entry.runtime, entry.id)) === key)) {
+      return
+    }
+    this.#patch({
+      history: [...this.#snapshot.history, summaryOfSession(session)].sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+      ),
+    })
+  }
+
   // ----------------------------------------------------------------- sessions
 
   /**
@@ -1544,6 +1939,7 @@ export class AppStore {
     try {
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
       this.#setSession(session)
+      this.#ensureHistorySummary(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       this.#setSession(live)
       // A conversation that reopened is the only evidence its folder is back.
@@ -1710,35 +2106,18 @@ export class AppStore {
   }
 
   /**
-   * One task, two agents, each in its own worktree so neither sees
-   * the other's half-finished work. The task goes to the active runtime and
-   * the first other ready runtime; the second conversation takes the screen
-   * (one conversation at a time) and the first waits in the sidebar, and
-   * each worktree's diff is the result to compare.
+   * Opens the race dialog on the typed task — dialog state only. It no
+   * longer picks the other installed runtime or creates two drafts itself:
+   * `RaceStart` chooses one Agent and two explicit, isolated seats, then
+   * starts the ordinary `comparison` flow through `flow/start-goal`, the
+   * same single-Goal path every other flow start takes.
    */
   async raceAgents(text: string): Promise<void> {
-    const active = this.#snapshot.activeRuntime
-    const rival = this.#snapshot.runtimes.find((entry) => entry.id !== active)?.id
-    if (!active || !rival) {
-      this.notice('warning', 'Racing needs a second runtime. Add one in ~/.harnessdesk/agents.json.')
-      return
-    }
-    if (!this.#snapshot.workspace?.git?.branch) {
-      this.notice('warning', 'Racing needs a git repository, so each agent gets its own worktree.')
-      return
-    }
-    const stamp = Date.now().toString(36)
-    const input: UserContent[] = [{ type: 'text', text }]
-    const first = await this.newSession({ worktree: `race-${stamp}-a`, runtime: active })
-    if (!first) return
-    await this.send(input, first)
-    const second = await this.newSession({
-      worktree: `race-${stamp}-b`,
-      runtime: rival,
-      split: 'row',
-    })
-    if (!second) return
-    await this.send(input, second)
+    this.#patch({ raceStart: { task: text } })
+  }
+
+  closeRaceStart(): void {
+    this.#patch({ raceStart: null })
   }
 
   /**
@@ -1925,6 +2304,16 @@ export class AppStore {
     return carried ? { cwd: carried } : {}
   }
 
+  /**
+   * Starts a turn now — for a conversation that cannot already be running one.
+   *
+   * `turn/send` does not wait, and an agent asked two things at once cannot
+   * answer both: one prompt at a time is all an ACP session has, so a second
+   * is refused. Anything that might find the conversation *working* wants
+   * `queue` instead, which is the door the composer uses in both states and
+   * lets the host decide whether to hold it. This one is for a conversation
+   * this gesture just created.
+   */
   async send(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
     // Typing into an empty workspace is how a session starts: create it, then
     // send, so the first message is one gesture rather than two.
@@ -2122,8 +2511,13 @@ export class AppStore {
    * promising the conversation is gone, and must be able to say it is not.
    */
   async deleteSession(id: SessionId, owner: RuntimeId): Promise<SessionDeletion> {
-    const outcome = await this.transport.request('session/delete', { runtime: owner, sessionId: id })
     const key = sessionKey(owner, id)
+    this.#deleting.add(key)
+    const outcome = await this.transport
+      .request('session/delete', { runtime: owner, sessionId: id })
+      .finally(() => this.#deleting.delete(key))
+    // Closed already, as a rule: the removal arrives first (`#deleting`). A
+    // host that answered before it said so still leaves this pane to close.
     const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
     if (pane) this.closePane(pane.id)
     // A deleted conversation's reworded tasks go with it. They are keyed by
@@ -2132,6 +2526,65 @@ export class AppStore {
     this.forgetPlanEdits(key)
     await this.loadHistory({ reset: true })
     return outcome
+  }
+
+  /**
+   * Conversations this window has asked the host to delete, while it waits for
+   * the answer. The host tells every window `session/removed` before it
+   * answers, this one included, so here the removal is what closes the pane the
+   * conversation was in (`#dropRemoved`). It used to empty it, like any other
+   * window's, and then `deleteSession` found no pane showing the conversation
+   * left to close, and a split kept an empty pane where it had been.
+   */
+  readonly #deleting = new Set<SessionKey>()
+
+  /**
+   * A conversation the host no longer holds — deleted, or opened for a seat
+   * and passed over — taken out of this window, whichever window asked for it
+   * to go. `session/removed` is all most windows hear of it, so everything here
+   * that points at it goes on that alone: its row and its history row, its
+   * queue and background tasks, the approvals it was waiting on, and the pane
+   * or panel showing it — and with them the focus, which follows the panes.
+   * The pane is emptied, and the person decides what goes there; in the window
+   * that asked for the delete it is closed, as a delete always closed it
+   * (`#deleting`). Nothing is asked of the host for it: the host has already
+   * let it go.
+   *
+   * A window that never held it is left exactly as it was — no new snapshot,
+   * so nothing on screen draws again for a conversation it never showed.
+   */
+  #dropRemoved(key: SessionKey): void {
+    const { sessions, queues, tasks, history, approvals } = this.#snapshot
+    const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
+    const docked = mountedViewsIn(this.#snapshot.workbench).filter(
+      (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === key,
+    )
+    const listed = history.some((entry) => sessionKey(entry.runtime, entry.id) === key)
+    const waiting = approvals.some((entry) => entry.key === key)
+    const held =
+      sessions.has(key) || queues.has(key) || tasks.has(key) || listed || waiting || shown.length > 0 || docked.length > 0
+    if (!held) return
+    // Where it was on screen first, so the focus moves with the panes rather
+    // than being left on a conversation nothing can open any more.
+    const closing = this.#deleting.has(key)
+    for (const pane of shown) {
+      const layout = this.#snapshot.layout
+      this.#setLayout(closing ? closePaneIn(layout, pane.id) : showIn(layout, pane.id, emptyView()))
+    }
+    for (const entry of docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
+    const nextSessions = new Map(sessions)
+    const nextQueues = new Map(queues)
+    const nextTasks = new Map(tasks)
+    nextSessions.delete(key)
+    nextQueues.delete(key)
+    nextTasks.delete(key)
+    this.#patch({
+      sessions: nextSessions,
+      queues: nextQueues,
+      tasks: nextTasks,
+      history: listed ? history.filter((entry) => sessionKey(entry.runtime, entry.id) !== key) : history,
+      approvals: waiting ? approvals.filter((entry) => entry.key !== key) : approvals,
+    })
   }
 
   async renameSession(title: string, key = this.#snapshot.activeSessionKey): Promise<void> {
@@ -2198,11 +2651,11 @@ export class AppStore {
     // Closing the panel is "I need the room", not "throw these pages away":
     // the tabs are kept and the next open brings them back. Only a tab's own
     // × discards a page, which is the one gesture that says so.
-    if (view.kind === 'browser') this.#closedBrowser = view
+    if (view.kind === 'browser') this.#closedBrowsers.set(view.profile ?? 'default', view)
   }
 
   /** The tabs the browser had when its pane last closed; see `#release`. */
-  #closedBrowser: BrowserView | null = null
+  readonly #closedBrowsers = new Map<string, BrowserView>()
 
   // -------------------------------------------------------------------- tools
 
@@ -2405,8 +2858,8 @@ export class AppStore {
    * verbs stopped caring — which is what let the browser take the right-hand
    * edge, where a page being *referred to* belongs.
    */
-  #browserPane(): { readonly id: string; readonly view: BrowserView } | null {
-    const found = findViewIn(this.#snapshot.workbench, browserView(BLANK))
+  #browserPane(profile: string | null = null): { readonly id: string; readonly view: BrowserView } | null {
+    const found = findViewIn(this.#snapshot.workbench, browserView(BLANK, profile))
     if (!found) return null
     const id = found.area === 'main' ? found.pane : found.mounted.id
     const view = viewAt(this.#snapshot.workbench, id)
@@ -2455,8 +2908,15 @@ export class AppStore {
    * Chromium freezes a `<webview>` nobody is looking at, so a driven tab
    * hidden behind another would screenshot as a stale frame.
    */
-  openBrowser(url?: string, options: { readonly split?: Split['direction'] | null } = {}): void {
-    const existing = this.#browserPane()
+  openBrowser(
+    url?: string,
+    options: { readonly split?: Split['direction'] | null; readonly profile?: string | null } = {},
+  ): void {
+    const profile = options.profile ?? null
+    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) {
+      throw new Error('Invalid browser profile.')
+    }
+    const existing = this.#browserPane(profile)
     const sendDriven = (view: BrowserView): BrowserView => {
       if (!url) return view
       const driven = drivenBrowserTab(view)
@@ -2470,9 +2930,9 @@ export class AppStore {
     // A closed panel gets its pages back — including when it is an agent
     // reopening it, which then navigates the driven tab as usual rather
     // than landing on top of whatever the person was reading.
-    const restored = this.#closedBrowser
-    this.#closedBrowser = null
-    const view = sendDriven(restored ?? browserView(BLANK))
+    const restored = this.#closedBrowsers.get(profile ?? 'default')
+    this.#closedBrowsers.delete(profile ?? 'default')
+    const view = sendDriven(restored ?? browserView(BLANK, profile))
     // An explicit split is still a split — `/browser --split` and the pane
     // menu both mean the middle. Otherwise it goes where its definition says,
     // which is the right-hand edge: a page you are working *from* belongs
@@ -2505,9 +2965,10 @@ export class AppStore {
   }
 
   /** Brings the driven tab to the front, before the tools act on it. */
-  focusDrivenBrowserTab(): void {
-    const pane = this.#browserPane()
+  focusDrivenBrowserTab(profile: string | null = null): void {
+    const pane = this.#browserPane(profile)
     if (!pane) return
+    this.revealView(pane.id)
     // A browser hidden behind another pane's expansion cannot paint, and a
     // frozen webview screenshots as a stale frame — the tools are about to
     // look, so the expansion ends first.
@@ -2549,17 +3010,19 @@ export class AppStore {
    * Pages closed by their own ×, newest first — what ⌘⇧T puts back. Bounded,
    * because this is an undo for a slip, not a second history.
    */
-  #closedTabs: BrowserTab[] = []
+  readonly #closedTabs = new Map<string, BrowserTab[]>()
 
   /** Puts back the last tab closed by its ×, on the page it was on. */
   reopenClosedBrowserTab(paneId: PaneId): void {
-    const last = this.#closedTabs.pop()
+    const view = viewAt(this.#snapshot.workbench, paneId)
+    if (view?.kind !== 'browser') return
+    const last = this.#closedTabs.get(view.profile ?? 'default')?.pop()
     if (!last) return
     this.#patchBrowser(paneId, (view) => addBrowserTab(view, last.url))
   }
 
   get hasClosedBrowserTabs(): boolean {
-    return this.#closedTabs.length > 0
+    return (this.#closedTabs.get('default')?.length ?? 0) > 0
   }
 
   /** Closing the last tab closes the pane, the way closing a window's last tab does. */
@@ -2570,12 +3033,17 @@ export class AppStore {
     const closing = viewAt(this.#snapshot.workbench, paneId)
     if (closing?.kind === 'browser') {
       const tab = closing.tabs.find((entry) => entry.id === tabId)
-      if (tab && tab.url !== BLANK) this.#closedTabs = [...this.#closedTabs.slice(-9), tab]
+      if (tab && tab.url !== BLANK) {
+        const key = closing.profile ?? 'default'
+        this.#closedTabs.set(key, [...(this.#closedTabs.get(key) ?? []).slice(-9), tab])
+      }
     }
     this.#patchBrowser(paneId, (view) => removeBrowserTab(view, tabId))
     // That last tab was closed on purpose, so unlike closing the panel there
     // is nothing to bring back — `#release` will have kept it otherwise.
-    if (!this.#browserPane()) this.#closedBrowser = null
+    if (closing?.kind === 'browser' && !this.#browserPane(closing.profile ?? null)) {
+      this.#closedBrowsers.delete(closing.profile ?? 'default')
+    }
   }
 
   /** Drags a tab along the strip, as every browser lets you. */
@@ -2607,8 +3075,8 @@ export class AppStore {
     this.#patchBrowser(paneId, (view) => patchBrowserTab(view, tabId, { device }))
   }
 
-  closeBrowser(): void {
-    const existing = this.#browserPane()
+  closeBrowser(profile: string | null = null): void {
+    const existing = this.#browserPane(profile)
     if (!existing) return
     // A pane in the middle or a view in a dock: `closePane` knows only the
     // split tree, and the browser has opened on the right since the panel
@@ -2880,7 +3348,8 @@ export class AppStore {
     const saved = readWorkbench(raw)
     // Pages belong to the project they were opened for: a browser closed in
     // one workspace must not reappear in the next one.
-    this.#closedBrowser = null
+    this.#closedBrowsers.clear()
+    this.#closedTabs.clear()
     // The terminals of a document written before the bottom panel existed. The
     // processes are still running on the host, so they are re-docked rather
     // than dropped — see `strayTerminals`.
@@ -3292,20 +3761,6 @@ export class AppStore {
     await this.transport.request('team/add', { room, ...args })
   }
 
-  /** Names a goal. Creates the heading and nothing else — the work follows. */
-  async teamPlan(room: string, goal: string): Promise<void> {
-    await this.transport.request('team/plan', { room, goal })
-  }
-
-  /**
-   * Puts a finished goal away. The host refuses while anything on it is live
-   * and says what — returned rather than thrown, because it is an answer the
-   * person needs to read, not a failure.
-   */
-  async teamWrap(room: string, plan: number): Promise<string> {
-    return (await this.transport.request('team/wrap', { room, plan })) as string
-  }
-
   /**
    * The user's verbs over an intent; the host referees, so these always win.
    *
@@ -3396,28 +3851,247 @@ export class AppStore {
     return await this.transport.request('team/peers', { room })
   }
 
-  /**
-   * Starts a room in a project, and shows it.
-   *
-   * Nothing makes a room implicitly. Being open in a folder used to be enough
-   * to share a board, which is why "New session → A room" opened a surface
-   * that had never been created and could not be listed anywhere: there was
-   * no object to list. A room exists because somebody made one and named it.
-   */
-  async createRoom(root: string, name: string): Promise<string> {
-    const state = (await this.transport.request('team/room/create', {
-      root,
-      name,
-    })) as TeamState
+  // ------------------------------------------------------------------- Goals
+
+  /** Live events invalidate list snapshots that began before them. */
+  #goalEvents = 0
+  #goalLoads = 0
+
+  #keepGoal(view: GoalView): void {
+    const current = this.#snapshot.goals.get(view.goal.id)
+    if (current && current.goal.revision > view.goal.revision) return
+    const goals = new Map(this.#snapshot.goals)
     const teams = new Map(this.#snapshot.teams)
-    teams.set(state.id, state)
-    this.#patch({ teams })
-    this.openTeamRoom(state.id)
-    return state.id
+    goals.set(view.goal.id, view)
+    teams.set(view.goal.id, view.board)
+    this.#patch({ goals, teams, goalProblem: null })
   }
 
-  async renameRoom(room: string, name: string): Promise<void> {
-    await this.transport.request('team/room/rename', { room, name })
+  async loadGoals(root?: string): Promise<void> {
+    const generation = ++this.#goalLoads
+    const events = this.#goalEvents
+    try {
+      const views = await this.transport.request('goal/list', root ? { root } : {})
+      if (generation !== this.#goalLoads || events !== this.#goalEvents) return
+      const goals = new Map(this.#snapshot.goals)
+      const teams = new Map(this.#snapshot.teams)
+      for (const [id, existing] of goals) {
+        if (root === undefined || existing.goal.root === root) {
+          goals.delete(id)
+          teams.delete(id)
+        }
+      }
+      for (const view of views) {
+        const existing = this.#snapshot.goals.get(view.goal.id)
+        const kept = existing && existing.goal.revision > view.goal.revision ? existing : view
+        goals.set(kept.goal.id, kept)
+        teams.set(kept.goal.id, kept.board)
+      }
+      this.#patch({ goals, teams, goalProblem: null })
+    } catch (error) {
+      if (generation === this.#goalLoads) this.#patch({ goalProblem: describe(error) })
+      throw error
+    }
+  }
+
+  async #refreshGoal(goal: GoalId): Promise<GoalView> {
+    const view = await this.transport.request('goal/read', { goal })
+    this.#keepGoal(view)
+    return view
+  }
+
+  async createGoal(input: Omit<GoalCreateInput, 'origin'>): Promise<GoalView> {
+    const view = await this.transport.request('goal/create', input)
+    this.#keepGoal(view)
+    return view
+  }
+
+  async updateGoal(
+    goal: GoalId,
+    revision: number,
+    patch: { readonly sentence?: string; readonly dependsOn?: readonly GoalId[] },
+  ): Promise<GoalView> {
+    const view = await this.transport.request('goal/update', { goal, revision, ...patch })
+    this.#keepGoal(view)
+    return view
+  }
+
+  async seatGoal(input: GoalSeatRequest): Promise<SeatRecord> {
+    const seat = await this.transport.request('goal/seat', input)
+    await this.#refreshGoal(input.goal)
+    return seat
+  }
+
+  async assignGoal(goal: GoalId, card: number, session: SessionPointer): Promise<SeatRecord> {
+    const seat = await this.transport.request('goal/assign', { goal, card, session })
+    await this.#refreshGoal(goal)
+    return seat
+  }
+
+  async releaseGoal(goal: GoalId, seat: string): Promise<void> {
+    await this.transport.request('goal/release', { goal, seat })
+    await this.#refreshGoal(goal)
+  }
+
+  async previewGoalWrap(goal: GoalId, choices: WrapChoices): Promise<WrapPreview> {
+    return this.transport.request('goal/preview', { goal, choices })
+  }
+
+  async wrapGoal(goal: GoalId, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
+    const receipt = await this.transport.request('goal/wrap', { goal, stamp, choices })
+    await this.#refreshGoal(goal)
+    return receipt
+  }
+
+  async readGoalReceipt(goal: GoalId): Promise<GoalReceipt | null> {
+    return this.transport.request('goal/receipt', { goal })
+  }
+
+  async loadLanePreferences(): Promise<void> {
+    const [lanePreferences, lanes] = await Promise.all([
+      this.transport.request('lane/preferences', {}),
+      this.transport.request('lane/list', {}),
+    ])
+    this.#patch({ lanePreferences, lanes })
+  }
+
+  async saveLanePreferences(prefs: LanePreferences): Promise<void> {
+    const lanePreferences = await this.transport.request('lane/preferences/set', prefs)
+    this.#patch({ lanePreferences })
+  }
+
+  async releaseLane(lane: string): Promise<Lane> {
+    const released = await this.transport.request('lane/release', { lane })
+    this.#patch({ lanes: this.#snapshot.lanes.map((entry) => entry.id === released.id ? released : entry) })
+    return released
+  }
+
+  async ackGoalMigration(): Promise<void> {
+    await this.transport.request('goal/migration/ack', {})
+    this.#patch({ goalMigrationPending: false })
+  }
+
+  openGoal(goal: string): void {
+    this.openDefaultView({ kind: 'room', room: goal })
+  }
+
+  // ---------------------------------------------------------------- findings
+
+  /** Late-request discarding: the last call for a Goal wins, by generation rather than arrival order. */
+  #findingsLoads = new Map<string, number>()
+  /** One coalesced reload per Goal, built lazily: several `finding/changed` in one burst reload it once. */
+  #findingsRefreshers = new Map<string, () => void>()
+
+  #findingsRefresh(goal: GoalId): void {
+    let trigger = this.#findingsRefreshers.get(goal)
+    if (!trigger) {
+      trigger = coalesce(() => {
+        const current = this.#snapshot.findings.get(goal)
+        if (current) void this.loadFindings(goal, current.filter)
+        for (const run of this.#snapshot.findingRuns.values()) {
+          if (run.goal === goal) void this.loadFindingRun(goal, run.run)
+        }
+      })
+      this.#findingsRefreshers.set(goal, trigger)
+    }
+    if (this.#snapshot.findings.has(goal) || [...this.#snapshot.findingRuns.values()].some((run) => run.goal === goal)) trigger()
+  }
+
+  #withFindings(goal: GoalId, state: FindingsListState): void {
+    const findings = new Map(this.#snapshot.findings)
+    findings.set(goal, state)
+    this.#patch({ findings })
+  }
+
+  /**
+   * A page of a Goal's findings. With no cursor this is a fresh first page —
+   * a filter change is a fresh read, never a slice of what is cached — and
+   * the previous rows stay on screen, marked loading, until it lands. With a
+   * cursor this appends to the cached rows of that same filter. A response
+   * from a superseded call — the filter changed again, or a newer read for
+   * this Goal is already in flight — is discarded rather than shown.
+   */
+  async loadFindings(goal: GoalId, filter: FindingFilter = 'all', cursor?: string): Promise<void> {
+    const generation = (this.#findingsLoads.get(goal) ?? 0) + 1
+    this.#findingsLoads.set(goal, generation)
+    const previous = this.#snapshot.findings.get(goal)
+    const appending = cursor !== undefined && previous !== undefined && previous.filter === filter
+    const base = appending ? previous! : (previous?.filter === filter ? previous : emptyFindingsState(filter))
+    this.#withFindings(goal, { ...base, loading: !appending, loadingMore: appending, error: null })
+    try {
+      const page = await this.transport.request('finding/list', {
+        goal, filter, ...(cursor !== undefined ? { cursor } : {}),
+      })
+      if (this.#findingsLoads.get(goal) !== generation) return
+      const onto = appending ? this.#snapshot.findings.get(goal) : undefined
+      this.#withFindings(goal, {
+        filter, rows: appending ? [...(onto?.rows ?? []), ...page.rows] : page.rows,
+        next: page.next, totals: page.totals, problem: page.problem,
+        loading: false, loadingMore: false, error: null, stale: false,
+      })
+    } catch (error) {
+      if (this.#findingsLoads.get(goal) !== generation) return
+      const kept = this.#snapshot.findings.get(goal) ?? emptyFindingsState(filter)
+      this.#withFindings(goal, { ...kept, loading: false, loadingMore: false, error: describe(error), stale: true })
+    }
+  }
+
+  /** One finding's history. Not cached in the snapshot: the detail panel owns its own request and its own paging. */
+  async readFinding(goal: GoalId, finding: string, cursor?: string): Promise<FindingDetailPage> {
+    return this.transport.request('finding/read', { goal, finding, ...(cursor !== undefined ? { cursor } : {}) })
+  }
+
+  async carryFindings(input: CarryFindingsInput): Promise<readonly FindingView[]> {
+    const views = await this.transport.request('finding/carry', input)
+    // The target's cache, if any, is of a ledger that just gained rows it did not read: drop it rather than patch it.
+    this.#findingsLoads.set(input.goal, (this.#findingsLoads.get(input.goal) ?? 0) + 1)
+    if (this.#snapshot.findings.has(input.goal)) {
+      const findings = new Map(this.#snapshot.findings)
+      findings.delete(input.goal)
+      this.#patch({ findings })
+    }
+    return views
+  }
+
+  /**
+   * The Goal's publication preference. Never written optimistically: the
+   * cached Goal only ever reflects a confirmed value, so a refusal here
+   * leaves the last confirmed one in place for the Switch to fall back to.
+   */
+  async setFindingPublication(goal: GoalId, revision: number, enabled: boolean): Promise<GoalView> {
+    const view = await this.transport.request('finding/publication', { goal, revision, enabled })
+    this.#keepGoal(view)
+    return view
+  }
+
+  /** A run's findings, as a person reads and decides them. */
+  async loadFindingRun(goal: GoalId, run: string): Promise<void> {
+    const view = await this.transport.request('finding/run', { goal, run })
+    const findingRuns = new Map(this.#snapshot.findingRuns)
+    findingRuns.set(run, view)
+    this.#patch({ findingRuns })
+  }
+
+  async decideFindingRun(input: HostParams<'finding/decide'>): Promise<FindingRunView> {
+    const view = await this.transport.request('finding/decide', input)
+    const findingRuns = new Map(this.#snapshot.findingRuns)
+    findingRuns.set(input.run, view)
+    this.#patch({ findingRuns })
+    return view
+  }
+
+  /** A run's postings that need a person, and the rounds kept on the desk. Not cached: the panel owns its request. */
+  async readFindingPublications(goal: GoalId, run: string): Promise<FindingPublicationsView> {
+    return this.transport.request('finding/publications', { goal, run })
+  }
+
+  /** Post again, skip or backfill; the run's own view is read again after, since its publication state moved. */
+  async publishFinding(input: HostParams<'finding/publish'>): Promise<FindingPublicationsView> {
+    try {
+      return await this.transport.request('finding/publish', input)
+    } finally {
+      void this.loadFindingRun(input.goal, input.run).catch(() => {})
+    }
   }
 
   // ------------------------------------------------------------------- flows
@@ -3485,22 +4159,217 @@ export class AppStore {
     }
   }
 
+  // ---------------------------------------------------------------- flows v2
+
   /**
-   * Puts a room away for good, and returns what went with it so the surface
-   * can say so. The conversations that were in it are untouched.
+   * Changes on a workspace switch or a lost connection. A flow surface reads
+   * this when it starts a request and compares it again when the answer
+   * lands: unequal means a newer root or a fresh connection has already
+   * moved past what the answer describes, and it is discarded rather than
+   * shown. Every method below is otherwise a pure passthrough — it caches
+   * nothing in the snapshot itself, the same as `agentsIn`/`plansIn` — so
+   * the binding is the caller's, not this store's.
    */
-  async deleteRoom(room: string): Promise<{
-    name: string
-    intents: number
-    members: number
-    messages: number
-  }> {
-    return (await this.transport.request('team/room/delete', { room })) as {
-      name: string
-      intents: number
-      members: number
-      messages: number
+  flowGeneration(): number {
+    return this.#flowGeneration
+  }
+
+  /** The flows one project's catalogue offers: its own, then this Mac's, then the ones that ship. Throws. */
+  async flowCatalog(root: string): Promise<readonly FlowEntry[]> {
+    return this.transport.request('flow/catalog', { root })
+  }
+
+  /** One catalogue entry's exact source, as `flowCatalog` names it. Throws. */
+  async flowSource(root: string, id: string, origin?: FlowOrigin): Promise<string> {
+    return this.transport.request('flow/source', { root, id, ...(origin ? { origin } : {}) })
+  }
+
+  /**
+   * What this flow would do, spending nothing: every seat it would open, its
+   * guards and its commands verbatim. `flow/start-goal` redeems the token
+   * this mints, for exactly the `(root, source, vars)` it was taken of.
+   */
+  async previewFlow(root: string, source: string, vars: Readonly<Record<string, string>> = {}): Promise<FlowPreview> {
+    return this.transport.request('flow/preview', { root, source, vars })
+  }
+
+  /** Starts a new Goal running this flow. The only v2 call that spends anything. */
+  async startFlowGoal(input: FlowStartRequest): Promise<FlowExecution> {
+    return this.transport.request('flow/start-goal', input)
+  }
+
+  /** The whole-file diff an old flow's Update or a shipped/user flow's Customize would write. Throws. */
+  async previewFlowUpdate(root: string, id: string, mode: 'update' | 'customize'): Promise<FlowUpdatePreview> {
+    return mode === 'update'
+      ? this.transport.request('flow/update/preview', { root, id })
+      : this.transport.request('flow/customize/preview', { root, id })
+  }
+
+  /** Writes the files a previewed Update or Customize named, once. */
+  async applyFlowUpdate(root: string, id: string, token: string, mode: 'update' | 'customize'): Promise<FlowUpdateResult> {
+    // The two wire routes disagree on their own shape: an update's token
+    // already names its journal, so `id` there would be an unexpected field;
+    // a customize is stateless per call and needs it to say what to copy.
+    return mode === 'update'
+      ? this.transport.request('flow/update/apply', { root, token })
+      : this.transport.request('flow/customize/apply', { root, id, token })
+  }
+
+  /** One run's execution state, read fresh — the pull half of `flow/execution-changed`'s push. */
+  async readFlowExecution(run: string): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/execution', { run })
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    flowExecutions.set(execution.id, execution)
+    this.#patch({ flowExecutions })
+    return execution
+  }
+
+  /**
+   * A fresh preview bound to an interrupted check's exact saved source and
+   * inputs — `flow/preview`'s own `retry` param validates that equality on
+   * the host, so this can never choose a new command or checkout, only ask
+   * again for consent to run the same one. Reads the run's own saved source
+   * back first: a renderer that only just opened this run, rather than
+   * starting it, otherwise has no way to supply what the equality check asks for.
+   */
+  async previewFlowRetry(run: string, card: number): Promise<FlowPreview> {
+    const execution = this.#snapshot.flowExecutions.get(run) ?? (await this.readFlowExecution(run))
+    const goal = this.#snapshot.goals.get(execution.goal)
+    const root = goal?.goal.root ?? execution.goal
+    const stored = await this.transport.request('flow/execution/source', { run })
+    return this.transport.request('flow/preview', { root, source: stored.source, vars: stored.vars, retry: { run, card } })
+  }
+
+  /** Redeems a check-retry token, minted only by `previewFlowRetry` above and bound to this exact run and card. */
+  async retryFlowCheck(run: string, card: number, token: string): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/check/retry', { run, card, token })
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    flowExecutions.set(execution.id, execution)
+    this.#patch({ flowExecutions })
+    return execution
+  }
+
+  // ------------------------------------------------------------- front door
+
+  /**
+   * Every call to `previewFrontDoor` below owns the one live generation:
+   * calling it — from any target, any caller — retires whatever the last
+   * call was waiting on. A reply that lands once a newer call has already
+   * started can never write `frontDoor.preview`, so it can never enable
+   * Start on a stale token, however late it arrives.
+   */
+  #frontDoorGen = 0
+
+  /** Opens the front door for one context, and — to reuse it — one empty Goal at the revision it was seen at. */
+  openFrontDoor(context: StartContext, goal?: { readonly id: string; readonly revision: number }): void {
+    this.#frontDoorGen += 1
+    this.#patch({ frontDoor: { context, goal: goal ?? null, preview: null } })
+  }
+
+  /** Closes the front door. Any preview in flight becomes stale the instant this runs. */
+  closeFrontDoor(): void {
+    this.#frontDoorGen += 1
+    this.#patch({ frontDoor: null })
+  }
+
+  /**
+   * The front door's dry run for one chosen shape and its typed inputs.
+   * Spends nothing. Clears `frontDoor.preview` the instant it is called —
+   * before the request is even sent — so a source or input change disables
+   * Start immediately rather than leaving the previous token live while a
+   * fresh one is fetched.
+   */
+  async previewFrontDoor(input: FrontDoorPreviewInput): Promise<FrontDoorPreview> {
+    const mine = ++this.#frontDoorGen
+    if (this.#snapshot.frontDoor) this.#patch({ frontDoor: { ...this.#snapshot.frontDoor, preview: null } })
+    const preview = await this.transport.request('authoring/start/preview', input)
+    if (mine === this.#frontDoorGen && this.#snapshot.frontDoor) {
+      this.#patch({ frontDoor: { ...this.#snapshot.frontDoor, preview } })
     }
+    return preview
+  }
+
+  /**
+   * A shape's exact, host-normalized YAML for one policy — validation and
+   * rendering only. Spends nothing and grants nothing; the editor's own
+   * source pane and its graph both read through this so neither can drift
+   * from what a save would actually write. Throws.
+   */
+  async renderShape(policy: FlowPolicy): Promise<{ readonly source: string; readonly issues: readonly AuthoringIssue[] }> {
+    return this.transport.request('authoring/shape/render', { policy })
+  }
+
+  /** A brand-new trigger's phase-8 defaults, from its own parser. Drafts only: nothing is written or armed. Throws. */
+  async draftTrigger(input: { readonly id: string; readonly on: TriggerSource; readonly opens: TriggerDefinition['opens'] }): Promise<TriggerDefinition> {
+    return this.transport.request('authoring/triggers/draft', input)
+  }
+
+  /** Every trigger's exact, host-normalized YAML, `parseTriggers`-checked before it is offered. Throws. */
+  async renderTriggers(definitions: readonly TriggerDefinition[]): Promise<{ readonly source: string; readonly issues: readonly AuthoringIssue[] }> {
+    return this.transport.request('authoring/triggers/render', { definitions })
+  }
+
+  // ------------------------------------------------------------------ evidence
+
+  async loadBoardEvidence(room: string): Promise<void> {
+    if (!this.#snapshot.boardEvidence.has(room) && this.#snapshot.boardEvidenceFailed.has(room)) {
+      const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+      boardEvidenceFailed.delete(room)
+      this.#patch({ boardEvidenceFailed })
+    }
+    try {
+      this.#keepBoardEvidence(room, (await this.transport.request('evidence/board', { room })) as BoardEvidence)
+    } catch {
+      // A refresh failure leaves established facts intact. A first-read
+      // failure is different: without any answer, the board must say it does
+      // not know rather than turn absence into the factual “nothing checked”.
+      if (!this.#snapshot.boardEvidence.has(room)) {
+        const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+        boardEvidenceFailed.add(room)
+        this.#patch({ boardEvidenceFailed })
+      }
+    }
+  }
+
+  async runCheck(
+    room: string,
+    card: number,
+    name: string,
+    answer?: { readonly seen: string; readonly digest: string },
+  ): Promise<{ readonly kind: 'started' } | { readonly kind: 'unseen'; readonly unseen: CheckUnseen }> {
+    try {
+      await this.transport.request('evidence/check/run', {
+        room,
+        card,
+        name,
+        ...(answer !== undefined ? { seen: answer.seen, digest: answer.digest } : {}),
+      })
+      return { kind: 'started' }
+    } catch (error) {
+      const refusal = error as { code?: unknown; data?: unknown }
+      if (refusal.code === 'checkUnseen' && refusal.data) {
+        return { kind: 'unseen', unseen: refusal.data as CheckUnseen }
+      }
+      throw error
+    }
+  }
+
+  async seatRecord(runtime: RuntimeId, sessionId: SessionId): Promise<SeatRecord | null> {
+    return (await this.transport.request('evidence/seat', { runtime, sessionId })) as SeatRecord | null
+  }
+
+  async projectChecks(project: string): Promise<ProjectChecks> {
+    return (await this.transport.request('evidence/checks', { project })) as ProjectChecks
+  }
+
+  #keepBoardEvidence(room: string, evidence: BoardEvidence): void {
+    const drawn = this.#snapshot.boardEvidence.get(room)
+    if (drawn && drawn.stamp > evidence.stamp) return
+    const boardEvidence = new Map(this.#snapshot.boardEvidence)
+    boardEvidence.set(room, evidence)
+    const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+    boardEvidenceFailed.delete(room)
+    this.#patch({ boardEvidence, boardEvidenceFailed })
   }
 
   /** Closes every pane and panel showing one room, wherever they are docked. */
@@ -3515,19 +4384,519 @@ export class AppStore {
     }
   }
 
-  /** Puts a conversation in a room. The host refuses one from another project. */
-  async joinRoom(room: string, runtime: RuntimeId, sessionId: SessionId): Promise<void> {
-    await this.transport.request('team/room/join', { room, runtime, sessionId })
+  /** Asks the shell to open a settings page — and a thing inside it — or clears the request once it has. */
+  askSettings(section: string | null, focus: string | null = null): void {
+    this.#patch({ settingsFor: section, settingsFocus: section ? focus : null })
   }
 
-  /** Takes a conversation out of a room; it keeps running, on its own. */
-  async leaveRoom(room: string, runtime: RuntimeId, sessionId: SessionId): Promise<void> {
-    await this.transport.request('team/room/leave', { room, runtime, sessionId })
+  /** Asks the shell to take a seat's fix where it is fixed (`app/seat-fixes.ts`), or clears the request once it has. */
+  askSeatFix(fix: SeatFix | null, agent = ''): void {
+    this.#patch({ seatFix: fix ? { fix, agent } : null })
   }
 
-  /** Asks the shell to open a settings page, or clears the request once it has. */
-  askSettings(section: string | null): void {
-    this.#patch({ settingsFor: section })
+  // ------------------------------------------------------------------ agents
+  /** The exact host target for an editable Agent ceiling. */
+  #ceilingTarget(entry: AgentEntry, level: CeilingLevel): {
+    readonly id: string
+    readonly origin: 'user' | 'project'
+    readonly project?: string
+    readonly level: CeilingLevel
+  } {
+    if (entry.origin === 'builtin') {
+      throw new Error('An Agent that ships with the app is updated by the app. Customize it first.')
+    }
+    if (entry.origin === 'project') {
+      const project = this.#snapshot.agentsProject
+      if (!project) throw new Error('Open the project that owns this Agent before updating it.')
+      return { id: entry.id, origin: entry.origin, project, level }
+    }
+    return { id: entry.id, origin: entry.origin, level }
+  }
+
+  /** Shows the one line the host would replace, without writing it. */
+  async previewCeiling(entry: AgentEntry, level: CeilingLevel): Promise<import('@harnessdesk/protocol').CeilingUpdate> {
+    return this.transport.request('agent/ceiling/preview', this.#ceilingTarget(entry, level))
+  }
+
+  /** Writes the exact previewed line, bound to that preview's digest. */
+  async writeCeiling(entry: AgentEntry, level: CeilingLevel, digest: string): Promise<AgentEntry> {
+    const project = this.#snapshot.agentsProject
+    const written = await this.transport.request('agent/ceiling/write', { ...this.#ceilingTarget(entry, level), digest })
+    const agents = this.#snapshot.agents
+    if (agents && project === this.#snapshot.agentsProject) {
+      this.#patch({
+        agents: agents.map((one) => (
+          one.id === written.id && one.origin === written.origin && one.path === written.path ? written : one
+        )),
+      })
+    }
+    return written
+  }
+
+  // -------------------------------------------------------------- authoring
+
+  /** An Agent, a flow or a project's triggers file, exactly as it is on disk, with what is in the way of using it. Throws. */
+  async readAuthoring(target: AuthoringTarget): Promise<AuthoringDocument> {
+    return this.transport.request('authoring/read', { target })
+  }
+
+  /** One field of an Agent, changed in place and previewed against `expected` — the host encodes the value. Throws. */
+  async previewAgentEdit(
+    target: Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>,
+    expected: string,
+    edit: AgentFieldEdit,
+  ): Promise<AuthoringSavePreview> {
+    return this.transport.request('authoring/agent/patch', { target, expected, edit })
+  }
+
+  /** What saving this source (and any new Agents it names) would write, before anything is. Throws. */
+  async previewAuthoringSave(input: AuthoringSaveInput): Promise<AuthoringSavePreview> {
+    return this.transport.request('authoring/save/preview', input)
+  }
+
+  /** Writes exactly what one preview showed. A token already applied answers its saved result again. Throws. */
+  async applyAuthoringSave(token: string): Promise<AuthoringSaveResult> {
+    return this.transport.request('authoring/save/apply', { token })
+  }
+
+  /** Saves that began and did not finish, each with what is known to have landed. Throws. */
+  async authoringPending(): Promise<readonly AuthoringPending[]> {
+    return this.transport.request('authoring/save/pending', {})
+  }
+
+  /** A recorded, unfinished save, previewed again from what is on disk now. Throws. */
+  async resumeAuthoringSave(id: string): Promise<AuthoringSavePreview> {
+    return this.transport.request('authoring/save/resume', { id })
+  }
+
+  /** Drops the record of an unfinished save. Every file stays exactly as it is. Throws. */
+  async discardAuthoringSave(id: string): Promise<readonly AuthoringPending[]> {
+    return this.transport.request('authoring/save/discard', { id })
+  }
+
+  /** One Agent by its directory name, chosen exactly as `agent/list` chooses; null when nobody defined it. Throws. */
+  async readAgent(id: string, project?: string): Promise<AgentEntry | null> {
+    return this.transport.request('agent/read', { id, ...(project ? { project } : {}) })
+  }
+
+  /** Any origin, including `builtin` — the read-only front door onto an Agent's declarations, or its notes. */
+  #attachmentTarget(named: { readonly id: string; readonly origin: AgentEntry['origin'] }): { readonly id: string; readonly origin: AgentEntry['origin']; readonly project?: string } {
+    if (named.origin === 'project') {
+      const project = this.#snapshot.agentsProject
+      if (!project) throw new Error('Open the project that owns this Agent before reading it.')
+      return { id: named.id, origin: named.origin, project }
+    }
+    return { id: named.id, origin: named.origin }
+  }
+
+  /** `user` or `project` only — writing an Agent's own file, exactly like `#ceilingTarget`. */
+  #editTarget(named: { readonly id: string; readonly origin: AgentEntry['origin'] }): { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string } {
+    if (named.origin === 'builtin') {
+      throw new Error('An Agent that ships with the app is updated by the app. Customize it first.')
+    }
+    if (named.origin === 'project') {
+      const project = this.#snapshot.agentsProject
+      if (!project) throw new Error('Open the project that owns this Agent before updating it.')
+      return { id: named.id, origin: named.origin, project }
+    }
+    return { id: named.id, origin: named.origin }
+  }
+
+  /** What an Agent declares (`skills:`/`mcp:`) and what each measured runtime build can do with each kind. */
+  async readAgentAttachments(id: string, origin: AgentEntry['origin']): Promise<import('@harnessdesk/protocol').AgentAttachmentsView> {
+    return this.transport.request('attachment/agent', this.#attachmentTarget({ id, origin }))
+  }
+
+  /** Previews exactly the `skills:`/`mcp:` lines a write would change. */
+  async previewAttachmentEdit(entry: AgentEntry, skills: readonly string[], mcp: readonly string[]): Promise<import('@harnessdesk/protocol').AttachmentEditPreview> {
+    return this.transport.request('attachment/edit/preview', { ...this.#editTarget(entry), skills, mcp })
+  }
+
+  /** Writes exactly the previewed edit, bound to the digest that preview showed. */
+  async writeAttachmentEdit(entry: AgentEntry, skills: readonly string[], mcp: readonly string[], digest: string): Promise<AgentEntry> {
+    const project = this.#snapshot.agentsProject
+    const written = await this.transport.request('attachment/edit/write', { ...this.#editTarget(entry), skills, mcp, digest })
+    const agents = this.#snapshot.agents
+    if (agents && project === this.#snapshot.agentsProject) {
+      this.#patch({
+        agents: agents.map((one) => (
+          one.id === written.id && one.origin === written.origin && one.path === written.path ? written : one
+        )),
+      })
+    }
+    return written
+  }
+
+  /** Reads `NOTES.md` beside an Agent's file. A missing file is `text: null`. */
+  async readAgentNotes(id: string, origin: AgentEntry['origin']): Promise<import('@harnessdesk/protocol').AgentNotesView> {
+    return this.transport.request('attachment/notes', this.#attachmentTarget({ id, origin }))
+  }
+
+  /** Clears an Agent's notes to empty, bound to the exact digest it was shown at. */
+  async clearAgentNotes(id: string, origin: AgentEntry['origin'], digest: string): Promise<import('@harnessdesk/protocol').AgentNotesView> {
+    return this.transport.request('attachment/notes/clear', { ...this.#editTarget({ id, origin }), digest })
+  }
+
+  /**
+   * What a person is asked to approve before this Agent's declared content
+   * may load for one runtime, in one project — the exact bytes, never a
+   * promise to fetch them again later. `root` must name the project this
+   * Agent is actually about to be seated in: trust binds to that project's
+   * own incarnation, the same one `agent/seat` itself uses, which for a
+   * `user` Agent is never its own folder. No runtime is named: the host
+   * reviews for the runtime `agent/seat` will actually choose, and answers
+   * which one that is.
+   */
+  async reviewAttachments(id: string, origin: AgentEntry['origin'], root: string): Promise<import('@harnessdesk/protocol').AttachmentReview> {
+    return this.transport.request('attachment/review', { id, origin, root })
+  }
+
+  /** Records a person's approval of exactly the reviewed token — acknowledging, when it showed any, the values it showed only as set. */
+  async approveAttachments(token: string, acknowledgeHidden = false): Promise<void> {
+    await this.transport.request('attachment/approve', { token, ...(acknowledgeHidden ? { acknowledgeHidden: true } : {}) })
+  }
+
+  /** A Seat's frozen attachment history, by its own immutable id — `null` when nothing was ever recorded for it. */
+  async readSeatAttachments(seat: import('@harnessdesk/protocol').SeatId): Promise<import('@harnessdesk/protocol').SeatAttachmentsRecord | null> {
+    return this.transport.request('attachment/seat', { seat })
+  }
+
+  /** Every committed `.harnessdesk/memory/*.md` file at one exact revision — never re-resolving HEAD per row. */
+  async readMemoryFiles(root: string, at: string): Promise<readonly import('@harnessdesk/protocol').MemoryFile[]> {
+    return this.transport.request('memory/list', { root, at })
+  }
+
+  /** Opens one citation's retained bytes, with truthful missing-source labels. */
+  async readMemoryCitation(root: string, citation: import('@harnessdesk/protocol').GoalCitation): Promise<import('@harnessdesk/protocol').MemoryResolution> {
+    return this.transport.request('memory/read', { root, citation })
+  }
+
+  /** Retains this citation and links it into the Goal being cited into — the one write `goal/cite` itself makes. */
+  async citeMemory(goal: GoalId, citation: import('@harnessdesk/protocol').GoalCitation): Promise<void> {
+    await this.transport.request('goal/cite', { goal, citation })
+    await this.#refreshGoal(goal)
+  }
+
+  /**
+   * Numbered against overlapping reads: a workspace switch, an `agent/changed`
+   * push and a sign-in can each start one of these while an earlier one is
+   * still in flight, and the answer that resolves last must not be the one
+   * that started last — an older `agent/list` landing after a newer one would
+   * draw the previous project's roster back over the current one. Bumped at
+   * the call, checked once the read returns, on the same pattern as
+   * `#accountsGeneration`.
+   */
+  #agentsGeneration = 0
+  /** Same guard, for the dry run: `agentPlans` carries no project of its own. */
+  #agentPlansGeneration = 0
+  /**
+   * Set the instant a window's first `loadAgents()` call is made, never
+   * cleared. `#snapshot.agents` says whether a load has *answered* — it stays
+   * `null` for as long as the very first one is in flight — and every place
+   * that decides whether to react to a later change (another folder opened, a
+   * push, a sign-in) by starting a fresh load used to read that instead. So a
+   * workspace switch during the still-pending first read found `agents` still
+   * `null`, started no replacement load, and the first read — for the folder
+   * that was open when it started, not the one on screen once it landed —
+   * applied unopposed: nothing had bumped `#agentsGeneration` since it began,
+   * so its own generation check waved it through. This is asked instead:
+   * whether a load was ever *requested*, which becomes true the instant the
+   * first one is, before it has awaited anything.
+   */
+  #agentsRequested = false
+
+  /**
+   * Reads the Agent roster for the folder that is open, and then which seat
+   * each would take here. Two reads, because the listing is a few files and
+   * the dry run asks every runtime a question: the list draws first. The host
+   * reads the folder as the checkout it is in, so an open subfolder still
+   * lists its repository's Agents.
+   */
+  async loadAgents(): Promise<void> {
+    this.#agentsRequested = true
+    const project = this.#snapshot.workspace?.path ?? null
+    const generation = ++this.#agentsGeneration
+    let agents: readonly AgentEntry[]
+    try {
+      agents = await this.transport.request('agent/list', project ? { project } : {})
+    } catch (error) {
+      if (generation === this.#agentsGeneration) this.notice('warning', describe(error))
+      return
+    }
+    // A newer load started while this one was in flight: its answer, not this one, belongs on screen.
+    if (generation !== this.#agentsGeneration) return
+    this.#patch({ agents, agentsProject: project })
+    await this.loadAgentPlans()
+  }
+
+  /**
+   * Which seat each listed Agent would take here — a dry run, which opens
+   * nothing. Applied only when it is both the latest dry run asked for and
+   * still the project the roster on screen is for: a roster for project A
+   * must never be shown seated by a dry run that answered for project B.
+   */
+  async loadAgentPlans(): Promise<void> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const generation = ++this.#agentPlansGeneration
+    // Optimistic: a retry (a fresh sign-in, a reopened window) reads as
+    // "Checking seats…" again rather than the previous failure sitting there
+    // stale while a new request is already in flight.
+    this.#patch({ agentPlansFailed: false })
+    let plans: readonly SeatPlan[]
+    try {
+      plans = await this.transport.request('agent/seat/dry', project ? { project } : {})
+    } catch (error) {
+      if (generation !== this.#agentPlansGeneration) return
+      this.notice('warning', describe(error))
+      // A row with no plan for its Agent otherwise reads "Checking seats…"
+      // forever for an answer that already isn't coming.
+      this.#patch({ agentPlansFailed: true })
+      return
+    }
+    if (generation !== this.#agentPlansGeneration) return
+    if (project !== this.#snapshot.agentsProject) return
+    this.#patch({ agentPlans: new Map(plans.map((plan) => [plan.id, plan])), agentPlansFailed: false })
+  }
+
+  /**
+   * One project's roster, read for that project rather than the open one —
+   * its own Agents, then this machine's and the shipped ones — for its page
+   * on Workspaces. Leaves the snapshot's roster alone. Throws the host's
+   * refusal, for the page to say.
+   */
+  async agentsIn(project: string): Promise<readonly AgentEntry[]> {
+    return this.transport.request('agent/list', { project })
+  }
+
+  /** Which seat each of one project's Agents would take here — a dry run for that project, opening nothing. Throws. */
+  async plansIn(project: string): Promise<readonly SeatPlan[]> {
+    return this.transport.request('agent/seat/dry', { project })
+  }
+
+  /**
+   * Opens a conversation as an Agent in the open folder — or in `cwd`, a
+   * room's — and shows it; or, when nothing can seat it there, opens nothing
+   * and raises the refusal sheet with every candidate, its reason and its fix.
+   *
+   * The plan is asked again first, for this one Agent: a sign-in since the
+   * menu was drawn changes the answer, and a plan that already takes no seat
+   * refuses without asking the host to open anything. A refusal the host finds
+   * only once a seat is open arrives as `seatRefused`, with its own list — that
+   * path may have opened, tried and closed or kept a seat before failing, so
+   * `opened` carries whether "Nothing was opened" is still true. The folder is
+   * also the project the Agent is read for, because that is whose Agents a
+   * conversation there should get.
+   *
+   * `ceiling` is a level a person chose above the default (`edit`), up to the
+   * Agent's own — never set by anything but that choice (#897). It travels as
+   * the seating's grant; the host still narrows it to the Agent's ceiling.
+   */
+  async startAsAgent(
+    id: string,
+    options: { readonly cwd?: string; readonly reveal?: boolean; readonly ceiling?: 'publish' | 'merge' } = {},
+  ): Promise<SessionKey | null> {
+    const cwd = options.cwd ?? this.#snapshot.workspace?.path
+    // As `newSession`: a folder this app has proof is gone is never where a conversation starts.
+    if (!cwd || this.#snapshot.foldersGone.has(cwd)) {
+      this.notice('warning', 'Choose a project folder before starting a conversation.')
+      return null
+    }
+    const entry = this.#snapshot.agents?.find((one) => one.id === id)
+    const name = entry?.definition?.name ?? id
+    let plan: SeatPlan | undefined
+    try {
+      ;[plan] = await this.transport.request('agent/seat/dry', { ids: [id], project: cwd })
+    } catch (error) {
+      this.notice('error', describe(error))
+      return null
+    }
+    // The fresher answer replaces the one the menus drew — for the roster this window holds, not another folder's.
+    if (plan && cwd === this.#snapshot.agentsProject) {
+      this.#patch({ agentPlans: new Map(this.#snapshot.agentPlans).set(id, plan) })
+    }
+    if (!plan || plan.winner === null) {
+      this.#patch({
+        seatRefusal: {
+          agent: id,
+          name,
+          candidates: plan?.candidates ?? [],
+          blocked: plan?.blocked ? blockedWords(entry, this.#snapshot.home) : null,
+          opened: false,
+        },
+      })
+      return null
+    }
+    try {
+      const session = await this.transport.request('agent/seat', {
+        id, cwd, project: cwd,
+        // A person's own choice above the default; without one the host seats at `edit`.
+        ...(options.ceiling ? { permission: options.ceiling } : {}),
+      })
+      this.#setSession(session)
+      const key = sessionKey(session.runtime, session.id)
+      if (options.reveal !== false) this.#showInPane(key)
+      void this.loadHistory({ reset: true })
+      return key
+    } catch (error) {
+      const candidates = refusalOf(error)
+      if (candidates) {
+        this.#patch({ seatRefusal: { agent: id, name, candidates, blocked: null, opened: anyOpened(candidates) } })
+        return null
+      }
+      // The conversation opened and was closed again because handing its
+      // brief over failed — worded here, never `describe(error)`'s host
+      // sentence, which carries the seat it ran on. Read the same way every
+      // other wire code is read on this side of the wire (`refusalOf` above):
+      // `rejectionFor` (`lib/transport.ts`) puts the host's code on `.code`,
+      // never `.wireCode`, which is the host-side check on the class itself.
+      if ((error as { code?: unknown } | null)?.code === 'briefNotHandedOver') {
+        this.notice('error', `${name} was seated, and its brief could not be handed over, so the conversation was closed.`)
+        return null
+      }
+      this.notice('error', describe(error))
+      return null
+    }
+  }
+
+  /** Puts the refusal sheet away. */
+  dismissSeatRefusal(): void {
+    this.#patch({ seatRefusal: null })
+  }
+
+  /** Shows the file an Agent comes from in the file browser — the copy at `origin`, or the one in force. */
+  async revealAgent(id: string, origin?: AgentOrigin): Promise<void> {
+    const project = this.#snapshot.agentsProject
+    try {
+      await this.transport.request('agent/reveal', { id, ...(origin ? { origin } : {}), ...(project ? { project } : {}) })
+    } catch (error) {
+      this.notice('warning', describe(error))
+    }
+  }
+
+  /**
+   * *Customize…*: copies an Agent to you or to the project, where the copy
+   * comes first, and answers the copy. Throws the host's refusal, for the
+   * dialog that asked to say.
+   */
+  async customizeAgent(id: string, from: AgentOrigin, to: 'user' | 'project'): Promise<AgentEntry> {
+    const project = this.#snapshot.agentsProject
+    const copy = await this.transport.request('agent/copy', { id, from, to, ...(project ? { project } : {}) })
+    void this.loadAgents()
+    return copy
+  }
+
+  /** *Remove…*: moves a user or project Agent's folder to the Trash. Throws the host's refusal. */
+  async trashAgent(id: string, origin: 'user' | 'project'): Promise<void> {
+    const project = this.#snapshot.agentsProject
+    await this.transport.request('agent/remove', { id, origin, ...(project ? { project } : {}) })
+    void this.loadAgents()
+  }
+
+  /**
+   * *Save as an Agent…*: writes a new Agent — to you, or to the open project —
+   * whose first seat is the one given, and reads the roster again. Answers the
+   * new entry, for its brief to be opened; throws the host's refusal for the
+   * dialog to say.
+   */
+  async saveAsAgent(agent: {
+    readonly name: string
+    readonly description: string
+    readonly ceiling: CeilingLevel
+    readonly seat: FlowSeat
+    readonly to: 'user' | 'project'
+  }): Promise<AgentEntry> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const entry = await this.transport.request('agent/create', {
+      name: agent.name,
+      ...(agent.description ? { description: agent.description } : {}),
+      ceiling: agent.ceiling,
+      seat: agent.seat,
+      to: agent.to,
+      ...(project ? { project } : {}),
+    })
+    void this.loadAgents()
+    return entry
+  }
+
+  /** This machine's seats for its Agents — `seating.json` — as the host reads it. */
+  async loadSeating(): Promise<void> {
+    let seating: MachineSeating
+    try {
+      seating = await this.transport.request('agent/seating/read', {})
+    } catch (error) {
+      this.notice('warning', describe(error))
+      return
+    }
+    if (seating.revision < (this.#snapshot.seating?.revision ?? -1)) return
+    this.#patch({ seating })
+  }
+
+  /**
+   * Sets one Agent's seats on this machine, or clears them (`null`) so its own
+   * list applies again. Throws the host's refusal — a file that cannot be read
+   * is never written over — for the surface that asked to say why.
+   *
+   * Draws the host's own answer, never a locally-composed guess: a second
+   * window editing the same Agent's seats may have landed in between, and the
+   * last write standing is the host's to say, not this window's.
+   *
+   * Re-reads the plans itself, once this write answers, rather than waiting
+   * on the `agent/changed` notice a real change pushes: a no-op set (clearing
+   * an entry that was never there) pushes no notice at all, and even a real
+   * change's notice is a round trip this window need not wait for when it
+   * already knows the write happened.
+   */
+  async setSeating(
+    id: string,
+    seats: readonly FlowSeat[] | null,
+    expected?: readonly FlowSeat[] | null,
+  ): Promise<void> {
+    const seating = await this.transport.request('agent/seating/set', {
+      id,
+      seats,
+      ...(expected !== undefined ? { expected } : {}),
+    })
+    if (seating.revision >= (this.#snapshot.seating?.revision ?? -1)) {
+      this.#patch({ seating })
+    }
+    void this.loadAgentPlans()
+  }
+
+  /**
+   * Clears this Mac's seats for an Agent id — the *Also clear this Mac's
+   * seats* checkbox on *Remove…*, called once the Agent itself is gone. A
+   * failure here is a notice, not a reason to undo a Remove that already
+   * succeeded.
+   */
+  async clearMachineSeats(id: string): Promise<void> {
+    try {
+      await this.setSeating(id, null)
+    } catch (error) {
+      this.notice('warning', describe(error))
+    }
+  }
+
+  /** Agent reads in flight, by `seatAgentKey`, so one conversation drawn in three places asks once. */
+  readonly #seatAgentReads = new Set<string>()
+
+  /**
+   * Reads the Agent a seated conversation was seated as, for the folder it
+   * works in — once per folder and id, and again when the roster moves — so
+   * its header, its row and its name card can say who it is and whether its
+   * brief has moved on. A read that fails leaves nothing: the conversation is
+   * drawn as a conversation rather than as a guess.
+   */
+  readSeatAgent(cwd: string, id: string): void {
+    const key = seatAgentKey(cwd, id)
+    if (this.#seatAgentReads.has(key)) return
+    this.#seatAgentReads.add(key)
+    this.transport
+      .request('agent/read', { id, project: cwd })
+      .then(
+        (entry) => this.#patch({ seatAgents: new Map(this.#snapshot.seatAgents).set(key, entry) }),
+        () => undefined,
+      )
+      .finally(() => this.#seatAgentReads.delete(key))
   }
 
   async loadWorktrees(): Promise<void> {
@@ -3829,10 +5198,20 @@ export class AppStore {
     }
   }
 
+  /**
+   * Asks for a review of `key`'s changes. One that runs in a conversation of
+   * its own comes back as that conversation, and is opened the way a fork
+   * is: it takes the screen, and the conversation it was asked from waits in
+   * the sidebar exactly as it was — one ← away.
+   */
   async review(target: ReviewRequest, key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {
-      await this.transport.request('session/review', { ...address(key), target })
+      const side = await this.transport.request('session/review', { ...address(key), target })
+      if (!side) return
+      this.#setSession(side)
+      this.#showInPane(sessionKey(side.runtime, side.id))
+      void this.loadHistory({ reset: true })
     } catch (error) {
       this.notice('error', describe(error))
     }
@@ -4208,9 +5587,10 @@ export class AppStore {
         externalBinary: typeof rawBrowser?.externalBinary === 'string' ? rawBrowser.externalBinary : '',
         keepExternalProfile: rawBrowser?.keepExternalProfile !== false,
       }
+      const profile = readProfile(preferences['profile'])
       this.#patch({
         accountPrefs,
-        profile: readProfile(preferences['profile']),
+        profile,
         customPresets: readCustomPresets(preferences['customPresets']),
         planEdits,
         listPrefs,
@@ -4247,6 +5627,7 @@ export class AppStore {
           ? { look: preferences['look'] }
           : {}),
       })
+      setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
     } catch {
       // Preferences are a convenience; their absence must not block startup —
       // including for the banners that wait on them, which would otherwise be
@@ -4316,10 +5697,13 @@ export class AppStore {
   async openWorkspace(path: string): Promise<void> {
     try {
       const workspace = await this.transport.request('workspace/open', { path })
+      this.#flowGeneration += 1
       this.#patch({ workspace })
       if (this.#layouts) this.#restoreLayout(workspace.path)
       await this.loadWorkspaces()
       void this.loadDraftOptions()
+      // Another folder is another project's Agents.
+      if (this.#agentsRequested) void this.loadAgents()
     } catch (error) {
       this.notice('error', describe(error))
     }
@@ -4497,6 +5881,28 @@ export class AppStore {
     }
   }
 
+  /** What a watched conversation does when its runtime cannot hold the requested ceiling. */
+  async loadUnheldCeilings(): Promise<UnheldCeilings> {
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      const watched = typeof stored === 'object' && stored !== null
+        ? (stored as { watched?: unknown }).watched
+        : undefined
+      return watched === 'refuse' ? 'refuse' : 'seat'
+    } catch {
+      return 'seat'
+    }
+  }
+
+  /** Writes only the watched unheld-ceiling preference; the host merges the patch. */
+  async saveUnheldCeilings(watched: UnheldCeilings): Promise<void> {
+    await this.#writePreference(
+      { unheldCeilings: { watched } },
+      'What happens when a ceiling cannot be held',
+    )
+  }
+
   setTheme(theme: AppSnapshot['theme']): void {
     this.#patch({ theme })
     void this.#writePreference({ theme }, 'The theme')
@@ -4532,9 +5938,17 @@ export class AppStore {
    * become the whole stored profile, and the face would be forgotten.
    */
   setProfile(patch: ProfilePatch): void {
+    const previous = this.#snapshot.profile
     const profile = applyProfile(this.#snapshot.profile, patch)
     if (sameProfile(profile, this.#snapshot.profile)) return
     this.#patch({ profile })
+    if (previous.avatar !== profile.avatar) {
+      try {
+        setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
+      } catch {
+        // A native Dock update is best effort; it must not block persistence.
+      }
+    }
     void this.#writePreference({ profile: storedProfile(profile) }, 'Your profile')
   }
 
@@ -4551,9 +5965,10 @@ export class AppStore {
     const cleaned: AccountPrefs = {
       ...(merged.nickname?.trim() ? { nickname: merged.nickname.trim() } : {}),
       ...(merged.tint ? { tint: merged.tint } : {}),
+      ...(merged.pinLaneId?.trim() ? { pinLaneId: merged.pinLaneId.trim() } : {}),
     }
     const accountPrefs: Record<string, AccountPrefs> = { ...this.#snapshot.accountPrefs }
-    if (cleaned.nickname === undefined && cleaned.tint === undefined) delete accountPrefs[key]
+    if (cleaned.nickname === undefined && cleaned.tint === undefined && cleaned.pinLaneId === undefined) delete accountPrefs[key]
     else accountPrefs[key] = cleaned
     this.#patch({ accountPrefs })
     void this.#writePreference({ accountPrefs }, 'The account name')
@@ -4891,6 +6306,8 @@ export class AppStore {
     if (event.type === 'account/changed') {
       void this.loadAccounts()
       void this.refreshRuntime()
+      // A sign-in is exactly what moves a candidate from passed over to taken.
+      if (this.#agentsRequested) void this.loadAgentPlans()
       return
     }
     if (event.type === 'catalog/changed') {

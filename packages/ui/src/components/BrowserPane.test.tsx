@@ -374,10 +374,10 @@ describe('BrowserPane', () => {
   })
 
   it('names the driven tab to the shell, not whichever tab is on screen', () => {
-    const named: number[] = []
+    const named: { profile: string | null; webContentsId: number }[] = []
     ;(window as { harnessdesk?: Partial<DesktopBridge> }).harnessdesk = {
       platform: 'darwin',
-      browserReady: (id: number) => named.push(id),
+      browserReady: request => named.push(request),
       browserGone: () => {},
       setBrowserLinksInPane: () => {},
     } as Partial<DesktopBridge> as DesktopBridge
@@ -391,7 +391,7 @@ describe('BrowserPane', () => {
       guests[1]!.dispatchEvent(new Event('dom-ready'))
       guests[0]!.dispatchEvent(new Event('dom-ready'))
     })
-    expect(named).toEqual([11])
+    expect(named).toEqual([{ profile: null, webContentsId: 11 }])
   })
 
   /**
@@ -541,7 +541,7 @@ describe('BrowserPane', () => {
     act(() => {
       tabs()[0]?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 20 }))
     })
-    const rows = [...container.querySelectorAll('[role^="menuitem"]')].map((row) => row.textContent)
+    const rows = [...document.querySelectorAll('[role^="menuitem"]')].map((row) => row.textContent)
     expect(rows.join('|')).toContain('Duplicate')
     expect(rows.join('|')).toContain('Close other tabs')
     expect(rows.join('|')).toContain('Close tabs to the right')
@@ -563,6 +563,29 @@ describe('BrowserPane', () => {
     fire(tabs()[1]!, 'dragover')
     fire(tabs()[1]!, 'drop')
     expect(harness.calls.moveBrowserTab).toHaveBeenCalledWith('p1', view.tabs[0]!.id, 1)
+  })
+
+  it('moves a focused tab along the strip with ⌥← and ⌥→, which the tab names', () => {
+    const harness = storeOf()
+    const view = addBrowserTab(browserView('https://a.test/'), 'https://b.test/')
+    mount(view, harness)
+    expect(tabs()[0]?.getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowLeft Alt+ArrowRight')
+    const press = (node: Element, key: string): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', { key, altKey: true, bubbles: true, cancelable: true })
+      act(() => {
+        node.dispatchEvent(event)
+      })
+      return event
+    }
+    expect(press(tabs()[0]!, 'ArrowRight').defaultPrevented).toBe(true)
+    expect(harness.calls.moveBrowserTab).toHaveBeenCalledWith('p1', view.tabs[0]!.id, 1)
+    // The first tab has nowhere further left to go: nothing is asked.
+    harness.calls.moveBrowserTab.mockClear()
+    press(tabs()[0]!, 'ArrowLeft')
+    expect(harness.calls.moveBrowserTab).not.toHaveBeenCalled()
+    // Moves are said out loud beside the strip, not inside the tablist.
+    expect(container.querySelector('[role="tablist"] [role="status"]')).toBeNull()
+    expect(container.querySelector('[data-slot="sortable-announcer"]')?.getAttribute('aria-live')).toBe('polite')
   })
 
   it('turns the reload button into a stop button while a page is loading', () => {

@@ -65,3 +65,44 @@ it('reports every preference, not just one of them', async () => {
   expect(messages()[1]).toContain('Your profile could not be saved')
   expect(messages()[2]).toContain('The browser settings could not be saved')
 })
+
+it('reads and writes what happens when a ceiling cannot be held, as the host reads it', async () => {
+  const answers: unknown[] = [
+    {},
+    { unheldCeilings: { watched: 'refuse' } },
+    { unheldCeilings: { watched: 'seat' } },
+    { unheldCeilings: { watched: 'later' } },
+    { unheldCeilings: null },
+    { unheldCeilings: [] },
+    { unheldCeilings: 'refuse' },
+  ]
+  const asked: Array<{ method: string; params: unknown }> = []
+  vi.mocked(store.transport.request).mockImplementation((async (method: string, params: unknown) => {
+    asked.push({ method, params })
+    if (method === 'app/state/get') return answers.shift()
+    return null
+  }) as never)
+
+  expect(await Promise.all(Array.from({ length: 7 }, () => store.loadUnheldCeilings()))).toEqual([
+    'seat', 'refuse', 'seat', 'seat', 'seat', 'seat', 'seat',
+  ])
+  await store.saveUnheldCeilings('refuse')
+  expect(asked.at(-1)).toEqual({
+    method: 'app/state/set',
+    params: { patch: { unheldCeilings: { watched: 'refuse' } } },
+  })
+})
+
+it('an unreadable ceiling preference uses the host default', async () => {
+  vi.mocked(store.transport.request).mockRejectedValueOnce(new Error('state is unreadable'))
+  await expect(store.loadUnheldCeilings()).resolves.toBe('seat')
+  expect(store.transport.request).toHaveBeenCalledTimes(1)
+})
+
+it('reports a failed ceiling preference write', async () => {
+  refuse = true
+  await store.saveUnheldCeilings('refuse')
+  expect(messages()).toHaveLength(1)
+  expect(messages()[0]).toContain('What happens when a ceiling cannot be held could not be saved')
+  expect(messages()[0]).toContain('the host is not taking writes')
+})

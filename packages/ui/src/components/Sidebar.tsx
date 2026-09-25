@@ -1,29 +1,50 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { Account, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
+import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BranchIcon, BriefIcon, CheckIcon, ChevronIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
 // Imported for its side effect: the Tasks panel registers itself into the
 // `sidebar.panel` slot rendered below.
 import './TaskPanel'
-import { Menu, MenuItem, MenuLabel } from './Menu'
-import { DISMISS_OVERLAYS, Popover } from './Popover'
-import { accountKey, accountName, accountIdentity, tintOf } from '../lib/accounts'
+import {
+  AccountMark,
+  Bar,
+  Button,
+  Chip,
+  Dot,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  MenuNote,
+  MenuSeparator,
+  NavigationGroupHeader,
+  Popover,
+  RailSection,
+  RefusedAction,
+  Search,
+  Text,
+  buttonVariants,
+  type Tone,
+} from '../design'
+import { accountKey, accountName, accountIdentity, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName } from '../lib/projects'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
 import { livePlugins } from '../lib/plugins'
+import { anyBroken, inForce } from '../lib/agents'
 import { AccountHoverCard } from './AgentCards'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
-import { Clipped } from '../design/primitives/Kit'
+import { Clipped, DisclosureChevron, EmptyState } from '../design'
 import type { Section } from './Settings'
 import { bindingLane, describeReport, isBlocked } from '../lib/usage'
+import { usageReadingTone } from '../lib/limits'
+import { usageAccount } from '../lib/usage-alerts'
 import styles from './Sidebar.module.css'
 
 /**
@@ -41,6 +62,7 @@ import styles from './Sidebar.module.css'
 export const Sidebar = ({
   onOpenSettings,
   onOpenPlugins,
+  onOpenAgents,
   onOpenUsage,
   onBrowseFolders,
   onSignIn,
@@ -48,6 +70,8 @@ export const Sidebar = ({
 }: {
   onOpenSettings: (section?: Section) => void
   onOpenPlugins: () => void
+  /** Opens the Agents window — the roster, never a Settings page. */
+  onOpenAgents: () => void
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
   onBrowseFolders: () => void
@@ -94,35 +118,40 @@ export const Sidebar = ({
   // Not `plugins.length`: an installed copy a built-in has taken over is off,
   // and counting it here made the sidebar promise one more than the page lists.
   const pluginCount = livePlugins(snapshot.plugins).length
+  // Null until a surface that lists Agents has asked (the plain path's own
+  // rule): this row then counts none and wears no dot, rather than reading
+  // the roster itself just to sit in the sidebar.
+  const agentsRoster = snapshot.agents ?? []
+  const agentsCount = inForce(agentsRoster).length
+  const agentsBroken = anyBroken(agentsRoster)
 
   return (
     <div className={styles.sidebar}>
-      <div className={`${styles.titlebar} hd-drag`}>
+      <Bar corner className="hd-drag">
         <WindowControls />
-      </div>
+      </Bar>
 
       {/* The magnifier is search, not filtering: it opens the palette over
           everything — sessions, files, agents, commands — which is what a
           magnifier at the top of a window promises. Narrowing the list is the
           Workspaces row's job, down where the list is. */}
-      <div className={styles.header}>
-        <span className={styles.brandMark} aria-hidden>
+      <Bar inset="ink">
+        <Text role="subject" className={styles.brandMark} aria-hidden>
           <HarnessMark size={14} />
-        </span>
-        <span className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>
+        </Text>
+        <Text role="wordmark" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>
           HarnessDesk
-        </span>
+        </Text>
         <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          className={`${styles.iconButton} hd-no-drag`}
+        <Button
+          variant="ghost" size="icon-sm" className={`${styles.iconButton} hd-no-drag`}
           onClick={onSearch}
           title="Search sessions, files, agents and commands (⌘K)"
           aria-label="Search everything"
         >
           <SearchIcon size={13} />
-        </button>
-      </div>
+        </Button>
+      </Bar>
 
       {/* Three slots, because the top of the sidebar is the most valuable
           space in the app and only what a person reaches for *while working*
@@ -135,59 +164,71 @@ export const Sidebar = ({
           on-purpose visits. Changes lives in every conversation's header, and
           ⌘K reaches the rest. */}
       {starting && <NewSessionChoice onClose={() => setStarting(false)} />}
-      <nav className={styles.nav} aria-label="Workspace actions">
+      <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
         <div className={styles.navRow}>
-          <button
-            type="button"
-            className={styles.navItem}
+          <Button
+            variant="navigation" size="navigation" className={styles.navItem}
             disabled={!ready || !snapshot.workspace}
             /* Asks which kind of work this is; ⌘N and the palette still go
                straight to a session. See `NewSessionChoice`. */
             onClick={() => setStarting(true)}
             title="Start one agent, or a room for several."
           >
-            <PlusIcon size={15} className={styles.navIcon} />
+            <Text role="muted" className={styles.navIcon}><PlusIcon size={15} /></Text>
             New session
-          </button>
+          </Button>
           <WorktreeMenu />
         </div>
+        {/* The plain path's one new row (the owner's rule, 2026-09-18): who
+            can do the work, beside where the work already starts. Its count
+            is the roster in force, and it wears the same warn tone the
+            Dashboard's own badge does — never a chip drawn just for this row. */}
+        <Button variant="navigation" size="navigation" className={styles.navItem} onClick={onOpenAgents}>
+          <BriefIcon size={15} className={styles.navIcon} />
+          Agents
+          {agentsCount > 0 && (
+            <span className={styles.navCount} {...(agentsBroken ? { 'data-tone': 'warn' } : {})}>
+              {agentsCount}
+            </span>
+          )}
+        </Button>
         {/* Called with nothing, on purpose: the handler takes an agent id
             now, and a click event in its place would open the dashboard
             scoped to an object. */}
-        <button type="button" className={styles.navItem} onClick={() => onOpenUsage()}>
-          <UsageIcon size={15} className={styles.navIcon} />
+        <Button variant="navigation" size="navigation" className={styles.navItem} onClick={() => onOpenUsage()}>
+          <Text role="muted" className={styles.navIcon}><UsageIcon size={15} /></Text>
           Dashboard
           {/* The count is the number of agents that need attention, not the
               number that report — a badge for "everything is fine" is noise. */}
           {lowAgents > 0 && (
-            <span className={styles.navCount} data-tone="warn">
+            <Text role="meta" numeric className={styles.navCount}>
               {lowAgents}
-            </span>
+            </Text>
           )}
-        </button>
-        <button type="button" className={styles.navItem} onClick={onOpenPlugins}>
-          <PluginIcon size={15} className={styles.navIcon} />
+        </Button>
+        <Button variant="navigation" size="navigation" className={styles.navItem} onClick={onOpenPlugins}>
+          <Text role="muted" className={styles.navIcon}><PluginIcon size={15} /></Text>
           Plugins
           {pluginCount > 0 && (
-            <span className={styles.navCount}>{pluginCount}</span>
+            <Text role="meta" numeric className={styles.navCount}>{pluginCount}</Text>
           )}
-        </button>
-      </nav>
+        </Button>
+      </RailSection>
 
       {/* The list's own row: what the list is, the field that narrows it, and
           the two things you do to it. It sits outside the scroller so that
           filtering stays one click away however far down the list you are. */}
-      <div className={styles.sectionLabel} {...(filtering ? { 'data-filtering': '' } : {})}>
-        <span className={styles.sectionTitle}>Workspaces</span>
+      <NavigationGroupHeader label="Workspaces" filtering={filtering}>
         <div className={styles.filter}>
-          <FilterIcon className={styles.filterIcon} size={12} />
-          <input
+          <Search
+            size="compact"
+            icon="filter"
             className={styles.filterInput}
             placeholder={filtering ? 'Filter sessions' : ''}
-            aria-label="Filter sessions"
+            label="Filter sessions"
             title="Narrow the list below. ⌘K searches everything."
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={setQuery}
             onFocus={() => setFilterFocused(true)}
             onBlur={() => setFilterFocused(false)}
             onKeyDown={(event) => {
@@ -201,35 +242,34 @@ export const Sidebar = ({
                 event.currentTarget.blur()
               }
             }}
-            spellCheck={false}
           />
         </div>
         <SessionListControls />
-        <button
-          type="button"
-          className={styles.iconButton}
+        <Button
+          variant="muted" size="icon-sm" className={styles.iconButton}
           onClick={onBrowseFolders}
           title="Open a project folder"
           aria-label="Open a project folder"
         >
           <PlusIcon size={13} />
-        </button>
-      </div>
+        </Button>
+      </NavigationGroupHeader>
 
-      <div className={styles.list} ref={listRef} onScroll={onScroll}>
+      <RailSection stretch="list" className={styles.list} ref={listRef} onScroll={onScroll}>
         {snapshot.history.length === 0 && !snapshot.historyLoading && (
-          <p className={styles.empty}>
-            {ready
+          <EmptyState
+            variant="inline"
+            title={ready
               ? `No sessions yet. Start one to see it here${
                   runtime.presentation.historySource
                     ? ` — sessions you run in ${runtime.presentation.historySource} show up too`
                     : ''
                 }.`
               : 'Connect a runtime to see your sessions.'}
-          </p>
+          />
         )}
         <SessionTree now={now} />
-      </div>
+      </RailSection>
 
       <Slot name="sidebar.panel" />
 
@@ -273,20 +313,19 @@ const WorktreeMenu = () => {
   const mine = snapshot.worktrees.filter((entry) => entry.managed)
 
   if (!isRepo || !ready) {
+    const reason = isRepo
+      ? 'Connect an agent to work in a worktree.'
+      : 'Worktrees need a git repository. This folder is not one.'
     return (
-      <button
-        type="button"
-        className={styles.navSecondary}
-        disabled
-        title={
-          isRepo
-            ? 'Connect an agent to work in a worktree.'
-            : 'Worktrees need a git repository. This folder is not one.'
-        }
-        aria-label="Worktrees"
-      >
-        <BranchIcon size={14} />
-      </button>
+      <RefusedAction reason={reason}>
+        <Button
+          variant="ghost" size="icon-sm" className={styles.navSecondary}
+          disabled
+          aria-label="Worktrees"
+        >
+          <BranchIcon size={14} />
+        </Button>
+      </RefusedAction>
     )
   }
 
@@ -295,7 +334,7 @@ const WorktreeMenu = () => {
       title="Worktrees of this project"
       drop="down"
       align="right"
-      triggerClassName={styles.navSecondary}
+      triggerClassName={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: styles.navSecondary })}
       label={<BranchIcon size={14} />}
       onOpenChange={(open) => open && void store.loadWorktrees()}
     >
@@ -377,7 +416,17 @@ interface Seat {
   readonly figure: string | null
   readonly tone: 'good' | 'warn' | 'bad'
   readonly current: boolean
+  readonly report: UsageReport | null
+  readonly preference: AccountPrefs | undefined
 }
+
+const readinessTone = (state: Readiness): Tone | undefined => ({
+  ready: undefined,
+  available: undefined,
+  signin: 'brand',
+  limit: 'warning',
+  broken: 'danger',
+} as const)[state]
 
 export const AccountFooter = ({
   onOpenSettings,
@@ -396,47 +445,16 @@ export const AccountFooter = ({
   // and not the focused conversation's.
   const runtime = useRuntime()
   const [open, setOpen] = useState(false)
+  const [accountsOpen, setAccountsOpen] = useState(false)
+  const [usageOpen, setUsageOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
-  const wrap = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const close = (event: PointerEvent): void => {
-      if (!wrap.current?.contains(event.target as Node)) {
-        setOpen(false)
-        setConfirmingSignOut(false)
-      }
-    }
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        // Spent on the menu, so a sidebar floating over a narrow window stays.
-        event.preventDefault()
-        setOpen(false)
-        setConfirmingSignOut(false)
-      }
-    }
-    /*
-      Whatever takes the screen closes it, as it closes every other menu —
-      Settings, Usage, and the sidebar itself as it is put away in a narrow
-      window. Left open, it came back with the sidebar, a sign-out still
-      waiting on its answer. Its rows are inside the sidebar, and a sidebar
-      that finds focus in one gives it back itself, so there is nothing here
-      to hand back.
-    */
-    const onDismiss = (): void => {
-      setOpen(false)
-      setConfirmingSignOut(false)
-    }
-    document.addEventListener('pointerdown', close)
-    document.addEventListener('keydown', onKey)
-    document.addEventListener(DISMISS_OVERLAYS, onDismiss)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      document.removeEventListener('keydown', onKey)
-      document.removeEventListener(DISMISS_OVERLAYS, onDismiss)
-    }
-  }, [open])
+  const accountRef = useRef<HTMLDivElement>(null)
+  const resetMenu = (): void => {
+    setAccountsOpen(false)
+    setUsageOpen(false)
+    setConfirmingSignOut(false)
+  }
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
     const status = snapshot.accountsByRuntime[info.id] ?? null
@@ -450,12 +468,6 @@ export const AccountFooter = ({
       accounts: info.capabilities.account,
       usage,
     })
-    const report = usage[0] ?? null
-    const view = report ? describeReport(report, { now: Date.now(), maxLanes: 1 }) : null
-    const lane = view?.hero ?? null
-    const figure =
-      lane && lane.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null
-    const tone = view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const))
     const accounts = status?.accounts ?? []
     const current = info.id === snapshot.activeRuntime
 
@@ -468,14 +480,27 @@ export const AccountFooter = ({
           name: info.presentation.name,
           sub: READINESS_LABEL[state],
           state,
-          figure,
-          tone,
+          figure: usage[0]
+            ? (() => {
+                const lane = describeReport(usage[0] as UsageReport, { now: Date.now(), maxLanes: 1 }).hero
+                return lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null
+              })()
+            : null,
+          tone: usage[0] ? describeReport(usage[0], { now: Date.now(), maxLanes: 1 }).tone : 'good',
           current,
+          report: usage[0] ?? null,
+          preference: undefined,
         },
       ]
     }
     return accounts.map((account) => {
       const key = accountKey(info.id, account)
+      const report =
+        usage.find((entry) => usageAccount(entry) === account.label.trim()) ??
+        (accounts.length === 1 ? usage[0] : null)
+      const preference = snapshot.accountPrefs[key]
+      const view = report ? describeReport(report, { now: Date.now(), maxLanes: 1, preference }) : null
+      const lane = view?.hero ?? null
       return {
         key,
         info,
@@ -483,9 +508,11 @@ export const AccountFooter = ({
         name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
         sub: accountIdentity(account) || info.presentation.name,
         state,
-        figure,
-        tone,
+        figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
+        tone: view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const)),
         current,
+        report: report ?? null,
+        preference,
       }
     })
   })
@@ -498,59 +525,130 @@ export const AccountFooter = ({
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
   const yourName = profileName(snapshot.profile)
+  const usageView = here?.report
+    ? describeReport(here.report, { now: Date.now(), maxLanes: 8, preference: here.preference })
+    : null
+  const hasUsage = usageView !== null && usageView.all.length > 0
 
-  const signOut = async (): Promise<void> => {
+  const signOut = async (close: () => void): Promise<void> => {
     if (!snapshot.activeRuntime) return
     setBusy(true)
     try {
       await store.signOutAgent(snapshot.activeRuntime)
-      setOpen(false)
-      setConfirmingSignOut(false)
+      close()
+      resetMenu()
     } finally {
       setBusy(false)
     }
   }
 
+  const accountTrigger = (
+    <>
+      <ProfileFace size={24} />
+      <Text role="subject" className={styles.accountName}>
+        <Clipped className={styles.accountLabel}>{yourName}</Clipped>
+      </Text>
+      {here?.figure && here.tone !== 'good' && (
+        <Text role="muted" tone={usageReadingTone(here.tone)} numeric className={styles.accountMeta}>
+          {here.figure}
+        </Text>
+      )}
+      {here && (
+        <AccountHoverCard
+          info={here.info}
+          account={here.account}
+          side="right"
+          align="end"
+          className={styles.seatTrigger}
+          onOpenUsage={onOpenUsage}
+          disabled={open}
+        >
+          <AccountMark
+            size="sm"
+            {...(here.account
+              ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) }
+              : here.state === 'signin'
+                ? { 'data-off': '' }
+                : {})}
+          >
+            <RuntimeMark runtime={here.info} size={13} />
+          </AccountMark>
+        </AccountHoverCard>
+      )}
+      <Dot
+        state={here?.state ?? 'available'}
+        role="img"
+        aria-label={here ? `${agentName}: ${READINESS_LABEL[here.state]}` : 'No agent'}
+      />
+    </>
+  )
+
   return (
-    <div className={styles.account} ref={wrap}>
-      {open && (
-        <div className={styles.accountMenu} role="menu">
+    <Bar rule="top" ref={accountRef}>
+      <Popover
+        title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
+        /* Opens upward from the footer and stays inside the sidebar, the row's
+           own width: the menu belongs to this row, not to the transcript it
+           would otherwise be laid over. */
+        side="top"
+        sideAlign="start"
+        sideOffset={6}
+        fullWidth
+        panelWidth="trigger"
+        triggerClassName={buttonVariants({ variant: 'navigation', size: 'navigation', className: styles.accountRow })}
+        label={accountTrigger}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (!next) resetMenu()
+        }}
+      >
+        {(close) => (
+          <Menu
+            close={() => {
+              close()
+              resetMenu()
+            }}
+            onEscape={() => {
+              close()
+              resetMenu()
+              accountRef.current?.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')?.focus()
+            }}
+          >
           {/* You — the seat a HarnessDesk account will take. There is no
               such account yet, and a sign-in button for one would be a lie,
               so this is what is true today: your profile, kept on this Mac.
               Pressing it opens the page where it is set. */}
-          <div className={styles.menuSection}>
-            <button
-              type="button"
-              role="menuitem"
-              className={styles.you}
-              title="Your name and picture. Nothing syncs between machines."
-              onClick={() => {
-                setOpen(false)
-                onOpenSettings('profile')
-              }}
-            >
-              <ProfileFace size={30} />
-              <span className={styles.youText}>
-                <span className={styles.youName}>
-                  <Clipped className={styles.youLabel}>{yourName}</Clipped>
-                  <span className={styles.youTag}>Local</span>
-                </span>
+          <MenuItem
+            layout="profile"
+            title="Your name and picture. Nothing syncs between machines."
+            onSelect={() => {
+              onOpenSettings('profile')
+            }}
+          >
+            <ProfileFace size={30} />
+            <span className={styles.youText}>
+              <span className={styles.youName}>
+                <Text role="row"><Clipped className={styles.youLabel}>{yourName}</Clipped></Text>
+                <Chip tone="neutral" size="sm">Local</Chip>
               </span>
-            </button>
-          </div>
+            </span>
+          </MenuItem>
 
-          <div className={styles.menuSection}>
-            <div className={styles.menuLabel}>Run new sessions as</div>
-            {seats.map((seat) => (
-              <button
+          <MenuSeparator />
+          <MenuLabel size="compact">Run new sessions as</MenuLabel>
+            {(accountsOpen ? seats : here ? [here] : seats).map((seat) => (
+              <MenuItem
                 key={seat.key}
-                type="button"
-                role="menuitem"
-                className={styles.seat}
-                {...(seat.current ? { 'data-current': '' } : {})}
-                onClick={() => {
-                  setOpen(false)
+                layout="account"
+                current={seat.current}
+                expanded={seat.current && seats.length > 1 ? accountsOpen : undefined}
+                keepOpen={seat.current && seats.length > 1}
+                onSelect={() => {
+                  if (seat.current && seats.length > 1) {
+                    setAccountsOpen((value) => !value)
+                    setUsageOpen(false)
+                    return
+                  }
                   void store.selectRuntime(seat.info.id)
                 }}
               >
@@ -575,8 +673,8 @@ export const AccountFooter = ({
                      the dashboard on everything; this opens it on this seat. */
                   onOpenUsage={onOpenUsage}
                 >
-                  <span
-                    className={styles.seatAvatar}
+                  <AccountMark
+                    size="sm"
                     {...(seat.account
                       ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
                       : seat.state === 'signin'
@@ -584,30 +682,28 @@ export const AccountFooter = ({
                         : {})}
                   >
                     <RuntimeMark runtime={seat.info} size={13} />
-                  </span>
+                  </AccountMark>
                 </AccountHoverCard>
                 <span className={styles.seatText}>
-                  <span className={styles.seatName}>{seat.name}</span>
-                  <span className={styles.seatSub} data-state={seat.state}>
+                  <Text role="navigation" fade className={styles.seatName}>{seat.name}</Text>
+                  <Text role="meta" truncate tone={readinessTone(seat.state)} className={styles.seatSub}>
                     {seat.sub}
-                  </span>
+                  </Text>
                 </span>
                 {seat.figure && (
-                  <span className={styles.seatFigure} data-tone={seat.tone}>
+                  <Text role="muted" tone={usageReadingTone(seat.tone)} numeric className={styles.seatFigure}>
                     {seat.figure}
-                  </span>
+                  </Text>
                 )}
-                <span className={styles.seatTick}>
+                <Text role="meta" tone="brand" className={styles.seatTick}>
                   {seat.current ? <CheckIcon size={14} /> : null}
-                </span>
-              </button>
+                </Text>
+              </MenuItem>
             ))}
-            <button
-              type="button"
-              role="menuitem"
-              className={styles.accountMenuRow}
-              onClick={() => {
-                setOpen(false)
+            <MenuItem
+              icon={<PlusIcon size={13} />}
+              label="Add an account…"
+              onSelect={() => {
                 // Opens the chooser rather than adding one here. "An account"
                 // does not mean "another of this one": the agent is the first
                 // question, and only picking one that is already connected
@@ -616,151 +712,113 @@ export const AccountFooter = ({
                 // behind.
                 onSignIn()
               }}
-            >
-              <span className={styles.accountMenuAction}>
-                <PlusIcon size={13} />
-                Add an account…
-              </span>
-            </button>
-          </div>
+            />
 
-          <div className={styles.menuSection}>
-            <button
-              type="button"
-              role="menuitem"
-              className={styles.accountMenuRow}
-              onClick={() => {
-                setOpen(false)
+          <MenuSeparator />
+            <MenuItem
+              expanded={hasUsage ? usageOpen : false}
+              keepOpen
+              onSelect={() => {
+                if (hasUsage) setUsageOpen((value) => !value)
+              }}
+              /* The menu's own icon column and value slot, so the gauge and its
+                 words line up with Settings and Dashboard below. */
+              icon={<UsageIcon size={13} />}
+              label="Usage remaining"
+              value={
+              <Text role="muted" tone={usageReadingTone(here?.tone)} numeric className={styles.accountMenuMeta}>
+                {here?.figure ?? '—'}
+                {/* The fold wears the figure's trouble, as the figure beside it does.
+                    A fold has one trouble tone, so a spent window's red figure
+                    folds under the warning mark. */}
+                {hasUsage && (
+                  <DisclosureChevron
+                    open={usageOpen}
+                    placement="trailing"
+                    tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
+                    className={styles.accountMenuCaret}
+                  />
+                )}
+              </Text>
+              }
+            />
+            {usageOpen && usageView && (
+              <div className={styles.usageDetails} data-usage-details>
+                <div className={styles.usageLanes}>
+                  {usageView.all.map((lane) => (
+                    <div className={styles.usageLane} key={lane.id}>
+                      <Text role="muted" truncate className={styles.usageLaneName}>{lane.title}</Text>
+                      <Text role="muted" tone={usageReadingTone(lane.tone)} numeric className={styles.accountMenuMeta}>
+                        {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}%`}
+                      </Text>
+                      <Text role="meta" numeric className={styles.usageLaneReset}>
+                        {lane.shortCountdown ? `in ${lane.shortCountdown}` : '—'}
+                      </Text>
+                    </div>
+                  ))}
+                </div>
+                <MenuItem
+                  label="Open usage dashboard"
+                  value={<ChevronIcon size={11} />}
+                  onSelect={() => {
+                    onOpenUsage(here?.info.id)
+                  }}
+                />
+              </div>
+            )}
+            <MenuItem
+              icon={<SettingsIcon size={13} />}
+              label="Settings"
+              shortcut="⌘,"
+              onSelect={() => {
                 onOpenSettings()
               }}
-            >
-              <span className={styles.accountMenuAction}>
-                <SettingsIcon size={13} />
-                Settings
-              </span>
-              <span className={styles.accountMenuMeta}>⌘,</span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className={styles.accountMenuRow}
-              onClick={() => {
-                setOpen(false)
+            />
+            <MenuItem
+              icon={<UsageIcon size={13} />}
+              label="Dashboard"
+              shortcut="⌘U"
+              onSelect={() => {
                 onOpenUsage()
               }}
-            >
-              <span className={styles.accountMenuAction}>
-                <UsageIcon size={13} />
-                Dashboard
-              </span>
-              <span className={styles.accountMenuMeta}>⌘U</span>
-            </button>
+            />
             {signedIn && !confirmingSignOut && (
-              <button
-                type="button"
-                role="menuitem"
-                className={`${styles.accountMenuRow} ${styles.accountMenuDanger}`}
-                onClick={() => setConfirmingSignOut(true)}
-              >
-                <span className={styles.accountMenuAction}>
-                  <SignOutIcon size={13} />
-                  Sign out of {agentName}…
-                </span>
-              </button>
+              <MenuItem
+                icon={<SignOutIcon size={13} />}
+                label={`Sign out of ${agentName}…`}
+                danger
+                keepOpen
+                onSelect={() => setConfirmingSignOut(true)}
+              />
             )}
             {confirmingSignOut && (
-              <div className={styles.accountMenuConfirm}>
-                <div className={styles.accountMenuConfirmText}>
+              <div>
+                <MenuNote>
                   Sign out of {agentName}? You'll need to sign in again before the next turn.
-                </div>
+                </MenuNote>
                 <div className={styles.accountMenuConfirmActions}>
-                  <button
-                    type="button"
-                    className={styles.accountMenuButton}
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={busy}
                     onClick={() => setConfirmingSignOut(false)}
                   >
                     Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.accountMenuButton} ${styles.accountMenuButtonDanger}`}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
                     disabled={busy}
-                    onClick={() => void signOut()}
+                    onClick={() => void signOut(close)}
                   >
                     {busy ? 'Signing out…' : 'Sign out'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      <button
-        type="button"
-        className={styles.accountRow}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        {...(here ? { title: `New sessions run as ${nextAs}` } : {})}
-        {...(open ? { 'data-open': '' } : {})}
-        onClick={() => {
-          setOpen((value) => !value)
-          setConfirmingSignOut(false)
-        }}
-      >
-        {/* You. The same face as the menu's top row, at the row's size, and
-            the name — which says itself whole on hover only while the row
-            cuts it, so the row's own title, about the pen, is not hidden
-            behind a name you can already read. */}
-        <ProfileFace size={24} />
-        <span className={styles.accountName}>
-          <Clipped className={styles.accountLabel}>{yourName}</Clipped>
-        </span>
-        {here?.figure && here.tone !== 'good' && (
-          <span className={styles.accountMeta} data-tone={here.tone}>
-            {here.figure}
-          </span>
+          </Menu>
         )}
-        {/* The pen: the default agent's mark in its account's ring — the
-            same disc the menu's seats wear — and the name card on it says
-            which account, on what plan, with how much left. The ring is the
-            account's, so an agent that keeps its own credential wears none
-            and is not dimmed for it; only a seat that needs a sign-in goes
-            dark. */}
-        {here && (
-          <AccountHoverCard
-            info={here.info}
-            account={here.account}
-            side="right"
-            align="end"
-            className={styles.seatTrigger}
-            onOpenUsage={onOpenUsage}
-            /* Pressing the badge opens the menu, and the card the hover had
-               opened stayed beside it — two surfaces answering one seat. With
-               the menu up, the card has nothing to add: every seat in it
-               carries its own. */
-            disabled={open}
-          >
-            <span
-              className={styles.seatAvatar}
-              {...(here.account
-                ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) }
-                : here.state === 'signin'
-                  ? { 'data-off': '' }
-                  : {})}
-            >
-              <RuntimeMark runtime={here.info} size={13} />
-            </span>
-          </AccountHoverCard>
-        )}
-        <span
-          className={styles.statusDot}
-          data-state={here?.state ?? 'unknown'}
-          role="img"
-          aria-label={here ? `${agentName}: ${READINESS_LABEL[here.state]}` : 'No agent'}
-        />
-      </button>
-    </div>
+      </Popover>
+    </Bar>
   )
 }

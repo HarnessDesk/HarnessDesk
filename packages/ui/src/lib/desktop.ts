@@ -40,6 +40,8 @@ export interface DesktopBridge {
   readonly platform: string
   openExternal(url: string): void
   setTitle(title: string): void
+  /** The selected global profile picture, applied to the macOS Dock when available. */
+  setDockIcon?(avatar: string | null): void
   /**
    * The appearance choice, handed to the shell's native theme. Only the
    * desktop build has one; it is what the browser pane's page reads as
@@ -59,22 +61,24 @@ export interface DesktopBridge {
    * open that conversation.
    */
   onOpenSession?(handler: (request: { runtime: string; sessionId: string }) => void): () => void
+  onOpenGoal?(handler: (request: { goal: string }) => void): () => void
   /**
    * The browser pane's side of the agent-driven browser. The pane reports
    * its `<webview>` by id once the page can be driven, and says when it
    * goes; the shell asks for the pane to be shown or closed when a tool
    * needs it. Absent in the browser build, where tools drive Chrome instead.
    */
-  browserReady?(webContentsId: number): void
-  browserGone?(): void
-  onBrowserShow?(handler: (request: { url: string }) => void): () => void
-  onBrowserClose?(handler: () => void): () => void
+  browserReady?(request: { profile: string | null; webContentsId: number }): void
+  browserGone?(request: { profile: string | null; webContentsId: number | null }): void
+  browserFocused?(request: number): void
+  onBrowserShow?(handler: (request: { profile: string | null; url: string }) => void): () => void
+  onBrowserClose?(handler: (request: { profile: string | null }) => void): () => void
   /**
    * The shell asking for the driven tab to be brought forward, which it does
    * before every tool command: Chromium freezes a `<webview>` nobody is
    * looking at, so a backgrounded tab screenshots stale.
    */
-  onBrowserFocus?(handler: () => void): () => void
+  onBrowserFocus?(handler: (request: { profile: string | null; request: number }) => void): () => void
   /**
    * Photographs one of the pane's tabs — named by `webContents` id, which
    * the shell checks against the tabs the pane itself reported — and writes
@@ -83,7 +87,7 @@ export interface DesktopBridge {
    */
   saveBrowserScreenshot?(webContentsId: number, name: string): Promise<string | null>
   /** Empties the browser pane's persistent partition. */
-  clearBrowserData?(): Promise<void>
+  clearBrowserData?(profile?: string | null): Promise<void>
   /**
    * Runs the annotation overlay's code in an *isolated world* of one of the
    * pane's tabs, named by `webContents` id and checked in the shell to be a
@@ -100,13 +104,13 @@ export interface DesktopBridge {
    */
   setBrowserLinksInPane?(inPane: boolean): void
   /** A link a page tried to open in a window of its own, to be shown as a tab. */
-  onBrowserOpenTab?(handler: (url: string) => void): () => void
+  onBrowserOpenTab?(handler: (request: { url: string; profile: string | null }) => void): () => void
   /**
    * A download a page in the pane started has ended. The shell put it in the
    * Downloads folder under the server's name; this is where, and whether it
    * finished, for a notice to say.
    */
-  onBrowserDownload?(handler: (outcome: { name: string; path: string; ok: boolean; message: string }) => void): () => void
+  onBrowserDownload?(handler: (outcome: { name: string; path: string; ok: boolean; message: string; profile: string | null }) => void): () => void
   /** Shows a downloaded file in the Finder; the shell reveals only files it saved itself. */
   revealDownload?(path: string): void
 }
@@ -141,6 +145,11 @@ export const setWindowTitle = (title: string): void => {
   document.title = title === 'HarnessDesk' ? title : `${title} — HarnessDesk`
 }
 
+/** Applies the global profile picture to the native Dock icon when supported. */
+export const setDockIcon = (avatar: string | null): void => {
+  desktop()?.setDockIcon?.(avatar)
+}
+
 export const onShortcut = (handler: (name: string) => void): (() => void) =>
   desktop()?.onShortcut(handler) ?? (() => {})
 
@@ -148,6 +157,9 @@ export const onShortcut = (handler: (name: string) => void): (() => void) =>
 export const onOpenSession = (
   handler: (request: { runtime: string; sessionId: string }) => void,
 ): (() => void) => desktop()?.onOpenSession?.(handler) ?? (() => {})
+
+export const onOpenGoal = (handler: (request: { goal: string }) => void): (() => void) =>
+  desktop()?.onOpenGoal?.(handler) ?? (() => {})
 
 /**
  * Whether the window's top-left is occupied by macOS traffic lights. The
@@ -158,3 +170,11 @@ export const hasTrafficLights = (): boolean => desktop()?.platform === 'darwin'
 
 /** Whether this shell can render a real browser pane (Electron's `<webview>`). */
 export const hasInlineBrowser = (): boolean => typeof desktop()?.browserReady === 'function'
+
+export function browserPartition(profile: string | null, keep: boolean): string {
+  if (profile === null) return keep ? 'persist:harnessdesk-browser' : 'harnessdesk-browser-once'
+  if (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n')) {
+    throw new Error('The host did not name a lane browser profile.')
+  }
+  return `persist:hd-${profile}`
+}

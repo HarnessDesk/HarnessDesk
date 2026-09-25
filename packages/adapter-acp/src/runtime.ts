@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { extname, join } from 'node:path'
+import { extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
 import {
   approvalId,
   itemId,
@@ -42,6 +41,8 @@ import {
   type InstallationCheck,
   type Session,
   type SessionId,
+  type SessionAttachments,
+  type SessionAttachmentReceipt,
   type SessionOptions,
   type SessionSettings,
   type SessionDeletion,
@@ -61,6 +62,7 @@ import {
   SessionFolderGoneError,
   SessionGoneError,
   openingOf,
+  laneEnvironmentOf,
 } from '@harnessdesk/protocol'
 import {
   AcpConnection,
@@ -89,16 +91,22 @@ import {
   ACP_SESSION_DELETE,
   ACP_SESSION_DELETE_CAPABILITY,
   ACP_INSTRUCTIONS_CAPABILITY,
+  ACP_ATTACHMENT_RECEIPT,
+  type AcpAttachmentCapability,
   type AcpSessionDeleted,
+  ACP_AUTHENTICATE,
   ACP_DELEGATION_NOTIFICATION,
+  ACP_LOGOUT,
   type AcpDelegation,
   type AcpDelegationChanged,
   type AcpDelegationUsage,
 } from '@harnessdesk/transport-acp'
 
 import { CliAccount, type AcpAccountCommands } from './account.js'
+import { attachmentsMeta, decodeAttachmentCapability, toAttachmentSupport, validateAttachmentReceipt } from './attachments.js'
 import { AcpExtensions } from './extensions.js'
 import { resolveExecutable, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
+import { acknowledgeEnvironment, environmentMeta, environmentSupported } from './lane-environment.js'
 import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { AcpTasks } from './tasks.js'
 
@@ -246,6 +254,15 @@ export interface AcpAgentConfig {
    * registry.
    */
   readonly resolveIdentity?: () => Account | null
+  /**
+   * Which vendor's models the agent's sessions reach, from the agent's own
+   * configuration, for a session in `cwd` when one is named — or null when
+   * anything the person set could point it elsewhere. Supplied by the host,
+   * which knows where each agent keeps that configuration; absent, the
+   * provider is unknown, whatever the agent is called. See
+   * `RuntimeInfo.provider`.
+   */
+  readonly resolveProvider?: (cwd?: string) => Promise<string | null>
   /**
    * Where an agent that puts no usage on the wire writes it down.
    * Antigravity's server counts every model call in its own conversation
@@ -494,7 +511,7 @@ const acpConfirm = (confirm: {
 const levelOf = (level: { readonly id: string; readonly label?: string | null }): {
   readonly id: string
   readonly label: string
-} => ({ id: level.id, label: level.label?.trim() || level.id })
+} => ({ id: level.id, label: level.label?.trim() || (level.id === 'xhigh' ? 'Extra high' : level.id) })
 
 /** The reasoning levels a bridge named on the model itself, if it named any. */
 const levelsOfModel = (
@@ -502,6 +519,18 @@ const levelsOfModel = (
 ): readonly { readonly id: string; readonly label: string }[] | null => {
   const levels = model._meta?.harnessdesk?.effortLevels
   return levels ? levels.map(levelOf) : null
+}
+
+const levelsOfModelOption = (
+  option: AcpConfigOption,
+): readonly { readonly id: string; readonly label: string }[] | null => {
+  if (option.id !== 'model' || option.type !== 'select' || !Array.isArray(option.options)) return null
+  const levels = option.options
+    .map((choice) => (choice._meta?.['harnessdesk'] as { effortLevels?: unknown } | undefined)?.effortLevels)
+    .find((value): value is readonly { id: string; label?: string | null }[] => Array.isArray(value))
+  return levels
+    ? levels.map(levelOf)
+    : null
 }
 
 /**
@@ -516,7 +545,7 @@ const levelsOfOptions = (
   const effort = options.find((option) => option.category === 'thought_level' && option.type === 'select')
   return (effort?.options ?? [])
     .filter((choice) => choice.value !== 'default')
-    .map((choice) => levelOf({ id: choice.value, label: choice.name }))
+    .map((choice) => levelOf({ id: choice.value, label: choice.value === 'xhigh' ? 'Extra high' : choice.name }))
 }
 
 /**
@@ -574,7 +603,8 @@ const readsKey = (source: AcpSecretSource, key: string): boolean => {
  * (`_something`, by ACP convention) passes through for the interface to
  * treat as `other`. Anything else is `other` outright.
  */
-const acpCategory = (category: string | null | undefined): OptionCategory => {
+const acpCategory = (id: string, category: string | null | undefined): OptionCategory => {
+  if (id === 'auto_approve') return '_permissions'
   if (category === 'mode' || category === 'model' || category === 'thought_level' || category === 'other') {
     return category
   }
@@ -583,6 +613,9 @@ const acpCategory = (category: string | null | undefined): OptionCategory => {
 
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
+  /** Read on construction and again on each start, unknown until then; see `RuntimeInfo.provider`. */
+  #provider: string | null = null
+  #providerRead: Promise<void> = Promise.resolve()
   /** Set when the agent answered that it cannot take an MCP tool server. */
   #toolServerRefused = false
   /** The agent's bridge declared that it carries the desk's standing instruction. */
@@ -590,7 +623,19 @@ export class AcpRuntime implements AgentRuntime {
 
   readonly #connection: AcpConnection
   readonly #sessions = new Map<SessionId, AcpSession>()
+  readonly #environments = new Map<SessionId, Readonly<Record<string, string>>>()
   readonly #resuming = new Map<SessionId, Promise<AgentSession>>()
+  /**
+   * The folder each conversation opened here was opened in, as the agent
+   * accepted it in `session/new`. For an agent that keeps no listing — Gemini
+   * CLI — this is the only word it ever gives on where a conversation works,
+   * so it outlives the agent's restarts, which drop every live session and
+   * leave the host to reopen them on their next use. Only conversations handed
+   * out are kept, in a folder named in full: each is one the host holds open
+   * already, so reopening it there opens nothing new. It goes with the
+   * conversation, when the agent deletes it, and with this runtime.
+   */
+  readonly #openedIn = new Map<SessionId, string>()
   readonly #listeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   readonly #infoListeners = new Set<() => void>()
@@ -601,6 +646,8 @@ export class AcpRuntime implements AgentRuntime {
   /** What the host last decided to run, when it decides at all. */
   #launch: AcpLaunchDecision | null = null
   readonly #account: CliAccount | null
+  /** Sign-ins started over ACP that nobody has cancelled; see `#authenticateOverAcp`. */
+  readonly #acpLogins = new Set<string>()
   readonly extensions: AcpExtensions | undefined
   /**
    * Set once the agent has shown it speaks the background-task extension —
@@ -608,6 +655,17 @@ export class AcpRuntime implements AgentRuntime {
    * the stronger evidence of the two.
    */
   #tasks: AcpTasks | null = null
+  /** Decoded once from `initialize`'s `_meta.harnessdesk.attachments`; `null` until shaken, and forever if the peer never declared it. */
+  #attachmentCapability: AcpAttachmentCapability | null = null
+  /**
+   * What each live session was actually prepared with, kept for
+   * `attachmentReceipt` — which the protocol asks by session id alone — to
+   * know both the exact key to ask the peer for and the exact set of names
+   * a receipt may claim as loaded. Never re-derived from the current Agent:
+   * decision "reapply the same approved input on recreate, resume and fork"
+   * means this is the frozen record, not a fresh read.
+   */
+  readonly #attachmentInputs = new Map<SessionId, SessionAttachments>()
   /**
    * Set the moment `dispose()` begins, and never cleared.
    *
@@ -634,11 +692,12 @@ export class AcpRuntime implements AgentRuntime {
 
   constructor(config: AcpAgentConfig) {
     this.#config = config
+    this.#providerRead = this.#refreshProvider()
     this.#account = config.account
       ? new CliAccount(
           config.account,
           runtimeId(config.id),
-          (event) => this.emit(event),
+          (event) => this.#accountEvent(event),
           (message, details) => config.logger?.debug?.(message, details),
         )
       : null
@@ -694,6 +753,14 @@ export class AcpRuntime implements AgentRuntime {
           : null
         : null,
       capabilities: this.#capabilities(),
+      // Phase 12's stronger session contract — a sibling of `capabilities`,
+      // never folded into it, and absent (not `unsupported`) until this
+      // runtime has actually shaken hands: "what a runtime may claim before
+      // it has observed anything" is nothing.
+      ...(this.#initialized
+        ? { attachments: toAttachmentSupport(this.#attachmentCapability, this.#config.id, effectiveVersion ?? '', this.#config.name) }
+        : {}),
+      provider: this.#provider,
       presentation: {
         name: this.#config.name,
         // What an ACP agent declares are commands; some of them are skills
@@ -729,6 +796,7 @@ export class AcpRuntime implements AgentRuntime {
     const shaken = this.#initialized !== null
     return {
       ...NO_CAPABILITIES,
+      sessionEnvironment: environmentSupported(this.#initialized?._meta),
       // ACP declares how to authenticate but never whether you already are
       // — so claiming an account from authMethods alone painted "not signed
       // in" over agents that were. The surface exists when the registry
@@ -774,7 +842,27 @@ export class AcpRuntime implements AgentRuntime {
     // agent behind this adapter.
   }
 
+  async #readProvider(cwd?: string): Promise<string | null> {
+    try {
+      return (await this.#config.resolveProvider?.(cwd)) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  #refreshProvider(): Promise<void> {
+    return this.#readProvider().then((provider) => { this.#provider = provider })
+  }
+
+  /** `AgentRuntime.providerAt`: an agent that reads a project's own settings can be pointed elsewhere there. */
+  async providerAt(cwd: string): Promise<string | null> {
+    await this.#providerRead
+    return this.#provider === null ? null : this.#readProvider(cwd)
+  }
+
   async start(): Promise<void> {
+    // Read beside the start, never ahead of it; `providerAt` waits for it.
+    this.#providerRead = this.#refreshProvider()
     // A start that never begins. Not the guard that holds the invariant —
     // that one is welded to the spawn in `#spawnBridge` — but the two lines
     // below each shell out to a subprocess of their own, the host's launch
@@ -812,6 +900,16 @@ export class AcpRuntime implements AgentRuntime {
           // Declined, deliberately and forever. See the class comment.
           fs: { readTextFile: false, writeTextFile: false },
           terminal: false,
+          // Claude Agent ACP 0.77 exposes native subagents and background
+          // work only when the client opts into their standard lifecycle
+          // updates. HarnessDesk translates those updates at the adapter
+          // boundary; keeping the capability here also lets other ACP agents
+          // use the same standard surface.
+          subagents: {},
+          _meta: {
+            'subagent-transcript': true,
+            jetbrains: { air: { version: 1, capabilities: ['asyncTasks'] } },
+          },
         },
       })
       const declared = (this.#initialized._meta as { harnessdesk?: Record<string, unknown> } | undefined)
@@ -819,6 +917,7 @@ export class AcpRuntime implements AgentRuntime {
       if (declared?.[ACP_TASKS_CAPABILITY] === true) this.#adoptTasks()
       this.#canDelete = declared?.[ACP_SESSION_DELETE_CAPABILITY] === true
       this.#briefs = declared?.[ACP_INSTRUCTIONS_CAPABILITY] === true
+      this.#attachmentCapability = decodeAttachmentCapability(this.#initialized)
       this.#setHealth({ state: 'ready' })
       // The handshake is what turned the capability claims on, and a window
       // may already be drawn from the all-false version.
@@ -829,14 +928,27 @@ export class AcpRuntime implements AgentRuntime {
       // start instead of at the first conversation.
       void this.#observeToolReach()
     } catch (error) {
-      this.#setHealth({
-        state: 'unavailable',
-        reason: 'notInstalled',
-        message: `${this.#config.name} did not answer the ACP handshake: ${describeAcp(error)}`,
-        ...(this.#config.installCommand
-          ? { remediation: `Install it with \`${this.#config.installCommand}\`.` }
-          : {}),
-      })
+      const cleanExit = error instanceof AcpError && error.exitCode === 0
+      const message = cleanExit
+        ? `${this.#config.name} exited cleanly before completing the ACP handshake. Check its command and configuration.`
+        : `${this.#config.name} did not answer the ACP handshake: ${describeAcp(error)}`
+      this.#setHealth(
+        cleanExit
+          ? {
+              state: 'unavailable',
+              reason: 'crashed',
+              message,
+              remediation: "Verify the agent's profile or configuration, then select it again.",
+            }
+          : {
+              state: 'unavailable',
+              reason: 'notInstalled',
+              message,
+              ...(this.#config.installCommand
+                ? { remediation: `Install it with \`${this.#config.installCommand}\`.` }
+                : {}),
+            },
+      )
       throw error
     }
   }
@@ -988,6 +1100,7 @@ export class AcpRuntime implements AgentRuntime {
     await this.#connection.stop()
     this.#sessions.clear()
     this.#resuming.clear()
+    this.#openedIn.clear()
     this.#probe = null
     this.#probeId = null
     this.#opening = null
@@ -1193,8 +1306,22 @@ export class AcpRuntime implements AgentRuntime {
    * agent last declared — learned from the draft probe, which costs nothing
    * until it is prompted. Opening it here is what fills the settings
    * catalogue for an agent nobody has talked to yet.
+   *
+   * The picker's answer: a catalogue the agent never managed to declare is
+   * drawn as nothing, not as an error. `knownModels` is how a caller that must
+   * tell the two apart asks.
    */
   async listModels(): Promise<readonly ModelInfo[]> {
+    return (await this.knownModels()) ?? []
+  }
+
+  /**
+   * The models, or null while the agent has never declared them — every
+   * conversation it was asked to open failed, the draft probe included. One
+   * that opened a conversation and named no model has answered: it offers
+   * none, and that is an empty list.
+   */
+  async knownModels(): Promise<readonly ModelInfo[] | null> {
     if (this.#catalog.length === 0 && this.#health.state === 'ready') {
       try {
         await this.#openProbe()
@@ -1206,7 +1333,7 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     this.#catalogRead = true
-    return this.#catalog
+    return this.#catalogKnown ? this.#catalog : null
   }
 
   /**
@@ -1281,17 +1408,27 @@ export class AcpRuntime implements AgentRuntime {
    * model changes as drafts are tried, and the agent's default does not.
    */
   #learnCatalog(result: AcpNewSessionResult): void {
-    const models = result.models?.availableModels ?? []
+    // A conversation opened, so the agent has said what it offers — nothing included.
+    this.#catalogKnown = true
+    const modelOption = result.configOptions?.find((option) => option.id === 'model' && option.type === 'select')
+    const models: readonly AcpModel[] = result.models?.availableModels ??
+      (modelOption?.options ?? []).map((option) => ({
+        modelId: option.value,
+        name: option.name,
+        ...(option.description ? { description: option.description } : {}),
+        ...(option._meta ? { _meta: option._meta as AcpModel['_meta'] } : {}),
+      }))
     if (models.length === 0) return
     const shared = levelsOfOptions(result.configOptions ?? [])
+    const currentModelId = result.models?.currentModelId ?? (modelOption ? String(modelOption.currentValue) : null)
     const isDefault = (modelId: string): boolean =>
-      this.#catalogDefault === null ? modelId === result.models?.currentModelId : modelId === this.#catalogDefault
+      this.#catalogDefault === null ? modelId === currentModelId : modelId === this.#catalogDefault
     const catalog = models.map(
       (model): ModelInfo => ({
         id: model.modelId,
         displayName: model.name,
         ...(model.description ? { description: model.description } : {}),
-        reasoningLevels: levelsOfModel(model) ?? shared,
+        reasoningLevels: levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption)) ?? shared,
         supportsImages: this.info.capabilities.imageInput,
         ...(model._meta?.harnessdesk?.thinking
           ? { thinking: model._meta.harnessdesk.thinking }
@@ -1299,7 +1436,7 @@ export class AcpRuntime implements AgentRuntime {
         ...(isDefault(model.modelId) ? { isDefault: true } : {}),
       }),
     )
-    if (this.#catalogDefault === null) this.#catalogDefault = result.models?.currentModelId ?? null
+    if (this.#catalogDefault === null) this.#catalogDefault = currentModelId
     if (JSON.stringify(catalog) === JSON.stringify(this.#catalog)) return
     this.#catalog = catalog
     // Learning it before anyone asked is not news: `listModels` opens the
@@ -1335,30 +1472,134 @@ export class AcpRuntime implements AgentRuntime {
     })
     if (this.#account) {
       const status = await this.#account.status()
+      // An interactive-only CLI has no safe status probe. In that case the
+      // ACP session observation is the sign-in proof, while the CLI commands
+      // remain the source of the driveable sign-in/sign-out methods.
+      const observed = this.#config.account?.status
+        ? { accounts: [], signInMethods: [] }
+        : this.#observedAccount(keyAccounts.length > 0)
       return {
-        accounts: [...status.accounts, ...keyAccounts],
-        signInMethods: [...status.signInMethods, ...keyMethods],
+        accounts: [...status.accounts, ...keyAccounts, ...observed.accounts],
+        signInMethods: [...status.signInMethods, ...keyMethods, ...observed.signInMethods],
+        ...(observed.refusal ? { refusal: observed.refusal } : {}),
       }
     }
     const observed = this.#observedAccount(keyAccounts.length > 0)
     return {
       accounts: [...keyAccounts, ...observed.accounts],
       signInMethods: [...keyMethods, ...observed.signInMethods],
+      ...(observed.refusal ? { refusal: observed.refusal } : {}),
     }
   }
 
-  async login(_method: string): Promise<LoginStart> {
+  async login(method: string): Promise<LoginStart> {
+    if (method.startsWith(ACP_METHOD)) return this.#authenticateOverAcp(method.slice(ACP_METHOD.length))
     if (!this.#account) throw new Error(`${this.#config.name} declares no sign-in command.`)
     return this.#account.login()
   }
 
+  /**
+   * ACP's own sign-in, for one of the methods the agent declared.
+   *
+   * `authenticate` is a request that does not answer until the agent has
+   * signed in — Antigravity's server opens Google in the browser itself,
+   * from inside the call — so the flow is *started* here and settled by the
+   * reply, which is exactly the shape `login()` already has for a CLI whose
+   * browser flow ends in an exit. What it cannot give is a URL: the agent
+   * opened the page, and never says which. The hand-back carries none, and
+   * the shell shows "waiting for you in the browser" without a link.
+   *
+   * The request cannot be recalled once sent, so a cancel drops the desk's
+   * claim on the flow rather than stopping the agent — and if the agent
+   * signs in anyway, the account still changed and the desk is told to look
+   * again. `CliAccount` treats a cancelled-then-successful flow the same way.
+   */
+  async #authenticateOverAcp(methodId: string): Promise<LoginStart> {
+    const loginId = randomUUID()
+    this.#acpLogins.add(loginId)
+    const runtime = runtimeId(this.#config.id)
+    void this.#connection.request(ACP_AUTHENTICATE, { methodId }).then(
+      () => {
+        const mine = this.#acpLogins.delete(loginId)
+        // Before the events, so whoever reads the identity on `account/changed`
+        // reads it signed in — the same ordering `#accountEvent` keeps.
+        this.#noteSignIn({ state: 'observed' })
+        if (mine) this.emit({ type: 'account/loginCompleted', runtime, loginId, success: true })
+        this.emit({ type: 'account/changed', runtime })
+      },
+      (error: unknown) => {
+        if (!this.#acpLogins.delete(loginId)) return
+        this.emit({
+          type: 'account/loginCompleted',
+          runtime,
+          loginId,
+          success: false,
+          error: firstSentence(describeAcp(error)),
+        })
+      },
+    )
+    return { type: 'browser', loginId }
+  }
+
   async cancelLogin(loginId: string): Promise<void> {
+    if (this.#acpLogins.delete(loginId)) {
+      this.emit({
+        type: 'account/loginCompleted',
+        runtime: runtimeId(this.#config.id),
+        loginId,
+        success: false,
+        error: 'Sign-in was cancelled.',
+      })
+      return
+    }
     await this.#account?.cancel(loginId)
   }
 
+  /**
+   * Whether the agent answers ACP's own `logout`, which it says by putting
+   * an `auth.logout` key in its capabilities. The one sign-out this adapter
+   * can do without a CLI, and for Antigravity the only one there is: its
+   * server is a download of its own, the `agy` CLI beside it is a different
+   * program, and `agy --print /logout` is refused by print mode — clearing
+   * credentials is exactly the effect print mode will not let outlive a run
+   * (#749).
+   *
+   * `{}` is the only yes. ACP v1 makes an omitted capability and a `null`
+   * one mean the same thing — the agent does not support `logout` — and says
+   * a client **MUST NOT** call it in either case. This read was `!==
+   * undefined`, which let a `null` through and sent the forbidden request;
+   * the agent answered "Method not found", which is the desk breaking the
+   * protocol and then reporting the agent's complaint about it. Found in
+   * review of this PR, with a control that declares `logout: null`.
+   */
+  #logsOutOverAcp(): boolean {
+    const declared = this.#initialized?.agentCapabilities?.auth?.logout
+    return declared !== undefined && declared !== null
+  }
+
   async logout(): Promise<void> {
-    if (!this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
-    await this.#account.logout()
+    // The CLI first where the registry named one: it is the explicit
+    // instruction, and it works with the agent stopped. ACP's own is the
+    // fallback for an agent whose CLI cannot be asked.
+    const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
+    if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
+    const before = this.#signIn
+    // Make the state transition visible to the account/changed event emitted
+    // by CliAccount when its command succeeds. Restore it if the command
+    // itself fails, since the provider may still be signed in.
+    this.#signIn = { state: 'required', message: 'Signed out.' }
+    try {
+      if (overAcp) {
+        await this.#connection.request(ACP_LOGOUT, {})
+        // CliAccount announces its own; this path has nobody else to do it.
+        this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+      } else {
+        await this.#account!.logout()
+      }
+    } catch (error) {
+      this.#signIn = before
+      throw error
+    }
   }
 
   async getRateLimits(): Promise<RateLimits | null> {
@@ -1366,6 +1607,10 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async listSessions(query?: ListSessionsQuery): Promise<Page<SessionSummary>> {
+    // Every page is in the one answer below, so this listing hands out no
+    // cursor, and one it is given is some other listing's. The page after the
+    // whole list is empty; answering with the first again repeated it.
+    if (query?.cursor) return { data: [], nextCursor: null }
     const live = [...this.#sessions.values()]
       .filter((session) => session.id !== this.#probeId)
       .map((session) => session.summary())
@@ -1375,22 +1620,24 @@ export class AcpRuntime implements AgentRuntime {
     // The agent keeps its own store (Claude Code writes ~/.claude/projects);
     // reading through it is what lets a conversation outlive both this
     // process and the agent's — the same rule the Codex adapter follows.
+    //
+    // All of it, every page, where the Codex adapter hands its cursor on. ACP
+    // keeps no archive, so the host takes archived rows out of each answer
+    // itself, and the interface reads one answer in most places: the archive,
+    // and every agent in the sidebar but the one it pages. Answered a page at
+    // a time, a conversation archived past the first page would be in neither.
     try {
       // The workspace travels with the question when the caller has one: an
       // agent that keys its store by folder — Cursor hashes the path — can
       // only answer for a folder it has been given.
-      const listed = await this.#connection.request<{ sessions?: readonly AcpSessionRow[] }>(
-        'session/list',
-        query?.cwd ? { cwd: query.cwd } : {},
-      )
-      const rows = listed.sessions ?? []
+      const rows = await this.#listedRows(query?.cwd)
       // The agent names its own conversations — Claude Code writes a title
       // into the transcript as the turn runs — and that name is what its own
       // window shows. A session open here has no title of its own, so it
       // takes the agent's rather than falling back to the first thing the
       // user typed: one conversation, one name, in both windows.
       for (const row of rows) {
-        const title = row.title?.trim()
+        const title = titleOf(row, this.info.id)
         if (title) this.#titles.set(makeSessionId(row.sessionId), title)
         // The ask a conversation opened with, for the same reason: a session
         // loaded here has no turns of its own to take one from — the agent
@@ -1413,7 +1660,7 @@ export class AcpRuntime implements AgentRuntime {
           (row): SessionSummary => ({
             id: makeSessionId(row.sessionId),
             runtime: this.info.id,
-            title: row.title?.trim() || null,
+            title: titleOf(row, this.info.id),
             // What the conversation opened with, for the rows an agent
             // leaves unnamed — the same split a live session has, where the
             // title is the agent's name and the preview is the ask.
@@ -1426,8 +1673,12 @@ export class AcpRuntime implements AgentRuntime {
           }),
         )
       return { data: [...named, ...stored].sort((a, b) => b.updatedAt - a.updatedAt), nextCursor: null }
-    } catch {
-      return { data: live, nextCursor: null }
+    } catch (error) {
+      // A listing that cannot be read to its end is a failure, not a shorter
+      // list. Answered with what was read, or with the live sessions alone, it
+      // was taken for the whole one: the sidebar replaced the list it had with
+      // it, and the archive counted the agent as having answered.
+      throw new Error(`${this.#config.name} could not list its conversations (${describeAcp(error)}).`)
     }
   }
 
@@ -1449,6 +1700,10 @@ export class AcpRuntime implements AgentRuntime {
     const needle = query.toLowerCase()
     return {
       data: [...this.#sessions.values()]
+        // The draft probe is no conversation, here as in `listSessions`. Its
+        // preview is empty, so a search for nothing found it, and its id was
+        // then read as one — in the folder the probe was opened in.
+        .filter((session) => session.id !== this.#probeId)
         .map((session) => session.summary())
         .filter((summary) => (summary.preview ?? '').toLowerCase().includes(needle)),
       nextCursor: null,
@@ -1457,7 +1712,7 @@ export class AcpRuntime implements AgentRuntime {
 
   async readSession(id: SessionId): Promise<Session> {
     const live = this.#sessions.get(id)
-    if (live) return live.snapshot()
+    if (live && id !== this.#probeId) return live.snapshot()
     // ACP has no read-only fetch; loading *is* reading. Free of tokens: a
     // load replays the stored conversation, it does not prompt anything.
     const loaded = await this.resumeSession(id)
@@ -1492,8 +1747,10 @@ export class AcpRuntime implements AgentRuntime {
     const result = await this.#connection.request<AcpSessionDeleted>(ACP_SESSION_DELETE, {
       sessionId: String(id),
     })
+    this.#tasks?.forget(id)
     this.#titles.delete(id)
     this.#previews.delete(id)
+    this.#openedIn.delete(id)
     const disposition = result?.disposition ?? 'removed'
     const removed = result?.removed?.length ?? 0
     this.#config.logger?.debug?.('session deleted', { session: String(id), removed, disposition })
@@ -1578,7 +1835,13 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async #startProbe(cwd?: string): Promise<AcpSession> {
-    const where = cwd ?? process.cwd()
+    // Named no folder, the draft is opened in the user's own. ACP opens no
+    // session without one, and this process's working directory is no answer:
+    // it is `/` when the app is started from Finder and the checkout under
+    // `pnpm dev`, so what a draft offered depended on how the app was launched. The
+    // home folder is the same however it was, and holds the agent's own
+    // settings, which are what a conversation has before a folder is chosen.
+    const where = cwd ?? homedir()
     const opened = await this.#openWithTools<AcpNewSessionResult>('session/new', { cwd: where })
     const probe = AcpSession.probe(this, opened, where)
     // Registered so the agent's follow-up notifications (an agent may
@@ -1599,6 +1862,13 @@ export class AcpRuntime implements AgentRuntime {
   #signIn: SignInObservation = { state: 'unknown' }
   /** The agent's models as last declared, for the settings catalogue. */
   #catalog: readonly ModelInfo[] = []
+  /**
+   * Whether the agent has declared its models at all, which an empty
+   * `#catalog` cannot say: it is empty both before anything was learned and
+   * after an agent answered that it offers none. Kept, like `#catalog`, across
+   * a restart — the old process's answer is still the last one given.
+   */
+  #catalogKnown = false
   /** The model the agent chose for itself, before any draft pick moved it. */
   #catalogDefault: string | null = null
   /** Whether the catalogue has been handed out, which is what makes a later change news. */
@@ -1643,7 +1913,11 @@ export class AcpRuntime implements AgentRuntime {
    * agent has already refused it. A refusal is not a failure: retry once
    * without the bridge, remember, and log why the plugin tools are absent.
    */
-  async #openWithTools<T>(method: 'session/new' | 'session/load', params: Record<string, unknown>): Promise<T> {
+  async #openWithTools<T>(
+    method: 'session/new' | 'session/load',
+    params: Record<string, unknown>,
+    attachments?: SessionAttachments,
+  ): Promise<T> {
     const caller = randomUUID()
     const servers = this.#toolServerRefused ? [] : mcpServersOf(this.#config, caller)
     // The token's runtime is known now; its session only once the open answers.
@@ -1657,9 +1931,16 @@ export class AcpRuntime implements AgentRuntime {
       }
       return result
     }
+    // The prepared attachment input rides beside `#briefed`'s instruction,
+    // under the very same `_meta.harnessdesk` key each merges into in turn —
+    // applied last, so it can see (and never clobber) what `#briefed` put there.
+    const extend = (p: Record<string, unknown>): Record<string, unknown> => {
+      const briefed = { ...p, ...this.#briefed(p) }
+      return { ...briefed, ...attachmentsMeta(briefed, attachments) }
+    }
     try {
       return this.#opened(
-        claim(await this.#connection.request<T>(method, { ...params, ...this.#briefed(params), mcpServers: servers })),
+        claim(await this.#connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
       )
     } catch (error) {
       const message = describeAcp(error)
@@ -1686,7 +1967,7 @@ export class AcpRuntime implements AgentRuntime {
         for (const listener of this.#infoListeners) listener()
       }
       try {
-        return this.#opened(await this.#connection.request<T>(method, { ...params, mcpServers: [] }))
+        return this.#opened(await this.#connection.request<T>(method, extend({ ...params, mcpServers: [] })))
       } catch (again) {
         this.refusedForSignIn(again)
         throw again
@@ -1718,6 +1999,16 @@ export class AcpRuntime implements AgentRuntime {
     this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
   }
 
+  /** Keep an interactive CLI's observation in step with its account events. */
+  #accountEvent(event: AgentEvent): void {
+    if (event.type === 'account/loginCompleted' && event.success) {
+      // CliAccount emits account/changed immediately after this completion;
+      // update first so the listener reads the new identity on that event.
+      this.#signIn = { state: 'observed' }
+    }
+    this.emit(event)
+  }
+
   /**
    * The account surface for an agent the desk cannot ask, from what it saw.
    * A stored key already explains a session that opened, so beside one the
@@ -1727,9 +2018,13 @@ export class AcpRuntime implements AgentRuntime {
    * where the agent writes it, "Signed in" where it does not. Only after a
    * session opened: a record on disk is what the agent will try, not proof
    * that it still works, and a refusal outranks it.
-   * A refusal is answered with the agent's declared methods, as `external`
-   * flows: the desk does not drive ACP's `authenticate` yet, so the honest
-   * offer is the agent's own words about how to sign in.
+   * A refusal is answered with the agent's declared methods, and they are
+   * `browser` flows because the desk does now drive ACP's `authenticate`:
+   * declaring a method in `initialize` is the agent saying "call
+   * `authenticate` with this id", so an offer to press it is the agent's own
+   * offer rather than the desk's guess. They were `external` — a sentence
+   * and nothing to press — which for Antigravity left no way in at all, its
+   * CLI being a different program (#749).
    */
   #observedAccount(hasKey: boolean): AccountStatus {
     const seen = this.#signIn
@@ -1745,11 +2040,12 @@ export class AcpRuntime implements AgentRuntime {
       return {
         accounts: [],
         signInMethods: (this.#initialized?.authMethods ?? []).map((method) => ({
-          id: `acp:${method.id}`,
+          id: `${ACP_METHOD}${method.id}`,
           label: method.name,
-          flow: 'external' as const,
-          description: [method.description ?? '', said].filter((part) => part.length > 0).join(' — '),
+          flow: 'browser' as const,
+          ...(method.description ? { description: method.description } : {}),
         })),
+        ...(said ? { refusal: said } : {}),
       }
     }
     return { accounts: [], signInMethods: [] }
@@ -1794,15 +2090,30 @@ export class AcpRuntime implements AgentRuntime {
       // that can only apply a control when it spawns the agent (Claude
       // Code's `--effort`) reads them here; every other agent ignores the
       // key, and the `setOption` calls below apply the values the usual way.
-      ...(Object.keys(initial).length > 0 ? { _meta: { harnessdesk: { options: initial } } } : {}),
-    })
+      ...(options.environment
+        ? {
+            _meta: environmentMeta(
+              { harnessdesk: { options: initial } },
+              options.environment,
+              this.info.capabilities.sessionEnvironment,
+            ),
+          }
+        : Object.keys(initial).length > 0
+          ? { _meta: { harnessdesk: { options: initial } } }
+          : {}),
+    }, options.attachments)
     const session = new AcpSession(this, result, options.cwd)
     this.#sessions.set(session.id, session)
+    if (options.attachments) this.#attachmentInputs.set(session.id, options.attachments)
     this.#learnCatalog(result)
     // Initial option values ride the same path a user change would — mode
     // and model first, because they decide which other options exist.
     const ordered = Object.entries(initial).sort(([a], [b]) => rankOptionId(a) - rankOptionId(b))
     try {
+      if (options.environment) {
+        acknowledgeEnvironment(result._meta, options.environment)
+        this.#environments.set(session.id, laneEnvironmentOf(options.environment))
+      }
       for (const [id, value] of ordered) {
         /*
          * Inapplicable is not the same as wrong, and only one of them should
@@ -1844,18 +2155,47 @@ export class AcpRuntime implements AgentRuntime {
       // "Untitled session" with no turns, for the life of the process — the
       // Codex adapter has always closed it; this one kept it.
       this.#sessions.delete(session.id)
+      this.#environments.delete(session.id)
       await session.close()
       throw error
     }
+    if (isAbsolute(options.cwd)) this.#openedIn.set(session.id, options.cwd)
     this.emit({ type: 'session/started', session: session.snapshot() })
     return session
   }
 
-  async resumeSession(id: SessionId): Promise<AgentSession> {
-    const live = this.#sessions.get(id)
-    if (live) return live
+  async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    const saved = this.#environments.get(id)
+    const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
+    if (saved && environment && JSON.stringify(saved) !== JSON.stringify(environment)) {
+      throw new Error('A live session cannot change its lane environment.')
+    }
+    if (environment) environmentMeta({}, environment, this.info.capabilities.sessionEnvironment)
+    // The draft probe is a session the agent counts, and no conversation.
+    // Handed out by its id it was held as one, and its folder opened with it;
+    // a turn sent to it would vanish into a session that never speaks.
+    if (id === this.#probeId) throw new SessionGoneError(`${this.#config.name} has no conversation ${id}.`)
     const inFlight = this.#resuming.get(id)
-    if (inFlight) return inFlight
+    if (inFlight) {
+      await inFlight
+      return this.resumeSession(id, options)
+    }
+    const live = this.#sessions.get(id)
+    // Live, but opened with no filter at all — a read loads a conversation
+    // (ACP has no other way to read one) and a read has no filter to give.
+    // Handed back as it is, the Seat would run on the agent's own defaults.
+    // So that one, and only while idle, is let go and loaded again with the
+    // filter. A session already on a filter is the Seat's, whatever key a
+    // second reopen carries; and a running turn is never cancelled by one.
+    const unfiltered = live !== undefined && options.attachments !== undefined && !this.#attachmentInputs.has(id) && !live.busy
+    if (live && !unfiltered) {
+      if (environment && !saved) throw new Error('An already-open session cannot acquire a lane environment.')
+      return live
+    }
+    if (live) {
+      this.#sessions.delete(id)
+      await live.close().catch(() => {})
+    }
 
     const run = (async () => {
       const capabilities = this.#initialized?.agentCapabilities
@@ -1885,11 +2225,27 @@ export class AcpRuntime implements AgentRuntime {
       const session = AcpSession.forReplay(this, id, cwd)
       this.#sessions.set(id, session)
       try {
-        const loaded = await this.#openWithTools<AcpNewSessionResult>('session/load', { sessionId: id, cwd })
+        const loaded = await this.#openWithTools<AcpNewSessionResult>('session/load', {
+          sessionId: id,
+          cwd,
+          ...(environment
+            ? { _meta: environmentMeta({}, environment, this.info.capabilities.sessionEnvironment) }
+            : {}),
+        }, options.attachments)
+        // Reapplied, never re-resolved: the caller (the host) is the one that
+        // decides whether a resume repeats a Seat's frozen input, exactly as
+        // it decided at create. This only remembers what it was handed.
+        if (options.attachments) this.#attachmentInputs.set(id, options.attachments)
+        if (environment) {
+          acknowledgeEnvironment(loaded._meta, environment)
+          this.#environments.set(id, environment)
+        }
         session.finishReplay(loaded)
         return session
       } catch (error) {
         this.#sessions.delete(id)
+        this.#environments.delete(id)
+        await session.close().catch(() => {})
         throw error
       }
     })()
@@ -1902,24 +2258,121 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
-  /** Where a stored session worked, from the agent's own listing. */
+  /**
+   * Where a stored session worked, as the agent's own listing records it —
+   * every page of it — or, for an agent that keeps no listing, as it accepted
+   * it when this process opened the conversation. Nowhere else.
+   *
+   * ACP's load takes the folder from the client, and the agent runs the
+   * conversation in whatever it is handed. This used to hand over this
+   * process's working directory whenever the listing had no row for the id:
+   * the checkout under `pnpm dev`, `/` from Finder. The conversation was then
+   * held here with that as its folder, and a conversation's folder is an open
+   * root, so every repository under it could be read and branched. A folder
+   * the agent does not vouch for is a refusal instead, one that names the
+   * conversation. Claude Code's listing leaves out a conversation its own store
+   * has no folder for. Gemini CLI keeps no listing at all, so only what it
+   * accepted in `session/new` here says where one works (`#openedIn`). Where a
+   * listing exists it is the agent's word now, and the only one asked.
+   */
   async #cwdOf(id: SessionId): Promise<string> {
-    try {
-      const listed = await this.#connection.request<{ sessions?: readonly AcpSessionRow[] }>(
-        'session/list',
-        {},
+    const name = this.#config.name
+    if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.list) {
+      // No listing to ask, so the folder it accepted when this process opened
+      // the conversation, or none. See `#openedIn`.
+      const opened = this.#openedIn.get(id)
+      if (opened !== undefined) return opened
+      throw new SessionGoneError(
+        `${name} keeps no list of its conversations, and conversation ${id} has not been opened since HarnessDesk started, so the folder it worked in is not known.`,
       )
-      const row = (listed.sessions ?? []).find((entry) => entry.sessionId === String(id))
-      if (row) return row.cwd
-    } catch {
-      // Fall through to the working directory; the load itself will complain
-      // if the id is genuinely unknown.
     }
-    return process.cwd()
+    let row: AcpSessionRow | undefined
+    try {
+      for await (const page of this.#listPages()) {
+        row = page.find((entry) => entry.sessionId === String(id))
+        if (row) break
+      }
+    } catch (error) {
+      // Not gone: a listing that failed this time may not fail the next.
+      throw new Error(
+        `${name} could not list its conversations (${describeAcp(error)}), so the folder conversation ${id} worked in is not known.`,
+      )
+    }
+    if (!row) {
+      throw new SessionGoneError(`${name} does not list conversation ${id}, so the folder it worked in is not known.`)
+    }
+    // ACP says it is absolute. One that is not would be read — by the folder
+    // check in `resumeSession` and by the agent's own load — against the
+    // working directory both have, which is this process's.
+    if (typeof row.cwd === 'string' && isAbsolute(row.cwd)) return row.cwd
+    throw new SessionGoneError(
+      `${name} lists conversation ${id} as working in ${JSON.stringify(row.cwd ?? '')}, which is not an absolute path.`,
+    )
+  }
+
+  /**
+   * The agent's `session/list`, a page at a time, until it names no next one.
+   *
+   * ACP pages the listing with an opaque cursor. A walk that cannot reach the
+   * last page throws, because what it read by then is not the list: a page
+   * that fails, a cursor handed back twice, which would be asked for forever,
+   * and a fresh one named on every page past `LISTING_PAGE_LIMIT`, which no
+   * repeat would ever end. The reason is a clause each caller puts in a
+   * sentence of its own.
+   */
+  async *#listPages(cwd?: string): AsyncGenerator<readonly AcpSessionRow[]> {
+    const asked = new Set<string>()
+    let cursor: string | null = null
+    for (let pages = 0; ; pages += 1) {
+      if (pages === LISTING_PAGE_LIMIT) {
+        throw new Error(`it named a next page ${LISTING_PAGE_LIMIT} times without an end`)
+      }
+      const page: AcpSessionPage = await this.#connection.request<AcpSessionPage>('session/list', {
+        ...(cwd ? { cwd } : {}),
+        ...(cursor === null ? {} : { cursor }),
+      })
+      yield page.sessions ?? []
+      cursor = typeof page.nextCursor === 'string' && page.nextCursor !== '' ? page.nextCursor : null
+      if (cursor === null) return
+      if (asked.has(cursor)) throw new Error('it named the same next page twice')
+      asked.add(cursor)
+    }
+  }
+
+  /**
+   * Every row of every page, each once: a listing that moved while it was
+   * read can put a row on two pages. A walk that cannot reach the last page
+   * throws; see `#listPages`.
+   */
+  async #listedRows(cwd?: string): Promise<AcpSessionRow[]> {
+    const rows = new Map<string, AcpSessionRow>()
+    for await (const page of this.#listPages(cwd)) {
+      for (const row of page) if (!rows.has(row.sessionId)) rows.set(row.sessionId, row)
+    }
+    return [...rows.values()]
   }
 
   async forkSession(): Promise<AgentSession> {
     throw new Error(`${this.#config.name} does not support forking a session.`)
+  }
+
+  /**
+   * Asks the peer what it actually loaded for this session, over the
+   * `_harnessdesk/attachment_receipt` extension — never accepted from a
+   * client-supplied receipt, and validated strictly before anything trusts
+   * it: bounds, exact key match, and every claimed name inside the set this
+   * session was actually prepared with. A peer that never declared the
+   * extension is asked anyway (a stale declaration is not this function's
+   * problem to guess at) and its answer is judged by the same validation as
+   * one that did — an unrequested or malformed reply earns nothing either way.
+   */
+  async attachmentReceipt(session: SessionId): Promise<SessionAttachmentReceipt> {
+    const intended = this.#attachmentInputs.get(session)
+    if (!intended) throw new Error(`${session} was never given attachments to load.`)
+    const raw = await this.#connection.request<unknown>(ACP_ATTACHMENT_RECEIPT, { sessionId: String(session), key: intended.key })
+    const validated = validateAttachmentReceipt(raw, intended)
+    if (!validated) throw new Error(`${this.#config.name} answered an attachment receipt this desk will not trust.`)
+    return validated
   }
 
   // ------------------------------------------------------------------ internal
@@ -2037,27 +2490,34 @@ const NO_TOKENS: TokenUsage = {
 }
 
 /**
- * ACP's turn usage in the protocol's shape. ACP's `inputTokens` is the
- * whole input and `cachedReadTokens` the part of it served from cache, which
- * is also how Codex counts — so `cachedInputTokens` stays a share of
- * `inputTokens`, and the turn tail's "% cached" means the same thing for
- * every agent.
+ * ACP reports uncached input, cache reads, and cache writes as separate
+ * counters. HarnessDesk's turn model keeps the full input total in
+ * `inputTokens`, so reconstruct it here while preserving the cache split.
  */
-const tokenUsageOf = (usage: AcpUsage): TokenUsage => ({
+const tokenUsageOf = (usage: AcpUsage, inputTokensAreUncached = false): TokenUsage => {
+  const cachedRead = usage.cachedReadTokens ?? 0
+  const cachedWrite = usage.cachedWriteTokens ?? 0
+  const splitInput = inputTokensAreUncached || usage.inputTokens < cachedRead + cachedWrite
+  return {
   totalTokens: usage.totalTokens,
-  inputTokens: usage.inputTokens,
-  cachedInputTokens: Math.min(usage.inputTokens, usage.cachedReadTokens ?? 0),
+  // Most ACP peers report `inputTokens` as the full input already. Claude's
+  // official bridge reports uncached input separately from cache reads/writes;
+  // only that shape needs reconstruction. The strict inequality keeps older
+  // peers and local usage records from double-counting their cache share.
+  inputTokens: splitInput ? usage.inputTokens + cachedRead + cachedWrite : usage.inputTokens,
+  cachedInputTokens: splitInput ? cachedRead : Math.min(usage.inputTokens, cachedRead),
   // The miss half, kept rather than dropped. It arrived here from the first
   // day ACP had a usage shape and went nowhere, which left the turn tail
   // dividing hits by input and calling the quotient cache health — a figure
   // that reads a cold turn and a small turn as the same thing. Absent stays
   // absent: an agent that does not report writes must not be shown a zero.
   ...(typeof usage.cachedWriteTokens === 'number'
-    ? { cacheWriteTokens: Math.min(usage.inputTokens, usage.cachedWriteTokens) }
+    ? { cacheWriteTokens: splitInput ? cachedWrite : Math.min(usage.inputTokens, cachedWrite) }
     : {}),
   outputTokens: usage.outputTokens,
   reasoningOutputTokens: usage.thoughtTokens ?? 0,
-})
+  }
+}
 
 /**
  * A turn's tokens from the `_meta.quota` an agent answers a prompt with, in
@@ -2245,6 +2705,13 @@ type SignInObservation =
  * server sends the code and the words, a bridge may send the words alone,
  * and a bare -32000 is a failure of some other kind.
  */
+/**
+ * What a sign-in method id gets so the desk can tell an ACP method from a
+ * CLI's or a stored key's. `#observedAccount` mints them and `login()` reads
+ * them back; the agent's own id is whatever follows.
+ */
+const ACP_METHOD = 'acp:'
+
 const AUTH_REQUIRED_WORDS =
   /authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
 const isAuthRefusal = (error: unknown): boolean =>
@@ -2252,10 +2719,38 @@ const isAuthRefusal = (error: unknown): boolean =>
   AUTH_REQUIRED_WORDS.test(`${error.message}\n${(error as AcpError).details ?? ''}`)
 
 /** The first sentence of what an agent said, for a line a person reads. */
-const firstSentence = (text: string): string => {
-  const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
+export const firstSentence = (text: string): string => {
+  const first = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
+  // An agent's `error.data` that is neither a string nor `{details}` nor
+  // `{message}` arrives as JSON after a colon — Qwen Code refuses with
+  // `…authenticate first.: {"authMethods":[…]}`. The record is for a program,
+  // and the sentence before it is the part a person reads. Only a record's
+  // own opening is cut — `{"`, `[{`, `["` — so a reason an agent writes in
+  // brackets, `[Errno 13] Permission denied`, is kept: it is the clue.
+  const line = first.replace(/\s*:\s*(?:\{"|\[\{|\[").*$/, '').trim()
   const cut = line.search(/[.!?](\s|$)/)
   return (cut === -1 ? line : line.slice(0, cut + 1)).slice(0, 200)
+}
+
+/** One page of `session/list`. No `nextCursor` is the last page. */
+interface AcpSessionPage {
+  readonly sessions?: readonly AcpSessionRow[]
+  readonly nextCursor?: string | null
+}
+
+/**
+ * How many pages of `session/list` are read before the listing is given up.
+ * Every agent measured answers in one page (Antigravity with 665 rows), so a
+ * thousand is room for any paging to come and a bound on an agent that names
+ * a fresh next page forever.
+ */
+const LISTING_PAGE_LIMIT = 1000
+
+/** Antigravity labels an unnamed conversation `Session <id>` in its store. */
+const titleOf = (row: AcpSessionRow, runtimeId: string): string | null => {
+  const title = row.title?.trim() ?? ''
+  const antigravityPlaceholder = runtimeId === 'antigravity-acp' && title === `Session ${row.sessionId}`
+  return title !== '' && !antigravityPlaceholder ? title : null
 }
 
 const textOf = (block: AcpContentBlock): string => (block.type === 'text' ? block.text : '')
@@ -2346,6 +2841,10 @@ const IMAGE_MIME: Readonly<Record<string, string>> = {
   '.bmp': 'image/bmp',
   '.ico': 'image/x-icon',
 }
+
+/** The text of a `send`'s input, for a `NoticeItem`'s one `text` field — a standing order is always plain text. */
+const plainTextOf = (input: readonly UserContent[]): string =>
+  input.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n')
 
 const readLocalImageBlock = (
   targetPathOrUri: string,
@@ -2441,6 +2940,36 @@ const noticeOf = (update: Extract<AcpSessionUpdate, { sessionUpdate: 'user_messa
   return text.length > 0 ? text : null
 }
 
+/**
+ * The controls an answer names, laid over the ones held: each it names takes
+ * the answer's value, and each it leaves out is kept where it was.
+ *
+ * ACP calls the answer to `session/set_config_option` the full set of
+ * controls, and an agent that keeps to that loses nothing here. One that does
+ * not is real: claude-acp answers a change to a control it keeps itself with
+ * those controls alone, and read as the full set, that answer would take the
+ * model and effort controls off the conversation. The cost runs the other
+ * way, and is the smaller one: a control an agent really withdrew with such a
+ * change stays drawn until it next announces its controls, which is taken
+ * whole.
+ */
+const overlaid = (
+  held: readonly AcpConfigOption[],
+  answered: readonly AcpConfigOption[],
+): readonly AcpConfigOption[] => {
+  const named = new Map(answered.map((option) => [option.id, option]))
+  return [
+    ...held.map((option) => named.get(option.id) ?? option),
+    ...answered.filter((option) => !held.some((one) => one.id === option.id)),
+  ]
+}
+
+/** The model a `model` control holds, when there is one holding a model id. */
+const modelIn = (options: readonly AcpConfigOption[]): string | null => {
+  const control = options.find((option) => option.id === 'model')
+  return typeof control?.currentValue === 'string' ? control.currentValue : null
+}
+
 class AcpSession implements AgentSession {
   readonly id: SessionId
   readonly runtime
@@ -2449,6 +2978,14 @@ class AcpSession implements AgentSession {
   #modes: AcpSessionModeState | null
   #models: AcpModelState | null
   #configOptions: readonly AcpConfigOption[]
+  /**
+   * How many times the agent has re-declared its controls on its own
+   * (`config_option_update`) and its model (`current_model_update`). A setter
+   * compares before and after its call: whatever the agent announced while the
+   * call was open is its word on where the pick landed, and is kept over the
+   * value that was asked for (`setOption`).
+   */
+  readonly #announced = { options: 0, model: 0 }
   #turns: Turn[] = []
   #currentTurn: MutableTurn | null = null
   /** What the agent has said about tokens, if anything. Null until it does. */
@@ -2523,17 +3060,21 @@ class AcpSession implements AgentSession {
   }
 
   settings(): SessionSettings {
-    return { cwd: this.#cwd, model: this.#models?.currentModelId ?? this.#host.agentName }
+    const declaredModel = this.#configOptions.find((option) => option.id === 'model')
+    const configModel = declaredModel && typeof declaredModel.currentValue === 'string' ? declaredModel.currentValue : null
+    return { cwd: this.#cwd, model: this.#models?.currentModelId ?? configModel ?? this.#host.agentName }
   }
 
   /**
    * Both directions: modes become the `mode` select, and ACP's own config
-   * options land unchanged — a select is a select, a toggle is a
-   * boolean. No translation table, which is the point.
+   * options land unchanged — a select stays a select, while ACP's native
+   * boolean and the older toggle spelling become HarnessDesk booleans. No
+   * translation table, which is the point.
    */
   options(): readonly ConfigOption[] {
     const options: ConfigOption[] = []
-    if (this.#models && this.#models.availableModels.length > 0) {
+    const declared = new Set(this.#configOptions.map((option) => option.id))
+    if (this.#models && this.#models.availableModels.length > 0 && !declared.has('model')) {
       options.push({
         type: 'select',
         id: 'model',
@@ -2547,7 +3088,7 @@ class AcpSession implements AgentSession {
         })),
       })
     }
-    if (this.#modes && this.#modes.availableModes.length > 0) {
+    if (this.#modes && this.#modes.availableModes.length > 0 && !declared.has('mode')) {
       options.push({
         type: 'select',
         id: 'mode',
@@ -2564,8 +3105,8 @@ class AcpSession implements AgentSession {
     for (const option of this.#configOptions) {
       // The agent says where its control belongs; an unfamiliar or absent
       // category lands under "More", which is what `other` means.
-      const category = acpCategory(option.category)
-      if (option.type === 'toggle') {
+      const category = acpCategory(option.id, option.category)
+      if (option.type === 'toggle' || option.type === 'boolean') {
         options.push({
           type: 'boolean',
           id: option.id,
@@ -2588,9 +3129,10 @@ class AcpSession implements AgentSession {
           currentValue: String(option.currentValue),
           choices: (option.options ?? []).map((choice) => ({
             value: choice.value,
-            label: choice.name,
+            label: choice.value === 'xhigh' ? 'Extra high' : choice.name,
             ...(choice.description ? { description: choice.description } : {}),
             ...(choice.disabled ? { disabled: choice.disabled } : {}),
+            ...(choice._meta ? { _meta: choice._meta } : {}),
           })),
         })
       }
@@ -2598,6 +3140,27 @@ class AcpSession implements AgentSession {
     return options
   }
 
+  /**
+   * Asks the agent to move one control, and then holds what the agent says it
+   * moved to — which is not always what was asked for.
+   *
+   * An agent may settle a pick somewhere else and answer the call without an
+   * error. Cursor's bridge does it by design: a pick changes what is *wanted*,
+   * and the session runs the nearest variant the family has, so thinking asked
+   * of a variant without it runs without it. The bridge says so in a
+   * `config_option_update` sent before its answer, and answers with nothing.
+   * Writing the value asked for over that announcement, as this once did,
+   * left the session reporting a variant it was not running — and every reader
+   * above it repeated the claim as a fact: a seat's read-back, a flow's label,
+   * the picker.
+   *
+   * So what a control holds once the call is answered is what the answer
+   * names; failing that, what the agent announced while the call was open; and
+   * only where the agent said nothing about it at all, the value asked for.
+   * That last is the agent's claim, made by accepting the call without a word,
+   * and not a reading of anything — an agent that settles a pick elsewhere and
+   * never says so cannot be told from one that took it.
+   */
   async setOption(id: string, value: OptionValue): Promise<void> {
     const option = findOption(this.options(), id)
     if (!option) throw new Error(`${this.#host.agentName} has no session option named ${JSON.stringify(id)}.`)
@@ -2609,40 +3172,107 @@ class AcpSession implements AgentSession {
         modeId: value,
       })
       this.#modes = { ...this.#modes, currentModeId: value as string }
-    } else if (id === 'model' && this.#models) {
+    } else if (id === 'model') {
       // Picking the model a session already runs is a no-op worth skipping:
       // Claude Code records every model change as a `/model` command in its
       // own transcript, and that echo is read back on the next open.
-      if (this.#models.currentModelId === value) return
-      await this.#host.connection.request('session/set_model', {
-        sessionId: this.id,
-        modelId: value,
-      })
-      this.#models = { ...this.#models, currentModelId: value as string }
+      const modelOption = this.#configOptions.find((entry) => entry.id === 'model')
+      const currentModel = this.#models?.currentModelId ?? (modelOption && typeof modelOption.currentValue === 'string' ? modelOption.currentValue : null)
+      if (currentModel === value) return
+      const before = { ...this.#announced }
+      const response = await this.#host.connection.request<{
+        configOptions?: readonly AcpConfigOption[] | null
+        models?: AcpModelState | null
+      } | null>(modelOption ? 'session/set_config_option' : 'session/set_model',
+        modelOption
+          ? { sessionId: this.id, configId: 'model', value }
+          : { sessionId: this.id, modelId: value },
+      )
+      /* One model, which an agent may keep twice: as its model list, and as a
+         `model` control beside it. What it says on either channel is its word
+         on both, so a channel it said nothing on takes the model it said on
+         the other — never the value asked for, which it once took even when
+         the agent had announced the model settled elsewhere, leaving the
+         control a seat reads back holding the request. The value asked for
+         stands only where the agent said nothing about the model at all, and
+         that is its claim, as for every other control. */
+      const optionsSaid = response?.configOptions != null || this.#announced.options !== before.options
+      const listSaid = response?.models != null || this.#announced.model !== before.model
+      const announced =
+        (this.#announced.options !== before.options ? modelIn(this.#configOptions) : null) ??
+        (this.#announced.model !== before.model ? (this.#models?.currentModelId ?? null) : null)
+      // A model decides which controls exist, so an answer listing them is the list.
+      if (response?.configOptions) this.#configOptions = response.configOptions
+      if (response?.models) this.#models = response.models
+      const settled =
+        modelIn(response?.configOptions ?? []) ?? response?.models?.currentModelId ?? announced ?? (value as string)
+      if (!optionsSaid) {
+        this.#configOptions = this.#configOptions.map((entry) =>
+          entry.id === 'model' ? { ...entry, currentValue: settled } : entry,
+        )
+      }
+      if (!listSaid && this.#models) this.#models = { ...this.#models, currentModelId: settled }
       this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
     } else {
-      await this.#host.connection.request('session/set_config_option', {
+      const declared = this.#configOptions.find((entry) => entry.id === id)
+      const before = this.#announced.options
+      const response = await this.#host.connection.request<{
+        configOptions?: readonly AcpConfigOption[] | null
+      } | null>('session/set_config_option', {
         sessionId: this.id,
         // ACP's field is `configId` (SessionConfigId); the SDK's validator
-        // rejects anything else with "Invalid params".
+        // rejects anything else with "Invalid params". Boolean options also
+        // carry their ACP-native type so the official SDK accepts the value.
         configId: id,
+        ...(declared?.type === 'boolean' ? { type: 'boolean' as const } : {}),
         value,
       })
-      this.#configOptions = this.#configOptions.map((entry) =>
-        entry.id === id ? { ...entry, currentValue: value as string | boolean } : entry,
-      )
+      const answered = response?.configOptions ?? null
+      if (answered) this.#configOptions = overlaid(this.#configOptions, answered)
+      const said = this.#announced.options !== before || (answered?.some((entry) => entry.id === id) ?? false)
+      if (!said) {
+        this.#configOptions = this.#configOptions.map((entry) =>
+          entry.id === id ? { ...entry, currentValue: value as string | boolean } : entry,
+        )
+      }
     }
     this.#emit({ type: 'session/options', sessionId: this.id, options: this.options() })
   }
 
-  async send(input: readonly UserContent[]): Promise<TurnId> {
-    const id = turnId(`turn-${++this.#counter}`)
-    const userItem: AgentItem = {
-      id: itemId(`${id}-user`),
-      type: 'userMessage',
-      content: input,
-      startedAt: Date.now(),
+  /**
+   * One prompt at a time.
+   *
+   * ACP's `session/update` carries a session id and nothing else — there is no
+   * field tying a chunk to the prompt that caused it — so with two prompts in
+   * flight on one session nothing can say which turn a chunk belongs to. The
+   * single `#currentTurn` slot is that fact written down, and a second `send`
+   * used to overwrite it: the first turn was stranded `inProgress` for ever
+   * (`#finishTurn` bails on the id mismatch) and *both* answers folded into
+   * the newest turn's one message item, spliced end to end with no separator.
+   * That is what put an agent's reply in a room twice, reading
+   * "…alerting on.Idempotent on the…" — one answer's tail against the other's
+   * head, with the word boundary as the only sign of a seam.
+   *
+   * Refused rather than held: waiting for a turn to end is the host's message
+   * queue one layer up, which already single-flights a send and knows what the
+   * person meant by typing two things. A second queue down here could only
+   * disagree with it. `busy` is false while a loaded session's history is
+   * being replayed, which is a turn re-read rather than one in flight.
+   */
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId> {
+    if (this.busy) {
+      throw new Error(
+        `${this.#host.agentName} is still working on the last message; wait for the turn to end, or interrupt it.`,
+      )
     }
+    const id = turnId(`turn-${++this.#counter}`)
+    // A standing order is real input — the model reads it whole — but not a
+    // person's words, so it is not recorded as the person's turn. Same fact
+    // `NoticeItem` already carries for a `/model` echo: housekeeping, not speech.
+    const userItem: AgentItem =
+      opts?.recordAs === 'notice'
+        ? { id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
+        : { id: itemId(`${id}-user`), type: 'userMessage', content: input, startedAt: Date.now() }
     const turn: MutableTurn = { id, items: [userItem], startedAt: Date.now() }
     this.#currentTurn = turn
     this.#host.emit({
@@ -2695,7 +3325,7 @@ class AcpSession implements AgentSession {
         // counts in the extension slot instead is read from there, and one
         // that says nothing at all, from its own record if it keeps one.
         const usage = response.usage ?? quotaUsageOf(response._meta) ?? this.#recordedSince(mark)
-        if (usage) this.#recordTurnUsage(usage)
+        if (usage) this.#recordTurnUsage(usage, response._meta?.harnessdesk?.inputTokensAreUncached === true)
         // A turn nobody could account for is not the one before it: its figures
         // are unknown, so the last turn shows none rather than the previous
         // turn's under this one's name. For every runtime, not only the ones
@@ -3007,6 +3637,7 @@ class AcpSession implements AgentSession {
       case 'current_model_update': {
         if (this.#models) {
           this.#models = { ...this.#models, currentModelId: update.currentModelId }
+          this.#announced.model += 1
           this.#emit({ type: 'session/settings', sessionId: this.id, settings: this.settings() })
           this.#emit({ type: 'session/options', sessionId: this.id, options: this.options() })
         }
@@ -3021,6 +3652,7 @@ class AcpSession implements AgentSession {
       }
       case 'config_option_update': {
         this.#configOptions = update.configOptions
+        this.#announced.options += 1
         this.#emit({ type: 'session/options', sessionId: this.id, options: this.options() })
         return
       }
@@ -3170,8 +3802,8 @@ class AcpSession implements AgentSession {
   }
 
   /** A finished turn's tokens: they become `last`, and join the running total. */
-  #recordTurnUsage(usage: AcpUsage): void {
-    const turn = tokenUsageOf(usage)
+  #recordTurnUsage(usage: AcpUsage, inputTokensAreUncached = false): void {
+    const turn = tokenUsageOf(usage, inputTokensAreUncached)
     const previous = this.#usage?.total ?? NO_TOKENS
     // The running total carries a write count only while the chain of turns
     // behind it is unbroken. An empty total is the start of the chain, not a

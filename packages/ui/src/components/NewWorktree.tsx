@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { Btn, Dialog, Input } from '../design'
+import { Button, Chip, CodeText, Dialog, EmptyState, Field, Input, Note, Rows, Search, Text } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { folderName } from '../lib/projects'
 import { slugify } from '../lib/worktree-branch'
-import { BranchIcon, CheckIcon, FolderOpenIcon, SearchIcon } from './Icons'
+import { BranchIcon, CheckIcon, FolderOpenIcon } from './Icons'
 import styles from './NewWorktree.module.css'
 
 /**
@@ -152,96 +152,92 @@ export const NewWorktree = ({
       onClose={onClose}
       subhead={
         <span className={styles.of} title={root}>
-          <FolderOpenIcon size={13} className={styles.ofIcon} />
-          <span className={styles.ofLead}>{leadPath(root)}</span>
-          <span className={styles.ofName}>{folder}</span>
-          {!opened && <span className={styles.ofNote}>switches to this folder first</span>}
+          <Text role="meta" className={styles.ofIcon}><FolderOpenIcon size={13} /></Text>
+          <CodeText className={styles.ofLead}>{leadPath(root)}</CodeText>
+          <CodeText className={styles.ofName}>{folder}</CodeText>
+          {!opened && <Text role="meta" className={styles.ofNote}>switches to this folder first</Text>}
         </span>
       }
       footer={
         <>
-          <Btn variant="primary" disabled={busy || problem !== null} onClick={() => void create()}>
+          <Button variant="default" disabled={busy || problem !== null} onClick={() => void create()}>
             {busy ? 'Opening…' : 'Start in a new worktree'}
-          </Btn>
-          <Btn disabled={busy} onClick={onClose}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
-      <p className={styles.blurb}>
+      <Note>
         A separate checkout on a branch of its own, for the conversation you are starting. It is
         made when you send the first message, and the working tree you have now is left alone.
-      </p>
-
-      <label className={styles.field}>
-        <span className={styles.label}>Name</span>
-        <Input
-          value={name}
-          autoFocus
-          placeholder="what this worktree is for"
-          onChange={(event) => {
-            setTouched(true)
-            setName(event.target.value)
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && problem === null && !busy) void create()
-          }}
-        />
-      </label>
-      <p className={styles.preview} {...(shout ? { 'data-problem': '' } : {})}>
-        {shout ? (
-          problem
-        ) : slug.length === 0 ? (
-          <>
-            Its branch is named <span className={styles.mono}>harnessdesk/…</span>, so it is easy
-            to find among your own.
-          </>
-        ) : (
-          <>
-            Branch <span className={styles.mono}>{branch}</span>
-          </>
-        )}
-      </p>
+      </Note>
 
       <div className={styles.field}>
-        <span className={styles.label}>Start from</span>
-        {branches !== null && branches.length >= FILTER_FROM && (
-          <div className={styles.search}>
-            <SearchIcon size={13} className={styles.searchIcon} />
-            <input
-              className={styles.filter}
-              placeholder={`Search ${folder} branches`}
-              value={query}
-              spellCheck={false}
-              onChange={(event) => setQuery(event.target.value)}
+        <Field
+          label="Name"
+          {...(shout
+            ? { error: problem }
+            : {
+                hint: slug.length === 0
+                  ? <>Its branch is named <CodeText>harnessdesk/…</CodeText>, so it is easy to find among your own.</>
+                  : <>Branch <CodeText>{branch}</CodeText></>,
+              })}
+        >
+          {(control) => (
+            <Input
+              {...control}
+              value={name}
+              autoFocus
+              placeholder="what this worktree is for"
+              onChange={(event) => {
+                setTouched(true)
+                setName(event.target.value)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && problem === null && !busy) void create()
+              }}
             />
-          </div>
+          )}
+        </Field>
+      </div>
+
+      <div className={styles.field}>
+        <Text role="row">Start from</Text>
+        {branches !== null && branches.length >= FILTER_FROM && (
+          <Search
+            className={styles.filter}
+            placeholder={`Search ${folder} branches`}
+            value={query}
+            onChange={setQuery}
+          />
         )}
-        <div className={styles.branches} role="radiogroup" aria-label="Start the worktree from">
-          {branches === null && <p className={styles.note}>Reading branches…</p>}
+        <Rows className={styles.branches} role="radiogroup" aria-label="Start the worktree from">
+          {branches === null && <Note>Reading branches…</Note>}
           {branches !== null && shown.length === 0 && (
-            <p className={styles.note}>
-              {query ? 'No branch matches.' : 'No branches yet — it will start from HEAD.'}
-            </p>
+            <EmptyState
+              variant="row"
+              title={query ? 'No branch matches.' : 'No branches yet — it will start from HEAD.'}
+            />
           )}
           {shown.map((entry) => (
-            <button
+            <Button
               key={entry.name}
               type="button"
               role="radio"
               aria-checked={entry.name === base}
-              className={styles.branch}
+              variant="row" size="row" className={styles.branch}
               {...(entry.name === base ? { 'data-selected': '' } : {})}
               onClick={() => setBase(entry.name)}
             >
-              <BranchIcon size={13} className={styles.branchIcon} />
+              <Text role="meta" className={styles.branchIcon}><BranchIcon size={13} /></Text>
               <span className={styles.branchName}>{entry.name}</span>
-              {entry.current && <span className={styles.here}>current</span>}
-              {entry.name === base && <CheckIcon size={13} className={styles.tick} />}
-            </button>
+              {entry.current && <Chip tone="neutral">current</Chip>}
+              {entry.name === base && <Text tone="brand"><CheckIcon size={13} /></Text>}
+            </Button>
           ))}
-        </div>
+        </Rows>
       </div>
     </Dialog>
   )

@@ -32,13 +32,10 @@
   font-weight: var(--hd-weight-semibold);
 }
 
+/* The catalogue's own rail groups wear the app's one group label
+   (`GroupLabel`); only their place in the rail is said here. */
 .section {
   padding: var(--hd-space-3) var(--hd-space-2-5) var(--hd-space-1);
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--hd-muted-foreground);
 }
 
 /* The nav item, drawn the way the app's sidebar draws one.
@@ -46,29 +43,39 @@
    `min-height`, not `height`: a board whose name needs two lines used to
    overflow its row and eat the gap under it, which is a silent way for this
    page to look broken as the system grows. */
-.navItem {
-  display: flex;
-  align-items: center;
+.navControl {
+  width: 100%;
+  height: auto;
   min-height: var(--hd-row-h);
-  padding-block: var(--hd-space-0-5);
-  padding: 0 var(--hd-space-2-5);
-  border: none;
-  border-radius: var(--hd-radius-sm);
-  background: none;
-  color: var(--hd-secondary-foreground);
-  font-family: inherit;
-  font-size: var(--hd-text);
+  justify-content: flex-start;
+  white-space: normal;
   text-align: left;
-  cursor: pointer;
 }
 
-.navItem:hover {
-  background: var(--hd-hover);
+.navSearch {
+  flex: none;
+  width: 100%;
 }
 
-.navItem[data-selected] {
-  background: var(--hd-selected);
-  color: var(--hd-foreground);
+.coverage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.coverageRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) 120px minmax(240px, 1fr) minmax(200px, 0.8fr) auto;
+  gap: var(--hd-space-3);
+  align-items: baseline;
+  padding: var(--hd-space-2) var(--hd-space-3);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+  font-size: var(--hd-text-sm);
+}
+
+.coverageStates {
+  color: var(--hd-muted-foreground);
+  overflow-wrap: anywhere;
 }
 
 .main {
@@ -236,21 +243,49 @@
   border-radius: var(--hd-radius-sm);
 }
 
-/* The channel board: a panel-width column, so the message rows are measured
-   against the width they actually get in the Team tab rather than the page. */
+/* The channel board: the room's reading column, so the message rows are
+   measured against the width they actually get. */
 .channel {
   display: flex;
   flex-direction: column;
-  max-width: 420px;
-  padding: var(--hd-space-2) 0;
+  max-width: var(--hd-column); /* desk: 420px → --hd-column, the room is the channel's only measure now */
+  padding: var(--hd-space-2) var(--hd-space-4); /* desk: 8px 0 → 8px 16px, the rows sit on the column's edges rather than carrying a gutter of their own */
   border: 1px solid var(--hd-border);
   border-radius: var(--hd-radius);
   background: var(--hd-card);
 }
 
-/* The room's width, so the second density is shown at the size it is for.
-   Reading it at 420px would be reading the panel with bigger type. */
-.channelRoom {
-  composes: channel;
-  max-width: 720px;
+/* --- the icon set ---------------------------------------------------------
+   A grid sized by the longest name rather than by a column count: the set is
+   read by scanning names, and a name that wraps costs more than a ragged last
+   row does. */
+.iconGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: var(--hd-space-1);
+  margin-bottom: var(--hd-space-5);
+}
+
+.iconCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-3) var(--hd-space-2);
+  border-radius: var(--hd-radius);
+  color: var(--hd-foreground);
+}
+
+.iconCell:hover {
+  background: var(--hd-hover);
+}
+
+.iconName {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--hd-text-xs);
+  line-height: 1;
+  color: var(--hd-muted-foreground);
 }

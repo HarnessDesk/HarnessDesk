@@ -22,21 +22,31 @@
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
- * The documents this reads: the two front doors and everything under `docs/`.
+ * The documents this reads: the two front doors and everything under `docs/`
+ * that describes what ships.
  *
  * `CONTRIBUTING.md` is deliberately not here. The sweep #223 measured covered
  * exactly these three, and a gate is only worth landing green — a document
  * nobody swept is a document that may or may not pass, which is a different
  * change from this one.
+ *
+ * `docs/superpowers/` is deliberately not here either, and for a stronger
+ * reason than coverage: a spec and a plan name the files they are about to
+ * create. Naming a path that does not exist yet is what those documents are
+ * *for*, so this gate's premise — a named path is a path in the tree — is
+ * false there. Sweeping them would make every plan illegal until its own last
+ * task landed, which is exactly backwards.
  */
 export const isSweptDocument = (file) =>
-  file === 'AGENTS.md' || file === 'README.md' || (file.startsWith('docs/') && file.endsWith('.md'))
+  file === 'AGENTS.md' ||
+  file === 'README.md' ||
+  (file.startsWith('docs/') && file.endsWith('.md') && !file.startsWith('docs/superpowers/'))
 
 /**
  * Does this backticked string claim to be a path in this repository?
@@ -108,7 +118,14 @@ export const ALLOWED = new Map([
  *   describe. Resolving them rather than excusing them is what keeps them
  *   honest — delete `lib/limits.ts` and this still goes red.
  */
-export const basesFor = (repo) => {
+export const basesFor = (
+  repo,
+  tracked = new Set(
+    execFileSync('git', ['ls-files'], { cwd: repo, encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean),
+  ),
+) => {
   const packages = join(repo, 'packages')
   const sources = existsSync(packages)
     ? readdirSync(packages, { withFileTypes: true })
@@ -117,10 +134,12 @@ export const basesFor = (repo) => {
         .filter((dir) => existsSync(dir))
         .sort()
     : []
+  const isTracked = (candidate) =>
+    existsSync(candidate) && tracked.has(relative(repo, candidate).split(sep).join('/'))
   return (value, doc) => {
-    if (existsSync(join(repo, value))) return true
-    if (existsSync(join(repo, dirname(doc), value))) return true
-    return sources.some((base) => existsSync(join(base, value)))
+    if (isTracked(join(repo, value))) return true
+    if (isTracked(join(repo, dirname(doc), value))) return true
+    return sources.some((base) => isTracked(join(base, value)))
   }
 }
 
@@ -175,12 +194,13 @@ const isMain =
   process.argv[1] != null && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
 
 if (isMain) {
-  const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
+  const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' })
     .split('\n')
-    .filter((file) => file.length > 0 && isSweptDocument(file))
+    .filter(Boolean)
+  const files = tracked.filter(isSweptDocument)
 
   const named = namedIn(root, files)
-  const problems = problemsWith(named, basesFor(root))
+  const problems = problemsWith(named, basesFor(root, new Set(tracked)))
 
   if (problems.length > 0) {
     process.stderr.write(

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "surfaces": [
+    {
+      "id": "surface.dashboard",
+      "implementationPath": "packages/ui/src/components/Usage.tsx"
+    },
+    {
+      "id": "surface.group",
+      "implementationPath": "packages/ui/src/components/TeamBoardPane.tsx"
+    },
+    {
+      "id": "surface.conversation",
+      "implementationPath": "packages/ui/src/components/Conversation.tsx"
+    },
+    {
+      "id": "surface.composer",
+      "implementationPath": "packages/ui/src/components/Composer.tsx"
+    },
+    {
+      "id": "surface.rail",
+      "implementationPath": "packages/ui/src/components/Sidebar.tsx"
+    },
+    {
+      "id": "surface.git",
+      "implementationPath": "packages/ui/src/components/GitPane.tsx"
+    },
+    {
+      "id": "surface.panels",
+      "implementationPath": "packages/ui/src/panels/Workbench.tsx"
+    },
+    {
+      "id": "surface.propagation",
+      "implementationPath": "packages/ui/src/design/showcase/PropagationPage.tsx"
+    },
+    {
+      "id": "surface.tools",
+      "implementationPath": "packages/ui/src/components/BrowserPane.tsx"
+    }
+  ]
+}

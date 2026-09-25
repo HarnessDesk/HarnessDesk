@@ -2,10 +2,11 @@ import { useEffect, useMemo } from 'react'
 
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
+import { ChartKey, ChartKeys, CodeText, ProgressStack, publicationVerb, SeriesDot, Separator, Text, type Tint, type Tone } from '../design'
 import { toolWords } from '../lib/tool-names'
 import { useActiveSession } from '../state/context'
 import type { ReportFoot } from './Details'
-import { PanelEmpty } from './Panel'
+import { GroupLine, PanelEmpty, PanelRow, RowTime } from './Panel'
 import styles from './Trajectory.module.css'
 
 /**
@@ -22,24 +23,31 @@ import styles from './Trajectory.module.css'
  * This map used to reach past the design system into the platform's raw
  * ramps, and two of its pairs were the same colour by accident: `reasoning`
  * and `assistantMessage` were both the brand blue a step apart, and `command`
- * and `plan` were both amber a step apart. On a 6px dot at the left of a row,
- * one step of a ramp is not a distinction — the legend named four things and
- * drew two. The identity tints exist for exactly this (eight hues spread so
- * no two read alike, each solved for contrast in both themes), so the ledger
- * reads them, and the three kinds that carry a *judgement* rather than an
- * identity keep the state colours that say so.
+ * and `plan` were both amber a step apart. On a small dot at the left of a
+ * row, one step of a ramp is not a distinction — the legend named four things
+ * and drew two. The identity tints exist for exactly this (eight hues spread
+ * so no two read alike, each solved for contrast in both themes), so the
+ * ledger names them, and the kinds that carry a role or a *judgement* rather
+ * than an identity — the person, the agent's answer, an edit, an error — keep
+ * the tones that say so. The series mark draws both.
  */
-const KIND_COLOUR: Record<string, string> = {
-  userMessage: 'var(--hd-muted-foreground)',
-  assistantMessage: 'var(--hd-accent)',
-  reasoning: 'var(--hd-tint-violet-ink)',
-  toolCall: 'var(--hd-tint-sky-ink)',
-  webSearch: 'var(--hd-tint-teal-ink)',
-  command: 'var(--hd-tint-orange-ink)',
-  fileChange: 'var(--hd-success)',
-  plan: 'var(--hd-tint-amber-ink)',
-  error: 'var(--hd-danger)',
+type KindColour = { tint: Tint; tone?: never } | { tone: Tone; tint?: never }
+
+const KIND_COLOUR: Record<string, KindColour> = {
+  userMessage: { tone: 'neutral' },
+  assistantMessage: { tone: 'brand' },
+  reasoning: { tint: 'violet' },
+  toolCall: { tint: 'sky' },
+  webSearch: { tint: 'teal' },
+  command: { tint: 'orange' },
+  fileChange: { tone: 'success' },
+  plan: { tint: 'amber' },
+  error: { tone: 'danger' },
 }
+
+const NEUTRAL: KindColour = { tone: 'neutral' }
+
+const colourOfKind = (kind: string): KindColour => KIND_COLOUR[kind] ?? NEUTRAL
 
 const KIND_LABEL: Record<string, string> = {
   userMessage: 'You',
@@ -55,10 +63,17 @@ const KIND_LABEL: Record<string, string> = {
   review: 'Review',
   image: 'Image',
   error: 'Error',
+  subagent: 'Sub-agent',
+  publication: 'Publication',
 }
 
-const colourOf = (item: AgentItem): string =>
-  KIND_COLOUR[item.type] ?? 'var(--hd-muted-foreground)'
+/*
+ * A message as one line of the ledger. Not cut to a character count: the row
+ * ellipsises at whatever width the panel has, and a label cut at 80 characters
+ * ended mid-word with no ellipsis at all ("… Can you f"). The cap only keeps a
+ * pasted log from becoming a megabyte of DOM.
+ */
+const oneLine = (text: string): string => text.slice(0, 400).replace(/\s+/g, ' ').trim()
 
 const labelOf = (item: AgentItem): string => {
   switch (item.type) {
@@ -74,38 +89,56 @@ const labelOf = (item: AgentItem): string => {
         ? (item.changes[0]?.path.split('/').pop() ?? 'file')
         : `${item.changes.length} files`
     case 'assistantMessage':
-      return item.text.slice(0, 80).replace(/\s+/g, ' ') || 'Response'
+      return oneLine(item.text) || 'Response'
     case 'reasoning':
       return item.summary[0] ?? 'Thinking'
     case 'webSearch':
       return item.query
     case 'notice':
-      return item.text.slice(0, 80)
+      return oneLine(item.text)
+    case 'subagent': {
+      // What it was asked, or who took it — never the wire's action word.
+      const who = item.members.find((member) => member.nickname)?.nickname
+      return oneLine(item.prompt ?? '') || (who ? `Handed to ${who}` : 'Handed work to a sub-agent')
+    }
+    case 'publication': {
+      const { reference } = item
+      const title = reference.title ? ` · ${oneLine(reference.title)}` : ''
+      return `${publicationVerb(reference)} #${reference.number}${title}`
+    }
     case 'userMessage':
-      return (
-        item.content.find((part) => part.type === 'text')?.text.slice(0, 80) ?? 'Message'
-      )
+      return oneLine(item.content.find((part) => part.type === 'text')?.text ?? '') || 'Message'
     default:
-      return KIND_LABEL[item.type] ?? item.type
+      return KIND_LABEL[item.type] ?? 'Step'
   }
 }
 
-/** Who produced an entry. A glance down this column tells the story of a turn. */
+/**
+ * Who produced an entry. A glance down this column tells the story of a turn.
+ * Said in sentence case at the meta step; the filter matches it lower-cased.
+ */
 const ROLE: Record<string, string> = {
-  userMessage: 'you',
-  assistantMessage: 'agent',
-  reasoning: 'thinking',
-  command: 'shell',
-  fileChange: 'edit',
-  toolCall: 'tool',
-  webSearch: 'web',
-  plan: 'plan',
-  notice: 'system',
-  compaction: 'system',
-  review: 'system',
-  image: 'media',
-  error: 'error',
+  userMessage: 'You',
+  assistantMessage: 'Agent',
+  reasoning: 'Thinking',
+  command: 'Shell',
+  fileChange: 'Edit',
+  toolCall: 'Tool',
+  webSearch: 'Web',
+  plan: 'Plan',
+  notice: 'System',
+  compaction: 'System',
+  review: 'System',
+  image: 'Media',
+  error: 'Error',
+  subagent: 'Sub-agent',
+  publication: 'Post',
 }
+
+const roleOf = (item: AgentItem): string => ROLE[item.type] ?? 'Step'
+
+/** A turn's state in words, not in the wire's spelling. */
+const TURN_STATE: Record<string, string> = { inProgress: 'running', interrupted: 'stopped', failed: 'failed' }
 
 const durationOf = (item: AgentItem): number | null =>
   'durationMs' in item && typeof item.durationMs === 'number' ? item.durationMs : null
@@ -157,7 +190,7 @@ export const Trajectory = ({
           if (needle.length === 0) return true
           return (
             labelOf(item).toLowerCase().includes(needle) ||
-            (ROLE[item.type] ?? item.type).includes(needle)
+            roleOf(item).toLowerCase().includes(needle)
           )
         }),
       }))
@@ -188,68 +221,65 @@ export const Trajectory = ({
   return (
     <>
       {overview.segments.length > 0 && (
-        <div className={styles.overview}>
-          <div className={styles.overviewLabel}>
-            Where the time went · {formatMs(overview.measured)} measured
-          </div>
-          <div className={styles.bar}>
+        <section aria-label="Where the time went" className={styles.overview}>
+          <GroupLine left="Where the time went" right={`${formatMs(overview.measured)} measured`} />
+          <ProgressStack
+            label="Measured time by kind of step"
+            parts={overview.segments.map((segment) => ({
+              id: segment.kind,
+              value: segment.share * 100,
+              ...colourOfKind(segment.kind),
+            }))}
+          />
+          <ChartKeys className={styles.keys}>
             {overview.segments.map((segment) => (
-              <span
+              <ChartKey
                 key={segment.kind}
-                className={styles.segment}
-                style={{
-                  width: `${segment.share * 100}%`,
-                  background: KIND_COLOUR[segment.kind] ?? 'var(--hdp-alias-label-tertiary)',
-                }}
-                title={`${KIND_LABEL[segment.kind] ?? segment.kind}: ${formatMs(segment.ms)}`}
+                {...colourOfKind(segment.kind)}
+                label={
+                  <>
+                    {KIND_LABEL[segment.kind] ?? 'Other'}
+                    <Text role="meta" numeric>{formatMs(segment.ms)}</Text>
+                  </>
+                }
               />
             ))}
-          </div>
-          <div className={styles.legend}>
-            {overview.segments.map((segment) => (
-              <span key={segment.kind} className={styles.legendItem}>
-                <span
-                  className={styles.swatch}
-                  style={{ background: KIND_COLOUR[segment.kind] ?? 'var(--hdp-alias-label-tertiary)' }}
-                />
-                {KIND_LABEL[segment.kind] ?? segment.kind}
-                <span>{formatMs(segment.ms)}</span>
-              </span>
-            ))}
-          </div>
-        </div>
+          </ChartKeys>
+          <Separator className={styles.rule} />
+        </section>
       )}
 
-      <div className={styles.list}>
-        {filtered.length === 0 && <PanelEmpty>No steps match that filter.</PanelEmpty>}
-        {filtered.map(({ turn, items }) => (
+      {filtered.length === 0 && <PanelEmpty>No steps match that filter.</PanelEmpty>}
+      {filtered.map(({ turn, items }) => {
+        const facts = [
+          turn.durationMs ? formatMs(turn.durationMs) : null,
+          turn.status !== 'completed' ? (TURN_STATE[turn.status] ?? turn.status) : null,
+        ].filter(Boolean).join(' · ')
+        return (
           <div key={turn.id}>
-            <div className={styles.turnLabel}>
-              Turn {turns.indexOf(turn) + 1}
-              {turn.durationMs ? ` · ${formatMs(turn.durationMs)}` : ''}
-              {turn.status !== 'completed' ? ` · ${turn.status}` : ''}
-            </div>
+            <GroupLine sticky left={`Turn ${turns.indexOf(turn) + 1}`} right={facts || undefined} />
             {items.map((item) => {
               const duration = durationOf(item)
+              const label = labelOf(item)
+              const colour = colourOfKind(item.type)
               return (
-                <div key={item.id} className={styles.row}>
-                  <span className={styles.role}>{ROLE[item.type] ?? item.type}</span>
-                  <span className={styles.rowDot} style={{ background: colourOf(item) }} />
-                  <span
-                    className={`${styles.rowLabel} ${
-                      item.type === 'command' || item.type === 'toolCall' ? styles.rowMono : ''
-                    }`}
-                    title={labelOf(item)}
-                  >
-                    {labelOf(item)}
-                  </span>
-                  <span className={styles.rowTime}>{duration ? formatMs(duration) : ''}</span>
-                </div>
+                <PanelRow
+                  key={item.id}
+                  lead={<span className={styles.role}>{roleOf(item)}</span>}
+                  mark={colour.tone ? <SeriesDot tone={colour.tone} /> : <SeriesDot tint={colour.tint} />}
+                  title={
+                    item.type === 'command' || item.type === 'toolCall'
+                      ? <CodeText className={styles.label}>{label}</CodeText>
+                      : <span className={styles.label}>{label}</span>
+                  }
+                  trail={duration ? <RowTime>{formatMs(duration)}</RowTime> : undefined}
+                  tooltip={label}
+                />
               )
             })}
           </div>
-        ))}
-      </div>
+        )
+      })}
     </>
   )
 }

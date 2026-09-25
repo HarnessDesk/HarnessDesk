@@ -1,3 +1,25 @@
+import {
+  DisclosureChevron,
+  Button,
+  Card,
+  CardViewport,
+  CodeText,
+  KeyValue,
+  KeyValueRow,
+  PatchHeader,
+  PopoverGroupLabel,
+  Section,
+  Separator,
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Text,
+  TextMark,
+} from '../design'
 import { Suspense, lazy, useMemo, useState, type ReactNode } from 'react'
 
 import type { UiAction, UiBlock, UiPanelData, UiTreeNode } from '@harnessdesk/protocol'
@@ -64,20 +86,19 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
   const maxLines = Math.max(4, Math.trunc(block.maxLines ?? 24))
 
   return (
-    <div className={styles.code}>
+    <Card variant="flush" radius="sm" className={styles.code}>
       {(block.path || editable) && (
-        <div className={styles.codeHeader}>
-          {block.path && <span className={styles.codePath}>{block.path}</span>}
+        <PatchHeader level="block">
+          {block.path && <CodeText size="inherit" className="min-w-0 truncate">{block.path}</CodeText>}
           {editable && draft !== null && draft !== block.text && (
-            <span className={styles.codeDirty}>Unsaved — ⌘S</span>
+            <Text role="meta" ink="secondary" className={styles.codeDirty}>Unsaved — ⌘S</Text>
           )}
-        </div>
+        </PatchHeader>
       )}
-      <div
-        className={styles.codeBody}
-        style={{ ['--hd-block-code-max' as string]: `${Math.round(maxLines * appearance.fontSize * appearance.lineHeight)}px` }}
-      >
-        <Suspense fallback={<pre className={styles.codeFallback}>{text}</pre>}>
+      <CardViewport size="lines" maxHeight={Math.round(maxLines * appearance.fontSize * appearance.lineHeight)}>
+        {/* The text itself while the editor's chunk is in flight, so the
+            panel shows the code rather than a blank. */}
+        <Suspense fallback={<CodeText as="pre" block>{text}</CodeText>}>
           <CodeEditor
             value={text}
             path={block.path ?? null}
@@ -105,8 +126,8 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
             ariaLabel={block.path ?? 'Code'}
           />
         </Suspense>
-      </div>
-    </div>
+      </CardViewport>
+    </Card>
   )
 }
 
@@ -123,28 +144,34 @@ const DocumentSection = ({
 }) => {
   const [open, setOpen] = useState(collapsed !== true)
   return (
-    <section className={styles.documentSection}>
-      <button
+    <section>
+<Button
         type="button"
-        className={styles.documentHeading}
+        variant="row" size="row" className={styles.documentHeading}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className={`${styles.documentChevron} ${open ? styles.documentChevronOpen : ''}`} aria-hidden="true">
-          <ChevronIcon size={12} />
-        </span>
+        <DisclosureChevron open={open} size="sm" className={styles.documentChevron} />
         {heading}
-      </button>
+      </Button>
       {open && (
-        <div className={styles.documentBody}>
+        <Text as="div" role="navigation" className={styles.documentBody}>
           <Markdown text={text} />
-        </div>
+        </Text>
       )}
     </section>
   )
 }
 
 // --------------------------------------------------------------------- tree
+
+/** A node's label, and its hint at the row's end with a gap before it only when there is one. */
+const TreeText = ({ node }: { node: UiTreeNode }) => (
+  <span className={styles.treeText}>
+    <Text role="navigation" truncate className={styles.treeLabel}>{node.label}</Text>
+    {node.hint && <Text role="meta" className={styles.treeHint}>{node.hint}</Text>}
+  </span>
+)
 
 const TreeNode = ({ node }: { node: UiTreeNode }) => {
   const run = useRunner()
@@ -155,11 +182,11 @@ const TreeNode = ({ node }: { node: UiTreeNode }) => {
 
   return (
     <li>
-      <div className={`${styles.treeRow} ${actionable ? styles.treeRowAction : ''}`}>
+      <div className={styles.treeRow}>
         {hasChildren ? (
-          <button
+<Button
             type="button"
-            className={`${styles.treeTwisty} ${open ? styles.treeTwistyOpen : ''}`}
+            variant="ghost" size="icon-sm" className={styles.treeTwisty}
             aria-expanded={open}
             aria-label={open ? `Collapse ${node.label}` : `Expand ${node.label}`}
             // A node that both folds and acts has two controls in one row, so
@@ -169,21 +196,17 @@ const TreeNode = ({ node }: { node: UiTreeNode }) => {
               setOpen((value) => !value)
             }}
           >
-            <ChevronIcon size={12} />
-          </button>
+            <DisclosureChevron open={open} size="sm" />
+          </Button>
         ) : (
           <span className={styles.treeSpacer} aria-hidden="true" />
         )}
         {actionable ? (
-          <button type="button" className={styles.treeRow} onClick={() => run(node.action)}>
-            <span className={styles.treeLabel}>{node.label}</span>
-            {node.hint && <span className={styles.treeHint}>{node.hint}</span>}
-          </button>
+          <Button type="button" variant="row" size="row" className={styles.treeRow} onClick={() => run(node.action)}>
+            <TreeText node={node} />
+          </Button>
         ) : (
-          <>
-            <span className={styles.treeLabel}>{node.label}</span>
-            {node.hint && <span className={styles.treeHint}>{node.hint}</span>}
-          </>
+          <TreeText node={node} />
         )}
       </div>
       {hasChildren && open && (
@@ -204,27 +227,24 @@ export const Block = ({ block }: { block: UiBlock }) => {
   switch (block.type) {
     case 'markdown':
       return (
-        <div className={styles.markdown}>
+        <Text as="div" role="navigation">
           <Markdown text={block.text} />
-        </div>
+        </Text>
       )
     case 'keyValue':
       return (
-        <dl className={styles.keyValue}>
+        <KeyValue variant="panel" className={styles.keyValue}>
           {block.entries.map((entry, index) => (
-            <div key={index} style={{ display: 'contents' }}>
-              <dt className={styles.keyValueTerm}>{entry.label}</dt>
-              <dd className={styles.keyValueValue}>{entry.value}</dd>
-            </div>
+            <KeyValueRow key={index} variant="panel" label={entry.label}>{entry.value}</KeyValueRow>
           ))}
-        </dl>
+        </KeyValue>
       )
     case 'list':
       return (
         <ul className={styles.list}>
           {block.items.map((item, index) => (
             <li key={index} className={styles.listItem}>
-              <span aria-hidden="true" className={styles.listBullet}>
+              <TextMark>
                 {item.done === true ? (
                   <TodoDoneIcon size={12} />
                 ) : item.done === false ? (
@@ -232,11 +252,11 @@ export const Block = ({ block }: { block: UiBlock }) => {
                 ) : (
                   <BulletIcon size={16} />
                 )}
-              </span>
-              <span className={`${styles.listLabel} ${item.done ? styles.listDone : ''}`}>
+              </TextMark>
+              <Text role="navigation" done={item.done === true} className={styles.listLabel}>
                 {item.label}
-                {item.hint && <span className={styles.listHint}>{item.hint}</span>}
-              </span>
+                {item.hint && <Text role="meta" className="ml-1.5">{item.hint}</Text>}
+              </Text>
             </li>
           ))}
         </ul>
@@ -245,14 +265,14 @@ export const Block = ({ block }: { block: UiBlock }) => {
       return (
         <div className={styles.actions}>
           {block.actions.map((action, index) => (
-            <button
+<Button
               key={index}
               type="button"
-              className={styles.actionButton}
+              variant="ghost" size="icon-sm"
               onClick={() => run(action)}
             >
               {action.label}
-            </button>
+            </Button>
           ))}
         </div>
       )
@@ -261,14 +281,16 @@ export const Block = ({ block }: { block: UiBlock }) => {
     case 'document':
       return (
         <div className={styles.document}>
-          {block.title && <div className={styles.documentTitle}>{block.title}</div>}
+          {block.title && <Text as="div" role="row" className="mb-1">{block.title}</Text>}
           {block.sections.map((section, index) => (
-            <DocumentSection
-              key={index}
-              heading={section.heading}
-              text={section.text}
-              {...(section.collapsed !== undefined ? { collapsed: section.collapsed } : {})}
-            />
+            <div key={index}>
+              {index > 0 && <Separator />}
+              <DocumentSection
+                heading={section.heading}
+                text={section.text}
+                {...(section.collapsed !== undefined ? { collapsed: section.collapsed } : {})}
+              />
+            </div>
           ))}
         </div>
       )
@@ -276,39 +298,39 @@ export const Block = ({ block }: { block: UiBlock }) => {
       return (
         // Wide tables scroll inside the panel; the panel itself never grows a
         // horizontal scrollbar, because the sidebar it sits in cannot.
-        <div className={styles.tableScroll}>
-          <table className={styles.table}>
-            {block.caption && <caption className={styles.tableCaption}>{block.caption}</caption>}
-            <thead>
-              <tr>
+        <Table variant="panel" containerClassName={styles.tableScroll}>
+            {block.caption && <TableCaption variant="panel">{block.caption}</TableCaption>}
+            <TableHeader>
+              <TableRow variant="panel">
                 {block.columns.map((column) => (
-                  <th
+                  <TableHead
                     key={column.key}
                     scope="col"
-                    className={`${styles.tableHeader} ${column.align === 'end' ? styles.alignEnd : ''}`}
+                    variant="panel"
+                    align={column.align === 'end' ? 'end' : 'start'}
                   >
                     {column.label}
-                  </th>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {block.rows.map((row, index) => (
-                <tr key={index} className={styles.tableRow}>
+                <TableRow key={index} variant="panel">
                   {block.columns.map((column) => (
-                    <td
+                    <TableCell
                       key={column.key}
-                      className={`${styles.tableCell} ${column.align === 'end' ? styles.alignEnd : ''}`}
+                      variant="panel"
+                      align={column.align === 'end' ? 'end' : 'start'}
                     >
                       {/* Keyed, not positional: a cell the row omits is empty, never the next column's. */}
                       {row[column.key] ?? ''}
-                    </td>
+                    </TableCell>
                   ))}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+        </Table>
       )
     case 'tree':
       return (
@@ -320,10 +342,10 @@ export const Block = ({ block }: { block: UiBlock }) => {
       )
     case 'diff':
       return (
-        <div className={styles.diff}>
-          {block.path && <div className={styles.diffPath}>{block.path}</div>}
+        <Card variant="flush" radius="sm" className={styles.diff}>
+          {block.path && <PatchHeader level="block"><CodeText size="inherit" className="min-w-0 truncate">{block.path}</CodeText></PatchHeader>}
           <DiffView diff={block.patch} {...(block.wholeFile ? { wholeFile: true } : {})} />
-        </div>
+        </Card>
       )
     default:
       return null
@@ -364,27 +386,24 @@ export const PanelSection = ({
   }
 
   return (
-    <section className={styles.section} aria-label={title}>
+    <Section variant="panel" className={styles.section} aria-label={title}>
       {title && (
-        <button
+<Button
           type="button"
-          className={styles.sectionTitle}
+          variant="row" size="row" className={styles.sectionTitle}
           aria-expanded={open}
           title={open ? `Hide ${title}` : `Show ${title}`}
           onClick={toggle}
         >
-          <span
-            className={`${styles.sectionChevron} ${open ? styles.sectionChevronOpen : ''}`}
-            aria-hidden="true"
-          >
+          <span className={styles.sectionChevron} data-chevron data-open={open ? '' : undefined} aria-hidden="true">
             <ChevronIcon size={11} />
           </span>
-          {title}
-        </button>
+          <PopoverGroupLabel inset={false}>{title}</PopoverGroupLabel>
+        </Button>
       )}
       {/* A title-less panel has no way to unfold itself, so it never folds. */}
       {(open || !title) && <div className={styles.sectionBody}>{children}</div>}
-    </section>
+    </Section>
   )
 }
 

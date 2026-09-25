@@ -73,12 +73,18 @@ const FILES: GitFileStatus[] = [
 ]
 
 /** Renders the dialog over one `git/status` answer; returns the transport spy. */
-const show = async (files: readonly GitFileStatus[], concluding: GitConclusion | null = null) => {
-  const request = vi.fn(async (method: string, _params?: unknown) =>
-    method === 'git/status'
-      ? { root: '/w', branch: 'main', ahead: 0, behind: 0, files, concluding }
-      : { sha: 'c0ffee1234567890' },
-  )
+const show = async (
+  files: readonly GitFileStatus[],
+  concluding: GitConclusion | null = null,
+  commitError?: string,
+) => {
+  const request = vi.fn(async (method: string, _params?: unknown) => {
+    if (method === 'git/status') {
+      return { root: '/w', branch: 'main', ahead: 0, behind: 0, files, concluding }
+    }
+    if (commitError) throw new Error(commitError)
+    return { sha: 'c0ffee1234567890' }
+  })
   const snapshot: AppSnapshot = emptySnapshot()
   const store = {
     subscribe: () => () => {},
@@ -158,6 +164,19 @@ it('leaves a path that records nothing out of the commit it asks for (#248)', as
   // Pathspecs, not the all-files branch: `git add -A` would erase the staged
   // add, where the pathspec commit leaves it alone.
   expect(asked?.paths).toEqual(['notes.md', 'new.ts', 'both.txt'])
+})
+
+it('announces a failed commit in the canonical alert', async () => {
+  await show(FILES, null, 'The commit was refused.')
+  write('a message')
+  await act(async () => {
+    commitButton()?.click()
+    await Promise.resolve()
+  })
+
+  const alert = document.body.querySelector('[data-slot="alert"]')
+  expect(alert?.getAttribute('role')).toBe('alert')
+  expect(alert?.textContent).toContain('The commit was refused.')
 })
 
 it('cannot be asked to commit a path that records nothing on its own (#248)', async () => {
@@ -334,4 +353,3 @@ it('ignores concurrent commit requests on rapid keyboard submission (#389)', asy
     await Promise.resolve()
   })
 })
-

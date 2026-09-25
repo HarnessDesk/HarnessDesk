@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useStore } from '../state/context'
 import { useMount } from '../panels/mount'
+import { Button, ToolPane, ToolPaneBody, ToolPaneGuest, ToolPaneMessage, ToolPaneReading, ToolPaneStage } from '../design'
 import { Markdown } from './Markdown'
 import { ToolPaneHeader } from './ToolPaneHeader'
 import styles from './ToolPanes.module.css'
@@ -111,53 +112,52 @@ export const PreviewPane = () => {
   if (!mount || !view || !path) return null
 
   return (
-    <div className={styles.pane}>
+    <ToolPane variant="integrated">
       <ToolPaneHeader title={`Preview · ${path.split('/').pop() ?? path}`} subtitle={path}>
-        <button
-          type="button"
-          className={styles.headerButton}
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setGeneration((tick) => tick + 1)}
           title="Reload the preview from disk"
         >
           Reload
-        </button>
-        <button type="button" className={styles.headerButton} onClick={() => store.openFile(path, { split: null })}>
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => store.openFile(path, { split: null })}>
           Source
-        </button>
+        </Button>
       </ToolPaneHeader>
-      <div className={styles.body} data-preview="">
+      <ToolPaneBody bleed className={styles.body} data-preview="">
         {error ? (
-          <p className={styles.message}>{error}</p>
+          <ToolPaneMessage>{error}</ToolPaneMessage>
         ) : kind === 'unsupported' ? (
-          <p className={styles.message}>Only HTML, PDF and Markdown files have a preview.</p>
+          <ToolPaneMessage>Only HTML, PDF and Markdown files have a preview.</ToolPaneMessage>
         ) : kind === 'html' ? (
           frameSrc === null ? (
-            <p className={styles.message}>Loading…</p>
+            <ToolPaneMessage>Loading…</ToolPaneMessage>
           ) : (
-            <iframe
-              className={styles.frame}
-              title={path}
-              sandbox="allow-scripts allow-forms allow-popups"
-              src={frameSrc}
-            />
+            <ToolPaneStage>
+              <ToolPaneGuest title={path} sandbox="allow-scripts allow-forms allow-popups" src={frameSrc} />
+            </ToolPaneStage>
           )
         ) : kind === 'pdf' ? (
           frameSrc === null ? (
-            <p className={styles.message}>Loading…</p>
+            <ToolPaneMessage>Loading…</ToolPaneMessage>
           ) : (
             // No `sandbox` here: Chromium treats its PDF viewer as a plugin
             // and blocks plugins in sandboxed frames. The endpoint's CSP and
             // the single-use ticket still bound what the document can do.
-            <iframe className={styles.frame} title={path} src={frameSrc} />
+            <ToolPaneStage>
+              <ToolPaneGuest title={path} src={frameSrc} />
+            </ToolPaneStage>
           )
         ) : content === null ? (
-          <p className={styles.message}>Loading…</p>
+          <ToolPaneMessage>Loading…</ToolPaneMessage>
         ) : (
-          <div className={styles.markdown}>
+          <ToolPaneReading>
             <Markdown text={content} />
-          </div>
+          </ToolPaneReading>
         )}
-      </div>
-    </div>
+      </ToolPaneBody>
+    </ToolPane>
   )
 }

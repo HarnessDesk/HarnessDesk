@@ -680,6 +680,27 @@ test('stopping a task ends it, and stopping it twice is not an error', async () 
   }
 })
 
+test('deleting a session drops its task state and stops output polling', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const tape = record(runtime)
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await send(session, tape, 'bg pnpm test --watch')
+    const running = await tape.settle((tasks) => tasks.length === 1 && tasks[0]?.state === 'running')
+    assert.equal(running.length, 1)
+
+    await runtime.deleteSession(session.id)
+    assert.deepEqual(await runtime.tasks!.list(session.id), [])
+
+    // A late SDK message must not recreate the deleted bridge registries.
+    await send(session, tape, `endbg ${running[0]!.id}`)
+    assert.deepEqual(await runtime.tasks!.list(session.id), [])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('the session keeps working after the pump has taken over its stream', async () => {
   // The pump owns the generator now. Two turns back to back, a task started
   // in the first and read in the second, is the shape that would break if the

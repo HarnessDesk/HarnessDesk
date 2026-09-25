@@ -24,6 +24,13 @@ export interface MeterReading {
    */
   readonly fetchedAt: number
   readonly staleAfterMs: number
+  /**
+   * Set when the source cannot show these figures are for the account the
+   * agent runs as, naming whose they are instead ("agy CLI sign-in"). The
+   * service then files them under `UsageReport.unverified`, never `lanes`,
+   * so they are shown and never decide whether the agent can run.
+   */
+  readonly unverified?: string
 }
 
 export interface UsageMeter {

@@ -131,7 +131,7 @@ const Bars = ({
           <span
             key={index}
             title={labels?.[index]}
-            className="min-w-0 flex-1 rounded-t-[3px]"
+            className="min-w-0 flex-1 rounded-t-(--hd-radius-2xs)"
             style={{
               height: `${Math.max(2, (value / high) * 100)}%`,
               background:
@@ -210,4 +210,36 @@ const Donut = ({ className, slices, size = 120, children, ...props }: DonutProps
   )
 }
 
-export { Sparkline, Bars, Donut }
+/**
+ * One entry on a strip, as a short stroke.
+ *
+ * The smallest mark in the kit, and the one a strip index is made of: a
+ * stack of these down the side of a transcript is a map of what was said,
+ * one per message, the way a scrollbar's find-in-page hits are a map of a
+ * document. The stroke's *length* is the caller's, because on a strip the
+ * length is the reading — the conversation map magnifies the ones nearest
+ * the pointer, dock-style, and a stroke that owned its width could not.
+ *
+ * Two emphases and no colours: a strip index says which entries matter more
+ * (what the person asked, against what came back), not what kind they are.
+ * A kind is a series, and a series takes `SeriesDot`.
+ */
+const Tick = ({
+  className,
+  emphasis = 'quiet',
+  ...props
+}: Omit<React.ComponentProps<'span'>, 'children'> & { emphasis?: 'strong' | 'quiet' }) => (
+  <span
+    data-slot="tick"
+    data-emphasis={emphasis}
+    aria-hidden
+    className={cn(
+      'block h-(--hd-space-0-5) shrink-0 rounded-full',
+      emphasis === 'strong' ? 'bg-(--hd-foreground)' : 'bg-(--hd-muted-foreground)',
+      className,
+    )}
+    {...props}
+  />
+)
+
+export { Sparkline, Bars, Donut, Tick }

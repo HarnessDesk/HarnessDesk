@@ -16,7 +16,7 @@
  *  - "slow"           → answers only after 10s (interrupt target)
  *  - anything else    → two message chunks and end_turn
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 
@@ -26,6 +26,40 @@ import { createInterface } from 'node:readline'
  * its own store, so the adapter's resume path is tested across "restarts".
  */
 const STORE = process.env.FAKE_ACP_STORE ?? null
+/**
+ * The ways `session/list` can fail to say where a conversation ran while
+ * `session/load` still serves it, which a client asking the listing where to
+ * reopen one has to survive:
+ *  - FAKE_ACP_UNLISTED=<id>,<id>… leaves those out of it. Claude Code's
+ *    bridge skips a conversation its own listing has no folder for, and
+ *    Cursor's lists only the workspaces it has been shown.
+ *  - FAKE_ACP_LIST_PAGE=<n> answers n rows a page and a `nextCursor` for the
+ *    rest, as ACP's `session/list` allows, so a row past the first page is
+ *    found only by asking for the next. With FAKE_ACP_LIST_STUCK=1 every page
+ *    hands back its own cursor as the next one, and with FAKE_ACP_LIST_ENDLESS=1
+ *    every page names a new next one, past the last row as well: the two
+ *    walks that never end, which a client reading the pages has to notice.
+ *  - FAKE_ACP_NO_LIST=1 declares `loadSession` and no listing, and answers
+ *    `session/list` as Gemini CLI 0.59.0 does: -32601, "Method not found".
+ *  - FAKE_ACP_LIST_FAILS=1 declares a listing and fails every call to it;
+ *    `later` answers the first page and fails every one after it.
+ * FAKE_ACP_UNLOADABLE=<id> is the other way round: listed, and refused when
+ * it is loaded, with the reason in `data` the way Claude Code gives one.
+ * FAKE_ACP_OPENS=<file> records every session it is asked to open, new or
+ * loaded, with the folder it was handed, one JSON line each.
+ */
+const UNLISTED = new Set((process.env.FAKE_ACP_UNLISTED ?? '').split(',').filter(Boolean))
+const LIST_PAGE = Number(process.env.FAKE_ACP_LIST_PAGE ?? 0)
+const NO_LIST = process.env.FAKE_ACP_NO_LIST === '1'
+const recordOpen = (method, sessionId, cwd, meta) => {
+  if (process.env.FAKE_ACP_OPENS) {
+    // With the attachment extension on, each line also says whether the open
+    // carried a Seat's filter — the one fact a test of "never unfiltered" needs.
+    const filtered = process.env.FAKE_ACP_ATTACHMENTS === '1' ? { filtered: Boolean(meta?.harnessdesk?.attachments) } : {}
+    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered })}\n`)
+  }
+}
+const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
 const readStore = () => {
   if (!STORE) return {}
   try { return JSON.parse(readFileSync(STORE, 'utf8')) } catch { return {} }
@@ -69,6 +103,7 @@ const newSession = (id0, cwd) => {
     options: {
       voice: 'plain',
       verbose: false,
+      auto_approve: false,
       ponder: 'default',
       // A control that exists but cannot be moved — see `configOptionsOf`.
       wide: false,
@@ -79,6 +114,17 @@ const newSession = (id0, cwd) => {
 }
 
 const configOptionsOf = (state) => [
+  ...(CONFIG_MODEL_ONLY ? [{
+    id: 'model',
+    name: 'Model',
+    category: 'model',
+    type: 'select',
+    currentValue: state.modelId,
+    options: [
+      { value: 'small', name: 'Small' },
+      { value: 'large', name: 'Large' },
+    ],
+  }] : []),
   {
     id: 'voice',
     name: 'Voice',
@@ -95,6 +141,15 @@ const configOptionsOf = (state) => [
     name: 'Verbose',
     type: 'toggle',
     currentValue: state.options.verbose,
+  },
+  {
+    id: 'auto_approve',
+    name: 'Auto-approve tools',
+    description: 'Automatically approve all tool calls without asking for permission.',
+    // Cline 3.x reports the ACP-native boolean shape rather than the older
+    // toggle spelling; keep the fixture on the wire shape we need to support.
+    type: 'boolean',
+    currentValue: state.options.auto_approve,
   },
   // A thought-level control the un-Codex way: the levels belong to whatever
   // model is current, which is all a conforming agent can declare.
@@ -252,6 +307,16 @@ const runPrompt = async (id, params) => {
       status: 'pending',
       rawInput: { target: 'the thing' },
     })
+    if (state.options.auto_approve) {
+      update(state.id, {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tc-1',
+        status: 'completed',
+        rawOutput: { poked: true },
+      })
+      say('poked it.')
+      return reply(id, { stopReason: 'end_turn' })
+    }
     const { outcome } = await request('session/request_permission', {
       sessionId: state.id,
       // A real agent says why: Claude Code and DeepSeek Harness both attach
@@ -433,7 +498,9 @@ const runPrompt = async (id, params) => {
   // `deleg spawn` starts one and leaves it running; `deleg finish` reports the
   // same id as completed, which a later turn can do — that is the sequence
   // that put a second row on the wrong turn. `deleg floor` reports a child
-  // whose output count is still a streaming placeholder.
+  // whose output count is still a streaming placeholder. `deleg refused` and
+  // `deleg cancelled` report a running child and then end the turn some way
+  // other than as asked: the row is there, and the turn is not a finished one.
   if (text.startsWith('deleg ')) {
     const [, verb] = text.split(/\s+/)
     const one = (over) => ({
@@ -445,7 +512,7 @@ const runPrompt = async (id, params) => {
       calls: 1,
       ...over,
     })
-    if (verb === 'spawn') {
+    if (verb === 'spawn' || verb === 'refused' || verb === 'cancelled') {
       notify('_harnessdesk/delegation/changed', {
         sessionId: state.id,
         delegations: [one({ state: 'running', usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12, cachedReadTokens: 0, cachedWriteTokens: 0, outputExact: true } })],
@@ -466,7 +533,9 @@ const runPrompt = async (id, params) => {
         delegated: { inputTokens: 900, outputTokens: 1, totalTokens: 901, outputExact: false },
       })
     }
-    return reply(id, { stopReason: 'end_turn' })
+    return reply(id, {
+      stopReason: verb === 'refused' ? 'refusal' : verb === 'cancelled' ? 'cancelled' : 'end_turn',
+    })
   }
   // A turn that reports cache writes, and one that says nothing about them —
   // the pair that decides whether a running total may claim to be exact.
@@ -474,6 +543,13 @@ const runPrompt = async (id, params) => {
     return reply(id, {
       stopReason: 'end_turn',
       usage: { totalTokens: 150, inputTokens: 100, outputTokens: 50, cachedReadTokens: 20, cachedWriteTokens: 50 },
+    })
+  }
+  if (text === 'split') {
+    return reply(id, {
+      stopReason: 'end_turn',
+      usage: { totalTokens: 170, inputTokens: 100, outputTokens: 20, cachedReadTokens: 20, cachedWriteTokens: 50 },
+      _meta: { harnessdesk: { inputTokensAreUncached: true } },
     })
   }
   if (text === 'nowrites') {
@@ -593,6 +669,45 @@ const TASKS = process.env.FAKE_ACP_TASKS === '1'
 
 /** Whether this agent serves `_harnessdesk/session/delete`. Off by default. */
 const DELETES = process.env.FAKE_ACP_DELETE === '1'
+
+/**
+ * Phase 12's attachment extension, agent side. Off by default — most ACP
+ * agents have never heard of it, and that is the state a conformance suite
+ * needs to see honestly reported as `unsupported`, not merely untested.
+ *
+ *  - FAKE_ACP_ATTACHMENTS=1 declares `{version:1, skills:true, mcp:true,
+ *    suppressUnapproved:true}` at `initialize` and actually answers
+ *    `_harnessdesk/attachment_receipt` from what `session/new`/`session/load`
+ *    handed it under `_meta.harnessdesk.attachments.input` — an honest
+ *    fake, the way `FakeRuntime` on the host side is.
+ *  - FAKE_ACP_ATTACHMENTS_VERSION=<n> declares a different version number.
+ *  - FAKE_ACP_ATTACHMENTS_MALFORMED=1 declares the capability with a
+ *    non-boolean field, which a strict decoder must refuse.
+ *  - FAKE_ACP_ATTACHMENTS_RECEIPT=<json> overrides the honest receipt this
+ *    agent would otherwise answer, for a test that wants to hand the host a
+ *    dishonest one (wrong key, an extra unrequested item, excess bytes).
+ */
+const ATTACHMENTS = process.env.FAKE_ACP_ATTACHMENTS === '1'
+const attachmentsBySession = new Map()
+
+/**
+ * Whether this agent answers ACP's own `logout` and declares it in
+ * `agentCapabilities.auth`, the way Google Antigravity's server does. Off by
+ * default: most ACP agents hold no credentials of their own, and an agent
+ * that declares nothing must never be asked. FAKE_ACP_LOGOUT_FAILS=1 plays
+ * one that declares it and then refuses the call.
+ */
+const LOGS_OUT = process.env.FAKE_ACP_LOGOUT === '1' || process.env.FAKE_ACP_LOGOUT_FAILS === '1'
+/**
+ * FAKE_ACP_LOGOUT_NULL=1 plays the other half of ACP's rule: the capability
+ * is *present and null*, which means exactly what omitting it means — the
+ * agent does not support `logout`, and a client MUST NOT call it. Such an
+ * agent still refuses the request, which is how a client that ignores the
+ * rule is caught.
+ */
+const LOGOUT_NULL = process.env.FAKE_ACP_LOGOUT_NULL === '1'
+/** Set by a served `logout`, after which this agent opens nothing. */
+let signedOut = false
 const tasks = new Map()
 let taskCounter = 0
 
@@ -652,14 +767,17 @@ const handlers = {
         loadSession: Boolean(STORE),
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.
         promptCapabilities: { image: process.env.FAKE_ACP_NO_IMAGES !== '1' },
-        ...(STORE ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
+        ...(STORE && !NO_LIST ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
+        /* `{}` is the only yes; `null` is a no that is spelled out rather
+           than omitted, and both are on the wire. */
+        ...(LOGS_OUT ? { auth: { logout: {} } } : LOGOUT_NULL ? { auth: { logout: null } } : {}),
       },
       authMethods: process.env.FAKE_ACP_AUTH_METHODS
         ? JSON.parse(process.env.FAKE_ACP_AUTH_METHODS)
         : [
             { id: 'device', name: 'Sign in on the agent side', description: 'Run the agent login.' },
           ],
-      ...(TASKS || DELETES
+      ...(TASKS || DELETES || ATTACHMENTS
         ? {
             _meta: {
               harnessdesk: {
@@ -667,11 +785,54 @@ const handlers = {
                 // FAKE_ACP_DELETE=1 plays a bridge that knows where its agent
                 // writes. Most ACP agents do not, and declare nothing.
                 ...(DELETES ? { deleteSession: true } : {}),
+                ...(ATTACHMENTS
+                  ? {
+                      attachments: process.env.FAKE_ACP_ATTACHMENTS_MALFORMED
+                        ? { version: 1, skills: 'yes', mcp: true, suppressUnapproved: true }
+                        : {
+                            version: Number(process.env.FAKE_ACP_ATTACHMENTS_VERSION ?? 1),
+                            skills: true,
+                            mcp: true,
+                            suppressUnapproved: true,
+                          },
+                    }
+                  : {}),
               },
             },
           }
         : {}),
     })
+  },
+  /* ACP's own sign-in. Answers nothing, as the schema has it, and takes
+     however long the sign-in takes — the real ones open a browser inside
+     this call. FAKE_ACP_AUTH_MS delays the reply so a test can watch the
+     pending state and cancel it; FAKE_ACP_AUTH_FAILS=1 refuses it. */
+  authenticate: (id, params) => {
+    const known = (process.env.FAKE_ACP_AUTH_METHODS
+      ? JSON.parse(process.env.FAKE_ACP_AUTH_METHODS)
+      : [{ id: 'device' }]
+    ).map((m) => m.id)
+    if (!known.includes(params?.methodId)) return fail(id, `unknown auth method ${String(params?.methodId)}`)
+    const answer = () => {
+      if (process.env.FAKE_ACP_AUTH_FAILS === '1') return fail(id, 'the browser flow was refused. Try again.')
+      // Signed in, so the sessions this agent was refusing now open.
+      signedOut = false
+      delete process.env.FAKE_ACP_AUTH_REQUIRED
+      reply(id, {})
+    }
+    const wait = Number(process.env.FAKE_ACP_AUTH_MS ?? 0)
+    if (wait > 0) setTimeout(answer, wait)
+    else answer()
+  },
+  // ACP's own sign-out. Served only when it was declared: an agent that
+  // never put `auth.logout` in its capabilities and is asked anyway should
+  // answer the way any agent answers a method it does not have.
+  logout: (id) => {
+    // Including the `null` form: declaring it null is declaring no support.
+    if (!LOGS_OUT) return fail(id, 'Method not found: logout')
+    if (process.env.FAKE_ACP_LOGOUT_FAILS === '1') return fail(id, 'the keychain refused to give up the token')
+    signedOut = true
+    reply(id, {})
   },
   'session/new': (id, params) => {
     // FAKE_ACP_SLOW_OPEN_MS=<n> answers an open that carries no tool server n ms
@@ -698,7 +859,7 @@ const handlers = {
       send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Internal server error', data: { details: 'the model backend timed out' } } })
       return
     }
-    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed) {
+    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed || signedOut) {
       send({
         jsonrpc: '2.0',
         id,
@@ -731,9 +892,13 @@ const handlers = {
       } catch {}
     }
     const state = newSession(undefined, params?.cwd)
+    recordOpen('session/new', state.id, params?.cwd, params?._meta)
+    if (ATTACHMENTS && params?._meta?.harnessdesk?.attachments) {
+      attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
+    }
     reply(id, {
       sessionId: state.id,
-      models: {
+      ...(CONFIG_MODEL_ONLY ? {} : { models: {
         currentModelId: state.modelId,
         availableModels: [
           { modelId: 'small', name: 'Small' },
@@ -757,7 +922,7 @@ const handlers = {
           // agent last started: present only in processes started after it was set.
           ...(process.env.FAKE_ACP_EXTRA_MODEL ? [{ modelId: process.env.FAKE_ACP_EXTRA_MODEL, name: 'New' }] : []),
         ],
-      },
+      } }),
       modes: {
         currentModeId: state.modeId,
         availableModes: [
@@ -796,6 +961,16 @@ const handlers = {
   'session/set_config_option': (id, params) => {
     const state = sessions.get(params.sessionId)
     if (!state) return fail(id, 'no such session')
+    if (params.configId === 'auto_approve' && params.type !== 'boolean') {
+      return fail(id, 'auto_approve must use the ACP boolean option type')
+    }
+    if (CONFIG_MODEL_ONLY && params.configId === 'model') {
+      if (!['small', 'large'].includes(params.value)) return fail(id, `no model ${params.value}`)
+      state.modelId = params.value
+      reply(id, { configOptions: configOptionsOf(state) })
+      update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
+      return
+    }
     if (!(params.configId in state.options)) {
       return fail(id, `no option ${params.configId}`)
     }
@@ -813,22 +988,56 @@ const handlers = {
     update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
   },
   'session/prompt': (id, params) => void runPrompt(id, params),
-  'session/list': (id) => {
-    const store = readStore()
-    reply(id, {
-      sessions: Object.values(store).map((entry) => ({
+  'session/list': (id, params) => {
+    if (NO_LIST) {
+      return send({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: '"Method not found": session/list', data: { method: 'session/list' } },
+      })
+    }
+    if (process.env.FAKE_ACP_LIST_FAILS === '1' || (process.env.FAKE_ACP_LIST_FAILS === 'later' && params?.cursor != null)) {
+      return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { details: 'the index is locked' } } })
+    }
+    const rows = Object.values(readStore())
+      .filter((entry) => !UNLISTED.has(entry.sessionId))
+      .map((entry) => ({
         sessionId: entry.sessionId,
         cwd: entry.cwd,
         title: entry.title,
         updatedAt: entry.updatedAt,
-      })),
-    })
+      }))
+    if (!(LIST_PAGE > 0)) return reply(id, { sessions: rows })
+    const from = Number(params?.cursor ?? 0)
+    const rest = from + LIST_PAGE < rows.length
+    // Stuck, every page names itself as the next one; endless, a new one.
+    const next =
+      process.env.FAKE_ACP_LIST_STUCK === '1'
+        ? String(from)
+        : process.env.FAKE_ACP_LIST_ENDLESS === '1' || rest
+          ? String(from + LIST_PAGE)
+          : null
+    reply(id, { sessions: rows.slice(from, from + LIST_PAGE), ...(next !== null ? { nextCursor: next } : {}) })
   },
   'session/load': (id, params) => {
+    recordOpen('session/load', params.sessionId, params.cwd, params?._meta)
     const store = readStore()
     const entry = store[params.sessionId]
     if (!entry) return fail(id, `no stored session ${params.sessionId}`, { details: 'the store has no such id' })
+    if (process.env.FAKE_ACP_UNLOADABLE === params.sessionId) {
+      return fail(id, 'Internal error', { details: 'the transcript could not be read' })
+    }
     const state = newSession(entry.sessionId, entry.cwd)
+    // A load is handed the servers a session/new is: dumped the same way.
+    if (process.env.FAKE_ACP_DUMP_SERVERS) {
+      try {
+        writeFileSync(process.env.FAKE_ACP_DUMP_SERVERS, JSON.stringify(params?.mcpServers ?? []))
+      } catch {}
+    }
+    // A load carries a reopened Seat's filter the same way session/new does.
+    if (ATTACHMENTS && params?._meta?.harnessdesk?.attachments) {
+      attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
+    }
     // Replay: every content block of a stored turn as its own user chunk,
     // then an answer chunk — the shape Claude Code replays.
     for (const blocks of entry.turns) {
@@ -842,13 +1051,13 @@ const handlers = {
     }
     reply(id, {
       sessionId: state.id,
-      models: {
+      ...(CONFIG_MODEL_ONLY ? {} : { models: {
         currentModelId: state.modelId,
         availableModels: [
           { modelId: 'small', name: 'Small' },
           { modelId: 'large', name: 'Large', description: 'Slower, wiser.' },
         ],
-      },
+      } }),
       modes: {
         currentModeId: state.modeId,
         availableModes: [
@@ -909,6 +1118,28 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     delete store[message.params?.sessionId]
     writeStore(store)
     reply(message.id, { removed: had ? [`${message.params.sessionId}.jsonl`] : [], disposition: 'trash' })
+    return
+  }
+  if (ATTACHMENTS && typeof message.id === 'number' && message.method === '_harnessdesk/attachment_receipt') {
+    if (process.env.FAKE_ACP_ATTACHMENTS_RECEIPT) {
+      reply(message.id, JSON.parse(process.env.FAKE_ACP_ATTACHMENTS_RECEIPT))
+      return
+    }
+    const input = attachmentsBySession.get(message.params?.sessionId)
+    if (!input || input.key !== message.params?.key) {
+      fail(message.id, 'no attachments were prepared for this session, or the key has moved on')
+      return
+    }
+    // Honest by default: reports loading exactly what it was asked to load,
+    // the same way `FakeRuntime` on the host side does.
+    reply(message.id, {
+      key: input.key,
+      loaded: [
+        ...(input.skills ?? []).map((one) => ({ kind: 'skill', name: one.name, digest: one.digest })),
+        ...(input.mcp ?? []).map((one) => ({ kind: 'mcp', name: one.name, digest: one.digest })),
+      ],
+      refused: [],
+    })
     return
   }
   const handler = handlers[message.method]

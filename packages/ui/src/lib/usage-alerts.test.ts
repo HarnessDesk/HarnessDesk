@@ -304,3 +304,39 @@ describe('which toasts name the account (review of #216)', () => {
     expect(toastName('OpenAI Codex', id('codex'), null, [olivia, work], prefs)).toBe('OpenAI Codex')
   })
 })
+
+/*
+ * A report whose only figures are another sign-in's (#769): Antigravity's quota
+ * read through the separately signed-in `agy` CLI, every group spent. Its own
+ * lanes are empty, which is what this surface reads; the figures sit under
+ * `unverified`, where only the Dashboard card draws them.
+ */
+const OTHER_SIGN_IN = {
+  whose: 'agy CLI sign-in',
+  lanes: [
+    { id: 'gemini-weekly', label: 'Weekly', scope: 'Gemini Models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+    { id: '3p-weekly', label: 'Weekly', scope: 'Claude and GPT models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+  ],
+  reached: 'gemini-weekly',
+  fetchedAt: NOON,
+  staleAfterMs: 5 * 60_000,
+}
+
+describe("another sign-in's figures", () => {
+  it('raise no banner over the agent, and offer no way out through it', () => {
+    const borrowed = report('antigravity', [], { unverified: OTHER_SIGN_IN } as Partial<UsageReport>)
+    expect(conditionFor(id('antigravity'), [borrowed], nameFor, NOON)).toBeNull()
+    // Nor is an agent whose only figures are another sign-in's a hand-off target.
+    const roomy = report('antigravity', [], {
+      unverified: { ...OTHER_SIGN_IN, lanes: OTHER_SIGN_IN.lanes.map((lane) => ({ ...lane, usedPercent: 0 })) },
+    } as Partial<UsageReport>)
+    const condition = conditionFor(
+      id('claude'),
+      [report('claude', [lane({ usedPercent: 100 })], { reached: 'weekly' }), roomy],
+      nameFor,
+      NOON,
+    )
+    expect(condition?.tone).toBe('danger')
+    expect(condition?.handoff).toBeNull()
+  })
+})

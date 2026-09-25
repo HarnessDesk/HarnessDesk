@@ -3,7 +3,8 @@
 Read `docs/architecture.md` first — `docs/interface.md` if the work is
 user-facing — and `docs/decisions.md` for why a surface is the way it is, which
 is the fastest way to find the reasoning behind one before changing it.
-`CHANGELOG.md` says what has already shipped.
+`CHANGELOG.md` says what has already shipped. Cutting a release is
+`docs/release.md`, not a thing to improvise.
 Then take the work from the issue or the request that brought you here.
 
 Maintainers also keep private working files in the root checkout — `PLAN.md` and
@@ -71,15 +72,20 @@ them in `docs/decisions.md`.
 10. **Type comes from the scale, not from the component.** Four sizes carry the
    whole interface and 14px is the default answer; ink has three levels and
    the faintest one is for facts, not for text. `docs/design.md`
-   is the guideline, `packages/ui/src/design/tokens.css` the tokens. A raw
+   is the guideline, `packages/ui/src/design/foundation/tokens.css` the tokens. A raw
    `font-size` in a component is how an app ends up with ten sizes.
 11. **Build a screen out of the design system, never beside it.** Import from
-    `packages/ui/src/design` — `Btn`, `Row`, `Rows`, `Toggle`, `Chip`,
+    `packages/ui/src/design` — `Button`, `Row`, `Rows`, `Switch`, `Chip`,
     `Dialog`, `ConfirmDialog`, `Banner`. Read `docs/design-system.md` first;
     it is generated from the source, so it cannot be out of date. The rules,
     every one of them enforced by `node script/design-audit.mjs --strict`:
     - Never import another screen's `*.module.css`. If two screens need the
-      same thing, it belongs in `design/primitives`.
+      same thing, it belongs in `design/ui` or a named `design/patterns` contract.
+      Six existing screen families retain exactly eleven additional co-owners,
+      capped by `STYLESHEET_OWNERS` in `script/design-audit.mjs`. Their
+      `@design-owners` comments document membership but cannot authorize another
+      importer. Expanding that debt requires changing this rule and the fixed
+      gate list; new shared UI belongs in the design system.
     - Never write a literal where a token exists — a raw radius, colour or
       spacing step will not follow a theme or a redesign. That includes a
       literal hidden behind a custom property.
@@ -100,24 +106,17 @@ them in `docs/decisions.md`.
       `BrandIcons.tsx` for a brand mark, and is imported from there. A chart,
       a sparkline or an illustration is **not** an icon and does not go there.
 
-    Every one of these has a legitimate exception, and the audit's failure
-    message names it. Where a rule and a real need collide, the move is to
-    raise the baseline deliberately — `node script/design-audit.mjs
-    --baseline`, with the reason in the commit — never to hide the value
-    somewhere the check cannot see.
+    Legitimate data geometry and specialized/native boundaries are recorded
+    precisely; ordinary controls are not exceptions. The strict audit must
+    stay at zero and refuses a non-zero saved baseline.
 
-    Two component idioms exist, and the number is a ceiling. `design/ui/`
-    is the shadcn layer — vendored component source over Tailwind
-    utilities that resolve to the `--hd-` tokens (styles/shadcn.css is the
-    bridge) — and it is the idiom for **new and rebuilt surfaces**.
-    `design/primitives/Kit.tsx` remains the settings-surface primitives
-    for everything not yet rebuilt. A surface's *controls* use one idiom,
-    not a mixture; page furniture (`PageHead`, `Rows`) may stay Kit while
-    a page's controls move. What was always forbidden still is: a THIRD
-    spelling, or a screen answering "what is a button here" for itself.
-    The two Buttons never disagree about what a button *is*, because both
-    read the `--hd-btn-*` component tokens — a foundation restyles both at
-    once, and `design/ui/button.test.tsx` pins that coupling.
+    One component idiom exists. `design/ui/` is the shadcn layer — vendored
+    component source over Base UI and Tailwind utilities that resolve to the
+    `--hd-` tokens (`styles/shadcn.css` is the bridge). Product-specific
+    presentation belongs in `design/patterns`; it composes the same primitives
+    and never introduces another generic control spelling. The architecture
+    gate rejects alternate headless foundations, retired APIs, and feature
+    imports that bypass the public design entrypoint.
 
     Look at what you changed: `pnpm design` renders every primitive from the
     real code, in both themes, under a switchable foundation.
@@ -130,13 +129,13 @@ them in `docs/decisions.md`.
     | the ask | change this first | then |
     |---|---|---|
     | Restyle notifications / banners | `design/primitives/Banner.tsx` | screens inherit it |
-    | Any palette, shape or density change | `design/tokens.css` | nothing else should need editing |
+    | Any palette, shape or density change | `design/foundation/tokens.css` | nothing else should need editing |
     | A different look wholesale | a **foundation** — a token overlay, the mechanism `pnpm design` already switches | screens are untouched |
     | New shadcn-idiom UI | `design/ui/` — vendor via `pnpm dlx shadcn@latest add`, then apply the folder's three rules (its index.ts names them) | the screen composes it |
     | Themes, including a user's own | a palette/accent/corners sheet keyed on `body[data-hd-*]` (styles/shadcn-themes.css is the pattern), plus persistence | Settings › Appearance reads and writes those |
     | Fonts | the `--hd-font-*` tokens | a settings surface reads and writes those |
-    | A new dialog, sheet or confirm | `design/primitives/Dialog.tsx`, if it lacks what you need | then the screen |
-    | Rebuild Agent settings / plugin pages / login | nothing — they are already `Kit` consumers | build with `Row`, `Rows`, `Btn`, `Input` |
+    | A new dialog, sheet or confirm | `design/ui/dialog.tsx` or a policy in `design/patterns` | then the screen |
+    | Agent settings / plugin pages / login | the existing canonical patterns | build with `Row`, `Rows`, `Button`, `Input` |
 
     One has no seam yet, so building one is the first commit rather than a
     detour: **icons** (`Icons.tsx` is a flat façade over lucide, with no token
@@ -179,7 +178,7 @@ pnpm verify
 It validates the lockfile with `pnpm install --frozen-lockfile`, runs the build,
 every test suite (Node packages, gate scripts, UI and desktop), the UI typecheck,
 the layering rule, the half-applied-fixes check, the tracked-secrets scan, the reachable-methods check, the
-third-party notices check, the design-system gates, interface drift, the
+third-party notices check, the design-system gates, the UI-system architecture gate, interface drift, the
 recorded-claims link, the doc-paths check, the gate-against-CI check below,
 the Codex protocol drift check, and a check that this paragraph and
 CONTRIBUTING.md name every step the gate runs.

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { existsSync } from 'node:fs'
@@ -10,7 +10,9 @@ import { runtimeId, sessionId, type RuntimeInfo } from '@harnessdesk/protocol'
 import { CodexRuntime, CODEX_RUNTIME_ID } from '@harnessdesk/adapter-codex'
 import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
 import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
-import { ToolGateway } from './tool-gateway.js'
+import { invokeForBridge, ToolGateway } from './tool-gateway.js'
+import { GatedRegistry } from './ceilings/gate.js'
+import { attachmentGateway } from './attachments/wiring.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
@@ -18,11 +20,16 @@ import { AcpRegistry } from './acp-registry.js'
 import { applyLoginShellPath } from './installs/shell-path.js'
 import { knowledgeOverlay } from './installs/overlay.js'
 import type { KnownAgent } from './installs/known-agents.js'
-import { InstallService } from './installs/service.js'
+import { commandName, InstallService } from './installs/service.js'
 import { AgentDirectory, AgentRegistryStore, packagedPath, templateBrandFor } from './agent-registry.js'
 import { CredentialBroker } from './credentials.js'
 import { Host, type AccountFactory, type HostOptions } from './host.js'
 import { ClaudeFileMeter } from './usage/claude-file.js'
+import { corpusRoot, type CorpusKind } from './ledger/index.js'
+import { AgyMeter } from './usage/agy.js'
+import { AmpMeter } from './usage/amp.js'
+import { ClineMeter } from './usage/cline.js'
+import { clineDataDirOverride } from './installs/identity.js'
 import { CopilotMeter } from './usage/copilot.js'
 import { CursorMeter } from './usage/cursor.js'
 import { GeminiMeter } from './usage/gemini.js'
@@ -102,6 +109,7 @@ export interface BootstrapOptions {
   readonly version?: string
   readonly pickDirectory?: HostOptions['pickDirectory']
   readonly revealPath?: HostOptions['revealPath']
+  readonly trashPath?: HostOptions['trashPath']
   readonly console?: boolean
   /**
    * Where browser tools find their page. Absent, the plugin host starts the
@@ -154,10 +162,13 @@ export const createDefaultHost = (
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
     },
   )
+  // Every runtime sees the same capability surface; the gate consults the
+  // host only when a tool is invoked, after the host below exists.
+  const gated = new GatedRegistry(extensions, () => host.ceilingGate)
 
   // Whether a newer build of an agent is published: one registry read a day
   // per package, cached here, and off entirely with HARNESSDESK_NO_UPDATE_CHECK.
-  // Advisory — see docs/agents.md for why it exists at all.
+  // Advisory — see docs/runtimes.md for why it exists at all.
   const updates =
     process.env['HARNESSDESK_NO_UPDATE_CHECK'] === '1'
       ? undefined
@@ -193,7 +204,7 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: home,
       logger: logger.child(id),
-      capabilities: extensions,
+      capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
     })
 
@@ -274,6 +285,12 @@ export const createDefaultHost = (
     callerRuntimes.set(token, runtime)
     bounded(callerRuntimes)
   }
+  // Phase 12's own gateway: a Seat's approved external MCP servers, reached
+  // through the very same socket and the very same correlation token as the
+  // desk's own plugin tools — but gated by `host.ceilingGate`, the identical
+  // gate every other tool call answers to, and resolved to a Seat through
+  // the registry alone, never inferred from anything a call itself says.
+  const mcpBackend = attachmentGateway(() => host, (token) => callers.get(token))
   const socketPath = toolSocketPath(stateDir)
   const gateway = new ToolGateway(socketPath, {
     listTools: () => extensions.list('tool', {}),
@@ -287,30 +304,11 @@ export const createDefaultHost = (
       if (runtime !== undefined && host.runtimeInfo(runtime)?.capabilities.instructions) return ''
       return host.forgePlane.instructions()
     },
-    invokeByName: async (namespace, name, args, caller) => {
-      const tools = extensions.list('tool', {})
-      const tool =
-        tools.find((entry) => entry.namespace === namespace && entry.name === name) ??
-        tools.find((entry) => entry.name === name)
-      if (!tool) return { ok: false, error: `No tool named ${namespace}/${name} is registered.` }
-      const scope = caller !== undefined ? callers.get(caller) : undefined
-      // The scope in the log is the audit trail 25.3 was missing: which
-      // conversation ran which tool, from the host's own record.
-      if (scope) {
-        logger.debug('tool call scoped to its session', {
-          tool: `${namespace}/${name}`,
-          runtime: scope.runtime,
-          session: scope.sessionId,
-        })
-      }
-      return extensions.invokeTool(
-        tool.id,
-        args,
-        scope
-          ? { runtime: runtimeId(scope.runtime), sessionId: sessionId(scope.sessionId) }
-          : {},
-      )
-    },
+    invokeByName: (namespace, name, args, caller) =>
+      invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
+        logger.debug(message, details),
+      ),
+    ...mcpBackend,
   })
   gateway.start()
   const bridgeEntry = toolBridgeEntry()
@@ -411,13 +409,14 @@ export const createDefaultHost = (
     ...(updates ? { updates } : {}),
     // Minutes between re-asking each agent what it offers; 0 turns the timer
     // off. Cursor adds models server-side; this is how a long-open window
-    // hears about them. See docs/agents.md.
+    // hears about them. See docs/runtimes.md.
     ...(process.env['HARNESSDESK_CATALOG_REFRESH_MINUTES'] !== undefined
       ? { catalogRefreshMs: Math.max(0, Number(process.env['HARNESSDESK_CATALOG_REFRESH_MINUTES']) || 0) * 60_000 }
       : {}),
     ...(options.credentialCipher ? { credentialCipher: options.credentialCipher } : {}),
     ...(options.pickDirectory ? { pickDirectory: options.pickDirectory } : {}),
     ...(options.revealPath ? { revealPath: options.revealPath } : {}),
+    ...(options.trashPath ? { trashPath: options.trashPath } : {}),
   })
 
   // The editor plane exists only now, because it needs the host's own roots
@@ -434,6 +433,9 @@ export const createDefaultHost = (
 
   // Codex writes its rollouts where the ledger can read them, and meters
   // itself over its own API — so it needs a corpus and no meter.
+  // Closed when the desk quits, like everything else it owns: no bridge
+  // reaches a Seat's server through a socket the desk has left behind.
+  host.onDispose(() => gateway.stop())
   host.bindUsage(runtimeId('codex'), { corpus: 'codex' })
 
   host.register(
@@ -445,7 +447,7 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: options.codexHome ?? null,
       logger: logger.child('codex'),
-      capabilities: extensions,
+      capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
     }),
   )
@@ -488,26 +490,100 @@ export const createDefaultHost = (
  * written for them that nothing ever reached, and reported as unmetered with
  * nothing to say why. The knowledge is the same lookup the launch decision
  * makes, so a row cannot be metered as one agent and started as another;
- * `basename` because the row may spell any of the three absolutely.
+ * `commandName` because the row may spell any of them absolutely, or with
+ * Windows's `.exe`.
+ *
+ * And a row the table has no entry for — Amp's registry adapter, Qwen Code
+ * through `npx` — is named by the program it runs (`ownCli`), last, so the
+ * table still decides wherever it has something to say.
  */
 export const localUsageFor = (
   agent: AcpAgentConfig,
   known?: Pick<KnownAgent, 'cli'> | undefined,
-): { meter?: UsageMeter; corpus?: 'codex' | 'claude' } | null => {
-  const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0]
-  switch (named ? basename(named) : null) {
+): { meter?: UsageMeter; corpus?: CorpusKind; root?: string } | null => {
+  const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0] ?? ownCli(agent)
+  // Where the agent keeps its records is decided by its own environment — a
+  // row can move an agent's home to hold a second account — so paths are
+  // resolved against what the row adds to the desk's.
+  const env = { ...process.env, ...agent.env }
+  // A row that isolates an agent with a bare `HOME` — the ordinary way, ahead
+  // of any bespoke variable — moves every one of these fallbacks with it: it
+  // is what the row's own process resolves `homedir()` to, so it is what
+  // reading the row's files by hand has to match (review round 5).
+  const home = env['HOME']?.trim() || homedir()
+  const records = (corpus: CorpusKind) => ({ corpus, root: corpusRoot(corpus, env, home) })
+  switch (named ? commandName(named) : null) {
     case 'claude':
       return { meter: new ClaudeFileMeter(), corpus: 'claude' }
     case 'cursor-agent':
       return { meter: new CursorMeter() }
     case 'gemini':
-      return { meter: new GeminiMeter() }
+      // A Code Assist sign-in has a quota to read; an API key has none, and
+      // what its calls cost is in the chat logs either way.
+      return { meter: new GeminiMeter({ env, home }), ...records('gemini') }
     case 'copilot':
       return { meter: new CopilotMeter() }
+    // The ACP server reports no quota, but the `agy` CLI beside it does. It is
+    // the CLI's own sign-in, so its figures are shown and never gate the
+    // agent — see `usage/agy.ts`.
+    case 'agy_acp_server':
+      return { meter: new AgyMeter() }
+    case 'cline': {
+      // `--data-dir` moves Cline's folder; there is no environment variable
+      // for it, so a row that runs `cline --data-dir <dir> --acp` is read
+      // from there — sign-in and spend together — rather than from whatever
+      // `CLINE_DATA_DIR` or the process home holds. `CLINE_DB_DATA_DIR` still
+      // wins for the database alone, exactly as `corpusRoot` gives it
+      // precedence when there is no override: the two flags name different
+      // things, and a row can set one without the other (review round 4).
+      const override = clineDataDirOverride({ args: agent.args, cwd: agent.cwd, home })
+      if (override === null) return { meter: new ClineMeter({ env }), ...records('cline') }
+      const dbDataDir = env['CLINE_DB_DATA_DIR']?.trim()
+      return {
+        meter: new ClineMeter({ env, settingsPath: join(override, 'settings', 'providers.json') }),
+        corpus: 'cline',
+        root: join(dbDataDir || join(override, 'db'), 'sessions.db'),
+      }
+    }
+    case 'opencode':
+      // Zen's balance has no endpoint an API key can read (asked upstream,
+      // anomalyco/opencode#10448). Go's limits do — `GET /zen/go/v1/usage`
+      // with the Go key — and are not read here yet: that needs a Go
+      // subscription to measure against. What OpenCode priced each session
+      // at is in its own database either way.
+      return records('opencode')
+    case 'qwen':
+    case 'qwen-code':
+      return records('qwen')
+    // The registry's `amp-acp` wraps the `amp` CLI, whose own `amp usage`
+    // answers for the account both of them are signed in as.
+    case 'amp':
+    case 'amp-acp':
+      return { meter: new AmpMeter({ env }) }
     default:
       return null
   }
 }
+
+/**
+ * The CLI a row runs when nothing else names it: the program itself, or — for
+ * a registry row that runs its agent through a package runner — the package.
+ * `npx -y @qwen-code/qwen-code@0.24.0 --acp` runs `qwen-code`. The knowledge
+ * table is asked first; this is for the agents it has no entry for, whose
+ * meter would otherwise be written and never reached.
+ */
+export const ownCli = (agent: Pick<AcpAgentConfig, 'command' | 'args'>): string | null => {
+  const program = commandName(agent.command)
+  if (!RUNNERS.has(program)) return program || null
+  const args = agent.args ?? []
+  const spec = args.find((arg, index) => !arg.startsWith('-') && !(index === 0 && (arg === 'dlx' || arg === 'exec')))
+  if (!spec) return null
+  // `@scope/name@1.2.3` and `name@1.2.3` both name the package before the version.
+  const unversioned = spec.startsWith('@') ? spec.replace(/^(@[^/]+\/[^@]+)@.*$/, '$1') : spec.replace(/@.*$/, '')
+  return unversioned.split('/').pop() || null
+}
+
+const RUNNERS = new Set(['npx', 'bunx', 'pnpx', 'pnpm', 'yarn', 'bun'])
 
 /**
  * Loads the built-in plugins, then anything the user installed.

@@ -62,3 +62,96 @@ test('a broken stdout does not stop the details being formatted, or the next lin
   assert.equal(lines.length, 1)
   assert.match(lines[0] as string, /after the pipe came back/)
 })
+
+/**
+ * The two tests above fake the broken pipe with a `write` that throws, and a
+ * real one does not throw: on a pipe, Node dispatches the write, and the
+ * EPIPE arrives afterwards as an `error` event on the stream. Nobody listened
+ * for that event, so it became an uncaught exception; the shell's handler
+ * logged it through the same console, which raised it again, until the storm
+ * guard exited the app. Measured 2026-09-23 on a desk whose launcher had
+ * exited: the first refused request after that — any refusal, since a refused
+ * request is logged as a warning — took the whole app down with exit code 1
+ * and 26 crash files in 3 ms.
+ *
+ * So this uses a real pipe and really closes it, in a child process, because
+ * the process that dies is the one under test.
+ */
+test('a console pipe that closes under a running process does not take it down', async () => {
+  const { spawn } = await import('node:child_process')
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-log-pipe-'))
+  const file = join(dir, 'host.ndjson')
+  const log = new URL('../src/log.js', import.meta.url).href
+  const script = `
+    import { Logger } from ${JSON.stringify(log)}
+    const logger = new Logger('pipe', { level: 'debug', file: ${JSON.stringify(file)}, console: true })
+    logger.info('the console is there')
+    process.stdin.once('data', async () => {
+      for (let n = 0; n < 50; n += 1) {
+        logger.warn('method failed', { n })
+        logger.error('an error line', { n })
+        await new Promise((resolve) => setTimeout(resolve, 2))
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      logger.info('still here')
+      await logger.flush()
+      process.exit(0)
+    })
+  `
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['pipe', 'pipe', 'pipe'] })
+  try {
+    // Wait until the console really carried a line, so the pipe is proven open first.
+    await new Promise<void>((resolve, reject) => {
+      child.stdout.once('data', () => resolve())
+      child.once('exit', (code) => reject(new Error(`the child exited early with ${code}`)))
+    })
+    // A launcher that exits closes the read ends; this is that, without the exit.
+    child.stdout.destroy()
+    child.stderr.destroy()
+    child.stdin.write('go\n')
+    const [code, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolve) =>
+      child.once('exit', (exitCode, exitSignal) => resolve([exitCode, exitSignal])))
+    assert.deepEqual({ code, signal }, { code: 0, signal: null }, 'a closed console pipe took the process down')
+    const records = (await readFile(file, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { message: string })
+    // The file sink still has every line, and says the console went away.
+    assert.equal(records.filter((one) => one.message === 'method failed').length, 50)
+    assert.ok(records.some((one) => one.message === 'still here'))
+    assert.ok(records.some((one) => /console .*went away/.test(one.message)),
+      'the log does not say its console went away')
+  } finally {
+    child.kill()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * Last in this file on purpose: it retires this process's stderr, and a
+ * console that has gone stays gone.
+ */
+test('a console-only logger does not use up the note that the console went away', async () => {
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-log-note-'))
+  const file = join(dir, 'host.ndjson')
+  const stderr = process.stderr.write.bind(process.stderr)
+  process.stderr.write = (() => true) as typeof process.stderr.write
+  try {
+    const consoleOnly = new Logger('console-only', { level: 'debug', file: null, console: true })
+    const withFile = new Logger('with-file', { level: 'debug', file, console: true })
+    consoleOnly.warn('the console is there')
+    process.stderr.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+    consoleOnly.warn('after the console went away')
+    withFile.warn('a line for the file')
+    await withFile.flush()
+    const records = (await readFile(file, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { message: string })
+    assert.ok(records.some((one) => /console behind stderr went away/.test(one.message)),
+      'the console-only logger used up the note, so no file ever said it')
+  } finally {
+    process.stderr.write = stderr
+    await rm(dir, { recursive: true, force: true })
+  }
+})

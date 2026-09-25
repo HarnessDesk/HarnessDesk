@@ -1,3 +1,7 @@
+import type { SeatCandidate } from './agent.js'
+import type { SessionAttachments } from './attachments.js'
+import type { SeatCeiling } from './evidence.js'
+import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
 import type { AgentItem, UserContent } from './items.js'
 import type { ConfigOption, OptionValue } from './options.js'
@@ -23,6 +27,44 @@ export interface SessionSettings {
   /** What the session is currently on, for display. Changed through the `model` option. */
   readonly model: string
   readonly modelProvider?: string
+  /**
+   * The Agent this conversation was seated as, when it was seated as one.
+   *
+   * Written by the host and by nothing else: it is laid back over whatever a
+   * runtime re-announces, and taken off a conversation the host never seated,
+   * so a reader can trust it when it is there. A patch that names it changes
+   * nothing.
+   */
+  readonly agent?: string
+  /**
+   * Content hash of the brief it was handed, captured at seating. Named for the
+   * digest it is: `brief` alone would read as the prose, and the prose goes to
+   * the standing order, not here. It is the `AgentEntry.digest` of the file the
+   * Agent was read from, so a front-matter change is a different brief too.
+   *
+   * A project Agent is versioned by git; a user-level one is versioned by
+   * nothing. The hash is what makes "at the version of its brief" answerable
+   * either way, and it is the same reason a flow run freezes its flow. Held
+   * like `agent`, by the host alone.
+   */
+  readonly briefDigest?: string
+  /** The ceiling this conversation runs under and whether its runtime holds it. */
+  readonly ceiling?: SeatCeiling
+  /** How the runtime holds it, or why its declared control did not take. */
+  readonly ceilingNote?: string
+  /** Legacy readback for permission-based Agent files; derived by the host from the authoritative ceiling. */
+  readonly permission?: FlowPermission
+  /**
+   * What the seat runs, as the desk said it when the seat was kept — read
+   * back from the conversation, never the request: "Claude · Opus 5 · High".
+   * Held like `agent`, by the host alone.
+   */
+  readonly seatLabel?: string
+  /**
+   * Every candidate the seating passed over before it kept this one, each
+   * with its reason and its fix, as a surface shows them. Held like `agent`.
+   */
+  readonly passedOver?: readonly SeatCandidate[]
 }
 
 /** Options accepted when opening a session. All are advisory; runtimes may clamp. */
@@ -48,6 +90,7 @@ export interface ResolvedModelRoute {
 
 export type SessionOptions = Partial<SessionSettings> & {
   readonly cwd: string
+  readonly environment?: Readonly<Record<string, string>>
   /**
    * Run this conversation against another model endpoint. Resolved by the
    * host from its route catalogue; adapters inject it per conversation and
@@ -62,6 +105,16 @@ export type SessionOptions = Partial<SessionSettings> & {
    * half-applies is worse than one that fails.
    */
   readonly options?: Readonly<Record<string, OptionValue>>
+  /**
+   * Phase 12's frozen, isolated skill/server filter for this Seat — host-only,
+   * exactly like `route` above: the host computes it from trust and ceiling
+   * before a session exists, and it is never accepted from a public
+   * session-creation payload. `null` (the default, via `undefined`) is a
+   * plain conversation with no Agent attachments; do not set it to `null`
+   * explicitly to mean "native defaults" — omit the field instead, the same
+   * way a plain seat omits `route`.
+   */
+  readonly attachments?: SessionAttachments
 }
 
 /**

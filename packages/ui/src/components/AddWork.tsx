@@ -1,9 +1,8 @@
 import { useState } from 'react'
 
-import type { Intent, Plan, RuntimeId, SessionId, TeamPeerInfo } from '@harnessdesk/protocol'
+import type { Intent, RuntimeId, SessionId, TeamPeerInfo } from '@harnessdesk/protocol'
 
-import { Btn, Dialog, Input } from '../design'
-import { NativeSelect } from '../design/ui/native-select'
+import { ActionError, Button, Card, Checkbox, Dialog, Field, FormStack, Input, NativeSelect, Text, Textarea } from '../design'
 import { useStore } from '../state/context'
 import styles from './AddWork.module.css'
 
@@ -28,18 +27,12 @@ import styles from './AddWork.module.css'
 export const AddWork = ({
   room,
   intents,
-  plans = [],
-  plan = null,
   peers = [],
   onClose,
   onTrouble,
 }: {
   readonly room: string
   readonly intents: readonly Intent[]
-  /** The goals still running, when the board has any. */
-  readonly plans?: readonly Plan[]
-  /** The goal this was opened from, already chosen. */
-  readonly plan?: number | null
   /** Who could be asked to pick it up. Empty when nobody is in the room. */
   readonly peers?: readonly TeamPeerInfo[]
   readonly onClose: () => void
@@ -51,7 +44,6 @@ export const AddWork = ({
   const [detail, setDetail] = useState('')
   const [files, setFiles] = useState('')
   const [dependsOn, setDependsOn] = useState<readonly number[]>([])
-  const [goal, setGoal] = useState(plan === null ? '' : String(plan))
   const [ask, setAsk] = useState('nobody')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -77,7 +69,6 @@ export const AddWork = ({
         ...(detail.trim() ? { detail: detail.trim() } : {}),
         ...(parsed.length > 0 ? { files: parsed } : {}),
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
-        ...(goal ? { plan: Number(goal) } : {}),
       })
     } catch (error) {
       setBusy(false)
@@ -119,145 +110,116 @@ export const AddWork = ({
       onClose={onClose}
       footer={
         <>
-          <Btn variant="primary" disabled={busy || title.trim() === ''} onClick={() => void add()}>
+          <Button variant="default" disabled={busy || title.trim() === ''} onClick={() => void add()}>
             {busy ? 'Adding…' : 'Add to board'}
-          </Btn>
-          <Btn disabled={busy} onClick={onClose}>
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
-          </Btn>
+          </Button>
         </>
       }
     >
-      <div className={styles.body}>
-        <label className={styles.field}>
-          <span className={styles.label}>What needs doing</span>
-          <Input
-            aria-label="What needs doing"
-            value={title}
-            placeholder="Fix the token refill in src/limiter.js"
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </label>
+      <FormStack>
+        <Field label="What needs doing">
+          {(control) => (
+            <Input
+              {...control}
+              aria-label="What needs doing"
+              value={title}
+              placeholder="Fix the token refill in src/limiter.js"
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          )}
+        </Field>
 
-        <label className={styles.field}>
-          <span className={styles.label}>
-            Detail <span className={styles.optional}>optional</span>
-          </span>
-          <textarea
-            aria-label="Detail"
-            className={styles.area}
-            rows={2}
-            value={detail}
-            placeholder="Anything whoever takes it needs to know before starting."
-            onChange={(event) => setDetail(event.target.value)}
-          />
-        </label>
+        <Field label="Detail" optional>
+          {(control) => (
+            <Textarea
+              {...control}
+              aria-label="Detail"
+              variant="editor" controlSize="compact" className={styles.area}
+              rows={2}
+              value={detail}
+              placeholder="Anything whoever takes it needs to know before starting."
+              onChange={(event) => setDetail(event.target.value)}
+            />
+          )}
+        </Field>
 
-        <label className={styles.field}>
-          <span className={styles.label}>
-            Files it will own <span className={styles.optional}>one per line</span>
-          </span>
-          <textarea
-            aria-label="Files it will own"
-            className={styles.area}
-            rows={2}
-            value={files}
-            placeholder={'src/limiter.js\nsrc/api/**'}
-            onChange={(event) => setFiles(event.target.value)}
-          />
-          {/* Load-bearing, not documentation: this is what the host checks at
-              claim time, and the only thing that stops two agents editing one
-              file. Whoever claims it can add more. */}
-          <span className={styles.hint}>
-            {parsed.length > 0
-              ? `Nobody else can claim work overlapping ${parsed.join(', ')} while this is held.`
-              : 'Without these, the job is reserved but the code is not.'}
-          </span>
-        </label>
+        <Field
+          label={<>Files it will own <Text role="muted" ink="muted">one per line</Text></>}
+          hint={parsed.length > 0
+            ? `Nobody else can claim work overlapping ${parsed.join(', ')} while this is held.`
+            : 'Without these, the job is reserved but the code is not.'}
+        >
+          {(control) => (
+            <Textarea
+              {...control}
+              aria-label="Files it will own"
+              variant="editor" controlSize="compact" className={styles.area}
+              rows={2}
+              value={files}
+              placeholder={'src/limiter.js\nsrc/api/**'}
+              onChange={(event) => setFiles(event.target.value)}
+            />
+          )}
+        </Field>
 
         <div className={styles.pair}>
-          <label className={styles.field}>
-            <span className={styles.label}>
-              Goal <span className={styles.optional}>optional</span>
-            </span>
-            <NativeSelect
-              aria-label="Goal"
-              value={goal}
-              disabled={plans.length === 0}
-              onChange={(event) => setGoal(event.target.value)}
-            >
-              <option value="">No goal</option>
-              {plans.map((one) => (
-                <option key={one.id} value={String(one.id)}>
-                  {one.goal}
-                </option>
-              ))}
-            </NativeSelect>
-            <span className={styles.hint}>
-              {plans.length === 0
-                ? 'No goal is running on this board.'
-                : 'A goal can be wrapped up when nothing on it is live.'}
-            </span>
-          </label>
-
-          <label className={styles.field}>
-            <span className={styles.label}>
-              Ask someone <span className={styles.optional}>optional</span>
-            </span>
-            <NativeSelect
-              aria-label="Ask someone to pick it up"
-              value={ask}
-              disabled={peers.length === 0}
-              onChange={(event) => setAsk(event.target.value)}
-            >
-              <option value="nobody">Nobody — leave it on the board</option>
-              {peers.map((one) => (
-                <option key={`${one.runtime} ${one.sessionId}`} value={`${one.runtime} ${one.sessionId}`}>
-                  {one.nickname}
-                </option>
-              ))}
-            </NativeSelect>
-            {/* Said plainly, because the field every kanban puts here assigns
-                and this one cannot. */}
-            <span className={styles.hint}>
-              {peers.length === 0
-                ? 'Nobody is in the room yet.'
-                : 'Posts a message. The claim is still theirs to take.'}
-            </span>
-          </label>
+          <Field
+            label="Ask someone"
+            optional
+            hint={peers.length === 0
+              ? 'Nobody is in the room yet.'
+              : 'Posts a message. The claim is still theirs to take.'}
+          >
+            {(control) => (
+              <NativeSelect
+                {...control}
+                aria-label="Ask someone to pick it up"
+                value={ask}
+                disabled={peers.length === 0}
+                onChange={(event) => setAsk(event.target.value)}
+              >
+                <option value="nobody">Nobody — leave it on the board</option>
+                {peers.map((one) => (
+                  <option key={`${one.runtime} ${one.sessionId}`} value={`${one.runtime} ${one.sessionId}`}>
+                    {one.nickname}
+                  </option>
+                ))}
+              </NativeSelect>
+            )}
+          </Field>
         </div>
 
         {blockers.length > 0 && (
-          <div className={styles.field}>
-            <span className={styles.label}>
-              Waits for <span className={styles.optional}>optional</span>
-            </span>
-            <div className={styles.deps}>
+          <Field
+            label="Waits for"
+            optional
+            hint="It sits in Waiting until those are done, then opens on its own."
+          >
+            {(control) => <Card {...control} spacing="compact" radius="sm" className={styles.deps}>
               {blockers.map((one) => (
-                <label key={one.id} className={styles.dep}>
-                  <input
-                    type="checkbox"
-                    aria-label={`Waits for #${one.id}`}
-                    checked={dependsOn.includes(one.id)}
-                    onChange={() => toggle(one.id)}
-                  />
-                  <span className={styles.depId}>#{one.id}</span>
-                  <span className={styles.depTitle}>{one.title}</span>
-                </label>
+                <Checkbox
+                  key={one.id}
+                  checked={dependsOn.includes(one.id)}
+                  onCheckedChange={() => toggle(one.id)}
+                  label={
+                    <>
+                      <Text role="meta" numeric>#{one.id}</Text>{' '}
+                      <Text role="muted" ink="secondary" truncate className={styles.depTitle}>{one.title}</Text>
+                    </>
+                  }
+                />
               ))}
-            </div>
-            <span className={styles.hint}>
-              It sits in Waiting until those are done, then opens on its own.
-            </span>
-          </div>
+            </Card>}
+          </Field>
         )}
 
         {problem && (
-          <p className={styles.problem} role="alert">
-            {problem}
-          </p>
+          <ActionError>{problem}</ActionError>
         )}
-      </div>
+      </FormStack>
     </Dialog>
   )
 }

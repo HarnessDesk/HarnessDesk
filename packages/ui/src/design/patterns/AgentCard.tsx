@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 
 import { AlertIcon, InfoIcon, ShieldOffIcon } from '../../components/Icons'
-import { Segmented } from '../primitives/Kit'
+import { PopoverGroupLabel } from './Popover'
+import { Dot, Segmented } from './Settings'
 import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
 import { Progress } from '../ui/progress'
@@ -45,6 +46,10 @@ import type { Tint } from '../ui/tone'
  *
  *   Crest    the mark on the account's own ring, the name, and the two facts
  *            the row never had room for — which harness, whose credential.
+ *   Agent    who a conversation was seated as, when it was: the Agent and the
+ *            most it may do — asked, not held, until something holds it —
+ *            what it is for, where it came from, the seat it took and every
+ *            seat passed over on the way, each with why.
  *   Running  model and effort, the harness version dimmed at the end, and the
  *            state as a fact *with a number*: "Working — 41s into this turn".
  *            The bare word "Working" would only repeat the lamp on the mark.
@@ -130,6 +135,22 @@ export type AgentCardSubject = {
   readonly mark: ReactNode
   /** Mid-turn. A light on the mark, never a word — the app's rule everywhere. */
   readonly working?: boolean
+  /**
+   * The Agent a conversation was seated as, when it was. Absent for one that
+   * is only a runtime, and then the band is not drawn.
+   */
+  readonly agent?: {
+    readonly name: string
+    /** Drawn by the caller as the shared ceiling chip; this pattern owns no ceiling vocabulary. */
+    readonly ceiling: ReactNode
+    readonly description?: string | null
+    /** "In storefront", "Yours", "Built in". */
+    readonly origin?: string | null
+    /** The seat it took, as read back when it opened: "Claude · Opus 5 · High". */
+    readonly seat?: string | null
+    /** Every seat passed over before it, with why: "Cursor — Cursor is signed out". */
+    readonly passedOver?: readonly string[]
+  } | null
   readonly running?: {
     /** "Opus 5 · Max effort". */
     readonly model?: string | null
@@ -180,24 +201,32 @@ const CAUTION_ICON = {
   quiet: InfoIcon,
 } as const
 
-/** A band, drawn only because its caller had something to put in it. */
-const Band = ({ label, children }: { label?: string; children: ReactNode }) => (
+/**
+ * A band, drawn only because its caller had something to put in it.
+ *
+ * Not `AgentCard`'s alone: `Publication.tsx`'s forge card is built on the same
+ * anatomy — crest, bands, verbs — for the reason its own doc comment gives,
+ * and its bands were redrawing this one privately (their own `border-t
+ * border-(--hd-border-strong) px-3 py-2`, a hairline off this one's `py-2.5`).
+ * Exported so both compose the one band rather than two close drawings of it.
+ */
+export const CardBand = ({ label, children, className }: { label?: string; children: ReactNode; className?: string }) => (
   /* Named, because how many bands were drawn is the rule this component
      exists to keep and a test has to be able to ask. Counting `border-t`
      instead coupled that test to a divider style, so a restyle that used a
      gap or an `<hr>` would have broken the test without breaking the rule. */
-  <div data-slot="agent-card-band" className="border-t border-(--hd-border-strong) px-3 py-2.5">
+  <div data-slot="agent-card-band" className={`border-t border-(--hd-border-strong) px-3 py-2.5${className ? ` ${className}` : ''}`}>
     {label && (
-      <p className="mb-1 font-(family-name:--hd-font-code) text-xs font-medium tracking-widest text-(--hd-muted-foreground) uppercase">
-        {label}
-      </p>
+      <div className="mb-1">
+        <PopoverGroupLabel inset={false}>{label}</PopoverGroupLabel>
+      </div>
     )}
     {children}
   </div>
 )
 
 export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
-  const { running, meter, on, cautions = [], choice = null, actions = [] } = subject
+  const { agent = null, running, meter, on, cautions = [], choice = null, actions = [] } = subject
   /* Earned, band by band. `running` can arrive as an object with every field
      empty — a session the renderer has never opened knows the harness and
      nothing else — and an empty object must not draw a divider. */
@@ -224,12 +253,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           {/* Working is a light, not a word — the same dot the rail draws, in
               the same corner. Announced in words on the name, where a screen
               reader gets a sentence rather than a colour. */}
-          {subject.working && (
-            <span
-              aria-hidden
-              className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-(--hd-success) ring-2 ring-(--hd-popover)"
-            />
-          )}
+          {subject.working && <Dot state="ready" variant="presence" ground="popover" aria-hidden />}
         </span>
         <span className="min-w-0 flex-1 pt-px">
           {/* The whole of a name that does not fit.
@@ -244,7 +268,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               name fits its line: where it does, the tooltip repeats it, which
               is what a native title does everywhere and costs a rest nobody
               makes. */}
-          <span className="flex items-baseline gap-1.5 text-sm leading-tight font-semibold">
+          <span className="flex items-baseline gap-1.5 text-sm leading-(--hd-line-sm) font-semibold">
             <span className="truncate" title={subject.name}>
               {subject.name}
             </span>
@@ -266,8 +290,25 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
         </span>
       </div>
 
+      {agent && (
+        <CardBand label="Agent">
+          <div className="flex items-baseline gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-xs font-medium">{agent.name}</span>
+            <span className="flex-none">{agent.ceiling}</span>
+          </div>
+          {agent.description && <div className="mt-0.5 text-xs">{agent.description}</div>}
+          {agent.origin && <div className="mt-0.5 text-xs text-(--hd-muted-foreground)">{agent.origin}</div>}
+          {agent.seat && <div className="mt-0.5 text-xs text-(--hd-muted-foreground)">Seated on {agent.seat}</div>}
+          {(agent.passedOver ?? []).map((line) => (
+            <div key={line} className="mt-0.5 text-xs text-(--hd-muted-foreground)">
+              Passed over {line}
+            </div>
+          ))}
+        </CardBand>
+      )}
+
       {hasRunning && running && (
-        <Band label="Running">
+        <CardBand label="Running">
           {running.model && (
             <div className="flex items-baseline gap-1.5">
               <span className="min-w-0 flex-1 truncate text-xs font-medium">{running.model}</span>
@@ -281,11 +322,11 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           {running.state && (
             <div className="mt-0.5 text-xs text-(--hd-muted-foreground)">{running.state}</div>
           )}
-        </Band>
+        </CardBand>
       )}
 
       {meter && (
-        <Band label={meter.label}>
+        <CardBand label={meter.label}>
           {/* The bar fills with what is LEFT because the value passed is what
               is left; `Progress` does not invert, and the label says which
               number it is showing. */}
@@ -298,11 +339,11 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
             className="mb-1.5"
           />
           <div className="text-xs tabular-nums">{meter.reading}</div>
-        </Band>
+        </CardBand>
       )}
 
       {hasOn && on && (
-        <Band label="On">
+        <CardBand label="On">
           {on.title && (
             <div className="flex items-baseline gap-1.5">
               {on.taskId && (
@@ -320,7 +361,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               {on.where}
             </div>
           )}
-        </Band>
+        </CardBand>
       )}
 
       {/* Every caution, not the highest-ranked one. */}
@@ -330,7 +371,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           <div
             key={caution.text}
             data-slot="agent-card-band"
-            className={`flex items-start gap-2 border-t border-(--hd-border-strong) px-3 py-2 text-xs leading-snug ${CAUTION_STYLE[caution.tone]}`}
+            className={`flex items-start gap-2 border-t border-(--hd-border-strong) px-3 py-2 text-xs leading-(--hd-line-sm) ${CAUTION_STYLE[caution.tone]}`}
           >
             <Glyph size={13} className="mt-px flex-none" />
             <span>{caution.text}</span>
@@ -339,7 +380,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
       })}
 
       {choice && (
-        <Band label={choice.label}>
+        <CardBand label={choice.label}>
           {/* Named so the card can tell a setting from a verb: every other
               control here acts on something behind the card and dismisses it,
               and a picker that vanished the instant you chose would never show
@@ -352,7 +393,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               onChange={choice.onChange}
             />
           </span>
-        </Band>
+        </CardBand>
       )}
 
       {actions.length > 0 && (

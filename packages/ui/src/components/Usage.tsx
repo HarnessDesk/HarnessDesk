@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
+  AccountStatus,
   LedgerReport,
   LedgerRow,
   RuntimeId,
@@ -9,19 +10,24 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { burnWord } from '../lib/burn'
+import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import { formatTokens } from '../lib/context-usage'
 import { dayLabel, dayLabelLong, periodTotals, shareOf, stackDaily } from '../lib/ledger'
-import { paletteTone, type Tone } from '../lib/limits'
+import { paletteTone, usageReadingTone, type Tone } from '../lib/limits'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import {
   byUrgency,
   coverageLabel,
   describeReport,
+  drawnReport,
   formatAge,
   formatCountdown,
   formatMoney,
   planLabel,
   provenanceLabel,
+  costClause,
+  pricedNote,
+  spendHint,
   runway,
   type LaneView,
   type ReportView,
@@ -29,6 +35,7 @@ import {
 import { useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowPage } from './AppWindow'
 import { RuntimeMark } from './BrandIcons'
+import { InsightUsage } from './InsightUsage'
 import {
   AlertIcon,
   CheckIcon,
@@ -39,7 +46,26 @@ import {
   SignOutIcon,
   UsageIcon,
 } from './Icons'
-import { Btn, Chip, PageHead, Segmented } from '../design/primitives/Kit'
+import {
+  Alert,
+  AlertContent,
+  AlertDescription,
+  AlertTitle,
+  Button,
+  Card as SurfaceCard,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  Chip,
+  EmptyState,
+  PageHead,
+  Progress,
+  SectionHead,
+  Segmented,
+  Separator,
+  Text,
+  buttonVariants,
+} from '../design'
 import {
   BurnDown,
   ChartAxis,
@@ -61,9 +87,8 @@ import {
   tintFor,
   tintsFor,
   type Tint,
-} from '../design/ui'
-import { Menu, MenuItem } from './Menu'
-import { dismissOverlays, Popover, useEscapeSurface } from './Popover'
+} from '../design'
+import { Menu, MenuItem, Popover, dismissOverlays, useEscapeSurface } from '../design'
 import styles from './Usage.module.css'
 
 /**
@@ -131,6 +156,7 @@ export const Usage = ({
   const [scope, setScope] = useState<RuntimeId | null>(runtime)
   const [ledger, setLedger] = useState<LedgerReport | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [insightView, setInsightView] = useState<'goal' | 'agent'>('goal')
 
   useEffect(dismissOverlays, [])
 
@@ -286,6 +312,22 @@ export const Usage = ({
 
   const scoped = scope === null ? null : (byId.get(scope) ?? null)
 
+  /* The page's own sentence says whose numbers these are, and a card of
+     another sign-in's figures (`report.unverified`: Antigravity's, read through
+     the separately signed-in `agy` CLI) is not "the agent's own". Claiming it
+     there would undo, one line above, what the card's heading says (#769,
+     review round 1). */
+  const borrowed = reports.find(
+    (report) => report.lanes.length === 0 && (report.unverified?.lanes.length ?? 0) > 0,
+  )
+  const blurb = scoped
+    ? borrowed?.unverified
+      ? `One agent's plans, spend and history, read on this machine. Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
+      : `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
+    : borrowed
+      ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.`
+      : `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine.`
+
   return (
     <AppWindow label="Dashboard">
       <WindowNav onBack={onClose}>
@@ -302,6 +344,7 @@ export const Usage = ({
               key={`${report.runtime}:${report.account ?? ''}`}
               report={report}
               info={byId.get(report.runtime) ?? null}
+              preference={prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs)}
               now={now}
               selected={scope === report.runtime}
               onClick={() => setScope(report.runtime)}
@@ -326,30 +369,20 @@ export const Usage = ({
         )}
 
         <div className={styles.navFoot}>
-          {oldest !== null && <span className={styles.age}>Read {formatAge(oldest, now)}</span>}
-          <Btn small disabled={refreshing} onClick={() => void refresh()}>
+          {oldest !== null && <Text role="meta">Read {formatAge(oldest, now)}</Text>}
+          <Button variant="secondary" size="sm" disabled={refreshing} onClick={() => void refresh()}>
             <RetryIcon size={13} />
             {refreshing ? 'Refreshing…' : 'Refresh'}
-          </Btn>
+          </Button>
         </div>
       </WindowNav>
 
       <WindowPage wide>
-        <PageHead
-          title={scoped ? scoped.presentation.name : 'Dashboard'}
-          blurb={
-            scoped
-              ? `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
-              : 'What every plan has left, what the work cost at public rates, and where it went, read from each agent’s own numbers on this machine.'
-          }
-        />
+        <PageHead title={scoped ? scoped.presentation.name : 'Dashboard'} blurb={blurb} />
 
         <div className={styles.body}>
+          <BandHead name="What is left" note={summary.headline} className={styles.firstBandHead} />
           <section className={styles.band} aria-label="What is left">
-            <div className={styles.bandHead}>
-              <span className={styles.bandTitle}>What is left</span>
-              <span className={styles.bandNote}>{summary.headline}</span>
-            </div>
 
             <div className={styles.cards}>
               {reports.map((report) => (
@@ -357,6 +390,7 @@ export const Usage = ({
                   key={`${report.runtime}:${report.account ?? ''}`}
                   report={report}
                   info={byId.get(report.runtime) ?? null}
+                  preference={prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs)}
                   now={now}
                   onRefresh={() => void store.refreshUsage(report.runtime)}
                   onStopTracking={() => store.setUsageTracked(report.runtime, false)}
@@ -368,32 +402,34 @@ export const Usage = ({
                 to an agent whose card is filtered out has nothing to attach
                 itself to. */}
             {asleep && (scope === null || scope === asleep.id) && (
-              <div className={styles.callout}>
-                <span className={styles.calloutIcon}>
-                  <SignInIcon size={18} />
-                </span>
-                <span className={styles.calloutText}>
-                  <span className={styles.calloutTitle}>
-                    {asleep.presentation.name} has nothing to report
-                  </span>
-                  <span className={styles.calloutHint}>
-                    It reports its plan once an account is connected — until then this screen is
-                    missing its share.
-                  </span>
-                </span>
+              <Alert className={styles.callout} tone="neutral">
+                <SignInIcon size={18} />
+                <AlertContent>
+                  <AlertTitle>{asleep.presentation.name} has nothing to report</AlertTitle>
+                  <AlertDescription>
+                    It reports its plan once an account is connected — until then this screen is missing its share.
+                  </AlertDescription>
+                </AlertContent>
                 {onSignIn && (
-                  <Btn variant="primary" onClick={() => onSignIn(asleep.id)}>
+                  <Button variant="default" onClick={() => onSignIn(asleep.id)}>
                     Sign in to {asleep.presentation.name}
-                  </Btn>
+                  </Button>
                 )}
-              </div>
+              </Alert>
             )}
           </section>
 
           {/* Only when the rail is on one agent: see `Runway`. Its own lanes
               decide whether it draws anything at all, so an agent with no
               plottable window costs no heading. */}
-          {scoped && <Runway reports={reports} now={now} />}
+          {scoped && (
+            <Runway
+              reports={reports}
+              now={now}
+              accountsByRuntime={snapshot.accountsByRuntime}
+              accountPrefs={snapshot.accountPrefs}
+            />
+          )}
 
           <Spend
             ledger={ledger}
@@ -414,18 +450,47 @@ export const Usage = ({
           />
 
           <section className={styles.band} aria-label="Where it went">
-            <div className={styles.bandHead}>
-              <span className={styles.bandTitle}>Where it went</span>
-              <span className={styles.fill} />
-              <Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={setPivot} />
-            </div>
+            <BandHead
+              name="Where it went"
+              action={<Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={setPivot} />}
+            />
             <Ranked ledger={ledger} pivot={pivot} byId={byId} tintOf={agentTints} />
+          </section>
+          <section className={styles.band} aria-label="Project usage">
+            <BandHead name="Project usage" action={<Segmented label="Project usage view" options={[{ value: 'goal', label: 'By Goal' }, { value: 'agent', label: 'By Agent' }]} value={insightView} onChange={(next) => setInsightView(next as 'goal' | 'agent')} />} />
+            <InsightUsage root={snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null} runtime={scope} view={insightView} onGoal={(goal) => store.openGoal(goal)} />
           </section>
         </div>
       </WindowPage>
     </AppWindow>
   )
 }
+
+const BandHead = ({
+  name,
+  note,
+  action,
+  className,
+}: {
+  name: string
+  note?: ReactNode
+  action?: ReactNode
+  className?: string
+}) => (
+  <SectionHead
+    sticky
+    level="heading"
+    className={`${styles.bandHead}${className ? ` ${className}` : ''}`}
+    name={name}
+    description={note}
+    action={
+      <>
+        <span className={styles.fill} />
+        {action}
+      </>
+    }
+  />
+)
 
 /* --- the rail ------------------------------------------------------------ */
 
@@ -463,60 +528,77 @@ const RailRow = ({
   selected: boolean
   onClick: () => void
 }) => (
-  <button
+  <Button
     type="button"
-    className={styles.acct}
+    variant="row" size="row" className={`grid ${styles.acct}`}
     {...(selected ? { 'data-selected': '' } : {})}
     {...(title ? { title } : {})}
     onClick={onClick}
   >
-    <span className={styles.acctMark}>{mark}</span>
-    <span className={styles.acctName}>{name}</span>
+    <Text className={styles.acctMark} role={selected ? 'muted' : 'meta'}>{mark}</Text>
+    <Text className={styles.acctName} role="row" truncate>{name}</Text>
     {action ? (
-      <span className={styles.acctAdd}>{action}</span>
+      <Text className={styles.acctAdd} role="meta" tone="brand">{action}</Text>
     ) : (
-      <span className={styles.acctFigure} {...(tone ? { 'data-tone': tone } : {})}>
+      /* A selected row sits on the navigation fill, where the warning and
+         error inks fall short of AA; its reading turns neutral there and the
+         meter below keeps the account's tone. */
+      <Text
+        className={styles.acctFigure}
+        role={selected ? 'muted' : 'meta'}
+        {...(selected ? {} : { tone: tone ? paletteTone(tone) : 'neutral' })}
+        numeric
+      >
         {figure}
-      </span>
+      </Text>
     )}
     {percent !== undefined && percent !== null ? (
-      <span className={styles.acctTrack}>
-        <span
-          className={styles.acctFill}
-          {...(tone ? { 'data-tone': tone } : {})}
-          style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
-        />
-      </span>
+      <Progress
+        className={styles.acctProgress}
+        value={percent}
+        measure="remaining"
+        size="xs"
+        label={false}
+        aria-label={`${name} — what is left`}
+      />
     ) : sub ? (
-      <span className={styles.acctSub}>{sub}</span>
+      <Text className={styles.acctSub} role={selected ? 'muted' : 'meta'} truncate>{sub}</Text>
     ) : null}
-  </button>
+  </Button>
 )
 
 const AccountRow = ({
   report,
   info,
+  preference,
   now,
   selected,
   onClick,
 }: {
   report: UsageReport
   info: RuntimeInfo | null
+  preference?: AccountPrefs
   now: number
   selected: boolean
   onClick: () => void
 }) => {
   // No lanes below the headline: the rail asks one question of each account.
-  const view = describeReport(report, { now, maxLanes: 0 })
+  // It is asked of the agent's own lanes and nothing else: the rail names the
+  // agent, so another sign-in's figures (`report.unverified`) beside that
+  // name would read as the agent's. They are on the card, under their own.
+  const view = describeReport(report, { now, maxLanes: 0, preference })
   const left = view.hero?.remainingPercent ?? null
+  // An account whose whole standing is a prepaid balance (Amp, Cline) has
+  // that to say here, not a dash: it is what is left, in the unit it is kept.
+  const balance = left === null && !view.hero ? balanceOf(report.credits) : null
   const agent = info?.presentation.name ?? String(report.runtime)
   return (
     <RailRow
       mark={info ? <RuntimeMark runtime={info} size={15} /> : <UsageIcon size={14} />}
       name={agent}
       {...(report.account ? { title: `${agent} · ${report.account}` } : {})}
-      figure={left === null ? '—' : `${left}%`}
-      {...(view.hero ? { tone: view.hero.tone } : {})}
+      figure={left !== null ? `${left}%` : balance ? amount(balance.remaining, balance.unit) : '—'}
+      {...(view.hero ? { tone: view.hero.tone } : balance && balance.remaining <= 0 ? { tone: 'bad' as const } : {})}
       percent={left}
       {...(left === null && report.account ? { sub: report.account } : {})}
       selected={selected}
@@ -545,23 +627,32 @@ export const stateOf = (report: UsageReport, view: ReportView): Readiness => {
 const Card = ({
   report,
   info,
+  preference,
   now,
   onRefresh,
   onStopTracking,
 }: {
   report: UsageReport
   info: RuntimeInfo | null
+  preference?: AccountPrefs
   now: number
   onRefresh: () => void
   onStopTracking: () => void
 }) => {
-  const view: ReportView = describeReport(report, { now, maxLanes: 3 })
+  // Another sign-in's figures are drawn, under its name; the chip is still the
+  // agent's own, read from the report itself, so a spent `agy` account can
+  // never put "Limit" on an agent that may be running as somebody else — and
+  // a failing `agy` cannot put "Unavailable" on it either: that failure is
+  // `report.unverified.error`, drawn in the note, never `report.error`.
+  const drawn = drawnReport(report)
+  const borrowed = drawn !== report
+  const view: ReportView = describeReport(drawn, { now, maxLanes: 3, preference })
   const plan = planLabel(report.plan)
   const spend = report.spend
   // A prepaid balance is something to say, so an agent that has one is not
   // "not metered" — it is an account with nothing to run out of.
   const balance = balanceOf(report.credits)
-  const state = stateOf(report, view)
+  const state = stateOf(report, borrowed ? describeReport(report, { now, maxLanes: 0 }) : view)
   const hero = view.hero
   const agent = info?.presentation.name ?? String(report.runtime)
 
@@ -586,30 +677,38 @@ const Card = ({
         : money
           ? `spent in ${spend?.windowDays ?? 0}d`
           : 'not metered'
-  const note = noteOf(report, view, balance, Boolean(spend))
+  const note =
+    borrowed && !drawn.error && view.blocked
+      ? {
+          text: `Everything is spent on the ${drawn.account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
+          tone: 'warn' as const,
+        }
+      : noteOf(drawn, view, balance, Boolean(spend))
 
   return (
-    <article
+    <SurfaceCard
+      as="article"
+      variant={hero || balance || money ? 'default' : 'muted'}
       className={styles.card}
-      {...(hero || balance || money ? {} : { 'data-muted': '' })}
     >
-      <div className={styles.cardHead}>
+      <CardHeader className={styles.cardHead}>
         {info && (
-          <span className={styles.cardMark}>
+          <Text role="muted" className={styles.cardMark}>
             <RuntimeMark runtime={info} size={15} />
-          </span>
+          </Text>
         )}
-        <span className={styles.cardName}>{report.account ?? agent}</span>
-        {report.account && <span className={styles.cardAgent}>{agent}</span>}
+        <Text role="subject" truncate className={styles.cardName}>{drawn.account ?? agent}</Text>
+        {drawn.account && <Text role="meta" truncate className={styles.cardAgent}>{agent}</Text>}
         <span className={styles.fill} />
         <Chip state={state} {...(plan ? { label: plan } : {})} />
-      </div>
+      </CardHeader>
 
-      <div className={styles.hero}>
-        <div className={styles.heroFigure}>
-          <span className={styles.figure}>{figure}</span>
-          <span className={styles.figureWord}>{word}</span>
-          <span className={styles.fill} />
+      <CardContent className={styles.cardBody}>
+        <div className={styles.hero}>
+          <div className={styles.heroFigure}>
+            <Text role="figure" tone={hero ? usageReadingTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
+            <Text role="muted" truncate>{word}</Text>
+            <span className={styles.fill} />
           {/* The pace sits beside the figure it qualifies, not in the header.
               It spent a year as the *last* of six candidates for the card's
               one line of prose, which meant the only card that ever showed it
@@ -618,74 +717,74 @@ const Card = ({
               badge. The header was the first place tried and it is the wrong
               one: an account address, an agent name, a badge and a plan chip
               on one 320px line truncated the agent to "Cur…". */}
-          {hero?.burn?.forecast && <LanePace lane={hero} />}
-        </div>
+            {hero?.burn?.forecast && <LanePace lane={hero} />}
+          </div>
         {/* No lane, no meter: an empty track under a balance or a month's spend
             reads as "nothing left", which is the opposite of what those cards
             are saying. */}
-        {hero && (
-          <>
-            <SegmentMeter
-              className={styles.heroMeter}
-              percent={hero.known ? (hero.remainingPercent ?? 0) : null}
-              tone={paletteTone(hero.tone)}
-              label={`${hero.title} — what is left`}
-            />
-            {resetOf(hero) && <div className={styles.resetLine}>{resetOf(hero)}</div>}
-          </>
-        )}
-      </div>
+          {hero && (
+            <>
+              <SegmentMeter
+                className={styles.heroMeter}
+                percent={hero.known ? (hero.remainingPercent ?? 0) : null}
+                tone={paletteTone(hero.tone)}
+                label={`${hero.title} — what is left`}
+              />
+              {resetOf(hero) && <Text as="div" role="meta" className={styles.resetLine}>{resetOf(hero)}</Text>}
+            </>
+          )}
+        </div>
 
-      {view.all.length > 0 && (
-        <div className={styles.lanes}>
+        {view.all.length > 0 && (
+          <div className={styles.lanes}>
+            <Separator />
           {view.all.map((lane) => (
             <div
               key={lane.id}
               className={styles.lane}
               {...(lane.id === view.heroId ? { 'data-hero': '' } : {})}
             >
-              <span className={styles.laneName} title={lane.title}>
+              <Text className={styles.laneName} role="muted" truncate title={lane.title}>
                 {lane.title}
-              </span>
-              <span
-                className={styles.laneTrack}
-                {...(lane.known ? {} : { 'data-unknown': '' })}
-              >
-                <span
-                  className={styles.laneFill}
-                  data-tone={lane.tone}
-                  style={{ width: `${Math.min(100, lane.remainingPercent ?? 0)}%` }}
-                />
-              </span>
-              <span className={styles.laneFigure} data-tone={lane.tone}>
+              </Text>
+              <Progress
+                className={styles.laneProgress}
+                value={lane.known ? lane.remainingPercent : null}
+                measure="remaining"
+                size="xs"
+                label={false}
+                aria-label={`${lane.title} — what is left`}
+              />
+              <Text role="muted" align="end" tone={paletteTone(lane.tone)} numeric>
                 {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}%`}
-              </span>
-              <span className={styles.laneWhen}>{lane.shortCountdown ?? ''}</span>
+              </Text>
+              <Text role="meta" align="end" numeric>{lane.shortCountdown ?? ''}</Text>
             </div>
           ))}
           {view.overflow > 0 && (
-            <div className={styles.laneMore}>
+            <Text as="div" role="meta">
               +{view.overflow} more {view.overflow === 1 ? 'limit' : 'limits'} reported
-            </div>
+            </Text>
           )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {note && (
-        <div className={styles.cardWord} {...(note.tone ? { 'data-tone': note.tone } : {})}>
-          <span className={styles.cardWordIcon}>{noteGlyph(note.tone)}</span>
-          <span>{note.text}</span>
-        </div>
-      )}
+        {note && (
+          <Text as="div" role="muted" tone={note.tone ? paletteTone(note.tone) : 'neutral'} className={styles.cardWord}>
+            <span className={styles.cardWordIcon}>{noteGlyph(note.tone)}</span>
+            <span>{note.text}</span>
+          </Text>
+        )}
+      </CardContent>
 
-      <div className={styles.cardFoot} {...(view.stale ? { 'data-stale': '' } : {})}>
-        <span className={styles.cardSource}>{report.source.label}</span>
-        {hero && <span className={styles.cardAge}>· {view.age}</span>}
+      <CardFooter className={styles.cardFoot} {...(view.stale ? { 'data-stale': '' } : {})}>
+        <Text role="meta" truncate className={styles.cardSource}>{report.source.label}</Text>
+        {hero && <Text role="meta" tone={view.stale ? 'warning' : 'neutral'} className={styles.cardAge}>· {view.age}</Text>}
         <span className={styles.fill} />
         <Popover
           label={<MoreIcon size={14} />}
           title={`What to do about ${agent}`}
-          triggerClassName={styles.footMore}
+          triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-xs' })}
           align="right"
         >
           {(close) => (
@@ -704,8 +803,8 @@ const Card = ({
             </Menu>
           )}
         </Popover>
-      </div>
-    </article>
+      </CardFooter>
+    </SurfaceCard>
   )
 }
 
@@ -758,7 +857,17 @@ const describeMargin = (margin: number): string => {
  * The lanes are the account's own, capped at three: past three the small
  * multiple stops being comparable and starts being a list.
  */
-const Runway = ({ reports, now }: { reports: readonly UsageReport[]; now: number }) => {
+const Runway = ({
+  reports,
+  now,
+  accountsByRuntime,
+  accountPrefs,
+}: {
+  reports: readonly UsageReport[]
+  now: number
+  accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
+  accountPrefs: AccountPrefsMap
+}) => {
   /*
    * Every account the scoped agent has, not the first one that sorted.
    *
@@ -773,7 +882,11 @@ const Runway = ({ reports, now }: { reports: readonly UsageReport[]; now: number
    */
   const many = reports.length > 1
   const cards = reports.flatMap((report) => {
-    const view = describeReport(report, { now, maxLanes: 8 })
+    const view = describeReport(report, {
+      now,
+      maxLanes: 8,
+      preference: prefsForUsage(report.runtime, report.account, accountsByRuntime, accountPrefs),
+    })
     return view.all
       .filter((lane) => lane.burn !== null)
       .slice(0, many ? 2 : 3)
@@ -782,13 +895,10 @@ const Runway = ({ reports, now }: { reports: readonly UsageReport[]; now: number
   if (cards.length === 0) return null
   return (
     <section className={styles.band} aria-label="Will it last">
-      <div className={styles.bandHead}>
-        <span className={styles.bandTitle}>Will it last</span>
-        <span className={styles.bandNote}>
-          What is left against an even burn to the reset. Above the dashed line is headroom;
-          below it is borrowing from the rest of the window.
-        </span>
-      </div>
+      <BandHead
+        name="Will it last"
+        note="What is left against an even burn to the reset. Above the dashed line is headroom; below it is borrowing from the rest of the window."
+      />
       <div className={styles.burnRow}>
         {cards.map(({ lane, account, report }) => (
           <BurnCard
@@ -836,8 +946,8 @@ const BurnCard = ({
         <div className={styles.burnBody}>
           <div className={styles.burnStats}>
             <div className={styles.heroFigure}>
-              <span className={styles.figure}>{Math.round(burn.left)}%</span>
-              <span className={styles.figureWord}>left</span>
+              <Text role="figure">{Math.round(burn.left)}%</Text>
+              <Text role="muted">left</Text>
             </div>
             <StatLine label="Resets in" value={formatCountdown(untilReset) ?? 'any moment'} />
             {/* "after reset" rather than a blank: the row is the answer to
@@ -892,10 +1002,10 @@ const StatLine = ({
   danger?: boolean
 }) => (
   <div className={styles.statLine}>
-    <span className={styles.statLabel}>{label}</span>
-    <span className={styles.statValue} {...(danger ? { 'data-tone': 'bad' } : {})}>
+    <Text role="meta">{label}</Text>
+    <Text role="row" tone={danger ? 'danger' : 'neutral'} numeric>
       {value}
-    </span>
+    </Text>
   </div>
 )
 
@@ -997,14 +1107,19 @@ export const noteGlyph = (tone: Tone | undefined): ReactNode =>
     <AlertIcon size={13} />
   )
 
-const noteOf = (
+export const noteOf = (
   report: UsageReport,
   view: ReportView,
   balance: Balance | null,
   hasSpend: boolean,
 ): { text: string; tone?: Tone } | null => {
   if (report.error) return { text: report.error.message, tone: 'bad' }
-  if (view.blocked) return { text: 'Reached — new turns will fail until it resets', tone: 'bad' }
+  if (view.blocked) {
+    // A prepaid balance does not come back on its own; a window does.
+    return !view.hero && balance && balance.remaining <= 0
+      ? { text: 'The balance is spent — new turns will fail until it is topped up', tone: 'bad' }
+      : { text: 'Reached — new turns will fail until it resets', tone: 'bad' }
+  }
   const gated = view.all.find((lane) => lane.gatedUntil !== null)
   if (gated) {
     return {
@@ -1139,11 +1254,7 @@ const Spend = ({
 
   return (
     <section className={styles.band} aria-label="What it cost">
-      <div className={styles.bandHead}>
-        <span className={styles.bandTitle}>What it cost</span>
-        <span className={styles.fill} />
-        {rangeControl}
-      </div>
+      <BandHead name="What it cost" action={rangeControl} />
 
       <ChartFrame>
         {/* Two surfaces inside one frame, separated by the frame's own gutter:
@@ -1155,16 +1266,15 @@ const Spend = ({
             <div>
               <ChartTitle>{headline}</ChartTitle>
               <ChartHint>
-                Last {ledger?.days ?? range} days — what these tokens would have cost at public
-                API rates. Not a bill.
+                Last {ledger?.days ?? range} days — {spendHint(ledger?.provenance)}
               </ChartHint>
             </div>
           </ChartHead>
           <div className={styles.periods}>
             {periods.map((period) => (
               <div key={period.days} className={styles.period}>
-                <span className={styles.periodLabel}>{period.label}</span>
-                <span className={styles.periodValue}>{money(period.cost)}</span>
+                <Text role="meta">{period.label}</Text>
+                <Text role="metric">{money(period.cost)}</Text>
                 {/* Today carries no percentage and says "so far" instead. A day
                     still running measured against a whole one falls every
                     morning and recovers by evening, which is a property of the
@@ -1172,7 +1282,7 @@ const Spend = ({
                     also what tell a reader that the finished window beside it
                     is a different kind of figure. */}
                 {period.partial ? (
-                  <span className={styles.periodNote}>so far</span>
+                  <Text role="meta">so far</Text>
                 ) : (
                   period.change !== null && (
                     <Delta
@@ -1212,20 +1322,21 @@ const Spend = ({
               )}
             </>
           ) : (
-            <div className={styles.chartEmpty}>
-              {scan?.running
-                ? `Reading transcripts — ${scan.filesDone} of ${scan.filesTotal} files.`
-                : 'No priced usage in this window yet.'}
-            </div>
+            <EmptyState
+              tight
+              className={styles.chartEmpty}
+              title={scan?.running ? 'Reading transcripts' : 'No priced usage in this window yet'}
+              description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
+            />
           )}
         </ChartCard>
 
         <ChartFoot>
-          <span className={styles.costWord}>{coverageSentence(ledger)}</span>
+          <Text role="meta" className={styles.costWord}>{coverageSentence(ledger)}</Text>
           <span className={styles.fill} />
-          <Btn small variant="quiet" disabled={scan?.running} onClick={onScan}>
+          <Button size="sm" variant="ghost" disabled={scan?.running} onClick={onScan}>
             {scan?.running ? `Scanning ${scan.filesDone}/${scan.filesTotal}` : 'Rescan'}
-          </Btn>
+          </Button>
         </ChartFoot>
       </ChartFrame>
     </section>
@@ -1284,7 +1395,7 @@ const Ranked = ({
   tintOf: (runtime: string) => Tint
 }) => {
   if (!ledger || ledger.rows.length === 0) {
-    return <p className={styles.bandNote}>Nothing recorded in this window.</p>
+    return <EmptyState tight title="Nothing recorded in this window" />
   }
   const rows = ledger.rows.slice(0, 12)
   const peak = ledger.rows.reduce((high, row) => Math.max(high, row.cost ?? 0), 0)
@@ -1322,22 +1433,22 @@ const Ranked = ({
                 tint: tintAt(index),
               }))}
             >
-              <span className={styles.donutTotal}>
+              <Text role="metric">
                 {formatMoney(total, ledger.currency) ?? '—'}
-              </span>
-              <span className={styles.donutWord}>in total</span>
+              </Text>
+              <Text role="meta">in total</Text>
             </Donut>
           </div>
         )}
 
-        <div className={styles.ranked}>
+        <SurfaceCard className={styles.ranked}>
           {rows.map((row, index) => {
             const info = row.runtime ? byId.get(row.runtime) : null
             const label = nameOf(row)
             const share = shareOf(row.cost, total)
             return (
-              <div key={row.key} className={styles.rank} {...(asParts ? { 'data-parts': '' } : {})}>
-                <span className={styles.rankMark}>
+              <CardContent key={row.key} className={styles.rank} {...(asParts ? { 'data-parts': '' } : {})}>
+                <Text role="meta" className={styles.rankMark}>
                   {/* The doughnut keyed these rows by colour, so the colour is
                       what identifies them here — a second identity beside it
                       would have the reader checking which one to trust. */}
@@ -1351,44 +1462,39 @@ const Ranked = ({
                       />
                     )
                   )}
-                </span>
-                <span className={styles.rankName} title={label}>
+                </Text>
+                <Text role="subject" truncate title={label}>
                   {label}
-                </span>
+                </Text>
                 {!asParts && (
-                  <span className={styles.rankTrack}>
-                    <span
-                      className={styles.rankFill}
-                      style={{
-                        width: `${peak > 0 ? Math.max(1, Math.round(((row.cost ?? 0) / peak) * 100)) : 0}%`,
-                      }}
-                    />
-                  </span>
+                  <Progress
+                    className={styles.rankProgress}
+                    value={peak > 0 ? Math.max(1, Math.round(((row.cost ?? 0) / peak) * 100)) : 0}
+                    tone="brand"
+                    label={false}
+                    aria-label={`${label} share of peak spend`}
+                  />
                 )}
-                <span className={styles.rankShare}>
+                <Text role="muted" align="end" numeric>
                   {share === null ? '' : share < 1 ? '<1%' : `${Math.round(share)}%`}
-                </span>
-                <span className={styles.rankTokens}>
+                </Text>
+                <Text role="muted" align="end" numeric>
                   {row.tokens === null ? '—' : formatTokens(row.tokens)}
-                </span>
-                <span className={styles.rankCost}>
+                </Text>
+                <Text role="value" align="end" numeric>
                   {formatMoney(row.cost, ledger.currency) ?? '—'}
-                </span>
-              </div>
+                </Text>
+              </CardContent>
             )
           })}
-        </div>
+        </SurfaceCard>
       </div>
       {/* One caveat under the table, rather than a "has unpriced" chip on every
           second row — a badge that repeats down a column stops reading as a
           warning and starts reading as a category. */}
-      <div className={styles.footnote}>
-        {unpriced === 0
-          ? 'Every call in this window has a public price, so these figures are exact.'
-          : unpriced === 1
-            ? 'One of these rows includes a model with no public price, so its cost is lower than shown.'
-            : `${unpriced} of these rows include models with no public price, so their cost is lower than shown.`}
-      </div>
+      <Text as="div" role="meta">
+        {pricedNote(unpriced, ledger.provenance)}
+      </Text>
     </>
   )
 }

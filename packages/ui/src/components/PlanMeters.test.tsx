@@ -104,7 +104,7 @@ const mount = (over: Partial<AppSnapshot>): void => {
   })
 }
 
-const bars = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('button [data-tone]')]
+const bars = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-slot="plan-meter"]')]
 const triggers = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('button')]
 const titles = (): (string | null)[] => triggers().map((button) => button.getAttribute('title'))
 
@@ -128,7 +128,7 @@ it('gives the bar to the conversation own agent, not the one in the most trouble
   expect(bars()[0]?.textContent).toBe('88%')
 })
 
-it('shows the binding lane, not the roomiest one', () => {
+it('shows the shortest default lane, unless a longer one is spent', () => {
   mount({
     runtimes: [runtime('a', 'Agent A')],
     usage: [
@@ -139,15 +139,15 @@ it('shows the binding lane, not the roomiest one', () => {
     ],
     ...conversationWith('a'),
   })
-  expect(titles()[0]).toBe('Agent A — Weekly, 12% left')
-  expect(bars()[0]?.textContent).toBe('12%')
+  expect(titles()[0]).toBe('Agent A — Session, 95% left')
+  expect(bars()[0]?.textContent).toBe('95%')
 })
 
 it('answers with the countdown once there is nothing left', () => {
   mount({ runtimes: [runtime('a', 'Agent A')], usage: [spent('a', 2 * HOUR)], ...conversationWith('a') })
   const bar = bars()[0]
   expect(bar?.textContent).toBe('2h')
-  expect(bar?.getAttribute('data-tone')).toBe('bad')
+  expect(bar?.getAttribute('data-tone')).toBe('danger')
 })
 
 it('colours what is left, not what pace predicts', () => {
@@ -164,7 +164,7 @@ it('colours what is left, not what pace predicts', () => {
     ...conversationWith('a'),
   })
   const bar = bars()[0]
-  expect(bar?.getAttribute('data-tone')).toBe('good')
+  expect(bar?.getAttribute('data-tone')).toBe('neutral')
   expect(bar?.hasAttribute('data-low')).toBe(false)
 })
 
@@ -172,7 +172,7 @@ it('fills the bar with what is left, the way the figure beside it reads', () => 
   mount({ runtimes: [runtime('a', 'Agent A')], usage: [at('a', 96)], ...conversationWith('a') })
   // 4% used is 96% left. A bar drawn from what had been *spent* left the
   // roomiest account on the strip looking like the emptiest one.
-  const fill = container.querySelector<HTMLElement>('[data-tone] span[style]')
+  const fill = container.querySelector<HTMLElement>('[data-slot="plan-meter"] [data-slot="progress-fill"]')
   expect(fill?.style.width).toBe('96%')
   expect(triggers()[0]?.textContent).toContain('96%')
 })
@@ -185,10 +185,25 @@ it('says in the token whether anything else is in the way, without being opened'
   })
   const token = bars()[bars().length - 1]
   expect(token?.textContent).toBe('3 out')
-  expect(token?.getAttribute('data-tone')).toBe('bad')
+  expect(token?.getAttribute('data-tone')).toBe('danger')
   expect(titles()[titles().length - 1]).toBe(
     '5 other agents — 3 out of quota, least left 44%, 1 needs sign-in',
   )
+})
+
+it('lets meter triggers fit their contents and gives the roster icon its warning tone', () => {
+  mount({
+    runtimes: six,
+    usage: [at('a', 78), spent('b', HOUR)],
+    ...conversationWith('a'),
+  })
+  const meter = bars().find((bar) => bar.textContent === '78%')!
+  const roster = bars().find((bar) => bar.textContent === '1 out')!
+  const meterTrigger = meter.closest('button')!
+  const rosterTrigger = roster.closest('button')!
+  expect(meterTrigger.className).not.toContain('size-(--hd-btn-h-sm)')
+  expect(rosterTrigger.className).not.toContain('size-(--hd-btn-h-sm)')
+  expect(rosterTrigger.dataset['tone']).toBe('alert')
 })
 
 it('gives an out-of-quota agent a chip, because the token cannot say who', () => {

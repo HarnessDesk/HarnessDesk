@@ -37,20 +37,27 @@ import {
 import { InstallPlugin } from './InstallPlugin'
 import {
   BackLink,
-  Btn,
+  Button,
+  Card,
+  CardContent,
   Chip,
+  CodeText,
+  DetailMark,
   DetailHead,
-  kit,
   PageHead,
   Row,
+  RowValue,
   RowButton,
   Rows,
   Search,
   SectionHead,
-  Select,
-  Toggle as KitToggle,
-} from '../design/primitives/Kit'
-import { Tabs, TabsList, TabsTrigger } from '../design/ui'
+  NativeSelect,
+  Separator,
+  Switch,
+  Text,
+  Toolbar,
+} from '../design'
+import { Tabs, TabsList, TabsTrigger } from '../design'
 import { SchemaForm } from './SchemaForm'
 import styles from './Plugins.module.css'
 
@@ -206,10 +213,10 @@ const PluginToggle = ({ plugin }: { plugin: PluginInstance }) => {
   const store = useStore()
   return (
     <span onClick={(event) => event.stopPropagation()}>
-      <KitToggle
-        label={plugin.enabled ? `Disable ${plugin.identity.name}` : `Enable ${plugin.identity.name}`}
-        on={plugin.enabled}
-        onChange={(next) => void store.setPluginEnabled(plugin.identity.id, next)}
+      <Switch
+        aria-label={plugin.enabled ? `Disable ${plugin.identity.name}` : `Enable ${plugin.identity.name}`}
+        checked={plugin.enabled}
+        onCheckedChange={(next) => void store.setPluginEnabled(plugin.identity.id, next)}
       />
     </span>
   )
@@ -236,8 +243,8 @@ const SupersededRow = ({ plugin }: { plugin: PluginInstance }) => {
       }.`}
       control={
         <>
-          <span className={kit.rowFixed}>Superseded</span>
-          <Btn
+          <RowValue>Superseded</RowValue>
+          <Button variant="secondary"
             disabled={busy}
             onClick={() => {
               setBusy(true)
@@ -245,7 +252,7 @@ const SupersededRow = ({ plugin }: { plugin: PluginInstance }) => {
             }}
           >
             {busy ? 'Removing…' : 'Remove'}
-          </Btn>
+          </Button>
         </>
       }
     />
@@ -274,7 +281,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
       <BackLink to="Plugins" onClick={onBack} />
       <DetailHead
         mark={
-          <span className={kit.detailMark}>{pluginGlyph(plugin, 22)}</span>
+          <DetailMark>{pluginGlyph(plugin, 22)}</DetailMark>
         }
         name={plugin.identity.name}
         owner={`${originLabel(plugin)}${plugin.identity.version ? ` · ${plugin.identity.version}` : ''}`}
@@ -297,10 +304,10 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
             name={KIND_HEADING[kind]}
             action={
               kind === 'tool' || kind === 'command' ? (
-                <span className={kit.sectionToggle}>
+                <Text as="label" role="muted" ink="muted" className="inline-flex items-center gap-2">
                   Tool names
-                  <KitToggle label="Show tool names" on={wire} onChange={setWire} />
-                </span>
+                  <Switch aria-label="Show tool names" checked={wire} onCheckedChange={setWire} />
+                </Text>
               ) : undefined
             }
           />
@@ -311,7 +318,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
                 title={contributionSentence(contribution)}
                 control={
                   wire && (kind === 'tool' || kind === 'command') ? (
-                    <span className={kit.wire}>{describeContribution(contribution)}</span>
+                    <Text role="meta"><CodeText>{describeContribution(contribution)}</CodeText></Text>
                   ) : undefined
                 }
               />
@@ -335,54 +342,59 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
       {plugin.configSchema && (
         <>
           <SectionHead name="Configuration" />
-          <div className={styles.configCard}>
-            <SchemaForm
-              schema={plugin.configSchema}
-              value={plugin.config ?? {}}
-              onSubmit={(next) => void store.configurePlugin(plugin.identity.id, next)}
-            />
-          </div>
+          <Card radius="lg">
+            <CardContent>
+              <SchemaForm
+                schema={plugin.configSchema}
+                value={plugin.config ?? {}}
+                onSubmit={(next) => void store.configurePlugin(plugin.identity.id, next)}
+              />
+            </CardContent>
+          </Card>
         </>
       )}
 
       <SectionHead name="About" />
       <Rows>
-        <Row title="Identifier" control={<span className={kit.wire}>{plugin.identity.id}</span>} />
+        <Row title="Identifier" control={<Text role="meta"><CodeText>{plugin.identity.id}</CodeText></Text>} />
         <Row
           title="Source"
           control={
-            <span className={kit.rowFixed}>
+            <RowValue>
               {originLabel(plugin)}
               {plugin.identity.source.kind === 'local' && plugin.identity.source.path
                 ? ` · ${plugin.identity.source.path}`
                 : ''}
-            </span>
+            </RowValue>
           }
         />
       </Rows>
 
       {plugin.identity.source.kind !== 'builtin' && (
-        <div className={styles.pageActions}>
-          {plugin.identity.source.kind === 'local' && plugin.identity.source.path && (
-            <Btn
-              title={`Reinstall from ${plugin.identity.source.path}`}
-              onClick={() => void store.updatePluginFromSource(plugin)}
+        <>
+          <Separator />
+          <Toolbar className={styles.pageActions}>
+            {plugin.identity.source.kind === 'local' && plugin.identity.source.path && (
+              <Button variant="secondary"
+                title={`Reinstall from ${plugin.identity.source.path}`}
+                onClick={() => void store.updatePluginFromSource(plugin)}
+              >
+                <RetryIcon size={14} />
+                Update from source
+              </Button>
+            )}
+            <Button
+              variant="destructive"
+              onClick={() => {
+                void store.uninstallPlugin(plugin.identity.id)
+                onBack()
+              }}
             >
-              <RetryIcon size={14} />
-              Update from source
-            </Btn>
-          )}
-          <Btn
-            variant="danger"
-            onClick={() => {
-              void store.uninstallPlugin(plugin.identity.id)
-              onBack()
-            }}
-          >
-            <TrashIcon size={14} />
-            Uninstall
-          </Btn>
-        </div>
+              <TrashIcon size={14} />
+              Uninstall
+            </Button>
+          </Toolbar>
+        </>
       )}
     </>
   )
@@ -561,10 +573,10 @@ export const PluginsSection = () => {
             : `Tools, guardrails, context and panels. ${runtime.presentation.name} does not take them in the session request, so they reach it only through its own configuration.`
         }
         actions={
-          <Btn variant="default" onClick={() => setInstalling(true)}>
+          <Button variant="default" onClick={() => setInstalling(true)}>
             <PlusIcon size={14} />
             Add plugin
-          </Btn>
+          </Button>
         }
       />
 
@@ -603,7 +615,7 @@ export const PluginsSection = () => {
                 control={
                   <>
                     {plugin.state.type === 'failed' && <Chip state="broken" label="failed" />}
-                    <span className={kit.rowFixed}>{originLabel(plugin)}</span>
+                    <RowValue>{originLabel(plugin)}</RowValue>
                     <PluginToggle plugin={plugin} />
                   </>
                 }
@@ -616,7 +628,7 @@ export const PluginsSection = () => {
         </Rows>
       ) : (
         <>
-          <p className={styles.crossNote}>
+          <Text as="p" role="muted" className={styles.crossNote}>
             Everything plugins add right now.
             {!pluginToolsReach && (
               <>
@@ -625,7 +637,7 @@ export const PluginsSection = () => {
                 request; they reach it only through its own configuration.
               </>
             )}
-          </p>
+          </Text>
           <div className={styles.capFilters}>
             <Search
               className={styles.search}
@@ -633,24 +645,24 @@ export const PluginsSection = () => {
               placeholder="Search capabilities"
               onChange={setCapQuery}
             />
-            <Select
-              label="Filter by kind"
+            <NativeSelect
+              aria-label="Filter by kind"
               value={capKind}
-              options={[{ value: 'all', label: 'All kinds' }, ...CAP_KINDS]}
-              onChange={setCapKind}
-            />
+              onChange={(event) => setCapKind(event.target.value as CapabilityContribution['kind'] | 'all')}
+            >
+              {[{ value: 'all', label: 'All kinds' }, ...CAP_KINDS].map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </NativeSelect>
             {/* The second question this list can answer, and the one it could
                 not: a contribution's scope is evaluated by the host, so
                 "what applies here" is a request rather than a filter. */}
-            <Select
-              label="Where it applies"
+            <NativeSelect
+              aria-label="Where it applies"
               value={capWhere}
-              options={[
-                { value: 'anywhere', label: 'Anywhere' },
-                { value: 'here', label: 'Applies here' },
-              ]}
-              onChange={setCapWhere}
-            />
+              onChange={(event) => setCapWhere(event.target.value as 'anywhere' | 'here')}
+            >
+              <option value="anywhere">Anywhere</option>
+              <option value="here">Applies here</option>
+            </NativeSelect>
           </div>
           {byKind.length === 0 && (
             <Rows>

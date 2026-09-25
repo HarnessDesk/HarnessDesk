@@ -2,8 +2,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { RuntimeInfo } from '@harnessdesk/protocol'
+import { sessionKey, type AgentEntry, type RuntimeInfo, type Session } from '@harnessdesk/protocol'
 
+import { seatAgentKey } from '../lib/agents'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { AgentControl } from './ComposerControls'
@@ -11,7 +12,7 @@ import { AgentControl } from './ComposerControls'
 // AgentControl does not render either primitive, but ComposerControls imports
 // them through the full design barrel. Keep this focused test from loading
 // unrelated design-preview dependencies.
-vi.mock('../design', () => ({ Btn: () => null, Dialog: () => null }))
+vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeof import('../design')>()), Button: () => null, Dialog: () => null }))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -90,4 +91,178 @@ it('keeps an unavailable agent and its consequence visible while ordinary taglin
   expect(down?.title).toBe('')
   expect(ready?.textContent).not.toContain('The available agent.')
   expect(ready?.title).toBe('The available agent.')
+})
+
+it('a conversation seated as an Agent shows the Agent and the seat it took — even with one runtime', () => {
+  const only = runtime('claude-code', 'Claude Code', 'An agent.')
+  const key = sessionKey('claude-code', 's1')
+  const live = {
+    id: 's1',
+    runtime: 'claude-code',
+    cwd: '/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 1,
+    turns: [],
+    itemsLoaded: true,
+    settings: { cwd: '/repo', agent: 'code-reviewer', briefDigest: 'd', ceiling: { level: 'edit', hold: 'asked' }, seatLabel: 'Claude · Opus 5 · High', passedOver: [] },
+  } as unknown as Session
+  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } } as AgentEntry
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [only],
+    activeRuntime: only.id,
+    sessions: new Map([[key, live]]),
+    activeSessionKey: key,
+    seatAgents: new Map([[seatAgentKey('/repo', 'code-reviewer'), entry]]),
+  }
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    readSeatAgent: vi.fn(),
+    // Not recorded — this fixture never made this Seat declare an attachment.
+    seatRecord: vi.fn(async () => null),
+    readSeatAttachments: vi.fn(async () => null),
+  } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentControl />
+      </StoreProvider>,
+    )
+  })
+  const trigger = document.querySelector<HTMLButtonElement>('button[title="Seated as Code reviewer on Claude · Opus 5 · High"]')
+  expect(trigger?.textContent).toContain('Code reviewer')
+  click(trigger!)
+  expect(document.body.textContent).toContain('As Code reviewer, on Claude · Opus 5 · High')
+})
+
+const seatedFixture = () => {
+  const only = runtime('claude-code', 'Claude Code', 'An agent.')
+  const key = sessionKey('claude-code', 's1')
+  const live = {
+    id: 's1',
+    runtime: 'claude-code',
+    cwd: '/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 1,
+    turns: [],
+    itemsLoaded: true,
+    settings: { cwd: '/repo', agent: 'code-reviewer', briefDigest: 'd', ceiling: { level: 'edit', hold: 'asked' }, seatLabel: 'Claude · Opus 5 · High', passedOver: [] },
+  } as unknown as Session
+  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } } as AgentEntry
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [only],
+    activeRuntime: only.id,
+    sessions: new Map([[key, live]]),
+    activeSessionKey: key,
+    seatAgents: new Map([[seatAgentKey('/repo', 'code-reviewer'), entry]]),
+  }
+  return snapshot
+}
+
+const settle = () => act(async () => {})
+
+it('a not-loaded declaration earns a hint the seat label alone cannot carry, read by the Seat’s own immutable id', async () => {
+  const snapshot = seatedFixture()
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    readSeatAgent: vi.fn(),
+    seatRecord: vi.fn(async (runtime: string, sessionId: string) => {
+      expect([runtime, sessionId]).toEqual(['claude-code', 's1'])
+      return { id: 'seat-77' }
+    }),
+    readSeatAttachments: vi.fn(async (seat: string) => {
+      expect(seat).toEqual('seat-77')
+      return {
+        version: 1, seat, agentDigest: 'd'.repeat(64), runtime: 'claude-code', build: '1.0.0',
+        epoch: 0, observedAt: 1, skillsMode: 'allowlist', mcpMode: 'runtime-defaults',
+        declarations: [
+          { kind: 'skill', name: 'review', identity: { kind: 'skill', name: 'review', digest: 'a'.repeat(64), source: 'library', pathLabel: 'p' }, problem: null },
+          { kind: 'skill', name: 'lint', identity: null, problem: 'Could not resolve this name.' },
+        ],
+        results: [{ identity: { kind: 'skill', name: 'review', digest: 'a'.repeat(64), source: 'library', pathLabel: 'p' }, status: 'loaded', reason: null }],
+        restored: false,
+      }
+    }),
+  } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentControl />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+  const trigger = document.querySelector<HTMLButtonElement>('button[title="Seated as Code reviewer on Claude · Opus 5 · High"]')
+  click(trigger!)
+  expect(document.body.textContent).toContain('1 attachment did not load')
+})
+
+it('a fully loaded seat earns no hint — silence is not "nothing to say", it is nothing wrong', async () => {
+  const snapshot = seatedFixture()
+  const identity = { kind: 'skill' as const, name: 'review', digest: 'a'.repeat(64), source: 'library' as const, pathLabel: 'p' }
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    readSeatAgent: vi.fn(),
+    seatRecord: vi.fn(async () => ({ id: 'seat-77' })),
+    readSeatAttachments: vi.fn(async (seat: string) => ({
+      version: 1, seat, agentDigest: 'd'.repeat(64), runtime: 'claude-code', build: '1.0.0',
+      epoch: 0, observedAt: 1, skillsMode: 'allowlist', mcpMode: 'runtime-defaults',
+      declarations: [{ kind: 'skill', name: 'review', identity, problem: null }],
+      results: [{ identity, status: 'loaded', reason: null }],
+      restored: false,
+    })),
+  } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentControl />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+  const trigger = document.querySelector<HTMLButtonElement>('button[title="Seated as Code reviewer on Claude · Opus 5 · High"]')
+  click(trigger!)
+  expect(document.body.textContent).not.toContain('did not load')
+})
+
+it('a plain conversation on a one-runtime desk shows no control, and reads nothing about an Agent', () => {
+  const only = runtime('claude-code', 'Claude Code', 'An agent.')
+  const key = sessionKey('claude-code', 's1')
+  const live = {
+    id: 's1',
+    runtime: 'claude-code',
+    cwd: '/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 1,
+    turns: [],
+    itemsLoaded: true,
+    settings: { cwd: '/repo', model: 'opus-5' },
+  } as unknown as Session
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [only],
+    activeRuntime: only.id,
+    sessions: new Map([[key, live]]),
+    activeSessionKey: key,
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readSeatAgent: vi.fn() } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentControl />
+      </StoreProvider>,
+    )
+  })
+  expect(container.querySelector('button')).toBeNull()
+  expect(store.readSeatAgent).not.toHaveBeenCalled()
 })

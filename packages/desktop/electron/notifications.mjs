@@ -14,7 +14,9 @@
  * - An interrupted turn is never announced: the user did that themselves.
  */
 
-/** The four kinds, with what the settings page should call them. */
+import { INTAKE_NOTIFICATION_KINDS } from './intake-notifications.mjs'
+
+/** The kinds, with what the settings page should call them. */
 export const SYSTEM_NOTIFICATION_KINDS = [
   {
     kind: 'turns',
@@ -36,6 +38,18 @@ export const SYSTEM_NOTIFICATION_KINDS = [
     title: 'Needs you',
     detail: 'An agent asked a question only you can answer.',
   },
+  {
+    kind: 'goalNeedsYou',
+    title: 'Goals that need you',
+    detail: 'A Goal changed to work that needs your decision.',
+  },
+  {
+    kind: 'goalReadyToWrap',
+    title: 'Goals ready to wrap',
+    detail: 'A Goal settled and is ready for its receipt.',
+  },
+  // Unattended work a trigger started: decided in `intake-notifications.mjs`.
+  ...INTAKE_NOTIFICATION_KINDS,
 ]
 
 /**
@@ -49,6 +63,7 @@ export const SYSTEM_NOTIFICATION_KINDS = [
  * merely slower, never wrong.
  */
 export const relevant = (notification) => {
+  if (notification?.method === 'goal/activity') return true
   if (!notification || notification.method !== 'event') return false
   const type = notification.params?.event?.type
   return type === 'turn/completed' || type === 'approval/requested'
@@ -77,6 +92,17 @@ const wants = (prefs, kind) => {
  */
 export const decide = (notification, context) => {
   if (context.focused) return null
+  if (notification?.method === 'goal/activity') {
+    const { goal, previous, activity, sentence } = notification.params ?? {}
+    if (!goal || !activity || previous === activity) return null
+    if (activity === 'needs-you' && wants(context.prefs, 'goalNeedsYou')) {
+      return { kind: 'goalNeedsYou', goal, title: 'A Goal needs you', body: trim(sentence) }
+    }
+    if (activity === 'ready-to-wrap' && wants(context.prefs, 'goalReadyToWrap')) {
+      return { kind: 'goalReadyToWrap', goal, title: 'A Goal is ready to wrap', body: trim(sentence) }
+    }
+    return null
+  }
   if (!notification || notification.method !== 'event') return null
   const { runtime, event } = notification.params ?? {}
   if (!runtime || !event) return null

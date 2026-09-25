@@ -18,15 +18,19 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { snapshot } from './design-tokens.mjs'
+import { nativeFoundation, snapshot } from './design-tokens.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const file = path.join(root, 'packages/ui/src/design/tokens.snapshot.txt')
+const nativeFile = path.join(root, 'packages/desktop/electron/assets/about-foundation.css')
 const current = snapshot(root)
+const currentNative = nativeFoundation(root)
 
 if (process.argv.includes('--update')) {
   fs.writeFileSync(file, current)
+  fs.writeFileSync(nativeFile, currentNative)
   console.log(`updated ${path.relative(root, file)}`)
+  console.log(`updated ${path.relative(root, nativeFile)}`)
   process.exit(0)
 }
 
@@ -36,10 +40,16 @@ if (!fs.existsSync(file)) {
 }
 
 const expected = fs.readFileSync(file, 'utf8')
-if (expected === current) {
+const expectedNative = fs.existsSync(nativeFile) ? fs.readFileSync(nativeFile, 'utf8') : null
+if (expected === current && expectedNative === currentNative) {
   const count = current.split('\n').filter((line) => line.includes(' = ')).length
-  console.log(`${count} token values match the snapshot.`)
+  console.log(`${count} token values and the native foundation match their generated snapshots.`)
   process.exit(0)
+}
+
+if (expectedNative !== currentNative) {
+  console.error('Native foundation output is stale:')
+  console.error(`  ${path.relative(root, nativeFile)}`)
 }
 
 /** Say which tokens moved, not that the file differs. */
@@ -78,6 +88,6 @@ for (const theme of [...new Set([...Object.keys(before), ...Object.keys(after)])
   }
 }
 console.error('')
-console.error('Token values moved. If that was the intent, run:')
+console.error('Generated design values moved. If that was the intent, run:')
 console.error('  node script/check-design-tokens.mjs --update')
 process.exit(1)

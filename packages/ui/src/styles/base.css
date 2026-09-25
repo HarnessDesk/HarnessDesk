@@ -8,7 +8,7 @@
  * than copied from anywhere. See design-platform.css and
  * THIRD_PARTY_NOTICES.md.
  *
- * These are the *fallback* faces and the motion contract. ../design/tokens.css
+ * These are the *fallback* faces and the motion contract. ../design/foundation/tokens.css
  * owns the face the app actually sets in (Geist, bundled) and redeclares both
  * font variables on `body`; what is here is what resolves before that, and
  * what resolves if the design layer is ever loaded without it.
@@ -37,4 +37,16 @@
   --hdp-transition-duration: 0.17s; /* desk: 0.2 → 0.17, a crossed row should not lag */
   --hdp-transition-duration-fast: 0.09s; /* desk: 0.1 → 0.09 */
   --hdp-transition-duration-slow: 0.28s; /* desk: 0.3 → 0.28 */
+}
+
+@keyframes hd-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes hd-pulse {
+  50% { opacity: 0.35; }
+}
+
+@keyframes hd-blink {
+  to { visibility: hidden; }
 }

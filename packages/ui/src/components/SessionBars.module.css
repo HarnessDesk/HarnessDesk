@@ -3,19 +3,10 @@
 .goal {
   max-width: var(--hd-column);
   margin: 0 auto 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  border-radius: var(--hd-radius);
-  background: var(--hdp-alias-bg-module-platform);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  font-size: var(--hd-text-sm);
 }
 
 .goalIcon {
   flex: none;
-  color: var(--hd-accent);
 }
 
 .goalText {
@@ -26,52 +17,13 @@
   white-space: nowrap;
 }
 
-.goalStatus {
-  flex: none;
-  height: 18px;
-  padding: 0 7px;
-  border-radius: 9px;
-  font-size: var(--hd-text-sm);
-  line-height: 18px;
-  background: var(--hd-accent-dim);
-  color: var(--hd-accent);
-}
-
-.goalStatus[data-status='complete'] {
-  background: color-mix(in srgb, var(--hd-success) 16%, transparent); /* desk: a forked literal → the token it was a copy of */
-  color: var(--hd-success);
-}
-
-.goalStatus[data-status='blocked'],
-.goalStatus[data-status='usageLimited'],
-.goalStatus[data-status='budgetLimited'] {
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-}
-
 .goalBudget {
   flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
 }
 
 .goalClear {
   flex: none;
-  display: inline-grid;
-  place-items: center;
-  padding: 0;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 50%;
-  background: none;
-  color: var(--hdp-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.goalClear:hover {
-  background: var(--hdp-alias-interactive-bg-hover);
+  width: var(--hd-target-min); /* desk: canonical One UI System scale */
 }
 
 /* --- jobs -------------------------------------------------------------- */
@@ -82,28 +34,19 @@
 .jobs {
   max-width: var(--hd-column);
   margin: 0 auto 8px;
-  padding: 0 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  color: var(--hdp-alias-label-secondary);
-}
-
-.jobsHead {
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
 }
 
 .job {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--hd-text-sm);
 }
 
 .jobIcon {
   flex: none;
-  color: var(--hdp-alias-label-tertiary);
 }
 
 .jobCommand {
@@ -112,31 +55,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--hdp-font-family-code);
-  font-size: var(--hd-text-xs);
 }
 
 .jobElapsed {
   flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.spinner {
-  flex: none;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  border: 1.5px solid var(--hdp-alias-border-l3);
-  border-top-color: var(--hd-accent);
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* --- deliverables ------------------------------------------------------ */
@@ -148,34 +70,11 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  font-size: var(--hd-text-xs);
-  color: var(--hdp-alias-label-tertiary);
 }
 
 .deliverable {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 8px;
-  border: none;
-  border-radius: 11px;
-  background: var(--hdp-alias-bg-module-platform);
-  box-shadow: inset 0 0 0 1px var(--hdp-alias-border-l2);
-  color: var(--hdp-alias-label-secondary);
-  cursor: pointer;
-  font-family: var(--hdp-font-family-code);
-  font-size: var(--hd-text-sm);
-}
+  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
 
-.deliverable:hover {
-  background: var(--hdp-alias-interactive-bg-hover-solid);
-  color: var(--hdp-alias-label-primary);
-}
-
-.deliverableAdded {
-  color: var(--hd-success);
-}
-.deliverableRemoved {
-  color: var(--hd-danger);
 }

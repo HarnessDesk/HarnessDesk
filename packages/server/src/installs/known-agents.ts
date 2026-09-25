@@ -235,7 +235,18 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
     },
     auth: {
       kind: 'terminal',
-      status: cli('opencode', 'auth', 'list'),
+      /* No `status` command — #749. `opencode auth list` is a *provider*
+         listing, not a status: it draws a box of names and counts
+         ("┌ Credentials …/auth.json │ ● OpenCode Zen api └ 1 credentials")
+         with no `loggedIn`, no address and no sentence, so it never parsed
+         as an account and OpenCode read as signed out however many
+         providers it had. Worse, a declared status *replaces* the session
+         observation, so the one piece of evidence the desk did have was
+         suppressed: every OpenCode conversation opened onto "Sign in to
+         OpenCode" instead of a composer. Measured on opencode 1.18.30 —
+         `auth list` has no `--json`, so there is nothing here to parse.
+         The record it draws that box from is read directly instead; see
+         `openCodeIdentity` in `identity.ts`. */
       terminal: 'opencode auth login',
       note: 'Providers are added one at a time with `opencode auth login`, which asks in the terminal; Claude Pro/Max, ChatGPT and Copilot sign in through a browser from there, the rest take an API key.',
     },
@@ -527,11 +538,26 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
       // and the server never reads Gemini CLI's `google_accounts.json`.
       credentials: ['acp_token.json'],
       config: ['settings.json'],
-      note: 'The server is not part of the Antigravity IDE bundle; the registry download is the only copy, and its Google sign-in is its own — neither the IDE’s nor the agy CLI’s keychain session counts.',
+      // And `GEMINI_HOME` therefore does not separate two Google accounts on
+      // macOS: pointed at an empty folder, the server still refreshes the
+      // last account's token out of the keychain and opens a session as it
+      // (#749, measured 2026-09-17). Only `settings.json` follows the home.
+      note: 'The server is not part of the Antigravity IDE bundle; the registry download is the only copy, and its Google sign-in is its own — neither the IDE’s nor the agy CLI’s keychain session counts. On macOS the token is in the keychain, so GEMINI_HOME moves the settings but not the account.',
     },
     auth: {
       kind: 'browser',
-      note: 'The server opens a Google sign-in in the browser on first use; the desk relays what it asks.',
+      /* No commands here, deliberately — #749. `agy` is the IDE's CLI, a
+         separate download from the ACP server this row runs, and neither
+         verb it offers does the job: `agy --print /help` prints the command
+         list and exits 0 without starting any sign-in, so the desk reported
+         a sign-in that never happened, and `agy --print /logout` exits 2
+         every time, because print mode refuses a command whose effect
+         outlives the run and clearing credentials is exactly that. Measured
+         on agy 1.2.4.
+         The server answers for itself instead: it opens the Google flow on
+         first use, and it declares ACP's own `logout` in its capabilities,
+         which is what `runtime/logout` drives. See `AcpRuntime.logout`. */
+      note: 'The server opens a Google sign-in in the browser on first use; signing out goes through ACP’s own logout, which the server answers. The `agy` CLI is a different program and cannot do either.',
     },
   },
   {

@@ -47,6 +47,15 @@ export const DEFAULT_REARM = 3
 export const REARM_CEILING = 120
 
 /**
+ * What an old-format role is told it is for: its own `order:`, or — since
+ * `order:` was optional there — the old engine's own sentence. Update writes
+ * the same brief into the Agent it converts the role to, so a role that ran
+ * before the update still has a brief after it.
+ */
+export const legacyBrief = (role: { readonly id: string; readonly order?: string | null }): string =>
+  role.order?.trim() || `You are the ${role.id}. The cards say the rest.`
+
+/**
  * How long a runtime's own tool client will hold a call open, in seconds.
  *
  * **Measured, not guessed.** Cursor's MCP client times a tool call out at
@@ -88,7 +97,7 @@ const SIMULATION_ROUNDS = 24
  */
 const OUTCOME_CEILING = 12
 
-const problem = (level: 'error' | 'warning', at: string, text: string): FlowProblem => ({
+export const problem = (level: 'error' | 'warning', at: string, text: string): FlowProblem => ({
   level,
   at,
   text,
@@ -190,15 +199,25 @@ export const ROUND_SLOTS = ['from', 'answered'] as const
 
 // -------------------------------------------------------------------- reading
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
+/* These four read plain data out of parsed YAML, and they are exported because
+   `AGENT.md` is read by the same grammar: the spec says an Agent's `prefer`
+   uses the seat form a role's `seats` uses, "parsed by the same code", and two
+   copies of `asText` are how the two formats begin disagreeing about one file. */
+
+export const asRecord = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
 
-const asList = (value: unknown): unknown[] | null => (Array.isArray(value) ? value : null)
+/** Whether this *is* a list. Null for everything else — it does not wrap. */
+export const asList = (value: unknown): unknown[] | null => (Array.isArray(value) ? value : null)
 
-const asText = (value: unknown): string | null =>
+/** A scalar as it was written. Null for a map or a list, which is not text. */
+export const asText = (value: unknown): string | null =>
   typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : null
+
+/** Every field a seat written the long way may name; any other is refused by `seatFromMap`, not ignored. */
+const SEAT_FIELDS = ['runtime', 'model', 'effort', 'thinking'] as const
 
 /**
  * A seat written the long way: every field named, nothing to misread.
@@ -215,6 +234,11 @@ const asText = (value: unknown): string | null =>
 export const seatFromMap = (record: Record<string, unknown>): FlowSeat | string => {
   const runtime = asText(record['runtime'])
   if (!runtime?.trim()) return 'a seat needs a runtime — which agent to open'
+  // A misspelt field — `modle` for `model` — would otherwise read as the
+  // default model with no problem: silently dropped, not silently wrong, but
+  // still not what was written, and nothing here would say so.
+  const unknown = Object.keys(record).find((key) => !(SEAT_FIELDS as readonly string[]).includes(key))
+  if (unknown) return `"${unknown}" is not a seat's field — a seat takes runtime, model, effort and thinking`
   const model = asText(record['model'])
   const effort = asText(record['effort'])
   return {
@@ -223,6 +247,41 @@ export const seatFromMap = (record: Record<string, unknown>): FlowSeat | string 
     ...(effort?.trim() ? { effort: effort.trim() } : {}),
     ...(record['thinking'] === true ? { thinking: true } : {}),
   }
+}
+
+/**
+ * A list of seats, each read by the grammar every seat list shares — the
+ * compact spec, or the long form for a model whose name it cannot carry.
+ *
+ * Pure, and it does not decide what an empty or an oversized list means: an
+ * Agent's `prefer` and a machine's own entry in `seating.json` disagree about
+ * that (an empty `prefer` seats nothing yet is not itself wrong; an empty
+ * entry in `seating.json` is refused, since removing the entry is how that
+ * file says "seat this Agent on its own prefer" instead) — so the limit and
+ * the empty case are each caller's own to check, and this only parses what it
+ * is given, in order, keeping every seat that reads and naming the index of
+ * every one that does not.
+ *
+ * Shared so `agent-def.ts`'s `prefer` and `agent-seating-file.ts`'s entries
+ * read one seat the same way a flow's own `seat` does — `agent-def.ts`'s own
+ * header warns that a second copy of this loop is how two formats begin
+ * disagreeing about one file.
+ */
+export const parseSeatList = (
+  listed: readonly unknown[],
+): { readonly seats: readonly FlowSeat[]; readonly broken: readonly { readonly index: number; readonly text: string }[] } => {
+  const seats: FlowSeat[] = []
+  const broken: { index: number; text: string }[] = []
+  listed.forEach((one, index) => {
+    const map = asRecord(one)
+    const seat = map ? seatFromMap(map) : parseSeat(asText(one) ?? '')
+    if (typeof seat === 'string') {
+      broken.push({ index, text: seat })
+      return
+    }
+    seats.push(seat)
+  })
+  return { seats, broken }
 }
 
 /** `cursor=gpt-5.3-codex/xhigh+thinking` — the same grammar the desk's own casts use. */
@@ -258,8 +317,45 @@ export const seatSpec = (seat: FlowSeat): string =>
     seat.thinking ? '+thinking' : ''
   }`
 
+/** Whether two seats name the same thing — not whether they are the same object. */
+export const sameSeat = (a: FlowSeat, b: FlowSeat): boolean =>
+  a.runtime === b.runtime &&
+  (a.model ?? null) === (b.model ?? null) &&
+  (a.effort ?? null) === (b.effort ?? null) &&
+  (a.thinking ?? false) === (b.thinking ?? false)
+
+/**
+ * Whether a seat can be written as its compact spec and read back as the same
+ * seat.
+ *
+ * The compact form splits a model off after `=` and an effort off after `/`,
+ * switches on `+`, so a runtime, model or effort that itself contains one of
+ * those characters would read back as a different seat while the write looked
+ * fine (`effort: 'high+thinking'` reads back as effort `high` with thinking
+ * on; `runtime: 'cursor=m'` as runtime `cursor`, model `m`). A regex naming
+ * the dangerous characters would have to be kept in step with `parseSeat` by
+ * hand; asking `parseSeat` itself, on what `seatSpec` just wrote, cannot drift
+ * from it. Shared by every writer of a seat — `agent-seating-file.ts`'s
+ * `written()` and `agent-files.ts`'s `seatLines` — so the same seat is judged
+ * the same way in `seating.json` and in an `AGENT.md`'s front matter.
+ */
+export const seatWritesCompactly = (seat: FlowSeat): boolean => {
+  const reread = parseSeat(seatSpec(seat))
+  return typeof reread !== 'string' && sameSeat(seat, reread)
+}
+
 const KINDS: readonly FlowRoleKind[] = ['agent', 'person', 'check']
-const PERMISSIONS: readonly FlowPermission[] = ['read', 'publish', 'merge']
+
+/**
+ * The permissions, written against the union rather than beside it: a record
+ * keyed by `FlowPermission` stops compiling the day a fourth one is added, the
+ * way `GIT_RULES` does, where a hand-kept list would go on compiling and go on
+ * refusing the new word — in two files, since `AGENT.md` reads the same field.
+ */
+const PERMISSION_WORDS: Readonly<Record<FlowPermission, true>> = { read: true, publish: true, merge: true }
+
+/** Whether a written word is a permission. Own keys only, so `toString` is not. */
+export const isPermission = (word: string): word is FlowPermission => Object.hasOwn(PERMISSION_WORDS, word)
 
 const readGuard = (value: unknown, at: string, problems: FlowProblem[]): FlowGuard | null => {
   if (value === null || value === undefined) return null
@@ -418,8 +514,8 @@ export const parseFlow = (source: string, fallbackName = 'Flow'): { flow: Flow |
       problems.push(problem('error', `${at}.kind`, `"${kind}" is not a kind — it is agent, person or check`))
       continue
     }
-    const permission = (asText(record['permission']) ?? 'read') as FlowPermission
-    if (!PERMISSIONS.includes(permission)) {
+    const permission = asText(record['permission']) ?? 'read'
+    if (!isPermission(permission)) {
       problems.push(
         problem('error', `${at}.permission`, `"${permission}" is not a permission — it is read, publish or merge`),
       )
@@ -894,13 +990,23 @@ export const dryRun = (
  * seems to ask for one of those is a card the seat is told to refuse rather
  * than interpret, because an unattended agent reading "merge it" is the
  * failure this exists to prevent.
+ *
+ * Every entry makes one exception to staying inside `{{repo}}`: a temporary
+ * folder of the seat's own, removed when it is done. Running something at
+ * another commit — a judge testing an attempt, a reviewer testing a branch
+ * that is not checked out — needs a worktree somewhere, and inside the shared
+ * folder it shows in `git status` there and the next `git add -A` stages it.
+ * The wider permissions carry the same clause, so each still allows
+ * everything a narrower one does. And every entry, `read` included, forbids
+ * deleting a branch or worktree the seat did not make: a seat allowed a
+ * worktree of its own is also told which ones are not its to clean up.
  */
 export const GIT_RULES: Readonly<Record<FlowPermission, string>> = {
-  read: '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration, never push, never merge, never reset or force anything, and never spawn a sub-agent or a background agent — each of those costs a request, and doing the work here costs nothing extra.',
+  read: '- Stay inside {{repo}}. Read nothing and write nothing outside it, but for a temporary folder of your own that you remove when you are done. Never edit another tool’s configuration, never push, never merge, never reset or force anything, and never delete a branch or worktree you did not make.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
   publish:
-    '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration, and never spawn a sub-agent or a background agent — each of those costs a request, and doing the work here costs nothing extra.\n- You publish. On a card that asks for it you may branch, commit, push **your own branch**, and open a pull request for it. You may not merge anything, may not push to or check out the default branch, may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Somebody else merges your work after it has been reviewed; that is not your step. If a card appears to ask for any of the verbs in this paragraph, do not interpret it generously — release it with blocked: true and say which verb you were asked for.',
+    '- Stay inside {{repo}}. Read nothing and write nothing outside it, but for a temporary folder of your own that you remove when you are done. Never edit another tool’s configuration.\n- You publish. On a card that asks for it you may branch, commit, push **your own branch**, and open a pull request for it. You may not merge anything, may not push to or check out the default branch, may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Somebody else merges your work after it has been reviewed; that is not your step. If a card appears to ask for any of the verbs in this paragraph, do not interpret it generously — release it with blocked: true and say which verb you were asked for.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
   merge:
-    '- Stay inside {{repo}}. Read nothing and write nothing outside it. Never edit another tool’s configuration, and never spawn a sub-agent or a background agent — each of those costs a request, and doing the work here costs nothing extra.\n- You publish and you merge. You may branch, commit, push your own branch, open a pull request, and merge one that a card asks you to merge. You may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Merge only what the card names, and only if it says so — never something you decide is ready.',
+    '- Stay inside {{repo}}. Read nothing and write nothing outside it, but for a temporary folder of your own that you remove when you are done. Never edit another tool’s configuration.\n- You publish and you merge. You may branch, commit, push your own branch, open a pull request, and merge one that a card asks you to merge. You may not reset, rebase onto, amend published history, or force anything, and may not delete a branch or worktree you did not make. Merge only what the card names, and only if it says so — never something you decide is ready.\n- Anything you hand to a sub-agent or a background agent is held to every rule above.',
 }
 
 /** What the standing order is filled with for one seat. */
@@ -1003,7 +1109,7 @@ export const orderVars = (
     role: role.id,
     outcomes: role.outcomes.join(', ') || 'nothing — leave outcome out',
     blockMs: String(waitFor(where.runtime, flow.wait) * 1000),
-    brief: role.order?.trim() || `You are the ${role.id}. The cards say the rest.`,
+    brief: legacyBrief(role),
     /* Read off the role's permission every time it is rendered, never stored
        beside the text: a seat re-armed after its turn died must come back with
        the permission it was seated for, and a publishing seat that comes back

@@ -63,6 +63,7 @@ const strip = (over: Partial<StripInput> = {}) =>
     runtimes: [],
     usage: [],
     accountsByRuntime: {},
+    accountPrefs: {},
     health: null,
     activeRuntime: null,
     sessionRuntime: null,
@@ -314,5 +315,53 @@ describe('two accounts, one agent', () => {
     expect(view.rest?.meters.map((meter) => meter.account)).toEqual(['work', 'personal'])
     // The token reads the agent by the account that works, not by the worst.
     expect(view.rest?.figure).toBe('50%')
+  })
+
+  it('uses an account pinned usage window for the anchor', () => {
+    const view = strip({
+      runtimes: [runtime('a', 'Agent A')],
+      accountsByRuntime: {
+        a: { accounts: [{ kind: 'oauth', label: 'me@example.com' }], signInMethods: [] },
+      } as StripInput['accountsByRuntime'],
+      accountPrefs: { 'a:oauth:me@example.com': { pinLaneId: 'weekly' } },
+      usage: [
+        report('a', [
+          lane({ id: 'session', label: 'Session', usedPercent: 90, windowMinutes: 300 }),
+          lane({ id: 'weekly', label: 'Weekly', usedPercent: 12 }),
+        ], { account: 'me@example.com' }),
+      ],
+      sessionRuntime: runtimeId('a'),
+    })
+    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('88%')
+  })
+})
+
+/*
+ * A report whose only figures are another sign-in's (#769): Antigravity's quota
+ * read through the separately signed-in `agy` CLI, every group spent. Its own
+ * lanes are empty, which is what this surface reads; the figures sit under
+ * `unverified`, where only the Dashboard card draws them.
+ */
+const OTHER_SIGN_IN = {
+  whose: 'agy CLI sign-in',
+  lanes: [
+    { id: 'gemini-weekly', label: 'Weekly', scope: 'Gemini Models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+    { id: '3p-weekly', label: 'Weekly', scope: 'Claude and GPT models', usedPercent: 100, windowMinutes: 10_080, resetsAt: null },
+  ],
+  reached: 'gemini-weekly',
+  fetchedAt: NOON,
+  staleAfterMs: 5 * 60_000,
+}
+
+describe("another sign-in's figures", () => {
+  it('put no meter on the agent in the header strip', () => {
+    const view = strip({
+      runtimes: [runtime('antigravity', 'Antigravity')],
+      accountsByRuntime: { antigravity: signedIn } as never,
+      usage: [report('antigravity', [], { unverified: OTHER_SIGN_IN } as Partial<UsageReport>)],
+      sessionRuntime: runtimeId('antigravity'),
+    })
+    expect(view.anchor?.kind).not.toBe('meter')
+    expect(JSON.stringify(view)).not.toMatch(/Gemini Models|0% left/)
   })
 })

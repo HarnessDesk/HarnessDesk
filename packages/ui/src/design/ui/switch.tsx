@@ -60,8 +60,8 @@ const switchTrack = cva(
          replace hard-coded, and 12px for the small pair. So the shapes are
          pixel-identical to what shipped. */
       size: {
-        default: 'h-5 w-[34px]',
-        sm: 'h-[18px] w-[30px]',
+        default: 'h-5 w-(--hd-toggle-width)',
+        sm: 'h-(--hd-toggle-height-sm) w-(--hd-toggle-width-sm)',
       },
       on: {
         true: 'bg-(--hd-toggle-on)',

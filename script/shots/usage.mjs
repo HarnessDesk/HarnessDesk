@@ -19,7 +19,7 @@
  * with no window at all, and one plain error. A dashboard of six identical
  * healthy bars photographs as a mock-up.
  */
-import { CAST, PRIMARY, SHANE, OLIVIA } from './cast.mjs'
+import { CAST, PRIMARY, SHANE, OLIVIA, rigRuntimeId } from './cast.mjs'
 
 const MINUTE = 60_000
 const ago = (minutes) => Date.now() - minutes * MINUTE
@@ -140,6 +140,37 @@ export const REPORTS = [
     error: null,
   },
   {
+    // Figures for another sign-in. Antigravity's quota is read through the
+    // `agy` CLI, which signs in apart from the ACP server the desk runs, so the
+    // host files it under `unverified` and never in `lanes`: the card draws it
+    // under that sign-in's name, while the chip, the rail row and every
+    // readiness surface read the agent's own, empty, lanes (#769). The shape is
+    // the one measured on agy 1.2.6 — a weekly limit per group of models, the
+    // Gemini one spent and the Claude and GPT one untouched, whose reset is no
+    // date at all because an untouched window has not started.
+    runtime: 'antigravity',
+    account: 'Signed in',
+    plan: null,
+    lanes: [],
+    credits: null,
+    spend: null,
+    reached: null,
+    source: { kind: 'api', label: 'from the agy CLI' },
+    fetchedAt: ago(3),
+    staleAfterMs: 300_000,
+    error: null,
+    unverified: {
+      whose: 'agy CLI sign-in',
+      lanes: [
+        lane('gemini-weekly', 'Weekly', 100, 10_080, 8_640, { scope: 'Gemini Models', usageKnown: true }),
+        { ...lane('3p-weekly', 'Weekly', 0, 10_080, 0, { scope: 'Claude and GPT models', usageKnown: true }), resetsAt: null },
+      ],
+      reached: 'gemini-weekly',
+      fetchedAt: ago(3),
+      staleAfterMs: 300_000,
+    },
+  },
+  {
     runtime: 'copilot',
     account: SHANE.email,
     plan: null,
@@ -158,7 +189,7 @@ export const REPORTS = [
 
 /** Only report on agents the desk actually has, so a rename cannot orphan a card. */
 const known = new Set(CAST.map((one) => one.id))
-export const USAGE = REPORTS.filter((one) => known.has(one.runtime))
+export const USAGE = REPORTS.filter((one) => known.has(one.runtime)).map(one => ({ ...one, runtime: rigRuntimeId(one.runtime) }))
 
 /**
  * The token ledger, fabricated — and this one is not optional.
@@ -203,8 +234,8 @@ export const LEDGER = {
   totalTokens: TOTAL_TOKENS,
   provenance: 'priced',
   coverage: { priced: 118, unpriced: 6, unmetered: 0, estimated: 9, daysCovered: 30, daysRequested: 30 },
-  rows: LEDGER_ROWS,
-  daily: DAILY,
+  rows: LEDGER_ROWS.map(row => ({ ...row, key: rigRuntimeId(row.key), runtime: rigRuntimeId(row.runtime) })),
+  daily: DAILY.map(row => ({ ...row, runtime: rigRuntimeId(row.runtime) })),
   scannedAt: Date.now() - 12 * MINUTE,
 }
 

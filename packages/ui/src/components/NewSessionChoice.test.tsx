@@ -2,17 +2,22 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import type { AgentEntry, FlowEntry, FlowExecution, FlowPreview, SeatPlan } from '@harnessdesk/protocol'
+
+import { ShellProvider, type ShellActions } from '../panels/views'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { NewSessionChoice } from './NewSessionChoice'
 
 /**
- * The entry point for the collaborative half of the product.
+ * The entry point for the whole product: what kind of thing you are
+ * starting, first, and only then — for a Session — who runs it.
  *
- * "New session" made a solo draft and a Room appeared later, once agents
- * happened to be in the folder — so somebody who came to run three agents on
- * one repository had no way to say so, and the Room was something you
- * discovered rather than chose.
+ * Every created Agent used to lead this dialog as its own bordered row, so a
+ * roster of more than a couple buried "A session" — what ⌘N does — under a
+ * scrolling column of identical tiles. An Agent is now an answer to "who
+ * runs the session," reached from a "Run as" picker, not a fifth kind of
+ * thing to start.
  */
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -30,253 +35,406 @@ afterEach(() => {
 })
 
 const rig = (
-  history: readonly { cwd: string; archived?: boolean; repo?: unknown }[] = [],
-  over: { workspace?: unknown; teams?: Map<string, unknown> } = {},
+  over: { workspace?: unknown } = {},
+  agents: readonly AgentEntry[] = [],
+  plans: ReadonlyMap<string, SeatPlan> = new Map(),
 ) => {
-  const open = over.workspace ?? { path: '/repo', name: 'repo', lastOpenedAt: 1 }
+  const open = over.workspace === undefined ? { path: '/repo', name: 'repo', lastOpenedAt: 1 } : over.workspace
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
     workspace: open,
-    workspaces: [open],
-    history,
-    ...(over.teams ? { teams: over.teams } : {}),
+    workspaces: open ? [open] : [],
+    agents,
+    agentPlans: plans,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     newDraft: vi.fn(),
-    openTeamRoom: vi.fn(),
-    createRoom: vi.fn().mockResolvedValue('r1'),
-    /* A project with no flows: the picker says so and the dialog is the
-       dialog it has always been, which is what every test below asserts. */
-    listFlows: vi.fn().mockResolvedValue([]),
-    readFlow: vi.fn(),
-    dryRunFlow: vi.fn(),
-    startFlow: vi.fn(),
+    createGoal: vi.fn().mockResolvedValue({ goal: { id: 'g1' } }),
+    openGoal: vi.fn(),
+    loadAgents: vi.fn(async () => {}),
+    startAsAgent: vi.fn(async () => null),
+    showView: vi.fn(),
+    flowGeneration: vi.fn(() => 0),
+    flowCatalog: vi.fn(async () => []),
+    agentsIn: vi.fn(async () => []),
+    flowSource: vi.fn(async () => ''),
+    previewFlow: vi.fn(async () => null),
+    startFlowGoal: vi.fn(),
   } as unknown as AppStore
   return { store }
+}
+
+const shell: ShellActions = {
+  chooseProject: vi.fn(),
+  signIn: vi.fn(),
+  openUsage: vi.fn(),
+  openRuntimes: vi.fn(),
+  openAgents: vi.fn(),
 }
 
 const render = (store: AppStore, onClose = vi.fn()): typeof onClose => {
   act(() => {
     root.render(
-      <StoreProvider store={store}>
-        <NewSessionChoice onClose={onClose} />
-      </StoreProvider>,
+      <ShellProvider actions={shell}>
+        <StoreProvider store={store}>
+          <NewSessionChoice onClose={onClose} />
+        </StoreProvider>
+      </ShellProvider>,
     )
   })
   return onClose
 }
 
-const choice = (name: string): HTMLButtonElement => {
-  const found = [...document.querySelectorAll('button')].find((one) =>
-    one.textContent?.includes(name),
+const choose = (select: HTMLSelectElement, value: string): void => {
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, value)
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+/** The kind row named `name` — "Session", "Goal", "Flow" or "Team". */
+const kindRow = (name: string): HTMLButtonElement => {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((one) =>
+    one.textContent?.startsWith(name),
   )
-  if (!found) throw new Error(`no choice named ${name}`)
+  if (!found) throw new Error(`no kind row named ${name}`)
   return found
 }
 
-it('offers both shapes of work, and starting a session is still a draft', () => {
+/** A footer or dialog button by its exact label. */
+const button = (label: string): HTMLButtonElement => {
+  const found = [...document.querySelectorAll('button')].find((one) => one.textContent === label)
+  if (!found) throw new Error(`no button labelled ${label}`)
+  return found
+}
+
+const runAsSelect = (): HTMLSelectElement => document.querySelector('select')!
+
+const reviewer = (id: string, name: string): AgentEntry => ({
+  id,
+  origin: 'builtin',
+  path: `/app/agents/${id}/AGENT.md`,
+  digest: 'd',
+  shadows: [],
+  problems: [],
+  definition: {
+    id,
+    name,
+    description: `${name}.`,
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
+    answers: [],
+    produces: [],
+    skills: [],
+    mcp: [],
+    prefer: [{ runtime: 'claude-code' }],
+    brief: 'Review.',
+  },
+})
+
+const PLANS = new Map<string, SeatPlan>([
+  [
+    'code-reviewer',
+    {
+      id: 'code-reviewer',
+      from: 'prefer',
+      winner: 0,
+      blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
+      candidates: [{ seat: { runtime: 'claude-code' }, label: 'Claude', runtimeName: 'Claude', state: 'taken', reason: null, fix: null }],
+    },
+  ],
+  [
+    'judge',
+    {
+      id: 'judge',
+      from: 'prefer',
+      winner: null,
+      blocked: null,
+      ceiling: null,
+      candidates: [
+        { seat: { runtime: 'cursor' }, label: 'Cursor', runtimeName: 'Cursor', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
+      ],
+    },
+  ],
+])
+
+it('opens on the Session row focused, selected, and starts a plain draft on Enter', () => {
   const { store } = rig()
   const onClose = render(store)
 
-  act(() => choice('A session').click())
+  const session = kindRow('Session')
+  expect(document.activeElement).toBe(session)
+  expect(session.getAttribute('aria-checked')).toBe('true')
+  expect(button('Start')).toBeTruthy()
+  expect(document.querySelector('select')).toBeNull()
+
+  act(() => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
   expect(store.newDraft).toHaveBeenCalledTimes(1)
-  expect(store.openTeamRoom).not.toHaveBeenCalled()
+  expect(store.startAsAgent).not.toHaveBeenCalled()
   expect(onClose).toHaveBeenCalled()
 })
 
-it('asks for the room’s name, and creates it under the open project', async () => {
-  /* Picking "A room" used to call `openTeamRoom(root)`, which opened a surface
-     keyed by the folder that had never been created: nothing was written,
-     nothing appeared in the tree, and the next launch had no memory of it. A
-     project holds several rooms, so the folder cannot name one — and an
-     unnamed room is a row nobody can tell from the row above it. */
+it('the primary label follows the chosen kind, and Goal opens Goal creation under the open project', async () => {
   const { store } = rig()
   const onClose = render(store)
 
-  act(() => choice('A room').click())
-  expect(store.createRoom).not.toHaveBeenCalled()
+  act(() => kindRow('Goal').click())
+  expect(button('Continue')).toBeTruthy()
+  act(() => button('Continue').click())
 
-  const field = document.querySelector<HTMLInputElement>('[aria-label="Room name"]')
-  if (!field) throw new Error('the name was never asked for')
+  const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
-      field,
-      'Checkout rewrite',
-    )
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the release')
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  act(() => choice('Create room').click())
-  await act(async () => {
-    await Promise.resolve()
-  })
+  act(() => button('Create Goal').click())
+  await act(async () => {})
 
-  expect(store.createRoom).toHaveBeenCalledWith('/repo', 'Checkout rewrite')
+  expect(store.createGoal).toHaveBeenCalledWith({ root: '/repo', sentence: 'Ship the release', checkout: 'shared' })
+  expect(store.openGoal).toHaveBeenCalledWith('g1')
   expect(store.newDraft).not.toHaveBeenCalled()
   expect(onClose).toHaveBeenCalled()
 })
 
-it('a room made from a worktree is keyed by the project it belongs to', async () => {
-  /* The count above already used the project root; this used `workspace.path`
-     directly. From a linked worktree the two disagreed, and the room was made
-     under a folder `SessionTree` never looks up — present on disk, absent
-     from its own project's tree the moment the dialog closed. */
+it('a double click on a kind row answers and proceeds in one gesture', () => {
   const { store } = rig()
-  const snapshot = store.getSnapshot() as unknown as { workspace: unknown }
-  snapshot.workspace = {
-    path: '/repo/.worktrees/feature',
-    name: 'feature',
-    lastOpenedAt: 1,
-    repo: { root: '/repo', worktree: true },
+  render(store)
+
+  act(() => kindRow('Goal').click())
+  act(() => kindRow('Goal').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })))
+  expect(document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')).not.toBeNull()
+})
+
+it('Goal, Flow and Team stay listed but disabled without an open folder, and say why', () => {
+  const { store } = rig({ workspace: null })
+  render(store)
+
+  for (const name of ['Goal', 'Flow', 'Team']) {
+    const row = kindRow(name)
+    expect(row.disabled, `${name} should be disabled without a folder`).toBe(true)
+    expect(row.textContent).toContain('Open a folder to start one.')
   }
-  render(store)
+  expect(kindRow('Session').disabled).toBe(false)
 
-  act(() => choice('A room').click())
-  const field = document.querySelector<HTMLInputElement>('[aria-label="Room name"]')!
+  // Session still needs no folder, and Enter still starts a plain draft.
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Auth')
-    field.dispatchEvent(new Event('input', { bubbles: true }))
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
   })
-  act(() => choice('Create room').click())
-  await act(async () => {
-    await Promise.resolve()
-  })
-
-  expect(store.createRoom).toHaveBeenCalledWith('/repo', 'Auth')
+  expect(store.newDraft).toHaveBeenCalledTimes(1)
 })
 
-it('will not create a room with no name', () => {
-  const { store } = rig()
-  render(store)
-  act(() => choice('A room').click())
-  expect(choice('Create room').disabled).toBe(true)
-})
-
-it('keeps the name and says why when the host will not make the room', async () => {
-  const { store } = rig()
-  ;(store.createRoom as ReturnType<typeof vi.fn>).mockRejectedValue(
-    new Error('That project is not open any more.'),
-  )
+it('lists every in-force Agent under "Run as", and starting one runs the session as it', () => {
+  const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer'), reviewer('judge', 'Judge')], PLANS)
   const onClose = render(store)
 
-  act(() => choice('A room').click())
-  const field = document.querySelector<HTMLInputElement>('[aria-label="Room name"]')!
+  const select = runAsSelect()
+  const optionLabels = [...select.options].map((one) => one.textContent)
+  expect(optionLabels).toContain('Plain session')
+  expect(optionLabels).toContain('Code reviewer')
+
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Auth')
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'code-reviewer')
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(document.body.textContent).toContain('It would sit on Claude.')
+
+  act(() => button('Start').click())
+  expect(store.startAsAgent).toHaveBeenCalledWith('code-reviewer')
+  expect(store.newDraft).not.toHaveBeenCalled()
+  expect(onClose).toHaveBeenCalled()
+})
+
+it('a refused Agent stays choosable, is marked in the list, says why once under it, and still starts to show why', () => {
+  const { store } = rig({}, [reviewer('judge', 'Judge')], PLANS)
+  render(store)
+
+  const select = runAsSelect()
+  const judgeOption = [...select.options].find((one) => one.value === 'judge')!
+  expect(judgeOption.textContent).toContain('can’t start here')
+  expect(judgeOption.textContent).not.toContain('Cursor is signed out')
+
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'judge')
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(document.body.textContent?.split('Cursor is signed out').length).toBe(2)
+
+  act(() => button('Start').click())
+  expect(store.startAsAgent).toHaveBeenCalledWith('judge')
+})
+
+it('"Run as" stays off the page when no Agent is in force', () => {
+  const { store } = rig()
+  render(store)
+  expect(document.querySelector('select')).toBeNull()
+})
+
+it('"Manage Agents…" closes the dialog and opens the Agents window, not a session\'s side view', () => {
+  vi.mocked(shell.openAgents).mockClear()
+  const { store } = rig()
+  const onClose = render(store)
+  act(() => button('Manage Agents…').click())
+  expect(shell.openAgents).toHaveBeenCalledTimes(1)
+  expect(store.showView).not.toHaveBeenCalled()
+  expect(onClose).toHaveBeenCalled()
+})
+
+/*
+ * #870: focusing the selected kind must never scroll the dialog, and a later
+ * render must never pull focus back to it once a person has moved on.
+ */
+it('opens focused on Session without scrolling, and leaves focus where a person moved it', () => {
+  const spy = vi.spyOn(HTMLElement.prototype, 'focus')
+  const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
+  render(store)
+  expect(document.activeElement).toBe(kindRow('Session'))
+  const call = spy.mock.calls.find(([options]) => (options as FocusOptions | undefined)?.preventScroll === true)
+  expect(call, `focus() was called as: ${JSON.stringify(spy.mock.calls)}`).toBeDefined()
+  spy.mockRestore()
+
+  const select = runAsSelect()
+  act(() => select.focus())
+  render(store)
+  expect(document.activeElement).toBe(select)
+})
+
+it('Enter with Agents listed still starts a plain session while Plain session is chosen', () => {
+  const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
+  render(store)
+  act(() => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  expect(store.newDraft).toHaveBeenCalledTimes(1)
+  expect(store.startAsAgent).not.toHaveBeenCalled()
+})
+
+it('an Agent that leaves the roster is not started behind the dialog\'s back', () => {
+  const agent = reviewer('code-reviewer', 'Code reviewer')
+  const first = rig({}, [agent, reviewer('judge', 'Judge')], PLANS)
+  render(first.store)
+  choose(runAsSelect(), 'code-reviewer')
+
+  const later = rig({}, [reviewer('judge', 'Judge')], PLANS)
+  render(later.store)
+  expect(runAsSelect().value).toBe('plain')
+  act(() => button('Start').click())
+  expect(later.store.startAsAgent).not.toHaveBeenCalled()
+  expect(later.store.newDraft).toHaveBeenCalledTimes(1)
+})
+
+it('an Agent whose seat check has not come back says what it does, never "undefined"', () => {
+  const { store } = rig({}, [reviewer('fresh', 'Fresh reviewer')], new Map())
+  render(store)
+  choose(runAsSelect(), 'fresh')
+  expect(document.body.textContent).toContain('Fresh reviewer.')
+  expect(document.body.textContent).not.toContain('undefined')
+  expect(document.body.textContent).not.toContain('null')
+})
+
+it('a kind that needs a folder falls back to Session when the folder goes away', () => {
+  const withFolder = rig()
+  render(withFolder.store)
+  act(() => kindRow('Goal').click())
+  expect(button('Continue')).toBeTruthy()
+
+  const noFolder = rig({ workspace: null })
+  render(noFolder.store)
+  expect(kindRow('Session').getAttribute('aria-checked')).toBe('true')
+  act(() => button('Start').click())
+  expect(noFolder.store.newDraft).toHaveBeenCalledTimes(1)
+})
+
+/*
+ * A flow starts exactly one Goal through `flow/start-goal`: no bare Goal is
+ * ever made first and a flow started into it after, which is the old room
+ * path this dialog no longer takes.
+ */
+
+const FLOW: FlowEntry = { id: 'fix', origin: 'project', path: '.harnessdesk/flows/fix.yml', name: 'Fix', description: null, format: 'agents', problem: null, shadows: [] }
+const FLOW_PREVIEW: FlowPreview = {
+  token: 'tok-1',
+  compiled: { document: { format: 'agents', flow: { version: 2, name: 'Fix', inputs: [], roles: [], rules: [], seed: { role: 'fixer', title: 'Go' }, messaging: 'board-only', wait: 240 } }, bindings: [], problems: [] },
+  seats: [], commands: [], guards: [], messaging: 'board-only', problems: [],
+}
+const FLOW_EXECUTION: FlowExecution = {
+  version: 2, id: 'run-1', goal: 'goal-1', document: FLOW_PREVIEW.compiled.document, state: 'running', rounds: [], operations: [], legacyRun: null, reason: null,
+}
+
+it('flow starts exactly one Goal through its host operation', async () => {
+  const { store } = rig()
+  vi.mocked(store.flowCatalog).mockResolvedValue([FLOW])
+  vi.mocked(store.flowSource).mockResolvedValue('version: 2\nname: Fix\n')
+  vi.mocked(store.previewFlow).mockResolvedValue(FLOW_PREVIEW)
+  vi.mocked(store.startFlowGoal).mockResolvedValue(FLOW_EXECUTION)
+  const onClose = render(store)
+
+  act(() => kindRow('Flow').click())
+  act(() => button('Continue').click())
+  await act(async () => {})
+  const flowSelect = document.querySelector('select') as HTMLSelectElement
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(flowSelect, 'fix')
+    flowSelect.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => {})
+
+  const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the fix')
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  act(() => choice('Create room').click())
+  act(() => button('Start').click())
+  await act(async () => {})
+
+  expect(store.startFlowGoal).toHaveBeenCalledWith({ root: '/repo', source: 'version: 2\nname: Fix\n', token: 'tok-1', sentence: 'Ship the fix', vars: {} })
+  expect(store.createGoal).not.toHaveBeenCalled()
+  expect(store.openGoal).toHaveBeenCalledWith('goal-1')
+  expect(onClose).toHaveBeenCalled()
+})
+
+/*
+ * An old-format flow cannot start a new Goal — only an Agent-format flow
+ * can — so its Start stays greyed with the reason beside it, never a Start
+ * that fails after it is pressed. Even a host that still hands the old
+ * format a preview token does not light it.
+ */
+it('an old-format flow greys Start and says to update it, rather than a Start that fails', async () => {
+  const { store } = rig()
+  const LEGACY: FlowEntry = { ...FLOW, id: 'old', name: 'Old', format: 'legacy' }
+  vi.mocked(store.flowCatalog).mockResolvedValue([LEGACY])
+  vi.mocked(store.flowSource).mockResolvedValue('name: Old\nroles:\n  w: { kind: agent, seat: fake, order: Work }\nseed: { role: w, title: W }\n')
+  vi.mocked(store.previewFlow).mockResolvedValue({
+    ...FLOW_PREVIEW,
+    token: 'tok-legacy',
+    compiled: { document: { format: 'legacy', flow: { name: 'Old', roles: [], rules: [], inputs: [], seed: { role: 'w', title: 'W' }, wait: 240 } }, bindings: [], problems: [] },
+  } as unknown as FlowPreview)
+  render(store)
+
+  act(() => kindRow('Flow').click())
+  act(() => button('Continue').click())
+  await act(async () => {})
+  const flowSelect = document.querySelector('select') as HTMLSelectElement
   await act(async () => {
-    await Promise.resolve()
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(flowSelect, 'old')
+    flowSelect.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => {})
+  const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the fix')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
   })
 
-  expect(onClose).not.toHaveBeenCalled()
-  expect(container.textContent).toContain('not open any more')
-  expect(
-    document.querySelector<HTMLInputElement>('[aria-label="Room name"]')?.value,
-  ).toBe('Auth')
-})
-
-it('counts what the sidebar counts when it is filtered to one agent', () => {
-  // `SessionTree` filters history by `listPrefs.agent` *before* grouping. This
-  // dialog grouped the whole history, so with the list narrowed to one agent
-  // the tree said 1 and the option beneath it said 2.
-  const snapshot = {
-    ...emptySnapshot(),
-    status: 'open',
-    workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
-    workspaces: [{ path: '/repo' }],
-    listPrefs: { ...emptySnapshot().listPrefs, agent: 'codex' },
-    runtimes: [
-      { id: 'codex', presentation: { name: 'Codex' }, capabilities: {} },
-      { id: 'cursor', presentation: { name: 'Cursor' }, capabilities: {} },
-    ],
-    history: [
-      { cwd: '/repo', runtime: 'codex', repo: { root: '/repo' } },
-      { cwd: '/repo', runtime: 'cursor', repo: { root: '/repo' } },
-    ],
-  } as unknown as AppSnapshot
-  const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => snapshot,
-    newDraft: vi.fn(),
-    openTeamRoom: vi.fn(),
-  } as unknown as AppStore
-  render(store)
-  expect(choice('A room').textContent).toContain('1 conversation is already')
-})
-
-it('counts a subfolder the way the sidebar folds it', () => {
-  // `groupByProject` folds a repository root, its subfolders and its worktrees
-  // into one project. A path-prefix filter does not: with `/repo/packages/ui`
-  // open, the sidebar counted two and this dialog counted one, directly
-  // beneath it.
-  const snapshot = {
-    ...emptySnapshot(),
-    status: 'open',
-    workspace: { path: '/repo/packages/ui', name: 'ui', lastOpenedAt: 1 },
-    workspaces: [{ path: '/repo/packages/ui' }],
-    history: [
-      { cwd: '/repo/packages/ui', repo: { root: '/repo' } },
-      { cwd: '/repo', repo: { root: '/repo' } },
-    ],
-  } as unknown as AppSnapshot
-  const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => snapshot,
-    newDraft: vi.fn(),
-    openTeamRoom: vi.fn(),
-  } as unknown as AppStore
-  render(store)
-  expect(choice('A room').textContent).toContain('2 conversations are already')
-})
-
-it('says how many conversations are already in the folder', () => {
-  // A room is not created — it is the board this folder already has — so the
-  // option describes what is there rather than promising to make something.
-  // Counted the way the sidebar counts, or the dialog contradicts the tree
-  // directly above it — which it did, saying three over a folder marked two.
-  const { store } = rig([
-    { cwd: '/repo' },
-    { cwd: '/repo/packages/ui' },
-    { cwd: '/repo', archived: true },
-    { cwd: '/elsewhere' },
-  ])
-  render(store)
-  expect(choice('A room').textContent).toContain('2 conversations are already')
-})
-
-it('cannot open a room with no folder open', () => {
-  const snapshot = { ...emptySnapshot(), status: 'open' } as unknown as AppSnapshot
-  const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => snapshot,
-    newDraft: vi.fn(),
-    openTeamRoom: vi.fn(),
-  } as unknown as AppStore
-  render(store)
-  expect(choice('A room').disabled).toBe(true)
-})
-
-it('counts the rooms a project already has when the folder you have open is a subfolder', () => {
-  /* `projectRootOf` names the subfolder, the host keys the room it makes at
-     the repository above it, and comparing those as strings told somebody
-     standing in `packages/ui` that their project had no rooms — then offered
-     to make a second one with no way to tell it from the first. */
-  const sub = '/repo/packages/ui'
-  const repo = { root: '/repo', worktree: false }
-  const { store } = rig([{ cwd: sub, repo }], {
-    workspace: { path: sub, name: 'ui', lastOpenedAt: 1, repo },
-    teams: new Map([
-      ['r1', { id: 'r1', name: 'Checkout rewrite', root: '/repo', members: [], intents: [], channel: [] }],
-    ]),
-  })
-  render(store)
-  act(() => choice('A room').click())
-  const note = [...container.querySelectorAll('p')].find((one) =>
-    one.textContent?.includes('room'),
-  )
-  expect(note?.textContent).toContain('One room already in this project: Checkout rewrite')
+  const start = button('Start')
+  expect(start.disabled).toBe(true)
+  expect(document.body.textContent).toContain('Update it from the project’s Flows list before it can start a Goal here')
+  act(() => start.click())
+  await act(async () => {})
+  expect(store.startFlowGoal).not.toHaveBeenCalled()
 })

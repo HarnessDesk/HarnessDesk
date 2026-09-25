@@ -1,0 +1,10 @@
+/* The buttons at the right of a row that has more than one. */
+.actions {
+  display: flex;
+  gap: var(--hd-space-1);
+}
+
+/* Under Remove's confirm text; the box and its words are Checkbox's own label. */
+.clearSeats {
+  margin-top: var(--hd-space-3);
+}

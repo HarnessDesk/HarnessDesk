@@ -1,380 +1,84 @@
-/*
- * Builds on `@zed-industries/claude-code-acp` and `@agentclientprotocol/sdk`
- * (Apache 2.0, Copyright Zed Industries, Inc. and contributors).
- * `HarnessDeskClaudeAgent` extends their `ClaudeAcpAgent`; changes are stated
- * in THIRD_PARTY_NOTICES.md. Licence: licenses/Apache-2.0.txt.
- */
-import { closeSync, createReadStream, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
-import { open as openFile, stat } from 'node:fs/promises'
+import { closeSync, fstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { createInterface } from 'node:readline'
 import { dirname, join } from 'node:path'
-
-import { AgentSideConnection, RequestError, ndJsonStream } from '@agentclientprotocol/sdk'
-import type {
-  InitializeRequest,
-  InitializeResponse,
-  ListSessionsRequest,
-  ListSessionsResponse,
-  LoadSessionRequest,
-  LoadSessionResponse,
-  NewSessionRequest,
-  NewSessionResponse,
-  PromptRequest,
-  PromptResponse,
-  SessionConfigOption,
-  SessionNotification,
-  SetSessionConfigOptionRequest,
-  SetSessionConfigOptionResponse,
-  SetSessionModelRequest,
-  SetSessionModelResponse,
-  Usage,
+import { mkdirSync, rmSync } from 'node:fs'
+import {
+  agent as acpAgent,
+  methods,
+  ndJsonStream,
+  RequestError,
+  type AgentContext,
+  type InitializeRequest,
+  type InitializeResponse,
+  type LoadSessionRequest,
+  type LoadSessionResponse,
+  type NewSessionRequest,
+  type NewSessionResponse,
+  type SessionConfigOption,
+  type SessionNotification,
+  type SetSessionConfigOptionRequest,
+  type SetSessionConfigOptionResponse,
 } from '@agentclientprotocol/sdk'
-import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@zed-industries/claude-code-acp'
-import { createMcpServer } from '@zed-industries/claude-code-acp/dist/mcp-server.js'
-import { SettingsManager } from '@zed-industries/claude-code-acp/dist/settings.js'
-import { acpToolNames, createPostToolUseHook, createPreToolUseHook } from '@zed-industries/claude-code-acp/dist/tools.js'
-import { Pushable } from '@zed-industries/claude-code-acp/dist/utils.js'
-import { query, type CanUseTool, type PermissionMode, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { randomUUID } from 'node:crypto'
+import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
 
-import { answerFor, answeredInput, permissionRequestFor, questionCallId, questionsOf, questionTitled } from './ask-user.js'
-
-import { DelegationRegistry } from './delegation.js'
-import {
-  DELEGATION_CAPABILITY,
-  DELEGATION_LIST,
-  DELEGATION_NOTIFICATION,
-  type BridgeDelegation,
-} from './delegation-wire.js'
-import { TaskRegistry, type BridgeTask } from './tasks.js'
-import {
-  SESSION_DELETE,
-  SESSION_DELETE_CAPABILITY,
-  TASKS_CAPABILITY,
-  TASKS_CLEAR,
-  TASKS_LIST,
-  TASKS_NOTIFICATION,
-  TASKS_STOP,
-} from './tasks-wire.js'
 import { sessionFiles, trash } from './store.js'
+import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
+import { SESSION_DELETE, SESSION_DELETE_CAPABILITY, TASKS_CAPABILITY, TASKS_CLEAR, TASKS_LIST, TASKS_NOTIFICATION, TASKS_STOP } from './tasks-wire.js'
+import { DelegationRegistry } from './delegation.js'
+import { childEnvironment, environmentAck, environmentIn } from './lane-environment.js'
+import { TaskRegistry } from './tasks.js'
+import {
+  ATTACHMENT_CAPABILITY_VALUE,
+  ATTACHMENT_RECEIPT,
+  ATTACHMENTS_CAPABILITY,
+  attachmentOptions,
+  attachmentReceipt,
+  decodeAttachmentInput,
+  type AttachmentInput,
+  type StagedAttachments,
+} from './attachments.js'
 
-/**
- * `claude-acp` — Claude Code over ACP, with the controls the agent declares.
- *
- * `@zed-industries/claude-code-acp` speaks ACP for Claude Code and is kept as
- * is; this class sits on top of it and forwards what it drops — the session
- * controls Claude Code has and ACP has nowhere to put:
- *
- * - **Reasoning effort.** Claude Code reports, per model, which levels it
- *   supports (`supportedEffortLevels` on the SDK's `ModelInfo` — low,
- *   medium, high, xhigh, max today; none on Haiku), and the bridge's model
- *   list keeps only id, name and description. The levels become a
- *   `thought_level` config option, and ride each model in `_meta` so a
- *   client's catalogue can show them per model rather than per session.
- * - **Auto-compact.** Where Claude Code compacts a conversation that fills
- *   its window: automatic, or a size between 100k and 1M tokens.
- *
- * Setting one uses Claude Code's own mechanisms, never its settings file:
- *
- * - A session created with a value is spawned with the flag (the bridge
- *   merges `_meta.claudeCode.options` into the SDK call; `--autocompact`
- *   travels as `extraArgs`, which is the SDK's own passthrough).
- * - Changing it on a session with history re-spawns the process with
- *   `--resume` and the new flags; Claude continues the conversation. No turn
- *   is spent, nothing appears in the transcript.
- * - Changing it on a session with no history yet cannot resume (nothing is
- *   persisted until the first turn), so it is applied at the first prompt
- *   through Claude's own command — `/effort high`, `/autocompact 500k` —
- *   which shows once as a line of the agent's in that turn and costs
- *   nothing.
- * - `default` means "no flag": Claude Code applies its own settings.
- *
- * What was chosen is remembered per session in `CLAUDE_ACP_STATE_DIR`
- * (`~/.harnessdesk/claude-acp`), so a session loaded after the bridge was
- * restarted comes back where it was left, not silently at the default.
- */
-
+const DEFAULT = 'default'
 const EFFORT_OPTION_ID = 'effort'
 const AUTOCOMPACT_OPTION_ID = 'autocompact'
 const OUTPUT_STYLE_OPTION_ID = 'output_style'
-const DEFAULT = 'default'
-
-/** Display names for the levels Claude has shipped; anything else is shown by its id. */
-const LABELS: Readonly<Record<string, string>> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra high',
-  max: 'Max',
-}
-
-/**
- * Where Claude Code compacts. The CLI takes `auto` or a size between 100k
- * and 1M (`--autocompact <auto|tokens>`), so these are its own values, and
- * the sizes offered are the round ones inside that range.
- */
-const AUTOCOMPACT_CHOICES: readonly { readonly value: string; readonly name: string; readonly description?: string }[] = [
+const INSTRUCTIONS_CAPABILITY = 'instructions'
+const CLAUDE_CONFIG_DIR = process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude')
+const TITLE_WINDOW = 512 * 1024
+const NOTICE_LIMIT = 300
+const LABELS: Readonly<Record<string, string>> = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
+const AUTOCOMPACT_CHOICES = [
   { value: DEFAULT, name: 'Default', description: "Claude Code's own setting for this project." },
   { value: 'auto', name: 'Automatic', description: 'Claude Code decides when to compact.' },
   { value: '100k', name: '100k' },
   { value: '200k', name: '200k' },
   { value: '500k', name: '500k' },
   { value: '1m', name: '1M' },
-]
-
-interface SdkModel {
-  readonly value: string
-  readonly supportedEffortLevels?: readonly string[]
-}
-
-interface SessionState {
-  /** The levels the agent declared for the session's model. */
-  levels: readonly string[]
-  /** The output styles the agent declared for this project, `default` included. */
-  styles: readonly string[]
-  /** What each control shows — its value, or `default`. */
-  values: Record<string, string>
-  /** What the running process was spawned with, per control. */
-  spawned: Record<string, string>
-  /** True once a prompt has run: the conversation exists, so `--resume` can carry it. */
-  prompted: boolean
-  /** Copied from `session/new` so a re-spawn asks for the same things. */
-  readonly cwd: string
-  readonly mcpServers: NewSessionRequest['mcpServers']
-  readonly meta: Record<string, unknown> | null | undefined
-  readonly modelId: string | null
-  abort: AbortController
-}
-
-/** Marks a query this bridge is already pumping; see `#observe`. */
-const PUMPED = Symbol('harnessdesk.pumped')
-
-type Sessions = Record<
-  string,
-  {
-    query: {
-      initializationResult(): Promise<{
-        models: readonly SdkModel[]
-        output_style?: string
-        available_output_styles?: readonly string[]
-      }>
-      next(...args: unknown[]): Promise<IteratorResult<SdkMessage, unknown>>
-      return?: () => Promise<unknown>
-      /** Ends one background task. Present from SDK 0.2.x; absent is survivable. */
-      stopTask?: (taskId: string) => Promise<void>
-    }
-    input: { end(): void }
-  }
->
-
-/**
- * Where Claude Code keeps its transcripts, and how it spells a cwd as a
- * folder there. The base bridge has both and exports neither, so they are
- * reproduced — a copy of two lines, against a deep import of its internals.
- */
-const CLAUDE_CONFIG_DIR = process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude')
-const encodeProjectPath = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, '-')
-
-/**
- * How much of a transcript's end is read looking for its name. Claude Code
- * appends the title entries throughout a session, so the current pair is at
- * the tail; transcripts here reach 138MB, and the base bridge already reads
- * every one of them whole to find the first line.
- */
-const TITLE_WINDOW = 512 * 1024
-
-/**
- * How much of a finished background task's output rides on its row. The tail
- * of a long log is the half that says how it went; a panel is not a viewer
- * for the rest, and the file is still on disk for anything that is.
- */
-const TASK_OUTPUT_CAP = 64 * 1024
-
-/**
- * How long the bridge keeps trying to read a finished task's output before
- * it stops asking. The notification can name a file a moment before the
- * file is there to read — a one-shot read then leaves the card saying
- * nothing was kept, for output that lands a beat later. Each miss waits
- * twice as long as the last; six misses is about sixteen seconds, after
- * which the file is not coming.
- */
-const TASK_OUTPUT_RETRIES: readonly number[] = readRetrySchedule(process.env['CLAUDE_ACP_TASK_OUTPUT_RETRIES_MS'])
-
-/**
- * The retry clock, as milliseconds separated by commas, when a test wants a
- * shorter one than the sixteen seconds the default adds up to. A malformed
- * value is the default; an empty list is not a clock.
- */
-function readRetrySchedule(raw: string | undefined): readonly number[] {
-  const fallback = [250, 500, 1_000, 2_000, 4_000, 8_000]
-  if (!raw) return fallback
-  const parsed = raw
-    .split(',')
-    .map((part) => Number(part.trim()))
-    .filter((ms) => Number.isFinite(ms) && ms >= 0)
-  return parsed.length > 0 ? parsed : fallback
-}
-
-/**
- * The tail of a file, or null when there is no file to read yet. A tail cut
- * mid-line starts at the next whole one.
- */
-const readTail = async (file: string): Promise<{ text: string; truncated: boolean } | null> => {
-  try {
-    const size = (await stat(file)).size
-    const start = Math.max(0, size - TASK_OUTPUT_CAP)
-    const truncated = start > 0
-    const handle = await openFile(file, 'r')
-    try {
-      const buffer = Buffer.alloc(size - start)
-      await handle.read(buffer, 0, buffer.length, start)
-      const text = buffer.toString('utf8')
-      return { text: truncated ? text.slice(text.indexOf('\n') + 1) : text, truncated }
-    } finally {
-      await handle.close()
-    }
-  } catch {
-    return null
-  }
-}
-
-/**
- * `CLAUDE_ACP_TRACE_TASKS=<file>` appends one line per message that bears on
- * the background-task registry — the system messages and every `tool_use`
- * block — in the order the SDK yielded them. The order is the whole question
- * when a task is announced as over before it was announced as started, and
- * nothing else on the machine records it: Claude Code's own transcript keeps
- * the blocks and not the system messages.
- */
-const TASK_TRACE = process.env['CLAUDE_ACP_TRACE_TASKS']
-const traceTaskMessage = (message: unknown): void => {
-  if (!TASK_TRACE) return
-  const record = message as { type?: string; subtype?: string; message?: { content?: unknown } }
-  const blocks = Array.isArray(record.message?.content)
-    ? record.message.content.filter(
-        (block: { type?: string }) => block?.type === 'tool_use' || block?.type === 'tool_result',
-      )
-    : []
-  if (record.type !== 'system' && blocks.length === 0) return
-  const line = record.type === 'system' ? message : { type: record.type, blocks }
-  try {
-    writeFileSync(TASK_TRACE, `${new Date().toISOString()} ${JSON.stringify(line)}\n`, { flag: 'a' })
-  } catch {
-    /* a trace that cannot be written is not worth a failed turn */
-  }
-}
-
-/**
- * Wrappers a prompt arrives inside that are not what anyone said: a slash
- * command's caveat, the reminders the CLI injects, the note the desktop app
- * pins to a screenshot someone drew on, HarnessDesk's own context envelope.
- * They are plumbing, and a session named after one reads as
- * `<local-command-caveat>Caveat: …` in the list.
- */
-const WRAPPER_TAGS = [
-  'local-command-caveat',
-  'local-command-stdout',
-  'local-command-stderr',
-  'command-name',
-  'command-message',
-  'command-args',
-  'system-reminder',
-  'preview-annotation-context',
-  'context',
 ] as const
+type Meta = Record<string, unknown> | null | undefined
 
-/** A title with its plumbing removed, or nothing when that is all it was. */
+const encodeProjectPath = (cwd: string): string => cwd.replace(/[^a-zA-Z0-9]/g, '-')
+export const transcriptPath = (cwd: string, sessionId: string): string => join(CLAUDE_CONFIG_DIR, 'projects', encodeProjectPath(cwd), `${sessionId}.jsonl`)
+
+const WRAPPER_TAGS = ['local-command-caveat', 'local-command-stdout', 'local-command-stderr', 'command-name', 'command-message', 'command-args', 'system-reminder', 'preview-annotation-context', 'context'] as const
+const FOLDED_TAGS = ['context', 'preview-annotation-context'] as const
+const PLUMBING_TAGS = [...WRAPPER_TAGS.filter((tag) => !(FOLDED_TAGS as readonly string[]).includes(tag)), 'task-notification'] as const
+const INTERRUPTIONS = ['[Request interrupted by user', '[Request interrupted for tool use']
+const IMAGE_NOTES = /\[Image:[^\]]*\]/g
+const ANSI = /\u001b\[[0-9;]*m/g
+
 export const unwrap = (title: string | null | undefined): string | null => {
   let text = title ?? ''
-  for (const tag of WRAPPER_TAGS) {
-    // The closed form and the truncated one alike: a title cut mid-block by
-    // the base bridge's 128-character limit is all envelope and no name.
-    text = text.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}>|$)`, 'g'), ' ')
-  }
+  for (const tag of WRAPPER_TAGS) text = text.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}>|$)`, 'g'), ' ')
   const cleaned = text.replace(/\s+/g, ' ').trim()
   return cleaned.length > 0 ? cleaned : null
 }
-
-/**
- * Wrappers that are folded beside the sentence rather than dropped, and so
- * have to reach the adapter that folds them: HarnessDesk's own `context`
- * envelope, which the client renders as the "Context added" row it is, and
- * the desktop app's note about an annotated screenshot, which is the only
- * thing in the transcript saying what the picture beside it is. Both are real
- * context the model was given; stripping either here would lose it, and the
- * fold cannot show what never arrived.
- */
-const FOLDED_TAGS: readonly string[] = ['context', 'preview-annotation-context']
-
-/**
- * The plumbing tags, for a transcript being read back.
- *
- * `WRAPPER_TAGS` minus the folded ones, for the reason above.
- * `task-notification` is on this list and not that one: it never names a
- * session, but it is replayed into the middle of one.
- */
-const PLUMBING_TAGS = [
-  ...WRAPPER_TAGS.filter((tag) => !FOLDED_TAGS.includes(tag)),
-  'task-notification',
-] as const
-
-/** Claude Code's own markers for a turn the person stopped. */
-const INTERRUPTIONS = ['[Request interrupted by user', '[Request interrupted for tool use']
-
-/**
- * The scaling note Claude Code pins beside every image it downsizes. Only
- * dropped from injected entries: the note describes a picture that reaches
- * the transcript on its tool call, so the text carries nothing of its own.
- */
-const IMAGE_NOTES = /\[Image:[^\]]*\]/g
-
-/**
- * Terminal styling Claude Code writes into the output of its own commands.
- * Anchored on the escape, because `[1m` is also how Claude Code spells a
- * million-token window: `opus[1m]` is a model name, not bold text.
- */
-const ANSI = /\u001b\[[0-9;]*m/g
-
-/** How much of a command's output one dim row can carry. */
-const NOTICE_LIMIT = 300
-
-const tagContents = (text: string, tag: string): string | null =>
-  new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`).exec(text)?.[1] ?? null
-
+const tagContents = (text: string, tag: string): string | null => new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`).exec(text)?.[1] ?? null
 const oneLine = (text: string): string => {
   const clean = text.replace(ANSI, '').replace(/\s+/g, ' ').trim()
   return clean.length > NOTICE_LIMIT ? `${clean.slice(0, NOTICE_LIMIT - 1)}…` : clean
 }
-
-/**
- * What a replayed user message actually is: the person speaking, with any
- * plumbing around it removed; the runtime's own housekeeping, worth one dim
- * line; or boilerplate with nothing in it to read.
- */
-export type Replayed =
-  | { readonly kind: 'prompt'; readonly text: string }
-  | { readonly kind: 'notice'; readonly text: string; readonly echo?: true }
-  | null
-
-/**
- * Sorts a replayed user message into speech, housekeeping, or nothing.
- *
- * Claude Code records more than typing as `user`: the echo of every slash
- * command — its caveat, its name, its output, written whenever the model or
- * the effort changes, HarnessDesk's own changes included — each background
- * task reporting back, the reminders it injects, and the marker for a turn
- * the person stopped. A live turn drops all of it (`ClaudeAcpAgent.prompt`
- * skips these user messages by hand); the replay a `session/load` runs does
- * not, so reopening a conversation shows plumbing as things the person said.
- *
- * `stored` carries what the transcript knew about the entry and the replay
- * dropped: `meta` for content Claude Code wrote for itself — a loaded
- * skill's template, an image note — with no tag around it to strip, and
- * `compact` for the summary that seeds a continued conversation. What would
- * have read as speech becomes one dim line saying what it actually was; the
- * shapes above keep their notices.
- */
+export type Replayed = { readonly kind: 'prompt'; readonly text: string } | { readonly kind: 'notice'; readonly text: string; readonly echo?: true } | null
 export type StoredKind = 'meta' | 'compact'
 
 export const classifyReplayed = (raw: string, stored?: StoredKind): Replayed => {
@@ -385,20 +89,13 @@ export const classifyReplayed = (raw: string, stored?: StoredKind): Replayed => 
     const summary = oneLine(tagContents(text, 'summary') ?? '')
     return { kind: 'notice', text: summary.length > 0 ? summary : 'A background task reported back' }
   }
-  // A command's own output is the line of its echo worth keeping: it says
-  // what the command did, where `<command-name>` only says that one ran.
-  // `echo: true` marks it as safe to collapse: every open re-applies the
-  // remembered settings and stores a fresh echo, so identical copies say
-  // one thing — unlike an interruption, which is an event each time.
   for (const tag of ['local-command-stdout', 'local-command-stderr'] as const) {
     if (!text.includes(`<${tag}>`)) continue
     const said = oneLine(tagContents(text, tag) ?? '')
     return said.length > 0 ? { kind: 'notice', text: said, echo: true } : null
   }
   let stripped = text
-  for (const tag of PLUMBING_TAGS) {
-    stripped = stripped.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}>|$)`, 'g'), ' ')
-  }
+  for (const tag of PLUMBING_TAGS) stripped = stripped.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}>|$)`, 'g'), ' ')
   const spoken = stripped.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
   if (spoken.length === 0) return null
   if (stored === undefined) return { kind: 'prompt', text: spoken }
@@ -407,234 +104,42 @@ export const classifyReplayed = (raw: string, stored?: StoredKind): Replayed => 
   return worth.length > 0 ? { kind: 'notice', text: `Claude Code added: ${oneLine(worth)}` } : null
 }
 
-/**
- * Every text Claude Code wrote into a transcript as `user` without the person
- * typing it: a loaded skill's template, the scaling note beside each
- * downsized image, the caveat over command echoes (`isMeta`), and the summary
- * a continued conversation opens on (`isCompactSummary`). The flags exist
- * only in the stored file — the base replay reads the file and drops them —
- * so the texts themselves are what the sieve matches on.
- */
-const injectedTexts = async (path: string, sessionId: string): Promise<ReadonlyMap<string, StoredKind>> => {
-  const texts = new Map<string, StoredKind>()
-  try {
-    const stream = createReadStream(path, { encoding: 'utf8' })
-    const reader = createInterface({ input: stream, crlfDelay: Infinity })
-    try {
-      for await (const line of reader) {
-        // The key check skips the parse for the overwhelming share of lines
-        // that cannot match; the parsed values below are the actual test, so
-        // a runtime that starts writing spaced JSON changes nothing here.
-        if (!line.includes('"isMeta"') && !line.includes('"isCompactSummary"')) continue
-        let entry: {
-          type?: string
-          isMeta?: boolean
-          isCompactSummary?: boolean
-          isSidechain?: boolean
-          sessionId?: string
-          message?: { role?: string; content?: unknown }
-        }
-        try {
-          entry = JSON.parse(line) as typeof entry
-        } catch {
-          continue
-        }
-        if (entry.type !== 'user' || entry.isSidechain === true) continue
-        if (entry.isMeta !== true && entry.isCompactSummary !== true) continue
-        if (entry.sessionId !== undefined && entry.sessionId !== sessionId) continue
-        const kind: StoredKind = entry.isCompactSummary === true ? 'compact' : 'meta'
-        const content = entry.message?.content
-        if (typeof content === 'string') {
-          texts.set(content, kind)
-          continue
-        }
-        if (!Array.isArray(content)) continue
-        for (const block of content as ReadonlyArray<{ type?: string; text?: unknown }>) {
-          if (block?.type === 'text' && typeof block.text === 'string') texts.set(block.text, kind)
-        }
-      }
-    } finally {
-      reader.close()
-    }
-  } catch {
-    // A file that cannot be read replays unattributed rather than not at all.
-  }
-  return texts
-}
-
-/**
- * The name Claude Code kept for a session, read from the end of its
- * transcript: the last `custom-title`, else the last `ai-title`.
- *
- * Backwards, because the last entry of each kind is the current one — and
- * the given name wins over the model's running one even when the model
- * wrote its own later.
- */
 export const storedTitle = (path: string): string | null => {
   let handle: number
-  try {
-    handle = openSync(path, 'r')
-  } catch {
-    return null
-  }
+  try { handle = openSync(path, 'r') } catch { return null }
   try {
     const size = fstatSync(handle).size
     const length = Math.min(size, TITLE_WINDOW)
     const buffer = Buffer.alloc(length)
     readSync(handle, buffer, 0, length, size - length)
     let ai: string | null = null
-    const lines = buffer.toString('utf8').split('\n')
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
-      const line = lines[index]
-      if (line === undefined || !line.includes('-title"')) continue
-      let entry: { type?: string; customTitle?: string; aiTitle?: string }
+    for (const line of buffer.toString('utf8').split('\n').reverse()) {
+      if (!line.includes('-title"')) continue
       try {
-        // The first line of the window is usually half a line; it fails here.
-        entry = JSON.parse(line) as typeof entry
-      } catch {
-        continue
-      }
-      if (entry.type === 'custom-title') {
-        const named = unwrap(entry.customTitle)
-        if (named) return named
-      }
-      if (entry.type === 'ai-title' && ai === null) ai = unwrap(entry.aiTitle)
+        const entry = JSON.parse(line) as { type?: string; customTitle?: string; aiTitle?: string }
+        if (entry.type === 'custom-title') {
+          const named = unwrap(entry.customTitle)
+          if (named) return named
+        }
+        if (entry.type === 'ai-title' && ai === null) ai = unwrap(entry.aiTitle)
+      } catch { continue }
     }
     return ai
-  } catch {
-    return null
-  } finally {
-    closeSync(handle)
-  }
+  } finally { closeSync(handle) }
 }
 
-/** Where a session's transcript lives, the way the base bridge spells it. */
-export const transcriptPath = (cwd: string, sessionId: string): string =>
-  join(CLAUDE_CONFIG_DIR, 'projects', encodeProjectPath(cwd), `${sessionId}.jsonl`)
-
-/** The SDK messages this layer reads; everything else passes through untouched. */
-type SdkMessage =
-  | {
-      readonly type: 'assistant'
-      readonly parent_tool_use_id: string | null
-      readonly message: { readonly model?: string; readonly usage?: SdkApiUsage | null }
-    }
-  | {
-      readonly type: 'result'
-      readonly total_cost_usd?: number
-      readonly usage?: SdkApiUsage | null
-      readonly modelUsage?: Readonly<Record<string, SdkModelUsage>>
-    }
-  | { readonly type: string }
-
-interface SdkApiUsage {
-  readonly input_tokens?: number | null
-  readonly output_tokens?: number | null
-  readonly cache_creation_input_tokens?: number | null
-  readonly cache_read_input_tokens?: number | null
-}
-
-/** A result's per-model counts — cumulative over the process, not the turn. */
-interface SdkModelUsage {
-  readonly contextWindow?: number
-  readonly inputTokens?: number
-  readonly outputTokens?: number
-  readonly cacheReadInputTokens?: number
-  readonly cacheCreationInputTokens?: number
-}
-
-/**
- * What a session has said about tokens so far.
- *
- * Claude Code counts per API call, on each `assistant` message; a turn is
- * several calls when tools are used. What is in context is the *latest*
- * top-level call's input — every message, tool result and system prompt is
- * re-sent on each call, so its input is the context. Sub-agent calls
- * (`parent_tool_use_id` set) run in a context of their own and are left out
- * of the fill, though they are still the session's spend.
- */
-interface UsageState {
-  /** Tokens the latest top-level call put in context. */
-  contextUsed: number | null
-  /** The model of that call, to find its window in `modelUsage`. */
-  model: string | null
-  /** The window, once a `result` has named it. */
-  contextWindow: number | null
-  /** `total_cost_usd` from the latest result. */
-  cost: number | null
-  /** The calls of the turn in flight, summed. */
-  turn: Usage | null
-  /**
-   * The process's cumulative per-model counts at the last result, so a
-   * turn can be read as their growth. Null until a result — and reset when
-   * a session gets a fresh process, whose counts start from zero again.
-   */
-  modelTotals: Readonly<Record<string, SdkModelUsage>> | null
-  /** Announcements in flight, so a prompt's reply never overtakes its own fill update. */
-  pending: Promise<void>
-}
-
-/** The parts of the base class this layer reaches into; private in its typings, plain on the instance. */
-interface BaseInternals {
-  createSession(
-    params: NewSessionRequest,
-    creationOpts?: { resume?: string; forkSession?: boolean },
-  ): Promise<NewSessionResponse>
-  replaySessionHistory(sessionId: string, filePath: string): Promise<void>
-}
-
-/**
- * What a notice rides to the client on: `_meta` on the chunk, which ACP
- * reserves for exactly this. A client that ignores it still reads a sentence
- * rather than a wall of tags; HarnessDesk's ACP adapter looks for this key
- * and makes the row it deserves.
- */
-const NOTICE_META = { harnessdesk: { notice: true } } as const
-
-/**
- * One tool-call content block, in a shape ACP's schema will accept.
- *
- * The base bridge's Read path passes a result's non-text blocks through
- * untouched — Anthropic-shaped images (`source`/`media_type`), documents from
- * a PDF, whatever a future CLI stores — and the client validates each
- * notification whole, so a single such block voids the entire update: the
- * row spins forever and the result never arrives. Only what provably fits
- * survives as itself. Text stays, a base64 image is reshaped, a URL image
- * becomes its address, and anything else becomes a named placeholder — the
- * same posture the base takes for every other tool, where its converter
- * stringifies what it does not know.
- */
 const safeBlock = (block: unknown): unknown => {
-  const shaped = block as {
-    type?: unknown
-    text?: unknown
-    data?: unknown
-    mimeType?: unknown
-    source?: { type?: unknown; data?: unknown; media_type?: unknown; url?: unknown }
-  } | null
+  const shaped = block as { type?: unknown; text?: unknown; data?: unknown; mimeType?: unknown; source?: { type?: unknown; data?: unknown; media_type?: unknown; url?: unknown } } | null
   if (shaped === null || typeof shaped !== 'object') return { type: 'text', text: '[unreadable content]' }
   if (shaped.type === 'text' && typeof shaped.text === 'string') return block
   if (shaped.type === 'image') {
     if (typeof shaped.data === 'string' && typeof shaped.mimeType === 'string') return block
-    const source = shaped.source
-    if (source?.type === 'base64' && typeof source.data === 'string') {
-      return {
-        type: 'image',
-        data: source.data,
-        mimeType: typeof source.media_type === 'string' ? source.media_type : 'image/png',
-      }
-    }
-    if (typeof source?.url === 'string') return { type: 'text', text: `[image: ${source.url}]` }
+    if (shaped.source?.type === 'base64' && typeof shaped.source.data === 'string') return { type: 'image', data: shaped.source.data, mimeType: shaped.source.media_type ?? 'image/png' }
+    if (typeof shaped.source?.url === 'string') return { type: 'text', text: `[image: ${shaped.source.url}]` }
     return { type: 'text', text: '[image]' }
   }
   return { type: 'text', text: `[${typeof shaped.type === 'string' ? shaped.type : 'unknown'} content]` }
 }
-
-/**
- * A tool-call notification whose content is guaranteed to validate. Same
- * update back — by reference — when nothing needed fixing, so untouched
- * notifications cost nothing.
- */
 export const acpSafeToolContent = (update: SessionNotification['update']): SessionNotification['update'] => {
   if (update.sessionUpdate !== 'tool_call' && update.sessionUpdate !== 'tool_call_update') return update
   const entries = (update as { content?: readonly unknown[] }).content
@@ -651,405 +156,215 @@ export const acpSafeToolContent = (update: SessionNotification['update']): Sessi
   return changed ? ({ ...update, content: safe } as SessionNotification['update']) : update
 }
 
-/**
- * The client, with every notification made presentable on its way through.
- *
- * Two jobs share the one seam every notification passes. Tool-call content
- * is made schema-safe (`acpSafeToolContent`) on live turns and replays both
- * — the replay reads the transcript through the same Read path that leaks
- * raw blocks live. And during a `session/load`, replayed `user_message_chunk`s
- * are sifted: the base bridge replays every stored `user` entry — slash-command
- * echoes, background-task reports, injected reminders and all — where a live
- * turn drops the same messages by hand.
- */
-const sifted = (
-  client: AgentSideConnection,
-  replaying: ReadonlySet<string>,
-  injected: (sessionId: string) => ReadonlyMap<string, StoredKind> | undefined,
-  noticed: (sessionId: string) => Set<string> | undefined,
-): AgentSideConnection =>
-  new Proxy(client, {
-    get(target, property) {
-      if (property === 'sessionUpdate') {
-        return async (params: SessionNotification): Promise<void> => {
-          const update = questionTitled(acpSafeToolContent(params.update))
-          const sent = update === params.update ? params : { ...params, update }
-          if (
-            !replaying.has(params.sessionId) ||
-            update.sessionUpdate !== 'user_message_chunk' ||
-            update.content.type !== 'text'
-          ) {
-            return client.sessionUpdate(sent)
-          }
-          const said = classifyReplayed(update.content.text, injected(params.sessionId)?.get(update.content.text))
-          if (!said) return
-          if (said.kind === 'notice' && said.echo) {
-            const seen = noticed(params.sessionId)
-            if (seen?.has(said.text)) return
-            seen?.add(said.text)
-          }
-          return client.sessionUpdate({
-            ...sent,
-            update: {
-              ...update,
-              content: { ...update.content, text: said.text },
-              ...(said.kind === 'notice' ? { _meta: { ...(update._meta ?? {}), ...NOTICE_META } } : {}),
-            },
-          })
-        }
-      }
-      const value = Reflect.get(target, property) as unknown
-      return typeof value === 'function' ? value.bind(target) : value
-    },
-  })
+export const levelsOf = (models: readonly { value: string; supportedEffortLevels?: readonly string[] }[], modelId: string | null): readonly string[] => models.find((entry) => entry.value === modelId)?.supportedEffortLevels ?? []
+export const withEffortLevels = (models: unknown, declared: readonly { value: string; supportedEffortLevels?: readonly string[] }[]): { models?: unknown } => {
+  if (!models || typeof models !== 'object') return {}
+  const value = models as { availableModels?: readonly Record<string, unknown>[] }
+  if (!Array.isArray(value.availableModels)) return {}
+  return { models: { ...value, availableModels: value.availableModels.map((model) => ({ ...model, _meta: { ...(model._meta as Record<string, unknown> | undefined), harnessdesk: { ...((model._meta as Record<string, unknown> | undefined)?.['harnessdesk'] as Record<string, unknown> | undefined), effortLevels: levelsOf(declared, String(model.modelId)).map((level) => ({ id: level, label: LABELS[level] ?? level })) } } })) } }
+}
+export const VERSION = '0.1.0'
 
-export interface HarnessDeskClaudeAgentOptions {
-  /** Where per-session effort is remembered. */
-  readonly stateDir?: string
-  /** Diagnostics; never the protocol stream. */
-  readonly log?: (line: string) => void
+export const withInstructions = <T extends { _meta?: Meta }>(params: T): T => {
+  const harnessdesk = params._meta?.['harnessdesk']
+  const text = typeof harnessdesk === 'object' && harnessdesk !== null ? (harnessdesk as Record<string, unknown>)[INSTRUCTIONS_CAPABILITY] : undefined
+  if (typeof text !== 'string' || text.trim() === '' || typeof params._meta?.['systemPrompt'] === 'string') return params
+  const existing = params._meta?.['systemPrompt']
+  const appended = typeof existing === 'object' && existing !== null && typeof (existing as { append?: unknown }).append === 'string' ? `${(existing as { append: string }).append}\n\n${text.trim()}` : text.trim()
+  return { ...params, _meta: { ...(params._meta ?? {}), systemPrompt: { append: appended } } }
 }
 
 /**
- * The base bridge's model list, ported with `#createSession`: the settings'
- * model wins when it names one the CLI serves, and the pick is applied to
- * the query before the list goes out.
+ * Phase 12's own extension applied at session creation: decodes
+ * `_meta.harnessdesk.attachments`, stages what it approves, and merges the
+ * resulting `claudeCode.options` fields (`skills`, `plugins`,
+ * `settingSources`, `strictMcpConfig`) onto whatever is already in `_meta` —
+ * never in place of it, so this composes with `withInstructions`/`withOptions`
+ * regardless of call order. A request that never carried the extension at
+ * all comes back unchanged: the plain path this bridge already has stays
+ * exactly as it was.
  */
-const availableModels = async (
-  q: { setModel: (model: string) => Promise<void> },
-  models: readonly { value: string; displayName: string; description: string }[],
-  settingsManager: { getSettings: () => { model?: string } },
-): Promise<NewSessionResponse['models']> => {
-  const settings = settingsManager.getSettings()
-  let current = models[0]
-  if (settings.model !== undefined) {
-    const wanted = settings.model
-    const match = models.find(
-      (m) =>
-        m.value === wanted ||
-        m.value.includes(wanted) ||
-        wanted.includes(m.value) ||
-        m.displayName.toLowerCase() === wanted.toLowerCase() ||
-        m.displayName.toLowerCase().includes(wanted.toLowerCase()),
-    )
-    if (match) current = match
+const withAttachments = <T extends { _meta?: Meta }>(
+  params: T,
+  stagingRoot: (key: string) => string,
+): { params: T; input: AttachmentInput | null; staged: StagedAttachments | null } => {
+  const input = decodeAttachmentInput(params._meta)
+  if (!input) return { params, input: null, staged: null }
+  const attached = attachmentOptions(input, stagingRoot(input.key))
+  if (!attached) return { params, input, staged: null }
+  const meta = params._meta ?? {}
+  const claudeCode = (meta['claudeCode'] ?? {}) as { options?: Record<string, unknown> }
+  const merged: T = { ...params, _meta: { ...meta, claudeCode: { ...claudeCode, options: { ...(claudeCode.options ?? {}), ...attached.options } } } }
+  return { params: merged, input, staged: attached.staged }
+}
+const CONTROL_IDS = [EFFORT_OPTION_ID, AUTOCOMPACT_OPTION_ID, OUTPUT_STYLE_OPTION_ID] as const
+export const valueOf = (state: { values: Record<string, string> }, id: string): string => state.values[id] ?? DEFAULT
+export const optionsIn = (meta: Meta): Record<string, string> => {
+  const harnessdesk = meta?.['harnessdesk']
+  const options = typeof harnessdesk === 'object' && harnessdesk !== null ? (harnessdesk as { options?: unknown }).options : undefined
+  if (typeof options !== 'object' || options === null) return {}
+  const result: Record<string, string> = {}
+  for (const id of CONTROL_IDS) {
+    const value = (options as Record<string, unknown>)[id]
+    if (typeof value === 'string' && value.length > 0) result[id] = value
   }
-  if (current === undefined) return { availableModels: [], currentModelId: '' } as unknown as NewSessionResponse['models']
-  await q.setModel(current.value)
-  return {
-    availableModels: models.map((model) => ({ modelId: model.value, name: model.displayName, description: model.description })),
-    currentModelId: current.value,
-  } as NewSessionResponse['models']
+  return result
+}
+const parsedSettings = (raw: unknown): Record<string, unknown> => {
+  if (typeof raw !== 'string' || raw === '') return {}
+  try { const parsed: unknown = JSON.parse(raw); return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {} } catch { return {} }
+}
+export const withOptions = (meta: Meta, values: Record<string, string>, abort: AbortController): Record<string, unknown> => {
+  const claudeCode = (meta?.['claudeCode'] ?? {}) as { options?: Record<string, unknown> }
+  const options: Record<string, unknown> = { ...(claudeCode.options ?? {}), abortController: abort }
+  const environment = environmentIn(meta)
+  if (environment) {
+    options['env'] = childEnvironment(
+      { ...process.env, ...(options['env'] as NodeJS.ProcessEnv | undefined) },
+      environment,
+    )
+  }
+  if (values[EFFORT_OPTION_ID] && values[EFFORT_OPTION_ID] !== DEFAULT) options['effort'] = values[EFFORT_OPTION_ID]
+  else delete options['effort']
+  const extraArgs = { ...((options['extraArgs'] as Record<string, string | null> | undefined) ?? {}) }
+  const autocompact = values[AUTOCOMPACT_OPTION_ID]
+  if (autocompact && autocompact !== DEFAULT) extraArgs['autocompact'] = autocompact
+  else delete extraArgs['autocompact']
+  const style = values[OUTPUT_STYLE_OPTION_ID]
+  const settings = parsedSettings(extraArgs['settings'])
+  if (style && style !== DEFAULT) extraArgs['settings'] = JSON.stringify({ ...settings, outputStyle: style })
+  else if ('outputStyle' in settings) {
+    const { outputStyle: _outputStyle, ...rest } = settings
+    if (Object.keys(rest).length > 0) extraArgs['settings'] = JSON.stringify(rest)
+    else delete extraArgs['settings']
+  }
+  if (Object.keys(extraArgs).length > 0) options['extraArgs'] = extraArgs
+  else delete options['extraArgs']
+  return { ...(meta ?? {}), claudeCode: { ...claudeCode, options, emitRawSDKMessages: true } }
+}
+export const commandsFor = (values: Record<string, string>, spawned: Record<string, string>): readonly string[] => {
+  const commands: string[] = []
+  for (const id of [EFFORT_OPTION_ID, AUTOCOMPACT_OPTION_ID]) {
+    const value = values[id] ?? DEFAULT
+    if (value !== (spawned[id] ?? DEFAULT)) commands.push(`/${id} ${value === DEFAULT ? 'auto' : value}`)
+  }
+  return commands
+}
+
+export interface HarnessDeskClaudeAgentOptions { readonly stateDir?: string; readonly log?: (line: string) => void }
+type AcpClient = { sessionUpdate(params: SessionNotification): Promise<void>; requestPermission(params: unknown, signal?: AbortSignal): Promise<unknown>; readTextFile?(params: unknown): Promise<unknown>; writeTextFile?(params: unknown): Promise<unknown>; createElicitation?(params: unknown, signal?: AbortSignal): Promise<unknown>; completeElicitation?(params: unknown): Promise<void>; extNotification?(method: string, params: unknown): Promise<void> }
+type Logger = { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void }
+
+const clientFromContext = (context: AgentContext): AcpClient => ({
+  sessionUpdate: (params) => context.notify(methods.client.session.update, params as never),
+  requestPermission: (params, signal) => context.request(methods.client.session.requestPermission, params as never, { cancellationSignal: signal }),
+  readTextFile: (params) => context.request(methods.client.fs.readTextFile, params as never),
+  writeTextFile: (params) => context.request(methods.client.fs.writeTextFile, params as never),
+  createElicitation: (params, signal) => context.request(methods.client.elicitation.create, params as never, { cancellationSignal: signal }),
+  completeElicitation: (params) => context.notify(methods.client.elicitation.complete, params as never),
+  extNotification: (method, params) => context.notify(method, params as never),
+})
+type StoredControls = { values: Record<string, string>; meta?: Meta; cwd: string }
+type ModelInfo = { value: string; supportedEffortLevels?: readonly string[] }
+type StoredControlsWithRuntime = StoredControls & { styles: readonly string[]; spawned: Record<string, string>; prompted: boolean }
+const customOptions = (stored: StoredControlsWithRuntime): SessionConfigOption[] => [
+  { type: 'select', id: AUTOCOMPACT_OPTION_ID, name: 'Auto-compact', description: 'When Claude Code compacts its context window.', category: 'model_config', currentValue: stored.values[AUTOCOMPACT_OPTION_ID] ?? DEFAULT, options: AUTOCOMPACT_CHOICES.map((choice) => ({ ...choice })) },
+  ...(stored.styles.length > 0
+    ? [{ type: 'select' as const, id: OUTPUT_STYLE_OPTION_ID, name: 'Output style', description: 'How Claude Code writes its replies.', category: 'model_config' as const, currentValue: stored.values[OUTPUT_STYLE_OPTION_ID] ?? DEFAULT, options: [{ value: DEFAULT, name: 'Default', description: "Claude Code's own setting for this project." }, ...stored.styles.filter((style) => style !== DEFAULT).map((style) => ({ value: style, name: style }))] }]
+    : []),
+]
+
+const optionStyles = async (agent: ClaudeAcpAgent, sessionId: string): Promise<readonly string[]> => {
+  const query = agent.sessions[sessionId]?.query as { initializationResult?: () => Promise<unknown> } | undefined
+  if (!query?.initializationResult) return []
+  try {
+    const value = await query.initializationResult()
+    const styles = (value as { available_output_styles?: unknown })?.available_output_styles
+    return Array.isArray(styles) ? styles.filter((style): style is string => typeof style === 'string' && style.length > 0) : []
+  } catch {
+    return []
+  }
+}
+
+const decorateModelOptions = <T extends { configOptions?: SessionConfigOption[] | null }>(response: T, modelInfos: readonly ModelInfo[]): T => {
+  const levelsFor = (value: string): readonly { id: string; label: string }[] => {
+    const model = modelInfos.find((entry) => entry.value === value)
+    return (model?.supportedEffortLevels ?? []).map((level) => ({ id: level, label: LABELS[level] ?? level }))
+  }
+  const configOptions = response.configOptions?.map((option) => {
+    if (option.id !== 'model' || option.type !== 'select' || !Array.isArray(option.options)) return option
+    const decorateChoice = (choice: (typeof option.options)[number]): (typeof option.options)[number] => {
+      if ('value' in choice) {
+        return {
+          ...choice,
+          _meta: { ...(choice._meta ?? {}), harnessdesk: { effortLevels: levelsFor(choice.value) } },
+        }
+      }
+      return { ...choice, options: choice.options.map((nested) => ({ ...nested, _meta: { ...(nested._meta ?? {}), harnessdesk: { effortLevels: levelsFor(nested.value) } } })) }
+    }
+    return {
+      ...option,
+      options: option.options.map(decorateChoice),
+    }
+  })
+  return configOptions ? { ...response, configOptions } : response
 }
 
 export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
-  readonly #efforts = new Map<string, SessionState>()
-  readonly #usage = new Map<string, UsageState>()
-  /** Claude Code's background tasks, per session. See `TaskRegistry`. */
+  readonly #controls = new Map<string, StoredControlsWithRuntime>()
   readonly #tasks = new Map<string, TaskRegistry>()
-  /**
-   * Per finished task whose output file was not there yet, by `session\0task`:
-   * how many times it was missed, and when it is next worth a look. Each
-   * task keeps its own clock — a task on its fourth miss is not tried again
-   * because a newer task is on its first.
-   */
-  readonly #outputMisses = new Map<string, { misses: number; due: number }>()
-  /** One pending re-read per session, so misses do not stack timers. */
-  readonly #outputRetries = new Map<string, ReturnType<typeof setTimeout>>()
-
-  /** What each session delegated, per session. See `DelegationRegistry`. */
   readonly #delegations = new Map<string, DelegationRegistry>()
-  /** Sessions whose stored history is being replayed right now. */
-  readonly #replaying = new Set<string>()
-  /** Per replaying session, the texts its transcript marked as its own. */
-  readonly #injected = new Map<string, ReadonlyMap<string, StoredKind>>()
-  /** Per replaying session, the notice texts already replayed this load. */
-  readonly #noticed = new Map<string, Set<string>>()
-  readonly #indexPath: string
+  readonly #outputPollers = new Map<string, ReturnType<typeof setTimeout>>()
+  readonly #deletedSessions = new Set<string>()
+  /** The exact input a session was prepared with, and what actually got staged for it — set once at create/load, reapplied unchanged by `#recreate`. */
+  readonly #attachments = new Map<string, { input: AttachmentInput; staged: StagedAttachments }>()
+  readonly #stateDir: string
   readonly #log: (line: string) => void
-
-  constructor(client: AgentSideConnection, options: HarnessDeskClaudeAgentOptions = {}) {
-    super(client)
-    // Everything the base class emits goes through the sieve; only a session
-    // in `#replaying` is actually filtered, so live turns are untouched.
-    this.client = sifted(
-      client,
-      this.#replaying,
-      (id) => this.#injected.get(id),
-      (id) => this.#noticed.get(id),
-    )
-    const stateDir = options.stateDir ?? process.env['CLAUDE_ACP_STATE_DIR'] ?? join(homedir(), '.harnessdesk', 'claude-acp')
-    this.#indexPath = join(stateDir, 'efforts.json')
+  constructor(client: AcpClient, options: HarnessDeskClaudeAgentOptions = {}) {
+    const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`))
+    const logger: Logger = { log: (...args) => log(String(args[0] ?? '')), error: (...args) => log(String(args[0] ?? '')) }
+    super(client as never, logger)
+    const notify = client.sessionUpdate.bind(client)
+    const extNotify = client.extNotification?.bind(client)
+    if (extNotify) {
+      client.extNotification = async (method, params) => {
+        if (method === '_claude/sdkMessage') {
+          const payload = params as { sessionId?: unknown; message?: unknown }
+          const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : ''
+          if (sessionId && !this.#deletedSessions.has(sessionId) && payload.message) {
+            const tasks = this.#tasks.get(sessionId) ?? new TaskRegistry()
+            const delegations = this.#delegations.get(sessionId) ?? new DelegationRegistry()
+            this.#tasks.set(sessionId, tasks)
+            this.#delegations.set(sessionId, delegations)
+            if (tasks.observe(payload.message)) {
+              await extNotify(TASKS_NOTIFICATION, { sessionId, tasks: tasks.list() })
+              this.#pollTaskOutput(sessionId)
+            }
+            if (delegations.observe(payload.message)) {
+              await extNotify(DELEGATION_NOTIFICATION, { sessionId, delegations: delegations.list(), delegated: delegations.totals() })
+            }
+          }
+        }
+        return extNotify(method, params)
+      }
+    }
+    client.sessionUpdate = async (params) => {
+      if (params.update.sessionUpdate === 'config_option_update') {
+        const stored = this.#controls.get(params.sessionId)
+        const base = decorateModelOptions({ configOptions: params.update.configOptions }, (this.sessions[params.sessionId]?.modelInfos ?? []) as readonly ModelInfo[]).configOptions ?? []
+        const custom = stored ? customOptions(stored) : []
+        return notify({ ...params, update: { ...params.update, configOptions: [...base, ...custom] } })
+      }
+      return notify(params)
+    }
+    this.#stateDir = options.stateDir ?? process.env['CLAUDE_ACP_STATE_DIR'] ?? join(homedir(), '.harnessdesk', 'claude-acp')
     this.#log = options.log ?? ((line) => process.stderr.write(`${line}\n`))
-    // The base replays `isMeta` entries — texts Claude Code stored as `user`
-    // without the person typing them — the same as typing; the flag lives
-    // only in the file it is about to read, so it is read here first. The
-    // method is private in the base's typings and plain on the instance; a
-    // base that renamed it degrades to unattributed replay, not to a bridge
-    // that cannot construct.
-    const internals = this as unknown as Partial<BaseInternals>
-    // The base's session creation disallows `AskUserQuestion` outright, in a
-    // local constant nothing outside the method can reach — so the method is
-    // replaced on the instance with a port of it that leaves the tool in.
-    // See `#createSession` for what the port changes, and `canUseTool` for
-    // what answers the question.
-    internals.createSession = (params, creationOpts) => this.#createSession(params, creationOpts)
-    const replay = typeof internals.replaySessionHistory === 'function' ? internals.replaySessionHistory.bind(this) : null
-    if (replay) {
-      internals.replaySessionHistory = async (sessionId: string, filePath: string): Promise<void> => {
-        this.#injected.set(sessionId, await injectedTexts(filePath, sessionId))
-        await replay(sessionId, filePath)
-      }
-    } else {
-      this.#log('claude-acp: base replaySessionHistory not found; stored entries will replay unattributed')
-    }
   }
-
-  /**
-   * Claude Code's `AskUserQuestion`, answered by the person at the desk.
-   *
-   * Every other tool goes to the base's callback, which turns a permission
-   * into `session/request_permission`. A question is not a permission — its
-   * options are the answers — but ACP's request is the one flat option list
-   * a client already renders, so each question goes out as one request whose
-   * options are its choices, the whole question riding beside them. The
-   * chosen label goes back the way the SDK reads answers: `updatedInput`
-   * with an `answers` map keyed by the question text.
-   *
-   * A dismissed question is a deny without an interrupt: Claude is told the
-   * person did not answer and carries on, rather than the turn ending.
-   */
-  override canUseTool(sessionId: string): CanUseTool {
-    const base = super.canUseTool(sessionId)
-    return async (toolName, toolInput, context) => {
-      if (toolName !== 'AskUserQuestion') return base(toolName, toolInput, context)
-      const asked = questionsOf(toolInput)
-      if (asked.length === 0) {
-        return { behavior: 'deny', message: 'The question carried no options to choose from.' }
-      }
-      const answers = new Map<string, string>()
-      for (const [index, question] of asked.entries()) {
-        if (question.options.length === 0) {
-          return {
-            behavior: 'deny',
-            message: `"${question.question}" has no options; HarnessDesk answers a question from its options.`,
-          }
-        }
-        // One id per question, not one per tool call. A call may carry up to
-        // four questions and they are asked one after another; sharing the
-        // call's id would anchor every card to the same transcript row, so
-        // the second question would replace the first on screen.
-        const response = await this.client.requestPermission(
-          permissionRequestFor(sessionId, questionCallId(context.toolUseID, index, asked.length), question) as never,
-        )
-        if (context.signal.aborted) throw new Error('Tool use aborted')
-        const label = answerFor(question, response.outcome as { outcome: 'selected'; optionId: string } | { outcome: 'cancelled' })
-        // Dismissed: the tool is denied without an interrupt, so Claude is
-        // told the person did not answer and carries on. Answers already
-        // given go with it — a partly-answered set is not an answer, and the
-        // model asked for all of them.
-        if (label === null) {
-          return { behavior: 'deny', message: 'The user did not answer the question.' }
-        }
-        answers.set(question.question, label)
-      }
-      return { behavior: 'allow', updatedInput: answeredInput(toolInput, answers) }
-    }
-  }
-
-  /**
-   * A port of the base bridge's `createSession` (@zed-industries/claude-code-acp
-   * 0.16.2, `acp-agent.js`), identical but for one line: `AskUserQuestion` is
-   * no longer disallowed, so the tool exists for Claude to call and
-   * `canUseTool` above can answer it. Everything the base does — the settings
-   * manager, the `acp` MCP server for the client's own file and terminal
-   * capabilities, the hooks that follow plan mode, the model list — is kept
-   * as it is, because this layer's promise is to forward what the base drops,
-   * never to change what it keeps.
-   */
-  async #createSession(
-    params: NewSessionRequest,
-    creationOpts: { resume?: string; forkSession?: boolean } = {},
-  ): Promise<NewSessionResponse> {
-    const base = this as unknown as {
-      sessions: Record<string, unknown>
-      clientCapabilities?: { fs?: { readTextFile?: boolean; writeTextFile?: boolean }; terminal?: boolean }
-      logger: { error: (...args: unknown[]) => void; log?: (...args: unknown[]) => void }
-    }
-    // A new id unless resuming — and a fork is a new id over a resume.
-    const sessionId = creationOpts.forkSession
-      ? randomUUID()
-      : creationOpts.resume !== undefined
-        ? creationOpts.resume
-        : randomUUID()
-    const input = new Pushable<SDKUserMessage>()
-    const settingsManager = new SettingsManager(params.cwd, { logger: base.logger as never })
-    await settingsManager.initialize()
-    const mcpServers: Record<string, unknown> = {}
-    if (Array.isArray(params.mcpServers)) {
-      for (const server of params.mcpServers) {
-        if ('type' in server) {
-          mcpServers[server.name] = {
-            type: server.type,
-            url: server.url,
-            headers: server.headers ? Object.fromEntries(server.headers.map((e) => [e.name, e.value])) : undefined,
-          }
-        } else {
-          mcpServers[server.name] = {
-            type: 'stdio',
-            command: server.command,
-            args: server.args,
-            env: server.env ? Object.fromEntries(server.env.map((e) => [e.name, e.value])) : undefined,
-          }
-        }
-      }
-    }
-    const meta = (params._meta ?? {}) as {
-      disableBuiltInTools?: unknown
-      systemPrompt?: unknown
-      claudeCode?: { options?: Record<string, unknown> }
-    }
-    // Only add the acp MCP server if built-in tools are not disabled.
-    if (!meta.disableBuiltInTools) {
-      const server = createMcpServer(this, sessionId, base.clientCapabilities as never)
-      mcpServers['acp'] = { type: 'sdk', name: 'acp', instance: server }
-    }
-    let systemPrompt: { type: 'preset'; preset: 'claude_code'; append?: string } | string = {
-      type: 'preset',
-      preset: 'claude_code',
-    }
-    if (meta.systemPrompt) {
-      const customPrompt = meta.systemPrompt
-      if (typeof customPrompt === 'string') {
-        systemPrompt = customPrompt
-      } else if (
-        typeof customPrompt === 'object' &&
-        customPrompt !== null &&
-        'append' in customPrompt &&
-        typeof (customPrompt as { append?: unknown }).append === 'string'
-      ) {
-        systemPrompt.append = (customPrompt as { append: string }).append
-      }
-    }
-    const permissionMode: PermissionMode = 'default'
-    const userProvidedOptions = (meta.claudeCode?.options ?? {}) as Record<string, unknown> & {
-      mcpServers?: Record<string, unknown>
-      hooks?: { PreToolUse?: unknown[]; PostToolUse?: unknown[] }
-      abortController?: AbortController
-      disallowedTools?: string[]
-    }
-    const maxThinkingTokens = process.env['MAX_THINKING_TOKENS']
-      ? parseInt(process.env['MAX_THINKING_TOKENS'], 10)
-      : undefined
-    // Bypass Permissions does not work for a root/sudo user.
-    const isRoot = (process.geteuid?.() ?? process.getuid?.()) === 0
-    const allowBypass = !isRoot || !!process.env['IS_SANDBOX']
-    const options: Record<string, unknown> = {
-      systemPrompt,
-      settingSources: ['user', 'project', 'local'],
-      stderr: (err: unknown) => base.logger.error(err),
-      ...(maxThinkingTokens !== undefined && { maxThinkingTokens }),
-      ...userProvidedOptions,
-      // Override certain fields that must be controlled by ACP.
-      cwd: params.cwd,
-      includePartialMessages: true,
-      mcpServers: { ...(userProvidedOptions.mcpServers ?? {}), ...mcpServers },
-      allowDangerouslySkipPermissions: allowBypass,
-      permissionMode,
-      canUseTool: this.canUseTool(sessionId),
-      executable: process.execPath,
-      ...(process.env['CLAUDE_CODE_EXECUTABLE'] && {
-        pathToClaudeCodeExecutable: process.env['CLAUDE_CODE_EXECUTABLE'],
-      }),
-      tools: { type: 'preset', preset: 'claude_code' },
-      hooks: {
-        ...userProvidedOptions.hooks,
-        PreToolUse: [
-          ...(userProvidedOptions.hooks?.PreToolUse ?? []),
-          { hooks: [createPreToolUseHook(settingsManager, base.logger as never)] },
-        ],
-        PostToolUse: [
-          ...(userProvidedOptions.hooks?.PostToolUse ?? []),
-          {
-            hooks: [
-              createPostToolUseHook(base.logger as never, {
-                onEnterPlanMode: async () => {
-                  const session = base.sessions[sessionId] as { permissionMode?: PermissionMode } | undefined
-                  if (session) session.permissionMode = 'plan'
-                  await this.client.sessionUpdate({
-                    sessionId,
-                    update: { sessionUpdate: 'current_mode_update', currentModeId: 'plan' },
-                  })
-                },
-              }),
-            ],
-          },
-        ],
-      },
-      ...creationOpts,
-    }
-    if (creationOpts.resume === undefined || creationOpts.forkSession) {
-      // Set our own session id if not resuming an existing session.
-      options['sessionId'] = sessionId
-    }
-    const allowedTools: string[] = []
-    // The base starts this list with "AskUserQuestion"; this port does not.
-    const disallowedTools: string[] = []
-    const disableBuiltInTools = meta.disableBuiltInTools === true
-    if (!disableBuiltInTools) {
-      if (base.clientCapabilities?.fs?.readTextFile) {
-        allowedTools.push(acpToolNames.read)
-        disallowedTools.push('Read')
-      }
-      if (base.clientCapabilities?.fs?.writeTextFile) {
-        disallowedTools.push('Write', 'Edit')
-      }
-      if (base.clientCapabilities?.terminal) {
-        allowedTools.push(acpToolNames.bashOutput, acpToolNames.killShell)
-        disallowedTools.push('Bash', 'BashOutput', 'KillShell')
-      }
-    } else {
-      // When built-in tools are disabled, explicitly disallow all of them.
-      disallowedTools.push(
-        acpToolNames.read, acpToolNames.write, acpToolNames.edit, acpToolNames.bash, acpToolNames.bashOutput, acpToolNames.killShell,
-        'Read', 'Write', 'Edit', 'Bash', 'BashOutput', 'KillShell', 'Glob', 'Grep', 'Task', 'TodoWrite', 'ExitPlanMode',
-        'WebSearch', 'WebFetch', 'AskUserQuestion', 'SlashCommand', 'Skill', 'NotebookEdit',
-      )
-    }
-    if (allowedTools.length > 0) options['allowedTools'] = allowedTools
-    if (disallowedTools.length > 0) {
-      options['disallowedTools'] = [...((options['disallowedTools'] as string[] | undefined) ?? []), ...disallowedTools]
-    }
-    const abortController = userProvidedOptions.abortController
-    if (abortController?.signal.aborted) throw new Error('Cancelled')
-    const q = query({ prompt: input, options: options as never })
-    base.sessions[sessionId] = { query: q, input, cancelled: false, permissionMode, settingsManager }
-    const initializationResult = await q.initializationResult()
-    const models = await availableModels(q, initializationResult.models, settingsManager)
-    const availableModes = [
-      { id: 'default', name: 'Default', description: 'Standard behavior, prompts for dangerous operations' },
-      { id: 'acceptEdits', name: 'Accept Edits', description: 'Auto-accept file edit operations' },
-      { id: 'plan', name: 'Plan Mode', description: 'Planning mode, no actual tool execution' },
-      { id: 'dontAsk', name: "Don't Ask", description: 'Don\'t prompt for permissions, deny if not pre-approved' },
-    ]
-    if (allowBypass) {
-      availableModes.push({ id: 'bypassPermissions', name: 'Bypass Permissions', description: 'Bypass all permission checks' })
-    }
-    return {
-      sessionId,
-      models,
-      modes: { currentModeId: permissionMode, availableModes },
-    } as NewSessionResponse
-  }
-
   override async initialize(request: InitializeRequest): Promise<InitializeResponse> {
     const response = await super.initialize(request)
     return {
       ...response,
       agentInfo: { name: '@harnessdesk/claude-acp', title: 'Claude Code', version: VERSION },
-      // Declared here rather than discovered by a failed call: a client that
-      // knows the extension asks for the list when a pane opens, and one that
-      // does not never learns the methods exist.
       _meta: {
         ...(response._meta ?? {}),
         harnessdesk: {
@@ -1057,949 +372,347 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
           [SESSION_DELETE_CAPABILITY]: true,
           [DELEGATION_CAPABILITY]: true,
           [INSTRUCTIONS_CAPABILITY]: true,
+          sessionEnvironment: true,
+          [ATTACHMENTS_CAPABILITY]: ATTACHMENT_CAPABILITY_VALUE,
         },
       },
     }
   }
+  /** Where one session's approved skills are staged — a key `decodeAttachmentInput` already proved is a plain token. */
+  #stagingRoot(key: string): string {
+    return join(this.#stateDir, 'attachments', key)
+  }
 
   /**
-   * The extension methods this bridge serves — the background-task panel's
-   * three verbs. Anything else is refused the way the SDK would have refused
-   * it, so an unknown extension is still a method-not-found and not a hang.
+   * Forgets what a session was prepared with and removes its staged folder —
+   * on close, on delete, and when a new or reloaded session replaces it under
+   * another key. `#recreate` closes through `super`, so a reconfigure keeps
+   * the folder its frozen options still point at.
    */
-  async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
-    switch (method) {
-      case TASKS_LIST:
-        // A pane that just opened is a good moment to fetch any output the
-        // last pass could not; the list answers now and the text follows.
-        this.#fetchTaskOutputs(sessionId, { eager: true })
-        return { tasks: this.#tasks.get(sessionId)?.list() ?? [] }
-      case DELEGATION_LIST:
-        return { delegations: this.#delegations.get(sessionId)?.list() ?? [] }
-      case TASKS_STOP: {
-        const taskId = typeof params['taskId'] === 'string' ? params['taskId'] : ''
-        return { stopped: await this.#stopTask(sessionId, taskId) }
-      }
-      case TASKS_CLEAR: {
-        if (this.#tasks.get(sessionId)?.clearFinished()) this.#publishTasks(sessionId)
-        return {}
-      }
-      case SESSION_DELETE: {
-        if (sessionId === '') throw RequestError.invalidParams('A session id is required.')
-        // Whatever this bridge was holding about the session goes with it:
-        // the effort state outlives the transcript otherwise, and would be
-        // applied to the next session that happened to reuse the id.
-        this.#efforts.delete(sessionId)
-        this.#tasks.delete(sessionId)
-        this.#forgetOutputRetries(sessionId)
-        this.#delegations.delete(sessionId)
-        this.#remember(sessionId, {})
-        const removed = trash(sessionFiles(sessionId))
-        return { removed, disposition: 'trash' }
-      }
-      default:
-        throw RequestError.methodNotFound(method)
+  #releaseAttachments(sessionId: string, keep?: string): void {
+    const held = this.#attachments.get(sessionId)
+    this.#attachments.delete(sessionId)
+    if (held && held.input.key !== keep) rmSync(this.#stagingRoot(held.input.key), { recursive: true, force: true })
+  }
+
+  override async closeSession(params: Parameters<ClaudeAcpAgent['closeSession']>[0]): ReturnType<ClaudeAcpAgent['closeSession']> {
+    try {
+      return await super.closeSession(params)
+    } finally {
+      this.#releaseAttachments(params.sessionId)
     }
   }
 
   override async newSession(request: NewSessionRequest): Promise<NewSessionResponse> {
-    const params = withInstructions(request)
-    // A client may say what the session should start at; HarnessDesk does,
-    // so the first turn already runs at the chosen effort.
-    const wanted = optionsIn(params._meta)
-    const abort = new AbortController()
-    const response = await super.newSession({ ...params, _meta: withOptions(params._meta, wanted, abort) })
-    const state: SessionState = {
-      levels: [],
-      styles: [],
-      values: { ...wanted },
-      spawned: { ...wanted },
-      prompted: false,
-      cwd: params.cwd,
-      mcpServers: params.mcpServers,
-      meta: params._meta,
-      modelId: response.models?.currentModelId ?? null,
-      abort,
-    }
-    this.#efforts.set(response.sessionId, state)
-    this.#observe(response.sessionId)
-    const init = await this.#initOf(response.sessionId)
-    const declared = init.models
-    state.levels = levelsOf(declared, state.modelId)
-    state.styles = init.styles
-    // A level this model cannot run is not silently downgraded; it falls
-    // back to whatever Claude Code would have done on its own. A style this
-    // project does not declare, the same.
-    if (!state.levels.includes(valueOf(state, EFFORT_OPTION_ID))) state.values[EFFORT_OPTION_ID] = DEFAULT
-    if (
-      valueOf(state, OUTPUT_STYLE_OPTION_ID) !== DEFAULT &&
-      !state.styles.includes(valueOf(state, OUTPUT_STYLE_OPTION_ID))
-    ) {
-      state.values[OUTPUT_STYLE_OPTION_ID] = DEFAULT
-    }
-    this.#remember(response.sessionId, state.values)
-    return {
-      ...response,
-      ...withEffortLevels(response.models, declared),
-      configOptions: this.#optionsOf(state),
-    }
+    const instructed = withInstructions(request)
+    const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
+    const values = optionsIn(params._meta)
+    const response = await super.newSession({ ...params, _meta: withOptions(params._meta, values, new AbortController()) })
+    this.#deletedSessions.delete(response.sessionId)
+    this.#releaseAttachments(response.sessionId, input?.key)
+    if (input && staged) this.#attachments.set(response.sessionId, { input, staged })
+    const session = this.sessions[response.sessionId]
+    const decorated = decorateModelOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
+    const stored: StoredControlsWithRuntime = { values: { ...values }, spawned: { ...values }, prompted: false, styles: await optionStyles(this, response.sessionId), meta: params._meta, cwd: params.cwd }
+    this.#controls.set(response.sessionId, stored)
+    this.#tasks.set(response.sessionId, new TaskRegistry())
+    this.#delegations.set(response.sessionId, new DelegationRegistry())
+    this.#writeControls(response.sessionId, stored.values)
+    return environmentAck(
+      { ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] },
+      environmentIn(params._meta),
+    )
   }
-
   override async loadSession(request: LoadSessionRequest): Promise<LoadSessionResponse> {
-    const params = withInstructions(request)
-    // A session coming back after a bridge restart resumes where it was
-    // left — the one thing a restart would otherwise lose.
-    const remembered = this.#recall(params.sessionId)
-    const abort = new AbortController()
-    // The whole history is replayed before this resolves; everything the
-    // sieve sees for this session until then is stored, not live.
-    this.#replaying.add(params.sessionId)
-    this.#noticed.set(params.sessionId, new Set())
-    let response: LoadSessionResponse
-    try {
-      response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, abort) })
-    } catch (error) {
-      // Claude Code writes a conversation down when it is first prompted, so
-      // one that was opened and never spoken to has no file to load — and the
-      // SDK's answer for that is a bare "Internal error". Say what happened
-      // instead, but only when the file really is missing: any other failure
-      // is the SDK's to describe.
-      if (!existsSync(transcriptPath(params.cwd, params.sessionId))) {
-        throw RequestError.invalidParams(
-          'nothing was ever sent in it, so Claude Code never wrote it down.',
-        )
-      }
-      throw error
-    } finally {
-      this.#replaying.delete(params.sessionId)
-      this.#injected.delete(params.sessionId)
-      this.#noticed.delete(params.sessionId)
-    }
-    const state: SessionState = {
-      levels: [],
-      styles: [],
-      values: { ...remembered },
-      spawned: { ...remembered },
-      prompted: true,
-      cwd: params.cwd,
-      mcpServers: params.mcpServers,
-      meta: params._meta,
-      modelId: response.models?.currentModelId ?? null,
-      abort,
-    }
-    this.#efforts.set(params.sessionId, state)
-    this.#observe(params.sessionId)
-    const init = await this.#initOf(params.sessionId)
-    const declared = init.models
-    state.levels = levelsOf(declared, state.modelId)
-    state.styles = init.styles
-    return {
-      ...response,
-      ...withEffortLevels(response.models, declared),
-      configOptions: this.#optionsOf(state),
-    }
+    const remembered = this.#readControls(request.sessionId)
+    this.#deletedSessions.delete(request.sessionId)
+    const instructed = withInstructions(request)
+    const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
+    const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController()) })
+    this.#releaseAttachments(request.sessionId, input?.key)
+    if (input && staged) this.#attachments.set(request.sessionId, { input, staged })
+    const session = this.sessions[request.sessionId]
+    const decorated = decorateModelOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
+    const stored: StoredControlsWithRuntime = { values: remembered, spawned: { ...remembered }, prompted: true, styles: await optionStyles(this, request.sessionId), meta: params._meta, cwd: params.cwd }
+    this.#controls.set(request.sessionId, stored)
+    this.#tasks.set(request.sessionId, new TaskRegistry())
+    this.#delegations.set(request.sessionId, new DelegationRegistry())
+    await this.#replayStored(request.sessionId)
+    return environmentAck(
+      { ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] },
+      environmentIn(params._meta),
+    )
   }
-
-  /**
-   * The stored sessions, named the way Claude Code names them.
-   *
-   * The base bridge titles a stored session with its first user message,
-   * whatever that message was — a slash command's caveat wrapper, a pasted
-   * reminder, "hi". Claude Code has already written a better name into the
-   * same file: `ai-title` is the model's, rewritten as the conversation
-   * grows, and `custom-title` is the name the session was given. Neither
-   * costs a token to read, and both beat anything this bridge could derive
-   * from a first line.
-   *
-   * The first message stays as the last resort, with its wrappers stripped,
-   * because a session too short to have been named still has to be called
-   * something.
-   */
-  override async unstable_listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
-    const response = await super.unstable_listSessions(params)
-    return {
-      ...response,
-      sessions: response.sessions.map((session) => ({
-        ...session,
-        title: storedTitle(transcriptPath(session.cwd, session.sessionId)) ?? unwrap(session.title),
-      })),
+  override async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
+    if (!CONTROL_IDS.includes(params.configId as typeof CONTROL_IDS[number])) {
+      const response = await super.setSessionConfigOption(params)
+      const stored = this.#controls.get(params.sessionId)
+      const base = decorateModelOptions({ configOptions: response.configOptions }, (this.sessions[params.sessionId]?.modelInfos ?? []) as readonly ModelInfo[]).configOptions ?? []
+      const configOptions = [...base, ...(stored ? customOptions(stored) : [])]
+      if (params.configId === 'model') await this.client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'config_option_update', configOptions } })
+      return { ...response, configOptions }
     }
-  }
-
-  override async unstable_setSessionModel(params: SetSessionModelRequest): Promise<SetSessionModelResponse | void> {
-    const result = await super.unstable_setSessionModel(params)
-    // The levels are the model's; a model without any has no control, and a
-    // level the new model lacks falls back to the default rather than to a
-    // silent downgrade nobody can see.
-    const state = this.#efforts.get(params.sessionId)
-    if (state) {
-      state.levels = await this.#levelsFor(params.sessionId, params.modelId)
-      if (!state.levels.includes(valueOf(state, EFFORT_OPTION_ID))) state.values[EFFORT_OPTION_ID] = DEFAULT
-      // The model announcement precedes the option one: a client folding
-      // these into a single view must never see new options against the old
-      // model. Both go before the reply, so the reply finds them applied.
-      await this.client.sessionUpdate({
-        sessionId: params.sessionId,
-        update: { sessionUpdate: 'current_model_update', currentModelId: params.modelId },
-      })
-      await this.client.sessionUpdate({
-        sessionId: params.sessionId,
-        update: { sessionUpdate: 'config_option_update', configOptions: this.#optionsOf(state) },
-      })
-    }
-    return result
-  }
-
-  async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
-    const state = this.#efforts.get(params.sessionId)
-    if (!state) throw RequestError.invalidParams(`Session not found: ${params.sessionId}`)
+    const stored = this.#controls.get(params.sessionId)
+    if (!stored) throw RequestError.invalidParams(`Session not found: ${params.sessionId}`)
     const value = String(params.value)
+    if (params.configId === AUTOCOMPACT_OPTION_ID && !AUTOCOMPACT_CHOICES.some((choice) => choice.value === value)) throw RequestError.invalidParams(`${JSON.stringify(value)} is not an auto-compact window Claude Code takes.`)
+    if (params.configId === OUTPUT_STYLE_OPTION_ID && value !== DEFAULT && !stored.styles.includes(value)) throw RequestError.invalidParams(`${JSON.stringify(value)} is not an output style Claude Code reported.`)
     if (params.configId === EFFORT_OPTION_ID) {
-      if (value !== DEFAULT && !state.levels.includes(value)) {
-        throw RequestError.invalidParams(`${JSON.stringify(value)} is not an effort level this model supports.`)
-      }
-    } else if (params.configId === AUTOCOMPACT_OPTION_ID) {
-      if (!AUTOCOMPACT_CHOICES.some((choice) => choice.value === value)) {
-        throw RequestError.invalidParams(`${JSON.stringify(value)} is not an auto-compact window Claude Code takes.`)
-      }
-    } else if (params.configId === OUTPUT_STYLE_OPTION_ID) {
-      if (value !== DEFAULT && !state.styles.includes(value)) {
-        throw RequestError.invalidParams(`${JSON.stringify(value)} is not an output style this project declares.`)
-      }
-    } else {
-      throw RequestError.invalidParams(`Claude Code has no session option named ${JSON.stringify(params.configId)}.`)
+      const option = this.sessions[params.sessionId]?.configOptions.find((entry): entry is Extract<SessionConfigOption, { type: 'select' }> => entry.id === EFFORT_OPTION_ID && entry.type === 'select')
+      if (!option || !option.options.some((choice) => 'value' in choice && choice.value === value)) throw RequestError.invalidParams(`${JSON.stringify(value)} is not an effort level Claude Code takes.`)
     }
-    if (value === valueOf(state, params.configId)) return { configOptions: this.#optionsOf(state) }
-    state.values[params.configId] = value
-    this.#remember(params.sessionId, state.values)
-    if (state.prompted) {
-      await this.#respawn(params.sessionId, state)
+    if (stored.values[params.configId] === value) return { configOptions: customOptions(stored) }
+    stored.values[params.configId] = value
+    this.#writeControls(params.sessionId, stored.values)
+    if (stored.prompted) {
+      await this.#recreate(params.sessionId, stored)
+      stored.spawned = { ...stored.values }
     } else {
-      // Nothing to resume yet; `prompt` applies it through Claude's own
-      // command first.
       this.#log(`claude-acp: ${params.configId}=${value} queued for ${params.sessionId} until its first prompt`)
     }
-    return { configOptions: this.#optionsOf(state) }
+    return { configOptions: customOptions(stored) }
   }
-
-  override async prompt(params: PromptRequest): Promise<PromptResponse> {
-    const state = this.#efforts.get(params.sessionId)
-    if (state && !state.prompted) {
-      // The agent's own commands, run as the first thing in this turn. Each
-      // answers with a line; those lines are the only trace, and they cost
-      // nothing — no model call is made for a command.
-      for (const command of commandsFor(state.values, state.spawned)) {
+  override async prompt(params: Parameters<ClaudeAcpAgent['prompt']>[0]): ReturnType<ClaudeAcpAgent['prompt']> {
+    const stored = this.#controls.get(params.sessionId)
+    if (stored && !stored.prompted) {
+      for (const command of commandsFor(stored.values, stored.spawned)) {
         await super.prompt({ sessionId: params.sessionId, prompt: [{ type: 'text', text: command }] })
       }
-      state.spawned = { ...state.values }
+      stored.spawned = { ...stored.values }
+      stored.prompted = true
     }
-    if (state) state.prompted = true
-    const usage = this.#usage.get(params.sessionId)
-    if (usage) usage.turn = null
     const response = await super.prompt(params)
-    // An output style chosen before the first message could not ride a
-    // command the way effort does (`/output-style` is refused under
-    // stream-json), and an empty session cannot be `--resume`d. Now that the
-    // turn exists the respawn can carry it, so every later reply is styled.
-    if (
-      state &&
-      (state.values[OUTPUT_STYLE_OPTION_ID] ?? DEFAULT) !== (state.spawned[OUTPUT_STYLE_OPTION_ID] ?? DEFAULT)
-    ) {
-      await this.#respawn(params.sessionId, state)
+    if (stored && stored.values[OUTPUT_STYLE_OPTION_ID] !== stored.spawned[OUTPUT_STYLE_OPTION_ID] && stored.prompted) {
+      await this.#recreate(params.sessionId, stored)
+      stored.spawned = { ...stored.values }
     }
-    // The fill update goes out before the reply that ends the turn, so the
-    // client has both when it closes the turn. The turn's own tokens ride the
-    // reply, as ACP's unstable `usage` field.
-    await usage?.pending
-    return usage?.turn ? { ...response, usage: usage.turn } : response
+    if (!response.usage) return response
+    return {
+      ...response,
+      _meta: {
+        ...((response._meta ?? {}) as Record<string, unknown>),
+        harnessdesk: {
+          ...(((response._meta as Record<string, unknown> | null | undefined)?.['harnessdesk'] as Record<string, unknown> | undefined) ?? {}),
+          inputTokensAreUncached: true,
+        },
+      },
+    }
+  }
+  async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (method === SESSION_DELETE) {
+      const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
+      if (!sessionId) throw RequestError.invalidParams('A session id is required.')
+      this.#deletedSessions.add(sessionId)
+      this.#controls.delete(sessionId)
+      this.#tasks.delete(sessionId)
+      this.#delegations.delete(sessionId)
+      this.#releaseAttachments(sessionId)
+      const poller = this.#outputPollers.get(sessionId)
+      if (poller) clearTimeout(poller)
+      this.#outputPollers.delete(sessionId)
+      this.#writeControls(sessionId, {})
+      return { removed: trash(sessionFiles(sessionId)), disposition: 'trash' }
+    }
+    if (method === TASKS_LIST) return { tasks: this.#tasks.get(String(params['sessionId']))?.list() ?? [] }
+    if (method === DELEGATION_LIST) {
+      const registry = this.#delegations.get(String(params['sessionId']))
+      return { delegations: registry?.list() ?? [], delegated: registry?.totals() ?? null }
+    }
+    if (method === TASKS_STOP) {
+      const sessionId = String(params['sessionId'] ?? '')
+      const taskId = String(params['taskId'] ?? '')
+      const registry = this.#tasks.get(sessionId)
+      if (!registry?.list().some((task) => task.id === taskId && task.state === 'running')) {
+        this.#log(`claude-acp: task stop refused ${sessionId} ${taskId} ${JSON.stringify(registry?.list() ?? [])}`)
+        return { stopped: false }
+      }
+      try {
+        await this.sessions[sessionId]?.query.stopTask(taskId)
+        registry.markStopped(taskId)
+        await this.client.extNotification?.(TASKS_NOTIFICATION, { sessionId, tasks: registry.list() })
+        return { stopped: true }
+      } catch (error) {
+        this.#log(`claude-acp: failed to stop task ${taskId}: ${String(error)}`)
+        return { stopped: false }
+      }
+    }
+    if (method === TASKS_CLEAR) {
+      const sessionId = String(params['sessionId'] ?? '')
+      const registry = this.#tasks.get(sessionId)
+      if (registry?.clearFinished()) await this.client.extNotification?.(TASKS_NOTIFICATION, { sessionId, tasks: registry.list() })
+      return { cleared: true }
+    }
+    if (method === ATTACHMENT_RECEIPT) {
+      const sessionId = typeof params['sessionId'] === 'string' ? params['sessionId'] : ''
+      const key = typeof params['key'] === 'string' ? params['key'] : ''
+      const prepared = this.#attachments.get(sessionId)
+      // The client never accepts a receipt it did not ask for and never
+      // trusts a key that does not match what it prepared — enforced on its
+      // own side too, but this bridge never answers for a session/key pair
+      // it does not itself recognize as the one it was actually prepared
+      // with, host-side re-validation or not.
+      if (!prepared || prepared.input.key !== key) throw RequestError.invalidParams(`No prepared attachment input matches session ${sessionId} and its key.`)
+      const query = this.sessions[sessionId]?.query as
+        | { supportedCommands(): Promise<readonly { readonly name: string }[]>; mcpServerStatus(): Promise<readonly { readonly name: string; readonly status: string }[]> }
+        | undefined
+      if (!query) throw RequestError.invalidParams(`Session not found: ${sessionId}`)
+      const receipt = await attachmentReceipt(prepared.input, prepared.staged, query)
+      return { key: receipt.key, loaded: receipt.loaded, refused: receipt.refused }
+    }
+    throw RequestError.methodNotFound(method)
   }
 
-  // ------------------------------------------------------------------ internals
+  #pollTaskOutput(sessionId: string): void {
+    if (this.#deletedSessions.has(sessionId) || this.#outputPollers.has(sessionId)) return
+    const retries = (process.env['CLAUDE_ACP_TASK_OUTPUT_RETRIES_MS'] ?? '250,500,1000,2000,4000,8000').split(',').map(Number).filter((value) => Number.isFinite(value) && value >= 0)
+    const poll = (attempt: number): void => {
+      if (this.#deletedSessions.has(sessionId)) {
+        this.#outputPollers.delete(sessionId)
+        return
+      }
+      const registry = this.#tasks.get(sessionId)
+      if (!registry) return
+      let changed = false
+      for (const entry of registry.awaitingOutput()) {
+        try { changed = registry.attachOutput(entry.id, readFileSync(entry.outputFile, 'utf8')) || changed } catch {}
+      }
+      if (changed) void this.client.extNotification?.(TASKS_NOTIFICATION, { sessionId, tasks: registry.list() })
+      const pending = registry.awaitingOutput()
+      if (pending.length === 0) { this.#outputPollers.delete(sessionId); return }
+      if (attempt >= retries.length) {
+        for (const entry of pending) registry.markOutputMissing(entry.id)
+        void this.client.extNotification?.(TASKS_NOTIFICATION, { sessionId, tasks: registry.list() })
+        this.#outputPollers.delete(sessionId)
+        return
+      }
+      this.#outputPollers.set(sessionId, setTimeout(() => poll(attempt + 1), retries[attempt] ?? 0))
+    }
+    poll(0)
+  }
+  async #recreate(sessionId: string, stored: StoredControlsWithRuntime): Promise<void> {
+    const session = this.sessions[sessionId]
+    if (!session) throw RequestError.invalidParams(`Session not found: ${sessionId}`)
+    const creation = session.creationParams
+    await super.closeSession({ sessionId })
+    // `resume: sessionId` is added to whatever `claudeCode.options` already
+    // held — never in its place. Phase 12's own fields (`skills`, `plugins`,
+    // `settingSources`, `strictMcpConfig`) live in exactly that object, set
+    // once at create/load time and never re-derived from the Agent's current
+    // file here: a reconfigure or a resume reapplies the same frozen filter,
+    // it does not ask this Agent what it wishes for today.
+    const frozenClaudeCode = (stored.meta?.['claudeCode'] as Record<string, unknown> | undefined) ?? {}
+    const frozenOptions = (frozenClaudeCode['options'] as Record<string, unknown> | undefined) ?? {}
+    const response = await super.resumeSession({
+      sessionId,
+      cwd: stored.cwd,
+      ...(creation?.mcpServers ? { mcpServers: creation.mcpServers } : {}),
+      _meta: withOptions({ ...(stored.meta ?? {}), claudeCode: { ...frozenClaudeCode, options: { ...frozenOptions, resume: sessionId } } }, stored.values, new AbortController()),
+    })
+    const current = this.#controls.get(sessionId)
+    if (current) {
+      current.styles = await optionStyles(this, sessionId)
+      this.#controls.set(sessionId, current)
+    }
+    void response
+  }
 
-  /** Stops the session's process and starts another on the same conversation, at the chosen effort. */
-  async #respawn(sessionId: string, state: SessionState): Promise<void> {
-    const previous = (this.sessions as unknown as Sessions)[sessionId]
-    const previousAbort = state.abort
-    state.abort = new AbortController()
-    this.#log(`claude-acp: re-spawning ${sessionId} with ${describeValues(state.values)}`)
-    await (this as unknown as BaseInternals).createSession(
-      { cwd: state.cwd, mcpServers: state.mcpServers, _meta: withOptions(state.meta, state.values, state.abort) },
-      { resume: sessionId },
-    )
-    this.#observe(sessionId)
-    // The replaced process: its input ends, which is how Claude Code is told
-    // a stream-json session is over, and the abort is the belt to that brace.
+  async #replayStored(sessionId: string): Promise<void> {
+    const path = sessionFiles(sessionId)[0]
+    if (!path) return
+    let entries: Record<string, unknown>[] = []
     try {
-      previous?.input.end()
-      void previous?.query.return?.()
-    } catch {
-      // Already gone.
-    }
-    previousAbort.abort()
-    state.spawned = { ...state.values }
-  }
-
-  /**
-   * Tees the session's SDK stream. The base class drains `query.next()` in
-   * `prompt`; wrapping it on the instance is the one seam that sees every
-   * message without re-implementing the loop. A re-spawned session gets a
-   * new query and is wrapped again.
-   */
-  #observe(sessionId: string): void {
-    const session = (this.sessions as unknown as Sessions)[sessionId]
-    if (!session) return
-    const query = session.query as { next: Sessions[string]['query']['next']; [PUMPED]?: true }
-    // A query is pumped once. Wrapping a wrapper would run two loops over one
-    // generator: every message observed twice, and half of them delivered to
-    // the wrong reader.
-    if (query[PUMPED]) return
-    query[PUMPED] = true
-    const next = query.next.bind(query)
-    // Pulled here rather than in `prompt`, and pulled *continuously*.
-    //
-    // The base class only drains the stream while a turn is in flight, which
-    // is fine for a transcript and wrong for a background task: the whole
-    // point of one is that it finishes while nobody is looking, and its
-    // "done" message would sit unread until the next thing the user typed.
-    // So this loop owns the generator, buffers every result, and hands them
-    // to `prompt` in the order they arrived — the base loop cannot tell the
-    // difference, and a task that ends during a coffee break is announced
-    // when it ends.
-    const buffered: IteratorResult<SdkMessage, unknown>[] = []
-    const waiting: {
-      resolve: (result: IteratorResult<SdkMessage, unknown>) => void
-      reject: (error: unknown) => void
-    }[] = []
-    let failure: unknown = null
-    let ended: IteratorResult<SdkMessage, unknown> | null = null
-    const pump = async (): Promise<void> => {
-      for (;;) {
-        const result = await next()
-        if (!result.done && result.value) this.#onMessage(sessionId, result.value)
-        const waiter = waiting.shift()
-        if (waiter) waiter.resolve(result)
-        else buffered.push(result)
-        if (result.done) {
-          // Remembered, because a generator answers `done` every time it is
-          // asked and this one is now only asked through the buffer. Without
-          // it a `prompt` after the stream ended would wait for a message
-          // that can never come.
-          ended = result
-          return
+      entries = readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap((line) => {
+        try { const value = JSON.parse(line) as Record<string, unknown>; return value.type ? [value] : [] } catch { return [] }
+      })
+    } catch { return }
+    const noticed = new Set<string>()
+    const send = async (update: SessionNotification['update']): Promise<void> => this.client.sessionUpdate({ sessionId, update })
+    for (const entry of entries) {
+      const message = entry.message as { role?: string; content?: unknown } | undefined
+      const content = message?.content
+      if (entry.type === 'user') {
+        const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : []
+        for (const block of blocks) {
+          const text = typeof block === 'string' ? block : (block as { type?: string; text?: unknown })?.type === 'text' ? String((block as { text: unknown }).text) : ''
+          if (text) {
+            const replay = classifyReplayed(text, entry.isCompactSummary === true ? 'compact' : entry.isMeta === true ? 'meta' : undefined)
+            const echo = replay?.kind === 'notice' && replay.echo === true
+            if (replay && !(echo && noticed.has(replay.text))) {
+              if (echo) noticed.add(replay.text)
+              await send({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: replay.text }, ...(replay.kind === 'notice' ? { _meta: { harnessdesk: { notice: true } } } : {}) })
+            }
+          }
+          const toolResult = typeof block === 'object' && block !== null && (block as { type?: string }).type === 'tool_result' ? block as { tool_use_id?: string; content?: unknown } : null
+          if (toolResult?.tool_use_id) {
+            const result = Array.isArray(toolResult.content) ? toolResult.content.map((item) => safeBlock(item)) : [{ type: 'text', text: String(toolResult.content ?? '') }]
+            await send({ sessionUpdate: 'tool_call_update', toolCallId: toolResult.tool_use_id, status: 'completed', content: result.map((item) => ({ type: 'content', content: item })) as never })
+          }
+        }
+      } else if (entry.type === 'assistant' && Array.isArray(content)) {
+        for (const block of content) {
+          const value = block as { type?: string; id?: string; name?: string; input?: unknown; text?: string }
+          if (value.type === 'tool_use' && value.id) {
+            await send({ sessionUpdate: 'tool_call', toolCallId: value.id, title: value.name ?? 'tool', kind: 'other', status: 'in_progress', rawInput: value.input })
+          } else if (value.type === 'text' && typeof value.text === 'string') {
+            await send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: value.text } })
+          }
         }
       }
     }
-    void pump().catch((error: unknown) => {
-      // The stream ended badly — a killed process, a protocol error. Whoever
-      // is waiting hears it, and whoever asks next hears it too, because a
-      // `prompt` that hung here would be worse than one that throws.
-      failure = error
-      for (const waiter of waiting.splice(0)) waiter.reject(error)
-    })
-    query.next = async () => {
-      const ready = buffered.shift()
-      if (ready) return ready
-      if (failure !== null) throw failure
-      if (ended) return ended
-      return new Promise<IteratorResult<SdkMessage, unknown>>((resolve, reject) => {
-        waiting.push({ resolve, reject })
-      })
-    }
-    if (!this.#tasks.has(sessionId)) this.#tasks.set(sessionId, new TaskRegistry())
-    if (!this.#delegations.has(sessionId)) this.#delegations.set(sessionId, new DelegationRegistry())
-    const kept = this.#usage.get(sessionId)
-    if (kept) {
-      // The rest of the state outlives a respawn on purpose, but the delta
-      // baseline is per process: a fresh CLI counts from zero again.
-      kept.modelTotals = null
-    } else {
-      this.#usage.set(sessionId, {
-        contextUsed: null,
-        model: null,
-        contextWindow: null,
-        cost: null,
-        turn: null,
-        modelTotals: null,
-        pending: Promise.resolve(),
-      })
-    }
   }
-
-  #onMessage(sessionId: string, message: SdkMessage): void {
-    if (TASK_TRACE) traceTaskMessage(message)
-    if (this.#tasks.get(sessionId)?.observe(message)) {
-      this.#publishTasks(sessionId)
-      this.#fetchTaskOutputs(sessionId)
-    }
-    if (this.#delegations.get(sessionId)?.observe(message)) this.#publishDelegations(sessionId)
-    const state = this.#usage.get(sessionId)
-    if (!state) return
-    if (message.type === 'assistant' && 'message' in message) {
-      const usage = message.message.usage
-      if (!usage) return
-      // A streamed assistant message carries `message_start` usage: the
-      // inputs are real, but `output_tokens` is a placeholder counted when
-      // the stream opened — 1, usually. Summing the calls is therefore only
-      // a mid-turn estimate; the result's counts replace it below.
-      const call = callUsage(usage)
-      state.turn = state.turn ? addUsage(state.turn, call) : call
-      if (message.parent_tool_use_id === null) {
-        state.contextUsed = call.inputTokens
-        state.model = message.message.model ?? state.model
-        this.#announce(sessionId, state)
-      }
-      return
-    }
-    if (message.type === 'result' && 'modelUsage' in message) {
-      if (typeof message.total_cost_usd === 'number') state.cost = message.total_cost_usd
-      const windows = message.modelUsage ?? {}
-      const own = state.model ? windows[state.model]?.contextWindow : undefined
-      // The model named on the call, else the widest the result knows — a
-      // sub-agent on a smaller model must not shrink the main window.
-      const widest = Object.values(windows).reduce<number | null>(
-        (best, entry) => (entry.contextWindow && (best === null || entry.contextWindow > best) ? entry.contextWindow : best),
-        null,
-      )
-      state.contextWindow = own ?? widest ?? state.contextWindow
-      // The turn's real tokens. `modelUsage` is cumulative over the process
-      // with true output counts — helper models and sub-agents included —
-      // so the turn is its growth since the last result. `result.usage` is
-      // the per-turn fallback for a CLI whose modelUsage carries no counts.
-      const turn = turnFromTotals(windows, state.modelTotals) ?? (message.usage ? callUsage(message.usage) : null)
-      state.modelTotals = { ...windows }
-      if (turn && turn.totalTokens > 0) state.turn = turn
-      this.#announce(sessionId, state)
-    }
-  }
-
-  /**
-   * Tells the client the whole list. Fire-and-forget: a client that does not
-   * know the extension ignores an unknown notification, which is exactly what
-   * ACP says it should do, and there is nothing here worth failing a turn for.
-   */
-  #publishTasks(sessionId: string): void {
-    const tasks: readonly BridgeTask[] = this.#tasks.get(sessionId)?.list() ?? []
-    void this.client
-      .extNotification(TASKS_NOTIFICATION, { sessionId, tasks })
-      .catch((error: unknown) => {
-        this.#log(
-          `claude-acp: could not send background tasks: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      })
-  }
-
-  /**
-   * `#readTaskOutputs`, fire-and-forget, with its failure logged rather than
-   * dropped. `readTail` answers null for every read failure, so the only
-   * thing left to throw is a publish — synchronous today, and a `void` would
-   * swallow it silently the day it is not.
-   */
-  #fetchTaskOutputs(sessionId: string, options: { eager?: boolean } = {}): void {
-    void this.#readTaskOutputs(sessionId, options).catch((error: unknown) => {
-      this.#log(`claude-acp: could not read task output: ${error instanceof Error ? error.message : String(error)}`)
-    })
-  }
-
-  /**
-   * Fetches what a finished task printed.
-   *
-   * Claude Code's `task_notification` names an output file and never sends
-   * the text, so the panel that shows a task would otherwise show a label
-   * and a state and nothing of what the work said. The file is read when the
-   * task ends and the list is published again with the text on the row.
-   * Capped at the tail: a watcher that ran for an hour has written more than
-   * any panel should carry, and the end is the half that says how it went.
-   *
-   * A file that is not there yet is tried again on a doubling clock rather
-   * than given up on: the notification and the last write race, and a
-   * one-shot read that lost the race left the card saying nothing was kept.
-   * Each task keeps its own clock; a pass skips a task whose next look is
-   * not due, unless it is `eager` — a pane just opened, and one `stat` is
-   * cheap. When the clock runs out the task is marked `outputMissing`, so
-   * the card can say "never found" rather than leave "not yet" standing
-   * forever. Asynchronous, so a dozen tasks ending together do not hold the
-   * stream while their tails are read.
-   */
-  async #readTaskOutputs(sessionId: string, { eager = false }: { eager?: boolean } = {}): Promise<void> {
-    const registry = this.#tasks.get(sessionId)
-    if (!registry) return
-    const now = Date.now()
-    let missed = false
-    for (const { id, outputFile } of registry.awaitingOutput()) {
-      const key = `${sessionId}\0${id}`
-      const clock = this.#outputMisses.get(key)
-      if (clock && !eager && clock.due > now) {
-        missed = true
-        continue
-      }
-      const read = await readTail(outputFile)
-      // The registry may have gone while the file was being read.
-      if (this.#tasks.get(sessionId) !== registry) return
-      if (read === null) {
-        const misses = (clock?.misses ?? 0) + 1
-        const wait = TASK_OUTPUT_RETRIES[misses - 1]
-        if (wait === undefined) {
-          // Out of tries: say so on the task, once, and stop looking.
-          this.#outputMisses.delete(key)
-          if (registry.markOutputMissing(id)) this.#publishTasks(sessionId)
-          continue
-        }
-        this.#outputMisses.set(key, { misses, due: Date.now() + wait })
-        missed = true
-        continue
-      }
-      this.#outputMisses.delete(key)
-      if (registry.attachOutput(id, read.text, read.truncated)) this.#publishTasks(sessionId)
-    }
-    if (missed) this.#retryOutputsLater(sessionId)
-  }
-
-  /** Schedules one more pass for the session, when the earliest task is next due. */
-  #retryOutputsLater(sessionId: string): void {
-    if (this.#outputRetries.has(sessionId)) return
-    const registry = this.#tasks.get(sessionId)
-    if (!registry) return
-    const dues = registry
-      .awaitingOutput()
-      .map(({ id }) => this.#outputMisses.get(`${sessionId}\0${id}`)?.due)
-      .filter((due): due is number => typeof due === 'number')
-    if (dues.length === 0) return
-    const wait = Math.max(0, Math.min(...dues) - Date.now())
-    const timer = setTimeout(() => {
-      this.#outputRetries.delete(sessionId)
-      this.#fetchTaskOutputs(sessionId)
-    }, wait)
-    timer.unref?.()
-    this.#outputRetries.set(sessionId, timer)
-  }
-
-  #forgetOutputRetries(sessionId: string): void {
-    const timer = this.#outputRetries.get(sessionId)
-    if (timer) clearTimeout(timer)
-    this.#outputRetries.delete(sessionId)
-    for (const key of [...this.#outputMisses.keys()]) {
-      if (key.startsWith(`${sessionId}\0`)) this.#outputMisses.delete(key)
-    }
-  }
-
-  /**
-   * Tells the client what this session delegated, on the same terms as the
-   * task list: the whole list, whenever it moves, unasked — and ignored by a
-   * client that has never heard of the extension.
-   */
-  #publishDelegations(sessionId: string): void {
-    const registry = this.#delegations.get(sessionId)
-    const delegations: readonly BridgeDelegation[] = registry?.list() ?? []
-    const delegated = registry?.totals() ?? null
-    void this.client
-      .extNotification(DELEGATION_NOTIFICATION, {
-        sessionId,
-        delegations,
-        ...(delegated ? { delegated } : {}),
-      })
-      .catch((error: unknown) => {
-        this.#log(
-          `claude-acp: could not send delegations: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      })
-  }
-
-  /**
-   * Ends one background task through Claude Code's own control channel. The
-   * stream confirms it a moment later; marking it here is what makes the row
-   * change under the finger that pressed the button.
-   */
-  async #stopTask(sessionId: string, taskId: string): Promise<boolean> {
-    const query = (this.sessions as unknown as Sessions)[sessionId]?.query
-    // Called on the query, never detached from it: `stopTask` is a method on
-    // the SDK's own object and reading it off loses its `this`.
-    if (!query?.stopTask || !taskId) return false
-    // A task this bridge has watched end is not asked about again: Claude Code
-    // answers an already-finished id with an error, and an error is a worse
-    // way to say "someone else pressed it first" than simply saying no. An id
-    // never seen still goes through — the registry can be behind, the agent
-    // cannot.
-    const known = this.#tasks.get(sessionId)?.list().find((task) => task.id === taskId)
-    if (known && known.state !== 'running') return false
-    try {
-      await query.stopTask(taskId)
-    } catch (error) {
-      this.#log(`claude-acp: could not stop ${taskId}: ${error instanceof Error ? error.message : String(error)}`)
-      return false
-    }
-    if (this.#tasks.get(sessionId)?.markStopped(taskId)) this.#publishTasks(sessionId)
-    return true
-  }
-
-  /** `usage_update`, once both halves of the fraction are known. */
-  #announce(sessionId: string, state: UsageState): void {
-    if (state.contextUsed === null || state.contextWindow === null) return
-    const update = {
-      sessionUpdate: 'usage_update' as const,
-      used: state.contextUsed,
-      size: state.contextWindow,
-      ...(state.cost !== null ? { cost: { amount: state.cost, currency: 'USD' } } : {}),
-    }
-    state.pending = state.pending
-      .then(() => this.client.sessionUpdate({ sessionId, update }))
-      .catch((error: unknown) => {
-        this.#log(`claude-acp: could not send usage: ${error instanceof Error ? error.message : String(error)}`)
-      })
-  }
-
-  /** What Claude Code says its models are, for this session's process. */
-  async #modelsOf(sessionId: string): Promise<readonly SdkModel[]> {
-    return (await this.#initOf(sessionId)).models
-  }
-
-  /** The one snapshot the SDK's control channel gives before any turn. */
-  async #initOf(
-    sessionId: string,
-  ): Promise<{ models: readonly SdkModel[]; styles: readonly string[] }> {
-    const session = (this.sessions as unknown as Sessions)[sessionId]
-    if (!session) return { models: [], styles: [] }
-    try {
-      const init = await session.query.initializationResult()
-      return { models: init.models, styles: init.available_output_styles ?? [] }
-    } catch (error) {
-      this.#log(`claude-acp: could not read models: ${error instanceof Error ? error.message : String(error)}`)
-      return { models: [], styles: [] }
-    }
-  }
-
-  async #levelsFor(sessionId: string, modelId: string | null): Promise<readonly string[]> {
-    return levelsOf(await this.#modelsOf(sessionId), modelId)
-  }
-
-  /**
-   * The session's controls: the effort levels this model declared, when it
-   * declared any, and where Claude Code compacts — which every model has.
-   */
-  #optionsOf(state: SessionState): SessionConfigOption[] {
-    const options: SessionConfigOption[] = []
-    if (state.levels.length > 0) {
-      options.push({
-        id: EFFORT_OPTION_ID,
-        name: 'Reasoning effort',
-        description: 'How hard Claude thinks before answering.',
-        category: 'thought_level',
-        type: 'select',
-        currentValue: valueOf(state, EFFORT_OPTION_ID),
-        options: [
-          { value: DEFAULT, name: 'Default', description: "Claude Code's own setting for this project." },
-          ...state.levels.map((level) => ({ value: level, name: LABELS[level] ?? level })),
-        ],
-      })
-    }
-    options.push({
-      id: AUTOCOMPACT_OPTION_ID,
-      name: 'Auto-compact',
-      description: 'Where a conversation that fills the window is summarised and continued.',
-      type: 'select',
-      currentValue: valueOf(state, AUTOCOMPACT_OPTION_ID),
-      options: AUTOCOMPACT_CHOICES.map((choice) => ({ ...choice })),
-    })
-    const styles = state.styles.filter((style) => style !== DEFAULT)
-    if (styles.length > 0) {
-      options.push({
-        id: OUTPUT_STYLE_OPTION_ID,
-        name: 'Output style',
-        description: "How Claude writes its replies — Claude Code's own output styles.",
-        type: 'select',
-        currentValue: valueOf(state, OUTPUT_STYLE_OPTION_ID),
-        options: [
-          { value: DEFAULT, name: 'Default', description: "Claude Code's own setting for this project." },
-          ...styles.map((style) => ({ value: style, name: style })),
-        ],
-      })
-    }
-    return options
-  }
-
-  /**
-   * What this session was left at. Older indexes stored the effort alone, as
-   * a string; that shape is still read, so an upgrade does not reset the
-   * sessions that were open before it.
-   */
-  #recall(sessionId: string): Record<string, string> {
-    const stored = this.#index()[sessionId]
-    if (typeof stored === 'string') return { [EFFORT_OPTION_ID]: stored }
-    return { ...(stored ?? {}) }
-  }
-
-  #remember(sessionId: string, values: Record<string, string>): void {
-    const index = this.#index()
-    const set = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== DEFAULT))
-    if (Object.keys(set).length === 0) delete index[sessionId]
-    else index[sessionId] = set
-    try {
-      mkdirSync(dirname(this.#indexPath), { recursive: true })
-      writeFileSync(this.#indexPath, JSON.stringify(index, null, 2))
-    } catch (error) {
-      this.#log(`claude-acp: could not write ${this.#indexPath}: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-
-  #index(): Record<string, string | Record<string, string>> {
-    try {
-      const parsed = JSON.parse(readFileSync(this.#indexPath, 'utf8')) as unknown
-      return typeof parsed === 'object' && parsed !== null
-        ? { ...(parsed as Record<string, string | Record<string, string>>) }
-        : {}
-    } catch {
-      return {}
-    }
-  }
-
-  /** Serves ACP on stdio. */
   static serve(options: HarnessDeskClaudeAgentOptions = {}): void {
     const stream = ndJsonStream(nodeToWebWritable(process.stdout), nodeToWebReadable(process.stdin))
-    new AgentSideConnection((client) => new HarnessDeskClaudeAgent(client, options), stream)
+    let agent: HarnessDeskClaudeAgent
+    const app = acpAgent({ name: 'harnessdesk-claude-acp' })
+      .onRequest(methods.agent.initialize, (ctx) => agent.initialize(ctx.params))
+      .onRequest(methods.agent.session.new, (ctx) => agent.newSession(ctx.params))
+      .onRequest(methods.agent.session.load, (ctx) => agent.loadSession(ctx.params))
+      .onRequest(methods.agent.session.fork, (ctx) => agent.unstable_forkSession(ctx.params))
+      .onRequest(methods.agent.session.list, (ctx) => agent.listSessions(ctx.params))
+      .onRequest(methods.agent.session.delete, (ctx) => agent.deleteSession(ctx.params))
+      .onRequest(methods.agent.session.resume, (ctx) => agent.resumeSession(ctx.params))
+      .onRequest(methods.agent.session.close, (ctx) => agent.closeSession(ctx.params))
+      .onRequest(methods.agent.session.setMode, (ctx) => agent.setSessionMode(ctx.params))
+      .onRequest(methods.agent.session.setConfigOption, (ctx) => agent.setSessionConfigOption(ctx.params))
+      .onRequest(methods.agent.authenticate, (ctx) => agent.authenticate(ctx.params))
+      .onRequest(methods.agent.providers.list, (ctx) => agent.unstable_listProviders(ctx.params))
+      .onRequest(methods.agent.providers.set, (ctx) => agent.unstable_setProvider(ctx.params))
+      .onRequest(methods.agent.providers.disable, (ctx) => agent.unstable_disableProvider(ctx.params))
+      .onRequest(methods.agent.logout, (ctx) => agent.logout(ctx.params))
+      .onRequest(methods.agent.session.prompt, (ctx) => agent.prompt(ctx.params))
+      .onRequest(SESSION_DELETE, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(SESSION_DELETE, ctx.params))
+      .onRequest(TASKS_LIST, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_LIST, ctx.params))
+      .onRequest(TASKS_STOP, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_STOP, ctx.params))
+      .onRequest(TASKS_CLEAR, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(TASKS_CLEAR, ctx.params))
+      .onRequest(DELEGATION_LIST, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(DELEGATION_LIST, ctx.params))
+      .onRequest(ATTACHMENT_RECEIPT, (params: unknown) => params as Record<string, unknown>, (ctx) => agent.extMethod(ATTACHMENT_RECEIPT, ctx.params))
+      .onNotification(methods.agent.session.cancel, (ctx) => agent.cancel(ctx.params))
+      .connect(stream)
+    agent = new HarnessDeskClaudeAgent(clientFromContext(app.client), options)
+  }
+  #readControls(sessionId: string): Record<string, string> {
+    try {
+      const value = JSON.parse(readFileSync(join(this.#stateDir, 'options.json'), 'utf8')) as unknown
+      const entry = value && typeof value === 'object' ? (value as Record<string, unknown>)[sessionId] : undefined
+      return typeof entry === 'object' && entry !== null ? { ...(entry as Record<string, string>) } : {}
+    } catch {
+      try {
+        const value = JSON.parse(readFileSync(join(this.#stateDir, 'efforts.json'), 'utf8')) as unknown
+        const entry = value && typeof value === 'object' ? (value as Record<string, unknown>)[sessionId] : undefined
+        return typeof entry === 'object' && entry !== null ? { ...(entry as Record<string, string>) } : {}
+      } catch { return {} }
+    }
+  }
+  #writeControls(sessionId: string, values: Record<string, string>): void {
+    try {
+      const path = join(this.#stateDir, 'options.json')
+      let all: Record<string, Record<string, string>> = {}
+      try { all = JSON.parse(readFileSync(path, 'utf8')) as Record<string, Record<string, string>> } catch { all = {} }
+      if (Object.keys(values).length === 0) delete all[sessionId]
+      else all[sessionId] = values
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, JSON.stringify(all, null, 2))
+      if (values.effort) writeFileSync(join(this.#stateDir, 'efforts.json'), JSON.stringify({ [sessionId]: { effort: values.effort } }, null, 2))
+    } catch (error) { this.#log(`claude-acp: could not persist options: ${error instanceof Error ? error.message : String(error)}`) }
   }
 }
-
-/** The levels the agent declared for one of its models; none is a model without the control. */
-export const levelsOf = (models: readonly SdkModel[], modelId: string | null): readonly string[] =>
-  models.find((entry) => entry.value === modelId)?.supportedEffortLevels ?? []
-
-/**
- * The session's model list with each model's own effort levels attached, in
- * ACP's `_meta`.
- *
- * ACP declares one effort control per session, for whatever model is current;
- * the catalogue a client shows is per model, and Claude Code's models differ
- * — Haiku has no levels at all. The levels ride with the model they belong
- * to, so nothing has to be inferred from the session's current one. An agent
- * that does not know this key is unaffected by it.
- */
-export const withEffortLevels = (
-  models: NewSessionResponse['models'],
-  declared: readonly SdkModel[],
-): { models?: NewSessionResponse['models'] } => {
-  if (!models) return {}
-  return {
-    models: {
-      ...models,
-      availableModels: models.availableModels.map((model) => {
-        // Always stated, empty included: "this model has no levels" is a
-        // fact about Haiku, and a client that saw nothing here would fall
-        // back to the session's control and show levels Haiku cannot run.
-        const levels = levelsOf(declared, model.modelId)
-        return {
-          ...model,
-          _meta: {
-            ...(model._meta ?? {}),
-            harnessdesk: {
-              ...((model._meta?.['harnessdesk'] as Record<string, unknown> | undefined) ?? {}),
-              effortLevels: levels.map((level) => ({ id: level, label: LABELS[level] ?? level })),
-            },
-          },
-        }
-      }),
-    },
-  }
-}
-
-export const VERSION = '0.1.0'
-
-const addUsage = (a: Usage, b: Usage): Usage => ({
-  inputTokens: a.inputTokens + b.inputTokens,
-  outputTokens: a.outputTokens + b.outputTokens,
-  cachedReadTokens: (a.cachedReadTokens ?? 0) + (b.cachedReadTokens ?? 0),
-  cachedWriteTokens: (a.cachedWriteTokens ?? 0) + (b.cachedWriteTokens ?? 0),
-  totalTokens: a.totalTokens + b.totalTokens,
-})
-
-/** One API call's counts, in the shape the wire's usage field takes. */
-const callUsage = (usage: SdkApiUsage): Usage => {
-  const input = usage.input_tokens ?? 0
-  const cacheWrite = usage.cache_creation_input_tokens ?? 0
-  const cacheRead = usage.cache_read_input_tokens ?? 0
-  const output = usage.output_tokens ?? 0
-  return {
-    inputTokens: input + cacheWrite + cacheRead,
-    outputTokens: output,
-    cachedReadTokens: cacheRead,
-    cachedWriteTokens: cacheWrite,
-    totalTokens: input + cacheWrite + cacheRead + output,
-  }
-}
-
-/**
- * What this result's cumulative per-model counts added over the last one,
- * as one turn. Null when the counts carry no tokens at all — an older CLI
- * whose `modelUsage` names only windows. Deltas clamp at zero so a count
- * that ever shrinks (it should not) subtracts nothing rather than lying.
- */
-const turnFromTotals = (
-  models: Readonly<Record<string, SdkModelUsage>>,
-  baseline: Readonly<Record<string, SdkModelUsage>> | null,
-): Usage | null => {
-  let input = 0
-  let output = 0
-  let cacheRead = 0
-  let cacheWrite = 0
-  let counted = false
-  for (const [model, now] of Object.entries(models)) {
-    if ((now.inputTokens ?? 0) + (now.outputTokens ?? 0) + (now.cacheReadInputTokens ?? 0) + (now.cacheCreationInputTokens ?? 0) === 0) continue
-    counted = true
-    const before = baseline?.[model]
-    input += Math.max(0, (now.inputTokens ?? 0) - (before?.inputTokens ?? 0))
-    output += Math.max(0, (now.outputTokens ?? 0) - (before?.outputTokens ?? 0))
-    cacheRead += Math.max(0, (now.cacheReadInputTokens ?? 0) - (before?.cacheReadInputTokens ?? 0))
-    cacheWrite += Math.max(0, (now.cacheCreationInputTokens ?? 0) - (before?.cacheCreationInputTokens ?? 0))
-  }
-  if (!counted) return null
-  return {
-    inputTokens: input + cacheRead + cacheWrite,
-    outputTokens: output,
-    cachedReadTokens: cacheRead,
-    cachedWriteTokens: cacheWrite,
-    totalTokens: input + cacheRead + cacheWrite + output,
-  }
-}
-
-type Meta = Record<string, unknown> | null | undefined
-
-/**
- * The `_meta.harnessdesk` key under which a client hands a standing
- * instruction, and the capability this bridge declares for carrying it.
- * Duplicated in `@harnessdesk/transport-acp` for the reason every other
- * key here is: this bridge carries no HarnessDesk dependency.
- */
-const INSTRUCTIONS_CAPABILITY = 'instructions'
-
-/**
- * The open's params with the desk's standing instruction folded into the
- * system prompt — appended to Claude Code's own preset, or to whatever the
- * client already asked to append, never in place of a custom prompt a
- * client supplied whole. The SDK's `append` is the one instruction layer
- * the CLI keeps beneath the person's words, so this is where the sentence
- * belongs; putting it in the prompt would make it look like theirs.
- */
-export const withInstructions = <T extends { _meta?: Meta }>(params: T): T => {
-  const ours = params._meta?.['harnessdesk']
-  const text =
-    typeof ours === 'object' && ours !== null
-      ? (ours as Record<string, unknown>)[INSTRUCTIONS_CAPABILITY]
-      : undefined
-  if (typeof text !== 'string' || text.trim() === '') return params
-  const existing = params._meta?.['systemPrompt']
-  if (typeof existing === 'string') return params
-  const appended =
-    typeof existing === 'object' &&
-    existing !== null &&
-    typeof (existing as { append?: unknown }).append === 'string'
-      ? `${(existing as { append: string }).append}\n\n${text.trim()}`
-      : text.trim()
-  return { ...params, _meta: { ...(params._meta ?? {}), systemPrompt: { append: appended } } }
-}
-
-/** A control's value for this session, or `default` when it has none. */
-export const valueOf = (state: { values: Record<string, string> }, id: string): string =>
-  state.values[id] ?? DEFAULT
-
-/** The controls this bridge adds, for reading a client's initial values. */
-const CONTROL_IDS: readonly string[] = [EFFORT_OPTION_ID, AUTOCOMPACT_OPTION_ID, OUTPUT_STYLE_OPTION_ID]
-
-/**
- * The controls Claude Code can be told about mid-session with its own
- * commands. Output style is not one: `/output-style` answers "isn't
- * available in this environment" under stream-json (probed against 2.1.240),
- * so that value can only ride a spawn.
- */
-const COMMAND_IDS: readonly string[] = [EFFORT_OPTION_ID, AUTOCOMPACT_OPTION_ID]
-
-/**
- * The values a client asked a new session to start at, from
- * `_meta.harnessdesk.options`. Anything the bridge does not own is ignored:
- * that key carries the whole draft, model and mode included.
- */
-export const optionsIn = (meta: Meta): Record<string, string> => {
-  const harnessdesk = meta?.['harnessdesk']
-  if (typeof harnessdesk !== 'object' || harnessdesk === null) return {}
-  const options = (harnessdesk as { options?: unknown }).options
-  if (typeof options !== 'object' || options === null) return {}
-  const wanted: Record<string, string> = {}
-  for (const id of CONTROL_IDS) {
-    const value = (options as Record<string, unknown>)[id]
-    if (typeof value === 'string' && value.length > 0) wanted[id] = value
-  }
-  return wanted
-}
-
-/**
- * `_meta` with the SDK options the base bridge merges into its `query` call:
- * the flags for whatever is chosen, and an abort controller so the process
- * can be ended when it is replaced.
- *
- * `effort` is an option the SDK types; `--autocompact` is not, so it travels
- * as `extraArgs`, the SDK's own passthrough to the CLI. `default` means the
- * flag is left off entirely — Claude Code then applies its own settings,
- * which is a different thing from any value this bridge could pass.
- */
-export const withOptions = (
-  meta: Meta,
-  values: Record<string, string>,
-  abort: AbortController,
-): Record<string, unknown> => {
-  const claudeCode = (meta?.['claudeCode'] ?? {}) as { options?: Record<string, unknown> }
-  const options: Record<string, unknown> = { ...(claudeCode.options ?? {}), abortController: abort }
-  const effort = values[EFFORT_OPTION_ID]
-  if (effort && effort !== DEFAULT) options['effort'] = effort
-  else delete options['effort']
-  const extraArgs = { ...((options['extraArgs'] as Record<string, string | null> | undefined) ?? {}) }
-  const autocompact = values[AUTOCOMPACT_OPTION_ID]
-  if (autocompact && autocompact !== DEFAULT) extraArgs['autocompact'] = autocompact
-  else delete extraArgs['autocompact']
-  // The one road to an output style: `--settings {"outputStyle": …}`. The
-  // `/output-style` command is refused under stream-json, and there is no
-  // dedicated flag, so the value is merged into whatever settings JSON the
-  // caller already passes rather than replacing it.
-  const style = values[OUTPUT_STYLE_OPTION_ID]
-  const settings = parsedSettings(extraArgs['settings'])
-  if (style && style !== DEFAULT) extraArgs['settings'] = JSON.stringify({ ...settings, outputStyle: style })
-  else if ('outputStyle' in settings) {
-    const { outputStyle: _dropped, ...rest } = settings
-    if (Object.keys(rest).length > 0) extraArgs['settings'] = JSON.stringify(rest)
-    else delete extraArgs['settings']
-  }
-  if (Object.keys(extraArgs).length > 0) options['extraArgs'] = extraArgs
-  else delete options['extraArgs']
-  return { ...(meta ?? {}), claudeCode: { ...claudeCode, options } }
-}
-
-/** The caller's own `--settings` JSON, or nothing — never a parse error. */
-const parsedSettings = (raw: string | null | undefined): Record<string, unknown> => {
-  if (typeof raw !== 'string' || raw === '') return {}
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {}
-  } catch {
-    return {}
-  }
-}
-
-/**
- * The agent's own commands for whatever differs from what the process was
- * spawned with — the only way to change a session that has nothing to
- * resume yet. `default` is asked for as `auto`, the nearest thing Claude
- * Code's commands can say.
- */
-export const commandsFor = (
-  values: Record<string, string>,
-  spawned: Record<string, string>,
-): readonly string[] => {
-  const commands: string[] = []
-  for (const id of COMMAND_IDS) {
-    const value = values[id] ?? DEFAULT
-    if (value === (spawned[id] ?? DEFAULT)) continue
-    commands.push(`/${id} ${value === DEFAULT ? 'auto' : value}`)
-  }
-  return commands
-}
-
-/** For the log line a re-spawn writes. */
-const describeValues = (values: Record<string, string>): string =>
-  CONTROL_IDS.map((id) => `${id}=${values[id] ?? DEFAULT}`).join(' ')

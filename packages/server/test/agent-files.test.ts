@@ -1,0 +1,1305 @@
+import assert from 'node:assert/strict'
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
+import { dirname, join } from 'node:path'
+import { test, type TestContext } from 'node:test'
+
+import {
+  CEILING_LEVELS,
+  parseClientMessage,
+  ValidationError,
+  type AgentEntry,
+  type MachineSeating,
+} from '@harnessdesk/protocol'
+
+import { parseAgentDefinition } from '../src/agent-def.js'
+import { agentIdOf, agentSource, copyAgentFolder, createAgentFolder, projectAgentDir, writeAgentFolder } from '../src/agent-files.js'
+import { SEATING_FILE } from '../src/agent-seating-file.js'
+import { Agents, PROJECT_AGENT_DIR } from '../src/agents.js'
+import { Host, StateStore, type HostOptions } from '../src/index.js'
+import { agentMethods, found } from '../src/methods/agents.js'
+import type { HostContext } from '../src/methods/context.js'
+import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { shippedAgentsCopy, silent } from './fixtures/harness.js'
+import { tempDir } from './scratch.js'
+
+/**
+ * An Agent's files: a new one written, one copied to where it shadows the
+ * original, one moved to the Trash, one shown in Finder, one opened in the
+ * desk's editor. Nothing overwrites an Agent that is there, nothing is written
+ * through a link out of a project, and nothing that ships is written at all.
+ */
+
+test('a name becomes a folder name, and a name with nothing to spell one is refused', () => {
+  assert.equal(agentIdOf('Careful reviewer'), 'careful-reviewer')
+  assert.equal(agentIdOf('  Réviseur d’API  '), 'reviseur-d-api')
+  assert.equal(agentIdOf('***'), null)
+  assert.equal(agentIdOf('x'.repeat(80))?.length, 48)
+})
+
+test('a new AGENT.md reads back as what was saved, a model the spec cannot carry included', () => {
+  const source = agentSource({
+    name: 'Careful "reviewer"',
+    description: 'Reads twice.',
+    ceiling: 'edit',
+    prefer: [
+      { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
+      { runtime: 'cursor', model: 'vendor/model-1' },
+    ],
+  })
+  const { agent, problems } = parseAgentDefinition(source, 'careful-reviewer')
+  assert.deepEqual(problems, [])
+  assert.equal(agent?.name, 'Careful "reviewer"')
+  assert.equal(agent?.description, 'Reads twice.')
+  assert.equal(agent?.ceiling, 'edit')
+  assert.equal(agent?.ceilingFrom, 'ceiling')
+  assert.deepEqual(agent?.prefer, [
+    { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
+    { runtime: 'cursor', model: 'vendor/model-1' },
+  ])
+  assert.match(agent?.brief ?? '', /## How to report[\s\S]*## What you never do/)
+})
+
+/**
+ * Correction 1: the long-form rule shares `seating.json`'s own check
+ * (`parseSeat(seatSpec(seat))` reads back the same seat), not a heuristic that
+ * only ever looked at `model`. An effort holding the switch character `+`, and
+ * a runtime holding the compact grammar's own `=`, are each cases the old
+ * `seat.model && /[=/+]/.test(seat.model)` heuristic never inspected at all —
+ * the first read back as a parse problem (a "switch" the seat does not have),
+ * the second silently as a *different* seat (`weird` at model `runtime`,
+ * dropping the `=m` that followed).
+ */
+test('an effort holding the compact grammar’s own “+” is written the long way, not misread as a switch', () => {
+  const source = agentSource({
+    name: 'Odd effort',
+    description: null,
+    ceiling: 'edit',
+    prefer: [{ runtime: 'claude-code', effort: 'high+extra' }],
+  })
+  const { agent, problems } = parseAgentDefinition(source, 'odd-effort')
+  assert.deepEqual(problems, [])
+  assert.deepEqual(agent?.prefer, [{ runtime: 'claude-code', effort: 'high+extra' }])
+})
+
+test('a runtime holding the compact grammar’s own “=” is written the long way, not silently misread as a different seat', () => {
+  const source = agentSource({
+    name: 'Odd runtime',
+    description: null,
+    ceiling: 'edit',
+    prefer: [{ runtime: 'weird=runtime', model: 'm' }],
+  })
+  const { agent, problems } = parseAgentDefinition(source, 'odd-runtime')
+  assert.deepEqual(problems, [])
+  assert.deepEqual(agent?.prefer, [{ runtime: 'weird=runtime', model: 'm' }])
+})
+
+test("a project's Agent folder is made inside it, and never through a link that leads out", async () => {
+  const root = tempDir('hd-agent-files-')
+  const project = join(root, 'project')
+  await mkdir(project)
+  assert.equal(await projectAgentDir(project), join(await realpath(project), '.harnessdesk', 'agents'))
+
+  const linked = join(root, 'linked')
+  const elsewhere = join(root, 'elsewhere')
+  await mkdir(linked)
+  await mkdir(elsewhere)
+  await symlink(elsewhere, join(linked, '.harnessdesk'))
+  await assert.rejects(() => projectAgentDir(linked), /is a link/)
+  assert.deepEqual(await readdir(elsewhere), [], 'nothing was made outside the project')
+})
+
+test('a folder is copied whole, its links left behind, and never over one that is there', async () => {
+  const root = tempDir('hd-agent-files-')
+  const from = join(root, 'from', 'scout')
+  await mkdir(join(from, 'skills'), { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await writeFile(join(from, 'skills', 'look.md'), 'Look closely.')
+  await symlink(root, join(from, 'escape'))
+  const to = join(root, 'to', 'scout')
+  await copyAgentFolder(from, to)
+  assert.deepEqual((await readdir(to)).sort(), ['AGENT.md', 'skills'])
+  assert.deepEqual(await readdir(join(to, 'skills')), ['look.md'])
+  await assert.rejects(() => copyAgentFolder(from, to), /already an Agent called “scout”/)
+})
+
+test('a new Agent folder has the mode a plain mkdir in the same parent would have', async () => {
+  const root = tempDir('hd-agent-files-mode-')
+  const ordinary = join(root, 'ordinary')
+  await mkdir(ordinary)
+  await createAgentFolder(root, 'scout', '---\nname: Scout\n---\nLook.\n')
+
+  assert.equal((await stat(join(root, 'scout'))).mode & 0o777, (await stat(ordinary)).mode & 0o777)
+})
+
+test('a legal long Agent folder name can be customized without making an even longer temporary name', async () => {
+  const root = tempDir('hd-agent-files-long-')
+  const id = 'a'.repeat(240)
+  const from = join(root, 'from', id)
+  await mkdir(from, { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Long Agent\n---\nLook.\n')
+  const to = join(root, 'to', id)
+
+  await copyAgentFolder(from, to)
+  assert.match(await readFile(join(to, 'AGENT.md'), 'utf8'), /Long Agent/)
+})
+
+test('an EEXIST raised while writing a temporary Agent keeps its real error instead of claiming the final name collided', async () => {
+  const root = tempDir('hd-agent-files-inner-collision-')
+  const inner = Object.assign(new Error('two source entries collided'), { code: 'EEXIST' })
+
+  await assert.rejects(
+    () => writeAgentFolder(root, 'scout', async () => Promise.reject(inner)),
+    (error: unknown) => {
+      assert.equal(error, inner)
+      return true
+    },
+  )
+})
+
+/**
+ * Correction 5: the roster reads this machine's own folders straight through
+ * a link at their top — a dotfiles checkout linked into place — so `from`
+ * itself may be exactly such a link. Copied literally, `cp`'s own filter
+ * (which exists to leave links *inside* the tree behind) would see a link at
+ * the very top and drop the whole copy, silently copying nothing. And a copy
+ * that followed nothing but links — every entry inside it a link too — is
+ * never left half-made: it is removed and refused, so `found()` is never the
+ * first place that notices.
+ */
+test('a copy follows the one link at the top of a linked Agent folder — as the roster itself does — and refuses if nothing but links was there', async () => {
+  const root = tempDir('hd-agent-files-')
+  const real = join(root, 'real', 'scout')
+  await mkdir(real, { recursive: true })
+  await writeFile(join(real, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  const linked = join(root, 'linked-scout')
+  await symlink(real, linked)
+  const to = join(root, 'to', 'scout')
+  await copyAgentFolder(linked, to)
+  assert.deepEqual(await readdir(to), ['AGENT.md'])
+
+  const onlyLinks = join(root, 'only-links')
+  await mkdir(onlyLinks)
+  await symlink(join(real, 'AGENT.md'), join(onlyLinks, 'AGENT.md'))
+  const to2 = join(root, 'to2', 'scout')
+  await assert.rejects(() => copyAgentFolder(onlyLinks, to2), /AGENT\.md/)
+  assert.equal(await lstat(to2).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
+  await createAgentFolder(dirname(to2), 'scout', '---\nname: Scout\n---\nLook.\n')
+  assert.equal(await lstat(join(to2, 'AGENT.md')).then(() => true, () => false), true, 'a later Save is not blocked')
+})
+
+/*
+ * R2 (PR #814 round 1, agent-files.ts:256-274): `regularEntries` classifies
+ * an entry with one `lstat`, but `copyTree` reads a classified folder's own
+ * contents later, by path — a folder swapped for a link out of the Agent
+ * folder in that gap has its new target's contents read straight through the
+ * very next `readdir`, and a file swapped the same way is followed straight
+ * through `copyFile`, which has no way to refuse to follow a link.
+ *
+ * `lstat` is patched — through its CommonJS face, pushed into every module's
+ * own binding with `syncBuiltinESMExports`, the way `agent-seating-file.test.ts`
+ * already patches this same module for the same reason — so the swap lands
+ * at the one moment the review names: right after classification captured
+ * the entry, before anything reads or opens it. The patch answers with the
+ * real, pre-swap result every time (so classification itself is never
+ * wrong), and performs the swap on disk once, the first time it sees the
+ * exact path being targeted; every other `lstat`, for every other path,
+ * passes straight through untouched.
+ */
+test('a copy refuses whole, and copies nothing from outside, when a nested folder is swapped for a link out of the Agent folder right after it is classified', async (t) => {
+  const root = tempDir('hd-agent-files-dir-swap-')
+  const from = join(root, 'from', 'scout')
+  const nested = join(from, 'nested')
+  const outside = join(root, 'outside')
+  await mkdir(nested, { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await writeFile(join(nested, 'todo.txt'), 'inside, safe')
+  await mkdir(outside)
+  await writeFile(join(outside, 'secret.txt'), 'OUTSIDE SECRET')
+  // `copyAgentFolder` follows `from` through `realpath` once, at its own top
+  // (its own doc comment says so), before anything under it is classified —
+  // on a machine where the temp root itself sits behind a link (macOS's
+  // `/var` → `/private/var`), that is a different string than `nested`
+  // above, and the patch below must match the one `regularEntries` actually
+  // calls `lstat` with.
+  const realNested = join(await realpath(from), 'nested')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let swapped = false
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    if (!swapped && String(args[0]) === realNested) {
+      swapped = true
+      await rm(nested, { recursive: true, force: true })
+      await symlink(outside, nested)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
+  assert.deepEqual((await readdir(outside)).sort(), ['secret.txt'], 'the outside folder itself was never touched')
+})
+
+test('a copy refuses whole, and copies nothing from outside, when a nested file is swapped for a link out of the Agent folder right after it is classified', async (t) => {
+  const root = tempDir('hd-agent-files-file-swap-')
+  const from = join(root, 'from', 'scout')
+  const note = join(from, 'note.txt')
+  const outside = join(root, 'outside-secret.txt')
+  await mkdir(from, { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await writeFile(note, 'inside, safe')
+  await writeFile(outside, 'OUTSIDE SECRET')
+  // See the folder-swap test above: `copyAgentFolder` reads `from` back
+  // through `realpath` before classifying anything under it.
+  const realNote = join(await realpath(from), 'note.txt')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let swapped = false
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    if (!swapped && String(args[0]) === realNote) {
+      swapped = true
+      await unlink(note)
+      await symlink(outside, note)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced|ELOOP/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
+  assert.equal(await readFile(outside, 'utf8'), 'OUTSIDE SECRET', 'the outside file itself was never touched')
+})
+
+/*
+ * PR #814 round 2: the tests above swap a nested folder or file the moment it
+ * is classified — the gap round 1 closed. Round 2's own review found a later
+ * one: `regularEntries`' own before/after checks on a nested directory run
+ * once, at its own top, before the loop that looks at its children one by
+ * one — a swap landing *after* those checks pass but *before* that loop's
+ * first `lstat` rides the same ancestor through to whatever a link now
+ * answers with, and neither the recursive pre-check nor the file `fstat`
+ * that follows ever see anything but the identity that escape exposed. The
+ * fix (`openNoFollow`, `NOFOLLOW_ANY` on macOS) checks every path component
+ * at the moment of the actual open, not only `dir` itself at the top of one
+ * `regularEntries` call — so it closes this gap wherever it lands, without
+ * `regularEntries` needing to re-check `dir` once per child.
+ *
+ * `lstat` is patched to count calls for the one path this test cares about:
+ * call 1 classifies `nested` from its parent's own loop, call 2 is
+ * `nested`'s own before-check, call 3 is its own after-check — passed
+ * legitimately, because `nested` really was still fine at that moment. Only
+ * once that third call has already resolved does the swap land, strictly
+ * after both checks and strictly before the loop below ever names one of
+ * `nested`'s own children.
+ */
+test('a copy refuses whole, and copies nothing from outside, when a nested folder is swapped for a link right after its own before/after checks pass, before its first child is named', async (t) => {
+  const root = tempDir('hd-agent-files-midloop-swap-')
+  const from = join(root, 'from', 'scout')
+  const outside = join(root, 'outside')
+  await mkdir(join(from, 'nested'), { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await writeFile(join(from, 'nested', 'note.txt'), 'inside, safe')
+  await mkdir(outside)
+  await writeFile(join(outside, 'note.txt'), 'OUTSIDE SECRET')
+  const nested = join(await realpath(from), 'nested')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let calls = 0
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    if (String(args[0]) === nested) {
+      calls += 1
+      if (calls === 3) {
+        await rm(nested, { recursive: true, force: true })
+        await symlink(outside, nested)
+      }
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced|ELOOP/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
+  assert.equal(await readFile(join(outside, 'note.txt'), 'utf8'), 'OUTSIDE SECRET', 'the outside file itself was never touched')
+})
+
+/*
+ * Round 2's own review also named the walk's own top folder: before round 2
+ * `regularEntries` had no `expected` identity for it at all, so neither
+ * before- nor after-check ever ran there, whatever swapped it. `readdir` is
+ * patched to swap right after it returns — timing that means nothing on the
+ * old code (no check to land inside of) but is caught immediately by the
+ * new top-folder after-check, right where round 1's own gap for a nested
+ * folder used to be.
+ */
+test("a copy refuses whole, and copies nothing from outside, when the walk's own root is swapped for a link right after its readdir, before any child is named", async (t) => {
+  const root = tempDir('hd-agent-files-top-swap-')
+  const from = join(root, 'from', 'scout')
+  const outside = join(root, 'outside')
+  await mkdir(from, { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await mkdir(outside)
+  await writeFile(join(outside, 'AGENT.md'), 'OUTSIDE SECRET')
+  const realFrom = await realpath(from)
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    readdir: (...args: unknown[]) => Promise<unknown>
+  }
+  const realReaddir = fsp.readdir
+  let swapped = false
+  fsp.readdir = async (...args: unknown[]) => {
+    const result = await realReaddir(...args)
+    if (!swapped && String(args[0]) === realFrom) {
+      swapped = true
+      await rm(realFrom, { recursive: true, force: true })
+      await symlink(outside, realFrom)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.readdir = realReaddir
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced|ELOOP/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
+  assert.equal(await readFile(join(outside, 'AGENT.md'), 'utf8'), 'OUTSIDE SECRET', 'the outside file itself was never touched')
+})
+
+/*
+ * PR #814 round 2, write side: the tests above swap a *source* ancestor.
+ * This one swaps the *destination*'s own temporary folder — the one
+ * `writeAgentFolder` builds the copy into out of sight, before its one
+ * rename gives it a final name — for a link to an outside directory,
+ * mid-copy, after one file has already been written into it for real.
+ * `mkdir`, used for a nested destination directory, has no flag to refuse a
+ * swapped ancestor with, so the one thing this can still make land outside
+ * is an empty directory; every content write goes through `copyRegularFile`,
+ * which now opens its destination the same `openNoFollow`'d way the source
+ * side already does, so no file's bytes ever follow the swap.
+ *
+ * `mkdtemp` is patched to capture the random name `writeAgentFolder` gives
+ * its own temporary folder — needed only because a test cannot otherwise
+ * name a path it did not choose. `mkdir` is then patched to swap that
+ * temporary folder for a link to `outside/` the moment the copy asks to
+ * make its own nested destination directory inside it — deterministic
+ * regardless of which of `AGENT.md` or `nested/` a given filesystem's
+ * `readdir` happens to list first, since whichever one is not yet written
+ * when the swap lands is refused by the same `ELOOP`, and whichever already
+ * was stays inside the (soon to be orphaned) real temporary folder, never
+ * inside `outside/`.
+ */
+test('a copy refuses whole, and leaves at most an empty directory outside, when its own destination temporary folder is swapped for a link mid-copy', async (t) => {
+  const root = tempDir('hd-agent-files-dest-swap-')
+  const from = join(root, 'from', 'scout')
+  const outside = join(root, 'outside')
+  await mkdir(join(from, 'nested'), { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await writeFile(join(from, 'nested', 'note.txt'), 'inside, safe')
+  await mkdir(outside)
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    mkdtemp: (...args: unknown[]) => Promise<string>
+    mkdir: (...args: unknown[]) => Promise<unknown>
+  }
+  const realMkdtemp = fsp.mkdtemp
+  const realMkdir = fsp.mkdir
+  let temporary: string | undefined
+  fsp.mkdtemp = async (...args: unknown[]) => {
+    const result = await realMkdtemp(...(args as Parameters<typeof realMkdtemp>))
+    temporary = result
+    return result
+  }
+  let swapped = false
+  fsp.mkdir = async (...args: unknown[]) => {
+    const path = String(args[0])
+    if (!swapped && temporary && path === join(temporary, 'nested')) {
+      swapped = true
+      await rm(temporary, { recursive: true, force: true })
+      await symlink(outside, temporary)
+    }
+    return realMkdir(...args)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.mkdtemp = realMkdtemp
+    fsp.mkdir = realMkdir
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced|ELOOP/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was renamed into place')
+  assert.ok(swapped, 'the swap this test depends on actually fired')
+  assert.deepEqual(await readdir(outside), ['nested'], 'the only thing that landed outside is the one directory `mkdir` made through the swap')
+  assert.deepEqual(await readdir(join(outside, 'nested')), [], 'and it is empty — no file’s content followed the swap')
+})
+
+/** A host whose Trash and Finder are recorded rather than touched, with a project open. */
+const desk = async (t: TestContext) => {
+  const trashed: string[] = []
+  const revealed: string[] = []
+  const stateDir = tempDir('hd-agent-files-state-')
+  const options: Partial<HostOptions> = {
+    builtinAgents: await shippedAgentsCopy(),
+    trashPath: async (path) => void trashed.push(path),
+    revealPath: async (path) => void revealed.push(path),
+  }
+  const client = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+    version: '9.9.9',
+    pickDirectory: async () => stateDir,
+    ...options,
+  })
+  client.register(new FakeRuntime())
+  await client.start()
+  t.after(() => client.dispose())
+  const project = tempDir('hd-agent-files-project-')
+  await client.call('workspace/open', { path: project })
+  return { stateDir, client, project, trashed, revealed }
+}
+
+test('Save as an Agent writes ceiling:, never permission:, and every level reads back as it was saved', async (t) => {
+  const { client } = await desk(t)
+  for (const level of CEILING_LEVELS) {
+    const saved = (await client.call('agent/create', { name: `Saved ${level}`, ceiling: level, seat, to: 'user' })) as AgentEntry
+    assert.equal(saved.definition?.ceiling, level)
+    assert.equal(saved.definition?.ceilingFrom, 'ceiling')
+    const source = await readFile(saved.path, 'utf8')
+    assert.match(source, new RegExp(`^ceiling: ${level}$`, 'm'))
+    assert.doesNotMatch(source, /^permission:/m)
+  }
+})
+
+test('the wire refuses a ceiling off the ladder, and a Save that names only the old key', () => {
+  const request = (params: unknown) => ({ id: 1, method: 'agent/create', params })
+  assert.throws(() => parseClientMessage(request({ name: 'Scout', ceiling: 'owner', seat, to: 'user' })), ValidationError)
+  assert.throws(() => parseClientMessage(request({ name: 'Scout', permission: 'read', seat, to: 'user' })), ValidationError)
+  assert.doesNotThrow(() => parseClientMessage(request({ name: 'Scout', ceiling: 'read', seat, to: 'user' })))
+})
+
+const seat = { runtime: 'claude-code', model: 'opus-5', effort: 'high' }
+
+/** A handler-only context, for failures that must be injectable between the folder write and its rollback. */
+const handlerDesk = async (
+  project: string,
+  set: (id: string, seats: readonly { runtime: string; model?: string; effort?: string; thinking?: boolean }[] | null) => Promise<unknown>,
+  entries: MachineSeating['entries'] = [],
+) => {
+  const state = tempDir('hd-agent-handler-state-')
+  const confinedProject = await realpath(project)
+  const pushed: unknown[] = []
+  const ctx = {
+    agents: new Agents({ user: join(state, 'agents'), builtin: await shippedAgentsCopy() }),
+    seating: {
+      read: async () => ({ path: join(state, SEATING_FILE), entries, problems: [] }),
+      set,
+    },
+    // Not a real checkout, so the project it was handed is its own top.
+    workspaces: { confineGitRoot: async () => confinedProject, topLevel: async () => null },
+    options: {},
+    push: (notice: unknown) => void pushed.push(notice),
+  } as unknown as HostContext
+  return { ctx, state, pushed }
+}
+
+test('the wire and the handler both refuse an Agent name over 80 characters and a description over 500', async () => {
+  const request = (name: string, description: string) => ({
+    id: 1,
+    method: 'agent/create',
+    params: { name, description, ceiling: 'edit' as const, seat, to: 'user' as const },
+  })
+  assert.throws(() => parseClientMessage(request('x'.repeat(81), 'short')), /at most 80/)
+  assert.throws(() => parseClientMessage(request('Scout', 'x'.repeat(501))), /at most 500/)
+
+  const create = agentMethods['agent/create']
+  await assert.rejects(() => create({} as HostContext, request('x'.repeat(81), 'short').params), /at most 80/)
+  await assert.rejects(() => create({} as HostContext, request('Scout', 'x'.repeat(501)).params), /at most 500/)
+})
+
+test('the wire validates every Agent file verb before a handler can see it', () => {
+  const request = (method: string, params: unknown) => ({ id: 1, method, params })
+  const refused = [
+    request('agent/remove', { id: 'scout', origin: 'builtin' }),
+    request('agent/copy', { id: 'scout', from: 'builtin', to: 'builtin' }),
+    request('agent/create', { name: 42, ceiling: 'edit', seat, to: 'user' }),
+    request('agent/copy', { id: 42, from: 'builtin', to: 'user' }),
+    request('agent/remove', { id: 'scout', origin: 'user', project: 42 }),
+    request('agent/reveal', { id: 'scout', origin: 42 }),
+  ]
+  for (const message of refused) assert.throws(() => parseClientMessage(message), ValidationError)
+})
+
+test('the entry returned after a write must have a definition, the requested origin, and the exact written path', () => {
+  const path = '/agents/scout/AGENT.md'
+  const definition = parseAgentDefinition('---\nname: Scout\n---\nLook.\n', 'scout').agent
+  assert.ok(definition)
+  const entry: AgentEntry = {
+    definition,
+    id: 'scout',
+    origin: 'user',
+    path,
+    digest: 'digest',
+    shadows: [],
+    problems: [],
+  }
+  const expected = { id: 'scout', origin: 'user' as const, path }
+
+  assert.throws(() => found({ ...entry, definition: null }, expected), /did not read back/)
+  assert.throws(() => found({ ...entry, origin: 'project' }, expected), /did not read back/)
+  assert.throws(() => found({ ...entry, path: '/agents/other/AGENT.md' }, expected), /did not read back/)
+})
+
+test('through the host: Save refuses fields that do not read back exactly and a source the roster would not read, before making a folder', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  await assert.rejects(
+    client.call('agent/create', { name: ' Checker ', ceiling: 'edit', seat, to: 'project', project }),
+    /name does not read back exactly/,
+  )
+  assert.equal(
+    await lstat(join(project, PROJECT_AGENT_DIR)).then(() => true, () => false),
+    false,
+    'a refused save did not make the project Agent root',
+  )
+
+  await assert.rejects(
+    client.call('agent/create', {
+      name: 'Too much',
+      description: 'x'.repeat(140_000),
+      ceiling: 'edit',
+      seat,
+      to: 'user',
+    }),
+    /at most 500/,
+  )
+  assert.equal(await lstat(join(stateDir, 'agents', 'too-much')).then(() => true, () => false), false)
+
+  await assert.rejects(
+    client.call('agent/create', {
+      name: 'Huge seat',
+      ceiling: 'edit',
+      seat: { runtime: 'x'.repeat(300_000) },
+      to: 'user',
+    }),
+    /too large to read back/,
+  )
+  assert.equal(await lstat(join(stateDir, 'agents', 'huge-seat')).then(() => true, () => false), false)
+})
+
+test('the reserved id constructor is refused before the project root or seating writer is touched', async () => {
+  const project = tempDir('hd-agent-reserved-project-')
+  let sets = 0
+  const { ctx } = await handlerDesk(project, async () => {
+    sets += 1
+    throw new Error('the seating writer must not be called')
+  })
+  await assert.rejects(
+    () => agentMethods['agent/create'](ctx, { name: 'Constructor', ceiling: 'edit', seat, to: 'project', project }),
+    /not read as an Agent id/,
+  )
+  assert.equal(sets, 0)
+  assert.equal(await lstat(join(project, '.harnessdesk')).then(() => true, () => false), false)
+})
+
+test('a failed seat write removes the Agent this call made, without a recursive delete', async () => {
+  const project = tempDir('hd-agent-rollback-project-')
+  const { ctx } = await handlerDesk(project, async () => {
+    throw new Error('seat write failed')
+  })
+  await assert.rejects(
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
+    /seat write failed/,
+  )
+  assert.equal(await lstat(join(project, PROJECT_AGENT_DIR, 'scratch')).then(() => true, () => false), false)
+})
+
+test('rollback treats an already-removed Agent file as done and preserves the seating error', async () => {
+  const project = tempDir('hd-agent-rollback-missing-file-project-')
+  const folder = join(project, PROJECT_AGENT_DIR, 'scratch')
+  const { ctx } = await handlerDesk(project, async () => {
+    await unlink(join(folder, 'AGENT.md'))
+    throw new Error('seat write failed')
+  })
+  await assert.rejects(
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
+    (error: unknown) => {
+      assert.equal((error as Error).message, 'seat write failed')
+      return true
+    },
+  )
+  assert.equal(await lstat(folder).then(() => true, () => false), false)
+})
+
+test('rollback reports an unlink refusal without replacing the seating error', async () => {
+  const project = tempDir('hd-agent-rollback-unlink-refused-project-')
+  const folder = join(project, PROJECT_AGENT_DIR, 'scratch')
+  const { ctx } = await handlerDesk(project, async () => {
+    await chmod(folder, 0o500)
+    throw new Error('seat write failed')
+  })
+  try {
+    await assert.rejects(
+      () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
+      /seat write failed.*left in place.*could not be removed/,
+    )
+  } finally {
+    await chmod(folder, 0o700)
+  }
+})
+
+test('rollback removes only its AGENT.md when another file appeared in the folder, and says why the folder stayed', async () => {
+  const project = tempDir('hd-agent-rollback-owned-project-')
+  const folder = join(project, PROJECT_AGENT_DIR, 'scratch')
+  const { ctx } = await handlerDesk(project, async () => {
+    await writeFile(join(folder, 'precious.txt'), 'keep')
+    throw new Error('seat write failed')
+  })
+  await assert.rejects(
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
+    /left in place.*changed/,
+  )
+  assert.equal(await readFile(join(folder, 'precious.txt'), 'utf8'), 'keep')
+  assert.equal(await lstat(join(folder, 'AGENT.md')).then(() => true, () => false), false, 'only this call’s file was removed')
+})
+
+test('rollback leaves a replacement folder untouched', async () => {
+  const project = tempDir('hd-agent-rollback-replaced-project-')
+  const folder = join(project, PROJECT_AGENT_DIR, 'scratch')
+  const original = join(project, PROJECT_AGENT_DIR, 'scratch-original')
+  const { ctx } = await handlerDesk(project, async () => {
+    await rename(folder, original)
+    await mkdir(folder)
+    await writeFile(join(folder, 'AGENT.md'), 'replacement')
+    await writeFile(join(folder, 'precious.txt'), 'keep')
+    throw new Error('seat write failed')
+  })
+  await assert.rejects(
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
+    /left in place.*replaced/,
+  )
+  assert.equal(await readFile(join(folder, 'AGENT.md'), 'utf8'), 'replacement')
+  assert.equal(await readFile(join(folder, 'precious.txt'), 'utf8'), 'keep')
+})
+
+test('rollback rechecks the project walk and never follows an Agents root swapped for a link', async () => {
+  const project = tempDir('hd-agent-rollback-link-project-')
+  const agents = join(project, PROJECT_AGENT_DIR)
+  const held = join(project, '.harnessdesk', 'agents-held')
+  const outside = tempDir('hd-agent-rollback-outside-')
+  const { ctx } = await handlerDesk(project, async () => {
+    await rename(agents, held)
+    await mkdir(join(outside, 'scratch'))
+    await writeFile(join(outside, 'scratch', 'precious.txt'), 'keep')
+    await symlink(outside, agents)
+    throw new Error('seat write failed')
+  })
+  await assert.rejects(
+    () => agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
+    /left in place.*link/,
+  )
+  assert.equal(await readFile(join(outside, 'scratch', 'precious.txt'), 'utf8'), 'keep')
+  assert.equal(await lstat(join(held, 'scratch', 'AGENT.md')).then(() => true, () => false), true)
+})
+
+test('through the host: an Agent is saved to you with its seat, or to a project with only the runtime', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  const mine = (await client.call('agent/create', {
+    name: 'Careful reviewer',
+    description: 'Reads twice.',
+    ceiling: 'edit',
+    seat,
+    to: 'user',
+  })) as AgentEntry
+  assert.equal(mine.origin, 'user')
+  assert.equal(mine.path, join(stateDir, 'agents', 'careful-reviewer', 'AGENT.md'))
+  assert.deepEqual(mine.definition?.prefer, [seat])
+
+  const theirs = (await client.call('agent/create', {
+    name: 'Release checker',
+    ceiling: 'publish',
+    seat,
+    to: 'project',
+    project,
+  })) as AgentEntry
+  assert.equal(theirs.origin, 'project')
+  assert.equal(theirs.path, join(await realpath(project), PROJECT_AGENT_DIR, 'release-checker', 'AGENT.md'))
+  assert.deepEqual(theirs.definition?.prefer, [{ runtime: 'claude-code' }], 'a committed Agent names the runtime, never the model')
+  const machine = (await client.call('agent/seating/read', {})) as MachineSeating
+  assert.deepEqual(machine.entries, [{ id: 'release-checker', seats: [seat] }], '…and this Mac keeps the exact seat')
+
+  await assert.rejects(
+    client.call('agent/create', { name: 'Careful reviewer', ceiling: 'edit', seat, to: 'user' }),
+    /already an Agent called “careful-reviewer”/,
+  )
+})
+
+// Swap after the temporary folder's identity and permissions are captured,
+// immediately before Save's callback writes AGENT.md. Patching chmod keeps
+// the same race in place whether the callback uses writeFile or a descriptor.
+test('through the host: Save refuses without writing outside when its temporary folder is swapped for a link before AGENT.md is written', async (t) => {
+  const { client, project, stateDir } = await desk(t)
+  const outside = tempDir('hd-agent-save-outside-')
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    mkdtemp: (...args: unknown[]) => Promise<string>
+    chmod: (...args: unknown[]) => Promise<void>
+  }
+  const realMkdtemp = fsp.mkdtemp
+  const realChmod = fsp.chmod
+  let temporary: string | undefined
+  let swapped = false
+  fsp.mkdtemp = async (...args: unknown[]) => {
+    temporary = await realMkdtemp(...args)
+    return temporary
+  }
+  fsp.chmod = async (...args: unknown[]) => {
+    await realChmod(...args)
+    if (!swapped && temporary && String(args[0]) === temporary) {
+      swapped = true
+      await rm(temporary, { recursive: true, force: true })
+      await symlink(outside, temporary)
+    }
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.mkdtemp = realMkdtemp
+    fsp.chmod = realChmod
+    syncBuiltinESMExports()
+  })
+
+  const failure = await client.call('agent/create', {
+    name: 'Scout', ceiling: 'edit', seat, to: 'project', project,
+  }).then(() => null, (error: unknown) => error)
+  assert.ok(swapped, 'the swap this test depends on actually fired')
+  const escaped = await readFile(join(outside, 'AGENT.md'), 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null
+    throw error
+  })
+  assert.equal(escaped, null, 'no Save bytes land outside the canonical Agent root')
+  assert.match(String(failure), /replaced.*nothing was written/)
+  assert.equal(await lstat(join(project, PROJECT_AGENT_DIR, 'scout')).then(() => true, () => false), false, 'nothing was renamed into place')
+  assert.equal(await lstat(join(stateDir, SEATING_FILE)).then(() => true, () => false), false, 'a refused Save never writes its seat')
+})
+
+/**
+ * Correction 4: a copy that would arrive already shadowed is invisible from
+ * the moment it is written — the same mistake `agent/copy` refuses when its
+ * destination would not outrank its source. Saving to *you* while the project
+ * you are in already has an Agent of the same name is exactly that mistake,
+ * because the project's copy would always win here.
+ */
+test('through the host: Save as an Agent never writes a copy the project would immediately shadow', async (t) => {
+  const { client, project } = await desk(t)
+  await client.call('agent/create', { name: 'Scout', ceiling: 'edit', seat, to: 'project', project })
+  await assert.rejects(
+    client.call('agent/create', { name: 'Scout', ceiling: 'edit', seat, to: 'user', project }),
+    /would be shadowed/,
+  )
+  const listed = (await client.call('agent/list', { project })) as AgentEntry[]
+  const scout = listed.find((one) => one.id === 'scout')
+  assert.equal(scout?.origin, 'project')
+  assert.deepEqual(scout?.shadows, [], 'the refused save left no copy behind to shadow anything')
+})
+
+test('through the host: Save may shadow a built-in Agent, and answers the user file it wrote', async (t) => {
+  const { stateDir, client } = await desk(t)
+  const saved = (await client.call('agent/create', {
+    name: 'Code reviewer',
+    ceiling: 'edit',
+    seat,
+    to: 'user',
+  })) as AgentEntry
+  assert.equal(saved.origin, 'user')
+  assert.equal(saved.path, join(stateDir, 'agents', 'code-reviewer', 'AGENT.md'))
+  assert.deepEqual(saved.shadows.map((one) => one.origin), ['builtin'])
+})
+
+test('through the host: Save refuses this Mac’s older seats, before writing a competing prefer', async (t) => {
+  const { stateDir, client } = await desk(t)
+  await client.call('agent/seating/set', {
+    id: 'checker',
+    seats: [{ runtime: 'fake', model: 'fake-1', effort: 'high' }],
+  })
+  await assert.rejects(
+    client.call('agent/create', {
+      name: 'Checker',
+      ceiling: 'edit',
+      seat: { runtime: 'claude-code', model: 'opus-5' },
+      to: 'user',
+    }),
+    /This Mac already has seats for “checker”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+  )
+  assert.equal(await lstat(join(stateDir, 'agents', 'checker')).then(() => true, () => false), false)
+})
+
+/**
+ * P1 (final Part A review): `seating.json` is keyed by id alone, so it seats
+ * every Agent of that id — a built-in on every other project included. A
+ * project Save with an exact seat used to skip the refusal above whenever
+ * `to === 'project' && exact`, whatever this Mac already kept for the id, and
+ * then overwrote that entry outright: saving “Code reviewer” from a
+ * `fake=fake-1` conversation turned this Mac's `code-reviewer` seats from
+ * Claude and Codex into just the fake runtime, for the built-in in every
+ * other project. The refusal now fires whenever a kept entry differs from the
+ * exact seat about to be written, project Saves included; it is skipped only
+ * when the entry already reads as that exact seat, the one case where `set()`
+ * changes nothing.
+ */
+test('through the host: a project Save with an exact seat never overwrites this Mac’s seats for a built-in Agent of the same id', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  await client.call('agent/seating/set', {
+    id: 'code-reviewer',
+    seats: [
+      { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
+      { runtime: 'codex', effort: 'high' },
+    ],
+  })
+  const before = await readFile(join(stateDir, SEATING_FILE), 'utf8')
+  await assert.rejects(
+    client.call('agent/create', {
+      name: 'Code reviewer',
+      ceiling: 'edit',
+      seat: { runtime: 'fake', model: 'fake-1' },
+      to: 'project',
+      project,
+    }),
+    /This Mac already has seats for “code-reviewer”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+  )
+  assert.equal(
+    await lstat(join(await realpath(project), PROJECT_AGENT_DIR, 'code-reviewer')).then(() => true, () => false),
+    false,
+    'the refused save wrote no project folder',
+  )
+  assert.equal(await readFile(join(stateDir, SEATING_FILE), 'utf8'), before, 'seating.json is byte-identical')
+})
+
+test('through the host: a project Save with an exact seat never overwrites this Mac’s seats for a user Agent of the same id', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  await client.call('agent/create', { name: 'Reviewer', ceiling: 'edit', seat, to: 'user' })
+  await client.call('agent/seating/set', {
+    id: 'reviewer',
+    seats: [{ runtime: 'claude-code', model: 'opus-5', effort: 'high' }],
+  })
+  const before = await readFile(join(stateDir, SEATING_FILE), 'utf8')
+  await assert.rejects(
+    client.call('agent/create', {
+      name: 'Reviewer',
+      ceiling: 'edit',
+      seat: { runtime: 'fake', model: 'fake-1' },
+      to: 'project',
+      project,
+    }),
+    /This Mac already has seats for “reviewer”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+  )
+  assert.equal(
+    await lstat(join(await realpath(project), PROJECT_AGENT_DIR, 'reviewer')).then(() => true, () => false),
+    false,
+    'the refused save wrote no project folder',
+  )
+  assert.equal(await readFile(join(stateDir, SEATING_FILE), 'utf8'), before, 'seating.json is byte-identical')
+})
+
+test('through the host: a project Save with an exact seat that already matches this Mac’s kept entry is not refused', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  const exact = { runtime: 'fake', model: 'fake-1' }
+  await client.call('agent/create', { name: 'Code reviewer', ceiling: 'edit', seat: exact, to: 'project', project })
+  const before = await readFile(join(stateDir, SEATING_FILE), 'utf8')
+  const secondProject = tempDir('hd-agent-files-project-')
+  await client.call('workspace/open', { path: secondProject })
+  const saved = (await client.call('agent/create', {
+    name: 'Code reviewer',
+    ceiling: 'edit',
+    seat: exact,
+    to: 'project',
+    project: secondProject,
+  })) as AgentEntry
+  assert.equal(saved.origin, 'project')
+  assert.equal(await readFile(join(stateDir, SEATING_FILE), 'utf8'), before, 'the matching re-save left seating.json untouched')
+})
+
+/*
+ * R1 (PR #814 round 1, agents.ts:300-333): the up-front check reads
+ * seating.json, decides "scratch" is absent, then awaits the project path
+ * walk and the Agent-folder transaction before ever calling `set()`. A
+ * different window's set for the same id landing in that gap must not be
+ * silently replaced by this Save's own write.
+ *
+ * `node:fs/promises`'s `readFile` is patched — through its CommonJS face,
+ * pushed into every module's own binding with `syncBuiltinESMExports`, the
+ * way `agent-seating-file.test.ts` and `backup.test.ts` already patch this
+ * same module — so the *real* `MachineSeatingFile` inside this real `Host`
+ * is what decides the race, not a stand-in for it. The patch fires once, on
+ * the first read of this Mac's own seating.json (Save's up-front
+ * `ctx.seating.read()`): it captures what that read would have answered
+ * before anything else touches the file, only then lands the other
+ * window's `agent/seating/set`, and hands Save's check the pre-race
+ * answer — exactly the gap the review found, made to land every run.
+ */
+test('through the host: a project Save is refused, and rolls back its folder, when another window sets different seats for the same id in the gap between the check and the write', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  const seatingPath = join(stateDir, SEATING_FILE)
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    readFile: (...args: unknown[]) => Promise<unknown>
+  }
+  const realReadFile = fsp.readFile
+  let raced = false
+  fsp.readFile = async (...args: unknown[]) => {
+    if (raced || String(args[0]) !== seatingPath) return realReadFile(...args)
+    raced = true
+    let before: unknown
+    let beforeFailed: unknown
+    try {
+      before = await realReadFile(...args)
+    } catch (error) {
+      beforeFailed = error
+    }
+    // The other window: a direct set for the very id this Save is about to
+    // create, to a seat this Save never named.
+    await client.call('agent/seating/set', { id: 'scratch', seats: [{ runtime: 'codex' }] })
+    if (beforeFailed !== undefined) throw beforeFailed
+    return before
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.readFile = realReadFile
+    syncBuiltinESMExports()
+  })
+
+  await assert.rejects(
+    () => client.call('agent/create', { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
+    /This Mac already has seats for “scratch”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+  )
+  assert.equal(
+    await lstat(join(await realpath(project), PROJECT_AGENT_DIR, 'scratch')).then(() => true, () => false),
+    false,
+    'the folder this Save made was rolled back',
+  )
+  assert.deepEqual(
+    JSON.parse(await readFile(seatingPath, 'utf8')),
+    { $revision: 1, scratch: ['codex'] },
+    'seating.json holds the other window’s choice, not this Save’s',
+  )
+})
+
+/*
+ * PR #814 round 2: round 2's own review read `refuseIfDifferent` as already
+ * failing closed for a malformed raw entry — present, so refused, whatever
+ * its own shape — but asked for a test through the whole handler, not just
+ * `set()` itself, to pin that a Save's rollback fires the same way here too.
+ */
+test('through the host: a project Save refuses, and rolls back its folder, when this Mac’s seating.json holds a malformed raw entry for the same id', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  // See the unit test in agent-seating-file.test.ts: `null` is refused
+  // outright by `parseSeating` (no list, no text, no record), so it never
+  // reads back as an entry at all — only as a problem.
+  await writeFile(join(stateDir, SEATING_FILE), JSON.stringify({ scratch: null }), 'utf8')
+  await assert.rejects(
+    client.call('agent/create', { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
+    /This Mac already has seats for “scratch”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+  )
+  assert.equal(
+    await lstat(join(await realpath(project), PROJECT_AGENT_DIR, 'scratch')).then(() => true, () => false),
+    false,
+    'the folder this Save made was rolled back',
+  )
+  assert.deepEqual(
+    JSON.parse(await readFile(join(stateDir, SEATING_FILE), 'utf8')),
+    { scratch: null },
+    'the malformed raw entry was left exactly as it was',
+  )
+})
+
+test('a stale-seat refusal does not read runtimes, accounts, catalogues or usage after deciding to refuse', async () => {
+  const project = tempDir('hd-agent-stale-seat-project-')
+  const { ctx } = await handlerDesk(
+    project,
+    async () => {
+      throw new Error('the seating writer must not be called')
+    },
+    [{ id: 'checker', seats: [{ runtime: 'fake', model: 'fake-1', effort: 'high' }] }],
+  )
+  await assert.rejects(
+    () => agentMethods['agent/create'](ctx, { name: 'Checker', ceiling: 'edit', seat, to: 'user' }),
+    /This Mac already has seats for “checker”, and they would win/,
+  )
+})
+
+/**
+ * Correction 3: an exact seat kept in `seating.json` is never lost silently.
+ * A file this machine cannot read at all refuses the whole save — nothing
+ * written, the folder included — rather than writing an Agent whose seat then
+ * silently fails to land.
+ */
+test("through the host: a seating.json this machine cannot read refuses to keep an exact seat, and writes no folder", async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  await writeFile(join(stateDir, SEATING_FILE), '{ not json')
+  await assert.rejects(
+    client.call('agent/create', { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project }),
+    /cannot be read/,
+  )
+  assert.equal(
+    await lstat(join(project, '.harnessdesk', 'agents', 'scratch')).then(() => true, () => false),
+    false,
+    'no folder was made when the seat it would have named could not be kept',
+  )
+})
+
+test('through the host: Customize copies an Agent to where the copy shadows it, and nowhere it would not', async (t) => {
+  const { client, project } = await desk(t)
+  const copy = (await client.call('agent/copy', { id: 'code-reviewer', from: 'builtin', to: 'user' })) as AgentEntry
+  assert.equal(copy.origin, 'user')
+  assert.deepEqual(copy.shadows.map((one) => one.origin), ['builtin'])
+  await assert.rejects(
+    client.call('agent/copy', { id: 'code-reviewer', from: 'user', to: 'user' }),
+    /would be shadowed by your copy/,
+  )
+  const higher = (await client.call('agent/copy', { id: 'code-reviewer', from: 'user', to: 'project', project })) as AgentEntry
+  assert.equal(higher.origin, 'project')
+  assert.deepEqual(higher.shadows.map((one) => one.origin), ['user', 'builtin'])
+  // A copy made where the original outranks it would be shadowed by what it copies.
+  await assert.rejects(
+    client.call('agent/copy', { id: 'code-reviewer', from: 'project', to: 'user', project }),
+    /would be shadowed/,
+  )
+})
+
+test('through the host: Customize refuses when the actual winner outranks the destination', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  await client.call('agent/create', { name: 'Judge', ceiling: 'edit', seat: { runtime: 'fake' }, to: 'project', project })
+  await assert.rejects(
+    client.call('agent/copy', { id: 'judge', from: 'builtin', to: 'user', project }),
+    /would be shadowed by the project “judge” already there/,
+  )
+  assert.equal(await lstat(join(stateDir, 'agents', 'judge')).then(() => true, () => false), false)
+})
+
+test("through the host: Customize to a project refuses model-specific seats and allows runtime-only ones", async (t) => {
+  const { client, project } = await desk(t)
+  await client.call('agent/create', {
+    name: 'Careful reviewer',
+    ceiling: 'edit',
+    seat: { runtime: 'fake', model: 'fake-1', effort: 'high' },
+    to: 'user',
+  })
+  await assert.rejects(
+    client.call('agent/copy', { id: 'careful-reviewer', from: 'user', to: 'project', project }),
+    /“Careful reviewer” names models in its seats\. A project's Agent names runtimes only, so it works on every machine\. Keep it yours, or copy it once its seats name runtimes only\./,
+  )
+  assert.equal(await lstat(join(project, PROJECT_AGENT_DIR, 'careful-reviewer')).then(() => true, () => false), false)
+
+  await client.call('agent/create', { name: 'Portable', ceiling: 'edit', seat: { runtime: 'fake' }, to: 'user' })
+  const portable = (await client.call('agent/copy', { id: 'portable', from: 'user', to: 'project', project })) as AgentEntry
+  assert.equal(portable.origin, 'project')
+  assert.equal(portable.path, join(await realpath(project), PROJECT_AGENT_DIR, 'portable', 'AGENT.md'))
+})
+
+test('through the host: a dangling destination link is an existing Agent name, never a place Customize writes through', async (t) => {
+  const { stateDir, client } = await desk(t)
+  const user = join(stateDir, 'agents')
+  const missing = join(stateDir, 'missing-target')
+  await mkdir(user, { recursive: true })
+  await symlink(missing, join(user, 'judge'))
+  await assert.rejects(client.call('agent/copy', { id: 'judge', from: 'builtin', to: 'user' }), /already an Agent called “judge”/)
+  assert.equal(await lstat(join(user, 'judge')).then((info) => info.isSymbolicLink()), true)
+  assert.equal(await lstat(missing).then(() => true, () => false), false)
+})
+
+test('a project Save that writes this Mac’s exact seat announces both changes', async () => {
+  const project = tempDir('hd-agent-notice-project-')
+  const machine: MachineSeating = {
+    revision: 0,
+    path: join(tempDir('hd-agent-notice-state-'), SEATING_FILE),
+    entries: [],
+    problems: [],
+  }
+  const { ctx, pushed } = await handlerDesk(project, async (id, seats) => ({
+    seating: { ...machine, entries: [{ id, seats: seats ?? [] }] },
+    wrote: true,
+  }))
+  await agentMethods['agent/create'](ctx, { name: 'Scratch', ceiling: 'edit', seat, to: 'project', project })
+  assert.deepEqual(pushed, [
+    { method: 'agent/changed', params: { project: null, revision: 0 } },
+    { method: 'agent/changed', params: { project: await realpath(project) } },
+  ])
+})
+
+test('through the host: Remove sends a folder to the Trash, and a built-in one cannot be removed', async (t) => {
+  const { client, trashed } = await desk(t)
+  const mine = (await client.call('agent/create', { name: 'Scratch', ceiling: 'edit', seat, to: 'user' })) as AgentEntry
+  await client.call('agent/remove', { id: 'scratch', origin: 'user' })
+  assert.deepEqual(trashed, [dirname(mine.path)])
+  await assert.rejects(client.call('agent/remove', { id: 'code-reviewer', origin: 'builtin' } as never), /cannot be removed/)
+})
+
+test('the Remove handler itself refuses a built-in Agent even when no wire validator stands in front of it', async () => {
+  let trashed = false
+  const ctx = {
+    options: { trashPath: async () => void (trashed = true) },
+  } as unknown as HostContext
+  await assert.rejects(
+    () => agentMethods['agent/remove'](ctx, { id: 'judge', origin: 'builtin' } as never),
+    /built-in Agent cannot be removed/,
+  )
+  assert.equal(trashed, false)
+})
+
+test('Remove and Reveal say that their OS action needs the desktop app when it is unavailable', async () => {
+  const ctx = { options: {} } as HostContext
+  await assert.rejects(
+    () => agentMethods['agent/remove'](ctx, { id: 'scout', origin: 'user' }),
+    /Moving an Agent to the Trash needs the desktop app/,
+  )
+  await assert.rejects(
+    () => agentMethods['agent/reveal'](ctx, { id: 'scout' }),
+    /Showing a file in the file browser needs the desktop app/,
+  )
+})
+
+test("through the host: a project Agent-directory placeholder is never copied, trashed or revealed as though it were an Agent", async (t) => {
+  const { stateDir, client, project, trashed, revealed } = await desk(t)
+  const elsewhere = tempDir('hd-agent-placeholder-outside-')
+  await mkdir(join(project, '.harnessdesk', 'flows'), { recursive: true })
+  await writeFile(join(project, '.harnessdesk', 'flows', 'keep.yml'), 'keep')
+  await symlink(elsewhere, join(project, PROJECT_AGENT_DIR))
+
+  await assert.rejects(
+    client.call('agent/copy', { id: PROJECT_AGENT_DIR, from: 'project', to: 'user', project }),
+    /not a real Agent folder/,
+  )
+  await assert.rejects(
+    client.call('agent/remove', { id: PROJECT_AGENT_DIR, origin: 'project', project }),
+    /not a real Agent folder/,
+  )
+  await assert.rejects(client.call('agent/reveal', { id: PROJECT_AGENT_DIR, origin: 'project', project }), /not a real Agent folder/)
+  assert.deepEqual(trashed, [])
+  assert.deepEqual(revealed, [])
+  assert.equal(await readFile(join(project, '.harnessdesk', 'flows', 'keep.yml'), 'utf8'), 'keep')
+  assert.equal(await lstat(join(stateDir, 'agents', PROJECT_AGENT_DIR)).then(() => true, () => false), false)
+})
+
+test('through the host: Reveal shows the file an Agent comes from, whichever copy is asked for', async (t) => {
+  const { client, revealed } = await desk(t)
+  await client.call('agent/copy', { id: 'judge', from: 'builtin', to: 'user' })
+  const listed = (await client.call('agent/read', { id: 'judge' })) as AgentEntry
+  const builtin = listed.shadows.find((one) => one.origin === 'builtin')?.path
+  await client.call('agent/reveal', { id: 'judge' })
+  await client.call('agent/reveal', { id: 'judge', origin: 'builtin' })
+  assert.equal(revealed.length, 2)
+  assert.match(revealed[0] ?? '', /agents\/judge\/AGENT\.md$/)
+  assert.equal(revealed[1], builtin)
+})
+
+/**
+ * Correction 8: `agent/copy`, `agent/remove` and `agent/reveal` only ever act
+ * on a path the roster itself listed — an id is matched against the roster's
+ * own listing before it is used for anything, and never joined onto a root
+ * unchecked. `'../x'` and `'..'` can never be a real entry's id (a directory
+ * listing entry never contains a path separator, and the OS never yields
+ * `'..'` as one), so every verb refuses them, and none of the three so much
+ * as touches the Trash, Finder or a new folder while doing it.
+ */
+test('through the host: an id the roster never listed is refused by every verb, and nothing is trashed, revealed or written', async (t) => {
+  const { stateDir, client, project, trashed, revealed } = await desk(t)
+  for (const id of ['../x', '..']) {
+    await assert.rejects(client.call('agent/copy', { id, from: 'builtin', to: 'user' }))
+    await assert.rejects(client.call('agent/remove', { id, origin: 'user' }))
+    await assert.rejects(client.call('agent/reveal', { id }))
+  }
+  await assert.rejects(
+    client.call('agent/copy', { id: '../agents/judge', from: 'builtin', to: 'user' }),
+    /There is no built-in Agent called “\.\.\/agents\/judge” to copy\./,
+  )
+  assert.deepEqual(trashed, [])
+  assert.deepEqual(revealed, [])
+  assert.equal(
+    await lstat(join(stateDir, 'agents', 'judge', 'AGENT.md')).then(() => true, () => false),
+    false,
+    'the traversal-shaped id wrote no user Agent on disk',
+  )
+  const mine = (await client.call('agent/list', { project })) as AgentEntry[]
+  assert.deepEqual(
+    mine.filter((one) => one.origin === 'user'),
+    [],
+  )
+})
+
+test("through the host: an Agent's file opens in the desk's editor, and only this machine's is written", async (t) => {
+  const { client, revealed } = await desk(t)
+  const shipped = ((await client.call('agent/read', { id: 'judge' })) as AgentEntry).path
+  const read = (await client.call('workspace/readFile', { path: shipped })) as { content: string; hash: string }
+  assert.match(read.content, /^---\nname: Judge/)
+  await assert.rejects(
+    client.call('file/save', { path: shipped, content: 'x', expectedHash: read.hash }),
+    /outside every open workspace/,
+  )
+  const mine = (await client.call('agent/create', { name: 'Scout', ceiling: 'edit', seat, to: 'user' })) as AgentEntry
+  const before = (await client.call('workspace/readFile', { path: mine.path })) as { content: string; hash: string }
+  const saved = (await client.call('file/save', {
+    path: mine.path,
+    content: `${before.content}\nLook twice.\n`,
+    expectedHash: before.hash,
+  })) as { saved: boolean }
+  assert.equal(saved.saved, true)
+
+  const stat = (await client.call('workspace/stat', { path: mine.path })) as { kind: string }
+  assert.equal(stat.kind, 'file')
+  const { ticket } = (await client.call('preview/ticket', { path: mine.path })) as { ticket: string }
+  const preview = await client.redeemPreviewTicket(ticket)
+  assert.match(Buffer.from(preview?.bytes ?? []).toString('utf8'), /Look twice\./)
+
+  await assert.rejects(client.call('workspace/reveal', { path: mine.path }), /outside every open workspace/)
+  await assert.rejects(client.call('workspace/files', { root: dirname(mine.path), query: 'AGENT' }), /outside every open workspace/)
+  assert.deepEqual(revealed, [], 'the generic reveal stayed on open workspaces')
+})
+
+test("through the host: this machine's linked Agent is edited in place, while the built-in root remains read-only", async (t) => {
+  const { stateDir, client } = await desk(t)
+  const real = tempDir('hd-agent-linked-real-')
+  await writeFile(join(real, 'AGENT.md'), '---\nname: Linked\npermission: read\nprefer: [fake]\n---\nLook.\n')
+  const user = join(stateDir, 'agents')
+  await mkdir(user, { recursive: true })
+  const linked = join(user, 'linked')
+  await symlink(real, linked)
+  const path = join(linked, 'AGENT.md')
+  const before = (await client.call('workspace/readFile', { path })) as { content: string; hash: string }
+  assert.match(before.content, /name: Linked/)
+  await client.call('file/save', { path, content: before.content.replace('Look.', 'Look twice.'), expectedHash: before.hash })
+  assert.match(await readFile(join(real, 'AGENT.md'), 'utf8'), /Look twice\./)
+
+  const shipped = ((await client.call('agent/read', { id: 'judge' })) as AgentEntry).path
+  const builtin = (await client.call('workspace/readFile', { path: shipped })) as { content: string; hash: string }
+  await assert.rejects(
+    client.call('file/save', { path: shipped, content: builtin.content, expectedHash: builtin.hash }),
+    /outside every open workspace/,
+  )
+})

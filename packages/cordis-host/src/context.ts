@@ -5,7 +5,7 @@ import type {
   ToolSpec,
   UiSpec,
 } from './services.js'
-import type { EditorEdit, EditorEvent, ScopeQuery, UiDecoration,
+import type { DecideFindingInput, EditorEdit, EditorEvent, EvidenceRecord, FindingReadInput, FindingView, RaiseFindingInput, RepairFindingInput, ReviewCandidate, ReviewInput, ScopeQuery, UiDecoration,
   ForgeReference,
 } from '@harnessdesk/protocol'
 
@@ -77,6 +77,7 @@ export interface HarnessContext {
    * `ref_3` from `readPage` is resolved by the page and needs no such
    * correction.
    */
+  /** Browser ownership comes from the live host invocation, never a plugin argument. */
   readonly browser: {
     /** `handedOff` when the setting sent the page to the default browser, which cannot be looked at. */
     open(url: string): Promise<{ url: string; title: string; handedOff?: true }>
@@ -163,6 +164,8 @@ export interface HarnessContext {
     seat(scope?: ScopeQuery): Promise<ForgeSeat | null>
     identity(scope?: ScopeQuery): Promise<ForgeIdentity>
     publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void>
+    /** Whether this invocation's conversation may put words on the forge now: asked before every forge mutation. */
+    publicationAllowed(scope?: ScopeQuery): Promise<{ ok: true } | { ok: false; reason: string }>
   }
   readonly team: {
     board(scope?: ScopeQuery): Promise<string>
@@ -186,6 +189,11 @@ export interface HarnessContext {
      */
     awaitWork(
       options: { readonly blockMs?: number; readonly cycle?: number },
+      scope?: ScopeQuery,
+    ): Promise<string>
+    /** Wait for one member's currently running turn without sending or polling. */
+    awaitMember(
+      options: { readonly member: string; readonly cycle?: number; readonly blockMs?: number },
       scope?: ScopeQuery,
     ): Promise<string>
     conflicts(paths: readonly string[], scope?: ScopeQuery): Promise<string>
@@ -213,6 +221,24 @@ export interface HarnessContext {
       args: { readonly to: string; readonly text: string; readonly wake?: boolean },
       scope?: ScopeQuery,
     ): Promise<string>
+    /**
+     * Observed predecessor subjects this conversation's own claimed card may
+     * judge — structured, never prose; empty when it holds no such card.
+     */
+    reviewCandidates(intent: number, scope?: ScopeQuery): Promise<readonly ReviewCandidate[]>
+    /**
+     * Records one structured verdict against an observed candidate. Throws
+     * the refusal rather than returning a sentence; the caller words it.
+     */
+    recordReview(input: ReviewInput, scope?: ScopeQuery): Promise<EvidenceRecord>
+    /** Raises a finding against a candidate this card was offered. Throws the refusal. */
+    raiseFinding(input: RaiseFindingInput, scope?: ScopeQuery): Promise<FindingView>
+    /** Claims a finding repaired at this Seat's committed head. Throws the refusal. */
+    repairFinding(input: RepairFindingInput, scope?: ScopeQuery): Promise<FindingView>
+    /** The raising Agent's verdict on its own finding, from a later review. Throws the refusal. */
+    decideFinding(input: DecideFindingInput, scope?: ScopeQuery): Promise<FindingView>
+    /** This Goal's findings, bounded, for the card this Seat holds. */
+    listFindings(input: FindingReadInput, scope?: ScopeQuery): Promise<readonly FindingView[]>
   }
   /** The iOS Simulator, via simctl. Requires the `ios` permission. */
   readonly ios: {

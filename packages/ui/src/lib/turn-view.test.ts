@@ -57,6 +57,21 @@ describe('splitTurn', () => {
     expect(view.answer.map((entry) => entry.id)).toEqual(['a'])
   })
 
+  test("a review opens on its start and its request, as Codex sends them, and the rest is its work and findings", () => {
+    const view = splitTurn(
+      turn([
+        item('review', 'entered', { phase: 'entered', review: 'current changes' }),
+        item('userMessage', 'u'),
+        item('command', 'c'),
+        item('review', 'exited', { phase: 'exited', review: 'One finding.' }),
+        item('assistantMessage', 'a'),
+      ]),
+    )
+    expect(view.prompt.map((entry) => entry.id)).toEqual(['entered', 'u'])
+    expect(view.work.map((entry) => entry.id)).toEqual(['c', 'exited'])
+    expect(view.answer.map((entry) => entry.id)).toEqual(['a'])
+  })
+
   test('a user message after work began is not the prompt', () => {
     const view = splitTurn(turn([item('userMessage', 'u'), item('command', 'c'), item('userMessage', 'steer')]))
     expect(view.prompt.map((entry) => entry.id)).toEqual(['u'])
@@ -244,7 +259,8 @@ describe('describeTurnWork', () => {
     const work = [item('command', 'c', { command: 'pnpm test', status: 'completed', exitCode: 1, actions: [] })]
     const line = describeTurnWork(done(work), work, started)
     expect(line.trouble).toBe(true)
-    expect(line.receipt).toContain('1 step failed')
+    expect(line.receipt).toBe('ran 1 command')
+    expect(line.failed).toBe(1)
   })
 
   test('the same file edited twice is one file', () => {
@@ -256,14 +272,16 @@ describe('describeTurnWork', () => {
     expect(describeTurnWork(done(work), work, started).receipt).toBe('edited 2 files')
   })
 
-  test('a declined or failed step tints the line and holds the work open', () => {
+  test('reports declined and failed steps apart from the ordinary receipt', () => {
     const work = [
       item('command', 'a', { status: 'declined', actions: [{ type: 'unknown', command: 'curl' }] }),
       item('toolCall', 'b', { status: 'completed', error: 'no network' }),
     ]
     const line = describeTurnWork(done(work), work, started)
     expect(line.trouble).toBe(true)
-    expect(line.receipt).toBe('ran 1 command, called 1 tool, 1 step declined, 1 step failed')
+    expect(line.receipt).toBe('ran 1 command, called 1 tool')
+    expect(line.declined).toBe(1)
+    expect(line.failed).toBe(1)
   })
 
   test('a failed turn is trouble even when every step it took went fine', () => {

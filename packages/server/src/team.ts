@@ -3,16 +3,27 @@ import { join } from 'node:path'
 
 import {
   AGENT_MESSAGE_NOTICE,
+  agentMessageCeilingNotice,
   agentMessageSource,
   cleanModel,
   sessionKey,
   splitSessionKey,
   TEAM_MESSAGE_CHARS,
   wrapContext,
+  type DecideFindingInput,
+  type EvidenceRecord,
+  type FindingReadInput,
+  type FindingView,
   type Intent,
   type Plan,
+  type RaiseFindingInput,
+  type RepairFindingInput,
   type IntentState,
+  type ReviewCandidate,
+  type ReviewInput,
   type RuntimeId,
+  type SeatRecord,
+  type SeatCeiling,
   type SessionKey,
   type TeamActor,
   type TeamEntry,
@@ -24,6 +35,10 @@ import {
   type TeamSignalKind,
   type TeamState,
 } from '@harnessdesk/protocol'
+
+import { errnoOf, NOTHING_YET } from './errno.js'
+import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
+import { memberNames } from './goals/members.js'
 
 /**
  * The team plane: one board and one channel per workspace, host-owned.
@@ -113,6 +128,8 @@ interface Board {
   readonly id: string
   /** What a person calls it. Chosen when the room is made. */
   name: string
+  /** When this room last changed, for recency ordering in the workspace tree. */
+  updatedAt: number
   /**
    * The conversations in this room, keyed `runtime\u0000sessionId`.
    *
@@ -190,6 +207,8 @@ interface StoredBoard {
   /** Absent on a board written before a project could hold more than one. */
   readonly id?: string
   readonly name?: string
+  /** Absent on boards written before rooms were ordered by activity. */
+  readonly updatedAt?: number
   readonly root?: string
   readonly members?: readonly string[]
   readonly nextIntent: number
@@ -228,6 +247,12 @@ export interface TeamPeer {
   /** What it is running. The room's default nickname is derived from this. */
   readonly model?: string | null
   /**
+   * The Agent this conversation was seated as, by name. A room calls such a
+   * member that — the name it is addressed by, in the channel and on the rail
+   * — rather than after the model it runs.
+   */
+  readonly seatedAs?: string | null
+  /**
    * Whether the desk has this conversation open right now.
    *
    * Every peer the *host* hands over is here by construction — the host knows
@@ -236,6 +261,13 @@ export interface TeamPeer {
    * what the board remembers about it. See `Board.roster`.
    */
   readonly here: boolean
+  readonly ceiling?: SeatCeiling | null
+}
+
+export interface TeamSender {
+  readonly runtime: RuntimeId
+  readonly sessionId: string
+  readonly name: string
 }
 
 /**
@@ -249,11 +281,60 @@ export interface TeamPort {
   /** The workspace a session's folder belongs to; null when none is open. */
   rootOf(cwd: string): Promise<string | null>
   /** Starts a turn on an idle conversation with this text. */
-  send(runtime: RuntimeId, sessionId: string, text: string): Promise<void>
+  send(
+    runtime: RuntimeId,
+    sessionId: string,
+    text: string,
+    allowed?: () => { ok: true } | { ok: false; reason: string },
+    from?: TeamSender | null,
+  ): Promise<void>
   /** Injects into a running turn — only where the runtime can. */
-  steer(runtime: RuntimeId, sessionId: string, text: string): Promise<void>
+  steer(
+    runtime: RuntimeId,
+    sessionId: string,
+    text: string,
+    allowed?: () => { ok: true } | { ok: false; reason: string },
+    from?: TeamSender | null,
+  ): Promise<void>
+  /**
+   * Whether this room is a Goal a trigger opened (phase 8). Nobody watches
+   * it, so a member with no inbound setting of its own accepts messages from
+   * the room's other members rather than holding them for a person who is
+   * not there. Only inside that room, only while its messaging is on — a
+   * board-only flow stays board-only — and never over a conversation's own
+   * explicit setting.
+   */
+  unattendedInbound?(room: string): boolean
+  /** Current kept Seats and imported labels for a durable Goal. */
+  goalMembers?(goal: string): {
+    readonly seats: readonly SeatRecord[]
+    readonly legacy?: Readonly<Record<string, string>>
+    readonly sentence?: string
+    readonly runtimeNames?: Readonly<Record<string, string>>
+  } | null
+  /** The live turn state for one of those Seats. */
+  memberStatus?(seat: SeatRecord): MemberStatus
+  /**
+   * Where a checkout stands now, for a claim to remember where its card's
+   * work began: its commit, and the remote's copy of its branch; null
+   * outside a repository. Absent, claims record neither.
+   */
+  startOf?(cwd: string): Promise<{ readonly head: string | null; readonly upstream: string | null } | null>
+  /** Rechecked after a live handle is prepared and immediately before delivery. */
+  canDispatch?(goal: string): { ok: true } | { ok: false; reason: string }
+  /** Refuses every board mutation once a durable Goal starts wrapping. */
+  canMutateBoard?(goal: string): { ok: true } | { ok: false; reason: string }
   /** One workspace's whole surface, to every window. */
   changed(state: TeamState): void
+  /**
+   * Goal-backed desks persist the board payload before announcing it. The
+   * payload is `snapshot()`, called once the save actually runs — inside
+   * whatever queue the host keeps for the Goal — so it is the board as it is
+   * then, never as it was when the save was asked for. `null` means there is
+   * nothing left to write: a Goal-plane write already carried this save,
+   * whole, and it landed.
+   */
+  mutate?(snapshot: () => TeamState | null, refused?: (error: Error) => void): Promise<void>
   /** A room that no longer exists, so a window can stop drawing it. */
   removed(room: string): void
   /**
@@ -277,6 +358,13 @@ export interface TeamPort {
     decision?: string
   }): void
   log?(message: string, details?: Readonly<Record<string, unknown>>): void
+  /**
+   * A card was finished, by its holder or by the person — told with the card
+   * as it stood a moment before, so its holder is still on it. The evidence
+   * plane looks at the branch it was finished on. Called after the board is
+   * written, never awaited: a finish is never held up by what it observes.
+   */
+  settled?(room: string, intent: Intent): void
 }
 
 /**
@@ -308,6 +396,42 @@ export interface TeamFlows {
   standDown(room: string, runtime: string, sessionId: string): string | null
   /** The room was deleted: stop any flow runs in it and release their seats. */
   deleteRoom?(room: string): void
+  /**
+   * The one conversation a flow bound this card to, or null for a card no
+   * run bound — which keeps every older rule, roles included. A bound card
+   * whose Seat has not opened yet answers `{ session: null }`: nobody may
+   * take it until its own Seat does. Enforced here, where claims are
+   * refereed, never in the words of an order.
+   */
+  bindingOf?(room: string, intent: number): { readonly session: { readonly runtime: string; readonly sessionId: string } | null } | null
+  /** Why this board's messaging may not be switched on now — a run started board-only — or null. */
+  messagingLocked?(room: string): string | null
+  /** Observed predecessor subjects this caller's claimed card may judge; empty when it holds no such card. */
+  reviewCandidates?(intent: number, scope: TeamCallScope): Promise<readonly ReviewCandidate[]>
+  /** Records a structured review for this caller's claimed card. Throws the refusal; never returns one. */
+  recordReview?(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord>
+  /** Why this card cannot complete yet — its role declares `produces: review` and none is recorded — or null. */
+  refuseCompletion?(room: string, intent: Intent, caller: TeamCallScope): Promise<string | null>
+  /**
+   * The review rounds on this board still open and blind: several reviewers
+   * judging at once, none of whom may read another's card, context or
+   * messages until the round closes. Empty for every board without one.
+   */
+  blindRounds?(room: string): readonly { readonly cards: readonly number[]; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[]
+}
+
+/**
+ * The findings ledger, as the board's verbs reach it: the host's
+ * `FindingsPlane`. Absent on a desk with no ledger, where every finding verb
+ * refuses. The plane resolves the caller's Seat, card and candidate itself;
+ * the board only checks that the caller is a live conversation first, as it
+ * does for every verb.
+ */
+export interface TeamFindings {
+  raise(input: unknown, scope: TeamCallScope): Promise<FindingView>
+  repair(input: unknown, scope: TeamCallScope): Promise<FindingView>
+  decide(input: unknown, scope: TeamCallScope): Promise<FindingView>
+  readForSeat(input: unknown, scope: TeamCallScope): Promise<readonly FindingView[]>
 }
 
 /**
@@ -325,6 +449,8 @@ export interface TeamTurnFailure {
 export interface TeamCallScope {
   readonly runtime?: string
   readonly sessionId?: string
+  readonly invocation?: string
+  readonly signal?: AbortSignal
 }
 
 /**
@@ -334,6 +460,15 @@ export interface TeamCallScope {
  * restarts has no tool call to answer. The seat's order tells it to call
  * again, which is what a restart leaves it doing.
  */
+/** One Goal board save not yet settled, and what rides in it. */
+interface QueuedSave {
+  /** What to put back, newest last, should the save fail. */
+  readonly undo: (() => void)[]
+  settled: boolean
+  readonly outcome: Promise<Error | null>
+  readonly resolve: (error: Error | null) => void
+}
+
 interface Waiter {
   readonly key: string
   readonly board: string
@@ -380,7 +515,13 @@ interface PendingDelivery {
    * never do, so board-only mode and inbound policy sweeps leave these alone.
    */
   readonly byUser?: boolean
+  readonly from?: TeamSender | null
 }
+
+const senderOfActor = (actor: TeamActor): TeamSender | null =>
+  actor.kind === 'agent'
+    ? { runtime: actor.runtime, sessionId: actor.sessionId, name: actor.nickname ?? actor.title }
+    : null
 
 // The separator is NUL, spelled as an escape so this file stays text to Git
 // and every diff tool; neither half of the key can contain it.
@@ -548,6 +689,18 @@ const NOT_LIVE =
 const folderOf = (root: string): string =>
   root.split('/').filter((one) => one !== '').pop() ?? 'Room'
 
+/** Best available activity time for a board written before `updatedAt` existed. */
+const lastStoredActivity = (raw: StoredBoard): number => {
+  if (raw.updatedAt !== undefined) return raw.updatedAt
+  return Math.max(
+    0,
+    ...(raw.intents ?? []).map((intent) => intent.updatedAt ?? intent.createdAt ?? 0),
+    ...(raw.channel ?? []).map((entry) => entry.at ?? 0),
+    ...(raw.plans ?? []).flatMap((plan) => [plan.createdAt ?? 0, plan.wrappedAt ?? 0]),
+    ...Object.values(raw.roster ?? {}).map((member) => member.at ?? 0),
+  )
+}
+
 /**
  * Whether one folder strictly contains another. Trailing slashes are trimmed
  * so `/repo` and `/repo/` are one folder, and the separator is required so
@@ -605,6 +758,7 @@ export class Team {
   #settings: TeamSettings = DEFAULT_TEAM_SETTINGS
   /** The flow engine, when the host has one. Null on every desk running no flows. */
   #flows: TeamFlows | null = null
+  #findings: TeamFindings | null = null
   /**
    * Who is owed an answer: a receiver whose current turn was started by a
    * delivery, and the conversation that asked. Cleared when the turn ends,
@@ -632,7 +786,18 @@ export class Team {
   readonly #deniedInTurn = new Set<string>()
   readonly #deletedMembers = new Map<string, string>()
   #waiters = new Set<Waiter>()
+  readonly #memberWaits = new Map<string, MemberWaits>()
+  readonly #waitingInvocations = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
+  /*
+   * A Goal board's save that has not begun yet, by board. A Goal board has one
+   * writer — this engine's copy — and its save is built when it runs, from
+   * the board as it is then, so every change made before it begins joins it:
+   * a burst is one write, and nothing is ever saved older than it is shown.
+   */
+  readonly #queuedSave = new Map<string, QueuedSave>()
+  /** Boards held against every change, by board, with why: see `holdBoard`. */
+  readonly #holds = new Map<string, string>()
   /** Latest content per file; a burst of mutations becomes one write. */
   readonly #queuedContent = new Map<string, string | null>()
   readonly #queuedFiles = new Set<string>()
@@ -669,6 +834,11 @@ export class Team {
    * the engine opens cards through this board — and the cycle is easier to
    * read broken here than threaded through both constructors.
    */
+  /** The findings ledger's writer. Replaced, never doubled: a restart attaches the new one. */
+  attachFindings(findings: TeamFindings | null): void {
+    this.#findings = findings
+  }
+
   attachFlows(flows: TeamFlows): void {
     this.#flows = flows
   }
@@ -708,13 +878,25 @@ export class Team {
     await this.#writes
   }
 
-  /** Reads every persisted board, so a fresh window can be handed them all. */
+  /**
+   * Reads every persisted board, so a fresh window can be handed them all.
+   *
+   * A folder that will not open is raised, never read as a desk with no rooms.
+   * Nothing on such a desk could say otherwise — the team hangs its problems
+   * on a room — and the rest of the desk would act on it: the flow engine
+   * stops every running run whose room it cannot find, on disk. The host
+   * lets this refuse the launch; see `Host.start`.
+   */
   async load(): Promise<void> {
     let names: string[]
     try {
       names = await readdir(this.#dir)
-    } catch {
-      return
+    } catch (error) {
+      if (NOTHING_YET.has(errnoOf(error))) return
+      throw new Error(
+        `The rooms this desk keeps could not be read — ${errorText(error)}. Opening without them would stop every flow running in one, so HarnessDesk will not. Fix that folder, or move it aside to start with no rooms, then open HarnessDesk again.`,
+        { cause: error },
+      )
     }
     /* Every board's root as the file recorded it, keyed by id, for the
        migration pass below. Collected rather than resolved inline: the read
@@ -742,6 +924,7 @@ export class Team {
              own — the folder is the name the person saw — and moving the root
              must not quietly rename their room. */
           name: raw.name ?? folderOf(recorded),
+          updatedAt: lastStoredActivity(raw),
           members: [...(raw.members ?? Object.keys(raw.nicknames ?? {}))] as SessionKey[],
           root: recorded,
           ...(raw.cwd && raw.cwd !== recorded ? { cwd: raw.cwd } : {}),
@@ -785,14 +968,23 @@ export class Team {
       }
     }
     await this.#migrateRoots(recordedRoots)
+    const inbound = join(this.#dir, 'inbound.json')
     try {
-      const raw = JSON.parse(await readFile(join(this.#dir, 'inbound.json'), 'utf8')) as Record<
-        string,
-        TeamInbound
-      >
+      const raw = JSON.parse(await readFile(inbound, 'utf8')) as Record<string, TeamInbound>
       this.#inbound = new Map(Object.entries(raw))
-    } catch {
-      // Absent means everyone accepts, which is the default anyway.
+    } catch (error) {
+      // No file is no conversation with a mode of its own: each takes the default.
+      if (NOTHING_YET.has(errnoOf(error))) return
+      /* Anything else is raised, a parse failure included. The file is written
+         whole from memory (`#persistInbound`), so reading it as absent would
+         put every conversation set to refuse or hold on the default at once,
+         and the next change anybody made would write that over what was
+         stored. The path is named here because a read's own message does not
+         carry one. */
+      throw new Error(
+        `The inbound settings in ${inbound} could not be read — ${errorText(error)}. Opening without them would put every conversation on the default for messages from other agents, and the next change would overwrite them. Fix that file, or move it aside to start from the default, then open HarnessDesk again.`,
+        { cause: error },
+      )
     }
   }
 
@@ -843,16 +1035,18 @@ export class Team {
         // never overwrite a root the running app has since decided on.
         if (!board || board.root !== was) return
         /* `Board.root` is readonly on purpose — a room's project is fixed for
-           the life of the board, and this migration is the one exception —
-           so the entry is replaced rather than the field assigned, and no
-           other call site gains the ability to re-key a room. */
-        const moved: Board = { ...board, root: now }
-        this.#boards.set(id, moved)
+           the life of the board, and this migration is the one exception, so
+           it alone writes the field, through a cast no other call site has.
+           Onto the board already held, never a copy swapped in: a verb holds
+           its board across its own awaits — `post` across a send — and one
+           that finished on a copy nobody reads any more lost what it wrote,
+           as `installProjection` once did. */
+        ;(board as { root: string }).root = now
         /* Written back through `#commit` like every other change — the same
            serialised write chain, and the same push, which is a no-op with no
            window connected — so the correction is made once rather than on
            every launch, and the file says what the room in memory says. */
-        this.#commit(moved)
+        this.#commit(board)
       }),
     ).catch(() => undefined)
     try {
@@ -923,6 +1117,7 @@ export class Team {
       : {
           id,
           name: '',
+          updatedAt: 0,
           root: '',
           members: [],
           intents: [],
@@ -930,6 +1125,84 @@ export class Team {
           messaging: true,
           problem: this.#problem,
         }
+  }
+
+  /** Historical display data copied into a Goal document; never a membership source. */
+  legacyFor(id: string): {
+    plans: readonly Plan[]
+    nicknames: Readonly<Record<string, string>>
+    roles: Readonly<Record<string, string>>
+    roster: Readonly<Record<string, RememberedMember>>
+  } {
+    const board = this.#boardById(id)
+    return {
+      plans: [...board.plans],
+      nicknames: { ...board.nicknames },
+      roles: { ...board.roles },
+      roster: { ...board.roster },
+    }
+  }
+
+  /**
+   * Install the host's durable Goal projection without writing a second
+   * membership source.
+   *
+   * A Goal board this engine already holds is this engine's to write: its
+   * cards and its channel stay this engine's copy, which is never behind the
+   * document — the document is only ever written from it, and a save still on
+   * its way is newer than what the document says. Everything else about the
+   * Goal is the document's. Once the Goal is `final` — wrapped, or brought by
+   * a backup — nothing will write the board again, and the document's cards
+   * are the last word.
+   */
+  installProjection(
+    state: TeamState,
+    remembered?: Readonly<Record<string, RememberedMember>>,
+    options: { readonly final?: boolean } = {},
+  ): void {
+    const previous = this.#boards.get(state.id)
+    if (previous && this.#port.mutate && !options.final) {
+      state = { ...state, intents: previous.intents, channel: previous.channel }
+    }
+    /* A Seat's role is the document's word; a Seat opened without one (every
+       Goal Seat a legacy flow seats) says nothing, and a role this engine gave
+       such a member (`setRole`) stays — a read-back used to wipe it, and the
+       legacy flow's role-matched cards then had nobody to go to. Only for
+       members still here, and never onto a board that is final. */
+    const members = new Set<string>(state.members)
+    const kept = previous && !options.final
+      ? Object.fromEntries(Object.entries(previous.roles).filter(([key]) => members.has(key)))
+      : {}
+    const next: Board = {
+      id: state.id,
+      name: state.name,
+      updatedAt: state.updatedAt,
+      members: [...state.members],
+      root: state.root,
+      ...(state.cwd && state.cwd !== state.root ? { cwd: state.cwd } : {}),
+      nextIntent: Math.max(1, ...state.intents.map((intent) => intent.id + 1)),
+      nextPlan: Math.max(1, ...(state.plans ?? []).map((plan) => plan.id + 1)),
+      plans: [...(state.plans ?? [])],
+      messaging: state.messaging,
+      nicknames: { ...(state.nicknames ?? previous?.nicknames ?? {}) },
+      roles: { ...kept, ...(state.roles ?? {}) },
+      roster: { ...(remembered ?? previous?.roster ?? {}) },
+      intents: [...state.intents],
+      channel: [...state.channel],
+    }
+    if (!previous) {
+      this.#boards.set(state.id, next)
+      return
+    }
+    /* Onto the board already held, never a new one in its place. A verb holds
+       its board across its own awaits — `complete` waits on its flow's review
+       check between reading the card and writing it — and a Goal read back
+       in that gap (a Seat opening on the same Goal refreshes it) used to swap
+       a fresh object into `#boards`. The verb then finished on the copy
+       nobody reads: the agent was told "Completed", the save wrote the fresh
+       copy with the card still claimed, and the run waited on it for good. */
+    if (next.cwd === undefined) delete previous.cwd
+    Object.assign(previous, next)
   }
 
   inboundFor(runtime: string, sessionId: string): TeamInbound {
@@ -967,10 +1240,9 @@ export class Team {
          mode that will actually be applied rather than only the override. */
       inbound: this.inboundFor(peer.runtime, peer.sessionId),
     }))
-    // Naming is a write, and so is remembering: a member seen for the first
-    // time has just been given a name and a photograph, and both have to
-    // survive a restart or neither is worth having.
-    this.#commit(board)
+    // Naming is a write, and so is remembering: persist lazy roster state, but
+    // do not treat this read as room activity or move the room in the tree.
+    this.#commit(board, false)
     return info
   }
 
@@ -987,7 +1259,7 @@ export class Team {
       plan?: number
     },
   ): Intent {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     /* Refused rather than filtered, the same way the agent's `add_intent` is.
        `#addIntent` drops a path the board cannot own, which is right for what
        it stores and wrong as an answer: the long form closed on a card owning
@@ -1015,7 +1287,7 @@ export class Team {
    * a person can look.
    */
   planWork(id: string, goal: string): Plan {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const text = goal.trim()
     if (text === '') throw new Error('A goal needs saying. Nothing was started.')
     const plan: Plan = { id: board.nextPlan, goal: text, state: 'running', createdAt: Date.now() }
@@ -1034,7 +1306,7 @@ export class Team {
    * of what happened, and the board simply stops leading with them.
    */
   wrapPlan(room: string, id: number): string {
-    const board = this.#boardById(room)
+    const board = this.#mutableBoardById(room)
     const plan = board.plans.find((entry) => entry.id === id)
     if (!plan) return `There is no goal #${id} on this board.`
     if (plan.state === 'wrapped') return `“${plan.goal}” is already wrapped up.`
@@ -1076,7 +1348,7 @@ export class Team {
     /** The person's own context package, for the round that depends on this. */
     context?: string,
   ): void {
-    const board = this.#boardById(room)
+    const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
     if (!intent) throw new Error(`There is no intent #${id} on this board.`)
     const by: TeamActor = { kind: 'user' }
@@ -1103,21 +1375,26 @@ export class Team {
          and the board draws `blockedReason` ahead of the card's own note, so
          the Done column showed why the work had once been stopped instead of
          how it finished. */
+      const undo = this.#undoFor(board, [id])
       this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'abandoned', intent, null)
-      this.#commit(board)
-      this.#flows?.completed(board.id, {
-        ...intent,
-        state: 'abandoned',
-        claim: null,
-        blockedReason: null,
-        blockedBy: null,
+      undo.mark()
+      // Its flow hears of it once it is saved, and not at all when it is not.
+      this.#afterSaved(this.#commit(board, true, undo), () => {
+        this.#flows?.completed(board.id, {
+          ...intent,
+          state: 'abandoned',
+          claim: null,
+          blockedReason: null,
+          blockedBy: null,
+        })
       })
       return
     } else if (action === 'done') {
       const said = outcome?.trim() || null
       const refusal = this.#flows?.refuseOutcome(board.id, intent, said) ?? null
       if (refusal) throw new Error(refusal)
+      const undo = this.#undoFor(board, board.intents.filter((one) => one.id === id || one.state === 'blocked').map((one) => one.id))
       this.#patchIntent(board, id, {
         state: 'done',
         claim: null,
@@ -1130,12 +1407,16 @@ export class Team {
       })
       this.#signal(board, by, 'completed', intent, said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
-      this.#commit(board)
-      this.#flows?.completed(board.id, {
-        ...intent,
-        state: 'done',
-        outcome: said,
-        ...(context?.trim() ? { handoff: context.trim() } : {}),
+      undo.mark()
+      // Its flow hears of it once it is saved, and not at all when it is not.
+      this.#afterSaved(this.#commit(board, true, undo), () => {
+        this.#flows?.completed(board.id, {
+          ...intent,
+          state: 'done',
+          outcome: said,
+          ...(context?.trim() ? { handoff: context.trim() } : {}),
+        })
+        this.#port.settled?.(board.id, { ...intent, state: 'done', outcome: said })
       })
       return
     } else {
@@ -1152,7 +1433,9 @@ export class Team {
    * switch exists to stop agents, not the person.
    */
   setMessaging(id: string, enabled: boolean): void {
-    const board = this.#boardById(id)
+    const locked = enabled ? this.#flows?.messagingLocked?.(id) ?? null : null
+    if (locked) throw new Error(locked)
+    const board = this.#mutableBoardById(id)
     board.messaging = enabled
     if (!enabled) {
       this.#sweepPending(
@@ -1212,7 +1495,7 @@ export class Team {
   ): Promise<void> {
     const body = text.trim()
     if (body === '') return
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     if (body.length > this.#settings.messageChars) {
       this.#message(board, {
         from: { kind: 'user' },
@@ -1260,11 +1543,11 @@ export class Team {
           text: body,
           state: 'queued',
         })
-        this.#enqueue(peer, entry.id, [board.id], body, true)
+        this.#enqueue(peer, entry.id, [board.id], body, true, null)
         continue
       }
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, body)
+        await this.#port.send(peer.runtime, peer.sessionId, body, undefined, null)
         this.#message(board, { from: { kind: 'user' }, to: address, text: body, state: 'delivered' })
         this.#owe(peer, { kind: 'user' }, [board.id])
       } catch (error) {
@@ -1300,7 +1583,7 @@ export class Team {
       readonly vars?: Readonly<Record<string, string>>
     }[],
   ): Promise<{ batch: string; delivered: number; queued: number; refused: number }> {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const batch = { id: this.#entryId(), size: recipients.length, template }
     const tally = { batch: batch.id, delivered: 0, queued: 0, refused: 0 }
     if (recipients.length === 0 || template.trim() === '') return tally
@@ -1347,7 +1630,7 @@ export class Team {
         return
       }
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, body)
+        await this.#port.send(peer.runtime, peer.sessionId, body, undefined, null)
         rows[index] = { to: address, text: body, state: 'delivered', peer }
       } catch (error) {
         rows[index] = { to: address, text: body, state: 'refused', reason: `Sending failed: ${errorText(error)}` }
@@ -1374,7 +1657,7 @@ export class Team {
         this.#owe(row.peer, { kind: 'user' }, [board.id])
         tally.delivered += 1
       } else if (row.state === 'queued' && row.peer) {
-        this.#enqueue(row.peer, entry.id, [board.id], row.text, true)
+        this.#enqueue(row.peer, entry.id, [board.id], row.text, true, null)
         tally.queued += 1
       } else {
         tally.refused += 1
@@ -1390,12 +1673,20 @@ export class Team {
    * the same envelope twice; and the entry is patched on *every* board that
    * holds a copy, so nothing is left `held` somewhere it can be released
    * again.
+   *
+   * Board-only locks this too, not only the switch that turns messaging back
+   * on: a flow that runs board-only is information isolation between its
+   * cards, and a person releasing what an earlier hold caught — an inbound
+   * hold, an approval denial, whatever the reason — would otherwise be the
+   * one manual door still open while every other agent delivery is closed.
    */
   async deliverHeld(id: string, entryId: string): Promise<void> {
     if (this.#releasing.has(entryId)) {
       throw new Error('That message is already being released.')
     }
-    const board = this.#boardById(id)
+    const locked = this.#flows?.messagingLocked?.(id)
+    if (locked) throw new Error(locked)
+    const board = this.#mutableBoardById(id)
     const entry = board.channel.find(
       (candidate): candidate is TeamMessage =>
         candidate.id === entryId && candidate.kind === 'message',
@@ -1421,15 +1712,25 @@ export class Team {
         })
         return
       }
+      const sender = senderOfActor(entry.from)
       if (peer.busy) {
         this.#updateEntry(roots, entryId, { state: 'queued', reason: null })
         // Released by the user, so the pending row carries their authority:
         // a later policy sweep must not re-hold what they explicitly freed.
-        this.#enqueue(peer, entryId, roots, entry.envelope, true)
+        this.#enqueue(peer, entryId, roots, entry.envelope, true, sender)
         return
       }
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, entry.envelope)
+        const sender = entry.from.kind === 'agent'
+          ? { runtime: entry.from.runtime, sessionId: entry.from.sessionId, name: entry.from.nickname ?? entry.from.title }
+          : null
+        await this.#port.send(
+          peer.runtime,
+          peer.sessionId,
+          entry.envelope,
+          sender ? () => this.#deliveryAllowed(board, sender, peer) : undefined,
+          sender,
+        )
         this.#updateEntry(roots, entryId, { state: 'delivered', reason: null })
       } catch (error) {
         this.#updateEntry(roots, entryId, {
@@ -1451,7 +1752,7 @@ export class Team {
     // asks for. Renewing on use rather than on a heartbeat means the signal is
     // the work itself.
     if (this.#renew(board, caller)) this.#commit(board)
-    return this.#renderBoard(board)
+    return this.#renderBoard(board, caller)
   }
 
   async addIntent(
@@ -1465,11 +1766,19 @@ export class Team {
   ): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
+    this.#assertMutable(board)
+    /* A card is read by every member at once, so a reviewer of an open blind
+       round adding one would hand its sibling what it found before the round
+       closes. Refused, as a message is: its findings go to the finding tools. */
+    if (this.#inBlindRound(board, caller.runtime, caller.sessionId)) {
+      this.#port.audit({ runtime: caller.runtime, sessionId: caller.sessionId, cwd: caller.cwd, kind: 'team/intent', decision: 'refused-blind-round' })
+      return 'Refused: your review round is still open and blind, so you cannot add work to the board until it closes. Record what you found with the finding tools. Nothing was added.'
+    }
     const title = (args.title ?? '').trim()
     if (title === '') return 'An intent needs a title. Nothing was added.'
     for (const dep of args.dependsOn ?? []) {
       if (!board.intents.some((intent) => intent.id === dep)) {
-        return `There is no intent #${dep} to depend on. Nothing was added.\n\n${this.#renderBoard(board)}`
+        return `There is no intent #${dep} to depend on. Nothing was added.\n\n${this.#renderBoard(board, caller)}`
       }
     }
     const outside = (args.files ?? []).filter(
@@ -1486,7 +1795,7 @@ export class Team {
       kind: 'team/intent',
       decision: 'added',
     })
-    return `Added intent #${intent.id} — ${intent.title}.\n\n${this.#renderBoard(board)}`
+    return `Added intent #${intent.id} — ${intent.title}.\n\n${this.#renderBoard(board, caller)}`
   }
 
   /**
@@ -1726,6 +2035,31 @@ export class Team {
     if (board) this.#wake(board)
   }
 
+  /** Refuse undelivered agent mail for a Seat that has left this Goal. */
+  refuseSeatMail(room: string, runtime: string, sessionId: string, seatId?: string): void {
+    this.#refusePending(
+      keyOf(runtime, sessionId),
+      (pending) => pending.roots.includes(room),
+      'The Seat was released before the message was read.',
+    )
+    const board = this.#boards.get(room)
+    if (board) {
+      for (const entry of board.channel) {
+        if (entry.kind !== 'message' || entry.state !== 'held') continue
+        const fromSeat = entry.from.kind === 'agent' && entry.from.runtime === runtime && entry.from.sessionId === sessionId
+        const toSeat = entry.to?.runtime === runtime && entry.to.sessionId === sessionId
+        if (fromSeat || toSeat) this.#updateEntry([room], entry.id, {
+          state: 'refused',
+          reason: 'The Seat was released before the message was read.',
+        })
+      }
+    }
+    const known = seatId ?? this.#goalMembership(room)?.seats.find((candidate) =>
+      candidate.session.runtime === runtime && candidate.session.sessionId === sessionId,
+    )?.id
+    if (known) this.#memberWaits.get(room)?.gone(String(known))
+  }
+
   /**
    * Lets every waiting seat go, with a reason. The desk is closing, or the
    * room is; either way a tool call held open across it is a turn that never
@@ -1737,16 +2071,74 @@ export class Team {
       this.#waiters.delete(waiter)
       waiter.resolve(`stand down — ${reason}`)
     }
+    for (const waits of this.#memberWaits.values()) waits.close(reason)
+    this.#memberWaits.clear()
+    this.#waitingInvocations.clear()
+  }
+
+  /** A wrapping Goal settles only its own member waits. */
+  closeGoalWaits(goal: string, reason = 'the Goal wrapped'): void {
+    this.#memberWaits.get(goal)?.close(reason)
+    this.#memberWaits.delete(goal)
+  }
+
+  /** Waits for the turn that is running now; it never starts or messages one. */
+  async awaitMember(
+    scope: TeamCallScope,
+    options: { readonly member: string; readonly cycle?: number; readonly blockMs?: number },
+  ): Promise<string> {
+    const caller = this.#caller(scope)
+    const board = this.#roomOf(caller.runtime, caller.sessionId)
+    if (!board) return 'gone; cycle: 1'
+    const membership = this.#goalMembership(board.id)
+    if (!membership || !this.#port.memberStatus) return 'gone; cycle: 1'
+    const callerSeat = membership.seats.find((seat) =>
+      seat.session.runtime === caller.runtime && seat.session.sessionId === caller.sessionId,
+    )
+    if (!callerSeat) return `gone; cycle: ${(options.cycle ?? 0) + 1}`
+    const names = memberNames(membership.seats, membership.legacy)
+    const needle = options.member.trim().toLowerCase()
+    const exact = membership.seats.filter((seat) => names.get(String(seat.id))?.toLowerCase() === needle)
+    const matches = exact.length > 0 ? exact : membership.seats.filter((seat) =>
+      names.get(String(seat.id))?.toLowerCase().includes(needle),
+    )
+    if (matches.length > 1) {
+      throw new Error(`“${options.member}” matches ${matches.length} members: ${matches.map((seat) => names.get(String(seat.id))).join(', ')}. Name one exactly.`)
+    }
+    const target = matches[0]
+    const waits = this.#waitsFor(board.id)
+    if (!target) {
+      return waits.wait(String(callerSeat.id), '__missing__', options.cycle, options.blockMs, scope.signal)
+    }
+    const ready = this.#port.canDispatch?.(board.id)
+    if (ready && !ready.ok) throw new Error(ready.reason)
+    if (scope.invocation && this.#waitingInvocations.has(scope.invocation)) {
+      throw new Error('This invocation is already waiting for a member')
+    }
+    // Immediate answers do not consume the per-invocation pending slot.
+    const status = this.#port.memberStatus(target)
+    if (status.turn === null || !status.exists || scope.signal?.aborted) {
+      return waits.wait(String(callerSeat.id), String(target.id), options.cycle, options.blockMs, scope.signal)
+    }
+    if (!scope.invocation) throw new Error('This member wait is not attached to a live host invocation.')
+    this.#waitingInvocations.add(scope.invocation)
+    try {
+      return await waits.wait(String(callerSeat.id), String(target.id), options.cycle, options.blockMs, scope.signal)
+    } finally {
+      this.#waitingInvocations.delete(scope.invocation)
+    }
   }
 
   /**
    * A card a rule opened, addressed to the role the rule named.
    *
-   * The person's authority, because it is the person who started the flow:
+   * Attributed to whoever's authority started the run: a person's, because
    * they read the dry run, they pressed the thing, and every card it opens is
-   * theirs in exactly the way a card they typed is. It goes down the same path
-   * as one they typed, so there is one writer over a board and one set of
-   * rules about what may be on it.
+   * theirs in exactly the way a card they typed is — or a trigger's, because
+   * nobody read anything or pressed anything, and a card unattended admission
+   * opened is not a card the person added. Either way it goes down the same
+   * path as a card typed by hand, so there is one writer over a board and one
+   * set of rules about what may be on it.
    */
   addIntentForFlow(
     room: string,
@@ -1756,15 +2148,35 @@ export class Team {
       files?: readonly string[]
       dependsOn?: readonly number[]
       role: string
+      /**
+       * The host's key for this card (run, round, slot). A card already
+       * carrying it is returned rather than added again, and one carrying it
+       * with different content is refused: a replay never forks a round.
+       */
+      dispatch?: string
     },
+    by: TeamActor,
   ): Intent {
-    const board = this.#boardById(room)
-    return this.#addIntent(board, args, { kind: 'user' })
+    const board = this.#mutableBoardById(room)
+    if (args.dispatch) {
+      const found = board.intents.find((intent) => intent.dispatch === args.dispatch)
+      if (found) {
+        const same = found.title === args.title.trim() && (found.detail ?? null) === (args.detail?.trim() || null)
+          && (found.role ?? null) === (args.role.trim() || null)
+          && JSON.stringify([...found.dependsOn].sort((a, b) => a - b)) === JSON.stringify([...new Set(args.dependsOn ?? [])].filter((dep) => board.intents.some((intent) => intent.id === dep)).sort((a, b) => a - b))
+        if (!same) throw new Error(`Card #${found.id} was already opened for this step with different content, so nothing was added.`)
+        return found
+      }
+    }
+    return this.#addIntent(board, args, by)
   }
 
   async claimNext(scope: TeamCallScope, files?: readonly string[]): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
+    if (this.#inBlindRound(board, caller.runtime, caller.sessionId)) {
+      return 'Refused: your review round is still open and blind, so you cannot take other work until it closes. Finish your review card.'
+    }
     const ready = (intent: Intent): boolean =>
       intent.state === 'open' &&
       !intent.claim &&
@@ -1803,14 +2215,24 @@ export class Team {
     if (others > 0) parts.push(`${others} ${others === 1 ? 'is' : 'are'} held by others`)
     if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? 'waits' : 'wait'} on other work or ${waiting === 1 ? 'is' : 'are'} blocked`)
     const why = parts.length > 0 ? `${parts.join('; ')}.` : 'The board is empty.'
-    return `Nothing to take right now. ${why} ${this.#renderBoard(board)}`
+    return `Nothing to take right now. ${why} ${this.#renderBoard(board, caller)}`
   }
 
   async claim(intentId: number, scope: TeamCallScope, files?: readonly string[]): Promise<string> {
     const caller = this.#caller(scope)
+    // Where the caller's checkout stands as it takes the card: read before the board, so nothing moves under the check.
+    const start = (await this.#port.startOf?.(caller.cwd).catch(() => null)) ?? null
     const board = await this.#boardOf(caller)
+    this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
-    if (!intent) return `There is no intent #${intentId}. ${this.#renderBoard(board)}`
+    if (!intent) return `There is no intent #${intentId}. ${this.#renderBoard(board, caller)}`
+    /* A reviewer of an open blind round keeps to its own card: any other card
+       it took would carry its note, context or reason to every member before
+       the round closes. Its own card is already its. */
+    if (this.#inBlindRound(board, caller.runtime, caller.sessionId) &&
+      !(intent.claim?.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId)) {
+      return 'Refused: your review round is still open and blind, so you cannot take other work until it closes. Finish your review card.'
+    }
 
     /* Canonical before anything compares them, exactly as `add_intent` does.
        Trimming alone let `src/../README.md` and `README.md` claim the same
@@ -1918,6 +2340,7 @@ export class Team {
         sessionId: caller.sessionId,
         at: Date.now(),
         leaseUntil: Date.now() + LEASE_MS,
+        ...(start ? { head: start.head, upstream: start.upstream } : {}),
       },
       blockedReason: null,
       blockedBy: null,
@@ -1941,7 +2364,8 @@ export class Team {
        silent — work built against a contract nobody read. */
     const inherited = (Array.isArray(intent.dependsOn) ? intent.dependsOn : [])
       .map((id) => board.intents.find((entry) => entry.id === id))
-      .filter((entry): entry is Intent => Boolean(entry?.handoff))
+      // What a card of an open blind round left is not the caller's to read yet (`#embargoed`).
+      .filter((entry): entry is Intent => Boolean(entry?.handoff) && !this.#embargoed(board, caller).has(entry!.id))
       .map((entry) => `#${entry.id} — ${entry.title}\n${entry.handoff as string}`)
     const carried =
       inherited.length > 0
@@ -1971,6 +2395,57 @@ export class Team {
     return `Conflicts: ${hits.join('; ')}. Do not edit those paths — message the holder, or claim different work.`
   }
 
+  /**
+   * Observed predecessor subjects this conversation's own claimed card may
+   * judge. Structured data, never prose: the plugin tool words it for the
+   * calling model, and nothing here parses an answer back out of text.
+   */
+  async reviewCandidates(intent: number, scope: TeamCallScope): Promise<readonly ReviewCandidate[]> {
+    return (await this.#flows?.reviewCandidates?.(intent, scope)) ?? []
+  }
+
+  /**
+   * Records one structured verdict against an observed candidate. Throws the
+   * refusal rather than returning a sentence — there is no evidence record to
+   * hand back when the call is refused, and a caller that only wants the
+   * board's own words wraps this at the tool boundary.
+   */
+  async recordReview(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord> {
+    if (!this.#flows?.recordReview) throw new Error('This board has no flow to record a review against.')
+    return this.#flows.recordReview(input, scope)
+  }
+
+  /**
+   * A finding raised, a repair claimed, a verdict given, or the Goal's
+   * findings read — structured, never prose, each refused with its reason by
+   * the findings plane. The caller must be a live conversation; which Seat,
+   * card and revision it speaks for is the plane's to resolve.
+   */
+  async raiseFinding(input: RaiseFindingInput, scope: TeamCallScope): Promise<FindingView> {
+    this.#caller(scope)
+    return this.#findingsPlane().raise(input, scope)
+  }
+
+  async repairFinding(input: RepairFindingInput, scope: TeamCallScope): Promise<FindingView> {
+    this.#caller(scope)
+    return this.#findingsPlane().repair(input, scope)
+  }
+
+  async decideFinding(input: DecideFindingInput, scope: TeamCallScope): Promise<FindingView> {
+    this.#caller(scope)
+    return this.#findingsPlane().decide(input, scope)
+  }
+
+  async listFindings(input: FindingReadInput, scope: TeamCallScope): Promise<readonly FindingView[]> {
+    this.#caller(scope)
+    return this.#findingsPlane().readForSeat(input, scope)
+  }
+
+  #findingsPlane(): TeamFindings {
+    if (!this.#findings) throw new Error('This desk keeps no findings ledger.')
+    return this.#findings
+  }
+
   async complete(
     intentId: number,
     args: { note?: string; handoff?: string; outcome?: string },
@@ -1978,23 +2453,53 @@ export class Team {
   ): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
-    const intent = board.intents.find((entry) => entry.id === intentId)
-    if (!intent) return `There is no intent #${intentId}.`
-    if (
-      intent.state !== 'claimed' ||
-      !intent.claim ||
-      intent.claim.runtime !== caller.runtime ||
-      intent.claim.sessionId !== caller.sessionId
-    ) {
-      return `Refused: you do not hold #${intentId}, so you cannot complete it. Claim it first, or leave it to ${this.#holderName(board, intent)}.`
+    this.#assertMutable(board)
+    /* The card as it stands, held by this caller — or why not. Asked twice:
+       here, and again after the review check below, which awaits facts and
+       git and so gives the Goal plane time to release or reassign the card. */
+    /* `since` is the claim the first look found: the second one asks for that
+       very claim, not just the same holder — a card let go and taken again by
+       the same conversation in between is a different claim. */
+    const held = (since?: number): { intent: Intent } | { refused: string } => {
+      const intent = board.intents.find((entry) => entry.id === intentId)
+      if (!intent) return { refused: `There is no intent #${intentId}.` }
+      if (
+        intent.state !== 'claimed' ||
+        !intent.claim ||
+        intent.claim.runtime !== caller.runtime ||
+        intent.claim.sessionId !== caller.sessionId
+      ) {
+        return { refused: `Refused: you do not hold #${intentId}, so you cannot complete it. Claim it first, or leave it to ${this.#holderName(board, intent)}.` }
+      }
+      if (since !== undefined && intent.claim.at !== since) {
+        return { refused: `Refused: #${intentId} was let go and claimed again while this completion was being checked, so it is not finished. Call complete_claim again if the work is done.` }
+      }
+      return { intent }
     }
+    const first = held()
+    if ('refused' in first) return first.refused
     /* What the card answered, checked against what its role may say before
        anything is written. An outcome a role never declared is a rule that
        will silently never fire, so it is refused here with the vocabulary
        spelled out rather than stored and puzzled over later. */
     const outcome = args.outcome?.trim() || null
-    const refusal = this.#flows?.refuseOutcome(board.id, intent, outcome) ?? null
+    const refusal = this.#flows?.refuseOutcome(board.id, first.intent, outcome) ?? null
     if (refusal) return refusal
+    /* A role that declares `produces: review` cannot finish by claim alone:
+       `complete_claim` is never allowed to stand in for the structured
+       judgment a merge step's evidence guard actually reads. */
+    const missingReview = (await this.#flows?.refuseCompletion?.(board.id, first.intent, caller)) ?? null
+    if (missingReview) return missingReview
+    this.#assertMutable(board)
+    const still = held(first.intent.claim!.at)
+    if ('refused' in still) return still.refused
+    const intent = still.intent
+    /* A Goal board's completion is reported once it is saved, never before:
+       an agent told "Completed" on a write that never landed would stop,
+       and the card would sit claimed with nobody on it. A save that fails
+       puts the card, and whatever it unblocked, back as they were before any
+       later save is built, and says so — the agent can finish it again. */
+    const undo = this.#undoFor(board, board.intents.filter((one) => one.id === intentId || one.state === 'blocked').map((one) => one.id))
     this.#patchIntent(board, intentId, {
       state: 'done',
       claim: null,
@@ -2004,7 +2509,11 @@ export class Team {
     })
     this.#signal(board, this.#actorOf(board, caller), 'completed', intent, args.note?.trim() || null)
     const opened = this.#unblock(board, this.#actorOf(board, caller))
-    this.#commit(board)
+    undo.mark()
+    const unsaved = await this.#commit(board, true, undo)
+    if (unsaved) {
+      return `Refused: #${intentId} could not be saved, so it is not finished — ${unsaved.message}. Call complete_claim again once the board can be saved.`
+    }
     this.#port.audit({
       runtime: caller.runtime,
       sessionId: caller.sessionId,
@@ -2017,6 +2526,7 @@ export class Team {
        board that had not yet recorded the completion would read its own round
        as unfinished. */
     this.#flows?.completed(board.id, { ...intent, state: 'done', outcome })
+    this.#port.settled?.(board.id, { ...intent, state: 'done', outcome })
     const unblocked =
       opened.length > 0
         ? ` That unblocked ${opened.map((id) => `#${id}`).join(', ')}.`
@@ -2037,6 +2547,7 @@ export class Team {
   ): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
+    this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
     if (!intent) return `There is no intent #${intentId}.`
     if (
@@ -2078,6 +2589,9 @@ export class Team {
     const board = await this.#boardOf(caller)
     const intent = board.intents.find((entry) => entry.id === intentId)
     if (!intent) return `There is no intent #${intentId}.`
+    if (this.#embargoed(board, caller).has(intentId)) {
+      return `Refused: #${intentId} belongs to a review round that is still open. What its reviewer left is released when the round closes.`
+    }
     if (intent.handoff) {
       return `Context package for #${intentId} — ${intent.title}:\n\n${intent.handoff}`
     }
@@ -2125,10 +2639,9 @@ export class Team {
         ? `On this board:\n${lines.join('\n')}`
         : 'Nobody else is in this room.'
     const counts = board ? ` ${this.#counts(board)}.` : ' The board is empty.'
-    // Naming is a write: a member seen here for the first time has just been
-    // given the name this answer offers, and a name that does not survive the
-    // next restart is not a name.
-    if (board) this.#commit(board)
+    // Status may lazily remember a member's name, so persist it without
+    // treating the read as room activity or moving the room in the tree.
+    if (board) this.#commit(board, false)
     return `${team}\n${counts} Address a message by its room name with agent_message; list work with list_intents.`
   }
 
@@ -2143,6 +2656,7 @@ export class Team {
        has to mean. */
     const board = this.#roomOf(caller.runtime, caller.sessionId)
     if (!board) return NOT_IN_ROOM
+    this.#assertMutable(board)
     // Declared before the first refusal, not after the last guard. Six paths
     // used to return above the point where this was created — board-only,
     // empty, oversized, unknown recipient, repeat, rate limit — so the
@@ -2183,6 +2697,11 @@ export class Team {
       audit('refused-empty')
       return 'Refused: the message is empty.'
     }
+    // A blind review round is blind in the channel too: nothing out of it, and nothing into it, until it closes.
+    if (this.#inBlindRound(board, caller.runtime, caller.sessionId)) {
+      audit('refused-blind-round')
+      return 'Refused: your review round is still open and blind, so you cannot message anyone until it closes. Record what you found with the finding tools.'
+    }
     if (text.length > this.#settings.messageChars) {
       audit('refused-too-long')
       return `Refused: the message is ${text.length} characters; the limit is ${this.#settings.messageChars}. Put long material on the board as a context package instead.`
@@ -2206,6 +2725,18 @@ export class Team {
       return `Refused: ${resolved.refusal}`
     }
     const peer = resolved.peer
+    if (this.#inBlindRound(board, peer.runtime, peer.sessionId)) {
+      this.#message(board, {
+        from: this.#actorOf(board, caller),
+        to: null,
+        text,
+        state: 'refused',
+        reason: 'the recipient is reviewing in a blind round that is still open',
+      })
+      this.#commit(board)
+      audit('refused-blind-round')
+      return `Refused: ${args.to} is reviewing in a blind round that is still open. Messages reach it once the round closes.`
+    }
     const address = {
       runtime: peer.runtime,
       sessionId: peer.sessionId,
@@ -2234,10 +2765,13 @@ export class Team {
       this.#lastText.set(pair, { text, at: now })
     }
 
+    const ceiling = caller.ceiling?.level ?? null
+    const asked = ceiling ? agentMessageCeilingNotice(ceiling) : null
     const envelope = wrapContext(
-      agentMessageSource(caller.agent, caller.title),
-      `${text}\n\n${AGENT_MESSAGE_NOTICE}`,
+      this.#messageSource(board, caller),
+      `${text}\n\n${AGENT_MESSAGE_NOTICE}${asked ? ` ${asked}` : ''}`,
     )
+    const from: TeamSender = { runtime: caller.runtime, sessionId: caller.sessionId, name: this.#nameOn(board, caller) }
     const record = (state: TeamMessage['state'], reason: string | null = null): TeamMessage => {
       const entry = this.#message(board, {
         from: this.#actorOf(board, caller),
@@ -2261,7 +2795,8 @@ export class Team {
       return 'Held: you were denied an approval this turn, so this message waits for the user to release it. Permission does not travel through a teammate.'
     }
 
-    const inbound = this.inboundFor(peer.runtime, peer.sessionId)
+    const inbound = this.#inbound.get(keyOf(peer.runtime, peer.sessionId)) ??
+      (this.#port.unattendedInbound?.(board.id) ? 'accept' : this.#settings.inboundDefault)
     if (inbound === 'refuse') {
       audit('refused-inbound')
       record('refused', 'That conversation refuses inter-agent messages.')
@@ -2276,7 +2811,13 @@ export class Team {
 
     if (!peer.busy) {
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, envelope)
+        await this.#port.send(
+          peer.runtime,
+          peer.sessionId,
+          envelope,
+          () => this.#deliveryAllowed(board, caller, peer),
+          from,
+        )
       } catch (error) {
         audit('send-failed')
         record('refused', `Sending failed: ${errorText(error)}`)
@@ -2299,7 +2840,13 @@ export class Team {
 
     if (args.wake && peer.canSteer) {
       try {
-        await this.#port.steer(peer.runtime, peer.sessionId, envelope)
+        await this.#port.steer(
+          peer.runtime,
+          peer.sessionId,
+          envelope,
+          () => this.#deliveryAllowed(board, caller, peer),
+          from,
+        )
       } catch (error) {
         audit('steer-failed')
         record('refused', `Steering failed: ${errorText(error)}`)
@@ -2320,7 +2867,7 @@ export class Team {
     accept()
     audit('queued')
     const entry = record('queued', null)
-    this.#enqueue(peer, entry.id, [board.id], envelope)
+    this.#enqueue(peer, entry.id, [board.id], envelope, false, from)
     const why = args.wake
       ? `${peer.agent} cannot take input mid-turn, so it is queued instead`
       : 'it is queued'
@@ -2453,9 +3000,20 @@ export class Team {
      * knows what the turn said. The trailing idle nudge passes nothing and
      * must not be mistaken for a turn that answered with silence.
      */
-    completed?: { readonly answer?: string; readonly failure?: TeamTurnFailure },
+    completed?: { readonly turn?: string; readonly answer?: string; readonly failure?: TeamTurnFailure },
   ): Promise<void> {
     const key = keyOf(runtime, sessionId)
+    if (completed?.turn) {
+      for (const board of this.#boards.values()) {
+        const seat = this.#seatForSession(board.id, runtime, sessionId)
+        if (seat) this.#memberWaits.get(board.id)?.ended(
+          String(seat.id),
+          completed.turn,
+          completed.failure?.message ?? null,
+        )
+        if (seat) this.#memberWaits.get(board.id)?.cancel(String(seat.id))
+      }
+    }
     /* A turn ending is the strongest evidence there is that a conversation is
        alive, so it renews whatever that conversation holds — including through
        a long turn that touched the board only at the start. */
@@ -2488,7 +3046,17 @@ export class Team {
       if (waiting.length === 0) this.#pending.delete(key)
       if (!next) return
       try {
-        await this.#port.send(runtime, sessionId, next.envelope)
+        const original = this.#askerOf(next.roots, next.entryId)
+        const board = next.roots.map((root) => this.#boards.get(root)).find(Boolean)
+        await this.#port.send(
+          runtime,
+          sessionId,
+          next.envelope,
+          original?.kind === 'agent' && board
+            ? () => this.#deliveryAllowed(board, original, peer)
+            : undefined,
+          next.from ?? null,
+        )
         this.#updateEntry(next.roots, next.entryId, { state: 'delivered', reason: null })
         const asker = this.#askerOf(next.roots, next.entryId)
         if (asker) this.#owe(peer, asker, next.roots)
@@ -2511,6 +3079,10 @@ export class Team {
     // reattached to a fresh agent has proved nothing yet — see `#used`.
     this.#used.delete(key)
     this.#deletedMembers.delete(key)
+    for (const board of this.#boards.values()) {
+      const seat = this.#seatForSession(board.id, runtime, sessionId)
+      if (seat) this.#memberWaits.get(board.id)?.gone(String(seat.id))
+    }
   }
 
   /**
@@ -2541,6 +3113,17 @@ export class Team {
     }
     for (const key of [...this.#deletedMembers.keys()]) {
       if (key.startsWith(prefix)) this.#deletedMembers.delete(key)
+    }
+    for (const board of this.#boards.values()) {
+      for (const seat of this.#goalMembership(board.id)?.seats ?? []) {
+        if (seat.session.runtime !== runtime) continue
+        const status = this.#port.memberStatus?.(seat)
+        if (status?.turn) this.#memberWaits.get(board.id)?.ended(
+          String(seat.id),
+          status.turn,
+          reason ?? 'the agent stopped',
+        )
+      }
     }
   }
 
@@ -2631,6 +3214,7 @@ export class Team {
     return {
       id: board.id,
       name: board.name,
+      updatedAt: board.updatedAt,
       members: [...board.members],
       root: board.root,
       ...(board.cwd && board.cwd !== board.root ? { cwd: board.cwd } : {}),
@@ -2657,6 +3241,44 @@ export class Team {
   #boardById(id: string): Board {
     const board = this.#boards.get(id)
     if (!board) throw new Error(`There is no room ${id}.`)
+    return board
+  }
+
+  /**
+   * A Goal board is writable only while its durable document says so.
+   *
+   * This check is synchronous on purpose. The Goal store is the authority,
+   * and checking it before touching this projection prevents a rejected
+   * persistence write from leaving memory ahead of disk. Legacy standalone
+   * boards have no Goal guard and keep their original behaviour.
+   */
+  #assertMutable(board: Board): void {
+    const held = this.#holds.get(board.id)
+    if (held) throw new Error(held)
+    const allowed = this.#port.canMutateBoard?.(board.id)
+    if (allowed && !allowed.ok) throw new Error(allowed.reason)
+  }
+
+  /**
+   * Refuses every change to a Goal's board, with `reason`, until the answer
+   * is called: the barrier a wrap puts up before it reads the board, so that
+   * nothing is added to it between that read and the receipt it writes. In
+   * memory only — a wrap interrupted by a restart is finished from its staged
+   * receipt, which settles any card it never saw.
+   */
+  holdBoard(goal: string, reason: string): () => void {
+    this.#holds.set(goal, reason)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (this.#holds.get(goal) === reason) this.#holds.delete(goal)
+    }
+  }
+
+  #mutableBoardById(id: string): Board {
+    const board = this.#boardById(id)
+    this.#assertMutable(board)
     return board
   }
 
@@ -2691,6 +3313,7 @@ export class Team {
     const board: Board = {
       id: `room-${Date.now().toString(36)}-${(this.#nextRoom += 1).toString(36)}`,
       name: called,
+      updatedAt: Date.now(),
       members: [],
       root: project,
       ...(root !== project ? { cwd: root } : {}),
@@ -2711,11 +3334,12 @@ export class Team {
 
   #nextRoom = 0
 
-  /** The rooms in one project, oldest first. */
+  /** The rooms in one project, newest activity first. */
   roomsFor(root: string): readonly TeamState[] {
     return [...this.#boards.values()]
       .filter((board) => board.root === root)
       .map((board) => this.#stateOf(board))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   /**
@@ -2744,7 +3368,7 @@ export class Team {
      */
     card?: RememberedMember,
   ): Promise<void> {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const key = keyOf(runtime, sessionId)
     this.#deletedMembers.delete(key)
     const live = this.#port
@@ -2768,6 +3392,7 @@ export class Team {
     }
     for (const other of this.#boards.values()) {
       if (other.id === id || !other.members.includes(key)) continue
+      this.#assertMutable(other)
       other.members = other.members.filter((one) => one !== key)
       delete other.roster[String(key)]
       this.#commit(other)
@@ -2846,7 +3471,7 @@ export class Team {
 
   /** Takes a conversation out of a room, leaving it on its own. */
   leaveRoom(id: string, runtime: RuntimeId, sessionId: string): void {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const key = keyOf(runtime, sessionId)
     this.#deletedMembers.delete(key)
     if (!board.members.includes(key)) return
@@ -2867,7 +3492,7 @@ export class Team {
   }
 
   renameRoom(id: string, name: string): void {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const called = name.trim()
     if (called === '' || called === board.name) return
     board.name = called
@@ -2893,7 +3518,7 @@ export class Team {
   async deleteRoom(
     id: string,
   ): Promise<{ name: string; intents: number; members: number; messages: number }> {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const gone = {
       name: board.name,
       intents: board.intents.length,
@@ -2947,6 +3572,13 @@ export class Team {
     return gone
   }
 
+  /** What a conversation's room calls it, when it is an open member. */
+  nameOf(runtime: string, sessionId: string): string | null {
+    const board = this.#roomOf(runtime, sessionId)
+    const peer = this.#port.peers().find((one) => one.runtime === runtime && one.sessionId === sessionId)
+    return board && peer ? this.#nameOn(board, peer) : null
+  }
+
   /** The room a conversation is in, if it is in one. */
   #roomOf(runtime: string, sessionId: string): Board | undefined {
     const key = keyOf(runtime, sessionId)
@@ -2967,6 +3599,64 @@ export class Team {
        fired, because a capability is a claim and this is evidence. */
     this.#used.add(keyOf(peer.runtime, peer.sessionId))
     return peer
+  }
+
+  #goalMembership(goal: string): ReturnType<NonNullable<TeamPort['goalMembers']>> | null {
+    return this.#port.goalMembers?.(goal) ?? null
+  }
+
+  #seatForSession(goal: string, runtime: string, sessionId: string): SeatRecord | null {
+    return this.#goalMembership(goal)?.seats.find((seat) =>
+      seat.session.runtime === runtime && seat.session.sessionId === sessionId,
+    ) ?? null
+  }
+
+  #waitsFor(goal: string): MemberWaits {
+    let waits = this.#memberWaits.get(goal)
+    if (waits) return waits
+    waits = new MemberWaits((member) => {
+      const seat = this.#goalMembership(goal)?.seats.find((candidate) => String(candidate.id) === member)
+      if (!seat || !this.#port.memberStatus) return { exists: false, turn: null, stopped: null }
+      return this.#port.memberStatus(seat)
+    })
+    this.#memberWaits.set(goal, waits)
+    return waits
+  }
+
+  #deliveryAllowed(
+    board: Board,
+    sender: { runtime: string; sessionId: string },
+    receiver: { runtime: string; sessionId: string },
+  ): { ok: true } | { ok: false; reason: string } {
+    const membership = this.#goalMembership(board.id)
+    if (!membership) return { ok: true }
+    const holds = (one: { runtime: string; sessionId: string }): boolean => membership.seats.some((seat) =>
+      seat.session.runtime === one.runtime && seat.session.sessionId === one.sessionId,
+    )
+    if (!holds(sender) || !holds(receiver)) {
+      return { ok: false, reason: 'The sender or receiver no longer holds a Seat in this Goal.' }
+    }
+    return this.#port.canDispatch?.(board.id) ?? { ok: true }
+  }
+
+  #messageSource(board: Board, caller: TeamPeer): string {
+    const membership = this.#goalMembership(board.id)
+    const seat = membership?.seats.find((candidate) =>
+      candidate.session.runtime === caller.runtime && candidate.session.sessionId === caller.sessionId,
+    )
+    if (!seat) return agentMessageSource(caller.agent, caller.title, caller.ceiling?.level ?? null)
+    const standing = seat.standing.kind === 'permission'
+      ? `permission ${seat.standing.permission}`
+      : seat.standing.kind === 'ceiling'
+        ? `standing ceiling ${seat.standing.level}`
+        : 'standing not recorded'
+    const ceiling = seat.ceiling
+      ? `ceiling ${seat.ceiling.level} (${seat.ceiling.hold})`
+      : 'ceiling not recorded'
+    const details = [seat.seatLabel, standing, ceiling, membership?.sentence ? `Goal: ${membership.sentence}` : null]
+      .filter((part): part is string => part !== null)
+      .join('; ')
+    return agentMessageSource(seat.agent?.name ?? this.#nameOn(board, caller), details, caller.ceiling?.level ?? null)
   }
 
   /** Members observed calling a team verb, this run. Never persisted: a name
@@ -3043,8 +3733,27 @@ export class Team {
    */
   #awayPeer(board: Board, key: SessionKey): TeamPeer | null {
     const remembered = board.roster[String(key)]
-    if (!remembered) return null
     const { runtime, id } = splitSessionKey(key)
+    if (!remembered) {
+      const membership = this.#goalMembership(board.id)
+      const seat = membership?.seats.find((candidate) =>
+        candidate.session.runtime === runtime && candidate.session.sessionId === String(id),
+      )
+      if (!seat) return null
+      return {
+        runtime,
+        sessionId: String(id),
+        title: null,
+        cwd: seat.checkout.cwd,
+        agent: seat.agent?.name ?? membership?.runtimeNames?.[runtime] ?? runtime,
+        busy: false,
+        canSteer: false,
+        queuedByUser: 0,
+        ...(seat.seat.model !== undefined ? { model: cleanModel(seat.seat.model) } : {}),
+        seatedAs: seat.agent?.name ?? null,
+        here: false,
+      }
+    }
     return {
       runtime,
       sessionId: String(id),
@@ -3194,7 +3903,7 @@ export class Team {
    * `claim_next` has to answer.
    */
   setRole(room: string, runtime: string, sessionId: string, role: string | null): void {
-    const board = this.#boardById(room)
+    const board = this.#mutableBoardById(room)
     const key = keyOf(runtime, sessionId)
     if (role === null) {
       if (!(key in board.roles)) return
@@ -3216,6 +3925,15 @@ export class Team {
    * put them in separate rooms, which then made the loop impossible to close.
    */
   #misaddressed(board: Board, intent: Intent, caller: TeamPeer): string | null {
+    /* A card a flow bound to one Seat goes to that Seat and nobody else — not
+       a sibling holding the same role, not a member with no role at all. */
+    const bound = this.#flows?.bindingOf?.(board.id, intent.id) ?? null
+    if (bound) {
+      if (bound.session?.runtime === caller.runtime && bound.session.sessionId === caller.sessionId) return null
+      return bound.session
+        ? `Refused: #${intent.id} belongs to another Seat of this flow. Take the card you were given.`
+        : `Refused: #${intent.id} is waiting for the Seat this flow is opening for it.`
+    }
     const wanted = intent.role
     if (!wanted) return null
     const key = keyOf(caller.runtime, caller.sessionId)
@@ -3314,9 +4032,12 @@ export class Team {
       plan?: number
       /** Who the card is for. Only a flow sets this; everything else adds open work. */
       role?: string
+      /** The host's dispatch key, for a card a flow opened. */
+      dispatch?: string
     },
     by: TeamActor,
   ): Intent {
+    this.#assertMutable(board)
     const dependsOn = [...new Set(args.dependsOn ?? [])].filter((dep) =>
       board.intents.some((intent) => intent.id === dep),
     )
@@ -3344,6 +4065,7 @@ export class Team {
       /* Null rather than absent, so a card added without one is explicitly
          open to anybody rather than merely missing a field. */
       role: args.role?.trim() || null,
+      ...(args.dispatch ? { dispatch: args.dispatch } : {}),
       outcome: null,
       claim: null,
       blockedReason: null,
@@ -3362,9 +4084,36 @@ export class Team {
   }
 
   #patchIntent(board: Board, id: number, patch: Partial<Intent>): void {
+    this.#assertMutable(board)
     board.intents = board.intents.map((intent) =>
       intent.id === id ? { ...intent, ...patch, updatedAt: Date.now() } : intent,
     )
+  }
+
+  /**
+   * How to put these cards back as they are now, should the change about to
+   * be made to them not be saved: each only while it is still the copy that
+   * change made — a card anything else has written since is left as it is.
+   */
+  #undoFor(board: Board, ids: readonly number[]): (() => void) & { mark(): void } {
+    const before = new Map(board.intents.filter((one) => ids.includes(one.id)).map((one) => [one.id, one]))
+    const earlier = new Set(board.channel.map((entry) => entry.id))
+    let after: Map<number, Intent> | null = null
+    // The channel lines the change wrote — its "completed", the "unblocked" it caused — go with it.
+    let said: ReadonlySet<string> = new Set()
+    const undo = (): void => {
+      const now = this.#boards.get(board.id)
+      if (!now || !after) return
+      now.intents = now.intents.map((one) => (after!.get(one.id) === one ? before.get(one.id) ?? one : one))
+      if (said.size > 0) now.channel = now.channel.filter((entry) => !said.has(entry.id))
+    }
+    // Called once the change is made: what it made is what undo recognises.
+    return Object.assign(undo, {
+      mark: () => {
+        after = new Map(board.intents.filter((one) => ids.includes(one.id)).map((one) => [one.id, one]))
+        said = new Set(board.channel.filter((entry) => !earlier.has(entry.id)).map((entry) => entry.id))
+      },
+    })
   }
 
   /**
@@ -3405,6 +4154,7 @@ export class Team {
     intent: Intent,
     detail: string | null,
   ): void {
+    this.#assertMutable(board)
     board.channel.push({
       id: this.#entryId(),
       at: Date.now(),
@@ -3430,6 +4180,7 @@ export class Team {
       batch?: TeamMessage['batch']
     },
   ): TeamMessage {
+    this.#assertMutable(board)
     const entry: TeamMessage = {
       id: this.#entryId(),
       at: Date.now(),
@@ -3498,6 +4249,7 @@ export class Team {
     roots: readonly string[],
     envelope: string,
     byUser = false,
+    from: TeamSender | null = null,
   ): void {
     const key = keyOf(peer.runtime, peer.sessionId)
     const waiting = this.#pending.get(key) ?? []
@@ -3507,6 +4259,7 @@ export class Team {
       envelope,
       receiver: { runtime: peer.runtime, sessionId: peer.sessionId },
       ...(byUser ? { byUser } : {}),
+      ...(from ? { from } : {}),
     })
     this.#pending.set(key, waiting)
   }
@@ -3630,6 +4383,14 @@ export class Team {
    */
   #nameOn(board: Board, peer: TeamPeer): string {
     const key = keyOf(peer.runtime, peer.sessionId)
+    const membership = this.#goalMembership(board.id)
+    if (membership) {
+      const seat = membership.seats.find((candidate) =>
+        candidate.session.runtime === peer.runtime && candidate.session.sessionId === peer.sessionId,
+      )
+      const name = seat ? memberNames(membership.seats, membership.legacy).get(String(seat.id)) : undefined
+      if (name) return name
+    }
     /* Names are unique among the members of *this room*, not among every
        conversation that ever passed through it and not among everything
        running anywhere.
@@ -3657,7 +4418,7 @@ export class Team {
        allowed to collide. Two members answering to one name is the exact state
        the nickname exists to end, and addressing depends on it. */
     if (held && !live.has(held)) return held
-    const base = shortModelName(peer.model) ?? peer.agent
+    const base = peer.seatedAs ?? shortModelName(peer.model) ?? peer.agent
     let name = base
     for (let n = 2; live.has(name); n += 1) name = `${base} ${n}`
     board.nicknames[key] = name
@@ -3694,7 +4455,7 @@ export class Team {
   /** Rename a member. Refused rather than silently deduped: two members
       answering to one name is exactly the state the nickname exists to end. */
   rename(id: string, runtime: string, sessionId: string, to: string): string {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const name = to.trim()
     if (name === '') return 'A member needs a name. Nothing was changed.'
     const key = keyOf(runtime as RuntimeId, sessionId)
@@ -3723,11 +4484,39 @@ export class Team {
     return parts.length > 0 ? `The board has ${parts.join(' · ')}` : 'The board is empty'
   }
 
-  #renderBoard(board: Board): string {
+  /**
+   * The cards on this board whose words a caller may not read yet: every card
+   * of an open blind review round but the caller's own. What a reviewer
+   * wrote — its note, its context package — is released to the others only
+   * when the round closes; a person's own view of the board is never this.
+   */
+  #embargoed(board: Board, caller: { readonly runtime: string; readonly sessionId: string }): ReadonlySet<number> {
+    const hidden = new Set<number>()
+    for (const round of this.#flows?.blindRounds?.(board.id) ?? []) {
+      for (const card of round.cards) {
+        const holder = round.holders.find((one) => one.card === card)
+        if (holder?.runtime !== caller.runtime || holder.sessionId !== caller.sessionId) hidden.add(card)
+      }
+    }
+    return hidden
+  }
+
+  /** Whether a conversation holds a card of an open blind review round on this board. */
+  #inBlindRound(board: Board, runtime: string, sessionId: string): boolean {
+    return (this.#flows?.blindRounds?.(board.id) ?? []).some((round) =>
+      round.holders.some((one) => one.runtime === runtime && one.sessionId === sessionId))
+  }
+
+  #renderBoard(board: Board, viewer?: { readonly runtime: string; readonly sessionId: string }): string {
     if (board.intents.length === 0) {
       return 'The board is empty. Add work with add_intent — a title, the files it will own, and what it depends on.'
     }
+    const hidden = viewer ? this.#embargoed(board, viewer) : new Set<number>()
     const lines = board.intents.map((intent) => {
+      if (hidden.has(intent.id)) {
+        const state = intent.state === 'claimed' ? 'under review' : intent.state
+        return `#${intent.id} ${state} — ${intent.title} (its review is released when the round closes)`
+      }
       const status =
         intent.state === 'claimed' && intent.claim
           ? `claimed by ${this.#holderName(board, intent)} (${ago(intent.claim.at)})`
@@ -3746,8 +4535,64 @@ export class Team {
     return `${this.#counts(board)}.\n\n${lines.join('\n')}`
   }
 
-  #commit(board: Board): void {
-    this.#port.changed(this.#stateOf(board))
+  /**
+   * Saves a board and tells every window. On a Goal board the answer is the
+   * outcome of the save this change rides in — null once it is durable, or
+   * why it is not — for a verb that must not report success on a write that
+   * never landed. `undo` puts the change back should that save fail, before
+   * any later save is built, so nothing refused is ever written afterwards.
+   */
+  #commit(board: Board, touchActivity = true, undo?: () => void): Promise<Error | null> | undefined {
+    if (touchActivity) board.updatedAt = Date.now()
+    const state = this.#stateOf(board)
+    if (this.#port.mutate) {
+      const queued = this.#queuedSave.get(board.id)
+      if (queued) {
+        if (undo) queued.undo.push(undo)
+        return queued.outcome
+      }
+      let resolve!: (error: Error | null) => void
+      const entry: QueuedSave = {
+        undo: undo ? [undo] : [],
+        settled: false,
+        outcome: new Promise<Error | null>((done) => { resolve = done }),
+        resolve: (error) => resolve(error),
+      }
+      this.#queuedSave.set(board.id, entry)
+      let saved: TeamState | null = null
+      const begin = (): TeamState | null => {
+        // From here on a change joins the next save, not this one.
+        if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
+        /* A Goal-plane write carried this save before it began, wrote every
+           field of it and answered it: there is nothing of its own left, and
+           a run of it now could only fail where nobody is listening. */
+        if (entry.settled) return null
+        saved = this.#stateOf(this.#boards.get(board.id) ?? board)
+        return saved
+      }
+      // A refusal is put back inside the Goal's queue, before its next task can read the board.
+      const refused = (error: Error): void => {
+        if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
+        if (!this.#settleSave(entry, error)) return
+        this.#problem = error.message
+        this.#port.changed(this.#stateOf(this.#boards.get(board.id) ?? board))
+      }
+      this.#writes = this.#writes
+        .then(() => this.#port.mutate!(begin, refused))
+        .then(
+          () => {
+            if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
+            this.#settleSave(entry, null)
+            this.#problem = null
+            const now = this.#boards.get(board.id) ?? board
+            this.#port.changed(saved ?? this.#stateOf(now))
+            this.#wake(now)
+          },
+          (error: unknown) => refused(error instanceof Error ? error : new Error(String(error))),
+        )
+      return entry.outcome
+    }
+    this.#port.changed(state)
     /* Every card that becomes claimable becomes claimable here. Waking from
        the commit is what makes a wait free: nobody polls, and a seat is in
        its claim within a tick of the write that opened its card. */
@@ -3756,6 +4601,7 @@ export class Team {
       version: 1,
       id: board.id,
       name: board.name,
+      updatedAt: board.updatedAt,
       root: board.root,
       members: board.members,
       nextIntent: board.nextIntent,
@@ -3775,6 +4621,85 @@ export class Team {
        `load` takes it as the room's id. */
     const file = join(this.#dir, `${encodeURIComponent(board.id)}.json`)
     this.#write(board.id, file, JSON.stringify(stored))
+  }
+
+  /** Runs `then` once a save is durable — at once on a board with no Goal behind it — and never after one that failed. */
+  #afterSaved(saved: Promise<Error | null> | undefined, then: () => void): void {
+    if (!saved) {
+      then()
+      return
+    }
+    void saved.then((error) => { if (!error) then() })
+  }
+
+  /**
+   * Settles one Goal board save, once: a failure puts back what rode in it,
+   * newest first, before anything is built from the board again. False when
+   * it was already settled — carried by a save the Goal plane made.
+   */
+  #settleSave(entry: QueuedSave, error: Error | null): boolean {
+    if (entry.settled) return false
+    entry.settled = true
+    if (error) for (const undo of [...entry.undo].reverse()) undo()
+    entry.resolve(error)
+    return true
+  }
+
+  /**
+   * The Goal plane's own claim or release of a Goal's cards, made to this
+   * engine's one copy of the board and saved by `save`, which the caller
+   * makes inside the Goal's queue it already holds. The board as it stands —
+   * this engine's own changes not yet saved included — is what is saved, so
+   * a change of the Goal plane's and one of this engine's to the same card
+   * are one sequence, never two copies. Should the save fail, the Goal
+   * plane's change is put back and the refusal thrown. A board this engine
+   * does not hold yet (recovery, before the rooms are read) is answered
+   * false, and the caller writes the document itself: there is no second
+   * copy to keep up with.
+   */
+  async goalPlaneWrite(
+    goal: string,
+    patch: (intents: readonly Intent[]) => readonly Intent[],
+    save: (state: TeamState) => Promise<void>,
+    options: { readonly carry?: boolean } = {},
+  ): Promise<boolean> {
+    const board = this.#boards.get(goal)
+    if (!board || !this.#port.mutate) return false
+    const before = new Map(board.intents.map((one) => [one.id, one]))
+    const next = [...patch(board.intents)]
+    const ids = next.filter((one) => before.get(one.id) !== one).map((one) => one.id)
+    // Nothing moved: nothing to save, and nothing of this engine's rides along.
+    if (ids.length === 0 && next.length === board.intents.length) return true
+    const undo = this.#undoFor(board, ids)
+    board.intents = next
+    board.nextIntent = Math.max(board.nextIntent, ...next.map((one) => one.id + 1))
+    board.updatedAt = Date.now()
+    undo.mark()
+    /* A save of this engine's not yet begun is carried by this one: what rides
+       in it is in this snapshot, so `save` has to write all of it — the name,
+       messaging and plans as well as the cards and the channel — because the
+       carried save is answered as done the moment `save` lands, and its own
+       run is skipped (`begin` answers null). Not while the Goal plane is in the middle of
+       an operation of its own (`carry: false`) — a wrap, say, whose receipt
+       was read from the board before those changes — when the caller saves
+       its own change alone and this engine's wait their turn. */
+    const carried = options.carry === false ? undefined : this.#queuedSave.get(goal)
+    if (carried) this.#queuedSave.delete(goal)
+    const state = this.#stateOf(board)
+    try {
+      await save(state)
+    } catch (error) {
+      undo()
+      if (carried && !carried.settled && !this.#queuedSave.has(goal)) this.#queuedSave.set(goal, carried)
+      this.#port.changed(this.#stateOf(this.#boards.get(goal) ?? board))
+      throw error
+    }
+    if (carried) this.#settleSave(carried, null)
+    this.#problem = null
+    const now = this.#boards.get(goal) ?? board
+    this.#port.changed(this.#stateOf(now))
+    this.#wake(now)
+    return true
   }
 
   /**

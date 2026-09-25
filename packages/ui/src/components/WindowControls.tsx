@@ -1,5 +1,6 @@
 import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
+import { Button } from '../design'
 import { ArrowLeftIcon, ArrowRightIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
 
@@ -23,35 +24,36 @@ export const WindowControls = () => {
   const shown = sidebarPlacement(snapshot) !== 'away'
   return (
     <span className={styles.group}>
-      <button
-        type="button"
-        className={`${styles.button} hd-no-drag`}
+      <Button
+        variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
         onClick={() => store.toggleSidebar()}
         title={shown ? 'Hide the sidebar' : 'Show the sidebar'}
         aria-label={shown ? 'Hide sidebar' : 'Show sidebar'}
       >
         <SidebarIcon size={14} />
-      </button>
-      <button
-        type="button"
-        className={`${styles.button} ${styles.nav} hd-no-drag`}
-        disabled={!snapshot.navCanBack}
-        onClick={() => void store.navigateBack()}
-        title="Back"
-        aria-label="Back"
-      >
-        <ArrowLeftIcon size={13} />
-      </button>
-      <button
-        type="button"
-        className={`${styles.button} ${styles.nav} hd-no-drag`}
-        disabled={!snapshot.navCanForward}
-        onClick={() => void store.navigateForward()}
-        title="Forward"
-        aria-label="Forward"
-      >
-        <ArrowRightIcon size={13} />
-      </button>
+      </Button>
+      <span className={styles.nav}>
+        <Button
+          variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
+          disabled={!snapshot.navCanBack}
+          onClick={() => void store.navigateBack()}
+          title="Back"
+          aria-label="Back"
+        >
+          <ArrowLeftIcon size={13} />
+        </Button>
+      </span>
+      <span className={styles.nav}>
+        <Button
+          variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
+          disabled={!snapshot.navCanForward}
+          onClick={() => void store.navigateForward()}
+          title="Forward"
+          aria-label="Forward"
+        >
+          <ArrowRightIcon size={13} />
+        </Button>
+      </span>
     </span>
   )
 }

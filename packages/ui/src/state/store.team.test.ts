@@ -53,7 +53,6 @@ const session = (): Session =>
 
 let store: AppStore
 let workspace: { path: string; name: string; lastOpenedAt: number } | null
-let created: unknown = null
 
 beforeEach(() => {
   store = new AppStore('ws://localhost:0/')
@@ -62,7 +61,6 @@ beforeEach(() => {
     if (method === 'workspace/open') return workspace
     if (method === 'session/read') return session()
     if (method === 'workspace/recent') return []
-    if (method === 'team/room/create') return created
     return null
   }) as never)
 })
@@ -99,7 +97,7 @@ const dockedRooms = (kind: string): string[] =>
     .filter((mounted) => mounted.view.kind === kind)
     .map((mounted) => (mounted.view as { room: string }).room)
 
-/** The host's answer to `team/room/create`, for the mock below. */
+/** A Goal board projected through the compatibility team read. */
 const roomState = (members: readonly string[] = []) => ({
   id: ROOM,
   name: 'Checkout rewrite',
@@ -113,13 +111,19 @@ const roomState = (members: readonly string[] = []) => ({
 /**
  * A room the store knows about but is not showing.
  *
- * Made through the store's own door and then navigated away from, so what is
- * under test is a room the app has actually created rather than a snapshot
- * arranged by hand.
+ * Delivered through the same Goal event the host uses, then navigated away.
  */
 const knownRoom = async (members: readonly string[] = []): Promise<void> => {
-  created = roomState(members)
-  await store.createRoom(PROJECT, 'Checkout rewrite')
+  ;(store.transport as unknown as { handlers: { onNotification(notification: unknown): void } }).handlers.onNotification({
+    method: 'goal/changed',
+    params: {
+      view: {
+        goal: { id: ROOM, root: PROJECT, revision: 1 },
+        board: roomState(members),
+        members: [],
+      },
+    },
+  })
   await store.openSession(ID, { runtime: RUNTIME })
 }
 
@@ -187,21 +191,14 @@ it('an explicit room still wins over both', async () => {
   expect(roomsOf('room')).toEqual(['room-2'])
 })
 
-it('creating a room shows it', async () => {
-  await inAWorktree()
-  created = roomState([])
-  await store.createRoom(PROJECT, 'Checkout rewrite')
-  expect(roomsOf('room')).toEqual([ROOM])
-})
-
 it('a deleted room leaves the snapshot, and takes its pane with it', async () => {
   /* `team/changed` can only ever say what a room *is*, so without a word of
      its own a deleted room stayed in the sidebar until the next launch —
      present, openable, and backed by nothing. A pane still pointed at it would
      draw the empty board rather than say why. */
   await inAWorktree()
-  created = roomState([])
-  await store.createRoom(PROJECT, 'Checkout rewrite')
+  await knownRoom([])
+  store.openTeamRoom(ROOM)
   expect(roomsOf('room')).toEqual([ROOM])
 
   // As the host pushes it. Nothing is connected; nothing reaches a wire.
@@ -296,4 +293,3 @@ it('brings the room back still watching what it was watching', async () => {
   expect(back?.kind).toBe('room')
   expect(back?.kind === 'room' ? back.watching : null).toEqual(watching)
 })
-

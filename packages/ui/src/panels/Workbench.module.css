@@ -15,7 +15,6 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--hdp-alias-bg-base);
 
   /*
    * How big each dock currently is.
@@ -81,20 +80,18 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background: var(--hd-sidebar-plate);
-  border-right: var(--hd-border-width) solid var(--hdp-alias-border-l1);
-  transition: width var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+  /* No edge: the column is already its own surface, and a rule beside a
+     surface change says the same thing twice. */
+  transition: width var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
-/* A zero-width column must not paint a 1px seam of its own — nor keep controls
-   you can Tab to and cannot see. Hidden once the slide has finished, shown the
-   moment the next one starts. */
+/* A zero-width column must not keep controls you can Tab to and cannot see.
+   Hidden once the slide has finished, shown the moment the next one starts. */
 .sidebar[data-hidden] {
-  border-right: none;
   visibility: hidden;
   transition:
-    width var(--hdp-transition-duration-slow) var(--hdp-ease-in-out),
-    visibility 0s linear var(--hdp-transition-duration-slow);
+    width var(--hd-duration-slow) var(--hd-ease),
+    visibility 0s linear var(--hd-duration-slow);
 }
 
 .shell[data-dragging] .sidebar {
@@ -265,43 +262,9 @@
 }
 
 .splitSeam {
-  flex: none;
   /* Above the halves either side, so the place to grab below wins there. */
   position: relative;
   z-index: 1;
-  background: var(--hd-border);
-}
-
-/* A wider place to grab than the line it draws: 9px, centred on the seam, as
-   the pane split's handle has one (`Panes.module.css`). The seam alone was a
-   one-pixel target, measured with `elementFromPoint` in the app (review of
-   #183, round 7; #202). */
-.splitSeam::after {
-  content: '';
-  position: absolute;
-}
-
-.split[data-direction='row'] > .splitSeam::after {
-  inset: 0 -4px;
-}
-
-.split[data-direction='column'] > .splitSeam::after {
-  inset: -4px 0;
-}
-
-.split[data-direction='row'] > .splitSeam {
-  width: var(--hd-border-width);
-  cursor: col-resize;
-}
-
-.split[data-direction='column'] > .splitSeam {
-  height: var(--hd-border-width);
-  cursor: row-resize;
-}
-
-.splitSeam:hover,
-.splitSeam[data-dragging] {
-  background: var(--hd-accent);
 }
 
 /* While this split is being dragged, so the halves do not chase the pointer
@@ -371,20 +334,6 @@
 }
 
 /* A band along an empty edge, only while a drag it would take is in flight. */
-.edgeDrop {
-  position: relative;
-  flex: none;
-  align-self: stretch;
-}
-
-.edgeDrop[data-area='right'] {
-  width: 180px;
-}
-
-.edgeDrop[data-area='bottom'] {
-  height: 120px;
-}
-
 /* ------------------------------------------------------------- docking */
 
 /*
@@ -393,42 +342,6 @@
  * window full of glowing rectangles the moment a drag begins tells the person
  * less than one rectangle under their pointer.
  */
-.drop {
-  position: absolute;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: center;
-  border: 2px dashed transparent;
-  border-radius: var(--hd-radius);
-  transition:
-    background var(--hdp-transition-duration-fast) var(--hdp-ease-in-out),
-    border-color var(--hdp-transition-duration-fast) var(--hdp-ease-in-out);
-}
-
-.drop[data-over] {
-  border-color: var(--hd-accent);
-  background: var(--hd-accent-dim);
-}
-
-.dropLabel {
-  /* The label must not be a drag target of its own: the pointer crossing onto
-     it fired `dragleave` on the zone underneath, and the highlight flickered
-     as you moved toward the middle of the very area you were aiming at. */
-  pointer-events: none;
-  padding: var(--hd-space-1) var(--hd-space-2);
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground);
-  font-size: var(--hd-text-xs);
-  font-weight: 500;
-  opacity: 0;
-}
-
-.drop[data-over] .dropLabel {
-  opacity: 1;
-}
-
 /* -------------------------------------------------------- narrow windows
  *
  * Below `NARROW_WINDOW` (state/workbench.ts) a column beside the conversation
@@ -455,15 +368,14 @@
   transform: translateX(-100%);
   visibility: hidden;
   transition:
-    transform var(--hdp-transition-duration-slow) var(--hdp-ease-in-out),
-    visibility 0s linear var(--hdp-transition-duration-slow);
+    transform var(--hd-duration-slow) var(--hd-ease),
+    visibility 0s linear var(--hd-duration-slow);
 }
 
 .shell[data-narrow] .sidebar[data-floating] {
   transform: none;
   visibility: visible;
-  box-shadow: var(--hd-shadow-lg);
-  transition: transform var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+  transition: transform var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 /* Sliding rather than growing, its contents have no narrower width to be held
@@ -481,37 +393,35 @@
 
 /* Focus is put on the surface from code, so there is somewhere to start from;
    a ring round the whole column would be the app talking to itself. */
-.sidebar[data-floating]:focus,
-.sidebar[data-floating]:focus-visible {
-  outline: none;
-}
-
 .scrim {
   position: absolute;
   inset: 0;
   z-index: var(--hd-z-drawer);
-  background: var(--hd-scrim);
   /* Hidden once it has faded, not as it starts to: until then it is still
      drawn over the conversation, and a press on it must land on it. A press
      straight after Escape reached the composer it was still dimming. */
   opacity: 0;
   visibility: hidden;
   transition:
-    opacity var(--hdp-transition-duration-slow) var(--hdp-ease-in-out),
-    visibility 0s linear var(--hdp-transition-duration-slow);
+    opacity var(--hd-duration-slow) var(--hd-ease),
+    visibility 0s linear var(--hd-duration-slow);
 }
 
 .scrim[data-open] {
   opacity: 1;
   visibility: visible;
-  transition: opacity var(--hdp-transition-duration-slow) var(--hdp-ease-in-out);
+  transition: opacity var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
-/* The app shortens every transition's duration when motion is reduced, but
-   not a delay: with no fade to see, the dim goes at once rather than staying
-   in the way unseen. */
+/* The app zeroes every transition's duration when motion is reduced, but
+   not a delay. With no fade or slide to see, the dim and the sidebar go at
+   once rather than staying in the way unseen: the dim still taking presses
+   meant for the conversation, and a sidebar with no width, or no longer on
+   screen, still holding controls Tab reaches. */
 @media (prefers-reduced-motion: reduce) {
-  .scrim {
+  .scrim,
+  .sidebar[data-hidden],
+  .shell[data-narrow] .sidebar {
     transition: none;
   }
 }

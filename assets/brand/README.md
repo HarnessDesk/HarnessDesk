@@ -68,7 +68,12 @@ renders everything the desktop app needs from these SVGs:
 - `packages/desktop/electron/assets/trayTemplate.png` and `@2x` — the menu-bar
   status item, 18 pt tall, as a template image;
 - `packages/desktop/electron/assets/mark.svg` — the mark for the app's own About
-  window, where it is drawn as a CSS mask so it follows light and dark.
+  window, where it is drawn as a CSS mask so it follows light and dark;
+- `packages/desktop/electron/assets/dockIcon.png` — the same face as `icon.icns`,
+  as a raster, for the one moment the shell has to hand the Dock its own icon
+  back (see below);
+- `faces/384/*.png` and `faces/128/*.png` — the mark's colourways, the faces
+  someone can wear instead of a whale.
 
 Needs `rsvg-convert` (`brew install librsvg`); `iconutil` ships with macOS. The
 rendered files are checked in so a build machine does not need librsvg.
@@ -80,6 +85,59 @@ icon itself from the bundle. So `script/brand-dev-electron.mjs` copies
 `icon.icns` into the Electron bundle `electron .` runs out of (and names it),
 and the About window draws `mark.svg` as a CSS mask so it follows the theme.
 Both faces now come from the same two files as the packaged app's.
+
+The shell does set one icon at runtime, and only one: the face you pick, and the
+app's own face again when you clear it. That last one cannot come from
+`icon.icns` — Chromium has no .icns decoder and reads it as an empty image, so
+the reset used to do nothing at all — which is what `dockIcon.png` is for.
+
+## What macOS 26 *does* do, and where it stops
+
+It draws the container itself, for the app icon. Measured on 26.5.2 by rendering
+`NSWorkspace.icon(forFile:)` at 1024 and comparing alpha: Notes, Mail, Claude
+and this app's own bundle come out **identical to the pixel** — the same
+824-of-1024 plate at +100, the same corner, the same shadow ramp. Whatever the
+`.icns` bakes is discarded and re-composited. So the app icon in the Dock,
+Finder, Launchpad and the switcher needs nothing from us on 26, and the plate
+and shadow in `-dock-icon-*` are there for macOS 15 and earlier, which draw a
+legacy icon exactly as authored.
+
+Where it stops is a runtime icon. `app.dock.setIcon` is
+`NSApplication.applicationIconImage`, and that is *not* masked: it fills the
+tile as given, and does not get the system's edge treatment either. So anything
+the shell sets — a face, and the app's own face on the way back — has to arrive
+already in the right shape, or it sits in the Dock squarer than everything
+beside it. Ours was: the measured gap between the plate we bake and the
+container macOS draws is 67px at 1024, which is 8px on a 128pt tile.
+
+The container, measured off the system's own composite: on the 824 plate, a
+superellipse corner of radius 270/1024 — 32.8% of the plate — with exponent
+2.70, which fits the measured edge to 2px. (The plate we bake is r=226, n=3.68.)
+`script/build-icons.mjs` re-cuts every runtime raster to it and leaves the
+`.icns` alone, so the faces land within 0.4px of a stock icon's edge on a 128pt
+tile while the bundle icon stays right on the macOS it is drawn verbatim on.
+What that costs is macOS 15 and earlier, where a *face* is now a little rounder
+than the icons beside it; the app icon there is untouched, and a face is
+something you go and pick.
+
+## The mark as a face
+
+Settings › You offers the whales in `assets/avatars` and, before them, the app's
+own face in six colourways — paper, ink, steel, blueprint, blueline, and the
+mark with no plate at all. Whichever is chosen goes on the seat *and* on the
+Dock, so they are cut the way an app icon is cut: the same 824-of-1024 grid, the
+same baked shadow, and the corner macOS 26 draws a container with (below).
+Full-bleed artwork would read fine in the picker and arrive on the Dock as the
+one hard-edged square in the row.
+
+Every one is generated from `harnessdesk-dock-icon-light.svg` with its plate and
+its ink swapped, and the swapped-in colours are read back out of the files above
+— the near-black from the dark dock icon, the blue from the blue mark — so a
+recolour here carries to all six. Nothing is a hand-kept copy of the mark.
+
+The one that carries no plate takes the blue: a PNG cannot follow the theme, and
+blue is the one ink that holds on a light surface and a dark one. It is the same
+reason the black whale is not in the picker.
 
 ## Provenance
 

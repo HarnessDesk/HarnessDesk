@@ -5,37 +5,21 @@
  * exported is unaware of the app — no store, no session, no context — so it
  * works on the sign-in screen, in a dialog, and in the design explorer alike.
  *
- *   Foundation   design/tokens.css — every value the system decides
- *   Primitives   the pieces below, and the shadcn layer in ./ui
- *   Patterns     compositions that encode a rule (ConfirmDialog)
+ *   Foundation   ./foundation/tokens.css — every editable design decision
+ *   Primitives   ./ui — the only generic control vocabulary, on Base UI
+ *   Patterns     ./patterns — typed HarnessDesk presentation contracts
  *   Screens      product code, which composes these and adds nothing shared
  *
  * Changes flow down and never up. A screen may not reach sideways into
  * another screen; that is what `pnpm design:audit` checks.
  *
- * Three sources now, still one answer per question. `./ui` holds two kinds of
- * file — vendored registry components, and compositions of our own — and as of
- * 2026-08-30 eleven of the vendored ones were *adopted to replace* something
- * this app had written for itself. The pattern that adoption followed is worth
- * stating, because it is the one to repeat: **take the registry's anatomy and
- * behaviour, keep the app's rule on top.** `Kit.Segmented` kept its segmented
- * look and gained a real radio group's arrow keys; `Banner` kept its neutral
- * card and gained `role="alert"`; `ConfirmDialog` kept "nothing is focused"
- * and gained an overlay that cannot be dismissed by a stray click. A component
- * is not a set of opinions to swallow whole. See design/ui/index.ts for the
- * ledger and the two that were taken as capability rather than code.
- *
- * Two component layers, one answer per question. `./ui` is the shadcn/ui
- * layer — vendored component source, styled by Tailwind utilities that
- * resolve to the same tokens (styles/shadcn.css is the bridge) — and it is
- * the idiom new and rebuilt surfaces are written in; the Team channel and
- * its patterns already are. `Kit` remains the settings-surface primitives
- * (rows, page furniture, the controls twelve settings pages share) until a
- * surface is rebuilt, at which point the shadcn spelling wins. What stays
- * forbidden is the thing that was always forbidden: a THIRD spelling, or a
- * screen answering "what is a button here" for itself. An earlier pass
- * wrote a private second set and the result was two answers on one screen —
- * the exact failure this system exists to prevent.
+ * There is one answer per generic UI question. `./ui` is shadcn-authored
+ * component source backed only by Base UI, styled through semantic utilities
+ * that resolve to the foundation. `./patterns` preserves product-specific
+ * contracts such as SettingsRow, Menu, Composer, and ApprovalDialog without
+ * creating a second Button, Input, Switch, or overlay engine. The retired Kit,
+ * local Menu/Popover, and hand-built Dialog APIs have no production consumers
+ * and the architecture gate rejects their return.
  *
  * One rule the system holds that no token can hold: **a row's second line is
  * earned, not default**. That small grey line under a label costs height on
@@ -50,18 +34,19 @@
  */
 export {
   Dot,
+  Spinner,
+  type SpinnerProps,
   Chip,
-  Btn,
-  IconBtn,
-  Input,
-  Textarea,
+  type ChipProps,
   Search,
+  NavigationList,
+  Keycap,
+  NavigationGroupHeader,
   Field,
   type FieldControl,
   FormStack,
   Note,
-  Toggle,
-  Select,
+  NoteList,
   Segmented,
   PageHead,
   SectionHead,
@@ -73,16 +58,116 @@ export {
   DetailHead,
   Clipped,
   Face,
-} from './primitives/Kit'
-export { Dialog } from './primitives/Dialog'
-export { Banner, BannerAction, bannerStyles, type BannerTone } from './primitives/Banner'
+  FileButton,
+  AccountMark,
+  CodeText,
+  Monogram,
+  MetaList,
+  DetailMark,
+  PageDescription,
+  RowInput,
+  RowMark,
+  RowValue,
+  Text,
+  TextMark,
+  type TextProps,
+  type TextRole,
+} from './patterns/Settings'
+export { Button, buttonVariants } from './ui/button'
+export { DisclosureChevron } from './ui/disclosure-chevron'
+export { Input } from './ui/input'
+export { Textarea } from './ui/textarea'
+export { Switch } from './ui/switch'
+export { NativeSelect } from './ui/native-select'
+export { Dialog, DialogBody, DialogHead, DialogSubhead } from './patterns/ModalDialog'
+export { ChoiceList, Fieldset } from './patterns/DialogForm'
+export {
+  Dialog as DialogRoot,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPopup,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
+  DialogViewport,
+} from './ui/dialog'
+export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives/Banner'
 
 export { ConfirmDialog } from './patterns/ConfirmDialog'
+export { ConversationEmptyState } from './patterns/ConversationEmptyState'
+export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
+export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
+export { ActionError } from './patterns/ActionError'
+export {
+  AppWindowPage,
+  AppWindowRail,
+  AppWindowRailScroll,
+  AppWindowRailTop,
+  AppWindowSurface,
+} from './patterns/AppWindow'
+export * from './patterns/InspectorPanel'
+export { ChangeStats, FileState, PatchHeader, type FileStateValue } from './patterns/Change'
+export { RefusedAction } from './patterns/RefusedAction'
+export { Lightbox, type LightboxImage } from './patterns/Lightbox'
+export {
+  TurnItem,
+  TurnWorkHeader,
+  TurnWorkHeaderLabel,
+  TurnWorkLive,
+  type TurnWorkState,
+} from './patterns/TurnWork'
+export {
+  ApprovalChoiceHint,
+  ApprovalCode,
+  ApprovalDialog,
+  ApprovalFilePath,
+  ApprovalMeta,
+  ApprovalPermissionList,
+  ApprovalQuestionText,
+  ApprovalReason,
+  type ApprovalDialogAction,
+} from './patterns/ApprovalDialog'
+export {
+  ContextMenu,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  MenuNote,
+  MenuSeparator,
+  MenuToggle,
+  Submenu,
+  useContextMenu,
+  useMenuClose,
+  type MenuPoint,
+} from './patterns/Menu'
+export {
+  DISMISS_OVERLAYS,
+  Popover,
+  dismissOverlays,
+  PopoverGroupLabel,
+  PopoverOption,
+  PopoverOptionBody,
+  PopoverOptionHint,
+  PopoverOptionLabel,
+  PopoverOptionLive,
+  PopoverOptionMark,
+  PopoverSurface,
+  useDismissOverlays,
+  useEscapeSurface,
+  type DismissDetail,
+} from './patterns/Popover'
+export * from './ui'
 export {
   ChannelMessage,
   ChannelNotice,
   ChannelSignal,
-  type ChannelDensity,
   type ChannelMessageProps,
   type ChannelState,
 } from './patterns/ChannelMessage'
+export { AgentCard, CardBand, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
+export * from './patterns/DockPanel'
+export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'

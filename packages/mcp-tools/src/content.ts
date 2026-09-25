@@ -10,6 +10,14 @@ export interface GatewayTool {
   name: string
   description: string
   inputSchema: unknown
+  /**
+   * Set only for a Seat's approved external MCP server tool (phase 12): the
+   * server this tool's real schema was fetched from, and the name a call
+   * routes back to. Absent for the desk's own plugin tools, which call
+   * `tools/invoke` instead — the one thing `main.ts` needs to route a call
+   * to the right verb on the gateway socket.
+   */
+  mcp?: { readonly server: string }
 }
 
 export type GatewayResult =

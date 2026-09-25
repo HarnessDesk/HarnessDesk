@@ -91,6 +91,49 @@ test('Antigravity says how it signed in and never who — its address is in the 
   assert.equal(read('antigravity-acp', { home: unknown, env: {} }), null, 'a method the reader does not know names nobody')
 })
 
+test('OpenCode is named by the providers it has credentials for, never by their values — #749', (t) => {
+  // The shape opencode 1.18.30 writes: one object per provider id, the
+  // credential inside it. `opencode auth list` draws this file and nothing
+  // else, which is why the row asks it nothing and this reads the file.
+  const dir = home(t, {
+    '.local/share/opencode/auth.json': { opencode: { type: 'api', key: 'sk-live-not-a-real-key' } },
+  })
+  const one = read('opencode', { home: dir, env: {} })
+  assert.deepEqual(one, { kind: 'agent', label: 'opencode', anonymous: true })
+  assert.equal(JSON.stringify(one).includes('sk-live'), false, 'a credential never reaches the surface')
+
+  // XDG_DATA_HOME moves the whole folder, measured by pointing it at an
+  // empty one and watching `auth list` report zero credentials.
+  const moved = home(t, {
+    'opencode/auth.json': {
+      anthropic: { type: 'oauth' },
+      openai: { type: 'api', key: 'x' },
+      'github-copilot': { type: 'oauth' },
+      openrouter: { type: 'api', key: 'x' },
+    },
+  })
+  assert.equal(
+    read('opencode', { home: dir, env: { XDG_DATA_HOME: moved } })?.label,
+    'anthropic, openai, github-copilot +1 more',
+    'a long list is cut rather than run off the line',
+  )
+
+  // Nobody: the observation says "Signed in" for these, rather than this
+  // claiming a provider that is not there.
+  assert.equal(read('opencode', { home: home(t, {}), env: {} }), null, 'no file at all')
+  assert.equal(read('opencode', { home: home(t, { '.local/share/opencode/auth.json': {} }), env: {} }), null, 'signed out of every provider')
+  assert.equal(
+    read('opencode', { home: home(t, { '.local/share/opencode/auth.json': 'not json' }), env: {} }),
+    null,
+    'a file the reader cannot read names nobody',
+  )
+  assert.equal(
+    read('opencode', { home: home(t, { '.local/share/opencode/auth.json': ['anthropic'] }), env: {} }),
+    null,
+    'a shape that is not a map of providers names nobody',
+  )
+})
+
 test('Cline is named by the account its provider in use signed in to', (t) => {
   const providers = (lastUsedProvider: string) => ({
     version: 1,

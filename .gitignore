@@ -23,4 +23,10 @@ internal/
 .codex/
 .cursor/
 .superpowers/
+.playwright-cli/
 packages/ui/dist-site-demo/
+# Everything under output/ is a run artefact: frames from a real desk, logs
+# and scratch scripts carrying absolute home paths. Listing the subfolders
+# one at a time left `output/pr748-review/` addable, and an `add -A` took
+# 402 of them — screenshots included. The directory is the unit.
+output/

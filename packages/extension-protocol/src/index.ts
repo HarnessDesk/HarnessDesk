@@ -1,12 +1,20 @@
 import type {
   CapabilityContribution,
+  DecideFindingInput,
   EditorEdit,
   EditorEvent,
+  EvidenceRecord,
   ExtensionEvent,
+  FindingReadInput,
+  FindingView,
   HookInvocation,
   HookVerdict,
   PluginInstance,
   PluginSource,
+  RaiseFindingInput,
+  RepairFindingInput,
+  ReviewCandidate,
+  ReviewInput,
   ScopeQuery,
   ToolResult,
   UiDecoration,
@@ -46,7 +54,17 @@ import type {
 // 5 adds the forge plane's `forge/*` child requests — the calling
 // conversation's seat, the desk's forge identity, and the record of a
 // publication.
-export const EXTENSION_PROTOCOL_VERSION = 5
+// 6 adds the team plane's two review requests — `team/reviewCandidates` and
+// `team/recordReview` — the structured judgment a flow's evidence guard
+// reads, never a message or a claim's own outcome.
+// 7 adds the findings ledger's four requests — `team/raiseFinding`,
+// `team/repairFinding`, `team/decideFinding` and `team/listFindings` — each
+// `{ scope, input }`, the input refused whole by the host if it names a Seat,
+// a revision or an authority.
+// 8 adds `forge/publicationAllowed` — `{ scope }`, answered `{ ok: true }` or
+// `{ ok: false, reason }` — the embargo every forge mutation asks before it
+// writes, on the same trusted invocation as the other forge verbs.
+export const EXTENSION_PROTOCOL_VERSION = 8
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -125,7 +143,12 @@ export interface PluginHostMethods {
     result: { readonly handled: boolean }
   }
   'tool/invoke': {
-    params: { readonly id: string; readonly args: unknown; readonly scope: ScopeQuery }
+    params: {
+      readonly id: string
+      readonly args: unknown
+      readonly scope: ScopeQuery
+      readonly browser?: { readonly invocation: string; readonly profile: string }
+    }
     result: ToolResult
   }
   'hooks/run': { params: { readonly invocation: HookInvocation }; result: HookVerdict }
@@ -185,14 +208,18 @@ export interface CdpEventWire {
  * one direction and one buffer, and a turn that never asks costs nothing.
  */
 export interface ChildToHostMethods {
-  'browser/ensure': { params: Record<string, never>; result: null }
+  'browser/ensure': { params: { readonly invocation: string }; result: null }
   'browser/send': {
-    params: { readonly method: string; readonly params?: Record<string, unknown> }
+    params: {
+      readonly invocation: string
+      readonly method: string
+      readonly params?: Record<string, unknown>
+    }
     result: unknown
   }
   /** Everything the page has said since the last drain; the reading empties it. */
-  'browser/events': { params: Record<string, never>; result: readonly CdpEventWire[] }
-  'browser/close': { params: Record<string, never>; result: null }
+  'browser/events': { params: { readonly invocation: string }; result: readonly CdpEventWire[] }
+  'browser/close': { params: { readonly invocation: string }; result: null }
 
   /**
    * The editor plane — the same four shapes as the browser above, for the
@@ -253,6 +280,10 @@ export interface ChildToHostMethods {
     params: { readonly scope: TeamCallScope; readonly reference: ForgeReference }
     result: null
   }
+  'forge/publicationAllowed': {
+    params: { readonly scope: TeamCallScope }
+    result: { readonly ok: true } | { readonly ok: false; readonly reason: string }
+  }
   'team/board': { params: { readonly scope: TeamCallScope }; result: string }
   'team/addIntent': {
     params: {
@@ -285,6 +316,16 @@ export interface ChildToHostMethods {
   'team/awaitWork': {
     params: {
       readonly scope: TeamCallScope
+      readonly cycle?: number
+      readonly blockMs?: number
+    }
+    result: string
+  }
+  /** Blocks on the member turn captured when the call begins; it never sends. */
+  'team/awaitMember': {
+    params: {
+      readonly scope: TeamCallScope
+      readonly member: string
       readonly cycle?: number
       readonly blockMs?: number
     }
@@ -325,6 +366,33 @@ export interface ChildToHostMethods {
     }
     result: string
   }
+  /**
+   * Observed predecessor subjects this conversation's own claimed card may
+   * judge. Structured data, not prose — the plugin words it for the calling
+   * model — and empty rather than an error when the card holds no such
+   * binding.
+   */
+  'team/reviewCandidates': {
+    params: { readonly scope: TeamCallScope; readonly intent: number }
+    result: readonly ReviewCandidate[]
+  }
+  /**
+   * Records one structured verdict against an observed candidate this
+   * process minted. A refusal is a transport error — there is no evidence
+   * record to hand back for a call the host would not honour.
+   */
+  'team/recordReview': {
+    params: { readonly scope: TeamCallScope } & ReviewInput
+    result: EvidenceRecord
+  }
+  /** A finding raised against a candidate this conversation's card was offered. A refusal is a transport error. */
+  'team/raiseFinding': { params: { readonly scope: TeamCallScope; readonly input: RaiseFindingInput }; result: FindingView }
+  /** A repair claimed at this conversation's committed head. */
+  'team/repairFinding': { params: { readonly scope: TeamCallScope; readonly input: RepairFindingInput }; result: FindingView }
+  /** The raising Agent's verdict on its own finding, from a later review card. */
+  'team/decideFinding': { params: { readonly scope: TeamCallScope; readonly input: DecideFindingInput }; result: FindingView }
+  /** This conversation's Goal's findings, bounded, for the card it holds. */
+  'team/listFindings': { params: { readonly scope: TeamCallScope; readonly input: FindingReadInput }; result: readonly FindingView[] }
 }
 
 /**
@@ -335,6 +403,8 @@ export interface ChildToHostMethods {
 export interface TeamCallScope {
   readonly runtime?: string
   readonly sessionId?: string
+  readonly plugin?: string
+  readonly invocation?: string
 }
 
 /** The forge plane's answers, as they cross the child boundary. */

@@ -42,9 +42,7 @@ it('is drawn at the width callers measure it by', () => {
   act(() =>
     root.render(
       <HoverCard open>
-        <HoverCardTrigger asChild>
-          <span>trigger</span>
-        </HoverCardTrigger>
+        <HoverCardTrigger render={<span />}>trigger</HoverCardTrigger>
         <HoverCardContent>card</HoverCardContent>
       </HoverCard>,
     ),
@@ -54,4 +52,41 @@ it('is drawn at the width callers measure it by', () => {
   // Tailwind's spacing unit is a quarter of a rem, so 18rem is `w-72`.
   const width = [...(card?.classList ?? [])].filter((name) => /^w-\d+$/.test(name))
   expect(width).toEqual([`w-${HOVER_CARD_WIDTH_REM * 4}`])
+})
+
+it('associates a controlled open state with its trigger', () => {
+  const render = (open: boolean) =>
+    root.render(
+      <HoverCard open={open} triggerId="subject-trigger">
+        <HoverCardTrigger id="subject-trigger" render={<span />}>trigger</HoverCardTrigger>
+        <HoverCardContent>card</HoverCardContent>
+      </HoverCard>,
+    )
+
+  act(() => render(false))
+  const trigger = container.querySelector('[data-slot="hover-card-trigger"]')
+  expect(trigger?.hasAttribute('data-popup-open')).toBe(false)
+  expect(document.querySelector('[data-slot="hover-card-content"]')).toBeNull()
+
+  act(() => render(true))
+  expect(trigger?.hasAttribute('data-popup-open')).toBe(true)
+  expect(document.querySelector('[data-slot="hover-card-content"]')).not.toBeNull()
+})
+
+it('keeps its inset for plain facts, and bleeds for a body that is a card of its own', () => {
+  const inset = (bleed: boolean): string[] => {
+    act(() =>
+      root.render(
+        <HoverCard open>
+          <HoverCardTrigger render={<span />}>trigger</HoverCardTrigger>
+          <HoverCardContent bleed={bleed}>card</HoverCardContent>
+        </HoverCard>,
+      ),
+    )
+    const card = document.querySelector('[data-slot="hover-card-content"]')
+    expect(card?.hasAttribute('data-bleed')).toBe(bleed)
+    return [...(card?.classList ?? [])].filter((name) => /^p-\d+$/.test(name))
+  }
+  expect(inset(false)).toEqual(['p-3'])
+  expect(inset(true)).toEqual(['p-0'])
 })

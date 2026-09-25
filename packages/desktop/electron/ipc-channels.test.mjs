@@ -20,7 +20,11 @@ import { test } from 'node:test'
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (name) => readFileSync(join(here, name), 'utf8')
 
-const main = [read('main.mjs'), read('browser-engine.mjs')].join('\n')
+const main = [
+  read('main.mjs'),
+  read('browser-engine.mjs'),
+  read('browser-scopes.mjs').replaceAll('ipc.on(', 'ipcMain.on('),
+].join('\n')
 const preload = read('preload.cjs')
 
 const found = (source, pattern) => [...source.matchAll(pattern)].map((match) => match[1]).sort()
@@ -42,7 +46,12 @@ test('every channel the shell speaks on is one the renderer listens to', () => {
 test('the browser pane’s own channels are all present', () => {
   // Named rather than counted, so removing one is a failing test and not a
   // quietly smaller number.
-  for (const channel of ['harnessdesk:browser-ready', 'harnessdesk:browser-gone', 'harnessdesk:browser-links']) {
+  for (const channel of [
+    'harnessdesk:browser-ready',
+    'harnessdesk:browser-gone',
+    'harnessdesk:browser-focused',
+    'harnessdesk:browser-links',
+  ]) {
     assert.ok(mainReceives.includes(channel), `${channel} is not handled in the shell`)
   }
   for (const channel of ['harnessdesk:browser-save-screenshot', 'harnessdesk:browser-clear-data']) {
@@ -57,13 +66,20 @@ test('the browser pane’s own channels are all present', () => {
   assert.match(main.slice(main.indexOf("ipcMain.on('harnessdesk:browser-reveal-download'")), /downloadedPaths\.has\(path\)/)
 })
 
-test('the shell fronts the driven tab before it drives it', () => {
-  // Chromium stops rasterising a <webview> nobody is looking at, so a driven
-  // tab left behind another screenshots stale. `ensure` is the one place
-  // every tool command passes through.
-  const engine = read('browser-engine.mjs')
-  const ensure = engine.slice(engine.indexOf('async ensure()'))
-  assert.match(ensure.slice(0, 200), /front\(\)/, 'ensure() must front the driven tab')
+test('the profile picture can request a native Dock icon', () => {
+  assert.ok(preloadSends.includes('harnessdesk:set-dock-icon'), 'preload does not send the Dock icon channel')
+  assert.ok(mainReceives.includes('harnessdesk:set-dock-icon'), 'main does not receive the Dock icon channel')
+  assert.match(main, /ipcMain\.on\('harnessdesk:set-dock-icon'/)
+})
+
+test('the shell awaits a fronted profile before sending a command', () => {
+  const engine = read('browser-scopes.mjs')
+  const send = engine.slice(engine.indexOf('send: (method, params) =>'))
+  assert.match(send, /await front\(profile\)/)
+  assert.ok(send.indexOf('await front(profile)') < send.indexOf('sendCommand(method'))
+  assert.match(engine, /event\.sender === currentWindow\(\)\?\.webContents/)
+  assert.match(engine, /wc\.hostWebContents !== currentWindow\(\)\?\.webContents/)
+  assert.match(engine, /wc\.session === sessionForPartition/)
 })
 
 test('a screenshot can only be taken of a tab the pane itself named', () => {
@@ -85,12 +101,12 @@ test('a screenshot can only be taken of a tab the pane itself named', () => {
  * the consequence is the shell's, so it is checked here, where the shell's
  * other window concerns are.
  */
-const ui = join(here, '..', '..', 'ui', 'src', 'components')
+const ui = join(here, '..', '..', 'ui', 'src')
 
 test('floating panels opt out of the window-drag region', () => {
   for (const [file, rule] of [
-    ['Popover.module.css', '.panel'],
-    ['Menu.module.css', '.surface'],
+    ['design/patterns/Popover.module.css', '.panel'],
+    ['design/patterns/Menu.module.css', '.surface'],
   ]) {
     const css = readFileSync(join(ui, file), 'utf8')
     const from = css.indexOf(rule)
@@ -102,6 +118,6 @@ test('floating panels opt out of the window-drag region', () => {
 
 test('the browser pane puts its tab strip in a no-drag box', () => {
   // The strip sits where a pane title would, inside the drag region.
-  const header = readFileSync(join(ui, 'ToolPaneHeader.tsx'), 'utf8')
+  const header = readFileSync(join(ui, 'components/ToolPaneHeader.tsx'), 'utf8')
   assert.match(header, /lead \?[\s\S]{0,120}hd-no-drag/, 'a header lead must be wrapped in hd-no-drag')
 })

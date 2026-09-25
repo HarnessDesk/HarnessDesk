@@ -80,7 +80,17 @@ const click = async (button: Element | null | undefined): Promise<void> => {
 }
 
 const buttonNamed = (text: string): HTMLButtonElement | undefined =>
-  [...container.querySelectorAll('button')].find((one) => one.textContent?.includes(text))
+  [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes(text))
+
+/** A checkbox by its accessible name: the words of the label that names it. */
+const checkboxNamed = (name: string): HTMLElement | undefined =>
+  [...document.body.querySelectorAll<HTMLElement>('[role="checkbox"]')].find(
+    (node) =>
+      (node.getAttribute('aria-labelledby') ?? '')
+        .split(' ')
+        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .join(' ') === name && !node.hasAttribute('aria-label'),
+  )
 
 const plan = (ops: LibraryPlan['ops']): LibraryPlan => ({ plannedAt: 1, ops })
 
@@ -130,15 +140,15 @@ it('previews before it applies, and applies exactly what was previewed', async (
   )
 
   // The refusal is on screen with its reason, and only one change is offered.
-  expect(container.textContent).toContain('A different copy already sits here.')
-  expect(container.textContent).toContain('1 change, previewed below')
+  expect(document.body.textContent).toContain('A different copy already sits here.')
+  expect(document.body.textContent).toContain('1 change, previewed below')
   expect(calls.map((one) => one.method)).toEqual(['library/plan'])
 
   await click(buttonNamed('Apply 1 change'))
   expect(calls.map((one) => one.method)).toEqual(['library/plan', 'library/apply'])
   expect((calls[1]?.params as { ops: unknown }).ops).toEqual(ops)
   expect(applied).toHaveBeenCalledOnce()
-  expect(container.querySelector('[data-testid="apply-summary"]')?.textContent).toContain(
+  expect(document.body.querySelector('[data-testid="apply-summary"]')?.textContent).toContain(
     '1 change made, 1 skipped.',
   )
 })
@@ -178,10 +188,38 @@ it('a failed op wears its reason after apply; the batch reports per op', async (
     <PlanDialog title="Install" intents={[]} columns={columns} onClose={() => {}} onApplied={() => {}} />,
   )
   await click(buttonNamed('Apply 2 changes'))
-  expect(container.textContent).toContain('The target changed since the preview.')
-  expect(container.querySelector('[data-testid="apply-summary"]')?.textContent).toContain(
+  expect(document.body.textContent).toContain('The target changed since the preview.')
+  expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(
+    'The target changed since the preview.',
+  )
+  expect(document.body.querySelector('[data-testid="apply-summary"]')?.textContent).toContain(
     '1 change made, 1 failed.',
   )
+})
+
+it('marks each operation in its name\u2019s role: a pending ring to run, a check once done, the warning ink when it fails', async () => {
+  const op = (id: string, name: string): LibraryPlan['ops'][number] => ({
+    id, kind: 'skill', name, action: 'create', targetPath: `/t/${name}`, content: 'x', guardDigest: null, backup: false,
+  })
+  const store = storeWith(async (method) => {
+    if (method === 'library/plan') return plan([op('op-1', 'a'), op('op-2', 'b')])
+    return [
+      { id: 'op-1', outcome: 'done' },
+      { id: 'op-2', outcome: 'failed', detail: 'The target changed since the preview.' },
+    ]
+  })
+  await render(store, <PlanDialog title="Install" intents={[]} columns={columns} onClose={() => {}} onApplied={() => {}} />)
+  const marks = (): HTMLElement[] => [...document.body.querySelectorAll<HTMLElement>('[role="listitem"] [data-mark]')]
+  expect(marks().map((mark) => mark.dataset['role'])).toEqual(['row', 'row'])
+  expect(marks().map((mark) => mark.querySelector('svg')?.classList.contains('lucide-circle'))).toEqual([true, true])
+  expect(marks().map((mark) => mark.dataset['tone'] ?? mark.dataset['ink'])).toEqual(['muted', 'muted'])
+
+  await click(buttonNamed('Apply 2 changes'))
+  const [done, failed] = marks()
+  expect(done?.dataset['tone']).toBe('success')
+  expect(done?.querySelector('svg')?.classList.contains('lucide-check')).toBe(true)
+  expect(failed?.dataset['tone']).toBe('warning')
+  expect(failed?.querySelector('svg')?.classList.contains('lucide-x')).toBe(true)
 })
 
 const entryWith = (
@@ -245,17 +283,17 @@ it('import offers what the source loads and the target lacks, as intents', async
   )
 
   await click(
-    [...container.querySelectorAll('[role="radio"]')].find((one) => one.textContent === 'First Agent'),
+    [...document.body.querySelectorAll('[role="radio"]')].find((one) => one.textContent === 'First Agent'),
   )
-  const intoSecond = [...container.querySelectorAll('[role="radio"]')].filter(
+  const intoSecond = [...document.body.querySelectorAll('[role="radio"]')].filter(
     (one) => one.textContent === 'Second Agent',
   )
   await click(intoSecond[intoSecond.length - 1])
 
   // What already reaches everywhere is not a candidate.
-  expect(container.textContent).toContain('carried')
-  expect(container.textContent).toContain('stranded')
-  expect(container.textContent).not.toContain('everywhere')
+  expect(document.body.textContent).toContain('carried')
+  expect(document.body.textContent).toContain('stranded')
+  expect(document.body.textContent).not.toContain('everywhere')
 
   await click(buttonNamed('Preview 2 imports'))
   expect(onPlan).toHaveBeenCalledOnce()
@@ -287,15 +325,15 @@ it('a deselected candidate stays home', async () => {
     <ImportDialog library={value} columns={columns} onClose={() => {}} onPlan={onPlan} />,
   )
   await click(
-    [...container.querySelectorAll('[role="radio"]')].find((one) => one.textContent === 'First Agent'),
+    [...document.body.querySelectorAll('[role="radio"]')].find((one) => one.textContent === 'First Agent'),
   )
-  const intoSecond = [...container.querySelectorAll('[role="radio"]')].filter(
+  const intoSecond = [...document.body.querySelectorAll('[role="radio"]')].filter(
     (one) => one.textContent === 'Second Agent',
   )
   await click(intoSecond[intoSecond.length - 1])
   // A checkbox: these rows are items picked out of a list, not settings that
   // take effect where they stand.
-  await click(container.querySelector('[role="checkbox"][aria-label="Import carried"]'))
+  await click(checkboxNamed('carried'))
   await click(buttonNamed('Preview 1 import'))
   const intents = onPlan.mock.calls[0]?.[1] as readonly LibraryIntent[]
   expect(intents.map((one) => one.name)).toEqual(['stranded'])
@@ -340,7 +378,7 @@ it('resolving makes the person pick the winner, then syncs the rest', async () =
   expect(preview?.disabled, 'no winner picked yet').toBe(true)
 
   await click(
-    [...container.querySelectorAll('[role="radio"]')].find((one) =>
+    [...document.body.querySelectorAll('[role="radio"]')].find((one) =>
       one.textContent?.includes('/home/u/.codex/skills/split'),
     ),
   )
@@ -363,8 +401,8 @@ it('authoring composes the frontmatter and refuses a name that cannot be a direc
     storeWith(async () => ({})),
     <AuthorDialog columns={columns} onClose={() => {}} onPlan={onPlan} />,
   )
-  const inputs = [...container.querySelectorAll('input')]
-  const textarea = container.querySelector('textarea')
+  const inputs = [...document.body.querySelectorAll('input')]
+  const textarea = document.body.querySelector('textarea')
 
   await act(async () => {
     const setInput = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -376,14 +414,17 @@ it('authoring composes the frontmatter and refuses a name that cannot be a direc
     setArea?.call(textarea, 'Read the changelog, write the notes.')
     textarea?.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  // The agent picker is the app's own switcher in its many-valued form —
-  // the same control the import dialog's From/To use, so it is visible before
-  // it is pressed.
-  await click(
-    [...container.querySelectorAll('[data-slot="toggle-group-item"]')].find(
-      (one) => one.textContent === 'Second Agent',
-    ),
+  // Several agents at once, so a checkbox per agent: visible before it is
+  // ticked, and nothing is installed until the preview is confirmed.
+  // Each is named by its label's visible words — the agent's name — in the
+  // group its legend names; a role query by name finds it.
+  await click(checkboxNamed('Second Agent'))
+  // The agents are one group, announced by its legend.
+  const group = [...document.body.querySelectorAll('[role="group"]')].find(
+    (one) => document.getElementById(one.getAttribute('aria-labelledby') ?? '')?.textContent === 'Install for',
   )
+  expect(group, 'Install for should be a fieldset named by its legend').toBeTruthy()
+  expect(group?.querySelectorAll('[data-slot="checkbox"]').length).toBe(columns.length)
   await click(buttonNamed('Preview the install'))
 
   expect(onPlan).toHaveBeenCalledOnce()
@@ -414,7 +455,7 @@ it('the import direction can be reversed on a machine with exactly two agents', 
     storeWith(async () => ({})),
     <ImportDialog library={value} columns={columns} onClose={() => {}} onPlan={onPlan} />,
   )
-  const picks = () => [...container.querySelectorAll('[data-slot="toggle-group-item"]')]
+  const picks = () => [...document.body.querySelectorAll('[data-slot="toggle-group-item"]')]
   const side = (name: string, which: 0 | 1): Element => {
     const hit = picks().filter((one) => one.textContent === name)[which]
     expect(hit, `no ${which === 0 ? 'From' : 'To'} option named ${name}`).toBeTruthy()
@@ -433,8 +474,8 @@ it('the import direction can be reversed on a machine with exactly two agents', 
   // Press the agent the other side is holding: the pair reverses rather than
   // colliding, which is the plainest way to say "the other direction".
   await click(from('Second Agent'))
-  expect(from('Second Agent').getAttribute('data-state')).toBe('on')
-  expect(into('First Agent').getAttribute('data-state')).toBe('on')
+  expect(from('Second Agent').hasAttribute('data-pressed')).toBe(true)
+  expect(into('First Agent').hasAttribute('data-pressed')).toBe(true)
 
   // And it is a real direction, not just two highlights: the plan now goes
   // the other way. The copy has to belong to the *source* — an import from
@@ -459,12 +500,12 @@ it('the import direction can be reversed on a machine with exactly two agents', 
     <ImportDialog library={reversed} columns={columns} onClose={() => {}} onPlan={onPlan} />,
   )
   await click(
-    [...container.querySelectorAll('[data-slot="toggle-group-item"]')].filter(
+    [...document.body.querySelectorAll('[data-slot="toggle-group-item"]')].filter(
       (one) => one.textContent === 'Second Agent',
     )[0],
   )
   await click(
-    [...container.querySelectorAll('[data-slot="toggle-group-item"]')].filter(
+    [...document.body.querySelectorAll('[data-slot="toggle-group-item"]')].filter(
       (one) => one.textContent === 'First Agent',
     )[1],
   )

@@ -13,7 +13,7 @@ import {
   type RefObject,
 } from 'react'
 
-import { ResizeHandle } from '../design/ui'
+import { DockDropEdge, DockDropTarget, ResizeHandle, WorkbenchCanvas, WorkbenchRail, WorkbenchScrim } from '../design'
 import {
   DockPanel,
   DockPanelActions,
@@ -22,9 +22,8 @@ import {
   DockPanelTab,
   DockPanelTabs,
   PanelSeam,
-} from '../design/patterns/DockPanel'
-import { Menu, MenuItem, MenuLabel } from '../components/Menu'
-import { Popover, dismissOverlays } from '../components/Popover'
+} from '../design'
+import { Menu, MenuItem, MenuLabel, Popover, dismissOverlays } from '../design'
 import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
@@ -40,6 +39,8 @@ import {
   dockViews,
   MAX_RATIO,
   MIN_RATIO,
+  noticeArea,
+  rightPanelDrawn,
   sidebarPlacement,
   stackOf,
   stackView,
@@ -190,7 +191,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   return (
     <DragContext.Provider value={{ dragging, setDragging }}>
     <ShellContext.Provider value={shell}>
-    <div
+    <WorkbenchCanvas
       ref={shell}
       className={styles.shell}
       /* Each dock's committed size, as a property the panel reads and a seam
@@ -212,7 +213,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
           sidebar from landing on the conversation underneath. Before the
           sidebar in the markup, so the sidebar paints over it at one layer. */}
       {narrow && (
-        <div
+        <WorkbenchScrim
           className={styles.scrim}
           {...(floating ? { 'data-open': '' } : {})}
           aria-hidden
@@ -223,7 +224,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
           onClick={() => store.closeFloatingSidebar()}
         />
       )}
-      <div
+      <WorkbenchRail
         ref={sidebarBox}
         className={styles.sidebar}
         /* The column animates to nothing; its contents keep the width they had
@@ -257,12 +258,14 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             app's own panels arrive by the same door a plugin's will. */}
         {sidebar}
         <DropZone area="sidebar" />
-      </div>
+      </WorkbenchRail>
       {column && (
         <AreaSeam area="sidebar" orientation="vertical" label="Resize the sidebar" direction={1} />
       )}
 
-      <div ref={content} className={styles.content}>
+      {/* `data-notice-bounds`: the box the desk's floating notices never
+          leave (#896) — every pane and panel, never the sidebar. */}
+      <div ref={content} className={styles.content} data-notice-bounds="">
         {/* The row holding the split tree and the right panel. It collapses as
             a unit when neither is on screen — a zoomed bottom panel would
             otherwise sit under the empty space where they were, which reads as
@@ -289,15 +292,11 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
         </div>
         <BottomPanel />
       </div>
-    </div>
+    </WorkbenchCanvas>
     </ShellContext.Provider>
     </DragContext.Provider>
   )
 }
-
-/** Whether the right panel draws a panel at all, rather than only its drop zone. */
-const rightPanelDrawn = (workbench: WorkbenchModel): boolean =>
-  dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
 
 const RightPanel = () => {
   const store = useStore()
@@ -328,7 +327,13 @@ const RightPanel = () => {
       {sized && (
         <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} />
       )}
-      <div className={styles.right} style={sized ? { width: 'var(--panel-right)' } : undefined}>
+      <div
+        className={styles.right}
+        style={sized ? { width: 'var(--panel-right)' } : undefined}
+        /* Zoomed, or laid over a narrow window's main area, this is the
+           panel being read, and the desk's notices ride it (#896). */
+        {...(noticeArea(workbench, snapshot.narrowWindow) === 'right' ? { 'data-notice-host': '' } : {})}
+      >
         <PanelArea area="right" />
       </div>
     </>
@@ -348,7 +353,12 @@ const BottomPanel = () => {
       {!dock.collapsed && !zoomed && (
         <AreaSeam area="bottom" orientation="horizontal" label="Resize the bottom panel" direction={-1} />
       )}
-      <div className={styles.bottom} style={height ? { height } : undefined}>
+      <div
+        className={styles.bottom}
+        style={height ? { height } : undefined}
+        /* Zoomed, the one place `noticeArea` answers `bottom`. */
+        {...(zoomed ? { 'data-notice-host': '' } : {})}
+      >
         <PanelArea area="bottom" />
       </div>
     </>
@@ -571,6 +581,7 @@ const DockSplit = ({ area, branch }: { area: DockId; branch: DockBranch }) => {
       </div>
       <ResizeHandle
         className={styles.splitSeam}
+        appearance="line"
         orientation={branch.direction === 'row' ? 'vertical' : 'horizontal'}
         label="Resize these panels"
         value={branch.ratio}
@@ -846,13 +857,13 @@ const AreaSeam = ({
  * a thin band along the edge, present only while a drag that it would accept
  * is in flight.
  */
-const EdgeDropZone = ({ area }: { area: DockId }) => {
+const EdgeDropZone = ({ area }: { area: 'right' | 'bottom' }) => {
   const { dragging } = useContext(DragContext)
   if (!dragging || !views.permits(dragging.view, area)) return null
   return (
-    <div className={styles.edgeDrop} data-area={area}>
+    <DockDropEdge area={area}>
       <DropZone area={area} />
-    </div>
+    </DockDropEdge>
   )
 }
 
@@ -901,10 +912,10 @@ const DropZone = ({ area, stack }: { area: AreaId; stack?: string }) => {
   if (!accepts) return null
 
   return (
-    <div
-      className={styles.drop}
+    <DockDropTarget
+      label={`Dock in ${AREA_NAME[area]}`}
+      active={over}
       data-area={area}
-      {...(over ? { 'data-over': '' } : {})}
       aria-hidden
       onDragEnter={() => setOver(true)}
       onDragLeave={() => setOver(false)}
@@ -913,9 +924,7 @@ const DropZone = ({ area, stack }: { area: AreaId; stack?: string }) => {
         event.dataTransfer.dropEffect = 'move'
       }}
       onDrop={onDrop}
-    >
-      <span className={styles.dropLabel}>Dock in {AREA_NAME[area]}</span>
-    </div>
+    />
   )
 }
 

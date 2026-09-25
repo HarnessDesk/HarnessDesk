@@ -84,6 +84,21 @@ describe('pairing', () => {
     ])
   })
 
+  /**
+   * The template is not copy a person reads — it is the message each member
+   * receives as its own instructions, so the tool names and the card's own
+   * id have to survive: without `claim_work (intent {{card}})`, a member has
+   * no way to tell the desk which card it means, and without `claim_next`
+   * and `complete_claim` it has no way to call the desk's own tools at all.
+   */
+  it('tells the agent which tools to call and which card it names, since the message is its own instructions', () => {
+    expect(DEFAULT_TEMPLATE).toContain('claim_work (intent {{card}})')
+    expect(DEFAULT_TEMPLATE).toContain('complete_claim')
+    expect(DEFAULT_TEMPLATE).toContain('claim_next')
+    const filled = fill(DEFAULT_TEMPLATE, varsFor(intent(7, 'Audit /pricing'), member('s1', 'Gemini 4')))
+    expect(filled).toContain('claim_work (intent 7)')
+  })
+
   it('fills the slots per member and leaves an unknown slot standing', () => {
     const vars = varsFor(intent(7, 'Audit /pricing', { detail: 'Reading quality.' }), member('s1', 'Gemini 4'))
     expect(fill('#{{card}} {{title}} — {{detail}} ({{files}}) for {{member}}; {{nope}}', vars)).toBe(
@@ -112,12 +127,12 @@ describe('HandOut', () => {
         </StoreProvider>,
       )
     })
-    expect(container.querySelector('[data-slot="handout-pairing"]')?.textContent).toBe(
+    expect(document.body.querySelector('[data-slot="handout-pairing"]')?.textContent).toBe(
       '2 open cards to 2 idle members, one each; 1 more card stays open.',
     )
-    expect(container.querySelector('[data-slot="handout-preview"]')?.textContent).toContain('Take card #1 — Audit /.')
+    expect(document.body.querySelector('[data-slot="handout-preview"]')?.textContent).toContain('Take card #1 — Audit /.')
 
-    const go = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Hand out 2 cards')
+    const go = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Hand out 2 cards')
     expect(go).toBeDefined()
     await act(async () => {
       go?.click()
@@ -143,8 +158,8 @@ describe('HandOut', () => {
         </StoreProvider>,
       )
     })
-    expect(container.querySelector('[data-slot="handout-pairing"]')?.textContent).toBe('Nobody in the room is idle right now.')
-    const go = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Hand out'))
+    expect(document.body.querySelector('[data-slot="handout-pairing"]')?.textContent).toBe('Nobody in the room is idle right now.')
+    const go = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Hand out'))
     expect((go as HTMLButtonElement | undefined)?.disabled).toBe(true)
   })
 })

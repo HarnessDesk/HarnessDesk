@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   entryHasProblem,
   isReachProblem,
   summarise,
+  type AgentEntry,
+  type AgentOrigin,
   type Library,
   type LibraryEntry,
   type LibraryKind,
   type LibraryUsage,
   type ReachState,
   type RuntimeId,
+  type RuntimeInfo,
 } from '@harnessdesk/protocol'
 
 import { runtimeLabel } from '../lib/accounts'
@@ -21,6 +24,7 @@ import {
   CrossIcon,
   DiffIcon,
   FileIcon,
+  FilterIcon,
   ImportIcon,
   LibraryIcon,
   MatrixIcon,
@@ -28,27 +32,45 @@ import {
   RetryIcon,
   RowsLooseIcon,
   SearchIcon,
+  TodoPendingIcon,
   TrashIcon,
 } from './Icons'
-import { PageHead, kit } from '../design/primitives/Kit'
+import {
+  ActionError,
+  Alert,
+  Chip,
+  CodeText,
+  Dot,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  MetaList,
+  PageHead,
+  PanelPill,
+  Popover,
+  Search,
+  Segmented,
+  Submenu,
+  Text,
+  Toolbar,
+} from '../design'
 import {
   Button,
   EmptyState,
-  Label,
-  Switch,
-  ToggleGroup,
-  ToggleGroupItem,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  Input,
-} from '../design/ui'
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../design'
 import {
   installSource,
   LibraryFlows,
   LibraryHistory,
-  SWITCH_ITEM,
-  SWITCH_TRACK,
   type LibraryColumn,
   type LibraryFlow,
 } from './LibraryActions'
@@ -90,6 +112,20 @@ import styles from './Library.module.css'
  * do not.
  */
 
+/**
+ * What this runtime build can do with a Seat's declared attachments — never
+ * this file's own concept, and never confused with `reach`: a column can
+ * measure a skill reaching it while still being unable to scope which of an
+ * Agent's declared names actually load. Surfaced only as the column's own
+ * hover text, alongside the runtime's plain name, so a healthy desk stays
+ * exactly as quiet as it always was.
+ */
+const attachmentSupportWords = (info?: RuntimeInfo): string | null => {
+  const support = info?.attachments
+  if (!support) return null
+  return `Skills ${support.skills === 'scoped' ? 'scoped' : 'unscoped'} · Servers ${support.mcp === 'scoped-gated' ? 'gated' : 'unscoped'}`
+}
+
 type Filter =
   | 'all'
   | 'problems'
@@ -100,36 +136,58 @@ type Filter =
   | 'unused'
   | 'off'
 
-
 /**
  * The mark for one state.
  *
  * Shape carries the meaning and colour only reinforces it, so the table reads
- * the same to anyone who does not separate red from green. `absent` is a rule,
- * not a glyph: nothing is wrong, and a symbol there would compete with the
- * ones that mean something.
+ * the same to anyone who does not separate red from green. `absent` is the
+ * table's own no-value dash, not a glyph: nothing is wrong, and a symbol there
+ * would compete with the ones that mean something.
+ *
+ * Every mark is a part the app already has, set in the meta role's ink — the
+ * warning ink where the copy needs mending, the muted one everywhere else: a
+ * problem is its icon, a copy no agent has read is the task list's pending
+ * ring, a copy that loads is the readiness light, one not loaded yet the
+ * neutral light. Only "switched off" — the neutral light struck through — is
+ * drawn here.
  */
-const ReachMark = ({ state }: { state: ReachState }) => {
-  // `rejected` wears `hollow`'s glyph, and deliberately: both mean *there is
-  // something here and nothing loads*, both are the person's to fix, and a
-  // ninth shape would be a ninth thing to learn for a distinction the note
-  // already draws in the agent's own words.
-  if (state === 'hollow' || state === 'rejected') return <AlertIcon size={13} />
-  if (state === 'differs') return <DiffIcon size={13} />
-  if (state === 'unhostable') return <CrossIcon size={13} />
-  if (state === 'unscanned') return <span className={styles.ring} />
-  // `stale` is the dot it is about to be, drawn as an outline and in the
-  // neutral ink: the difference from `unscanned` has to be a *shape* and not
-  // two rings three percent apart, because the two states mean opposite
-  // things — one is in the right place, the other never will be.
-  if (state === 'stale') return <span className={styles.soon} />
-  if (state === 'reaches') return <span className={styles.here} />
-  // Switched off draws as the dot it would have, struck through: the shape
-  // says "this one is present" and the bar says "and not loading". Drawing
-  // it as `absent` would hide the difference between a skill you do not have
-  // and one you turned off, which is the whole reason it has a state.
-  if (state === 'off') return <span className={styles.off} />
-  return <span className={styles.none} />
+const ReachMark = ({
+  state,
+  label,
+  placement = 'inline',
+}: {
+  state: ReachState
+  label: string
+  placement?: 'inline' | 'cell'
+}) => {
+  let mark: ReactNode
+  if (state === 'hollow' || state === 'rejected') mark = <AlertIcon size={13} />
+  else if (state === 'differs') mark = <DiffIcon size={13} />
+  else if (state === 'unhostable') mark = <CrossIcon size={13} />
+  else if (state === 'reaches') mark = <Dot state="ready" />
+  else if (state === 'unscanned') mark = <TodoPendingIcon size={10} />
+  else if (state === 'stale') mark = <Dot />
+  else if (state === 'off') {
+    mark = (
+      <span className="relative inline-flex size-3 items-center justify-center">
+        <Dot />
+        <span className="absolute h-px w-3 bg-current" />
+      </span>
+    )
+  } else mark = '—'
+  const warning = state === 'hollow' || state === 'rejected' || state === 'differs' || state === 'unscanned'
+  return (
+    <Text
+      role="meta"
+      {...(warning ? { tone: 'warning' as const } : { ink: 'muted' as const })}
+      data-reach={state}
+      data-placement={placement}
+      className={`inline-flex shrink-0 items-center justify-center ${placement === 'cell' ? 'w-full' : ''}`}
+    >
+      {/* The mark is a picture of its label; `Text`'s own `role` is its type role. */}
+      <span role="img" aria-label={label} className="inline-flex items-center justify-center">{mark}</span>
+    </Text>
+  )
 }
 
 /**
@@ -165,81 +223,82 @@ const Legend = ({ rows }: { rows: readonly LibraryEntry[] }) => {
   }, [rows])
   if (present.length < 2) return null
   return (
-    <p className={styles.legend} data-slot="library-legend">
-      {present.map((state) => (
-        <span key={state} className={styles.legendItem}>
-          <span className={styles.legendMark} data-state={state}>
-            <ReachMark state={state} />
+    <div data-slot="library-legend">
+      <Text as="p" role="meta" className={styles.legend}>
+        {present.map((state) => (
+          <span key={state} className={styles.legendItem}>
+            <ReachMark state={state} label={REACH_NAME[state]} />
+            {REACH_NAME[state]}
           </span>
-          {REACH_NAME[state]}
-        </span>
-      ))}
-    </p>
+        ))}
+      </Text>
+    </div>
   )
 }
 
 /*
- * The kind switcher, and the list/matrix switch below it, wear shadcn `Tabs`'
- * own clothes without being tabs: a Base UI tab activates on `mousedown`,
- * which a plain `element.click()` never fires, and these have to answer to
- * tests and keyboards alike. So the mechanism is a `ToggleGroup` and the
- * appearance is `tabsListVariants` — now named once, in `LibraryActions`,
- * where the agent pickers use it too.
+ * The kind switcher and the list/matrix switch are the system's `Segmented`,
+ * the same control as the import dialog's agent pickers: a `ToggleGroup`
+ * underneath, because a Base UI tab activates on `mousedown`, which a plain
+ * `element.click()` never fires, and these have to answer to tests and
+ * keyboards alike.
  */
 
 /**
  * One count, which is also the filter that isolates it.
  *
- * Three shapes, in order. First six dashboard tiles, which promised a
- * *metric* — something you came to read — when every one of them is a filter
- * nobody opens this page to admire. Then outlined pills, which fixed the
- * weight and introduced a shape the app does not have anywhere else, drawn
- * with a bare `border` that Tailwind painted in ink (see the note in
- * shadcn.css).
+ * Five shapes, in order. Six dashboard tiles, which promised a *metric* when
+ * every one of them is a filter; outlined pills; the app's outlined `Button`;
+ * then the inspectors' filter pill, a second line of controls under a toolbar
+ * that already wrapped its own view switch onto a line of its own — three
+ * rows of controls before the first skill.
  *
- * Now it is the app's own `Button`. A filter is a thing you press, the app
- * already has a component for things you press, and using it means the
- * height, the radius, the border token, the hover and the focus ring all
- * arrive correct and stay correct — none of them is a number in this file to
- * drift from the button beside it. The set is single-select, so the active
- * one takes `secondary`, the app's spelling of "this one is on".
+ * Now each is a row of the toolbar's one Filter menu: its words, and its count
+ * where a menu keeps a value, on tabular figures. A count of none is not
+ * offered — a row that would empty the list is not a choice — except the one
+ * that is on, which stays so it can be seen and left. The set is one answer
+ * (radio rows). Amber stays on the number of a problem, never the row.
  */
-const Count = ({
+const FilterRow = ({
   value,
   label,
   tone,
   title,
   active,
-  onClick,
+  onSelect,
 }: {
   value: number
   label: string
   tone?: 'warn'
   title?: string
   active: boolean
-  onClick: () => void
-}) => (
-  <Button
-    type="button"
-    data-slot="library-count"
-    {...(active ? { 'data-active': '' } : {})}
-    variant={active ? 'secondary' : 'outline'}
-    size="sm"
-    {...(title ? { title } : {})}
-    disabled={value === 0 && !active}
-    onClick={onClick}
-  >
-    {/* Amber on the number, never the whole control: a filter row wearing
-        five warning colours is five warnings, and the count is the only part
-        that is news. */}
-    <span
-      className={`font-semibold tabular-nums ${tone === 'warn' && value > 0 ? 'text-(--hd-warning-ink)' : ''}`}
-    >
-      {value}
-    </span>
-    <span className="font-normal text-(--hd-muted-foreground)">{label}</span>
-  </Button>
-)
+  onSelect: () => void
+}) =>
+  value === 0 && !active ? null : (
+    <MenuItem
+      label={label}
+      {...(title ? { title } : {})}
+      selected={active}
+      value={(
+        <Text role="meta" numeric {...(tone === 'warn' && value > 0 ? { tone: 'warning' as const } : {})}>
+          {value}
+        </Text>
+      )}
+      onSelect={onSelect}
+    />
+  )
+
+/** The words a filter goes by, in its menu row and on its pill while it is on. */
+const FILTER_WORDS: Record<Filter, string> = {
+  all: 'Everything',
+  problems: 'Problems',
+  partial: 'Reach some',
+  unreachable: 'Reach none',
+  hollow: 'Empty on disk',
+  differs: 'Copies differ',
+  off: 'Switched off',
+  unused: 'Never fired',
+}
 
 export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' | null } = {}) => {
   const store = useStore()
@@ -270,6 +329,10 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   const [flow, setFlow] = useState<LibraryFlow | null>(
     initialFlow === 'import' ? { type: 'import' } : null,
   )
+  /** `''` is every Agent; otherwise `${origin}:${id}` of one on the current roster. */
+  const [agentFilter, setAgentFilter] = useState('')
+  /** `${kind}:${name}` -> every Agent (winner, never a shadowed origin) that declared it. Bounded to the visible roster — never a background scan of every repository. */
+  const [declaredBy, setDeclaredBy] = useState<ReadonlyMap<string, readonly { readonly id: string; readonly origin: AgentOrigin; readonly label: string }[]> | null>(null)
 
   const cwd = snapshot.workspace?.path
 
@@ -295,6 +358,61 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   useEffect(() => {
     void load()
   }, [load])
+
+  // The Agent filter's own roster — the same guarded, cached read every other
+  // Agent picker in the app uses (`CommandPalette`), never a fresh load per
+  // render of this page.
+  useEffect(() => {
+    if (snapshot.agents === null) void store.loadAgents()
+  }, [store, snapshot.agents])
+
+  /**
+   * What each Agent on the visible roster declares, resolved once per
+   * roster change — never per keystroke or per filter press, and never a
+   * scan of every repository this machine has ever opened. A shadowed
+   * origin never contributes here: `snapshot.agents` already names only the
+   * winner for each id, the same roster the Agents window itself lists.
+   */
+  useEffect(() => {
+    const roster = snapshot.agents
+    if (!roster) {
+      setDeclaredBy(null)
+      return
+    }
+    let live = true
+    Promise.all(
+      roster.map(async (entry: AgentEntry) => {
+        try {
+          return { entry, view: await store.readAgentAttachments(entry.id, entry.origin) }
+        } catch {
+          return null
+        }
+      }),
+    ).then((results) => {
+      if (!live) return
+      const map = new Map<string, { id: string; origin: AgentOrigin; label: string }[]>()
+      for (const result of results) {
+        // `readAgentAttachments` is typed to always resolve a full view or
+        // reject — the `catch` above already turns a rejection into `null`.
+        // A `view` that is still missing here (a store that does not honor
+        // that contract) is the same "nothing declared" state as an empty
+        // `declarations` array, never a reason to lose every other Agent's
+        // roster read.
+        if (!result || !result.view) continue
+        const label = result.entry.definition?.name ?? result.entry.id
+        for (const declaration of result.view.declarations) {
+          const compositeKey = `${declaration.kind}:${declaration.name}`
+          const list = map.get(compositeKey) ?? []
+          list.push({ id: result.entry.id, origin: result.entry.origin, label })
+          map.set(compositeKey, list)
+        }
+      }
+      setDeclaredBy(map)
+    })
+    return () => {
+      live = false
+    }
+  }, [store, snapshot.agents])
 
   /**
    * Column headings, named the way the rest of the interface names an agent:
@@ -354,6 +472,14 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
 
   const rows = useMemo(() => {
     return searched.filter((entry) => {
+      if (agentFilter) {
+        // Declarations, not measured reach: a name this Agent declared stays
+        // in the filtered set even when no runtime has resolved it yet
+        // (decision: "retain unresolved rows"). Reach is a separate column,
+        // read from `entry.reach` exactly as it always was.
+        const refs = declaredBy?.get(`${entry.kind}:${entry.name}`) ?? []
+        if (!refs.some((ref) => `${ref.origin}:${ref.id}` === agentFilter)) return false
+      }
       if (filter === 'problems') return entryHasProblem(entry)
       if (filter === 'partial') {
         const reaching = entry.reach.filter((one) => one.state === 'reaches').length
@@ -375,7 +501,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
       }
       return true
     })
-  }, [searched, filter, usage])
+  }, [searched, filter, usage, agentFilter, declaredBy])
 
   /**
    * The never-fired view is a to-do list, and a to-do list leads with what
@@ -519,7 +645,12 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   /** Only the gaps that apply to what is on screen; the rest are noise here. */
   const gaps = (library?.gaps ?? []).filter((gap) => gap.kind === kind)
 
-  const toggle = (next: Filter) => setFilter((current) => (current === next ? 'all' : next))
+  const filterTrigger = useRef<HTMLButtonElement>(null)
+  /** Over `searched`, like every count in the menu: the rows choosing it will leave. */
+  const problemCount = useMemo(() => searched.filter(entryHasProblem).length, [searched])
+  const agentName = agentFilter
+    ? (snapshot.agents?.find((entry) => `${entry.origin}:${entry.id}` === agentFilter)?.definition?.name ?? null)
+    : null
 
   return (
     <>
@@ -551,23 +682,22 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
         }
       />
 
-      {failed !== null && (
-        <p className={styles.failed}>The library could not be read: {failed}</p>
-      )}
+      {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
 
       {kind === 'skill' && (hollowCopies.length > 0 || overloaded.length > 0) && (
-        <div
-          data-slot="library-attention"
-          className="mb-4 flex flex-col gap-1 rounded-lg border bg-card px-3 py-2"
-        >
+        /* The page's callout: the system's neutral alert, one line per thing
+           that needs a hand, each with its amber mark and its way out. */
+        <Alert data-slot="library-attention" className="mb-4 flex-col gap-1">
           {hollowCopies.length > 0 && (
-            <p className="m-0 flex items-center gap-2 text-sm text-(--hd-secondary-foreground) [&>svg]:flex-none [&>svg]:text-(--hd-warning-ink)">
-              <AlertIcon size={13} />
-              <span className="min-w-0 flex-1">
+            <p className="m-0 flex w-full items-center gap-2">
+              <Text tone="warning" className="flex-none">
+                <AlertIcon size={13} />
+              </Text>
+              <Text role="muted" className="min-w-0 flex-1">
                 {hollowCopies.length} {hollowCopies.length === 1 ? 'directory holds' : 'directories hold'} a
                 skill’s name and no definition — an agent that scans them lists the name and loads
                 nothing.
-              </span>
+              </Text>
               <Button
                 variant="outline"
                 size="sm"
@@ -589,17 +719,16 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
             </p>
           )}
           {overloaded.map(({ column, total, neverFired }) => (
-            <p
-              key={column.id}
-              className="m-0 flex items-center gap-2 text-sm text-(--hd-secondary-foreground) [&>svg]:flex-none [&>svg]:text-(--hd-warning-ink)"
-            >
-              <AlertIcon size={13} />
-              <span className="min-w-0 flex-1">
+            <p key={column.id} className="m-0 flex w-full items-center gap-2">
+              <Text tone="warning" className="flex-none">
+                <AlertIcon size={13} />
+              </Text>
+              <Text role="muted" className="min-w-0 flex-1">
                 ≈{total.toLocaleString()} tokens of skill catalogue ride every {column.label} turn
                 {neverFired !== null && neverFired > 0
                   ? ` — ${neverFired} of its skills never fired in a conversation this desk stores.`
                   : '.'}
-              </span>
+              </Text>
               {neverFired !== null && neverFired > 0 && (
                 <Button variant="outline" size="sm" className="flex-none" onClick={() => setFilter('unused')}>
                   Show never fired
@@ -607,180 +736,159 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
               )}
             </p>
           ))}
-        </div>
+        </Alert>
       )}
 
-      <div className="mb-3 flex flex-wrap items-center gap-2.5">
-        {/* A ToggleGroup rather than radix Tabs, dressed as one: a tab
-            trigger activates on mousedown, which a plain click() never
-            fires — and this switcher has to answer to tests and keyboards
-            alike. Ignoring the empty value is what stops a second press
-            from deselecting both. */}
-        <ToggleGroup
-          type="single"
+      {/*
+       * One row: what is listed, a search, the filter menu and how to show it.
+       * The view switch used to wrap onto a line of its own and six count
+       * pills took a third; the counts are the Filter menu's rows now, and
+       * the Agent picker is its submenu, so the toolbar fits the page.
+       */}
+      <Toolbar className="mb-3" data-slot="library-toolbar">
+        <Segmented
+          label="What the library is listing"
           value={kind}
-          aria-label="What the library is listing"
-          className={SWITCH_TRACK}
-          onValueChange={(next) => {
-            if (next !== 'skill' && next !== 'mcp') return
+          options={[
+            { value: 'skill', label: `Skills · ${kindCounts.skill}` },
+            { value: 'mcp', label: `MCP servers · ${kindCounts.mcp}` },
+          ]}
+          onChange={(next) => {
             setKind(next)
             setOpen(null)
           }}
-        >
-          <ToggleGroupItem value="skill" className={SWITCH_ITEM}>
-            Skills · {kindCounts.skill}
-          </ToggleGroupItem>
-          <ToggleGroupItem value="mcp" className={SWITCH_ITEM}>
-            MCP servers · {kindCounts.mcp}
-          </ToggleGroupItem>
-        </ToggleGroup>
-        {/* Wide enough to type a skill name into, and capped: at the width
-            the settings pane actually is, `flex-1` gave the search box four
-            hundred pixels of empty field and pushed nothing useful anywhere
-            — a text input's size is a claim about how much you type in it. */}
-        <Input
+        />
+        {/* Wide enough to type a skill name into, and capped: a text input's
+            size is a claim about how much you type in it. */}
+        <Search
           className="min-w-0 flex-1 basis-44 md:max-w-64"
           value={query}
           placeholder={kind === 'skill' ? 'Search skills' : 'Search servers'}
-          aria-label="Filter the library by name"
-          onChange={(event) => setQuery(event.target.value)}
+          label="Filter the library by name"
+          onChange={setQuery}
         />
-        <Label className="gap-1.5 text-sm font-normal whitespace-nowrap text-(--hd-secondary-foreground)">
-          <Switch
-            checked={filter === 'problems'}
-            onCheckedChange={() => toggle('problems')}
-            aria-label="Show only entries with something wrong"
-          />
-          Only problems
-        </Label>
-        {/*
-         * Two ways to read the same list, and the switch says which by
-         * drawing it. Icons rather than words: the shapes are the standard
-         * ones, the tooltips carry the names, and two more words in a
-         * toolbar this busy would push the search box onto its own line at
-         * the width the settings pane actually is.
-         */}
-        <ToggleGroup
-          type="single"
-          value={view}
-          aria-label="How to show the library"
-          className={SWITCH_TRACK}
-          onValueChange={(next) => {
-            if (next !== 'list' && next !== 'matrix') return
-            setView(next)
-            setOpen(null)
-          }}
-        >
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ToggleGroupItem
-                value="list"
-                aria-label="Show each entry as a row"
-                className={SWITCH_ITEM}
-              >
-                <RowsLooseIcon size={13} />
-              </ToggleGroupItem>
-            </TooltipTrigger>
-            <TooltipContent>List — read what each one does</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ToggleGroupItem
-                value="matrix"
-                aria-label="Show every entry against every agent"
-                className={SWITCH_ITEM}
-              >
-                <MatrixIcon size={13} />
-              </ToggleGroupItem>
-            </TooltipTrigger>
-            <TooltipContent>Matrix — every entry against every agent</TooltipContent>
-          </Tooltip>
-        </ToggleGroup>
-      </div>
+        {/* The filters and the view travel together at the row's end. When
+            the page is too narrow for one row, the pills wrap inside this
+            group, and Filter and List | Matrix wrap as one pair — so the view
+            switch is never left on a line of its own, and nothing is clipped. */}
+        <Toolbar className="ml-auto min-w-0 justify-end">
+          {/* What narrows the list right now, each a pressed pill that lets go
+              of it — the inspectors' filter pill, so a filter that is on looks
+              the same wherever it is on. Letting go hands the focus to Filter,
+              where the next choice is made, rather than to the top of the page. */}
+          {filter !== 'all' && (
+            <PanelPill pressed title="Show everything again" onClick={() => { setFilter('all'); filterTrigger.current?.focus() }}>
+              {FILTER_WORDS[filter]}
+            </PanelPill>
+          )}
+          {agentName && (
+            <PanelPill pressed title="Show what every Agent declares" onClick={() => { setAgentFilter(''); filterTrigger.current?.focus() }}>
+              {agentName}
+            </PanelPill>
+          )}
+          <Toolbar className="flex-nowrap">
+            <Popover
+              label={(
+                <>
+                  <FilterIcon size={13} />
+                  <span>Filter</span>
+                  {/* The one piece of news the menu holds, at rest: how many have a
+                      problem, in the problem's amber, until a filter is chosen. */}
+                  {filter === 'all' && problemCount > 0 && (
+                    <Text role="meta" numeric tone="warning">{problemCount}</Text>
+                  )}
+                </>
+              )}
+              title={filter === 'all' && problemCount > 0 ? `Filter the library — ${problemCount} with a problem` : 'Filter the library'}
+              align="right"
+              triggerVariant={{ variant: 'outline' }}
+              triggerRef={filterTrigger}
+            >
+              {(close) => (
+                <Menu close={close}>
+                  <MenuLabel>Show</MenuLabel>
+                  {counts ? (
+                    <>
+                      <FilterRow value={counts.total} label={FILTER_WORDS.all} active={filter === 'all'} onSelect={() => setFilter('all')} />
+                      <FilterRow value={problemCount} label={FILTER_WORDS.problems} tone="warn" title="Anything wrong: reaches no agent, empty on disk, or copies that differ." active={filter === 'problems'} onSelect={() => setFilter('problems')} />
+                      <FilterRow value={counts.partial} label={FILTER_WORDS.partial} active={filter === 'partial'} onSelect={() => setFilter('partial')} />
+                      <FilterRow value={counts.unreachable} label={FILTER_WORDS.unreachable} tone="warn" active={filter === 'unreachable'} onSelect={() => setFilter('unreachable')} />
+                      <FilterRow value={counts.hollow} label={FILTER_WORDS.hollow} tone="warn" active={filter === 'hollow'} onSelect={() => setFilter('hollow')} />
+                      <FilterRow value={counts.differs} label={FILTER_WORDS.differs} tone="warn" active={filter === 'differs'} onSelect={() => setFilter('differs')} />
+                      {/* No warn tone: a switch somebody threw is not a defect. */}
+                      <FilterRow
+                        value={counts.off}
+                        label={FILTER_WORDS.off}
+                        title="Installed in an agent and turned off in its own settings, so nothing loads it there."
+                        active={filter === 'off'}
+                        onSelect={() => setFilter('off')}
+                      />
+                      {kind === 'skill' &&
+                        (usage !== null ? (
+                          <FilterRow
+                            value={unusedCount}
+                            label={FILTER_WORDS.unused}
+                            title={`Reaches at least one agent, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.`}
+                            active={filter === 'unused'}
+                            onSelect={() => setFilter('unused')}
+                          />
+                        ) : (
+                          /* The first usage read walks every stored conversation,
+                             so this row arrives late; it holds its place. */
+                          <MenuItem label={FILTER_WORDS.unused} disabled="Counting activations in the stored conversations…" onSelect={() => {}} />
+                        ))}
+                    </>
+                  ) : (
+                    <MenuItem label={FILTER_WORDS.all} disabled="Reading every agent’s directories…" onSelect={() => {}} />
+                  )}
+                  {snapshot.agents && snapshot.agents.length > 0 && (
+                    <>
+                      <MenuSeparator />
+                      <Submenu label="Declared by" value={agentName ?? 'Any Agent'}>
+                        <MenuItem label="Any Agent" selected={agentFilter === ''} onSelect={() => setAgentFilter('')} />
+                        {snapshot.agents.map((entry) => (
+                          <MenuItem
+                            key={`${entry.origin}:${entry.id}`}
+                            label={entry.definition?.name ?? entry.id}
+                            selected={agentFilter === `${entry.origin}:${entry.id}`}
+                            onSelect={() => setAgentFilter(`${entry.origin}:${entry.id}`)}
+                          />
+                        ))}
+                      </Submenu>
+                    </>
+                  )}
+                </Menu>
+              )}
+            </Popover>
+            {/*
+             * Two ways to read the same list, and the switch says which by
+             * drawing it — and by naming it: a glyph with its name only in a
+             * tooltip is a control you have to hover to read.
+             */}
+            <Segmented
+              label="How to show the library"
+              value={view}
+              options={[
+                { value: 'list', label: <><RowsLooseIcon size={13} />List</> },
+                { value: 'matrix', label: <><MatrixIcon size={13} />Matrix</> },
+              ]}
+              onChange={(next) => {
+                setView(next)
+                setOpen(null)
+              }}
+            />
+          </Toolbar>
+        </Toolbar>
+      </Toolbar>
 
-      {counts && (
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          {/*
-           * "All" rather than the everywhere-count this used to show. In a
-           * row of tiles a count that does not filter reads as a statistic;
-           * in a row of *chips* it reads as a filter, and pressing it to see
-           * the entries that reach every agent — which is what its label
-           * promised — showed the whole list instead. How many reach
-           * everything is legible from the cards; a control that lies about
-           * what it does is not repairable by a tooltip.
-           */}
-          <Count
-            value={counts.total}
-            label="in all"
-            active={filter === 'all'}
-            onClick={() => setFilter('all')}
-          />
-          <Count
-            value={counts.partial}
-            label="reach some"
-            active={filter === 'partial'}
-            onClick={() => toggle('partial')}
-          />
-          <Count
-            value={counts.unreachable}
-            label="reach none"
-            tone="warn"
-            active={filter === 'unreachable'}
-            onClick={() => toggle('unreachable')}
-          />
-          <Count
-            value={counts.hollow}
-            label="empty on disk"
-            tone="warn"
-            active={filter === 'hollow'}
-            onClick={() => toggle('hollow')}
-          />
-          <Count
-            value={counts.differs}
-            label="copies differ"
-            tone="warn"
-            active={filter === 'differs'}
-            onClick={() => toggle('differs')}
-          />
-          {/* No warn tone: a switch somebody threw is not a defect, and the
-              chip beside four amber ones would be read as a fifth. */}
-          <Count
-            value={counts.off}
-            label="switched off"
-            title="Installed in an agent and turned off in its own settings, so nothing loads it there."
-            active={filter === 'off'}
-            onClick={() => toggle('off')}
-          />
-          {kind === 'skill' &&
-            (usage !== null ? (
-              <Count
-                value={unusedCount}
-                label="never fired"
-                title={`Reaches at least one agent, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.`}
-                active={filter === 'unused'}
-                onClick={() => toggle('unused')}
-              />
-            ) : (
-              /* The first usage read walks every stored conversation, so this
-                 tile arrives late. Holding its place is what keeps the strip
-                 from jumping when it does. */
-              <Button
-                type="button"
-                data-slot="library-count"
-                variant="outline"
-                size="sm"
-                disabled
-                title="Counting activations in the stored conversations…"
-              >
-                <span className="font-semibold tabular-nums">…</span>
-                <span className="font-normal text-(--hd-muted-foreground)">never fired</span>
-              </Button>
-            ))}
-        </div>
+      {agentFilter && (
+        <Text as="p" role="meta" className="mb-2">
+          {`${rows.length} of ${searched.length} declared by ${agentName ?? 'this Agent'}`}
+        </Text>
       )}
 
       {loading && library === null ? (
-        <p className={styles.empty}>Reading every agent’s directories…</p>
+        <EmptyState variant="inline" title="Reading every agent’s directories…" />
       ) : rows.length === 0 ? (
         /*
          * An empty list is two different situations and the old sentence
@@ -859,46 +967,56 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
         </SkillList>
       ) : (
         <>
-        {/* Above the table, not below it. A seventeen-row grid is taller than
-            any window, so a key underneath is a key nobody reaches — and the
-            marks it explains are met at the top. */}
-        <Legend rows={rows} />
-        <div className={styles.scroll}>
-          <table className={styles.grid}>
-            <caption className={styles.caption}>
+          {/* Above the table, not below it. A seventeen-row grid is taller than
+              any window, so a key underneath is a key nobody reaches — and the
+              marks it explains are met at the top. */}
+          <Legend rows={rows} />
+          <Table variant="framed" containerClassName={styles.scroll} className={styles.grid}>
+            <TableCaption variant="sr-only">
               Each row is one entry; each column is one agent. A dot means the agent loads it.
               {kind === 'skill' &&
                 usage !== null &&
                 ` Fired-counts come from the ${usage.sessionsScanned} conversations this desk stores — what ran elsewhere is not counted.`}
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col" className={styles.nameHead}>
-                  Name
-                </th>
+            </TableCaption>
+            <TableHeader>
+              <TableRow variant="matrix">
+                <TableHead variant="matrix" pinned scope="col" className={styles.nameHead}>
+                  <Text role="muted">Name</Text>
+                </TableHead>
                 {columns.map((column) => (
-                  <th scope="col" key={column.id} className={styles.agentHead}>
-                    <span className={styles.agentName} title={column.label}>
+                  <TableHead
+                    variant="matrix"
+                    align="center"
+                    scope="col"
+                    key={column.id}
+                    className={styles.agentHead}
+                  >
+                    <Text
+                      role="muted"
+                      className={styles.agentName}
+                      title={[column.label, attachmentSupportWords(column.info)].filter(Boolean).join(' — ')}
+                      truncate
+                    >
                       {column.info && <RuntimeMark runtime={column.info} size={13} />}
                       {column.head}
-                    </span>
-                  </th>
+                    </Text>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
+              </TableRow>
+            </TableHeader>
             {kind === 'skill' && (
-              <tfoot>
-                <tr className={styles.foot}>
+              <TableFooter variant="plain">
+                <TableRow variant="matrix">
                   {/* Summed over the rows on screen, so the number under a
                       filtered table is true of that table — the tile lesson,
                       applied before it is relearned. */}
-                  <th
+                  <TableHead
+                    variant="footer"
                     scope="row"
-                    className={styles.footHead}
                     title="Name and description at ≈3.6 characters per token — the catalogue line an agent carries for every skill it loads, fired or not. How each agent advertises varies; this prices the standard line."
                   >
                     Advertised each turn{filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}
-                  </th>
+                  </TableHead>
                   {columns.map((column, index) => {
                     const total = rows.reduce(
                       (sum, entry) =>
@@ -908,36 +1026,36 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
                       0,
                     )
                     return (
-                      <td key={column.id} className={styles.footCell}>
+                      <TableCell variant="footer" key={column.id}>
                         {total > 0 ? `≈${total.toLocaleString()} tok` : '—'}
-                      </td>
+                      </TableCell>
                     )
                   })}
-                </tr>
+                </TableRow>
                 {usage !== null && (
-                  <tr className={styles.foot}>
-                    <th
+                  <TableRow variant="matrix">
+                    <TableHead
+                      variant="footer"
                       scope="row"
-                      className={styles.footHead}
                       title="Of the rows on screen, how many this agent loaded in a conversation this desk stores. Conversations held elsewhere are not counted."
                     >
                       Fired here, ever
-                    </th>
+                    </TableHead>
                     {columns.map((column) => {
                       const fired = rows.filter(
                         (entry) => usage.skills[entry.name]?.byRuntime?.[column.id] !== undefined,
                       ).length
                       return (
-                        <td key={column.id} className={styles.footCell}>
+                        <TableCell variant="footer" key={column.id}>
                           {fired > 0 ? `${fired} of ${rows.length}` : '—'}
-                        </td>
+                        </TableCell>
                       )
                     })}
-                  </tr>
+                  </TableRow>
                 )}
-              </tfoot>
+              </TableFooter>
             )}
-            <tbody>
+            <TableBody>
               {ordered.map((entry) => (
                 <Entry
                   key={`${entry.kind}:${entry.name}`}
@@ -953,9 +1071,8 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
                   onToggle={() => setOpen((current) => (current === entry.name ? null : entry.name))}
                 />
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
         </>
       )}
 
@@ -964,9 +1081,9 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
           {gaps.map((gap, index) => {
             const runtime = columns.find((one) => one.id === gap.runtime)
             return (
-              <p key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
+              <Text as="p" role="meta" key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
                 <strong>{runtime?.label ?? gap.runtime}</strong> {gap.reason}
-              </p>
+              </Text>
             )
           })}
         </div>
@@ -979,15 +1096,15 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
          * click to read each agent's own reason.
          */
         <details className={styles.gaps}>
-          <summary className={styles.gapsFold}>
+          <Text as="summary" role="meta" className={styles.gapsFold}>
             {gaps.length} columns are read from disk rather than from their agents — show why
-          </summary>
+          </Text>
           {gaps.map((gap, index) => {
             const runtime = columns.find((one) => one.id === gap.runtime)
             return (
-              <p key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
+              <Text as="p" role="meta" key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
                 <strong>{runtime?.label ?? gap.runtime}</strong> {gap.reason}
-              </p>
+              </Text>
             )
           })}
         </details>
@@ -1119,68 +1236,76 @@ const Entry = ({
   const mcpSource = entry.copies.find((copy) => copy.readBy.length > 0) ?? entry.copies[0]
 
   return (
-  <>
-    <tr className={styles.row} {...(open ? { 'data-open': '' } : {})}>
-      <th scope="row" className={styles.name}>
-        <button type="button" className={styles.nameButton} onClick={onToggle} aria-expanded={open}>
-          <span className={styles.title}>{entry.title ?? entry.name}</span>
-          {entry.description && <span className={styles.desc}>{entry.description}</span>}
-        </button>
-      </th>
-      {entry.reach.map((reach, index) => {
-        const runtime = columns[index]
-        const label = `${entry.name} — ${runtime?.label ?? reach.runtime}: ${REACH_NAME[reach.state]}`
-        return (
-          <td
-            key={reach.runtime}
-            className={styles.cell}
-            data-state={reach.state}
-            {...(isReachProblem(reach.state) ? { 'data-problem': '' } : {})}
-            title={reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state]}
+    <>
+      <TableRow variant="matrix" interactive {...(open ? { 'data-state': 'selected' } : {})}>
+        <TableHead variant="row" pinned scope="row" className={styles.name}>
+          <Button
+            type="button"
+            variant="link"
+            size="content"
+            className={styles.nameButton}
+            onClick={onToggle}
+            aria-expanded={open}
           >
-            <span className={styles.mark} aria-label={label} role="img">
-              <ReachMark state={reach.state} />
-            </span>
-          </td>
-        )
-      })}
-    </tr>
-    {open && (
-      <tr>
-        <td className={styles.detail} colSpan={columns.length + 1}>
-          <div className={styles.detailBody}>
-            <p className={styles.detailHead}>
+            <Text role="navigation">{entry.title ?? entry.name}</Text>
+            {entry.description && <Text role="meta" truncate>{entry.description}</Text>}
+          </Button>
+        </TableHead>
+        {entry.reach.map((reach, index) => {
+          const runtime = columns[index]
+          const label = `${entry.name} — ${runtime?.label ?? reach.runtime}: ${REACH_NAME[reach.state]}`
+          return (
+            <TableCell
+              variant="matrix"
+              key={reach.runtime}
+              data-state={reach.state}
+              {...(isReachProblem(reach.state) ? { 'data-problem': '' } : {})}
+              title={reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state]}
+            >
+              <ReachMark state={reach.state} label={label} placement="cell" />
+            </TableCell>
+          )
+        })}
+      </TableRow>
+      {open && (
+        <TableRow variant="matrix">
+          <TableCell variant="detail" colSpan={columns.length + 1}>
+            <div className={styles.detailBody}>
+            <Text as="p" role="meta" ink="secondary" className={styles.detailHead}>
               {entry.copies.length === 1 ? 'One copy on disk' : `${entry.copies.length} copies on disk`}
-            </p>
-            <ul className={styles.copies}>
+            </Text>
+            <div className={styles.copies} role="list">
               {entry.copies.map((copy) => {
                 const order = orderOf(copy)
                 return (
-                  <li key={copy.path} className={styles.copy}>
+                  <div key={copy.path} role="listitem" className={`${styles.copy} group/copy`}>
                     <span className={styles.copyLine}>
-                      <code className={kit.mono}>{shortPath(copy.path, home)}</code>
+                      <CodeText as="code">{shortPath(copy.path, home)}</CodeText>
                       {order.wins.length > 0 && (
-                        <span
-                          className={styles.orderChip}
-                          data-wins=""
+                        <Chip
+                          tone="neutral"
+                          size="sm"
+                          variant="outline"
+                          emphasis
                           title="More than one copy sits where this agent looks; by scan order — project scope over user, per this build’s location table — this one loads. The agent itself was not asked."
                         >
                           loads for {order.wins.join(', ')}
-                        </span>
+                        </Chip>
                       )}
                       {order.shadowed.length > 0 && (
-                        <span
-                          className={styles.orderChip}
+                        <Chip
+                          tone="neutral"
+                          size="sm"
+                          variant="outline"
                           title="Another copy sits earlier in this agent’s scan order, so this one is never loaded there."
                         >
                           shadowed for {order.shadowed.join(', ')}
-                        </span>
+                        </Chip>
                       )}
                       {entry.kind === 'skill' && !copy.readOnly && (
                         <Button
-                          variant="ghost"
+                          variant="reveal"
                           size="icon-sm"
-                          className={styles.copyRemove}
                           aria-label={`Remove the copy at ${copy.path}`}
                           title="Remove this copy — previewed first, backed up before it goes"
                           onClick={() =>
@@ -1196,9 +1321,8 @@ const Entry = ({
                       )}
                       {entry.kind === 'mcp' && (
                         <Button
-                          variant="ghost"
+                          variant="reveal"
                           size="icon-sm"
-                          className={styles.copyRemove}
                           aria-label={`Remove ${entry.name} from ${copy.path}`}
                           title="Remove this declaration — previewed first, backed up before it goes"
                           onClick={() =>
@@ -1213,7 +1337,7 @@ const Entry = ({
                         </Button>
                       )}
                     </span>
-                    <span className={styles.copyNote}>
+                    <Text role="meta">
                       {copy.hollow
                         ? 'No definition inside it — an agent that scans this directory lists the name and loads nothing.'
                         : copy.readBy.length === 0
@@ -1224,11 +1348,11 @@ const Entry = ({
                               .map((id) => columns.find((one) => one.id === id)?.label ?? id)
                               .join(', ')}.`}
                       {copy.readOnly && ' Shipped by the agent.'}
-                    </span>
-                  </li>
+                    </Text>
+                  </div>
                 )
               })}
-            </ul>
+            </div>
             <div className={styles.rowActions}>
               {/*
                * The drawer peeks — every copy and who reads it, without
@@ -1366,8 +1490,8 @@ const Entry = ({
               </div>
             )}
             {entry.kind === 'skill' && (
-              <p className={styles.facts}>
-                <span className={styles.fact}>
+              <MetaList className={styles.facts}>
+                <span>
                   {entry.catalogTokens
                     ? `Catalogue ≈${entry.catalogTokens} tok/turn`
                     : 'No catalogue line to price'}
@@ -1377,7 +1501,7 @@ const Entry = ({
                     const fired = usage.skills[entry.name]
                     if (!fired) {
                       return (
-                        <span className={styles.fact}>
+                        <span>
                           Never fired in a conversation this desk stores
                         </span>
                       )
@@ -1399,40 +1523,42 @@ const Entry = ({
                     if (rest > 0) parts.push(`${rest}× under earlier registrations`)
                     return (
                       <>
-                        <span className={styles.fact}>
+                        <span>
                           Fired {fired.activations}×{' '}
                           {`in ${fired.sessions} ${fired.sessions === 1 ? 'conversation' : 'conversations'}`}
                           {parts.length > 0 ? ` (${parts.join(', ')})` : ''}
                         </span>
                         {fired.lastAt > 0 && (
-                          <span className={styles.fact}>
+                          <span>
                             Last {new Date(fired.lastAt).toLocaleDateString()}
                           </span>
                         )}
                       </>
                     )
                   })()}
-              </p>
+              </MetaList>
             )}
             {entry.reach.some((reach) => reach.note) && (
-              <ul className={styles.notes}>
+              <div className={styles.notes} role="list">
                 {entry.reach
                   .filter((reach) => reach.note)
                   .map((reach) => (
-                    <li key={reach.runtime}>
-                      <strong>
-                        {columns[entry.reach.indexOf(reach)]?.label ?? reach.runtime}
-                      </strong>
-                      {' \u2014 '}
-                      {reach.note}
-                    </li>
+                    <div role="listitem" key={reach.runtime}>
+                      <Text role="meta" ink="secondary">
+                        <strong>
+                          {columns[entry.reach.indexOf(reach)]?.label ?? reach.runtime}
+                        </strong>
+                        {' \u2014 '}
+                        {reach.note}
+                      </Text>
+                    </div>
                   ))}
-              </ul>
+              </div>
             )}
-          </div>
-        </td>
-      </tr>
-    )}
-  </>
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   )
 }

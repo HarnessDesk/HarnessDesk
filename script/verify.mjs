@@ -102,9 +102,10 @@ step('third-party notices', () => run('node', ['script/check-notices.mjs']))
 
 // A token edit is the one change that repaints every screen at once and shows
 // as almost nothing in the diff. The snapshot makes moving a value deliberate;
-// the audit refuses drift worse than the recorded baseline.
+// the audit refuses every finding and rejects any non-zero saved baseline.
 step('design tokens', () => run('node', ['script/check-design-tokens.mjs']))
 step('design drift', () => run('node', ['script/design-audit.mjs', '--strict']))
+step('UI system', () => run('node', ['script/check-ui-system.mjs']))
 step('interface drift', () => run('node', ['script/check-interface-drift.mjs']))
 step('design doc', () => run('node', ['script/design-doc.mjs', '--check']))
 

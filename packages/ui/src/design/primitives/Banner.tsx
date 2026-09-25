@@ -1,8 +1,9 @@
 import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 
 import { AlertIcon, BellOffIcon, CrossIcon, InfoIcon } from '../../components/Icons'
-import { ContextMenu, MenuItem, type MenuPoint } from '../../components/Menu'
+import { ContextMenu, MenuItem, type MenuPoint } from '../patterns/Menu'
 import { Alert, AlertContent, AlertDescription, AlertTitle } from '../ui/alert'
+import { Button } from '../ui/button'
 import styles from './Banner.module.css'
 
 /**
@@ -27,6 +28,11 @@ import styles from './Banner.module.css'
  * is the caller's here, `undefined` included.
  *
  * Adopting a component is not the same as adopting every opinion in it.
+ *
+ * **Tone** is the one contract in `design/usage.ts` (family `tone`):
+ * `warning` when the person must act now, `danger` when something is broken
+ * or will be lost. A default state, a limit that is working as designed, and
+ * a stop the person asked for ("The agent was stopped.") are `neutral`.
  */
 
 export type BannerTone = 'neutral' | 'info' | 'warning' | 'danger'
@@ -91,7 +97,7 @@ export const Banner = ({
       </AlertContent>
       {actions && <div className={styles.actions}>{actions}</div>}
       {onDismiss && (
-        <button
+        <Button variant="ghost" size="sm"
           type="button"
           className={styles.dismiss}
           aria-label="Dismiss"
@@ -111,7 +117,7 @@ export const Banner = ({
           }}
         >
           <CrossIcon size={compact ? 11 : 13} />
-        </button>
+        </Button>
       )}
       {onDismiss && onMute && (
         <ContextMenu at={menuAt} label="Message options" onClose={() => setMenuAt(null)}>
@@ -139,7 +145,9 @@ export const BannerAction = ({
   variant = 'primary',
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' }) => (
-  <button type="button" className={styles.action} data-variant={variant} {...rest} />
+  <Button type="button" variant={variant === 'primary' ? 'default' : 'secondary'} {...rest} />
 )
 
-export { styles as bannerStyles }
+export const BannerStack = ({ children }: { children: ReactNode }) => (
+  <div className={styles.stack}>{children}</div>
+)

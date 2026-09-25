@@ -4,14 +4,6 @@
   align-items: center;
   justify-content: center;
   min-width: 30px;
-  height: 22px;
-  padding: 0 7px;
-  border: 1px solid var(--hdp-alias-border-l2);
-  border-radius: var(--hd-radius-sm);
-  background: var(--hdp-alias-bg-module-platform);
-  color: var(--hdp-alias-label-secondary);
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
 }
 
 /*
@@ -24,10 +16,6 @@
  * six rows each growing a second line would turn a page you scan into a page
  * you read.
  */
-.putAway {
-  color: var(--hdp-alias-label-tertiary);
-}
-
 /*
  * The paragraph closing a page, for something the list above deliberately does
  * not contain. Matches the note under a group heading on the other settings
@@ -36,9 +24,6 @@
 .pageNote {
   margin: 12px 0 0;
   max-width: 78ch;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hdp-alias-label-secondary);
 }
 
 /* The accents, as a row of colours; the one in use is ringed, not filled. */
@@ -46,34 +31,6 @@
   display: inline-flex;
   align-items: center;
   gap: var(--hd-space-2);
-}
-
-.swatch {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius-full);
-  box-shadow: var(--hd-hairline-soft);
-  cursor: pointer;
-  transition: transform var(--hd-duration-fast) var(--hd-ease);
-}
-
-.swatch:hover {
-  transform: scale(1.1);
-}
-
-.swatch[data-on] {
-  box-shadow:
-    0 0 0 2px var(--hd-card-fill, var(--hd-card)),
-    0 0 0 4px var(--hd-ring);
-}
-
-.swatch:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 2px var(--hd-card-fill, var(--hd-card)),
-    0 0 0 4px var(--hd-ring);
 }
 
 /* The name field: the width the account nickname field has, so the two Name
@@ -92,10 +49,6 @@
   display: grid;
   grid-template-columns: repeat(var(--face-columns), minmax(0, 1fr));
   gap: var(--hd-space-2);
-  padding: var(--hd-space-3);
-  border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
-  border-radius: var(--hd-card-radius, var(--hd-radius-lg));
-  background: var(--hd-card-fill, var(--hd-card));
 }
 
 /* One face you could wear. The one you wear is ringed, not filled — the
@@ -103,12 +56,7 @@
 .faceChoice {
   display: grid;
   place-items: center;
-  height: 56px;
-  padding: 0;
-  border: none;
-  border-radius: var(--hd-radius);
-  background: none;
-  cursor: pointer;
+
 }
 
 .faceTile {
@@ -119,19 +67,4 @@
 
 .faceChoice:hover .faceTile {
   transform: scale(1.06);
-}
-
-.faceChoice[data-on] .faceTile {
-  box-shadow:
-    var(--hd-hairline),
-    0 0 0 2px var(--hd-card-fill, var(--hd-card)),
-    0 0 0 4px var(--hd-ring);
-}
-
-.faceChoice:focus-visible {
-  outline: none;
-}
-
-.faceChoice:focus-visible .faceTile {
-  box-shadow: var(--hd-hairline), var(--hd-focus-ring);
 }

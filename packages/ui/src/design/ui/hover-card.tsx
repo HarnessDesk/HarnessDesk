@@ -1,4 +1,4 @@
-import { HoverCard as HoverCardPrimitive } from 'radix-ui'
+import { PreviewCard as HoverCardPrimitive } from '@base-ui/react/preview-card'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
@@ -21,11 +21,11 @@ import { cn } from '@/lib/utils'
  * it can be entered and pressed. That difference is what the delays encode:
  *
  *   Open  is slow enough that dragging the pointer down a rail of eight
- *         members fires nothing. Radix ships 700ms, which is a beat too long
+ *         members fires nothing. The former 700ms default was a beat too long
  *         to feel like a response to a deliberate rest; 420 is the point at
  *         which a pass reads as a pause.
  *   Close is long enough for the pointer to cross the gap into the card and
- *         reach a button. Radix ships 300, which leaves a card hanging over
+ *         reach a button. The former 300ms default left a card hanging over
  *         the row after the reader has plainly moved on. 160 with an 8px
  *         offset is comfortably inside the travel time and out of the way.
  *
@@ -45,7 +45,7 @@ const HOVER_CARD_SIDE_OFFSET = 8
 
 /* The gutter the positioner keeps between a card and the window's edge.
  *
- * Radix's own default, written down here because a caller measures the room
+ * The explicit shared value, written down here because a caller measures the room
  * beside a trigger with it too (`roomOn` in `AgentHoverCard`). Nothing crossed
  * the two rulers before: a `collisionPadding` given to the content would have
  * made the positioner the stricter of the two, which is the one direction that
@@ -55,43 +55,63 @@ const HOVER_CARD_SIDE_OFFSET = 8
  */
 const HOVER_CARD_COLLISION_PADDING = 0
 
-const HoverCard = ({
-  openDelay = HOVER_CARD_OPEN_DELAY,
+const HoverCard = ({ ...props }: React.ComponentProps<typeof HoverCardPrimitive.Root>) => (
+  <HoverCardPrimitive.Root data-slot="hover-card" {...props} />
+)
+
+const HoverCardTrigger = ({
+  delay = HOVER_CARD_OPEN_DELAY,
   closeDelay = HOVER_CARD_CLOSE_DELAY,
   ...props
-}: React.ComponentProps<typeof HoverCardPrimitive.Root>) => (
-  <HoverCardPrimitive.Root
-    data-slot="hover-card"
-    openDelay={openDelay}
+}: React.ComponentProps<typeof HoverCardPrimitive.Trigger>) => (
+  <HoverCardPrimitive.Trigger
+    data-slot="hover-card-trigger"
+    delay={delay}
     closeDelay={closeDelay}
     {...props}
   />
 )
 
-const HoverCardTrigger = ({ ...props }: React.ComponentProps<typeof HoverCardPrimitive.Trigger>) => (
-  <HoverCardPrimitive.Trigger data-slot="hover-card-trigger" {...props} />
-)
-
+/**
+ * `bleed` is for a card whose body is a composed card of its own — a crest and
+ * bands whose rules run edge to edge (`AgentCard`) — the way a tool pane's
+ * body bleeds for content that brings its own ground: an inset around it would
+ * stop every band's rule short of the card's edge.
+ */
 const HoverCardContent = ({
   className,
   align = 'start',
   side = 'right',
   sideOffset = HOVER_CARD_SIDE_OFFSET,
+  bleed = false,
   ...props
-}: Omit<React.ComponentProps<typeof HoverCardPrimitive.Content>, 'collisionPadding'>) => (
+}: React.ComponentProps<typeof HoverCardPrimitive.Popup> &
+  Pick<React.ComponentProps<typeof HoverCardPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'> & {
+    bleed?: boolean
+  }) => (
   <HoverCardPrimitive.Portal>
-    <HoverCardPrimitive.Content
-      data-slot="hover-card-content"
+    <HoverCardPrimitive.Positioner
+      data-slot="hover-card-positioner"
       align={align}
       side={side}
       sideOffset={sideOffset}
       collisionPadding={HOVER_CARD_COLLISION_PADDING}
-      className={cn(
-        'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-(--hd-z-popover) w-72 origin-(--radix-hover-card-content-transform-origin) overflow-hidden rounded-lg border shadow-md outline-hidden',
-        className,
-      )}
-      {...props}
-    />
+      className="z-(--hd-z-popover)"
+    >
+      <HoverCardPrimitive.Popup
+        data-slot="hover-card-content"
+        {...(bleed ? { 'data-bleed': '' } : {})}
+        className={cn(
+          /* `p-3`, so a card of plain facts — a sentence, a key/value list —
+             is never the first thing that has to hand-roll its own inset;
+             a card whose body is a composed card of its own says `bleed`. */
+          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-72 origin-(--transform-origin) overflow-hidden rounded-lg border shadow-md outline-hidden',
+          bleed ? 'p-0' : 'p-3',
+          className,
+        )}
+        {...props}
+      />
+    </HoverCardPrimitive.Positioner>
   </HoverCardPrimitive.Portal>
 )
 

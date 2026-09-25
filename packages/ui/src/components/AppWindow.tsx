@@ -1,7 +1,20 @@
-import type { ReactNode } from 'react'
-import { Clipped } from '../design/primitives/Kit'
+import {
+  AppWindowPage,
+  AppWindowRail,
+  AppWindowRailScroll,
+  AppWindowRailTop,
+  AppWindowSurface,
+  Button,
+  DialogPortal,
+  DialogRoot,
+  NavigationGroupHeader,
+  Search,
+  Text,
+} from '../design'
+import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
+import { Clipped } from '../design'
 
-import { ArrowLeftIcon, SearchIcon } from './Icons'
+import { ArrowLeftIcon } from './Icons'
 import styles from './AppWindow.module.css'
 
 /**
@@ -15,15 +28,52 @@ import styles from './AppWindow.module.css'
  * chrome is one component and both wear it.
  *
  * The window's own traffic lights sit in the band above the rail, so the rail
- * starts below them and the top of the rail is draggable — this is a window,
- * not an overlay pretending to be one.
+ * starts below them and the top of the rail is draggable. It looks like a
+ * window, while the canonical dialog owns its focus and modal lifecycle.
  */
 
-export const AppWindow = ({ label, children }: { label: string; children: ReactNode }) => (
-  <div className={styles.win} role="dialog" aria-modal="true" aria-label={label}>
-    <div className={styles.winBody}>{children}</div>
-  </div>
-)
+/** Embedded catalogs show several windows together without taking the desk. */
+export const AppWindowMode = createContext<'modal' | 'embedded'>('modal')
+
+export const AppWindow = ({ label, children }: { label: string; children: ReactNode }) => {
+  const embedded = useContext(AppWindowMode) === 'embedded'
+  const [host, setHost] = useState<HTMLDivElement | null>(null)
+  const surface = useRef<HTMLDivElement>(null)
+  return (
+    <div ref={setHost}>
+      <DialogRoot
+        open
+        modal={!embedded}
+        disablePointerDismissal
+        onOpenChange={(open, details) => {
+          if (!open && details.reason === 'escape-key') {
+            // The existing window stack answers after menus and before the
+            // covered conversation/sidebar. Preserve that ordering while
+            // Base UI owns modality, focus containment and focus return.
+            details.cancel()
+            details.allowPropagation()
+          }
+        }}
+      >
+        {host && (
+          <DialogPortal container={host}>
+            <AppWindowSurface
+              ref={surface}
+              className={styles.win}
+              aria-label={label}
+              modal={!embedded}
+              aria-describedby={undefined}
+              initialFocus={embedded ? false : surface}
+              finalFocus={!embedded}
+            >
+              <div className={styles.winBody}>{children}</div>
+            </AppWindowSurface>
+          </DialogPortal>
+        )}
+      </DialogRoot>
+    </div>
+  )
+}
 
 export const WindowNav = ({
   onBack,
@@ -40,34 +90,31 @@ export const WindowNav = ({
   }
   children: ReactNode
 }) => (
-  <nav className={styles.winNav} data-hd-density="comfortable">
-    <div className={`${styles.winNavTop} hd-drag`}>
-      <button type="button" className={`${styles.backRow} hd-no-drag`} onClick={onBack}>
-        <span className={styles.backIcon}>
+  <AppWindowRail className={styles.winNav} data-hd-density="comfortable">
+    <AppWindowRailTop className={`${styles.winNavTop} hd-drag`}>
+      <Button type="button" variant="navigation" size="navigation" className={`${styles.backRow} hd-no-drag`} onClick={onBack}>
+        <Text role="meta" ink="navigation" className={styles.backIcon}>
           <ArrowLeftIcon size={15} />
-        </span>
+        </Text>
         Back to app
-      </button>
+      </Button>
       {search && (
-        <div className={`${styles.winSearch} hd-no-drag`}>
-          <SearchIcon size={14} />
-          <input
-            type="search"
-            value={search.value}
-            placeholder={search.placeholder}
-            aria-label={search.label}
-            onChange={(event) => search.onChange(event.target.value)}
-          />
-        </div>
+        <Search
+          className={`${styles.winSearchLayout} hd-no-drag`}
+          value={search.value}
+          placeholder={search.placeholder}
+          label={search.label}
+          onChange={search.onChange}
+        />
       )}
-    </div>
-    <div className={styles.winNavScroll}>{children}</div>
-  </nav>
+    </AppWindowRailTop>
+    <AppWindowRailScroll className={styles.winNavScroll}>{children}</AppWindowRailScroll>
+  </AppWindowRail>
 )
 
 export const WindowGroup = ({ label, children }: { label: string; children: ReactNode }) => (
   <div className={styles.winGroup}>
-    <div className={styles.winGroupLabel}>{label}</div>
+    <NavigationGroupHeader label={label} />
     {children}
   </div>
 )
@@ -88,21 +135,21 @@ export const WindowNavItem = ({
   selected: boolean
   onClick: () => void
 }) => (
-  <button
+  <Button
     type="button"
-    className={styles.winNavItem}
+    variant="navigation" size="navigation" className={styles.winNavItem}
     {...(selected ? { 'data-selected': '' } : {})}
     onClick={onClick}
   >
-    <span className={styles.winNavIcon}>{icon}</span>
+    <Text role="meta" ink="navigation" className={styles.winNavIcon}>{icon}</Text>
     {/* A nav is a list of equal rows, so the label takes what is left and cuts
         rather than wrapping the row to two lines. The runtime names some of
         these — "Skills & commands" is Claude's and Cursor's word — so the
         longest one is not ours to choose. */}
-    <span className={styles.winNavLabel}>{label}</span>
-    {count !== undefined && <span className={styles.winNavCount}>{count}</span>}
+    <Text role="navigation" className={styles.winNavLabel}>{label}</Text>
+    {count !== undefined && <Text role="meta" ink="navigation" numeric className={styles.winNavCount}>{count}</Text>}
     {trail}
-  </button>
+  </Button>
 )
 
 /**
@@ -126,19 +173,27 @@ export const WindowNavIdentity = ({
   selected: boolean
   onClick: () => void
 }) => (
-  <button
+  <Button
     type="button"
-    className={`${styles.winNavItem} ${styles.winIdentity}`}
+    variant="navigation" size="navigation" className={`${styles.winNavItem} ${styles.winIdentity}`}
     {...(selected ? { 'data-selected': '' } : {})}
     onClick={onClick}
   >
     {face}
-    <Clipped className={styles.winNavLabel}>{name}</Clipped>
-  </button>
+    <Clipped className={styles.winNavLabel}><Text role="row">{name}</Text></Clipped>
+  </Button>
 )
 
 export const WindowNavEmpty = ({ children }: { children: ReactNode }) => (
-  <div className={styles.winNavEmpty}>{children}</div>
+  <Text as="div" role="muted" ink="navigation" className={styles.winNavEmpty}>{children}</Text>
+)
+
+export const WindowNavCount = ({ children, title }: { children: ReactNode; title?: string }) => (
+  <Text role="meta" ink="navigation" numeric className={styles.winNavCount} title={title}>{children}</Text>
+)
+
+export const WindowNavStateMark = ({ children }: { children: ReactNode }) => (
+  <span className={styles.winNavDot}>{children}</span>
 )
 
 /**
@@ -151,11 +206,9 @@ export const WindowNavEmpty = ({ children }: { children: ReactNode }) => (
  * line.
  */
 export const WindowPage = ({ wide, children }: { wide?: boolean; children: ReactNode }) => (
-  <div className={styles.page} data-hd-density="comfortable">
+  <AppWindowPage className={styles.page} data-hd-density="comfortable">
     <div className={styles.pageInner} {...(wide ? { 'data-wide': '' } : {})}>
       {children}
     </div>
-  </div>
+  </AppWindowPage>
 )
-
-export { styles as appWindow }

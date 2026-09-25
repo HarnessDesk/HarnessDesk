@@ -93,17 +93,22 @@ const askHost = <M extends keyof ChildToHostMethods>(
  * the window. Installed only when `host/hello` says the parent can.
  */
 const remoteBrowserEngine: BrowserEngine = {
-  async ensure() {
-    await askHost('browser/ensure', {})
+  async ensure(identity) {
+    if (!identity) throw new Error('A browser request needs a live invocation.')
+    const invocation = identity.invocation
+    await askHost('browser/ensure', { invocation })
     return {
-      send: (method, params) => askHost('browser/send', { method, ...(params ? { params } : {}) }),
+      send: (method, params) =>
+        askHost('browser/send', { invocation, method, ...(params ? { params } : {}) }),
       // Console and network are events, and events are pulled across this
       // boundary rather than pushed — see `ChildToHostMethods`.
-      drain: () => askHost('browser/events', {}),
+      drain: () => askHost('browser/events', { invocation }),
     }
   },
-  async close() {
-    await askHost('browser/close', {})
+  async close(identity) {
+    if (identity?.invocation === 'host-shutdown') return
+    if (!identity) throw new Error('A browser request needs a live invocation.')
+    await askHost('browser/close', { invocation: identity.invocation })
   },
 }
 
@@ -143,12 +148,20 @@ const remoteTeamEngine: TeamEngine = {
   claim: (intent, scope, files) => askHost('team/claim', { scope, intent, ...(files ? { files } : {}) }),
   claimNext: (scope, files) => askHost('team/claimNext', { scope, ...(files ? { files } : {}) }),
   awaitWork: (scope, options) => askHost('team/awaitWork', { scope, ...options }),
+  awaitMember: (scope, options) => askHost('team/awaitMember', { scope, ...options }),
   conflicts: (paths, scope) => askHost('team/conflicts', { scope, paths }),
   complete: (intent, args, scope) => askHost('team/complete', { scope, intent, ...args }),
   release: (intent, args, scope) => askHost('team/release', { scope, intent, ...args }),
   handoff: (intent, scope) => askHost('team/handoff', { scope, intent }),
   status: (scope) => askHost('team/status', { scope }),
   send: (args, scope) => askHost('team/send', { scope, ...args }),
+  reviewCandidates: (intent, scope) => askHost('team/reviewCandidates', { scope, intent }),
+  recordReview: (input, scope) => askHost('team/recordReview', { scope, ...input }),
+  // The input crosses whole: the parent's engine is the one that refuses a key it may not carry.
+  raiseFinding: (input, scope) => askHost('team/raiseFinding', { scope, input }),
+  repairFinding: (input, scope) => askHost('team/repairFinding', { scope, input }),
+  decideFinding: (input, scope) => askHost('team/decideFinding', { scope, input }),
+  listFindings: (input, scope) => askHost('team/listFindings', { scope, input }),
 }
 
 setTeamEngine(remoteTeamEngine)
@@ -158,6 +171,7 @@ const remoteForgeEngine: ForgeEngine = {
   seat: (scope) => askHost('forge/seat', { scope }),
   identity: (scope) => askHost('forge/identity', { scope }),
   publish: async (reference, scope) => void (await askHost('forge/publish', { scope, reference })),
+  publicationAllowed: (scope) => askHost('forge/publicationAllowed', { scope }),
 }
 
 setForgeEngine(remoteForgeEngine)
@@ -223,7 +237,8 @@ const handlers: Handlers = {
   'command/run': async (params) => ({
     handled: await kernel.runCommand(params.name, params.argument, params.scope),
   }),
-  'tool/invoke': (params) => kernel.invokeTool(params.id as never, params.args, params.scope),
+  'tool/invoke': (params) =>
+    kernel.invokeTool(params.id as never, params.args, params.scope, params.browser ?? null),
   'hooks/run': (params) => kernel.runHooks(params.invocation),
   'context/resolve': (params) => kernel.resolveContext(params.query),
   'context/resolveOne': (params) => kernel.resolveOne(params.id as never, params.ref, params.scope),

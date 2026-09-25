@@ -1,0 +1,39 @@
+version: 2
+name: "Independent review"
+description: "A change is built, then read by several different specialists at once — security, performance and API, never the same eyes twice."
+inputs:
+  task:
+    label: "Task"
+roles:
+  build:
+    kind: agent
+    uses: [implementer]
+    grant: edit
+    independentOf: []
+  specialists:
+    kind: agent
+    uses: [security-reviewer, performance-reviewer, api-reviewer]
+    grant: read
+    independentOf: [build]
+  ship:
+    kind: person
+    outcomes: [shipped]
+seed: { role: build, title: "{{task}}" }
+rules:
+  - id: to-specialists
+    on: build
+    then: { role: specialists, title: "Review the change" }
+  - id: to-ship
+    on: specialists
+    when: { every: [approve] }
+    then: { role: ship, title: "Ship it — every specialist approved" }
+messaging: board-only
+# How far a run may go before it stops for a person: closed rounds in all, and
+# closed rounds in a row that brought no new evidence. Raise it for longer loops.
+budget: { rounds: 3, without-progress: 2 }
+wait: 240
+# Front-door metadata only: no grant, seat or route lives here. Order is this
+# shape's place among the six default choices. It opens with a step that may
+# edit, so it starts from a plain project only; a branch, a pull request or a
+# diff is reviewed by the Review shape, which only reads.
+layout: {"frontDoor":{"order":1,"contexts":["project"]}}

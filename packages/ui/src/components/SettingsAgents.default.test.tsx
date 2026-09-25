@@ -13,7 +13,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { AgentsSection } from './SettingsAgents'
+import { RuntimesSection } from './SettingsAgents'
 
 /**
  * The "Default" chip, on all three surfaces that draw it.
@@ -112,7 +112,7 @@ const mount = async (over: Partial<AppSnapshot>): Promise<void> => {
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsSection onSignIn={() => {}} />
+        <RuntimesSection onSignIn={() => {}} />
       </StoreProvider>,
     )
   })
@@ -126,6 +126,26 @@ const chip = (): string => {
   if (!found) throw new Error('no Default chip on screen')
   return found.getAttribute('data-state') ?? ''
 }
+
+it('names each runtime in the subject role', async () => {
+  // It wore the subject role and a size of its own on top; the role alone
+  // now says how a card's subject is named.
+  await mount({})
+  const name = [...container.querySelectorAll('[data-slot="text"]')].find(
+    (node) => node.textContent === 'Claude Code',
+  )
+  expect(name?.getAttribute('data-role')).toBe('subject')
+  // The subject step — 14px medium — a step above the 13px row titles of the
+  // accounts under it; measured in the engine in e2e/ui-system/row-fold.spec.ts.
+  expect(name?.className).toContain('text-base')
+  expect(name?.className).toContain('font-medium')
+})
+
+/** The button that opens the agent's own page: the one carrying its name. */
+const agentName = (): Element | undefined =>
+  [...container.querySelectorAll('button')].find((node) =>
+    node.querySelector('[data-slot="text"][data-role="subject"]'),
+  )
 
 const click = async (node: Element | null | undefined, what: string): Promise<void> => {
   if (!node) throw new Error(`nothing to click: ${what}`)
@@ -143,7 +163,7 @@ const openBlock = async (): Promise<void> => {
 
 const back = async (): Promise<void> => {
   await click(
-    [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Agents'),
+    [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Runtimes'),
     'the back link',
   )
 }
@@ -152,7 +172,7 @@ const back = async (): Promise<void> => {
 const listAndAgentPage = async (): Promise<string[]> => {
   await openBlock()
   const header = chip()
-  await click(container.querySelector('button[class*="headOpen"]'), 'the agent name')
+  await click(agentName(), 'the agent name')
   const agentPage = chip()
   await back()
   return [header, agentPage]
@@ -163,7 +183,7 @@ const everySurface = async (): Promise<string[]> => {
   const [header, agentPage] = await listAndAgentPage()
   await openBlock()
   await click(
-    [...container.querySelectorAll('button[class*="rowButton"]')].find((node) =>
+    [...container.querySelectorAll('button')].find((node) =>
       node.textContent?.includes('olivia@acme.dev'),
     ),
     'the account row',
@@ -204,4 +224,23 @@ it('a healthy signed-in default is ready on all three', async () => {
   const states = await everySurface()
   expect(new Set(states).size).toBe(1)
   expect(states[0]).toBe('ready')
+})
+
+it('folds an agent with the system disclosure mark, as its own target beside the name', async () => {
+  await mount({ accountsByRuntime: { [CLAUDE]: signedIn } } as unknown as Partial<AppSnapshot>)
+  const fold = (): Element | undefined =>
+    [...container.querySelectorAll('button')].find((node) =>
+      /^(Show|Hide) the accounts under/.test(node.getAttribute('aria-label') ?? ''),
+    )
+  const mark = (): Element | null | undefined => fold()?.querySelector('[data-slot="disclosure-chevron"]')
+  // The name opens the agent; the fold is a sibling target, never inside it.
+  expect(fold()?.contains(agentName() ?? null)).toBe(false)
+  expect(agentName()?.contains(fold() ?? null)).toBe(false)
+  expect(fold()?.getAttribute('aria-expanded')).toBe('false')
+  expect(mark()?.hasAttribute('data-open')).toBe(false)
+  expect(container.textContent).not.toContain('olivia@acme.dev')
+  await openBlock()
+  expect(fold()?.getAttribute('aria-expanded')).toBe('true')
+  expect(mark()?.hasAttribute('data-open')).toBe(true)
+  expect(container.textContent).toContain('olivia@acme.dev')
 })

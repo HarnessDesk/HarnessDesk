@@ -1,3 +1,4 @@
+import { Alert, Button, ChangeStats, Chip, CodeText, FileState, Spinner, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import { allItems, currentTurn, type FileChangeItem, type Session } from '@harnessdesk/protocol'
@@ -5,7 +6,7 @@ import { allItems, currentTurn, type FileChangeItem, type Session } from '@harne
 import { elapsedSince } from '../lib/clock'
 import { totalsByFile, type FileTotal } from '../lib/turn-view'
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
-import { CheckIcon, CrossIcon, DiffIcon, GoalIcon, TerminalIcon } from './Icons'
+import { CrossIcon, DiffIcon, GoalIcon, TerminalIcon } from './Icons'
 import styles from './SessionBars.module.css'
 
 /**
@@ -26,6 +27,15 @@ const STATUS_LABEL: Record<string, string> = {
   complete: 'done',
 }
 
+const GOAL_TONE: Record<string, Tone> = {
+  active: 'brand',
+  paused: 'neutral',
+  blocked: 'danger',
+  usageLimited: 'danger',
+  budgetLimited: 'danger',
+  complete: 'success',
+}
+
 export const GoalBar = () => {
   const store = useStore()
   const session = useActiveSession()
@@ -38,25 +48,27 @@ export const GoalBar = () => {
       : `${goal.tokensUsed.toLocaleString()} tokens`
 
   return (
-    <div className={styles.goal}>
-      <GoalIcon className={styles.goalIcon} size={14} />
-      <span className={styles.goalText} title={goal.objective}>
+    <Alert tone="neutral" className={`${styles.goal} gap-2`}>
+      <Text role="meta" tone="brand" className={styles.goalIcon}>
+        <GoalIcon size={14} />
+      </Text>
+      <Text role="row" className={styles.goalText} title={goal.objective}>
         {goal.objective}
-      </span>
-      <span className={styles.goalBudget}>{budget}</span>
-      <span className={styles.goalStatus} data-status={goal.status}>
+      </Text>
+      <Text role="meta" numeric className={styles.goalBudget}>{budget}</Text>
+      <Chip tone={GOAL_TONE[goal.status] ?? 'neutral'}>
         {STATUS_LABEL[goal.status] ?? goal.status}
-      </span>
-      <button
+      </Chip>
+      <Button
         type="button"
-        className={styles.goalClear}
+        variant="ghost" size="icon-sm" className={styles.goalClear}
         aria-label="Clear goal"
         title="Clear this goal"
         onClick={() => void store.setGoal(null)}
       >
         <CrossIcon size={11} />
-      </button>
-    </div>
+      </Button>
+    </Alert>
   )
 }
 
@@ -114,18 +126,18 @@ export const JobsBar = () => {
   if (running.length === 0) return null
 
   return (
-    <div className={styles.jobs}>
-      <div className={styles.jobsHead}>
+    <div className={`${styles.jobs} px-(--hd-space-3)`}>
+      <Text as="div" role="meta">
         {running.length === 1 ? '1 command' : `${running.length} commands`} running in this turn
-      </div>
+      </Text>
       {running.map((item) => (
         <div key={item.id} className={styles.job}>
-          <span className={styles.spinner} />
-          <TerminalIcon size={12} className={styles.jobIcon} />
-          <span className={styles.jobCommand} title={item.command}>
-            {item.command}
-          </span>
-          <span className={styles.jobElapsed}>{elapsed(item.startedAt, now)}</span>
+          <Spinner size="sm" tone="brand" aria-hidden />
+          <Text role="meta" className={styles.jobIcon}><TerminalIcon size={12} /></Text>
+          <Text role="meta" className={styles.jobCommand} title={item.command}>
+            <CodeText>{item.command}</CodeText>
+          </Text>
+          <Text role="meta" numeric className={styles.jobElapsed}>{elapsed(item.startedAt, now)}</Text>
         </div>
       ))}
     </div>
@@ -166,26 +178,25 @@ export const Deliverables = () => {
   }
 
   return (
-    <div className={styles.deliverables}>
+    <Text as="div" role="meta" className={styles.deliverables}>
       <DiffIcon size={12} />
       {files.length} file{files.length === 1 ? '' : 's'} changed
       {files.slice(0, 8).map((file) => (
-        <button
+        <Button
           key={file.path}
           type="button"
-          className={styles.deliverable}
+          variant="row" size="row" className={styles.deliverable}
           title={file.path}
           onClick={() => {
             if (snapshot.detailsTab !== 'changes') store.setDetailsTab('changes')
           }}
         >
-          {file.kind === 'add' ? <CheckIcon size={10} /> : null}
+          <FileState state={file.kind === 'add' ? 'added' : file.kind === 'delete' ? 'deleted' : 'modified'} />
           {relative(file.path).split('/').pop()}
-          {file.added > 0 && <span className={styles.deliverableAdded}>+{file.added}</span>}
-          {file.removed > 0 && <span className={styles.deliverableRemoved}>−{file.removed}</span>}
-        </button>
+          <ChangeStats added={file.added} removed={file.removed} />
+        </Button>
       ))}
       {files.length > 8 && <span>and {files.length - 8} more</span>}
-    </div>
+    </Text>
   )
 }

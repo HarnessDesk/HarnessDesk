@@ -8,6 +8,7 @@ import {
   ArrowLeftRight,
   ArrowUp,
   ArrowUpFromLine,
+  BookText,
   CloudDownload,
   Eraser,
   FolderGit2,
@@ -89,6 +90,7 @@ import {
   Minimize2,
   MessageCircleQuestionMark,
   MessageSquare,
+  MessageSquareOff,
   MessageSquarePlus,
   Monitor,
   MonitorSmartphone,
@@ -111,6 +113,7 @@ import {
   ScanSearch,
   ScrollText,
   Search,
+  Workflow,
   Server,
   Settings,
   ShieldAlert,
@@ -252,6 +255,12 @@ export const ImportIcon = icon(Import, 'ImportIcon')
    — and sat a few pixels from a tab wearing the same glyph for that reason. */
 export const ExportIcon = icon(FileDown, 'ExportIcon')
 export const CopyIcon = icon(Copy, 'CopyIcon')
+
+/** The copy control's Lucide marks for trusted HTML that React does not own. */
+export const copyIconMarkup = (copied: boolean): string =>
+  copied
+    ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>'
+    : '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>'
 export const TrashIcon = icon(Trash2, 'TrashIcon')
 export const PencilIcon = icon(Pencil, 'PencilIcon')
 export const ArchiveIcon = icon(Archive, 'ArchiveIcon')
@@ -287,6 +296,8 @@ export const PullRequestClosedIcon = icon(GitPullRequestClosed, 'PullRequestClos
 export const IssueIcon = icon(CircleDot, 'IssueIcon')
 /** A comment on the forge. */
 export const CommentIcon = icon(MessageSquare, 'CommentIcon')
+/** Messages held at the board — a room's messaging turned off. */
+export const MessageOffIcon = icon(MessageSquareOff, 'MessageOffIcon')
 /** A branch wound back to an earlier commit. */
 export const ResetIcon = icon(RotateCcw, 'ResetIcon')
 /** One checkout of the repository — a folder the repository is open in. */
@@ -316,6 +327,8 @@ export const ToolIcon = icon(Wrench, 'ToolIcon')
 export const BrainIcon = icon(Brain, 'BrainIcon')
 /** An agent — a runtime, or a sub-agent it spawned. */
 export const AgentIcon = icon(Bot, 'AgentIcon')
+/** An Agent's own brief — the file it is, as distinct from its running seat. */
+export const BriefIcon = icon(BookText, 'BriefIcon')
 /** A skill, or anything else the agent is handed to work with. */
 export const SparkIcon = icon(Sparkle, 'SparkIcon')
 export const GlobeIcon = icon(Globe, 'GlobeIcon')
@@ -356,6 +369,8 @@ export const ResourceIcon = icon(Database, 'ResourceIcon')
 export const LibraryIcon = icon(LibraryBig, 'LibraryIcon')
 /** A model route. */
 export const RouteIcon = icon(Route, 'RouteIcon')
+/** An editable flow: a policy that routes cards between Agent, check and person steps. */
+export const FlowIcon = icon(Workflow, 'FlowIcon')
 export const PresetIcon = icon(Bookmark, 'PresetIcon')
 export const ShieldIcon = icon(ShieldCheck, 'ShieldIcon')
 
@@ -413,6 +428,8 @@ export const CostIcon = icon(CircleDollarSign, 'CostIcon')
 export const SortNameIcon = icon(ArrowDownAZ, 'SortNameIcon')
 /** What happened, in order. */
 export const HistoryIcon = icon(History, 'HistoryIcon')
+/** A fact recorded before what is there now — a stale chip's leading mark. */
+export const StaleIcon = icon(History, 'StaleIcon')
 export const ServerIcon = icon(Server, 'ServerIcon')
 export const DownloadIcon = icon(Download, 'DownloadIcon')
 /** Approved, and for the rest of the session too. */

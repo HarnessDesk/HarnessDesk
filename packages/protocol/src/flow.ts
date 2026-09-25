@@ -274,6 +274,13 @@ export interface FlowProblem {
   /** `roles.reviewer.seat`, `rules[2].when` — where to look. */
   readonly at: string
   readonly text: string
+  /**
+   * Set on a problem that is only about this machine right now — no seat can
+   * be taken because a runtime is down or signed out — rather than about what
+   * the flow says. A person's dry run still refuses on it; a trigger's arm
+   * binds nothing of it, and a trigger's dispatch reads it again.
+   */
+  readonly availability?: true
 }
 
 /** A seat the flow would open, and what opening it costs. */

@@ -1,4 +1,5 @@
-import { ToggleGroup as ToggleGroupPrimitive } from 'radix-ui'
+import { Toggle } from '@base-ui/react/toggle'
+import { ToggleGroup as ToggleGroupPrimitive } from '@base-ui/react/toggle-group'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { createContext, useContext } from 'react'
 import type * as React from 'react'
@@ -9,7 +10,7 @@ import { cn } from '@/lib/utils'
  * heights on the app's measure tokens, ring utilities dropped. */
 
 const toggleVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-accent data-[state=on]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none transition-colors whitespace-nowrap",
+    'inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50 data-pressed:bg-accent data-pressed:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none transition-colors whitespace-nowrap',
   {
     variants: {
       variant: {
@@ -29,33 +30,68 @@ const toggleVariants = cva(
   },
 )
 
-const ToggleGroupContext = createContext<VariantProps<typeof toggleVariants>>({
+const ToggleGroupContext = createContext<VariantProps<typeof toggleVariants> & { type: 'single' | 'multiple' }>({
   size: 'default',
   variant: 'default',
+  type: 'single',
 })
+
+type ToggleGroupProps = Omit<ToggleGroupPrimitive.Props<string>, 'value' | 'defaultValue' | 'onValueChange' | 'multiple'> &
+  VariantProps<typeof toggleVariants> &
+  (
+    | {
+        type: 'single'
+        value?: string
+        defaultValue?: string
+        onValueChange?: (value: string) => void
+      }
+    | {
+        type: 'multiple'
+        value?: readonly string[]
+        defaultValue?: readonly string[]
+        onValueChange?: (value: string[]) => void
+      }
+  )
 
 const ToggleGroup = ({
   className,
   variant,
   size,
   children,
+  type,
+  value,
+  defaultValue,
+  onValueChange,
   ...props
-}: React.ComponentProps<typeof ToggleGroupPrimitive.Root> &
-  VariantProps<typeof toggleVariants>) => (
-  <ToggleGroupPrimitive.Root
+}: ToggleGroupProps) => (
+  <ToggleGroupPrimitive
     data-slot="toggle-group"
     data-variant={variant}
     data-size={size}
+    role={type === 'single' ? 'radiogroup' : 'group'}
     className={cn(
       'group/toggle-group flex w-fit items-center rounded-md data-[variant=outline]:shadow-xs',
       className,
     )}
+    multiple={type === 'multiple'}
+    value={type === 'multiple' ? value : value == null || value === '' ? [] : [value]}
+    defaultValue={
+      type === 'multiple'
+        ? defaultValue
+        : defaultValue == null || defaultValue === ''
+          ? []
+          : [defaultValue]
+    }
+    onValueChange={(next) => {
+      if (type === 'multiple') onValueChange?.(next)
+      else onValueChange?.(next[0] ?? '')
+    }}
     {...props}
   >
-    <ToggleGroupContext.Provider value={{ variant: variant ?? 'default', size: size ?? 'default' }}>
+    <ToggleGroupContext.Provider value={{ variant: variant ?? 'default', size: size ?? 'default', type }}>
       {children}
     </ToggleGroupContext.Provider>
-  </ToggleGroupPrimitive.Root>
+  </ToggleGroupPrimitive>
 )
 
 const ToggleGroupItem = ({
@@ -64,12 +100,12 @@ const ToggleGroupItem = ({
   variant,
   size,
   ...props
-}: React.ComponentProps<typeof ToggleGroupPrimitive.Item> &
+}: React.ComponentProps<typeof Toggle<string>> &
   VariantProps<typeof toggleVariants>) => {
   const context = useContext(ToggleGroupContext)
 
   return (
-    <ToggleGroupPrimitive.Item
+    <Toggle
       data-slot="toggle-group-item"
       data-variant={context.variant ?? variant}
       data-size={context.size ?? size}
@@ -78,13 +114,22 @@ const ToggleGroupItem = ({
           variant: context.variant ?? variant,
           size: context.size ?? size,
         }),
-        'min-w-0 flex-1 shrink-0 rounded-none shadow-none first:rounded-l-md last:rounded-r-md data-[variant=outline]:border-l-0 data-[variant=outline]:first:border-l',
+        // Intrinsic widths keep long labels inside their own segment. Equal
+        // zero-basis cells overflow when the group's labels differ in length.
+        'flex-none rounded-none shadow-none first:rounded-l-md last:rounded-r-md data-[variant=outline]:border-l-0 data-[variant=outline]:first:border-l',
         className,
+      )}
+      render={(renderProps, state) => (
+        <button
+          {...renderProps}
+          role={context.type === 'single' ? 'radio' : undefined}
+          aria-checked={context.type === 'single' ? state.pressed : undefined}
+        />
       )}
       {...props}
     >
       {children}
-    </ToggleGroupPrimitive.Item>
+    </Toggle>
   )
 }
 

@@ -1,6 +1,5 @@
 import { CaretIcon, CrossIcon, ExpandIcon, PanelIcon, RestoreIcon } from '../components/Icons'
-import { Menu, MenuItem, MenuLabel } from '../components/Menu'
-import { Popover } from '../components/Popover'
+import { Button, Menu, MenuItem, MenuLabel, Popover } from '../design'
 import { useMountControls } from './mount'
 import { useViewTitle } from './views'
 import { AREA_NAME } from '../state/workbench'
@@ -127,7 +126,6 @@ const SplitAndMoveMenu = () => {
          "there is more". */
       label={<PanelIcon size={14} />}
       title={`Move or split ${titleOf(view)}`}
-      triggerClassName={styles.action}
       align="right"
     >
       {(close) => (
@@ -183,7 +181,7 @@ const PanelButton = ({
   onClick: () => void
   children: React.ReactNode
 }) => (
-  <button type="button" className={styles.action} onClick={onClick} title={label} aria-label={label}>
+  <Button variant="ghost" size="icon-sm" onClick={onClick} title={label} aria-label={label}>
     {children}
-  </button>
+  </Button>
 )

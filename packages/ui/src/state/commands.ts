@@ -95,9 +95,9 @@ export const BUILTIN_COMMANDS: readonly CommandDefinition[] = [
   },
   {
     name: 'race',
-    description: 'Send one task to two agents, each in its own worktree; the second waits in the sidebar',
+    description: 'Run one Agent as two isolated seats on the same task, then compare',
     argumentHint: '<task>',
-    available: (snapshot) => snapshot.runtimes.length > 1 && Boolean(snapshot.workspace?.git?.branch),
+    available: (snapshot) => Boolean(snapshot.workspace?.git?.branch),
     kind: { type: 'action', run: (store, argument) => void store.raceAgents(argument) },
   },
   {
@@ -304,9 +304,14 @@ export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
     source: agentName,
     kind: {
       type: 'action' as const,
+      /* Queued, like every other message from that box. A skill is typed into
+         the composer, and the composer's plain text waits for a running turn
+         to end — a `/skill` that instead tried to start a second turn beside
+         it asked the agent two things at once, which is a thing an agent
+         cannot be asked. */
       run: async (store: AppStore, argument: string) => {
         const text = argument ? `/${skill.name} ${argument}` : `/${skill.name}`
-        await store.send([{ type: 'text', text }])
+        await store.queue([{ type: 'text', text }])
       },
     },
   }))

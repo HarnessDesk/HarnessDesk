@@ -30,7 +30,7 @@
  * Deliberately only a few carry an address: a desk where all twelve seats
  * carry one photographs as a mailing list.
  */
-import { CAST, OLIVIA, PRIMARY, SHANE } from './cast.mjs'
+import { CAST, OLIVIA, PRIMARY, SHANE, rigRuntimeId } from './cast.mjs'
 
 /**
  * `kind` is the runtime's own word for the sort of identity this is, opaque to
@@ -60,10 +60,14 @@ export const ACCOUNTS = {
   cursor: status({ kind: 'agent', label: `${PRIMARY.name}-Cursor`, planType: 'Pro' }),
   'gemini-cli': status(person(SHANE.email, 'Free')),
   copilot: status(person(SHANE.email, null)),
+  // Signed out — the state a refusal names — on the one seat no other scene uses.
+  windsurf: status(),
 }
 
 /** What any other runtime says, including one the rig has never heard of. */
 export const ANONYMOUS = status(ANYBODY)
+
+export const RUNTIME_ACCOUNTS = Object.fromEntries(Object.entries(ACCOUNTS).map(([id, status]) => [rigRuntimeId(id), status]))
 
 /** The rig's answer to `runtime/account`, for every runtime there can be. */
 export const accountFor = (runtime) => ACCOUNTS[runtime] ?? ANONYMOUS

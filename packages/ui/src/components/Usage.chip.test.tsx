@@ -57,10 +57,10 @@ const state = (input: UsageReport) => stateOf(input, describeReport(input, { now
 describe('the plan chip', () => {
   it('does not limit an account because one model is spent', () => {
     const view = describeReport(fableSpent, { now: NOON, maxLanes: 3 })
-    // The card's own two facts, unchanged: the headline is the account-wide
-    // weekly, and the scoped window still gets its sentence.
-    expect(view.hero?.id).toBe('weekly')
-    expect(view.hero?.remainingPercent).toBe(37)
+    // The account-wide shortest lane leads by default; the spent Fable lane
+    // stays visible but does not block the account.
+    expect(view.hero?.id).toBe('session')
+    expect(view.hero?.remainingPercent).toBe(88)
     expect(view.reachedLane?.scope).toBe('Fable')
     expect(state(fableSpent)).toBe('ready')
   })
@@ -116,14 +116,40 @@ const shapes: readonly { readonly name: string; readonly report: UsageReport; re
     out: true,
   },
   {
-    name: 'scoped lanes and no account-wide one',
+    name: 'scoped lanes and no account-wide one, one of them spent',
     report: report({
       lanes: [
         lane({ id: 'weekly:fable', usedPercent: 100, scope: 'Fable' }),
         lane({ id: 'weekly:opus', usedPercent: 20, scope: 'Opus' }),
       ],
+      reached: 'weekly:fable',
+    }),
+    out: false,
+  },
+  {
+    name: 'scoped lanes and no account-wide one, every one spent',
+    report: report({
+      lanes: [
+        lane({ id: 'weekly:fable', usedPercent: 100, scope: 'Fable' }),
+        lane({ id: 'weekly:opus', usedPercent: 100, scope: 'Opus' }),
+      ],
     }),
     out: true,
+  },
+  {
+    // Antigravity's quota read through the `agy` CLI, which signs in on its
+    // own: whatever it says, it is not this agent's account (#769).
+    name: "another sign-in's figures, every one of them spent",
+    report: report({
+      unverified: {
+        whose: 'agy CLI sign-in',
+        lanes: [lane({ id: 'gemini-weekly', usedPercent: 100, scope: 'Gemini Models' })],
+        reached: 'gemini-weekly',
+        fetchedAt: NOON,
+        staleAfterMs: 60_000,
+      },
+    }),
+    out: false,
   },
   { name: 'an account with plenty left', report: report({ lanes: [lane({ id: 'weekly', usedPercent: 12 })] }), out: false },
   { name: 'an account that reports no lane at all', report: report({}), out: false },

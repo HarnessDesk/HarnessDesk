@@ -86,14 +86,14 @@ const gateway = (): Socket => {
   return socket
 }
 
-const call = <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
+const call = <T>(method: string, params: Record<string, unknown> = {}, timeoutMs = 120_000): Promise<T> => {
   const id = ++nextId
   gateway().write(`${JSON.stringify({ id, method, params })}\n`)
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id)
       reject(new Error(`${method} timed out.`))
-    }, 120_000)
+    }, timeoutMs)
     pending.set(id, {
       resolve: (value) => {
         clearTimeout(timer)
@@ -109,10 +109,40 @@ const call = <T>(method: string, params: Record<string, unknown> = {}): Promise<
 
 // ------------------------------------------------------------------ MCP side
 
+/** A real MCP `CallToolResult` shape — content is required, so anything else is not one and gets wrapped as text instead of forwarded blind. */
+const isMcpContent = (value: unknown): value is { content: unknown[] } =>
+  typeof value === 'object' && value !== null && Array.isArray((value as { content?: unknown }).content)
+
+/**
+ * A Seat's approved external MCP servers reach the real agent through this
+ * exact bridge — the same `tools/list`/`tools/call` verbs an agent already
+ * uses for the desk's own plugin tools, merged into one index. `mcp/list`
+ * gives real names, descriptions and input schemas the gateway actually
+ * fetched from each approved server; an older host without it (or a host not
+ * wired for phase 12 at all) simply contributes nothing here, exactly like
+ * `server/info`'s missing-instructions fallback above.
+ */
+const mcpToolIndex = async (): Promise<GatewayTool[]> => {
+  try {
+    const { tools } = await call<{
+      tools: { name: string; server: string; description?: string; inputSchema?: unknown }[]
+    }>('mcp/list', CALLER ? { caller: CALLER } : {}, 10_000) // bounded: a host that never answers this verb must not stall the desk's own tools too
+    return (tools ?? []).map((tool) => ({
+      namespace: tool.server,
+      name: tool.name,
+      description: tool.description ?? '',
+      inputSchema: tool.inputSchema ?? { type: 'object' },
+      mcp: { server: tool.server },
+    }))
+  } catch {
+    return []
+  }
+}
+
 /** MCP tool names must be unique; namespaces disambiguate only on clashes. */
 const toolIndex = async (): Promise<Map<string, GatewayTool>> => {
-  const { tools } = await call<{ tools: GatewayTool[] }>('tools/list')
-  return buildToolIndex(tools ?? [])
+  const [{ tools }, mcpTools] = await Promise.all([call<{ tools: GatewayTool[] }>('tools/list'), mcpToolIndex()])
+  return buildToolIndex([...(tools ?? []), ...mcpTools])
 }
 
 const respond = (id: unknown, result: object): void => {
@@ -176,6 +206,27 @@ createInterface({ input: process.stdin }).on('line', (line) => {
           const tool = index.get(name)
           if (!tool) {
             fail(id, -32602, `No tool named ${name}.`)
+            return
+          }
+          if (tool.mcp) {
+            // A Seat's approved external server: the gateway's own gate
+            // (approval, ceiling, caller identity) runs on `mcp/call`, never
+            // on the plugin verb — this tool never reaches `tools/invoke`.
+            const mcpResult = await call<{ ok: true; result: unknown } | { ok: false; reason: string }>('mcp/call', {
+              server: tool.mcp.server,
+              tool: tool.name,
+              args: params?.['arguments'] ?? {},
+              ...(CALLER ? { caller: CALLER } : {}),
+            })
+            if (mcpResult.ok) {
+              // Already a real upstream MCP `CallToolResult` — passed through
+              // exactly as the server answered, never reshaped by a
+              // converter built for the desk's own internal tool result
+              // shape.
+              respond(id, isMcpContent(mcpResult.result) ? mcpResult.result : { content: [{ type: 'text', text: String(mcpResult.result) }] })
+            } else {
+              respond(id, { content: [{ type: 'text', text: mcpResult.reason }], isError: true })
+            }
             return
           }
           const result = await call<GatewayResult>('tools/invoke', {

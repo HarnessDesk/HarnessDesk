@@ -2,12 +2,12 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ForgeReference, PublicationItem } from '@harnessdesk/protocol'
+import type { ForgeReference, HostMethodName, PublicationItem } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot } from '../state/store'
 import { ItemView } from './Items'
-import { publicationVerb } from '../design/patterns/PublicationCard'
+import { publicationVerb } from '../design'
 
 /**
  * A publication in the transcript.
@@ -136,6 +136,7 @@ describe('the publication row', () => {
 
       act(() => {
         link.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+        link.closest('[data-slot="hover-card-trigger"]')?.dispatchEvent(new MouseEvent('mouseenter'))
       })
       act(() => {
         vi.advanceTimersByTime(1000)
@@ -171,5 +172,37 @@ describe('the publication row', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  /*
+   * The front door, from a publication row: this project's own numbered pull
+   * request, without anyone re-typing it or checking anything out. A review
+   * item (kind `review`/`comment`) is a record of what happened, not
+   * something to start a fresh dry run against — only a pull-request
+   * reference offers the action.
+   */
+  it('offers Review beside a pull-request reference, opening the front door bound to this PR and project', async () => {
+    const store = new AppStore('ws://localhost:0/')
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+      if (method === 'flow/catalog') return []
+      if (method === 'agent/list') return []
+      return null
+    }) as never)
+    act(() => {
+      root.render(
+        <StoreProvider store={store}>
+          <ItemView item={item()} root="/w" />
+        </StoreProvider>,
+      )
+    })
+    const review = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.trim().startsWith('Review'))!
+    act(() => review.click())
+    await act(async () => {})
+    expect(store.getSnapshot().frontDoor).toMatchObject({ context: { kind: 'pull-request', root: '/w', number: 7 } })
+  })
+
+  it('offers no Review action for a reference that is not a pull request, or with no project root', () => {
+    render(item({ kind: 'review', action: 'posted' }))
+    expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim().startsWith('Review'))).toBe(false)
   })
 })

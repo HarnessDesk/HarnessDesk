@@ -1,11 +1,12 @@
 /**
  * The macOS notification kinds, as the settings page names them.
  *
- * The desktop shell's decider (`packages/desktop/electron/notifications.mjs`)
- * keeps the same four ids and the same defaults-on reading; its test pins the
- * id set, and so does this file's, so the two lists cannot drift apart
- * silently. Everything defaults on: a notification the user never asked to
- * silence should arrive.
+ * The desktop shell's decider (`packages/desktop/electron/notifications.mjs`,
+ * with Intake's two kinds folded in from `intake-notifications.mjs`) keeps
+ * the same ids and the same defaults-on reading; its test pins the id set,
+ * and so does this file's, so the two lists cannot drift apart silently.
+ * Everything defaults on: a notification the user never asked to silence
+ * should arrive.
  */
 
 export interface SystemNotificationKind {
@@ -34,6 +35,26 @@ export const SYSTEM_NOTIFICATION_KINDS: readonly SystemNotificationKind[] = [
     kind: 'needsYou',
     title: 'Needs you',
     detail: 'An agent asked you a question.',
+  },
+  {
+    kind: 'goalNeedsYou',
+    title: 'Goals that need you',
+    detail: 'A Goal changed to work that needs your decision.',
+  },
+  {
+    kind: 'goalReadyToWrap',
+    title: 'Goals ready to wrap',
+    detail: 'A Goal settled and is ready for its receipt.',
+  },
+  {
+    kind: 'triggerAttention',
+    title: 'Unattended work that needs you',
+    detail: 'A Goal a trigger opened is waiting on you, or stopped.',
+  },
+  {
+    kind: 'triggerSkipped',
+    title: 'A trigger was skipped',
+    detail: 'Out of budget, over its limit, a fork, or no longer armed.',
   },
 ]
 
