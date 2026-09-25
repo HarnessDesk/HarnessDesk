@@ -906,7 +906,7 @@ export const RowButton = ({
    * makes every one of them a last child and the list loses every rule.
    */
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'onClick' | 'className'>) => (
-  <Button variant="row" size="content"
+  <Button variant="row" size="pattern"
     type="button"
     className={cx(styles.row, styles.rowButton, className)}
     onClick={onClick}
@@ -952,7 +952,7 @@ export const RowChoice = ({
   disabled?: boolean
   onClick: () => void
 }) => (
-  <Button variant="row" size="content"
+  <Button variant="row" size="pattern"
     type="button"
     role="radio"
     aria-checked={selected}

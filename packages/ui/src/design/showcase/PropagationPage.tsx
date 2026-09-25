@@ -88,7 +88,10 @@ export const PropagationPage = () => {
       {/* Each selectable role at rest beside each way it can be chosen, so the
           contract compares like with like: a fill that differs, and a weight
           that does not. */}
-      <section className={styles.actions} data-testid="selection-contracts">
+      {/* Wrapping, so the settings answers get a line of their own: a `Rows`
+          card has no width of its own to offer a shrinking flex row, and one
+          squeezed beside the buttons clipped its answers to their padding. */}
+      <section className={`${styles.actions} flex-wrap`} data-testid="selection-contracts">
         <Button variant="navigation" size="navigation">Resting page</Button>
         <Button variant="navigation" size="navigation" data-selected="">Chosen page</Button>
         <Button variant="row" size="row">Resting branch</Button>
@@ -96,7 +99,7 @@ export const PropagationPage = () => {
         <Button variant="choice" size="default">Resting option</Button>
         <Button variant="choice" size="default" data-on="">Option turned on</Button>
         <Button variant="choice" size="default" role="radio" aria-checked="true">Option checked</Button>
-        <Rows>
+        <Rows className="basis-full">
           <RowChoice title="Resting answer" selected={false} onClick={() => undefined} />
           <RowChoice title="Chosen answer" selected onClick={() => undefined} />
         </Rows>
