@@ -38,7 +38,7 @@ export const ProvenanceDialog = ({ root, seat, onClose }: { readonly root: strin
       setOpenFailed(true)
     } finally { setOpening(false) }
   }
-  return <Dialog title="Seat record" onClose={onClose} footer={<Button variant="secondary" disabled={!current?.value || Boolean(unavailable) || opening} onClick={() => void open()}>Open conversation</Button>}>
+  return <Dialog title="Seat record" onClose={onClose} footer={<Button variant="default" disabled={!current?.value || Boolean(unavailable) || opening} onClick={() => void open()}>Open conversation</Button>}>
     {snapshot.status !== 'open' ? <Note>The Seat record is unavailable while disconnected.</Note>
       : !current ? <Note>Reading Seat record…</Note>
       : current.failed ? <Note>The Seat record could not be read.</Note>

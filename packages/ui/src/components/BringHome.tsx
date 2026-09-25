@@ -133,10 +133,10 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
         {main?.branch && (
           <>
             {' '}
-            from <span className="font-mono">{main.branch}</span>
+            from {main.branch}
           </>
         )}{' '}
-        to <span className="font-mono">{worktree.branch}</span>, with every commit made here. The
+        to {worktree.branch}, with every commit made here. The
         worktree's folder is removed, and with it anything git ignores there; the branch is not.
       </p>
 
@@ -145,7 +145,7 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
       {mainChanges && carried > 0 && (
         <p>
           {folder} has {describeUncommitted(mainChanges)} not committed. Git carries{' '}
-          {carried === 1 ? 'it' : 'them'} onto <span className="font-mono">{worktree.branch}</span>, or refuses the
+          {carried === 1 ? 'it' : 'them'} onto {worktree.branch}, or refuses the
           switch if {carried === 1 ? 'it clashes' : 'they clash'} with it.
         </p>
       )}

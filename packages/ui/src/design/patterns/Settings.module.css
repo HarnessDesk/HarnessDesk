@@ -533,7 +533,7 @@
 .formField {
   display: flex;
   flex-direction: column;
-  gap: var(--hd-space-1);
+  gap: var(--hd-space-1-5); /* desk: 4 → 6, the label gap a dialog's legend shares */
   min-width: 0;
 }
 
@@ -543,21 +543,44 @@
   width: 100%;
 }
 
+/* The label names the field in the structure ink; its weight, not its size,
+   separates it from the hint under the control. */
 .formLabel {
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
+  font-weight: var(--hd-weight-medium); /* desk: normal → medium, the name is what a form is scanned by */
   color: var(--hd-secondary-foreground);
 }
 
-.formHint {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
+/* A label with "Optional" at its end. */
+.formLabelRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+/* A fact about the field rather than its name: the faint ink, the hint's step. */
+.formOptional {
+  flex: none;
+  font-size: var(--hd-text-xs); /* desk: new, 12 — the hint's step */
+  line-height: var(--hd-line-xs); /* desk: new, 16 — the line the 12px step is set on */
   color: var(--hd-muted-foreground);
 }
 
+/* The one line under a field, a step below the label so it never reads as
+   large as what is typed above it. Explanation is secondary ink, not the
+   faint one (docs/design.md, ink levels). */
+.formHint {
+  font-size: var(--hd-text-xs); /* desk: 13 → 12, the hint step */
+  line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
+  color: var(--hd-secondary-foreground); /* desk: muted → secondary, explanation is not a fact */
+}
+
 .formError {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
+  font-size: var(--hd-text-xs); /* desk: 13 → 12, the error takes the hint's place and its step */
+  line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
   color: var(--hd-danger-ink);
 }
 
@@ -591,6 +614,11 @@
 
 .formStack + .note {
   margin-top: var(--hd-space-3);
+}
+
+/* In a dialog the form stack spaces its notes. */
+.note[data-context='dialog'] {
+  margin: 0;
 }
 
 .note[data-tone='warn'] {
@@ -802,6 +830,11 @@
   background: var(--hd-card-fill, var(--hd-card));
   overflow: hidden;
   margin-bottom: var(--hd-space-1-5);
+}
+
+/* In a dialog the form stack spaces its cards. */
+.rows[data-context='dialog'] {
+  margin-bottom: 0;
 }
 
 /* The divider between rows. It is its own token because the two interfaces
@@ -1053,7 +1086,7 @@
 
 .mono {
   font-family: var(--hd-font-code);
-  font-size: 12.5px;
+  font-size: var(--hd-code-inline); /* desk: 12.5px → 0.92em of its sentence (12px floor), the code face follows the words around it */
 }
 
 .monoInherit {
