@@ -735,6 +735,39 @@ const CATALOGUE_COMMAND_STEP = {
   output: 'Tests 3 failed',
 } as unknown as AgentItem
 
+/** A runtime that answers a shell call with its own record, not a plain
+ * result — read as the same command plate a `command` step draws. */
+const CATALOGUE_RUNTIME_COMMAND_RESULT = {
+  id: 'catalogue-runtime-command-result',
+  type: 'toolCall',
+  tool: 'run_command',
+  source: { kind: 'builtin' },
+  status: 'completed',
+  args: {},
+  result: [{
+    type: 'json',
+    value: {
+      commandLine: 'pnpm build',
+      workingDir: '/workspace',
+      exitCode: 0,
+      exit_code: 0,
+      combinedOutput: 'Build succeeded in 4.2s',
+      formatted_output: 'Build succeeded in 4.2s',
+    },
+  }],
+} as unknown as AgentItem
+
+/** A runtime that answers every call with a bare `{output, isError}` pair. */
+const CATALOGUE_RUNTIME_ERROR_RESULT = {
+  id: 'catalogue-runtime-error-result',
+  type: 'toolCall',
+  tool: 'run_query',
+  source: { kind: 'builtin' },
+  status: 'completed',
+  args: {},
+  result: [{ type: 'json', value: { output: 'connection refused', isError: true } }],
+} as unknown as AgentItem
+
 const CodeBoard = () => (
   <div className={styles.stack}>
     <Case label="command, output, and failure">
@@ -773,6 +806,20 @@ const CodeBoard = () => (
         <StoreProvider store={catalogueStore}>
           <ItemView item={CATALOGUE_AGENT_STEP} root="/workspace" />
           <ItemView item={CATALOGUE_COMMAND_STEP} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="a runtime's own command record, unwrapped as the command plate">
+      <div className="w-full" data-testid="runtime-command-result-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_RUNTIME_COMMAND_RESULT} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="a runtime's own {output, isError} pair, unwrapped as output">
+      <div className="w-full" data-testid="runtime-error-result-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_RUNTIME_ERROR_RESULT} root="/workspace" />
         </StoreProvider>
       </div>
     </Case>
