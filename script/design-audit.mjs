@@ -17,6 +17,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 import { SECTIONS } from './design-sections.mjs'
 import { resolveTokens } from './design-tokens.mjs'
@@ -24,7 +25,7 @@ import { attributes, slotOffenders } from './design-usage.mjs'
 import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 import { withoutComments } from './lib/without-comments.mjs'
 import { repositoryFiles } from './lib/repository-files.mjs'
-import { overlayViolations } from './ui-architecture.mjs'
+import { overlayViolations, staticClassTokens, utilityBase } from './ui-architecture.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -1732,6 +1733,14 @@ const findings = {
   screenAppearance: [],
   screenUnclassified: [],
   visualKindUnion: [],
+  /**
+   * Utilities that look like an appearance family this rule has not been
+   * taught — `caret-red-500`, `from-black` — reported only under `--verbose`,
+   * never counted. Deliberately outside `SECTIONS`: adding a family here
+   * does not tighten anything, it is a hint for whoever next extends
+   * `screenUtilityDeclarationOf`, not a second strict category.
+   */
+  unmappedScreenUtility: [],
 }
 
 /**
@@ -1955,6 +1964,302 @@ const ICON_MODULES = new Set([
   'AppearancePreview.tsx',
   'GitGraph.tsx',
 ])
+
+/**
+ * Screen appearance, re-drawn as a Tailwind utility or an inline `style`
+ * instead of a screen's `.module.css`.
+ *
+ * `screenAppearanceOf` above answers this for a stylesheet; it went quiet
+ * because the same declarations moved into `className={\`... h-(--hd-chip-h)
+ * ...\`}` and `style={{ background: ... }}` in the screen's own `.tsx`, which
+ * that CSS-only rule cannot see. A screen that still draws its own type, ink,
+ * ground, edges or a role's inner box should still count, whichever of the
+ * three spellings — literal CSS, a utility class, an inline style — it used.
+ *
+ * A "screen" here is exactly `isScreenSheet`'s directory test (components,
+ * slots, panels, outside design/), so `preview/` — the harness, not a screen —
+ * and `app/` are never in scope without a separate rule. `ICON_MODULES` keeps
+ * the exemption it already has from the loose-icon rule: a data mark is
+ * content, not a role being redrawn. The `.tsx` that renders each exempt
+ * `.module.css` in `SCREEN_APPEARANCE_EXEMPTIONS` gets the same exemption for
+ * the same reason — prose keeps its own ratio ladder, a diff viewer is a
+ * specialized renderer — whichever of the pair holds the declaration.
+ */
+const SCREEN_APPEARANCE_TSX_EXEMPTIONS = new Set(
+  [...SCREEN_APPEARANCE_EXEMPTIONS].map((sheet) => sheet.replace(/\.module\.css$/, '.tsx')),
+)
+
+const isScreenTsx = (file) =>
+  isScreenSheet(file)
+  && !file.includes('.test.')
+  && !ICON_MODULES.has(path.basename(file))
+  && !SCREEN_APPEARANCE_TSX_EXEMPTIONS.has(screenAppearanceName(file))
+
+/** The combiner every shadcn component reaches for (`lib/utils.ts`'s `cn`)
+ * and its two common aliases — a `cn(...)`/`clsx(...)`/`cx(...)` call is a
+ * third place a screen's classes are spelled, alongside a plain string and a
+ * template literal. */
+const CLASS_COMBINERS = new Set(['cn', 'clsx', 'cx'])
+
+/** Comments gone before the parser sees the file, the same reason `codeOf`
+ * strips them for every other rule here: a `className` sitting in a doc
+ * comment must not read as though it renders (review of #229, #123). */
+const parseScreenSource = (file, source) =>
+  ts.createSourceFile(file, withoutComments(source, file, { strict: true }), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+
+/* Tailwind's named type scale. `2xl` through `9xl` share one shape, so they
+   are matched by pattern instead of listed one at a time. */
+const TEXT_SIZE_SUFFIX = /^(?:xs|sm|base|lg|xl|\d+xl)$/
+const TEXT_ALIGN_SUFFIX = new Set(['left', 'center', 'right', 'justify', 'start', 'end'])
+// `text-wrap`/`nowrap`/`balance`/`pretty` set layout (`white-space`), not a
+// colour — named so they do not fall into the "anything else is a colour"
+// default below.
+const TEXT_LAYOUT_SUFFIX = new Set(['wrap', 'nowrap', 'balance', 'pretty'])
+const FONT_WEIGHT_SUFFIX = new Set(['thin', 'extralight', 'light', 'normal', 'medium', 'semibold', 'bold', 'extrabold', 'black'])
+const FONT_FAMILY_SUFFIX = new Set(['sans', 'serif', 'mono'])
+
+const looksLikeColour = (value) =>
+  /^#[0-9a-f]{3,8}$/i.test(value)
+  || /^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)\(/i.test(value)
+  || /^(?:currentcolor|transparent|black|white)$/i.test(value)
+
+/**
+ * A `h-`/`min-h-`/`max-h-`/`size-` suffix, resolved to a value string that
+ * carries the same layout-vs-metric signal a real CSS value would, so
+ * `screenPropertySideOf` can decide it with the exact rule it already applies
+ * to a stylesheet's `height`: `full`/`screen`/`dvh`/… are the keywords and
+ * viewport units `LAYOUT_HEIGHT` matches, a fraction is a percentage, and a
+ * bare scale number (`8`, `0.5`, `0`) is left for `ZERO_HEIGHT` to tell a
+ * reset from a metric.
+ */
+const HEIGHT_KEYWORD_VALUE = {
+  full: '100%', screen: '100vh', dvh: '100dvh', svh: '100svh', lvh: '100lvh',
+  min: 'min-content', max: 'max-content', fit: 'fit-content', auto: 'auto',
+}
+const heightSuffixValue = (suffix) => {
+  if (Object.hasOwn(HEIGHT_KEYWORD_VALUE, suffix)) return HEIGHT_KEYWORD_VALUE[suffix]
+  const fraction = /^(\d+)\/(\d+)$/.exec(suffix)
+  if (fraction) return `${(100 * Number(fraction[1])) / Number(fraction[2])}%`
+  if (suffix === 'px') return '1px'
+  return suffix
+}
+const HEIGHT_PROPERTY_OF = { h: 'height', 'min-h': 'min-height', 'max-h': 'max-height', size: 'height' }
+const PADDING_SIDE_PROPERTY = {
+  p: 'padding', px: 'padding-inline', py: 'padding-block',
+  pt: 'padding-top', pr: 'padding-right', pb: 'padding-bottom', pl: 'padding-left',
+  ps: 'padding-inline-start', pe: 'padding-inline-end',
+}
+
+/** A whole utility with no suffix — the class name itself is the declaration. */
+const LITERAL_UTILITY_PROPERTY = {
+  italic: 'font-style', 'not-italic': 'font-style',
+  underline: 'text-decoration', 'line-through': 'text-decoration', 'no-underline': 'text-decoration',
+  uppercase: 'text-transform', lowercase: 'text-transform', capitalize: 'text-transform', 'normal-case': 'text-transform',
+  truncate: 'text-overflow', 'text-ellipsis': 'text-overflow', 'text-clip': 'text-overflow',
+  border: 'border', rounded: 'border-radius', shadow: 'box-shadow', ring: 'box-shadow', outline: 'outline',
+}
+
+/**
+ * A Tailwind utility — its variants and `!` already stripped by the caller —
+ * mapped to the CSS property it sets, and a value string for the one family
+ * where `screenPropertySideOf` reads the value at all (height). Classifying
+ * the RESULT through that one function, rather than keeping a second
+ * appearance/layout table here, is the whole point: a screen's utility and a
+ * screen's literal CSS declaration are the same drift, spelled two ways.
+ *
+ * Returns `null` for a token this has not been taught. That is not the same
+ * as "layout" — it is "not counted, and not claimed to be understood either".
+ */
+export const screenUtilityDeclarationOf = (token) => {
+  if (Object.hasOwn(LITERAL_UTILITY_PROPERTY, token)) return { property: LITERAL_UTILITY_PROPERTY[token], value: '' }
+
+  const height = /^(h|min-h|max-h|size)-(.+)$/.exec(token)
+  if (height) {
+    const [, key, rest] = height
+    const bracket = /^\[(.+)\]$/.exec(rest)?.[1]
+    const paren = /^\((.+)\)$/.exec(rest)?.[1]
+    const value = bracket ?? paren ?? heightSuffixValue(rest)
+    return { property: HEIGHT_PROPERTY_OF[key], value }
+  }
+
+  if (token.startsWith('text-')) {
+    const rest = token.slice('text-'.length)
+    const bracket = /^\[(.+)\]$/.exec(rest)?.[1]
+    if (bracket !== undefined) return { property: looksLikeColour(bracket) ? 'color' : 'font-size', value: '' }
+    const paren = /^\((.+)\)$/.exec(rest)?.[1]
+    if (paren !== undefined) return { property: /^length:/.test(paren) ? 'font-size' : 'color', value: '' }
+    if (TEXT_SIZE_SUFFIX.test(rest)) return { property: 'font-size', value: '' }
+    if (TEXT_ALIGN_SUFFIX.has(rest)) return { property: 'text-align', value: '' }
+    if (TEXT_LAYOUT_SUFFIX.has(rest)) return { property: 'white-space', value: '' }
+    return { property: 'color', value: '' }
+  }
+
+  if (token.startsWith('font-')) {
+    const rest = token.slice('font-'.length)
+    if (/^[[(]/.test(rest)) return { property: 'font-family', value: '' }
+    if (FONT_WEIGHT_SUFFIX.has(rest)) return { property: 'font-weight', value: '' }
+    if (FONT_FAMILY_SUFFIX.has(rest)) return { property: 'font-family', value: '' }
+    return null
+  }
+
+  if (token.startsWith('leading-')) return { property: 'line-height', value: '' }
+  if (token.startsWith('tracking-')) return { property: 'letter-spacing', value: '' }
+  if (token.startsWith('decoration-')) return { property: 'text-decoration', value: '' }
+
+  if (token.startsWith('bg-')) {
+    const rest = token.slice('bg-'.length)
+    if (rest.startsWith('clip-')) return { property: 'background-clip', value: '' }
+    if (rest.startsWith('origin-')) return { property: 'background-origin', value: '' }
+    return { property: 'background', value: '' }
+  }
+
+  if (token.startsWith('border-')) return { property: 'border', value: '' }
+  if (token.startsWith('rounded-')) return { property: 'border-radius', value: '' }
+  if (token.startsWith('shadow-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('ring-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('outline-')) return { property: 'outline', value: '' }
+  if (token.startsWith('fill-')) return { property: 'fill', value: '' }
+  if (token.startsWith('stroke-')) return { property: 'stroke', value: '' }
+  if (token.startsWith('opacity-')) return { property: 'opacity', value: '' }
+
+  const padding = /^(p|px|py|pt|pr|pb|pl|ps|pe)-(.+)$/.exec(token)
+  if (padding) return { property: PADDING_SIDE_PROPERTY[padding[1]], value: '' }
+
+  return null
+}
+
+/**
+ * A Tailwind namespace this rule knows is appearance but has not mapped —
+ * `caret-red-500`, `from-black` — reported only under `--verbose`, on
+ * `unmappedScreenUtility`, and never counted. Extending
+ * `screenUtilityDeclarationOf` is the fix; adding a name here is not — this
+ * is a hint, not a second strict category.
+ */
+const UNMAPPED_APPEARANCE_UTILITY = /^(?:caret|accent|placeholder|divide|from|via|to|selection|blur|brightness|contrast|grayscale|hue-rotate|invert|saturate|sepia|drop-shadow|backdrop-(?:blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia))-/
+
+/** Tailwind v4 moved the important marker to the end of a token
+ * (`bg-red-500!`); a v3 source may still carry it at the front
+ * (`!bg-red-500`). Either spelling is punctuation, not part of the name. */
+const withoutImportantMarker = (token) => token.replace(/^!/, '').replace(/!$/, '')
+
+/**
+ * Every class-bearing site in a screen `.tsx`: a `className` — string,
+ * template literal, or any expression built from one, a ternary, an array, a
+ * nested `cn`/`clsx`/`cx` call — and a bare `cn`/`clsx`/`cx` call reached some
+ * other way, such as a class list built once and assigned to a variable
+ * before it reaches `className`.
+ *
+ * Scoped to these two shapes rather than every string literal in the file on
+ * purpose: a screen's own prop values — `variant="outline"`, `tone="border"`
+ * — are not Tailwind, and happen to spell some of its shortest utility names.
+ *
+ * A `className` attribute is not walked again once its tokens are collected:
+ * `staticClassTokens` already reaches into a `cn(...)` nested inside it, so
+ * visiting that same call a second time as a bare `CallExpression` would
+ * count it twice.
+ */
+const screenClassTokens = (ast) => {
+  const tokens = []
+  const visit = (node) => {
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'className') {
+      tokens.push(...staticClassTokens(node, ast))
+      return
+    }
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
+      tokens.push(...staticClassTokens({ initializer: node }, ast))
+      return
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(ast)
+  return tokens
+}
+
+/**
+ * Appearance a screen draws with a Tailwind utility instead of composing it —
+ * the `className` half of the split the module comment above describes.
+ */
+export const screenUtilityAppearanceOf = (file, source) => {
+  if (!isScreenTsx(file)) return []
+  const ast = parseScreenSource(file, source)
+  const findings = []
+  for (const rawToken of screenClassTokens(ast)) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (!token) continue
+    const declaration = screenUtilityDeclarationOf(token)
+    if (declaration && screenPropertySideOf(declaration.property, declaration.value) === 'appearance') {
+      findings.push(`${rawToken} (${declaration.property})`)
+    }
+  }
+  return findings
+}
+
+/** The utilities `screenUtilityAppearanceOf` saw but could not classify,
+ * worth a human's attention without being counted. See `--verbose`. */
+export const screenUnmappedUtilityOf = (file, source) => {
+  if (!isScreenTsx(file)) return []
+  const ast = parseScreenSource(file, source)
+  const findings = []
+  for (const rawToken of screenClassTokens(ast)) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (!token || screenUtilityDeclarationOf(token)) continue
+    if (UNMAPPED_APPEARANCE_UTILITY.test(token)) findings.push(rawToken)
+  }
+  return findings
+}
+
+const unwrapStyleExpression = (node) => {
+  let current = node
+  while (current && (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isNonNullExpression(current))) {
+    current = current.expression
+  }
+  return current
+}
+
+/** `backgroundColor` → `background-color`, `WebkitTransform` → `-webkit-transform`
+ * (a leading capital becomes a leading hyphen, which is exactly the vendor
+ * prefix `screenPropertySideOf`'s `unprefixedProperty` already strips). A key
+ * already spelled `--near` is a custom property name, not camelCase, and is
+ * returned as written. */
+const cssPropertyOfStyleKey = (key) => (key.startsWith('--') ? key : key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`))
+
+/**
+ * Appearance a screen draws with an inline `style` object instead of
+ * composing it — the third spelling of the same boundary. Only a literal
+ * `style={{ … }}` is legible this way: `style={obj}` names a value this
+ * cannot see into, and is not counted, the same way a dynamic `className`
+ * reference is not (`classNameIsStatic` in `ui-architecture.mjs` draws the
+ * identical line for the same reason).
+ */
+export const screenInlineStyleAppearanceOf = (file, source) => {
+  if (!isScreenTsx(file)) return []
+  const ast = parseScreenSource(file, source)
+  const findings = []
+  const visit = (node) => {
+    if (
+      ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'style'
+      && node.initializer && ts.isJsxExpression(node.initializer) && node.initializer.expression
+    ) {
+      const object = unwrapStyleExpression(node.initializer.expression)
+      if (object && ts.isObjectLiteralExpression(object)) {
+        for (const property of object.properties) {
+          if (!ts.isPropertyAssignment(property)) continue
+          const keyNode = property.name
+          const key = ts.isIdentifier(keyNode) ? keyNode.text : ts.isStringLiteral(keyNode) ? keyNode.text : null
+          if (key === null) continue
+          const cssProperty = cssPropertyOfStyleKey(key)
+          const valueNode = property.initializer
+          const value = ts.isStringLiteral(valueNode) ? valueNode.text : ts.isNumericLiteral(valueNode) ? valueNode.text : ''
+          if (screenPropertySideOf(cssProperty, value) === 'appearance') findings.push(`style ${cssProperty}`)
+        }
+      }
+      return
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(ast)
+  return findings
+}
 
 /** Existing screen families only, capped at eleven additional owners. An
  * annotation documents membership; it cannot grant a new exception. See
@@ -2406,6 +2711,14 @@ for (const file of tsxFiles()) {
   const { sheets, crossImports } = sheetsOf(dir, file, name, source, UI_SRC)
   findings.crossImport.push(...crossImports)
 
+  // Appearance the screen drew as a Tailwind utility or an inline `style`
+  // instead of its `.module.css` — the other two spellings of the same
+  // boundary `screenAppearanceOf` reads a stylesheet for. One ceiling: both
+  // land on `findings.screenAppearance` beside the CSS-declared kind.
+  for (const detail of screenUtilityAppearanceOf(file, source)) findings.screenAppearance.push(`${name}: ${detail}`)
+  for (const detail of screenInlineStyleAppearanceOf(file, source)) findings.screenAppearance.push(`${name}: ${detail}`)
+  for (const token of screenUnmappedUtilityOf(file, source)) findings.unmappedScreenUtility.push(`${name}: ${token}`)
+
   // A glyph control drawn smaller than a finger.
   //
   // Only classes that actually land on a `<button>`: the same stylesheets are
@@ -2562,6 +2875,14 @@ if (isMain) {
     } else if (verbose) for (const line of list) console.log(`        ${line}`)
     else for (const line of list.slice(0, 3)) console.log(`        ${line}`)
     if (!verbose && list.length > 3) console.log(`        … ${list.length - 3} more (--verbose)`)
+    console.log('')
+  }
+
+  // Outside SECTIONS on purpose: a hint for whoever next extends
+  // `screenUtilityDeclarationOf`, never a second strict category.
+  if (verbose && findings.unmappedScreenUtility.length > 0) {
+    console.log(`${String(findings.unmappedScreenUtility.length).padStart(4)}  Unmapped utility (not counted; looks like appearance)`)
+    for (const line of findings.unmappedScreenUtility) console.log(`        ${line}`)
     console.log('')
   }
   console.log(`${total} findings.`)

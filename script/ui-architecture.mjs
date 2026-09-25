@@ -268,7 +268,17 @@ const cssClassControlOverrides = (source, className) => {
   return [...new Set(overrides)]
 }
 
-const staticClassTokens = (attribute, ast) => {
+/**
+ * Exported for `design-audit.mjs`'s screen appearance ceiling, which asks the
+ * identical question of a `className` (or a `cn`/`clsx`/`cx` call feeding
+ * one): what whitespace-separated tokens does this attribute's value hold,
+ * however many ternaries, calls or template interpolations sit between the
+ * attribute and the literal. `attribute` only needs an `.initializer` —
+ * passing `{ initializer: someNode }` walks any node this way, which is how
+ * the audit reuses this for a bare `cn(...)` call that is not itself a JSX
+ * attribute.
+ */
+export const staticClassTokens = (attribute, ast) => {
   if (!attribute?.initializer) return []
   const found = []
   const visit = (node) => {
@@ -288,7 +298,14 @@ const staticClassTokens = (attribute, ast) => {
   return found
 }
 
-const utilityBase = (token) => {
+/**
+ * Also exported for the screen appearance ceiling: a Tailwind token minus its
+ * variant prefixes (`hover:`, `data-[open]:`, `md:dark:`, however many are
+ * stacked), stopping at the last top-level `:` so a colon inside `[...]` or
+ * `(...)` — a selector variant, an arbitrary property's name — never reads as
+ * one more variant boundary.
+ */
+export const utilityBase = (token) => {
   let depth = 0
   let last = -1
   for (let index = 0; index < token.length; index += 1) {
