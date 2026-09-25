@@ -28,12 +28,13 @@ afterEach(() => {
 })
 
 /** An owner that answers every request, or (`answer: false`) never does. */
-const List = ({ onMove, answer = true, refuse = false, withField = false, locked = [] }: { onMove: (id: string, to: number) => void; answer?: boolean; refuse?: boolean; withField?: boolean; locked?: string[] }) => {
+const List = ({ onMove, answer = true, refuse = false, withField = false, busy = false, locked = [] }: { onMove: (id: string, to: number) => void; answer?: boolean; refuse?: boolean; withField?: boolean; busy?: boolean; locked?: string[] }) => {
   const [ids, setIds] = useState(['alpha', 'beta', 'gamma'])
   const sortable = useSortable({
     ids,
     name: (id) => id,
     movable: (id) => !locked.includes(id),
+    busy,
     onMove: (id, to) => {
       onMove(id, to)
       if (!answer) return
@@ -53,7 +54,7 @@ const List = ({ onMove, answer = true, refuse = false, withField = false, locked
             <SortableHandle {...sortable.handle(id)} />
             <span>{id}</span>
             {withField ? <input aria-label={`Note on ${id}`} /> : null}
-            <button type="button">Remove {id}</button>
+            <button type="button" onKeyDown={(event) => { if (event.key === 'ArrowDown') opened.push(id) }}>Remove {id}</button>
           </li>
         ))}
       </ol>
@@ -61,6 +62,10 @@ const List = ({ onMove, answer = true, refuse = false, withField = false, locked
     </>
   )
 }
+
+/** What the rows' own buttons did with a key that reached them — a menu trigger opening, say. */
+let opened: string[] = []
+beforeEach(() => { opened = [] })
 
 const rows = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-slot="sortable-row"]')]
 const order = (): string[] => rows().map((row) => row.querySelector('span')?.textContent ?? '')
@@ -148,6 +153,46 @@ describe('SortableList', () => {
     expect(order()).toEqual(['alpha', 'beta', 'gamma'])
     expect(onMove).toHaveBeenLastCalledWith('alpha', 0)
     expect(handle('alpha').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('takes Alt+arrows before a control in the row does: Alt+↓ on a menu button moves the row', () => {
+    const onMove = vi.fn()
+    act(() => root.render(<List onMove={onMove} />))
+    const remove = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Remove alpha') as HTMLButtonElement
+    press(remove, 'ArrowDown')
+    expect(onMove).toHaveBeenLastCalledWith('alpha', 1)
+    expect(opened).toEqual([])
+    // A plain ↓ is still the control's own.
+    press(remove, 'ArrowDown', false)
+    expect(opened).toEqual(['alpha'])
+  })
+
+  it('puts a lifted row back where it was when focus leaves it for somewhere else', () => {
+    const onMove = vi.fn()
+    act(() => root.render(<List onMove={onMove} />))
+    handle('alpha').focus()
+    press(handle('alpha'), ' ', false)
+    press(handle('alpha'), 'ArrowDown', false)
+    expect(order()).toEqual(['beta', 'alpha', 'gamma'])
+    const elsewhere = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Remove gamma') as HTMLButtonElement
+    act(() => elsewhere.focus())
+    expect(order()).toEqual(['alpha', 'beta', 'gamma'])
+    expect(onMove).toHaveBeenLastCalledWith('alpha', 0)
+    expect(handle('alpha').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('waits while the owner is busy: handles stay focusable, and no key or drag moves anything', () => {
+    const onMove = vi.fn()
+    act(() => root.render(<List onMove={onMove} busy />))
+    expect(handle('beta').disabled).toBe(false)
+    expect(handle('beta').getAttribute('aria-disabled')).toBe('true')
+    handle('beta').focus()
+    expect(press(handle('beta'), ' ', false).defaultPrevented).toBe(true)
+    expect(handle('beta').getAttribute('aria-pressed')).toBe('false')
+    press(handle('beta'), 'ArrowUp')
+    expect(rows()[1]?.getAttribute('draggable')).toBe('false')
+    expect(onMove).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(handle('beta'))
   })
 
   it('puts a lifted row down where it is with Enter', () => {

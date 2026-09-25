@@ -5,6 +5,9 @@ import type { TriggerPreferences } from '@harnessdesk/protocol'
 import { KeyValue, KeyValueRow, Note, Row, RowInput, Rows, SectionHead, Switch } from '../design'
 import { useStore } from '../state/context'
 
+/** One change to the machine's trigger preferences: the pause, the cap, or both. */
+type Change = { readonly paused?: boolean; readonly dailyUsd?: number }
+
 const money = (usd: number | null): string => (usd === null ? 'Unknown' : `$${usd.toFixed(2)}`)
 
 /**
@@ -27,6 +30,15 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
   const capNote = useId()
   const [busy, setBusy] = useState(false)
   const saving = useRef(false)
+  /** What the host last said, for a write that starts after an await. */
+  const latest = useRef<TriggerPreferences | null>(null)
+  /**
+   * A change asked for while another is being saved. The pause switch and the
+   * cap stay live during a save — a disabled field drops its focus and a
+   * disabled switch drops the click — so what lands then waits here, and is
+   * sent, on the host's newest revision, as soon as the save in flight ends.
+   */
+  const queued = useRef<Change | null>(null)
   const section = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -37,21 +49,28 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
 
   const load = useCallback((): void => {
     store.triggerPreferences().then(
-      (next) => setPrefs(next),
+      (next) => { latest.current = next; setPrefs(next) },
       (error: unknown) => setProblem(error instanceof Error ? error.message : String(error)),
     )
   }, [store])
 
   useEffect(() => { load() }, [load])
 
-  const apply = async (paused: boolean, dailyUsd: number, field: 'pause' | 'cap'): Promise<void> => {
-    if (!prefs || saving.current) return
+  const apply = async (change: Change): Promise<void> => {
+    const current = latest.current
+    if (!current) return
+    if (saving.current) {
+      queued.current = { ...queued.current, ...change }
+      return
+    }
+    const field = change.dailyUsd === undefined ? 'pause' : 'cap'
     saving.current = true
     setBusy(true)
     setProblem(null)
     if (field === 'cap') setCapProblem(null)
     try {
-      const next = await store.setTriggerPreferences(prefs.revision, paused, dailyUsd)
+      const next = await store.setTriggerPreferences(current.revision, change.paused ?? current.paused, change.dailyUsd ?? current.dailyUsd)
+      latest.current = next
       setPrefs(next)
     } catch (error) {
       const text = error instanceof Error ? error.message : 'This could not be saved.'
@@ -60,6 +79,9 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
     } finally {
       saving.current = false
       setBusy(false)
+      const waiting = queued.current
+      queued.current = null
+      if (waiting) void apply(waiting)
     }
   }
 
@@ -70,7 +92,7 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
       setCapProblem('Give a daily cap of zero or more — zero means no new paid work.')
       return
     }
-    void apply(prefs.paused, value, 'cap')
+    void apply({ dailyUsd: value })
   }
 
   return (
@@ -91,9 +113,9 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
               control={(
                 <Switch
                   checked={prefs.paused}
-                  disabled={busy}
                   aria-label="Pause every trigger"
-                  onCheckedChange={(checked) => void apply(checked, prefs.dailyUsd, 'pause')}
+                  {...(busy ? { 'aria-busy': true } : {})}
+                  onCheckedChange={(checked) => void apply({ paused: checked })}
                 />
               )}
             />
@@ -108,7 +130,8 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
                   inputMode="decimal"
                   aria-label="Stop for the day after, in US dollars"
                   {...(capProblem ? { 'aria-describedby': capNote } : {})}
-                  disabled={busy}
+                  readOnly={busy}
+                  {...(busy ? { 'aria-busy': true } : {})}
                   value={String(prefs.dailyUsd)}
                   invalid={capProblem !== null}
                   onCommit={saveCap}

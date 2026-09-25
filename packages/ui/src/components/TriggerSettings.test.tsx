@@ -128,6 +128,43 @@ it('an invalid cap is refused before it is ever sent, read with its field, and z
   expect(container.textContent).toContain('No new paid work: the daily cap is zero.')
 })
 
+it('an empty cap is refused, not read as zero', async () => {
+  const setTriggerPreferences = vi.fn(async () => triggerPreferences())
+  mount({ setTriggerPreferences: setTriggerPreferences as never })
+  await act(async () => {})
+  const input = container.querySelector<HTMLInputElement>('input[type="number"]')!
+  await act(async () => type(input, ''))
+  await act(async () => enter(input))
+  expect(setTriggerPreferences).not.toHaveBeenCalled()
+  expect(input.getAttribute('aria-invalid')).toBe('true')
+})
+
+it('stays live while a cap is saved: the field keeps its focus, and a Pause pressed meanwhile is sent after', async () => {
+  let answer!: (value: TriggerPreferences) => void
+  const setTriggerPreferences = vi.fn()
+    .mockImplementationOnce(() => new Promise<TriggerPreferences>((resolve) => { answer = resolve }))
+    .mockImplementationOnce(async () => triggerPreferences({ revision: 3, dailyUsd: 35, paused: true }))
+  mount({ setTriggerPreferences: setTriggerPreferences as never })
+  await act(async () => {})
+  const input = container.querySelector<HTMLInputElement>('input[type="number"]')!
+  act(() => input.focus())
+  await act(async () => type(input, '35'))
+  await act(async () => enter(input))
+  expect(setTriggerPreferences).toHaveBeenCalledTimes(1)
+  // Saving: read-only and marked busy, never disabled — the focus stays put.
+  expect(input.disabled).toBe(false)
+  expect(input.readOnly).toBe(true)
+  expect(input.getAttribute('aria-busy')).toBe('true')
+  expect(document.activeElement).toBe(input)
+  // Pause, pressed while the cap is out: waits, then goes on the new revision.
+  act(() => pauseSwitch().click())
+  expect(setTriggerPreferences).toHaveBeenCalledTimes(1)
+  await act(async () => { answer(triggerPreferences({ revision: 2, dailyUsd: 35 })) })
+  await act(async () => {})
+  expect(setTriggerPreferences).toHaveBeenLastCalledWith(2, true, 35)
+  expect(pauseSwitch().getAttribute('aria-checked')).toBe('true')
+})
+
 it('an unknown charged amount is said as unknown, never a silent zero', async () => {
   mount({ triggerPreferences: vi.fn(async () => triggerPreferences({ chargedUsd: null })) as never })
   await act(async () => {})

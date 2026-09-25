@@ -651,12 +651,23 @@ const MachineSeats = ({
   const sortable = useSortable({
     ids: seatIds,
     onMove: (id, to) => move(seatIds.indexOf(id), to),
+    /* Named from the seat itself — its runtime, model and effort — never from
+       the dry run, which lags a move and would name the seat that used to be
+       in its place. */
     name: (id) => {
-      const at = seatIds.indexOf(id)
-      return weighed?.[at]?.label ?? `seat ${at + 1}`
+      const seat = mine?.seats[seatIds.indexOf(id)]
+      if (!seat) return 'the seat'
+      const runtime = snapshot.runtimes.find((one) => one.id === seat.runtime)?.presentation.name ?? seat.runtime
+      return [runtime, seat.model, seat.effort].filter(Boolean).join(' · ')
     },
-    movable: () => !busy && !unreadable,
+    movable: () => !unreadable,
+    // A write in flight: keys and drags wait, but focus stays on the handle.
+    busy,
   })
+  /* The seat whose ⋯ menu is open. Controlled so that a write in flight can
+     refuse to open it while the button keeps its focus (`aria-disabled`),
+     rather than a disabled button dropping focus to the page. */
+  const [menuFor, setMenuFor] = useState<string | null>(null)
   const remove = (index: number): void => {
     if (!mine) return
     const next = mine.seats.filter((_, at) => at !== index)
@@ -726,8 +737,11 @@ const MachineSeats = ({
               control={(
                 <>
                   <SortableHandle {...sortable.handle(id)} />
-                  <DropdownMenu>
-                    <DropdownMenuTrigger disabled={busy} render={<BoardMenuButton aria-label={`Seat ${index + 1} actions`} disabled={busy} />} />
+                  <DropdownMenu
+                    open={menuFor === id && !busy}
+                    onOpenChange={(open) => setMenuFor(open && !busy ? id : null)}
+                  >
+                    <DropdownMenuTrigger render={<BoardMenuButton aria-label={`Seat ${index + 1} actions`} {...(busy ? { 'aria-disabled': true } : {})} />} />
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem variant="destructive" onClick={() => remove(index)}>
                         <TrashIcon size={14} />

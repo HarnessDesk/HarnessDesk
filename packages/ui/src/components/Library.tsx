@@ -721,10 +721,11 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
           label="Filter the library by name"
           onChange={setQuery}
         />
-        {/* The filters and the view travel together at the row's end: when the
-            page is too narrow for one row they wrap as a group, so List |
-            Matrix is never left on a line of its own. */}
-        <Toolbar className="ml-auto flex-nowrap">
+        {/* The filters and the view travel together at the row's end. When
+            the page is too narrow for one row, the pills wrap inside this
+            group, and Filter and List | Matrix wrap as one pair — so the view
+            switch is never left on a line of its own, and nothing is clipped. */}
+        <Toolbar className="ml-auto min-w-0 justify-end">
           {/* What narrows the list right now, each a pressed pill that lets go
               of it — the inspectors' filter pill, so a filter that is on looks
               the same wherever it is on. Letting go hands the focus to Filter,
@@ -739,96 +740,98 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
               {agentName}
             </PanelPill>
           )}
-          <Popover
-            label={(
-              <>
-                <FilterIcon size={13} />
-                <span>Filter</span>
-                {/* The one piece of news the menu holds, at rest: how many have a
-                    problem, in the problem's amber, until a filter is chosen. */}
-                {filter === 'all' && problemCount > 0 && (
-                  <Text role="meta" numeric tone="warning">{problemCount}</Text>
-                )}
-              </>
-            )}
-            title={filter === 'all' && problemCount > 0 ? `Filter the library — ${problemCount} with a problem` : 'Filter the library'}
-            align="right"
-            triggerVariant={{ variant: 'outline' }}
-            triggerRef={filterTrigger}
-          >
-            {(close) => (
-              <Menu close={close}>
-                <MenuLabel>Show</MenuLabel>
-                {counts ? (
-                  <>
-                    <FilterRow value={counts.total} label={FILTER_WORDS.all} active={filter === 'all'} onSelect={() => setFilter('all')} />
-                    <FilterRow value={problemCount} label={FILTER_WORDS.problems} tone="warn" title="Anything wrong: reaches no agent, empty on disk, or copies that differ." active={filter === 'problems'} onSelect={() => setFilter('problems')} />
-                    <FilterRow value={counts.partial} label={FILTER_WORDS.partial} active={filter === 'partial'} onSelect={() => setFilter('partial')} />
-                    <FilterRow value={counts.unreachable} label={FILTER_WORDS.unreachable} tone="warn" active={filter === 'unreachable'} onSelect={() => setFilter('unreachable')} />
-                    <FilterRow value={counts.hollow} label={FILTER_WORDS.hollow} tone="warn" active={filter === 'hollow'} onSelect={() => setFilter('hollow')} />
-                    <FilterRow value={counts.differs} label={FILTER_WORDS.differs} tone="warn" active={filter === 'differs'} onSelect={() => setFilter('differs')} />
-                    {/* No warn tone: a switch somebody threw is not a defect. */}
-                    <FilterRow
-                      value={counts.off}
-                      label={FILTER_WORDS.off}
-                      title="Installed in an agent and turned off in its own settings, so nothing loads it there."
-                      active={filter === 'off'}
-                      onSelect={() => setFilter('off')}
-                    />
-                    {kind === 'skill' &&
-                      (usage !== null ? (
-                        <FilterRow
-                          value={unusedCount}
-                          label={FILTER_WORDS.unused}
-                          title={`Reaches at least one agent, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.`}
-                          active={filter === 'unused'}
-                          onSelect={() => setFilter('unused')}
-                        />
-                      ) : (
-                        /* The first usage read walks every stored conversation,
-                           so this row arrives late; it holds its place. */
-                        <MenuItem label={FILTER_WORDS.unused} disabled="Counting activations in the stored conversations…" onSelect={() => {}} />
-                      ))}
-                  </>
-                ) : (
-                  <MenuItem label={FILTER_WORDS.all} disabled="Reading every agent’s directories…" onSelect={() => {}} />
-                )}
-                {snapshot.agents && snapshot.agents.length > 0 && (
-                  <>
-                    <MenuSeparator />
-                    <Submenu label="Declared by" value={agentName ?? 'Any Agent'}>
-                      <MenuItem label="Any Agent" selected={agentFilter === ''} onSelect={() => setAgentFilter('')} />
-                      {snapshot.agents.map((entry) => (
-                        <MenuItem
-                          key={`${entry.origin}:${entry.id}`}
-                          label={entry.definition?.name ?? entry.id}
-                          selected={agentFilter === `${entry.origin}:${entry.id}`}
-                          onSelect={() => setAgentFilter(`${entry.origin}:${entry.id}`)}
-                        />
-                      ))}
-                    </Submenu>
-                  </>
-                )}
-              </Menu>
-            )}
-          </Popover>
-          {/*
-           * Two ways to read the same list, and the switch says which by
-           * drawing it — and by naming it: a glyph with its name only in a
-           * tooltip is a control you have to hover to read.
-           */}
-          <Segmented
-            label="How to show the library"
-            value={view}
-            options={[
-              { value: 'list', label: <><RowsLooseIcon size={13} />List</> },
-              { value: 'matrix', label: <><MatrixIcon size={13} />Matrix</> },
-            ]}
-            onChange={(next) => {
-              setView(next)
-              setOpen(null)
-            }}
-          />
+          <Toolbar className="flex-nowrap">
+            <Popover
+              label={(
+                <>
+                  <FilterIcon size={13} />
+                  <span>Filter</span>
+                  {/* The one piece of news the menu holds, at rest: how many have a
+                      problem, in the problem's amber, until a filter is chosen. */}
+                  {filter === 'all' && problemCount > 0 && (
+                    <Text role="meta" numeric tone="warning">{problemCount}</Text>
+                  )}
+                </>
+              )}
+              title={filter === 'all' && problemCount > 0 ? `Filter the library — ${problemCount} with a problem` : 'Filter the library'}
+              align="right"
+              triggerVariant={{ variant: 'outline' }}
+              triggerRef={filterTrigger}
+            >
+              {(close) => (
+                <Menu close={close}>
+                  <MenuLabel>Show</MenuLabel>
+                  {counts ? (
+                    <>
+                      <FilterRow value={counts.total} label={FILTER_WORDS.all} active={filter === 'all'} onSelect={() => setFilter('all')} />
+                      <FilterRow value={problemCount} label={FILTER_WORDS.problems} tone="warn" title="Anything wrong: reaches no agent, empty on disk, or copies that differ." active={filter === 'problems'} onSelect={() => setFilter('problems')} />
+                      <FilterRow value={counts.partial} label={FILTER_WORDS.partial} active={filter === 'partial'} onSelect={() => setFilter('partial')} />
+                      <FilterRow value={counts.unreachable} label={FILTER_WORDS.unreachable} tone="warn" active={filter === 'unreachable'} onSelect={() => setFilter('unreachable')} />
+                      <FilterRow value={counts.hollow} label={FILTER_WORDS.hollow} tone="warn" active={filter === 'hollow'} onSelect={() => setFilter('hollow')} />
+                      <FilterRow value={counts.differs} label={FILTER_WORDS.differs} tone="warn" active={filter === 'differs'} onSelect={() => setFilter('differs')} />
+                      {/* No warn tone: a switch somebody threw is not a defect. */}
+                      <FilterRow
+                        value={counts.off}
+                        label={FILTER_WORDS.off}
+                        title="Installed in an agent and turned off in its own settings, so nothing loads it there."
+                        active={filter === 'off'}
+                        onSelect={() => setFilter('off')}
+                      />
+                      {kind === 'skill' &&
+                        (usage !== null ? (
+                          <FilterRow
+                            value={unusedCount}
+                            label={FILTER_WORDS.unused}
+                            title={`Reaches at least one agent, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.`}
+                            active={filter === 'unused'}
+                            onSelect={() => setFilter('unused')}
+                          />
+                        ) : (
+                          /* The first usage read walks every stored conversation,
+                             so this row arrives late; it holds its place. */
+                          <MenuItem label={FILTER_WORDS.unused} disabled="Counting activations in the stored conversations…" onSelect={() => {}} />
+                        ))}
+                    </>
+                  ) : (
+                    <MenuItem label={FILTER_WORDS.all} disabled="Reading every agent’s directories…" onSelect={() => {}} />
+                  )}
+                  {snapshot.agents && snapshot.agents.length > 0 && (
+                    <>
+                      <MenuSeparator />
+                      <Submenu label="Declared by" value={agentName ?? 'Any Agent'}>
+                        <MenuItem label="Any Agent" selected={agentFilter === ''} onSelect={() => setAgentFilter('')} />
+                        {snapshot.agents.map((entry) => (
+                          <MenuItem
+                            key={`${entry.origin}:${entry.id}`}
+                            label={entry.definition?.name ?? entry.id}
+                            selected={agentFilter === `${entry.origin}:${entry.id}`}
+                            onSelect={() => setAgentFilter(`${entry.origin}:${entry.id}`)}
+                          />
+                        ))}
+                      </Submenu>
+                    </>
+                  )}
+                </Menu>
+              )}
+            </Popover>
+            {/*
+             * Two ways to read the same list, and the switch says which by
+             * drawing it — and by naming it: a glyph with its name only in a
+             * tooltip is a control you have to hover to read.
+             */}
+            <Segmented
+              label="How to show the library"
+              value={view}
+              options={[
+                { value: 'list', label: <><RowsLooseIcon size={13} />List</> },
+                { value: 'matrix', label: <><MatrixIcon size={13} />Matrix</> },
+              ]}
+              onChange={(next) => {
+                setView(next)
+                setOpen(null)
+              }}
+            />
+          </Toolbar>
         </Toolbar>
       </Toolbar>
 

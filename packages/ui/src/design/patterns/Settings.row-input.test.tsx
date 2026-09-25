@@ -158,6 +158,14 @@ describe('RowInput', () => {
     expect(field().getAttribute('aria-invalid')).toBeNull()
   })
 
+  it('lets Escape clear a refusal even when the text already reads as stored', () => {
+    const onRestore = vi.fn()
+    act(() => root.render(<RowInput aria-label="Port" value="30000" invalid onCommit={() => {}} onRestore={onRestore} />))
+    const undo = key(field(), 'Escape')
+    expect(undo.defaultPrevented).toBe(true)
+    expect(onRestore).toHaveBeenCalledTimes(1)
+  })
+
   it('is as wide as the value it holds, not the row', () => {
     act(() => root.render(<Port onCommit={() => {}} />))
     expect(field().className).toContain('w-24')

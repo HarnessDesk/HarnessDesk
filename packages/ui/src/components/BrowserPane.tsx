@@ -1343,7 +1343,7 @@ export const BrowserPane = () => {
                 const isActive = entry.id === view.active
                 const name = tabName(entry)
                 const icon = icons[entry.id]
-                const { onKeyDown: moveByKey, ...order } = sortable.row(entry.id, index)
+                const order = sortable.row(entry.id, index)
                 return (
                   <ToolPaneDocumentTab
                     key={entry.id}
@@ -1358,8 +1358,6 @@ export const BrowserPane = () => {
                     {...(isActive ? { 'data-active': '' } : {})}
                     onClick={() => store.selectBrowserTab(paneId, entry.id)}
                     onKeyDown={(event) => {
-                      moveByKey?.(event)
-                      if (event.defaultPrevented) return
                       // A tab is a span, so that the close button can sit
                       // inside it; the keyboard has to be given what a
                       // button would have brought.

@@ -60,8 +60,14 @@ type SortableOptions = {
   readonly onMove: (id: string, to: number) => void
   /** What a reader hears the row called. */
   readonly name: (id: string) => string
-  /** A row that cannot move right now (one on its way out, or a write in flight): no drag, no keys. */
+  /** A row that cannot move at all (one on its way out): its handle is not drawn and takes no focus. */
   readonly movable?: (id: string) => boolean
+  /**
+   * The owner is still answering the last move: every drag and key is
+   * ignored, but the handles stay focusable (`aria-disabled`), so a row
+   * carried from the keyboard keeps its focus across a slow write.
+   */
+  readonly busy?: boolean
   /** A strip reads ⌥← / ⌥→; a list reads ⌥↑ / ⌥↓. */
   readonly orientation?: 'vertical' | 'horizontal'
   /** Where a drag may start: the handle (a row with text in it), or the whole item (a tab). */
@@ -75,7 +81,7 @@ type DropEdge = 'before' | 'after'
 
 type ItemProps = Pick<
   React.HTMLAttributes<HTMLElement>,
-  'draggable' | 'onDragStart' | 'onDragEnd' | 'onDragOver' | 'onDrop' | 'onKeyDown'
+  'draggable' | 'onDragStart' | 'onDragEnd' | 'onDragOver' | 'onDrop' | 'onKeyDownCapture'
 > & {
   readonly 'data-dragging'?: ''
   readonly 'data-drop'?: DropEdge
@@ -93,11 +99,12 @@ type HandleProps = {
   readonly 'aria-label': string
   readonly 'aria-keyshortcuts': string
   readonly 'aria-pressed': boolean
+  readonly 'aria-disabled'?: true
   readonly title: string
   readonly disabled: boolean
 }
 
-const useSortable = ({ ids, onMove, name, movable = () => true, orientation = 'vertical', grip = 'handle', left }: SortableOptions) => {
+const useSortable = ({ ids, onMove, name, movable = () => true, busy = false, orientation = 'vertical', grip = 'handle', left }: SortableOptions) => {
   const [back, on] = orientation === 'horizontal' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown']
   const keys = `Alt+${back} Alt+${on}`
   const shortcut = orientation === 'horizontal' ? '⌥← ⌥→' : '⌥↑ ⌥↓'
@@ -171,7 +178,7 @@ const useSortable = ({ ids, onMove, name, movable = () => true, orientation = 'v
   const slot = drag.slot !== null && moving !== -1 && drag.slot !== moving && drag.slot !== moving + 1 ? drag.slot : null
 
   const row = (id: string, index: number): ItemProps => {
-    const canMove = movable(id)
+    const canMove = movable(id) && !busy
     const edge: DropEdge | null = slot === index ? 'before' : slot === ids.length && index === ids.length - 1 ? 'after' : null
     return {
       ...(drag.id === id ? { 'data-dragging': '' as const } : {}),
@@ -215,11 +222,15 @@ const useSortable = ({ ids, onMove, name, movable = () => true, orientation = 'v
         // it ends at is counted without it.
         if (id !== null && from !== -1) request(id, into > from ? into - 1 : into)
       },
-      onKeyDown: (event) => {
+      /* Taken on the way down, before the focused control sees it: Alt+↓ on
+         a row's ⋯ menu button moves the row rather than opening the menu. */
+      onKeyDownCapture: (event) => {
         if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return
         if (event.key !== back && event.key !== on) return
-        if (!canMove || editable(event.target)) return
+        if (editable(event.target) || !movable(id)) return
         event.preventDefault()
+        event.stopPropagation()
+        if (busy) return
         step(id, index, event.key === back ? -1 : 1)
       },
     }
@@ -241,13 +252,23 @@ const useSortable = ({ ids, onMove, name, movable = () => true, orientation = 'v
       // A press that did not become a drag: a later drag from the text is not one.
       onPointerUp: () => { grabbed.current = false },
       onFocus: () => setCurrent(id),
-      // Focus that goes somewhere on purpose puts a lifted row down where it
-      // is. A row the browser blurred on its way to a new place stays up.
+      /* Focus that goes somewhere else on purpose, with a row still up, puts
+         it back where it was picked up: leaving is not dropping, the same as
+         Escape. A row the browser blurred on its way to a new place (no
+         `relatedTarget`) stays up. */
       onBlur: (event) => {
-        if (up && event.relatedTarget !== null) setLifted(null)
+        if (!up || event.relatedTarget === null) return
+        setLifted(null)
+        if (index !== lifted.from) request(id, lifted.from)
+        else say(`${name(id)} is back at position ${index + 1} of ${ids.length}`)
       },
       onKeyDown: (event) => {
         if (event.altKey || event.metaKey || event.ctrlKey) return
+        // Waiting for the owner: the keys that move a row wait with it.
+        if (busy && (event.key === ' ' || event.key === 'Enter' || event.key === back || event.key === on)) {
+          event.preventDefault()
+          return
+        }
         if (event.key === ' ' || event.key === 'Enter') {
           event.preventDefault()
           if (up) {
@@ -283,6 +304,7 @@ const useSortable = ({ ids, onMove, name, movable = () => true, orientation = 'v
       'aria-label': `Move ${name(id)}`,
       'aria-keyshortcuts': keys,
       'aria-pressed': up,
+      ...(busy ? { 'aria-disabled': true as const } : {}),
       title: `Drag to reorder, or ${shortcut}. Space picks it up.`,
       // A row that cannot move keeps the handle's room, so the rows stay in
       // one column, and draws nothing a pointer or a Tab could land on.
@@ -332,7 +354,7 @@ const SortableHandle = ({
     data-slot="sortable-handle"
     className={cn(
       'inline-grid h-(--hd-icon-target) w-3.5 shrink-0 cursor-grab place-items-center rounded-(--hd-radius-sm) border-0 bg-transparent p-0 text-(--hd-muted-foreground) opacity-0',
-      'group-hover/sortable-row:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100 aria-pressed:text-(--hd-primary) active:cursor-grabbing disabled:invisible',
+      'group-hover/sortable-row:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100 aria-pressed:text-(--hd-primary) active:cursor-grabbing aria-disabled:cursor-default disabled:invisible',
       className,
     )}
     {...props}

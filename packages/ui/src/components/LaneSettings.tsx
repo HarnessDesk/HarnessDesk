@@ -34,6 +34,9 @@ export const LaneSettings = ({ root }: { readonly root?: string }) => {
    */
   const requested = useRef<LanePreferences>(stored)
   const inFlight = useRef(0)
+  /** Which request last set each field, so a failure undoes only what it alone set. */
+  const setBy = useRef<Partial<Record<Field, number>>>({})
+  const sequence = useRef(0)
   if (inFlight.current === 0) requested.current = stored
 
   useEffect(() => { void store.loadLanePreferences() }, [store])
@@ -58,11 +61,18 @@ export const LaneSettings = ({ root }: { readonly root?: string }) => {
     }
     settle(field, null)
     const before = requested.current
+    const carried = Object.keys(next) as Field[]
+    const mine = ++sequence.current
+    for (const one of carried) setBy.current[one] = mine
     requested.current = preferences
     inFlight.current += 1
     try { await store.saveLanePreferences(preferences) }
     catch (error) {
-      requested.current = before
+      /* Undo only the fields this request carried, and only those no later
+         request has set since: a quick second edit survives the first
+         one's failure. */
+      const undone = carried.filter((one) => setBy.current[one] === mine)
+      requested.current = { ...requested.current, ...Object.fromEntries(undone.map((one) => [one, before[one]])) }
       settle(field, error instanceof Error ? error.message : 'The desk did not save lane defaults.')
     } finally {
       inFlight.current -= 1

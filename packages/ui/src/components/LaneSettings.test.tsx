@@ -84,6 +84,52 @@ it('keeps each field’s reason its own: mending another does not clear it, and 
   expect(container.querySelector('[role="alert"]')).toBeNull()
 })
 
+it('Escape in the starting port clears its own refusal', async () => {
+  mount()
+  type(input('Starting port'), '80')
+  press(input('Starting port'), 'Enter')
+  await act(async () => {})
+  expect(input('Starting port').getAttribute('aria-invalid')).toBe('true')
+  press(input('Starting port'), 'Escape')
+  expect(input('Starting port').getAttribute('aria-invalid')).toBeNull()
+  expect(input('Starting port').getAttribute('aria-describedby')).toBeNull()
+})
+
+it('a failed save undoes only the fields it alone set: a later edit survives it', async () => {
+  const answers: { resolve: () => void; reject: (error: Error) => void }[] = []
+  const store = mount(() => new Promise<void>((resolve, reject) => { answers.push({ resolve, reject }) }))
+  // First: the port. Second, before the host answers: the switch.
+  type(input('Starting port'), '31000')
+  press(input('Starting port'), 'Enter')
+  act(() => (container.querySelector('[role="switch"]') as HTMLElement).click())
+  // Third: the width, also before either answer.
+  type(input('Ports per lane'), '40')
+  press(input('Ports per lane'), 'Enter')
+  // The second request set the switch; the first fails; the third answers.
+  await act(async () => { answers[0]!.reject(new Error('The desk did not save lane defaults.')) })
+  await act(async () => { answers[1]!.resolve(); answers[2]!.resolve() })
+  // The next request carries the port back to what is stored (only the first
+  // set it) and keeps the switch and the width the later requests set.
+  type(input('Ports per lane'), '41')
+  press(input('Ports per lane'), 'Enter')
+  expect(store.saveLanePreferences).toHaveBeenLastCalledWith({ start: 30000, width: 41, browserProfile: false })
+  await act(async () => { answers[3]!.resolve() })
+})
+
+it('a failed save undoes nothing a later request set again', async () => {
+  const answers: { resolve: () => void; reject: (error: Error) => void }[] = []
+  const store = mount(() => new Promise<void>((resolve, reject) => { answers.push({ resolve, reject }) }))
+  type(input('Starting port'), '31000')
+  press(input('Starting port'), 'Enter')
+  type(input('Starting port'), '32000')
+  press(input('Starting port'), 'Enter')
+  await act(async () => { answers[0]!.reject(new Error('The desk did not save lane defaults.')) })
+  type(input('Ports per lane'), '41')
+  press(input('Ports per lane'), 'Enter')
+  expect(store.saveLanePreferences).toHaveBeenLastCalledWith({ start: 32000, width: 41, browserProfile: true })
+  await act(async () => { answers[1]!.resolve(); answers[2]!.resolve() })
+})
+
 it('releases a retained lane only through the host', async () => {
   const store = mount()
   act(() => [...document.querySelectorAll('button')].find(one => one.textContent?.includes('Release ports'))!.click())

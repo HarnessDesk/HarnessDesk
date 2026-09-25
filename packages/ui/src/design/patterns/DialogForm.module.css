@@ -22,12 +22,6 @@
   gap: var(--hd-space-4);
 }
 
-/* A button in a dialog's form keeps its own width, as it does on a page;
-   the column is for fields. The dialog's acts belong in its footer. */
-.stack > [data-slot='button'] {
-  justify-self: start;
-}
-
 /* --- the legend ----------------------------------------------------------
    The name over a group of controls, drawn exactly as a Field's label so a
    form reads as one list of named things. */

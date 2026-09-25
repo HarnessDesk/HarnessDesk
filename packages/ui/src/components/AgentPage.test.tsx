@@ -598,6 +598,63 @@ it('a seat keeps its model and effort when it moves, and a move never empties th
   expect(written).toEqual([seats[1], seats[0], seats[2]])
 })
 
+it('a seat carried from the keyboard keeps its focus across a slow write, and is named by what it is', async () => {
+  const seats = [{ runtime: 'claude-code', model: 'opus-5' }, { runtime: 'codex' }, { runtime: 'claude-code', model: 'sonnet-5' }]
+  let snapshot = snapshotFor({ ...SEATING, entries: [{ id: 'code-reviewer', seats }] })
+  const listeners = new Set<() => void>()
+  const writes: (() => void)[] = []
+  const store = storeFor(snapshot, {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot: () => snapshot,
+    // A slow host: each write lands only when the test lets it.
+    setSeating: vi.fn((id: string, next: readonly unknown[]) => new Promise<void>((done) => {
+      writes.push(() => {
+        snapshot = { ...snapshot, seating: { ...snapshot.seating!, entries: [{ id, seats: next as typeof seats }] } } as AppSnapshot
+        for (const listener of listeners) listener()
+        done()
+      })
+    })),
+  })
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentsRosterSection focus="code-reviewer" onLeave={() => {}} />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+  const grip = (): HTMLButtonElement => seatHandles().find((one) => one.getAttribute('aria-label') === 'Move Claude · opus-5')!
+  const key = (name: string): void => {
+    act(() => { (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true })) })
+  }
+  act(() => grip().focus())
+  key(' ')
+  key('ArrowDown')
+  expect(store.setSeating).toHaveBeenCalledTimes(1)
+  // The write is still out: the grip keeps the focus, and a second ↓ waits.
+  expect(document.activeElement).toBe(grip())
+  key('ArrowDown')
+  expect(store.setSeating).toHaveBeenCalledTimes(1)
+  await act(async () => { writes.shift()!() })
+  await settle()
+  expect(document.activeElement).toBe(grip())
+  expect(document.body.textContent).toContain('Moved Claude · opus-5 to position 2 of 3')
+  // Still carried: the next ↓ is the next write.
+  key('ArrowDown')
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [seats[1], seats[2], seats[0]], [seats[1], seats[0], seats[2]])
+  await act(async () => { writes.shift()!() })
+  await settle()
+  expect(document.activeElement).toBe(grip())
+})
+
+it('Alt+↓ on a seat’s ⋯ button moves the seat rather than opening its menu', async () => {
+  const { store } = mount({ focus: 'code-reviewer' })
+  altKey(seatMenus()[0]!, 'ArrowDown')
+  await settle()
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'claude-code' }, { runtime: 'codex' }], [{ runtime: 'codex' }, { runtime: 'claude-code' }])
+  expect(document.body.querySelector('[role="menu"]')).toBeNull()
+})
+
 it('the last seat removed gives the Agent its own list back too', async () => {
   const { store } = mount({
     focus: 'code-reviewer',
@@ -615,9 +672,10 @@ it('disables every seat edit while a move is in flight, so a quick remove cannot
   store.setSeating = vi.fn(() => write.promise)
 
   altKey(seatHandles()[0]!, 'ArrowDown')
-  // Every seat's own "… actions" trigger and grip is disabled while the move is in flight.
-  expect(seatMenus().every((one) => one.disabled)).toBe(true)
-  expect(seatHandles().every((one) => one.disabled)).toBe(true)
+  // Every seat's own "… actions" trigger and grip waits while the move is in
+  // flight — still focusable, so a keyboard move keeps its place, but inert.
+  expect(seatMenus().every((one) => one.getAttribute('aria-disabled') === 'true' && !one.disabled)).toBe(true)
+  expect(seatHandles().every((one) => one.getAttribute('aria-disabled') === 'true' && !one.disabled)).toBe(true)
   altKey(seatHandles()[1]!, 'ArrowUp')
   expect(button('Clear').disabled).toBe(true)
   expect(button('Add a seat…').disabled).toBe(true)

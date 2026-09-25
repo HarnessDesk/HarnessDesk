@@ -309,9 +309,12 @@ it('the toolbar is one row: listing, search, filter and view, and a pill only fo
   expect(pill, 'the filter that is on should be a pressed pill').toBeTruthy()
   expect(filterTrigger().textContent).toBe('Filter')
   expect(cards().length).toBe(1)
+  // From the pill itself, as a keyboard reaches it: the pill goes away with
+  // the filter, and the focus goes to Filter, where the next choice is made.
+  act(() => pill?.focus())
+  expect(document.activeElement).toBe(pill)
   await act(async () => pill?.click())
   expect(cards().length).toBe(2)
-  // Letting go of a filter hands the focus to Filter, where the next choice is made.
   expect(document.activeElement).toBe(filterTrigger())
   expect([...(toolbar?.querySelectorAll('button[aria-pressed="true"]') ?? [])].some((node) => node.textContent === 'Empty on disk')).toBe(false)
 })
@@ -1727,6 +1730,7 @@ it('Agent filter preserves measured reach: same skill declared by two origins bu
   // The Agent chosen is a pressed pill; pressing it lets go of the Agent.
   const agentPill = [...document.body.querySelectorAll<HTMLButtonElement>('[data-slot="library-toolbar"] button[aria-pressed="true"]')].find((node) => node.textContent === 'Agent A')
   expect(agentPill, 'the chosen Agent should be a pressed pill').toBeTruthy()
+  act(() => agentPill?.focus())
   await act(async () => agentPill?.click())
   expect(document.body.textContent).toContain('orphan-skill')
   expect(document.activeElement).toBe(filterTrigger())
