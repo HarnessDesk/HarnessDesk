@@ -776,6 +776,7 @@ const DialogBoard = () => {
         <ConfirmDialog
           title="Delete conversation"
           confirmLabel="Delete"
+          tone="destructive"
           onConfirm={() => setOpen(null)}
           onCancel={() => setOpen(null)}
         >

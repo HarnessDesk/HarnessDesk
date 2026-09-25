@@ -326,6 +326,7 @@ const RoutesRows = () => {
         <ConfirmDialog
           title={`Remove ${removing.name}?`}
           confirmLabel="Remove endpoint"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             void store.deleteRoute(removing.id)
@@ -439,6 +440,7 @@ const KeysRows = () => {
         <ConfirmDialog
           title={`Forget ${removing.name}?`}
           confirmLabel="Forget key"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             const ref = removing.ref
@@ -719,6 +721,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
         <ConfirmDialog
           title={`Remove “${removing.name}”?`}
           confirmLabel="Remove rule"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             // The page reports a refused write; the dialog has already gone.
@@ -869,6 +872,7 @@ const PresetsRows = () => {
         <ConfirmDialog
           title={`Remove ${removing.name}?`}
           confirmLabel="Remove preset"
+          tone="destructive"
           onCancel={() => setRemoving(null)}
           onConfirm={() => {
             void store.saveCustomPresets(
