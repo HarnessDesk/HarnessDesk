@@ -290,6 +290,16 @@ it('renders the registry with the same honesty per row', async () => {
   expect(document.body.textContent).toContain('Gemini CLI')
   // Unverified binary build: carries the unverified badge on its cell.
   expect(document.body.textContent).toContain('Unverified')
+  // Every entry is a plate card, compact — the card the transcript's cards
+  // are, not a box drawn for the registry alone.
+  const cells = REGISTRY.map((agent) =>
+    [...document.body.querySelectorAll('[data-slot="card"]')].find((card) => card.textContent?.includes(agent.name)),
+  )
+  expect(cells.every(Boolean)).toBe(true)
+  for (const cell of cells) {
+    expect(cell?.getAttribute('data-variant')).toBe('plate')
+    expect(cell?.getAttribute('data-spacing')).toBe('compact')
+  }
 })
 
 it('adds a registry entry by its id and re-reads the registry', async () => {
@@ -465,6 +475,12 @@ it('an agent that will not start shows its own words, its lines kept, and the re
   // The agent's own output keeps its line breaks; a validator writes one
   // finding per line and a paragraph of them is what nobody read.
   const block = document.body.querySelector('pre')
+  // It scrolls inside a window of 170px rather than pushing the agents below
+  // it off the screen, and the window is a flush card that keeps its corners.
+  const window = block?.closest('[data-slot="card-viewport"]') as HTMLElement | null
+  expect(window?.getAttribute('data-size')).toBe('lines')
+  expect(window?.style.maxHeight).toBe('170px')
+  expect(window?.closest('[data-slot="card"]')?.getAttribute('data-variant')).toBe('flush')
   expect(block?.textContent).toContain('\u00d7 x.json:12')
   expect(block?.textContent).toContain('config is invalid: ~/.delta/x.json')
   // Our sentence introduces the block rather than being buried inside it,
@@ -834,4 +850,16 @@ it("an agent's own page shows every copy on the machine, and offers the two verb
   )
   await act(async () => (update as HTMLButtonElement).click())
   expect(updateAgent).toHaveBeenCalledWith('opencode')
+})
+
+it('closes an open agent with a bar of its account actions, ruled off above', async () => {
+  await mountList()
+  const fold = [...document.body.querySelectorAll('button')].find(
+    (node) => node.getAttribute('aria-label') === 'Show the accounts under Alpha',
+  ) as HTMLButtonElement
+  await act(async () => fold.click())
+  const bar = [...document.body.querySelectorAll('[data-slot="bar"]')].find((node) =>
+    node.textContent?.includes('Add account'),
+  )
+  expect(bar?.getAttribute('data-rule')).toBe('top')
 })

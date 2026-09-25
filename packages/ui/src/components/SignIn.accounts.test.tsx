@@ -291,6 +291,8 @@ it('wears the head every dialog wears, and its way out closes the sheet', async 
   expect(dialog?.querySelector('[data-slot="access-header"]')).toBeNull()
   const close = head?.querySelector('button[aria-label="Close"]')
   expect(close).toBeTruthy()
+  // The way out is the dialog's own step: a 13px cross, as on every dialog.
+  expect(close?.querySelector('svg')?.getAttribute('width')).toBe('13')
   await act(async () => {
     close?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
