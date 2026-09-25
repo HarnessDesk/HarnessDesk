@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, BriefIcon, CheckIcon, ChevronIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BranchIcon, BriefIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -783,13 +783,9 @@ export const AccountFooter = ({
                     </div>
                   ))}
                 </div>
-                <MenuItem
-                  label="Open usage dashboard"
-                  value={<ChevronIcon size={11} />}
-                  onSelect={() => {
-                    onOpenUsage(here?.info.id)
-                  }}
-                />
+                {/* No link to the dashboard here: Dashboard is the row below,
+                    and a second door to it, indented under the fold, was one
+                    row and one ragged edge for nothing. */}
               </div>
             )}
             <MenuItem

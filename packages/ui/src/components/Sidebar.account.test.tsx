@@ -229,6 +229,8 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   expect(mark()?.hasAttribute('data-open')).toBe(true)
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Session')
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
+  // The fold is the windows only; Dashboard is its own row just below.
+  expect(document.querySelector('[data-usage-details] [role="menuitem"]')).toBeNull()
 })
 
 it.each([
