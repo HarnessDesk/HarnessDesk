@@ -159,19 +159,13 @@ export const ChangesView = () => {
       foot={foot}
       tools={
         <>
-          {/* A toggle, drawn as one: pressed, it shows what is staged. It was a
-              pill beside the filter, which is the shape a status takes, so it
-              read as a fact about the panel rather than a thing to press. */}
-          <Button
-            type="button"
-            variant="quiet" size="sm"
-            aria-pressed={staged}
-            {...(staged ? { 'data-on': '' } : {})}
+          <PanelPill
+            pressed={staged}
             title="Show what is staged instead of what is not"
             onClick={() => setStaged((value) => !value)}
           >
             Staged
-          </Button>
+          </PanelPill>
           {/* Not the panel's expand glyph, which sits directly above this one
               in the panel's own strip. That one gives this panel the room; this
               one leaves the layout entirely for the review workspace. Two ⤢ an
@@ -202,16 +196,13 @@ export const TrajectoryView = () => {
       onQuery={setQuery}
       foot={foot}
       tools={
-        <Button
-          type="button"
-          variant="quiet" size="sm"
-          aria-pressed={timedOnly}
-          {...(timedOnly ? { 'data-on': '' } : {})}
+        <PanelPill
+          pressed={timedOnly}
           title="Show only steps the runtime timed"
           onClick={() => setTimedOnly((value) => !value)}
         >
           Timed
-        </Button>
+        </PanelPill>
       }
     >
       <Trajectory query={query} timedOnly={timedOnly} onFoot={onFoot} />

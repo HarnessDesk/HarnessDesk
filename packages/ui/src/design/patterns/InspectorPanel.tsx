@@ -189,25 +189,44 @@ const PanelFilter = ({
   />
 )
 
+/**
+ * A filter you press, beside a list's search: the one drawing for it, in the
+ * inspectors and in the Library's counts alike.
+ *
+ * It is a control, not a status, and each state says so. At rest it is a pill
+ * on the chip ground; under the pointer the ground steps up to the pressed-row
+ * fill and the words to full ink, as every other thing you can press does;
+ * focused from the keyboard it takes the app's one focus ring; pressed, it is
+ * lit in the accent — `pressed` (or the older `data-on`) sets that, and says
+ * it to assistive technology as `aria-pressed`.
+ *
+ * `as="span"` is the other thing a pill can be, and the only status here: a
+ * fact about the list ("this week") that nothing presses, drawn as a `Chip`.
+ */
 const PanelPill = ({
   as = 'button',
+  pressed,
   children,
   ...props
 }: {
   as?: 'button' | 'span'
+  pressed?: boolean
   children: ReactNode
 } & ButtonHTMLAttributes<HTMLButtonElement> & HTMLAttributes<HTMLSpanElement>) => {
   if (as === 'span') return <Chip tone="neutral" className="min-h-(--hd-target-min) bg-(--hd-chip-fill) text-(--hd-secondary-foreground)">{children}</Chip>
-  const selected = 'data-on' in props
+  const selected = pressed ?? 'data-on' in props
+  const { 'data-on': _on, ...rest } = props as typeof props & { 'data-on'?: string }
   return createElement(
     Button,
     {
-      ...props,
+      ...rest,
+      ...(selected ? { 'data-on': '' } : {}),
+      'aria-pressed': selected,
       variant: 'ghost',
       size: 'chip',
       type: props.type ?? 'button',
       className: cn(
-        'bg-(--hd-chip-fill) text-(--hd-secondary-foreground) hover:bg-(--hd-chip-fill) hover:text-(--hd-foreground)',
+        'bg-(--hd-chip-fill) text-(--hd-secondary-foreground) hover:bg-(--hd-active) hover:text-(--hd-foreground)',
         selected && 'bg-(--hd-accent-dim) text-(--hd-accent) hover:bg-(--hd-accent-dim) hover:text-(--hd-accent)',
         props.className,
       ),
