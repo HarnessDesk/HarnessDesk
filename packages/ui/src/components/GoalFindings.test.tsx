@@ -361,3 +361,90 @@ it('opening a row reads its history explicitly, and closing returns focus to the
   expect(store.readFinding).toHaveBeenCalledWith('g1', 'finding-open-1')
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
 })
+
+/* #890's remainder: earlier runs are history a person can switch to, and a dropped run's open findings stay decidable. */
+const twoRuns = () => ({
+  flowExecutions: new Map([
+    ['run-old', { id: 'run-old', goal: 'g1', state: 'stopped', findings: {} } as never],
+    ['run-new', { id: 'run-new', goal: 'g1', state: 'running', findings: {} } as never],
+  ]),
+  findingRuns: new Map([
+    ['run-old', runView('run-old', 'The old round.', 'Dropped: parking this.')],
+    ['run-new', runView('run-new', 'The live round.')],
+  ]),
+})
+
+const choose = (select: HTMLSelectElement, value: string): void => {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!
+  act(() => {
+    setter.call(select, value)
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+it('earlier runs are history a person can switch to; the live run is the default (#890)', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [], next: null, totals: { all: 0, open: 0, blocking: 0 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const { store } = rig(state, twoRuns())
+  await render(store)
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Run"]')!
+  expect(select).not.toBeNull()
+  expect([...select.options].map((one) => one.textContent)).toEqual(['Run 1 of 2 · stopped', 'Run 2 of 2 · going on'])
+  expect(select.value).toBe('run-new')
+  expect(container.textContent).toContain('The live round.')
+  choose(select, 'run-old')
+  await act(async () => {})
+  expect(store.loadFindingRun).toHaveBeenCalledWith('g1', 'run-old')
+  expect(container.textContent).toContain('The old round.')
+  expect(container.textContent).toContain('Dropped: parking this.')
+})
+
+it('a Goal with one run offers no run to switch to', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [], next: null, totals: { all: 0, open: 0, blocking: 0 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const { flowExecutions, findingRuns } = twoRuns()
+  flowExecutions.delete('run-old')
+  const { store } = rig(state, { flowExecutions, findingRuns })
+  await render(store)
+  expect(container.querySelector('select[aria-label="Run"]')).toBeNull()
+})
+
+it('a dropped run’s open finding says where it came from, and is decided against its own run (#890)', async () => {
+  const old = row('finding-old', { origin: { goal: 'g1', run: 'run-old', round: 1, card: 2, seat: 'seat-writer', at: A } })
+  const state: FindingsListState = {
+    filter: 'all', rows: [old], next: null, totals: { all: 1, open: 1, blocking: 1 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const { store } = rig(state, twoRuns())
+  const decideFindingRun = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, {
+    readFinding: vi.fn().mockResolvedValue({ finding: old, records: [], seat: null, next: null, problem: null }),
+    decideFindingRun,
+  })
+  await render(store)
+  expect(container.textContent).toContain('1 open finding here was raised by an earlier run of this Goal')
+  const opener = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-old'))!
+  act(() => opener.click())
+  await act(async () => {})
+  expect(store.loadFindingRun).toHaveBeenCalledWith('g1', 'run-old')
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+  expect(dialog.textContent).toContain('Decide it yourself')
+  expect(dialog.textContent).not.toContain('belongs to an earlier run')
+  const why = dialog.querySelector<HTMLTextAreaElement>('textarea[aria-label="Why"]')!
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  act(() => {
+    setter.call(why, 'Not relevant any more.')
+    why.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const withdraw = [...dialog.querySelectorAll('button')].find((one) => one.textContent === 'Withdraw it')!
+  expect(withdraw.disabled).toBe(false)
+  act(() => withdraw.click())
+  await act(async () => {})
+  expect(decideFindingRun).toHaveBeenCalledWith(expect.objectContaining({
+    goal: 'g1', run: 'run-old', stamp: 'stamp-run-old', action: { kind: 'adjudicate', finding: 'finding-old', state: 'withdrawn' },
+  }))
+})
