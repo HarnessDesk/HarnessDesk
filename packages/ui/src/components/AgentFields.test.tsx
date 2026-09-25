@@ -451,4 +451,7 @@ it('no second default button sits beside Save, and the seating copy names no loc
   // No inline add form with its own Cancel sits beside "Add a seat" any more — only the footer's.
   expect([...document.body.querySelectorAll('button')].filter((one) => one.textContent?.trim() === 'Cancel')).toHaveLength(1)
   expect(document.body.textContent).not.toContain('above')
+  // A literal markdown asterisk is not emphasis in plain JSX text — it just
+  // shows up as a character.
+  expect(document.body.textContent).not.toContain('*')
 })

@@ -502,8 +502,7 @@ export const PreferFieldDialog = ({
       </DropdownMenu>
       <Note>
         Adding here names a runtime only, so this list stays portable. An exact model, effort or thinking mode is
-        chosen on this Mac&rsquo;s own seating (the *On this Mac* section of this page), or by editing the file
-        directly.
+        chosen on this Mac&rsquo;s own seating, further down this page, or by editing the file directly.
       </Note>
       {problem && <Banner tone="danger" title="This could not be saved">{problem}</Banner>}
       {issue && (

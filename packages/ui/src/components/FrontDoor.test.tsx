@@ -371,6 +371,8 @@ it('an input bound from the start target renders read-only, as a fact, never an 
   // The reviewed revision itself is shown, short — the same fact `Goal.at`
   // and `FlowExecution.target` otherwise carry with nowhere to read them.
   expect(document.body.textContent).toContain('branch feature at a1b2c3d')
+  // The full sha is still there, on hover — a shortened value never loses it.
+  expect(document.body.querySelector('[title="a1b2c3d4e5f6"]')).not.toBeNull()
 })
 
 it('source or input changes disable Start immediately, before the fresh dry run answers', async () => {

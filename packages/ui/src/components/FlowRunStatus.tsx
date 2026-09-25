@@ -58,7 +58,11 @@ export const FlowRunStatus = ({ execution }: FlowRunStatusProps) => {
         <Chip tone={activity.tone}>{activity.label}</Chip>
         {execution.reason && <Text role="muted">{execution.reason}</Text>}
       </div>
-      {execution.target && <Text role="muted">{targetWords(execution.target)}</Text>}
+      {execution.target && (
+        <Text role="muted" {...(execution.target.head ? { title: execution.target.head } : {})}>
+          {targetWords(execution.target)}
+        </Text>
+      )}
       {legacy && (
         <Banner tone="warning" title="This run uses the old format">
           It runs with its original answer routing and permissions.

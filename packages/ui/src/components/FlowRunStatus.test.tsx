@@ -53,6 +53,8 @@ it('shows the reviewed revision from the run’s own target, since nowhere else 
   })
   await settle()
   expect(container.textContent).toContain('Reviews branch feature at a1b2c3d')
+  // The full sha is still reachable, on hover, behind the short one shown.
+  expect(container.querySelector('[title="a1b2c3d4e5f6"]')).not.toBeNull()
 })
 
 it('says nothing about a revision for a run with no bound target', async () => {

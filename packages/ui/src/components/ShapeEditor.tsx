@@ -9,7 +9,7 @@ import {
   Field, Input, Note, NoteList, Row, Rows, SectionHead, Tabs, TabsList, TabsTrigger, Textarea,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
-import { defaultRole, defaultRule, emptyShapePolicy, renameRoleReferences, roleRemovable, uniqueId, withGraphPositions } from '../lib/shapes'
+import { boundInputIds, defaultRole, defaultRule, emptyShapePolicy, renameRoleReferences, roleRemovable, uniqueId, withGraphPositions } from '../lib/shapes'
 import { PlusIcon, MoveDownIcon, MoveUpIcon, TrashIcon } from './Icons'
 import { FlowPreviewReport } from './FlowStart'
 import { ShapeGraph } from './ShapeGraph'
@@ -72,6 +72,8 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
   const [sentence, setSentence] = useState('')
   const sentenceTouched = useRef(false)
   const [preview, setPreview] = useState<FrontDoorPreview | null>(null)
+  /** True from the moment a dry run is asked for until a token bound to the vars it was asked with actually lands — never true→false across a re-preview a filled-in default triggered. */
+  const [previewPending, setPreviewPending] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const [startProblem, setStartProblem] = useState<string | null>(null)
@@ -94,6 +96,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
     async (text: string): Promise<void> => {
       const mine = ++sequence.current
       setProblem(null)
+      setPreviewPending(true)
       try {
         const dry = await store.previewFrontDoor({ context, source: text, vars: varsRef.current, ...(goal ? { goal } : {}) })
         if (mine !== sequence.current) return
@@ -114,7 +117,18 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
               changed = true
             }
           }
-          if (changed) setVars(next)
+          if (changed) {
+            // The token this response just minted is bound to the vars it was
+            // asked with, not the defaults just filled in — showing it now
+            // would let Start redeem a token for vars nobody typed and the
+            // host never agreed to. Re-preview with the vars now in effect
+            // instead; `previewPending` (still true, guarded by `sequence`
+            // below) keeps Start disabled until a token bound to *these*
+            // vars comes back.
+            setVars(next)
+            void runDryRun(text)
+            return
+          }
         } else {
           setStale(true)
         }
@@ -124,6 +138,8 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
         if (mine !== sequence.current) return
         setStale(true)
         setProblem(error instanceof Error ? error.message : 'That shape could not be checked.')
+      } finally {
+        if (mine === sequence.current) setPreviewPending(false)
       }
     },
     [context, goal, store],
@@ -257,7 +273,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
   const sentenceValid = sentence.trim().length > 0 && sentence.trim().length <= 2000
 
   const start = async (): Promise<void> => {
-    if (!preview?.flow.token || !startable || !sentenceValid || starting) return
+    if (!preview?.flow.token || !startable || !sentenceValid || starting || previewPending) return
     setStarting(true)
     setStartProblem(null)
     try {
@@ -266,7 +282,10 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
         source,
         token: preview.flow.token,
         sentence: sentence.trim(),
-        vars: varsRef.current,
+        // Exactly what the redeemed token's own preview echoed back — never
+        // the vars ref, which can differ from it for the span between a
+        // default filling in and the re-preview it triggers landing.
+        vars: preview.vars,
         ...(preview.goal ? { goal: preview.goal } : {}),
       })
       onStarted(execution)
@@ -277,6 +296,8 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
   }
 
   const inputs = compiled?.format === 'agents' ? compiled.flow.inputs : []
+  /** Which of `inputs` this shape's own layout fills from the resolved start target — head, base, a pull request — rather than from a person typing. */
+  const bound = compiled?.format === 'agents' ? boundInputIds(compiled.flow) : new Set<string>()
 
   return (
     <Dialog
@@ -285,7 +306,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
       onClose={onClose}
       footer={(
         <>
-          <Button variant="default" disabled={!startable || !sentenceValid || starting} onClick={() => void start()}>
+          <Button variant="default" disabled={!startable || !sentenceValid || starting || previewPending} onClick={() => void start()}>
             {starting ? 'Starting…' : 'Start'}
           </Button>
           <Button variant="secondary" disabled={!policy} onClick={() => setShowSave(true)}>Save…</Button>
@@ -461,11 +482,22 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
 
           {problem && <ActionError>That shape could not be checked. {problem}</ActionError>}
 
-          {inputs.map((input) => (
+          {inputs.filter((input) => !bound.has(input.id)).map((input) => (
             <Field key={input.id} label={input.label}>
               {(control) => <Input {...control} value={vars[input.id] ?? ''} onChange={(event) => setVar(input.id, event.target.value)} />}
             </Field>
           ))}
+
+          {inputs.filter((input) => bound.has(input.id)).length > 0 && (
+            <Rows>
+              {inputs.filter((input) => bound.has(input.id)).map((input) => (
+                // A fact the chosen start already filled in — never a field
+                // that looks editable only to refuse the edit typing into it
+                // would send.
+                <Row key={input.id} title={input.label} desc={vars[input.id] || '—'} />
+              ))}
+            </Rows>
+          )}
 
           {errors.length > 0 && (
             <Banner tone="danger" title="This will not run yet">

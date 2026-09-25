@@ -330,7 +330,13 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
 
           {preview && (
             <Row
-              title={preview.target.head ? `${preview.target.label} at ${shortSha(preview.target.head)}` : preview.target.label}
+              title={
+                preview.target.head ? (
+                  <span title={preview.target.head}>{`${preview.target.label} at ${shortSha(preview.target.head)}`}</span>
+                ) : (
+                  preview.target.label
+                )
+              }
               wrapDesc
               desc={[
                 preview.target.dirty ? 'Not committed — a working-tree snapshot, never a committed head.' : null,

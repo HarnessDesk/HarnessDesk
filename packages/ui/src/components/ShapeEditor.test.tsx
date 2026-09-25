@@ -55,10 +55,14 @@ const fakeHost = (store: AppStore, roster: readonly AgentEntry[] = [AGENT]) =>
       return { source: JSON.stringify(policy), issues: [] }
     }
     if (method === 'authoring/start/preview') {
-      const { source } = params as { source: string }
+      const { source, vars } = params as { source: string; vars: Readonly<Record<string, string>> }
       try {
         const policy = JSON.parse(source) as FlowPolicy
-        return previewFor(policy)
+        // Echoes the vars it was asked to check, exactly like the real host —
+        // never a fixed `{}` regardless of what was sent, which is what let a
+        // typed value pass every dry-run assertion here while still never
+        // reaching `flow/start-goal` for real.
+        return previewFor(policy, { vars })
       } catch {
         // The real host never returns a null document, even for an unreadable
         // source — an empty placeholder in the old (never-startable) format,
@@ -90,6 +94,65 @@ const render = (store: AppStore) => {
     )
   })
   return { onClose, onStarted }
+}
+
+const renderWithSource = (store: AppStore, initialSource: string) => {
+  const onClose = vi.fn()
+  const onStarted = vi.fn()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <ShapeEditor root="/repo" context={{ kind: 'project', root: '/repo' }} initialSource={initialSource} onClose={onClose} onStarted={onStarted} />
+      </StoreProvider>,
+    )
+  })
+  return { onClose, onStarted }
+}
+
+/**
+ * A host double that actually enforces the binding the real one does: every
+ * `authoring/start/preview` mints a fresh token bound to the exact
+ * `(source, vars)` it was asked to check, and `flow/start-goal` refuses any
+ * redemption whose `(source, vars)` do not match what that exact token was
+ * minted for — never merely echoing back whatever the caller sends.
+ */
+const bindingFakeHost = (store: AppStore, roster: readonly AgentEntry[] = [AGENT]) => {
+  const bound = new Map<string, { readonly source: string; readonly vars: Readonly<Record<string, string>> }>()
+  let tokenSeq = 0
+  return vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'authoring/shape/render') {
+      const { policy } = params as { policy: FlowPolicy }
+      return { source: JSON.stringify(policy), issues: [] }
+    }
+    if (method === 'authoring/start/preview') {
+      const { source, vars } = params as { source: string; vars: Readonly<Record<string, string>> }
+      try {
+        const policy = JSON.parse(source) as FlowPolicy
+        const token = `tok-${++tokenSeq}`
+        bound.set(token, { source, vars: { ...vars } })
+        return previewFor(policy, { flow: { ...previewFor(policy).flow, token }, vars })
+      } catch {
+        return {
+          flow: {
+            token: null,
+            compiled: { document: { format: 'legacy', flow: { name: '', roles: [], rules: [], inputs: [], seed: { role: '', title: '' }, wait: 0 } }, bindings: [], problems: [] },
+            seats: [], commands: [], guards: [], messaging: 'board-only', problems: [{ level: 'error', at: 'file', text: 'not readable' }],
+          },
+          target: { label: 'this project', base: null, head: null, dirty: false, independence: 'unknown' },
+          vars: {}, source, sentence: '', goal: null,
+        }
+      }
+    }
+    if (method === 'agent/list') return roster
+    if (method === 'flow/start-goal') {
+      const { token, source, vars } = params as { token: string; source: string; vars?: Readonly<Record<string, string>> }
+      const entry = bound.get(token)
+      const matches = entry !== undefined && entry.source === source && JSON.stringify(entry.vars) === JSON.stringify(vars ?? {})
+      if (!matches) throw new Error('This flow or its seating changed. Review the dry run again before starting.')
+      return { version: 2, id: 'run-1', goal: 'goal-1', document: { format: 'agents', flow: JSON.parse(source) }, state: 'running', rounds: [], operations: [], legacyRun: null, reason: null }
+    }
+    return null
+  }) as never)
 }
 
 const settle = () => act(async () => {})
@@ -335,6 +398,83 @@ it('choosing a different step never wipes a typed input that step did not touch'
 
   const fieldAgain = document.getElementById(label.getAttribute('for')!) as HTMLInputElement
   expect(fieldAgain.value).toBe('kept')
+})
+
+it('an input nobody typed into starts on its own default, bound to the SAME token the defaulted preview minted — never the throwaway one sent before it', async () => {
+  const policy: FlowPolicy = {
+    version: 2, name: 'P', inputs: [{ id: 'topic', label: 'Topic', default: 'dflt' }],
+    roles: [{ id: 'person', kind: 'person', outcomes: ['done'] }], rules: [], seed: { role: 'person', title: 't' },
+    messaging: 'board-only', wait: 60,
+  }
+  const store = new AppStore('ws://localhost:0/')
+  const spy = bindingFakeHost(store)
+  const { onStarted } = renderWithSource(store, JSON.stringify(policy))
+  await settle()
+
+  // Never typed into "Topic" — Start must still work, redeeming whatever the
+  // *last* (defaulted) preview minted rather than the first, throwaway one
+  // taken of the empty vars nobody asked for.
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+  act(() => button('Start').click())
+  await settle()
+
+  expect(onStarted).toHaveBeenCalled()
+  const starts = spy.mock.calls.filter((call) => call[0] === 'flow/start-goal')
+  expect(starts).toHaveLength(1)
+  expect((starts[0]![1] as { vars?: Record<string, string> }).vars).toEqual({ topic: 'dflt' })
+})
+
+it('Start is disabled while a dry run a var edit triggered is still in flight', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+
+  // A slow second preview, in flight after typing — Start must go back to
+  // disabled the instant the edit fires, before that preview answers.
+  const stalled: FlowPolicy = {
+    version: 2, name: 'Stalled', inputs: [{ id: 'task', label: 'Task' }],
+    roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }], rules: [], seed: { role: 'review', title: '{{task}}' },
+    messaging: 'board-only', wait: 240,
+  }
+  let resolveSecond!: (value: unknown) => void
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'authoring/start/preview') return new Promise((resolve) => { resolveSecond = resolve })
+    return null
+  }) as never)
+
+  const label = [...document.body.querySelectorAll('label')].find((one) => one.textContent === 'Task')!
+  const field = document.getElementById(label.getAttribute('for')!) as HTMLInputElement
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    setter.call(field, 'typed')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(button('Start').hasAttribute('disabled')).toBe(true)
+
+  await act(async () => {
+    resolveSecond(previewFor(stalled))
+  })
+})
+
+it('an input bound from the start target renders read-only, as a fact, never an editable field that refuses its own edit', async () => {
+  const bound: FlowPolicy = {
+    version: 2, name: 'Review', inputs: [{ id: 'branch', label: 'Branch' }],
+    roles: [{ id: 'reviewer', kind: 'person', outcomes: ['done'] }], rules: [],
+    seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only', wait: 240,
+    layout: { frontDoor: { bindings: [{ input: 'branch', value: 'branch' }] } },
+  }
+  const store = new AppStore('ws://localhost:0/')
+  bindingFakeHost(store)
+  renderWithSource(store, JSON.stringify(bound))
+  await settle()
+
+  // A bound input is a fact, never a field a person can type into only to
+  // have the edit refused: no input element for it at all.
+  const label = [...document.body.querySelectorAll('label')].find((one) => one.textContent === 'Branch')
+  expect(label).toBeUndefined()
+  expect(document.body.textContent).toContain('Branch')
 })
 
 it('removing a step uses the destructive tone, and only there', async () => {

@@ -168,10 +168,14 @@ export const TeamRoomPane = ({
    * merely sharing this Goal's id. A Goal's id is reused across incarnations,
    * so an earlier, already-stopped run can still sit in the cache under the
    * same `.goal`; a plain "find the first match" can read that one back
-   * instead of the run this incarnation actually reserved.
+   * instead of the run this incarnation actually reserved — including while
+   * *this* run has not been fetched yet, when a fallback scan would still
+   * find the older one sitting there. Once `run` is known, this is the only
+   * id that answers; the effect below is what asks for it when it is not
+   * cached yet, never a stand-in read here.
    */
   const flowExecution = useMemo(
-    () => (run ? snapshot.flowExecutions.get(run) : undefined) ?? [...snapshot.flowExecutions.values()].find((one) => one.goal === room) ?? null,
+    () => (run ? (snapshot.flowExecutions.get(run) ?? null) : [...snapshot.flowExecutions.values()].find((one) => one.goal === room) ?? null),
     [snapshot.flowExecutions, room, run],
   )
   // A reopened room whose run predates this window's own pushes has nothing

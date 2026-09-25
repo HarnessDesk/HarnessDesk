@@ -467,6 +467,26 @@ it('a reused Goal with an earlier stopped run prefers the reservation’s own ru
   expect(container.textContent).not.toContain('Stopped')
 })
 
+it('while the reservation’s own run has not loaded yet, the pane asks for it rather than falling back to an older cached run sharing the Goal’s id', async () => {
+  const FLOW = { version: 2 as const, name: 'Fix', inputs: [], roles: [], rules: [], seed: { role: 'fixer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 }
+  const older: FlowExecution = {
+    version: 2, id: 'flow-old-1', goal: ROOM, document: { format: 'agents', flow: FLOW },
+    state: 'stopped', rounds: [], operations: [], legacyRun: null, reason: 'Stopped.',
+  }
+  const reserved = { ...GOAL, reservation: { run: 'flow-reused-2' } } as GoalView
+  // Only the older, unrelated run is cached — the reservation's own run
+  // ("flow-reused-2") has not been read yet.
+  const { store } = rig(undefined, undefined, {}, reserved, new Map([[older.id, older]]))
+  const readFlowExecution = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, { readFlowExecution })
+
+  await render(store)
+
+  // Never the older run's own words, and the reservation's run is asked for.
+  expect(container.textContent).not.toContain('Stopped')
+  expect(readFlowExecution).toHaveBeenCalledWith('flow-reused-2')
+})
+
 it('a plain conversation room shows no Findings row and never asks for one', async () => {
   const { store } = rig(undefined, undefined, {}, null)
   const loadFindings = vi.fn().mockResolvedValue(undefined)
