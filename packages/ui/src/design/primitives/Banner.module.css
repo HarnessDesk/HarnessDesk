@@ -52,7 +52,7 @@
     var(--hd-shadow-notice); /* desk: both literals, unchanged, now named */
   color: var(--hd-foreground);
   text-align: left;
-  animation: enter var(--hd-duration-enter) var(--hd-ease-out);
+  animation: enter var(--hd-duration-enter) var(--hd-ease-out); /* desk: 0.16s on the symmetric curve → the enter token and the arrival curve */
 }
 
 @keyframes enter {
@@ -158,7 +158,7 @@
   font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--hd-duration-fast) var(--hd-ease);
+  transition: background var(--hd-duration-fast) var(--hd-ease); /* desk: 0.12s → the fast token, 0.1s */
 }
 
 .action:hover {
