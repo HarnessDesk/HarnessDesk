@@ -72,11 +72,6 @@ import {
   LibraryReachMark,
   MetaList,
   Monogram,
-  MessageQueueActions,
-  MessageQueueFrame,
-  MessageQueueHeader,
-  MessageQueueList,
-  MessageQueueRow,
   NavigationGroupHeader,
   Note,
   NoteList,
@@ -96,7 +91,10 @@ import {
   ToggleGroup,
   ToggleGroupItem,
   stateTone,
+  SortableAnnouncer,
   SortableHandle,
+  Toolbar,
+  sortableItemClass,
   useSortable,
 } from '..'
 import styles from './explorer.module.css'
@@ -658,9 +656,9 @@ const BannerBoard = () => (
 )
 
 /**
- * The queue's rows are a sortable list: drag from the handle, or ⌥↑/⌥↓ from
- * a row, and the move is announced. This owner answers at once; the app's
- * queue answers when the host does.
+ * A sortable list: drag from the handle, or ⌥↑/⌥↓ from a row, and the move is
+ * announced. This owner answers at once; the app's message queue — the one
+ * consumer drawn here — answers when the host does.
  */
 const QueueRows = () => {
   const [ids, setIds] = useState(['Run the focused tests again', 'Then write the release note', 'Open a pull request'])
@@ -673,31 +671,36 @@ const QueueRows = () => {
     }),
   })
   return (
-    <MessageQueueList announcement={sortable.announcement} aria-label="Waiting messages" data-catalog-case="sortable-list">
-      {ids.map((id, index) => (
-        <MessageQueueRow key={id} {...sortable.row(id, index)}>
-          <SortableHandle {...sortable.handle(id)} />
-          <Text role="meta">{index + 1}</Text>
-          <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
-          {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
-          <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
-        </MessageQueueRow>
-      ))}
-    </MessageQueueList>
+    <>
+      <ol aria-label="Waiting messages" data-catalog-case="sortable-list" className="flex flex-col gap-0.5">
+        {ids.map((id, index) => (
+          <li key={id} data-slot="sortable-row" {...sortable.row(id, index)} className={`${sortableItemClass()} flex items-center gap-2`}>
+            <SortableHandle {...sortable.handle(id)} />
+            <Text role="meta">{index + 1}</Text>
+            <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
+            {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
+            <span className="flex shrink-0 items-center opacity-0 group-hover/sortable-row:opacity-100 focus-within:opacity-100">
+              <Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <SortableAnnouncer message={sortable.announcement} />
+    </>
   )
 }
 
 const QueueBoard = () => (
   <>
     <div className={styles.stack}>
-      <MessageQueueFrame paused>
-        <MessageQueueHeader>
+      <Alert variant="soft" tone="warning" className="flex-col items-stretch gap-1.5">
+        <Toolbar className="flex-nowrap">
           <Text role="meta" tone="warning"><AlertIcon size={13} /></Text>
           <Text role="meta" ink="primary" className="flex-1">The turn did not finish. Two messages waiting.</Text>
           <Button variant="quiet" size="sm">Send now</Button>
-        </MessageQueueHeader>
+        </Toolbar>
         <QueueRows />
-      </MessageQueueFrame>
+      </Alert>
       <PopoverSurface limit="trigger">
         <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
         <Button variant="navigation" size="navigation" className="w-full">/review</Button>
@@ -1083,7 +1086,7 @@ One-line fix, right target, no regressions. Ship it.`
 export const BOARDS: Board[] = [
   {
     id: 'queue',
-    title: 'MessageQueue · Trigger picker',
+    title: 'Sortable list · Trigger picker',
     about: 'Work waiting beside the composer, and the list that inserts into it.',
     render: QueueBoard,
   },

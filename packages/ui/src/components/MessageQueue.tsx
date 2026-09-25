@@ -4,16 +4,15 @@ import { useQueue, useSessionKey, useStore } from '../state/context'
 import { noteKey, wrapContext } from '../lib/context-envelope'
 import { describeQueued, queuedLabel } from '../lib/queue'
 import {
+  Alert,
   Button,
-  MessageQueueActions,
-  MessageQueueFrame,
-  MessageQueueHeader,
-  MessageQueueList,
-  MessageQueueRow,
+  SortableAnnouncer,
   SortableHandle,
   Spinner,
   Text,
+  Toolbar,
   ToolbarGap,
+  sortableItemClass,
   useSortable,
 } from '../design'
 import { AlertIcon, CrossIcon, PencilIcon, QueueIcon } from './Icons'
@@ -98,9 +97,23 @@ export const MessageQueue = () => {
   const paused = queue.status === 'paused'
   const count = queue.messages.length
 
+  /*
+    The queue is a notice about this conversation, standing where the goal
+    does — so it is drawn as one: the soft alert, on the muted ground behind a
+    strong hairline, that turns to the warning tone while it is held. Its head
+    is a toolbar and its list the sortable list, both set on the alert's own
+    inset. A row takes no hover ground: pressing it does nothing, and a row
+    that lights up promises that it would (`ListRow`'s rule). Its actions
+    still come up with the pointer.
+  */
   return (
-    <MessageQueueFrame className={styles.queue} paused={paused}>
-      <MessageQueueHeader>
+    <Alert
+      variant="soft"
+      tone={paused ? 'warning' : 'neutral'}
+      data-queue={paused ? 'paused' : 'waiting'}
+      className={`${styles.queue} flex-col items-stretch gap-1.5`}
+    >
+      <Toolbar className="flex-nowrap">
         <Text role="meta" {...(paused ? { tone: 'warning' as const } : { ink: 'muted' as const })}>
           {paused ? <AlertIcon size={13} /> : <QueueIcon size={13} />}
         </Text>
@@ -126,13 +139,15 @@ export const MessageQueue = () => {
         >
           {count === 1 ? 'Discard' : 'Discard all'}
         </Button>
-      </MessageQueueHeader>
-      <MessageQueueList announcement={sortable.announcement} aria-label="Waiting messages">
+      </Toolbar>
+      <ol aria-label="Waiting messages" className="flex flex-col gap-0.5">
         {queue.messages.map((message, index) => (
-          <MessageQueueRow
+          <li
             key={message.id}
-            sending={message.state === 'sending'}
+            data-slot="sortable-row"
+            {...(message.state === 'sending' ? { 'data-sending': '' } : {})}
             {...sortable.row(message.id, index)}
+            className={`${sortableItemClass()} flex items-center gap-2`}
           >
             <SortableHandle {...sortable.handle(message.id)} />
             <Text role="meta" className={styles.position} aria-hidden>
@@ -144,7 +159,7 @@ export const MessageQueue = () => {
             <Carried message={message} />
             <When paused={paused} index={index} state={message.state} />
             {message.state === 'queued' && (
-              <MessageQueueActions>
+              <span className="flex shrink-0 items-center gap-px opacity-0 group-hover/sortable-row:opacity-100 focus-within:opacity-100">
                 <Button
                   type="button"
                   variant="ghost" size="icon-sm"
@@ -163,12 +178,13 @@ export const MessageQueue = () => {
                 >
                   <CrossIcon size={13} />
                 </Button>
-              </MessageQueueActions>
+              </span>
             )}
-          </MessageQueueRow>
+          </li>
         ))}
-      </MessageQueueList>
-    </MessageQueueFrame>
+      </ol>
+      <SortableAnnouncer message={sortable.announcement} />
+    </Alert>
   )
 }
 
