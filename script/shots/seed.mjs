@@ -20,7 +20,7 @@
  *   node script/shots/seed.mjs --clean    # tear it down and stage it again
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -116,8 +116,9 @@ const RESIDUE = [
 ]
 
 /**
- * A folder this rig has actually staged before, or the one it stages by
- * default. Neither `RESIDUE` nor `--clean` may touch anything else.
+ * A folder this rig has actually staged before, the one it stages by
+ * default, or one with nothing in it yet. Anything else is refused outright,
+ * before a single byte is written.
  *
  * Widening `RESIDUE` — and `--clean` has always removed the whole folder —
  * raises what a mistaken `HD_SHOTS_HOME` costs: pointed at a real desk's
@@ -125,24 +126,37 @@ const RESIDUE = [
  * credentials, real Goals and real git worktrees rather than a rig's own
  * (#909 review, P3-3). The default path is trusted outright, the same way it
  * always implicitly was. Anything else has to prove it is this rig's own
- * folder, which it does by carrying the marker the previous seed wrote —
- * written again below regardless, so a deliberately repeated custom
- * `HD_SHOTS_HOME` is trusted from its second run on, exactly like the
- * default always was.
+ * folder, which it does by carrying the marker an earlier seed wrote.
+ *
+ * A first version of this guard skipped the deletions on an unmarked folder
+ * but still wrote the marker and then went on to overwrite `agents.json`,
+ * `state.json` and the rest of a fresh seed over whatever was there — so a
+ * mistaken `HD_SHOTS_HOME` lost its registry and state on the first run and
+ * its credentials, Goals and worktrees on the very next one, once that first
+ * run had marked it (#909 review, P2-2). "Leave it alone" only holds if nothing
+ * is written at all: the marker is earned by being empty, not merely unmarked,
+ * and an unmarked folder that already holds something refuses the whole run,
+ * this line included, rather than seeding around the question.
  */
-const MARKER = join(HOME, '.rig-home.json')
+const MARKER_NAME = '.rig-home.json'
+const MARKER = join(HOME, MARKER_NAME)
 const usingDefaultHome = !process.env['HD_SHOTS_HOME']
+const empty = !existsSync(HOME) || readdirSync(HOME).length === 0
 const rigOwnsHome = usingDefaultHome || existsSync(MARKER)
 
-if (rigOwnsHome) {
-  for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
-  if (process.argv.includes('--clean')) {
-    rmSync(HOME, { recursive: true, force: true })
-    for (const repo of REPOS) rmSync(join(WORK, repo.dir), { recursive: true, force: true })
-    say(`cleaned ${HOME} and ${REPOS.length} repositories`)
-  }
-} else {
-  say(`HD_SHOTS_HOME points at a folder this rig has not marked as its own (${HOME}); skipping residue cleanup rather than guessing what is safe to delete. Run seed.mjs again to use it as the rig's home from here on.`)
+if (!rigOwnsHome && !empty) {
+  process.stderr.write(
+    `\n  HD_SHOTS_HOME (${HOME}) is not empty and carries no ${MARKER_NAME} from an earlier seed, so this rig cannot tell it apart from a real desk's home. Refusing to write anything here.\n` +
+      `  Point HD_SHOTS_HOME at an empty folder, the default (~/.harnessdesk-shots), or one seed.mjs has already staged.\n\n`,
+  )
+  process.exit(1)
+}
+
+for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
+if (process.argv.includes('--clean')) {
+  rmSync(HOME, { recursive: true, force: true })
+  for (const repo of REPOS) rmSync(join(WORK, repo.dir), { recursive: true, force: true })
+  say(`cleaned ${HOME} and ${REPOS.length} repositories`)
 }
 
 mkdirSync(HOME, { recursive: true })

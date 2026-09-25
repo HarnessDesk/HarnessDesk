@@ -320,7 +320,7 @@ test('reseeding clears a leftover Goal document, closing the leftover sidebar ro
   assert.equal(existsSync(join(home, 'goals')), false, 'a leftover Goal survived reseeding')
 })
 
-test('seed.mjs refuses to clear a folder it has not marked as its own, and marks a fresh one for next time', async t => {
+test('seed.mjs refuses to seed a non-empty folder it has not marked as its own, leaving it byte-for-byte unchanged', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'hd-shots-guard-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   const home = join(directory, 'not-a-rig-home')
@@ -328,11 +328,22 @@ test('seed.mjs refuses to clear a folder it has not marked as its own, and marks
   mkdirSync(home, { recursive: true })
   // Content that looks like it belongs to a real desk this rig must never
   // touch — an `HD_SHOTS_HOME` pointed at a real `~/.harnessdesk`, or at
-  // `$HOME` itself, would otherwise have its credentials and Goals deleted by
-  // the very list this PR widened (#909 review, P3-3).
-  writeFileSync(join(home, 'credentials.json'), '{"real":true}\n')
-  mkdirSync(join(home, 'goals'), { recursive: true })
-  writeFileSync(join(home, 'goals', 'a-real-goal.json'), '{}\n')
+  // `$HOME` itself, would otherwise have its registry and state overwritten
+  // on a first run that "skipped" cleanup, and its credentials, Goals and
+  // worktrees deleted by the very list this PR widened on the very next run,
+  // because that first run wrote the marker unconditionally (#909 review,
+  // P2-2). Refusing outright, before anything is written, is the only
+  // version of "leave it alone" that actually holds.
+  const files = {
+    'agents.json': '{"real":true}\n',
+    'credentials.json': '{"real":true}\n',
+    'goals/a-real-goal.json': '{}\n',
+    'worktrees/wt/file.ts': 'export {}\n',
+  }
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(home, dirname(path)), { recursive: true })
+    writeFileSync(join(home, path), content)
+  }
 
   const seed = () =>
     execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
@@ -340,15 +351,51 @@ test('seed.mjs refuses to clear a folder it has not marked as its own, and marks
       stdio: 'pipe',
     })
 
-  seed()
-  // Refused: nothing this rig did not put there is deleted.
-  assert.equal(readFileSync(join(home, 'credentials.json'), 'utf8'), '{"real":true}\n')
-  assert.equal(readFileSync(join(home, 'goals', 'a-real-goal.json'), 'utf8'), '{}\n')
-  // But this run marked the folder, so a deliberate, repeated use of the same
-  // custom HD_SHOTS_HOME is not refused forever.
-  assert.ok(existsSync(join(home, '.rig-home.json')), 'a fresh folder was not marked for next time')
+  // Twice, because the bug this replaces only bit on the second run: the
+  // first run "skipped" the deletions but still marked the folder, so the
+  // second one trusted it and cleared everything the list now names.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    let failure = null
+    try {
+      seed()
+    } catch (error) {
+      failure = error
+    }
+    assert.ok(failure, `run ${attempt} must refuse rather than seed a folder it does not own`)
+    assert.notEqual(failure.status, 0, `run ${attempt} must exit non-zero`)
+    assert.match(String(failure.stderr), /HD_SHOTS_HOME/, `run ${attempt}'s message must name the flag`)
+    assert.match(String(failure.stderr), /\.rig-home\.json/, `run ${attempt}'s message must name the marker`)
+  }
+
+  // Byte-for-byte unchanged: nothing this rig did not put there was deleted,
+  // and nothing of its own — registry, state or marker — was written either.
+  for (const [path, content] of Object.entries(files)) {
+    assert.equal(readFileSync(join(home, path), 'utf8'), content, path)
+  }
+  assert.equal(existsSync(join(home, '.rig-home.json')), false, 'an unowned folder must not be marked')
+  assert.equal(existsSync(join(home, 'state.json')), false)
+  assert.equal(existsSync(join(home, 'seating.json')), false)
+})
+
+test('seed.mjs marks an empty custom home on its first run, and seeds it normally from then on', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-guard-empty-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'fresh-rig-home')
+  const work = join(directory, 'work')
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
 
   seed()
-  // Trusted the second time, exactly like the default home always was.
-  assert.equal(existsSync(join(home, 'goals', 'a-real-goal.json')), false)
+  assert.ok(existsSync(join(home, '.rig-home.json')), 'an empty folder was not marked on its first run')
+  assert.ok(existsSync(join(home, 'agents.json')))
+
+  // Residue this rig staged is cleared normally next time, exactly like the
+  // default home always was.
+  mkdirSync(join(home, 'goals'), { recursive: true })
+  writeFileSync(join(home, 'goals', 'stale.json'), '{}\n')
+  seed()
+  assert.equal(existsSync(join(home, 'goals', 'stale.json')), false)
 })
