@@ -1,6 +1,7 @@
 /* Sign-in composes its appearance from the window rail, the rail sections,
-   the dialog body, list, text, facts, alert and control roles. This sheet only
-   places those roles in the two-pane flow. */
+   the dialog body, list, rows, text, facts, alert and control roles. This
+   sheet only places those roles: a grouped roster on the left, and on the
+   right one centred column the width of a form — the sign-in card. */
 
 .dialog {
   display: flex;
@@ -42,20 +43,8 @@
   min-height: 0;
 }
 
-.lights {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--hd-space-1);
-}
-
 .fact {
-  max-width: 520px;
-  margin-bottom: var(--hd-space-4);
-}
-
-.spineCount {
-  margin-bottom: var(--hd-space-2);
+  margin: 0;
 }
 
 .railFilter {
@@ -71,12 +60,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--hd-space-3); /* desk: 10px → 12px, the hand-off keeps its established mark-to-copy gap */
-  margin-top: var(--hd-space-6);
-  max-width: 520px;
 }
 
 .nextMark,
-.whoMark {
+.headMark {
   flex: none;
   display: inline-grid;
   place-items: center;
@@ -87,43 +74,10 @@
   min-width: 14ch;
 }
 
-.who {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2-5); /* desk: 12px → 10px, the subject keeps its established mark-to-name gap */
-  margin-bottom: var(--hd-space-1);
-}
-
-.whoMeta {
-  margin-left: auto;
-  white-space: nowrap;
-}
-
-.blurb {
-  margin-bottom: var(--hd-space-5);
-}
-
-.waiting {
-  display: flex;
-  flex-direction: column;
-  max-width: 520px;
-}
-
-.waiting > :where([data-slot='status-summary'], [data-slot='alert']) {
-  margin-bottom: var(--hd-space-4);
-}
-
 .row {
   display: flex;
   align-items: center;
-  gap: var(--hd-space-2);
-}
-
-.methods {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-1-5); /* desk: 8px → 6px, compact choices keep their established separation */
-  max-width: 520px;
+  gap: var(--hd-space-2); /* desk: 8px, unchanged */
 }
 
 .actions {
@@ -131,13 +85,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--hd-space-2); /* desk: 12px → 8px, adjacent actions keep the control rhythm */
-  margin-top: var(--hd-space-0-5); /* desk: 24px → 2px, actions stay attached to the state they answer */
-  max-width: 520px;
-}
-
-.note {
-  margin: var(--hd-space-4) 0 0;
-  max-width: 66ch;
 }
 
 .noteFlush {
@@ -145,36 +92,13 @@
 }
 
 .aside {
-  margin-top: var(--hd-space-5);
-}
-
-/* The credential's facts card under the ways in: a step of air, so the card
-   does not butt against the last method row. */
-.methods + .fact {
-  margin-top: var(--hd-space-3);
+  display: flex; /* desk: block → flex, the label and its note are spaced by the column's gap */
+  flex-direction: column;
+  gap: var(--hd-space-1); /* desk: none → 4px, the legend's step over its note */
 }
 
 .actionError {
-  margin-bottom: var(--hd-space-4);
-}
-
-.keyRow {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-}
-
-.keyIcon {
-  position: absolute;
-  margin-left: var(--hd-space-2);
-  display: inline-grid;
-  place-items: center;
-  pointer-events: none;
-}
-
-.keyInput {
-  flex: 1;
-  min-width: 0;
+  margin: 0; /* desk: 16px → 0, the card's column spaces its parts */
 }
 
 .rowNote {
@@ -182,7 +106,59 @@
 }
 
 .code {
-  margin: var(--hd-space-1) 0 var(--hd-space-4);
   text-align: center;
   user-select: all;
+}
+
+/* Each group of the roster: its head, then its rows, a step of air before
+   the next group's head. */
+.group + .group {
+  margin-top: var(--hd-space-4);
+}
+
+/* The card: one column, the width of a form, centred in the pane. Its parts
+   are spaced by the column's own gap, so no part carries a margin for the
+   one after it. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-5); /* desk: new rule, 20px between the card's parts */
+  width: 100%;
+  max-width: 400px; /* desk: 520px → 400px, a sign-in column is a form's width */
+  margin: var(--hd-space-8) auto var(--hd-space-6);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hd-space-1); /* desk: new rule, 4px between the name and its line */
+}
+
+.headTile {
+  margin-bottom: var(--hd-space-2);
+}
+
+.headName,
+.headLine {
+  margin: 0;
+}
+
+.headLine {
+  max-width: 36ch;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3); /* desk: new rule, 12px between a state's parts */
+}
+
+.fine {
+  margin: 0 auto;
+  max-width: 44ch;
+}
+
+.grow {
+  flex: 1;
 }

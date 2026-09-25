@@ -34,7 +34,8 @@ import {
 } from '../lib/acp-registry'
 import { describeLimits, formatReset } from '../lib/limits'
 import { readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
-import { codeSpans, splitHealth, type Unavailable } from '../lib/health'
+import { splitHealth, type Unavailable } from '../lib/health'
+import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
 import { describeUpdate, describeVersion } from '../lib/versions'
@@ -323,20 +324,6 @@ const RingPicker = ({
   </span>
 )
 
-/** Host text, with what it wrote between backticks set as code. */
-const Prose = ({ text }: { text: string }) => (
-  <>
-    {codeSpans(text).map((span, index) =>
-      span.code ? (
-        <CodeText as="code" key={index}>
-          {span.text}
-        </CodeText>
-      ) : (
-        <span key={index}>{span.text}</span>
-      ),
-    )}
-  </>
-)
 
 /**
  * Why an agent will not start, in three parts rather than one paragraph.

@@ -209,8 +209,11 @@ it('a starting account is not counted as connected, and the rail does not call i
 
   const rail = container.querySelector('nav[aria-label="Agents"]')
   expect(rail?.textContent).not.toContain('Runs without one')
-  expect(rail?.textContent).toContain('Starting')
-  expect(rail?.textContent).toContain('1 of 2 connected')
+  // It waits with the ones not connected, saying it is starting, and the
+  // connected group counts only the account that answered.
+  const waiting = rail?.querySelector('[role="group"][aria-label="Not connected"]')
+  expect(waiting?.textContent).toContain('Starting')
+  expect(rail?.querySelector('[role="group"][aria-label="Connected"]')?.textContent).toContain('ada@example.com')
 })
 
 it('says an account did not start, rather than spinning on an answer that is not coming', async () => {
@@ -281,40 +284,89 @@ it('composes the shared roster, state and text roles', async () => {
     },
   } as never)
 
-  // The rail is the window rail, in the rail's own two stretches, closed by
-  // a section's footer; the work beside it is the dialog's reading body.
+  // The rail is the window rail, one list stretch of groups — what needs you
+  // first, each counted in its head — and the work beside it is the dialog's
+  // reading body.
   const rail = container.querySelector('nav[aria-label="Agents"]')
   expect(rail?.getAttribute('data-slot')).toBe('app-window-nav')
   expect([...(rail?.querySelectorAll(':scope > [data-slot="rail-section"]') ?? [])].map((node) => node.getAttribute('data-stretch')))
-    .toEqual(['head', 'list'])
+    .toEqual(['list'])
   expect(rail?.querySelector(':scope > [data-slot="section-footer"]')?.textContent).toContain('Credentials stay on this machine')
-  const [head, list] = [...(rail?.querySelectorAll(':scope > [data-slot="rail-section"]') ?? [])]
-  // The head sits under the dialog's own rule, so it opens with a ruled head's short step.
-  expect(head?.hasAttribute('data-ruled')).toBe(true)
-  expect([head, list].map((section) => section?.getAttribute('data-density'))).toEqual(['comfortable', 'comfortable'])
+  // Named groups rather than region landmarks; the count is the head's to show.
+  expect(rail?.querySelector('section')).toBeNull()
+  expect([...(rail?.querySelectorAll('[role="group"]') ?? [])].map((node) => node.getAttribute('aria-label')))
+    .toEqual(['Not connected', 'Connected'])
+  expect([...(rail?.querySelectorAll('[role="group"] [data-slot="section-name"]') ?? [])].map((node) => node.parentElement?.parentElement?.textContent))
+    .toEqual(['Not connected1', 'Connected1'])
   expect(detail().getAttribute('data-slot')).toBe('modal-dialog-body')
   expect(detail().getAttribute('data-layout')).toBe('reading')
 
-  // The roster reading is one readiness light per agent — the rows' own Dot —
-  // named once in words.
-  const lights = container.querySelector('[data-slot="roster-lights"]')
-  expect(lights?.getAttribute('role')).toBe('img')
-  expect(lights?.getAttribute('aria-label')).toBe('2 agents: 1 ready, 1 needs sign-in')
-  expect([...(lights?.querySelectorAll('[data-slot="dot"]') ?? [])].map((dot) => dot.getAttribute('data-state')))
-    .toEqual(['ready', 'signin'])
+  // Under "Not connected" a row does not repeat its group's name.
+  const out = rail?.querySelector('[role="group"][aria-label="Not connected"]')
+  expect(out?.querySelector('[data-slot="list-row"]')?.textContent).toBe('Codex')
 
-  // The agent's mark in the detail head stands in the subject role's ink,
-  // not the reading body's secondary ink.
-  const headMark = detail().querySelector('svg')?.closest('[data-slot="text"]')
+  // The card opens on the agent: its mark in a tile, in the subject's ink,
+  // and its name at the subject step — under the dialog's own title, never
+  // above it.
+  const head = detail().querySelector('[data-slot="sign-in-head"]')
+  const headMark = head?.querySelector('svg')?.closest('[data-slot="text"]')
   expect(headMark?.getAttribute('data-role')).toBe('subject')
-  expect(headMark?.className).toContain('text-(--hd-foreground)')
+  expect(headMark?.closest('[data-slot="icon-tile"]')).not.toBeNull()
+  expect(head?.tagName).toBe('DIV')
+  expect(head?.querySelector('h2')?.getAttribute('data-role')).toBe('subject')
 
-  // An account's state is a toned round tile beside the subject and muted roles.
-  expect(container.querySelector('[data-slot="list-row"]')).not.toBeNull()
-  const summary = detail().querySelector('[data-slot="status-summary"]')
-  expect(summary?.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tone')).toBe('success')
-  expect(summary?.querySelector('[data-slot="text"][data-role="subject"]')?.textContent).toBe('ada@example.com')
-  expect(summary?.querySelector('[data-slot="text"][data-role="muted"]')?.textContent).toBe('team')
+  // The account is a settings row in its group card, its state a toned
+  // round tile as its mark.
+  const account = detail().querySelector('[data-slot="sign-in-account"]')
+  expect(account?.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tone')).toBe('success')
+  expect(account?.textContent).toContain('ada@example.com')
+  expect(account?.textContent).toContain('team')
+})
+
+it('says an agent\u2019s refusal once, and offers its ways in as rows of one card', async () => {
+  // The refusal was appended to every method's description, raw JSON and
+  // all, so the same sentence stood under each of them.
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [],
+        refusal: 'Authentication required: Use the agent CLI to authenticate first.',
+        signInMethods: [
+          { id: 'a', flow: 'browser', label: 'Use an API key', description: 'Requires setting `OPENAI_API_KEY`' },
+          { id: 'b', flow: 'browser', label: 'Use a Responses key', description: 'Requires setting `OPENAI_API_KEY`' },
+        ],
+      },
+    },
+  } as never)
+
+  const card = detail()
+  expect(card.textContent?.match(/Authentication required/g)).toHaveLength(1)
+  const group = card.querySelector('[role="group"][aria-label="Ways to connect"]')
+  expect(group?.querySelectorAll('button')).toHaveLength(2)
+  // The agent's backticks are set as code, not drawn.
+  expect(group?.textContent).not.toContain('`')
+  expect(group?.querySelector('code')?.textContent).toBe('OPENAI_API_KEY')
+})
+
+it('draws one key open under the ways in', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [],
+        signInMethods: [
+          { id: 'web', flow: 'browser', label: 'Sign in with a browser' },
+          { id: 'key', flow: 'apiKey', label: 'API key', keyLabel: 'Codex API key' },
+        ],
+      },
+    },
+  } as never)
+
+  const card = detail()
+  expect(card.querySelector('[role="group"][aria-label="Ways to connect"]')?.textContent).toBe('Sign in with a browser')
+  const input = card.querySelector('input[type="password"]')
+  expect(input?.getAttribute('placeholder')).toBe('Paste your Codex API key')
+  // A key under a button does not take the focus from it.
+  expect(document.activeElement).not.toBe(input)
 })
 
 it('sets a one-time code verbatim on the code plate, at the page step', async () => {
@@ -373,4 +425,55 @@ it('wears the head every dialog wears, and its way out closes the sheet', async 
     close?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
   expect(onClose).toHaveBeenCalled()
+})
+
+it('lists an agent signed out as not connected, whatever its ways in are', async () => {
+  // Only ways in taken elsewhere, and no account: signed out all the same.
+  // And a refusal with no way in at all: it said it needs one, so it is
+  // neither "connected" nor an agent that "needs no account here".
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [],
+        signInMethods: [{ id: 'x', flow: 'external', label: 'Use an API key', description: 'Set `OPENAI_API_KEY`.' }],
+      },
+      'codex-7f3a91': { accounts: [], signInMethods: [], refusal: 'Please log in to use it.' },
+    },
+  } as never, 'codex-7f3a91')
+
+  const rail = container.querySelector('nav[aria-label="Agents"]')
+  expect(rail?.querySelector('[role="group"][aria-label="Connected"]')).toBeNull()
+  const out = rail?.querySelector('[role="group"][aria-label="Not connected"]')
+  expect(out?.querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
+  // The way in taken elsewhere is the line, because it differs.
+  expect(out?.textContent).toContain('Use an API key')
+
+  const card = detail()
+  expect(card.textContent).toContain('Please log in to use it.')
+  expect(card.textContent).not.toContain('needs no account here')
+})
+
+it('names a connected account once: no second line that only says it is connected', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: status([{ kind: 'agent', label: 'Signed in', anonymous: true }], []),
+    },
+  } as never)
+  const rail = container.querySelector('nav[aria-label="Agents"]')
+  const connected = rail?.querySelector('[role="group"][aria-label="Connected"]')
+  expect(connected?.querySelector('[data-slot="list-row"]')?.textContent).toBe('Codex')
+  const account = detail().querySelector('[data-slot="sign-in-account"]')
+  expect(account?.textContent).toBe('Signed in')
+})
+
+it('opens an agent whose only way in is a key on its field, with the label on the input', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: { accounts: [], signInMethods: [{ id: 'key', flow: 'apiKey', label: 'API key', keyLabel: 'Codex API key' }] },
+    },
+  } as never)
+  const input = detail().querySelector('input[type="password"]') as HTMLInputElement | null
+  expect(input).not.toBeNull()
+  expect(document.activeElement).toBe(input)
+  expect(detail().querySelector(`label[for="${input?.id}"]`)?.textContent).toBe('Codex API key')
 })
