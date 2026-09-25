@@ -525,6 +525,45 @@ export class AuthoringPlane {
     return { token, edits: display, issues: [], resuming: false }
   }
 
+  // ---------------------------------------------------------- one-line updates
+
+  /**
+   * An Agent file's one-line update — Update…'s ceiling line, the Skills and
+   * Servers allowlists — as the one writer of Agent files writes it: on the
+   * same queue a save takes, refused while a save of the same file is
+   * unfinished (so that save stays resumable), and renamed into place from
+   * a synced sibling only while the file still holds exactly the bytes
+   * `change` was handed. `change` is where the caller holds the file to what
+   * the person was shown — its own digest — and throws when it is not.
+   * `stale` is what the refusal says when the file moves on before the rename.
+   */
+  async rewriteAgent(
+    target: { readonly origin: 'project' | 'user'; readonly id: string; readonly root?: string },
+    change: (source: string) => string,
+    stale: string,
+  ): Promise<void> {
+    if (this.#closed) throw new Error('HarnessDesk is closing, so nothing more is saved.')
+    const place = await this.#place({ kind: 'agent', ...target })
+    if (place.scope === 'builtin') throw new Error('A built-in Agent is never changed.')
+    if (!place.tree.writable) throw new Error('HarnessDesk cannot change these files on this system, so nothing was written.')
+    const hooks = this.#options.hooks ?? {}
+    await this.#options.queue.run(place.tree.root, async () => {
+      const blocking = await this.#unfinishedIssues(place.tree.root, [place.rel])
+      if (blocking.length) throw new Error(`${blocking[0]!.text} ${blocking[0]!.fix}`)
+      const current = await place.writes.read(place.rel)
+      if (current === null) throw new Error('This Agent’s file is not there any more. Reload the Agent.')
+      const next = change(current)
+      if (next === current) return
+      await hooks.beforeWrite?.(place.rel)
+      try {
+        await place.writes.replace(place.rel, current, next)
+      } catch (error) {
+        if (errnoOf(error) === 'HD_TREE_CHANGED_BYTES') throw new Error(stale)
+        throw new Error(sentenceOf(error))
+      }
+    }, hooks.queued)
+  }
+
   // ------------------------------------------------------------------- apply
 
   /** The host is going: every preview token is dropped, so nothing more is applied. A save in flight finishes on its queue. */

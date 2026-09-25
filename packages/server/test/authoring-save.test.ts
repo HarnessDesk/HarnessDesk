@@ -388,3 +388,40 @@ test('two first reads of the save records share one, so a save made while the fi
   }
   assert.equal((await plane.pending()).length, 1, 'the unfinished save is still listed')
 })
+
+test('an Update… of an Agent file queues behind a save of that file in flight, and never writes past it', async () => {
+  const { project, make, seedAgents } = await setup()
+  await seedAgents()
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let pausedSignal!: () => void
+  const paused = new Promise<void>((resolve) => { pausedSignal = resolve })
+  let held = false
+  const plane = make({ beforeWrite: async (path) => { if (path === WRITER && !held) { held = true; pausedSignal(); await gate } } })
+  const target = { kind: 'agent', origin: 'project', id: 'writer', root: project } as const
+  const read = await plane.read(target)
+  const saved = agentSource('writer').replace('Do the writer work.', 'Saved from the editor.')
+  const preview = await plane.preview({ target, expected: read.digest, source: saved })
+  assert.ok(preview.token, JSON.stringify(preview.issues))
+  const saving = plane.apply(preview.token!)
+  // The save is inside its transaction, its record prepared, paused just before it writes.
+  await paused
+  const shown = await readFile(join(project, WRITER), 'utf8')
+  const updating = plane.rewriteAgent(
+    { origin: 'project', id: 'writer', root: project },
+    (source) => {
+      // The caller's own check of what the person was shown.
+      if (source !== shown) throw new Error('The file changed since the update was shown.')
+      return source.replace('ceiling: read', 'ceiling: edit')
+    },
+    'The file changed since the update was shown.',
+  )
+  await Promise.race([updating.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 200))])
+  release()
+  const [one, two] = await Promise.allSettled([saving, updating])
+  assert.equal(one.status === 'fulfilled' ? one.value.state : one.reason, 'applied')
+  assert.equal(two.status, 'rejected')
+  assert.match(String((two as PromiseRejectedResult).reason), /The file changed since the update was shown\./)
+  assert.equal(await readFile(join(project, WRITER), 'utf8'), saved)
+  assert.deepEqual(await plane.pending(), [])
+})

@@ -45,7 +45,6 @@ import {
   projectAgentDir,
   projectAgentFolder,
   readAgentSource,
-  rewriteAgentFile,
   rollbackCreatedAgent,
   userAgentFolder,
 } from '../agent-files.js'
@@ -349,12 +348,14 @@ export const agentMethods = {
   },
 
   'agent/ceiling/write': async (ctx, params) => {
-    const { path, folder, project } = await updatable(ctx, params)
-    await rewriteAgentFile(folder, params.digest, (source) => {
+    const { path, project } = await updatable(ctx, params)
+    // The one writer of Agent files: its queue, its unfinished-save refusal, its synced compare-then-rename.
+    await ctx.authoring.rewriteAgent({ origin: params.origin, id: params.id, ...(project ? { root: project } : {}) }, (source) => {
+      if (digestOf(source) !== params.digest) throw new Error(staleUpdate(path))
       const edit = ceilingEdit(source, params.level)
       if ('refused' in edit) throw new Error(`${path} cannot be updated: ${edit.refused}.`)
       return edit.next
-    })
+    }, staleUpdate(path))
     ctx.push({ method: 'agent/changed', params: { project: params.origin === 'project' ? (project ?? null) : null } })
     return found(await ctx.agents.read(params.id, project), { id: params.id, origin: params.origin, path })
   },
@@ -831,6 +832,10 @@ export const listedAgentPath = (
   if (!root || path !== join(root, entry.id, 'AGENT.md')) return { at: 'invalid' }
   return { at: 'found', path }
 }
+
+/** Why a one-line update was refused when its file moved on since it was shown. */
+export const staleUpdate = (path: string): string =>
+  `${path} has changed since the update was shown to you. Open Update… again to see what it would change now.`
 
 export const updatable = async (
   ctx: HostContext,

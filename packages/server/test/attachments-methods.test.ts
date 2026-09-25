@@ -5,6 +5,7 @@ import { test } from 'node:test'
 
 import type { AgentAttachmentsView, AgentEntry, AgentNotesView, AttachmentEditPreview, AttachmentReview, SeatAttachmentsRecord, Session } from '@harnessdesk/protocol'
 
+import { ConfinedTree } from '../src/confined-tree.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, start } from './fixtures/harness.js'
 
@@ -217,4 +218,32 @@ test('attachment/review binds trust to the exact project a Seat will actually op
   const receipt = (await client.call('attachment/seat', { seat: seatId })) as SeatAttachmentsRecord | null
   assert.equal(receipt?.results[0]?.status, 'loaded', 'the approval made against the real Seat’s own project must be the one the Seat actually finds')
   assert.equal(receipt?.results[0]?.reason, null)
+})
+
+test('write waits for an unfinished save of the same Agent file, so that save stays resumable', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  const folder = `${harness.stateDir}/agents/reviewer`
+  await mkdir(folder, { recursive: true })
+  await writeFile(`${folder}/AGENT.md`, REVIEWER, 'utf8')
+  const home = await ConfinedTree.open(harness.stateDir)
+  const id = 'ef'.repeat(16)
+  await mkdir(`${harness.stateDir}/authoring/transactions`, { recursive: true })
+  await writeFile(`${harness.stateDir}/authoring/transactions/${id}.json`, JSON.stringify({
+    version: 1, id, tx: 'crashed', scope: 'user', root: home.root, project: null, rootIdentity: home.identity,
+    edits: [{ path: 'agents/reviewer/AGENT.md', before: REVIEWER, after: REVIEWER.replace('Read the diff.', 'Read the diff twice.') }],
+    written: [], state: 'prepared', created: 1,
+  }))
+  const preview = (await client.call('attachment/edit/preview', { id: 'reviewer', origin: 'user', skills: ['a'], mcp: [] })) as AttachmentEditPreview
+  await assert.rejects(
+    client.call('attachment/edit/write', { id: 'reviewer', origin: 'user', skills: ['a'], mcp: [], digest: preview.digest }),
+    /An earlier save of one of these files did not finish/,
+  )
+  assert.equal(await readFile(`${folder}/AGENT.md`, 'utf8'), REVIEWER)
 })

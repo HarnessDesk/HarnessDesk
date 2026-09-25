@@ -122,7 +122,7 @@ export interface HostContext {
    */
   readonly authoring: Pick<
     AuthoringPlane,
-    'read' | 'patch' | 'preview' | 'apply' | 'pending' | 'resume' | 'discard' | 'renderShape' | 'triggerDraft' | 'renderTriggers'
+    'read' | 'patch' | 'preview' | 'apply' | 'pending' | 'resume' | 'discard' | 'renderShape' | 'triggerDraft' | 'renderTriggers' | 'rewriteAgent'
   >
   /** A front-door start's dry run: its context resolved on the host, its token strict and bound to that target. */
   readonly frontDoor: {
