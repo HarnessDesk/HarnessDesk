@@ -293,16 +293,11 @@
   width: var(--hd-target-min);
 }
 
-/* The name card's trigger around the status light: a glyph target, so it is
-   the target floor wide with the light at its centre, hanging into the row's
-   own inset on either side. */
 .statusTarget {
   flex: none;
   display: flex;
   align-self: stretch;
   align-items: flex-start;
-  justify-content: center; /* desk: start → center, the light sits at the middle of its target */
-  width: var(--hd-icon-target); /* desk: the rail's inset either side of the light → the glyph target floor, one pixel wider */
   margin: 0 -6px;
 }
 
