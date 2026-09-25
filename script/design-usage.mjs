@@ -313,7 +313,7 @@ export const buttonsIn = (region) =>
  */
 const SITES = [
   { slot: 'pageAction', tag: /^PageHead$/, props: ['actions'], where: "a page head's action" },
-  { slot: 'sectionAction', tag: /^SectionHead$/, props: ['action'], where: "a section head's action" },
+  { slot: 'sectionAction', tag: /^(?:SectionHead|Section)$/, props: ['action'], where: "a section head's action" },
   /* The dialog footer is read as a syntax tree by `footerOffenders` below:
      its rule is about the buttons together, across every branch. */
 ]

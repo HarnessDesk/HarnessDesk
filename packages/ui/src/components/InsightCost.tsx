@@ -42,7 +42,7 @@ export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSes
     <section aria-label="Cost">
       <SectionHead name="Cost" />
       <Rows>
-        <Row title="Recorded usage" desc={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')} control={<RowValue>{words.value}</RowValue>} />
+        <Row title="Recorded usage" desc={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')} control={<RowValue numeric>{words.value}</RowValue>} />
       </Rows>
       {report.breakdowns.length > 1 && (
         <Tabs value={selected?.dimension ?? ''} onValueChange={(next) => setDimension(next as InsightDimension)}>
@@ -56,9 +56,9 @@ export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSes
           const rowWords = metricWords(row.amounts.usd, report.sources, Date.now())
           const { seat, message, session } = row
           const action = seat !== null && onSeat ? () => onSeat(seat) : message !== null && onMessage ? () => onMessage(message) : session !== null && onSession ? () => onSession(session) : undefined
-          return <Row key={row.key} title={row.label} {...(action ? { onClick: action } : {})} desc={[row.note, rowWords.qualifier, rowWords.coverage, rowWords.source, rowWords.freshness].filter(Boolean).join(' · ') || undefined} control={<RowValue>{rowWords.value}</RowValue>} />
+          return <Row key={row.key} title={row.label} {...(action ? { onClick: action } : {})} desc={[row.note, rowWords.qualifier, rowWords.coverage, rowWords.source, rowWords.freshness].filter(Boolean).join(' · ') || undefined} control={<RowValue numeric>{rowWords.value}</RowValue>} />
         })}
-        <Row title="Unattributed" desc={selected.reason ?? 'No unique historical Seat could be established.'} control={<RowValue>{metricWords(selected.unattributed.usd, report.sources, Date.now()).value}</RowValue>} />
+        <Row title="Unattributed" desc={selected.reason ?? 'No unique historical Seat could be established.'} control={<RowValue numeric>{metricWords(selected.unattributed.usd, report.sources, Date.now()).value}</RowValue>} />
       </Rows>}
       {report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
       <Button size="sm" variant="outline" onClick={() => setShowSources(true)}>Sources</Button>

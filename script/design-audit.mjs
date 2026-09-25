@@ -48,7 +48,7 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * that has reached the floor is an ordinary category, and holding it at a
  * ceiling of nought would say the same thing in a more complicated way.
  */
-const BURN_DOWN = new Set(['patternClass', 'screenAppearance'])
+const BURN_DOWN = new Set(['patternClass', 'screenAppearance', 'uppercaseLabel'])
 
 /**
  * Everywhere UI is written, not just the screens.
@@ -1731,6 +1731,7 @@ const findings = {
   rawWeight: [],
   patternClass: [],
   screenAppearance: [],
+  uppercaseLabel: [],
   screenUnclassified: [],
   visualKindUnion: [],
   /**
@@ -3216,6 +3217,45 @@ for (const file of tsxFiles()) {
       )
     }
   }
+}
+
+/*
+ * Capitals on a label.
+ *
+ * The app's group label is one style — 13px, the secondary ink, sentence case
+ * (`GroupLabel`) — and the only capitals it keeps are the ones printed on a
+ * key (`Keycap`). Screens still spell 12px tracked capitals of their own (a
+ * rail's "AGENTS", a trajectory's "THINKING", a card's "RUNNING"), and each
+ * one was a screen deciding alone that its group needed shouting. So they are
+ * counted, in all three spellings a screen has: `text-transform: uppercase`
+ * in a stylesheet (a `var()` falling back to it included), the `uppercase`
+ * utility in a class list, and `textTransform: 'uppercase'` in an inline
+ * style. A rule whose selector names the keycap, or a line that draws a
+ * `Keycap`, is the one place they belong and is not counted. The foundation
+ * is outside the scan, as for every other rule here: a token is not a label.
+ */
+export const uppercaseLabelsOf = (file, source) => {
+  const name = label(file)
+  if (file.endsWith('.css')) {
+    const found = []
+    for (const rule of bare(source).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/text-transform\s*:[^;]*\buppercase\b/.test(rule[2])) continue
+      if (/keycap/i.test(rule[1])) continue
+      found.push(`${name}: ${rule[1].trim()} (text-transform)`)
+    }
+    return found
+  }
+  const code = withoutComments(source, file, { strict: true })
+  const found = []
+  for (const line of code.split('\n')) {
+    if (/keycap/i.test(line)) continue
+    for (const _ of line.matchAll(/(?<![\w-])uppercase(?![\w-])/g)) found.push(`${name}: uppercase`)
+  }
+  return found
+}
+
+for (const file of [...cssFiles(), ...tsxFiles()]) {
+  findings.uppercaseLabel.push(...uppercaseLabelsOf(file, read(file)))
 }
 
 /** Named values re-exported by the public design entrypoint, by their module. */

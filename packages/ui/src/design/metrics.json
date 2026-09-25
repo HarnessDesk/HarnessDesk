@@ -639,6 +639,14 @@
     "pad": "0 0 0 0",
     "radius": 0
   },
+  "readings/summary-card/variant/summary": {
+    "h": 273,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 0 0 0",
+    "radius": 14
+  },
   "row/page-title-case/size/page": {
     "h": 26,
     "text": 20,
@@ -662,6 +670,14 @@
     "line": 21,
     "pad": "0 0 0 0",
     "radius": 10
+  },
+  "section/section/variant/page": {
+    "h": 173,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
   },
   "section/section/variant/panel": {
     "h": 111,

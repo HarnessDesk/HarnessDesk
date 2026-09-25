@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { RuntimeInfo } from '@harnessdesk/protocol'
 
-import { Note, Row, RowChoice, Rows, SectionHead } from '../design'
+import { Row, RowChoice, Rows, Section } from '../design'
 import { runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import type { UnheldCeilings } from '../state/store'
@@ -87,52 +87,55 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
   const disabled = watched === null || busy
   const unattendedDisabled = unattended === null || unattendedBusy
   return (
-    <section ref={section} aria-label="Ceilings" tabIndex={-1}>
-      <SectionHead name="Ceilings" />
-      <Note>
-        The most a seat may do. Runtime controls are set and read back when a seat opens; a live seat reports its own result.
-        The desk’s tools enforce its ceiling either way.
-      </Note>
-      <Rows>
-        {snapshot.runtimes.map((runtime) => <RuntimeCeilings key={runtime.id} runtime={runtime} />)}
-      </Rows>
+    <>
+      <Section
+        ref={section}
+        title="Ceilings"
+        description="The most a seat may do. The desk’s tools enforce it, whatever a runtime reports back."
+        tabIndex={-1}
+      >
+        <Rows>
+          {snapshot.runtimes.map((runtime) => <RuntimeCeilings key={runtime.id} runtime={runtime} />)}
+        </Rows>
+      </Section>
 
-      <SectionHead name="If a runtime cannot hold a ceiling" />
-      <Note>In a conversation you are watching:</Note>
-      <Rows role="radiogroup" aria-label="If a runtime cannot hold a ceiling">
-        <RowChoice
-          title="Seat it and say so"
-          desc="The seat opens with its ceiling asked, drawn in the warning tone wherever it appears."
-          selected={watched === 'seat'}
-          disabled={disabled}
-          onClick={() => void choose('seat')}
-        />
-        <RowChoice
-          title="Refuse to seat it"
-          desc="It is passed over, with why, and the next seat the Agent prefers is tried."
-          selected={watched === 'refuse'}
-          disabled={disabled}
-          onClick={() => void choose('refuse')}
-        />
-      </Rows>
+      <Section title="A ceiling a runtime cannot hold" description="In a conversation you are watching.">
+        <Rows role="radiogroup" aria-label="If a runtime cannot hold a ceiling">
+          <RowChoice
+            title="Seat it and say so"
+            desc="The seat opens with its ceiling asked, drawn in the warning tone wherever it appears."
+            selected={watched === 'seat'}
+            disabled={disabled}
+            onClick={() => void choose('seat')}
+          />
+          <RowChoice
+            title="Refuse to seat it"
+            desc="It is passed over, with why, and the next seat the Agent prefers is tried."
+            selected={watched === 'refuse'}
+            disabled={disabled}
+            onClick={() => void choose('refuse')}
+          />
+        </Rows>
+      </Section>
 
-      <Note>Goals a trigger opened, with nobody watching:</Note>
-      <Rows role="radiogroup" aria-label="If a runtime cannot hold a ceiling in a Goal a trigger opened">
-        <RowChoice
-          title="Refuse to seat it"
-          desc="It is passed over, with why. This is the default: unattended work never seats a Seat it cannot hold."
-          selected={unattended === 'refuse'}
-          disabled={unattendedDisabled}
-          onClick={() => void chooseUnattended('refuse')}
-        />
-        <RowChoice
-          title="Seat it and say so"
-          desc="The seat opens with its ceiling asked, drawn in the warning tone wherever it appears — choosing this is an explicit decision, not a default."
-          selected={unattended === 'seat'}
-          disabled={unattendedDisabled}
-          onClick={() => void chooseUnattended('seat')}
-        />
-      </Rows>
-    </section>
+      <Section title="A ceiling a runtime cannot hold, unattended" description="In a Goal a trigger opened, with nobody watching.">
+        <Rows role="radiogroup" aria-label="If a runtime cannot hold a ceiling in a Goal a trigger opened">
+          <RowChoice
+            title="Refuse to seat it"
+            desc="It is passed over, with why. This is the default: unattended work never seats a Seat it cannot hold."
+            selected={unattended === 'refuse'}
+            disabled={unattendedDisabled}
+            onClick={() => void chooseUnattended('refuse')}
+          />
+          <RowChoice
+            title="Seat it and say so"
+            desc="The seat opens with its ceiling asked, drawn in the warning tone wherever it appears — choosing this is an explicit decision, not a default."
+            selected={unattended === 'seat'}
+            disabled={unattendedDisabled}
+            onClick={() => void chooseUnattended('seat')}
+          />
+        </Rows>
+      </Section>
+    </>
   )
 }

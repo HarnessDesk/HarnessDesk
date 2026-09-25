@@ -1,7 +1,9 @@
 import { cva, type VariantProps } from 'class-variance-authority'
+import { createContext, useContext } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import { GroupLabel } from './group-label'
 
 /**
  * The card with a job: a titled region of a page.
@@ -28,6 +30,11 @@ import { cn } from '@/lib/utils'
  *
  *   The footer is for actions.   Not for a summary, not for a count. A bar at
  *                               the bottom of a card promises something to press.
+ *
+ * It comes in two forms, chosen by whether it has a `title`. With one, it is a
+ * section of a page: the label over a card, the spacing owned (below). Without
+ * one, it is a boxed region — `card`, `plain`, `quiet`, `panel` — headed from
+ * inside by `SectionHeader` when it is headed at all.
  */
 
 const sectionVariants = cva('flex flex-col', {
@@ -43,21 +50,122 @@ const sectionVariants = cva('flex flex-col', {
       /* A collapsible plugin panel inside a column: one separating rule and
          the compact inset the block vocabulary has always used. */
       panel: 'gap-2 border-t border-(--hd-border) px-2.5 py-2',
+      /* A section of a page, with its label outside and over its card. Drawn
+         only through `title` (below), which is what gives it its head. */
+      page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-space-2) first:mt-0 *:my-0! [&>[data-section-head]]:mt-(--hd-space-4)! [&>button]:self-start',
     },
   },
   defaultVariants: { variant: 'card' },
 })
 
-type SectionProps = React.ComponentProps<'section'> & VariantProps<typeof sectionVariants>
+/**
+ * A section of a page: the unit a settings page, a detail page and a project
+ * page are made of.
+ *
+ * A page used to be a `SectionHead`, a `Note` and a `Rows` card, stacked by
+ * hand — three parts, each with its own margin, and nothing owning the space
+ * between them. The label sat 20px under the card above and 8px over its own,
+ * a free paragraph came between them with 10 more, and a page of one-row
+ * cards read as a list of floating grey words. So the section owns the rhythm,
+ * and a screen that composes sections writes no margin of its own:
+ *
+ *   heading → content      8px (`--hd-space-2`), the label belongs to its card.
+ *                          The heading sits on its card: an action taller than
+ *                          the label grows upward, so every label on a page is
+ *                          the same 8px above what it names
+ *   section → section      32px (`--hd-space-8`); after a page or detail head
+ *                          the head's own 24px collapses into it, so the first
+ *                          section sits at the same 32px as every other one
+ *   inside, child → child  8px; a card's or a note's own margin is dropped,
+ *                          so nothing inside can reopen the gap. A card
+ *                          fills the column; a lone button keeps its own
+ *                          width at the start, never a full-width bar.
+ *   a sub-group inside     a `SectionHead` among its children is a sub-head:
+ *                          24px above it (16 on the gap), 8px to its card —
+ *                          a step between the two, so Permissions' twelve
+ *                          runtimes read as groups of one section rather
+ *                          than twelve sections
+ *
+ * The heading is a `GroupLabel` (13px, secondary ink, sentence case). The
+ * `description` is one muted sentence directly under it — what the section is,
+ * never a paragraph of how it works (that belongs on the row it explains, or
+ * nowhere). The `action` belongs to the section rather than to any row in it,
+ * sits at the heading's end, and follows the `sectionAction` slot rule: a
+ * small `outline` button.
+ *
+ * It renders `<section aria-label={title}>`, so the title is a plain string: a
+ * landmark's name has to be one.
+ */
+type PageSectionProps = Omit<React.ComponentProps<'section'>, 'title'> & {
+  title: string
+  description?: React.ReactNode
+  action?: React.ReactNode
+  variant?: never
+}
 
-const Section = ({ className, variant, ...props }: SectionProps) => (
-  <section
-    data-slot="section"
-    data-variant={variant ?? 'card'}
-    className={cn(sectionVariants({ variant }), className)}
-    {...props}
-  />
-)
+/** The boxed region: a surface with its own ground or edge, headed from inside by `SectionHeader`. */
+type RegionProps = React.ComponentProps<'section'> & {
+  variant?: Exclude<VariantProps<typeof sectionVariants>['variant'], 'page'>
+  title?: never
+  description?: never
+  action?: never
+}
+
+type SectionProps = PageSectionProps | RegionProps
+
+const isPageSection = (props: SectionProps): props is PageSectionProps => typeof props.title === 'string'
+
+/*
+ * Whether this is inside a titled Section. A section label is an h2; a
+ * `SectionHead` among a Section's children heads a group of that section, so
+ * it asks here and is an h3 — the outline follows the page's shape.
+ */
+const InPageSection = createContext(false)
+const useInPageSection = (): boolean => useContext(InPageSection)
+
+const Section = (props: SectionProps) => {
+  if (isPageSection(props)) {
+    const { className, title, description, action, children, ...rest } = props
+    return (
+      <section
+        data-slot="section"
+        data-variant="page"
+        aria-label={title}
+        className={cn(sectionVariants({ variant: 'page' }), className)}
+        {...rest}
+      >
+        <div data-slot="section-head" className="flex min-w-0 items-end gap-(--hd-space-3)">
+          <div className="flex min-w-0 flex-1 flex-col gap-(--hd-space-0-5)">
+            <GroupLabel as="h2">{title}</GroupLabel>
+            {description != null && (
+              <p
+                data-slot="section-description"
+                className="m-0 max-w-[62ch] text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-muted-foreground)"
+              >
+                {description}
+              </p>
+            )}
+          </div>
+          {action != null && (
+            <div data-slot="section-action" className="flex flex-none items-center gap-(--hd-space-2)">
+              {action}
+            </div>
+          )}
+        </div>
+        <InPageSection.Provider value>{children}</InPageSection.Provider>
+      </section>
+    )
+  }
+  const { className, variant, ...rest } = props
+  return (
+    <section
+      data-slot="section"
+      data-variant={variant ?? 'card'}
+      className={cn(sectionVariants({ variant }), className)}
+      {...rest}
+    />
+  )
+}
 
 /**
  * Title, optional description, optional action, on one line each doing its job.
@@ -173,4 +281,5 @@ export {
   Toolbar,
   ToolbarGap,
   sectionVariants,
+  useInPageSection,
 }

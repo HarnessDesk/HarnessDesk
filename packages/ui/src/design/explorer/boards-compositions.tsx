@@ -135,6 +135,8 @@ import {
   Toolbar,
   ToolbarGap,
   toast,
+  SummaryItem,
+  SummaryList,
 } from '../ui'
 import {
   Counts,
@@ -156,7 +158,7 @@ import {
   WorkbenchRail,
   WorkbenchScrim,
 } from '../patterns/DockPanel'
-import { CodeText, Rows, Text } from '../patterns/Settings'
+import { CodeText, Row, Rows, SectionHead, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
@@ -213,10 +215,10 @@ const INPUT_GROUP_CATALOG_ALIGN = ['inline-start', 'inline-end', 'block-start', 
 const MARKER_CATALOG_VARIANTS = ['default', 'border', 'separator'] as const
 const MARKER_CATALOG_SIZES = ['default'] as const
 const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
-const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel'] as const
+const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel', 'page'] as const
 const SECTION_CATALOG_SIZES = ['default'] as const
 const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
-const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel'] as const
+const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel', 'summary'] as const
 const KEY_VALUE_CATALOG_SIZES = ['default'] as const
 const KEY_VALUE_CATALOG_STATES = ['default', 'empty', 'populated'] as const
 const TOOL_PANE_CATALOG_VARIANTS = ['default', 'integrated'] as const
@@ -351,6 +353,77 @@ const DeltaBoard = () => (
 
 // --- surfaces ---------------------------------------------------------------
 
+/**
+ * The Agent page, before and after the page grammar.
+ *
+ * Before: five facts about one Agent, each a grey label over a card that
+ * holds one row — the label 18px under the card above and 20px over its own,
+ * so it named neither. After: one `Section` holding one `SummaryList`, the
+ * facts read top to bottom like an inspector and every action in one column
+ * at the end. The words are the page's own, so the comparison is the layout
+ * and nothing else.
+ */
+const AGENT_FILE = '~/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md'
+const AGENT_BRIEF = 'Read a change against the checkout rules before anyone merges it, and say what would break.'
+
+const PageGrammar = () => (
+  <>
+    <div className="grid w-full items-start gap-(--hd-space-3) xl:grid-cols-2" data-catalog-example="page-grammar">
+      <Case label="the Agent page, before: a label over a one-row card, five times">
+        <div className="w-full">
+          <SectionHead name="File" />
+          <Rows>
+            <Row
+              title={<CodeText>{AGENT_FILE}</CodeText>}
+              desc="Comes first over the one that ships"
+              control={<><Button size="sm" variant="outline">Open file</Button><Button size="sm" variant="outline">Reveal</Button></>}
+            />
+          </Rows>
+          <SectionHead name="Ceiling" />
+          <Rows>
+            <Row title="Edit" desc="May change files and commit in its own checkout, and never push." control={<Button size="sm" variant="outline">Update…</Button>} />
+          </Rows>
+          <SectionHead name="Skills" />
+          <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
+          <SectionHead name="Servers" />
+          <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
+          <SectionHead name="Brief" />
+          <Rows><Row title={AGENT_BRIEF} control={<Button size="sm" variant="outline">Open in editor</Button>} /></Rows>
+        </div>
+      </Case>
+      <Case label="after: one Section, one SummaryList">
+        <div className="w-full">
+          <Section title="Agent" description="Read from its file; the file is the truth.">
+            <SummaryList>
+              <SummaryItem label="File" kind="path" note="Comes first over the one that ships" action={<Button size="sm" variant="secondary">Open file</Button>}>
+                {AGENT_FILE}
+              </SummaryItem>
+              <SummaryItem label="Ceiling" note="May change files and commit in its own checkout, and never push." action={<Button size="sm" variant="secondary">Update…</Button>}>
+                Edit
+              </SummaryItem>
+              <SummaryItem label="Skills" action={<Button size="sm" variant="secondary">Edit…</Button>}>Runtime defaults</SummaryItem>
+              <SummaryItem label="Servers" action={<Button size="sm" variant="secondary">Edit…</Button>}>Runtime defaults</SummaryItem>
+              <SummaryItem label="Brief" action={<Button size="sm" variant="secondary">Open in editor</Button>}>{AGENT_BRIEF}</SummaryItem>
+            </SummaryList>
+          </Section>
+          <Section title="Seats" action={<Button size="sm" variant="outline"><PlusIcon /> Add a seat…</Button>}>
+            <Rows>
+              <Row title="Claude · Opus" desc="The seat it takes here" />
+              <Row title="Codex" desc="Free here" />
+            </Rows>
+          </Section>
+        </div>
+      </Case>
+    </div>
+    <Rule>
+      A page is a head and a column of <code>Section</code>s, each a <code>GroupLabel</code> over one
+      card. The section owns the space — 8px from label to card, 32px to the next section — so a
+      screen writes no margin. Five facts about one thing are one <code>SummaryList</code>: a key
+      column, a value that wraps, an optional note and an action at the row&rsquo;s end.
+    </Rule>
+  </>
+)
+
 const SectionBoard = () => (
   <>
     <div
@@ -360,12 +433,30 @@ const SectionBoard = () => (
       data-catalog-sizes={SECTION_CATALOG_SIZES.join(' ')}
       data-catalog-states={SECTION_CATALOG_STATES.join(' ')}
     >
-      {SECTION_CATALOG_VARIANTS.map((variant) => (
-        <Section key={variant} variant={variant} data-catalog-variant={variant}>
-          <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
-          <SectionBody>Canonical section variant.</SectionBody>
-        </Section>
-      ))}
+      {SECTION_CATALOG_VARIANTS.map((variant) =>
+        variant === 'page' ? (
+          /* The page form: a title makes it a section of a page — the label
+             over its card, and the spacing owned. */
+          <div key={variant}>
+            <Section
+              title="Rules"
+              description="A rule answers a request before it reaches you."
+              action={<Button variant="outline" size="sm"><PlusIcon /> Add rule</Button>}
+              data-catalog-variant={variant}
+            >
+              <Rows>
+                <Row title="Allow the test runner" desc="Approves commands containing “pnpm test”." />
+                <Row title="Never push" desc="Denies commands containing “git push”." />
+              </Rows>
+            </Section>
+          </div>
+        ) : (
+          <Section key={variant} variant={variant} data-catalog-variant={variant}>
+            <SectionHeader><SectionTitle>{variant}</SectionTitle></SectionHeader>
+            <SectionBody>Canonical section variant.</SectionBody>
+          </Section>
+        ),
+      )}
       <Section>
         <SectionHeader>
           <SectionTitle>Approvals</SectionTitle>
@@ -424,6 +515,7 @@ const SectionBoard = () => (
         </SectionBody>
       </Section>
     </div>
+    <PageGrammar />
     <Rule>
       The header lays out on a grid that grows a second column only when a{' '}
       <code>SectionAction</code> is really there — <code>has-data-[slot=…]</code> asks the DOM
@@ -591,6 +683,15 @@ const KeyValueBoard = () => (
             $212.40
           </KeyValueRow>
         </KeyValue>
+      </Case>
+      <Case label="summary: facts about one object, as a card">
+        <SummaryList className="w-full" data-catalog-variant="summary">
+          <SummaryItem label="File" kind="path" action={<Button size="sm" variant="secondary">Open file</Button>}>
+            ~/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md
+          </SummaryItem>
+          <SummaryItem label="Ceiling" note="May change files and commit in its own checkout, and never push.">Edit</SummaryItem>
+          <SummaryItem label="Seats" numeric>3</SummaryItem>
+        </SummaryList>
       </Case>
       <Case label="compact panel facts">
         <KeyValue variant="panel" className="w-full" data-catalog-variant="panel">

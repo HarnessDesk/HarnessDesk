@@ -24,7 +24,7 @@ import {
   RowButton,
   RowValue,
   Rows,
-  SectionHead,
+  Section,
 } from '../design'
 
 /**
@@ -95,14 +95,8 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
             <FolderIcon size={22} />
           </DetailMark>
         }
-        name={
-          <>
-            <span className="shrink-0">{name}</span>
-            <span className="min-w-0 truncate text-(length:--hd-text-sm) font-normal text-(--hd-muted-foreground)">
-              {shortPath(root, snapshot.home)}
-            </span>
-          </>
-        }
+        name={name}
+        owner={shortPath(root, snapshot.home)}
         actions={
           current ? (
             <Chip state="ready" label="Current" />
@@ -128,11 +122,10 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
         }
       />
 
-      <section aria-label="Agents">
-        <SectionHead name="Agents" />
-        <Note>
-          {`Its own, read from ${shortPath(folder, snapshot.home)} and committed with its code. In this project they come first, over yours and the ones that ship.`}
-        </Note>
+      <Section
+        title="Agents"
+        description={`Its own, read from ${shortPath(folder, snapshot.home)} and committed with its code; here they come first, over yours and the ones that ship.`}
+      >
         <Rows>
           {problem && <Row title={problem} />}
           {!problem && agents === null && <Row title="Reading…" />}
@@ -167,14 +160,13 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
         {!current && agents && agents.length > 0 && (
           <Note>Open this project to start its Agents, or to see each one’s page.</Note>
         )}
-      </section>
+      </Section>
       <ProjectFlows root={root} current={current} />
       <ProjectChecks root={root} />
       <ProjectTriggers root={root} />
       <ProjectProvenance root={root} />
       {memoryOpen ? (
-        <section aria-label="Memory">
-          <SectionHead name="Memory" />
+        <Section title="Memory">
           {openGoals && openGoals.length > 0 && (
             <NativeSelect
               aria-label="Cite into"
@@ -186,15 +178,17 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
             </NativeSelect>
           )}
           <MemoryCitation root={root} goal={(citeInto || null) as GoalId | null} />
-        </section>
+        </Section>
       ) : (
-        <Rows>
-          <RowButton
-            title="Project memory"
-            desc="Committed notes a Goal can cite."
-            onClick={() => setMemoryOpen(true)}
-          />
-        </Rows>
+        <Section title="Memory">
+          <Rows>
+            <RowButton
+              title="Committed notes"
+              desc="What a Goal in this project can cite."
+              onClick={() => setMemoryOpen(true)}
+            />
+          </Rows>
+        </Section>
       )}
     </>
   )
