@@ -22,6 +22,14 @@ afterEach(() => {
 })
 
 describe('Dot', () => {
+  it('is the neutral light when it is given no state', () => {
+    act(() => root.render(<Dot />))
+    const dot = container.querySelector<HTMLElement>('[data-slot="dot"]')
+    expect(dot?.hasAttribute('data-state')).toBe(false)
+    const base = (/(?:^|\n)\.dot \{([^}]*)\}/.exec(css)?.[1] ?? '')
+    expect(base).toMatch(/background:\s*var\(--hd-muted-foreground\)/)
+  })
+
   it('names its state and optional activity motion', () => {
     act(() => root.render(<Dot state="signin" pulse />))
 

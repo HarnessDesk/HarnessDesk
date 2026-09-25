@@ -6,7 +6,7 @@ import { RuntimeMark } from './BrandIcons'
 import type { ReportFoot } from './Details'
 import { AlertIcon, CheckIcon, SessionIcon, ShieldIcon, ZapIcon } from './Icons'
 import { AccountMark } from '../design'
-import { DayLabel, PanelEmpty, PanelRow, RowTime } from './Panel'
+import { GroupLine, PanelEmpty, PanelRow, RowTime } from './Panel'
 
 /**
  * The audit view: what every agent did in this repository this week,
@@ -148,7 +148,7 @@ export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot 
     <>
       {byDay.map(([day, entries]) => (
         <div key={day}>
-          <DayLabel>{day}</DayLabel>
+          <GroupLine left={day} />
           {entries.map((row, index) => {
             const info = infoOf(row.runtime)
             return (

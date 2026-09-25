@@ -689,6 +689,9 @@ body {
      the scale: it lands on whichever of the four steps the sentence is set
      in, and never below the smallest of them. */
   --hd-code-inline: max(var(--hd-text-xs), 0.92em);
+  /* A code read aloud and typed on another device — a one-time sign-in
+     code — is spaced so its groups read across a room. */
+  --hd-code-tracking-spaced: 0.18em;
   --hd-code-max-height: 380px;
   /* Diff rows sit inside the darker code fill. Resolve their state washes
      against the page as opaque colours so a gutter does not composite the

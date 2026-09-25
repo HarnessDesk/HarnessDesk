@@ -110,6 +110,16 @@ describe('the review workspace', () => {
     expect(text).toContain('on main')
   })
 
+  it('parts one hunk from the next with the app\u2019s hairline, and never above the first', async () => {
+    mount(() => {})
+    await flush()
+    const hunks = [...container.querySelectorAll('section')].filter((node) => node.querySelector(':scope > [data-slot="patch-header"][data-level="hunk"]'))
+    // docs/guide.md (listed first, by folder) has one hunk, src/a.ts two.
+    expect(hunks).toHaveLength(3)
+    const rules = hunks.map((hunk) => hunk.firstElementChild?.getAttribute('data-slot') === 'separator')
+    expect(rules).toEqual([false, false, true])
+  })
+
   it('revise-this-hunk quotes the hunk into the composer and closes', async () => {
     const onClose = vi.fn()
     const composed: string[] = []

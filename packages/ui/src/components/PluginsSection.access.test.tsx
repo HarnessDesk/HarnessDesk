@@ -154,3 +154,35 @@ it('a plugin holding nothing still says so', () => {
 
   expect(container.textContent).toContain('Nothing beyond running in the plugin host')
 })
+
+it('names a plugin and its tools on the wire in the code face at the meta step, behind a labelled switch', () => {
+  const tool = {
+    id: 'git/git_status',
+    owner: 'git',
+    revision: 1,
+    scope: { kind: 'global' },
+    kind: 'tool',
+    namespace: 'git',
+    name: 'git_status',
+    description: 'Show the working tree status.',
+    inputSchema: {},
+  }
+  mount([{ ...plugin('git', 'Git', {}), contributions: [tool] } as unknown as PluginInstance])
+  open('Git')
+
+  // The identifier is the meta role holding the code face.
+  const wire = (text: string): Element | undefined =>
+    [...container.querySelectorAll('[data-slot="text"][data-role="meta"] > [data-slot="code-text"]')].find((node) => node.textContent === text)
+  expect(wire('git')).toBeTruthy()
+
+  // The switch is labelled by the muted words beside it, and the label is the control's.
+  const toggle = container.querySelector('[aria-label="Show tool names"]')
+  const label = toggle?.closest('label')
+  expect(label?.getAttribute('data-slot')).toBe('text')
+  expect(label?.getAttribute('data-role')).toBe('muted')
+  expect(label?.getAttribute('data-ink')).toBe('muted')
+  expect(label?.textContent).toContain('Tool names')
+  expect(wire('git/git_status')).toBeUndefined()
+  act(() => (label as HTMLElement).click())
+  expect(wire('git/git_status')).toBeTruthy()
+})

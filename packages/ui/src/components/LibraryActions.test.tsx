@@ -197,6 +197,31 @@ it('a failed op wears its reason after apply; the batch reports per op', async (
   )
 })
 
+it('marks each operation in its name\u2019s role: a pending ring to run, a check once done, the warning ink when it fails', async () => {
+  const op = (id: string, name: string): LibraryPlan['ops'][number] => ({
+    id, kind: 'skill', name, action: 'create', targetPath: `/t/${name}`, content: 'x', guardDigest: null, backup: false,
+  })
+  const store = storeWith(async (method) => {
+    if (method === 'library/plan') return plan([op('op-1', 'a'), op('op-2', 'b')])
+    return [
+      { id: 'op-1', outcome: 'done' },
+      { id: 'op-2', outcome: 'failed', detail: 'The target changed since the preview.' },
+    ]
+  })
+  await render(store, <PlanDialog title="Install" intents={[]} columns={columns} onClose={() => {}} onApplied={() => {}} />)
+  const marks = (): HTMLElement[] => [...document.body.querySelectorAll<HTMLElement>('[role="listitem"] [data-mark]')]
+  expect(marks().map((mark) => mark.dataset['role'])).toEqual(['row', 'row'])
+  expect(marks().map((mark) => mark.querySelector('svg')?.classList.contains('lucide-circle'))).toEqual([true, true])
+  expect(marks().map((mark) => mark.dataset['tone'] ?? mark.dataset['ink'])).toEqual(['muted', 'muted'])
+
+  await click(buttonNamed('Apply 2 changes'))
+  const [done, failed] = marks()
+  expect(done?.dataset['tone']).toBe('success')
+  expect(done?.querySelector('svg')?.classList.contains('lucide-check')).toBe(true)
+  expect(failed?.dataset['tone']).toBe('warning')
+  expect(failed?.querySelector('svg')?.classList.contains('lucide-x')).toBe(true)
+})
+
 const entryWith = (
   name: string,
   states: readonly ReachState[],

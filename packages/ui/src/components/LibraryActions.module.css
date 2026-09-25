@@ -31,7 +31,7 @@
 }
 
 .opBody {
-  margin: 0 0 var(--hd-space-3) calc(var(--hd-space-4) + var(--hd-space-2));
+  margin: 0 0 var(--hd-space-3) calc(var(--hd-space-3) + var(--hd-space-2)); /* desk: space-4 + space-2 → space-3 + space-2, the body starts under the name after the 12px text mark */
 }
 
 .opFiles {

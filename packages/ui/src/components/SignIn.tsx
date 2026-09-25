@@ -31,33 +31,33 @@ import {
   TerminalIcon,
 } from './Icons'
 import {
-  AccessCode,
-  AccessDetail,
-  AccessFact,
-  AccessRail,
-  AccessRailFooter,
-  AccessRailHeader,
-  AccessRailList,
   ActionError,
   Alert,
   AlertContent,
   AlertDescription,
   AlertTitle,
+  AppWindowRail,
   Button,
+  CodeText,
+  DialogBody,
   DialogContent,
   DialogHead,
   DialogRoot,
   Dot,
+  IconTile,
   Input,
   ListRow,
   ListRows,
   Note,
+  RailSection,
   Search,
+  SectionFooter,
   SectionHead,
   Spinner,
-  StateStrip,
-  StatusSummary,
+  SummaryItem,
+  SummaryList,
   Text,
+  type Tone,
 } from '../design'
 import own from './SignIn.module.css'
 
@@ -232,16 +232,19 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
         <DialogHead title="Sign in" />
 
         <div className={own.split}>
-          <AccessRail aria-label="Agents">
-            <AccessRailHeader>
+          {/* The rail is the window rail — the plate Settings and the
+              dashboard stand their rosters on — under the dialog's own head,
+              so its head opens with the short step a ruled head takes. */}
+          <AppWindowRail aria-label="Agents" className={own.rail}>
+            <RailSection stretch="head" density="comfortable" ruled>
               <Text as="div" role="subject">Your agents</Text>
               <Text as="div" role="muted" className={own.spineCount}>
                 {connected} of {rows.length} connected
               </Text>
-              <StateStrip states={rows.map((entry) => entry.state)} />
-            </AccessRailHeader>
+              <RosterLights states={rows.map((entry) => entry.state)} />
+            </RailSection>
 
-            <AccessRailList>
+            <RailSection stretch="list" density="comfortable" className={own.railList}>
               <ListRows size="sm">
               {rows.map((entry) => (
                 <ListRow
@@ -311,17 +314,19 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                   <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
                 </>
               )}
-            </AccessRailList>
+            </RailSection>
 
-            <AccessRailFooter>
+            <SectionFooter>
               <Text as="div" role="muted">
                 Credentials stay on this machine — in each agent's own store, or here
                 under {snapshot.credentialProtection} for the keys you paste.
               </Text>
-            </AccessRailFooter>
-          </AccessRail>
+            </SectionFooter>
+          </AppWindowRail>
 
-          <AccessDetail>
+          {/* The work beside the roster is the dialog's body: a reading
+              body, inset the dialog's step, that scrolls on its own. */}
+          <DialogBody layout="reading" className={own.detail}>
             {fromRegistry ? (
               <RegistryAgent
                 key={fromRegistry.id}
@@ -336,9 +341,10 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 
             {row && row.status !== 'out' ? (
               <Alert tone="neutral" variant="soft" className={own.next}>
-                <span className={own.nextMark}>
+                {/* The mark belongs to the alert's headline, and wears its ink. */}
+                <Text role="subject" className={own.nextMark}>
                   <RuntimeMark runtime={(nextUp ?? row).info} size={20} />
-                </span>
+                </Text>
                 <AlertContent className={own.nextText}>
                   <AlertTitle>
                     {nextUp
@@ -359,12 +365,62 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                 </Button>
               </Alert>
             ) : null}
-          </AccessDetail>
+          </DialogBody>
         </div>
       </DialogContent>
     </DialogRoot>
   )
 }
+
+/**
+ * The whole roster in one glance: each agent's readiness light, in roster
+ * order — the same `Dot` its row carries below, so the summary and the rows
+ * it summarises are one vocabulary. Named once, in words, for a reader.
+ */
+const ROSTER_WORDS: readonly (readonly [Readiness, string])[] = [
+  ['ready', 'ready'],
+  ['signin', 'needs sign-in'],
+  ['limit', 'at a limit'],
+  ['broken', 'unavailable'],
+  ['available', 'not added'],
+]
+
+const RosterLights = ({ states }: { states: readonly Readiness[] }) => {
+  const counts = new Map<Readiness, number>()
+  for (const state of states) counts.set(state, (counts.get(state) ?? 0) + 1)
+  const named = ROSTER_WORDS
+    .flatMap(([state, word]) => counts.has(state) ? [`${counts.get(state)} ${word}`] : [])
+    .join(', ')
+  return (
+    <span data-slot="roster-lights" role="img" aria-label={`${states.length} agents: ${named}`} className={own.lights}>
+      {states.map((state, index) => <Dot key={`${state}:${index}`} state={state} aria-hidden="true" />)}
+    </span>
+  )
+}
+
+/**
+ * One account state: its judged mark, what it is, and the reason under it —
+ * a round `IconTile` in the state's tone beside the subject and muted roles.
+ */
+const StatusSummary = ({
+  icon,
+  title,
+  description,
+  tone = 'neutral',
+}: {
+  icon: ReactNode
+  title: ReactNode
+  description?: ReactNode
+  tone?: Tone
+}) => (
+  <div data-slot="status-summary" data-tone={tone} className="flex items-center gap-3">
+    <IconTile shape="round" tone={tone}>{icon}</IconTile>
+    <span className="flex min-w-0 flex-col gap-px">
+      <Text role="subject">{title}</Text>
+      {description != null ? <Text role="muted">{description}</Text> : null}
+    </span>
+  </div>
+)
 
 /** The glyph a way in wears: what it opens, not what it is called. */
 const METHOD_ICON: Record<AuthMethod['flow'], typeof KeyIcon> = {
@@ -400,11 +456,17 @@ const CredentialHome = ({ info, label }: { info: RuntimeInfo; label: string }) =
   const home = credentialHome(info)
   if (home === null) return null
   return (
-    <AccessFact label={label} value={home}>
-        {info.slot?.removable
+    <SummaryList className={own.fact}>
+      <SummaryItem
+        label={label}
+        kind="path"
+        note={info.slot?.removable
           ? `It belongs to ${info.presentation.name}. Only the credential lives there — the sessions are the agent’s own.`
           : `It belongs to ${info.presentation.name}. Signing out here signs that CLI out too.`}
-    </AccessFact>
+      >
+        {home}
+      </SummaryItem>
+    </SummaryList>
   )
 }
 
@@ -469,9 +531,11 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
   return (
     <>
       <div className={own.who}>
-        <span className={own.whoMark}>
+        {/* The agent's mark stands in its name's role and ink: the reading
+            body's secondary ink is for prose, not for a head. */}
+        <Text role="subject" className={own.whoMark}>
           <RuntimeMark runtime={info} size={22} />
-        </span>
+        </Text>
         <Text role="subject" truncate>{info.presentation.name}</Text>
       </div>
       <Note className={own.blurb}>
@@ -599,9 +663,10 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           the card — a label, the thing itself, and what it means — rather
           than a bold sentence with a shell command set in prose. */}
       {external.map((method) => (
-        <AccessFact key={method.id} className={own.aside} label={method.label}>
-          {method.description}
-        </AccessFact>
+        <div key={method.id} className={own.aside}>
+          <SectionHead name={method.label} />
+          {method.description ? <Note className={own.noteFlush}>{method.description}</Note> : null}
+        </div>
       ))}
 
       {/* "No ways in" and "has not said yet" are different facts and used to
@@ -687,9 +752,11 @@ const RegistryAgent = ({
   return (
     <>
       <div className={own.who}>
-        <span className={own.whoMark}>
+        {/* The agent's mark stands in its name's role and ink: the reading
+            body's secondary ink is for prose, not for a head. */}
+        <Text role="subject" className={own.whoMark}>
           <RuntimeMark runtime={{ id: agent.id, presentation: { name: agent.name } }} size={22} />
-        </span>
+        </Text>
         <Text role="subject" truncate>{agent.name}</Text>
         <Text role="meta" className={own.whoMeta}>{meta}</Text>
       </div>
@@ -954,9 +1021,11 @@ const Pending = ({
       />
 
       {start.type === 'browser' ? null : (
-        <AccessCode className={own.code} aria-label="One-time code">
-          {start.code}
-        </AccessCode>
+        /* Verbatim and selectable, on the code plate, at the page step and
+           spaced, so it can be read across a room and typed on another device. */
+        <CodeText as="code" block ground="muted" spaced className={own.code} aria-label="One-time code">
+          <Text role="page" ink="primary">{start.code}</Text>
+        </CodeText>
       )}
 
       <div className={own.row}>
@@ -975,12 +1044,15 @@ const Pending = ({
       </div>
 
       {alreadyAs ? (
-        <AccessFact className={own.aside} label="Sign in as somebody else">
+        <div className={own.aside}>
+          <SectionHead name="Sign in as somebody else" />
+          <Note className={own.noteFlush}>
             This agent already has {alreadyAs}, and the page uses whichever account your
             browser is signed in to. Choose a different one there — one identity is one
             account here, and finishing as somebody it already has drops the extra row,
             whichever of the two you started from.
-        </AccessFact>
+          </Note>
+        </div>
       ) : null}
 
       <Note className={own.note}>
