@@ -445,6 +445,51 @@ const GOAL: GoalView = {
   activity: 'working', waitingOn: [], members: [], board: state, receipt: null, problem: null,
 } as unknown as GoalView
 
+const FLOW_DOCUMENT = { format: 'agents' as const, flow: { version: 2 as const, name: 'Review', inputs: [], roles: [], rules: [], seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 } }
+
+/**
+ * The commit a review run is pinned to, in the header's own meta line — moved
+ * here from `FlowRunStatus` once #905 gave every Goal or room one header, so
+ * the fact is said once rather than in two places that could disagree.
+ */
+it('names the pinned revision in the header’s meta, from the run’s own target', async () => {
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'running',
+    rounds: [], operations: [], legacyRun: null, reason: null,
+    target: { kind: 'branch', label: 'feature', base: null, head: 'a1b2c3d4e5f6', pr: null, dirty: false },
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
+  await render(store)
+
+  const facts = container.querySelector(`.${styles.barFacts}`)
+  expect(facts?.textContent).toContain('at a1b2c3d on feature')
+  // The full sha is still reachable, on hover, behind the short one shown.
+  expect(facts?.querySelector('[title="a1b2c3d4e5f6"]')).not.toBeNull()
+})
+
+/** A Goal pinned directly — a front-door review with no flow driving it — names its commit the same way, without a branch to join it to. */
+it('names the pinned revision from Goal.at when there is no flow run to name it', async () => {
+  const PINNED_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, at: 'deadbeefcafe' },
+  } as unknown as GoalView
+  const { store } = rig(undefined, undefined, {}, PINNED_GOAL)
+  await render(store)
+
+  const facts = container.querySelector(`.${styles.barFacts}`)
+  expect(facts?.textContent).toContain('at deadbee')
+  expect(facts?.textContent).not.toContain('on ')
+})
+
+/** An ordinary Goal, working wherever its checkout does, has nothing to pin. */
+it('names no pinned revision for a Goal with neither a flow target nor Goal.at', async () => {
+  const { store } = rig(undefined, undefined, {}, GOAL)
+  await render(store)
+
+  const facts = container.querySelector(`.${styles.barFacts}`)
+  expect(facts?.textContent).not.toContain(' at ')
+})
+
 it('Findings joins only a Goal’s own navigation; a loose conversation keeps none of it', async () => {
   const { store } = rig(undefined, undefined, {}, GOAL)
   const loadFindings = vi.fn().mockResolvedValue(undefined)

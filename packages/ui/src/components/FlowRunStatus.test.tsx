@@ -33,43 +33,13 @@ const INTERRUPTED: FlowExecution = {
   legacyRun: null, reason: 'This check was interrupted. Inspect its effects, then choose Run again.',
 }
 
-it('shows the reviewed revision from the run’s own target, since nowhere else does', async () => {
-  const running: FlowExecution = {
-    ...INTERRUPTED,
-    id: 'run-2',
-    state: 'running',
-    rounds: [],
-    operations: [],
-    reason: null,
-    target: { kind: 'branch', label: 'branch feature', base: null, head: 'a1b2c3d4e5f6', pr: null, dirty: false },
-  }
-  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot() } as unknown as AppStore
-  act(() => {
-    root.render(
-      <StoreProvider store={store}>
-        <FlowRunStatus execution={running} />
-      </StoreProvider>,
-    )
-  })
-  await settle()
-  expect(container.textContent).toContain('Reviews branch feature at a1b2c3d')
-  // The full sha is still reachable, on hover, behind the short one shown.
-  expect(container.querySelector('[title="a1b2c3d4e5f6"]')).not.toBeNull()
-})
-
-it('says nothing about a revision for a run with no bound target', async () => {
-  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot() } as unknown as AppStore
-  const running: FlowExecution = { ...INTERRUPTED, id: 'run-3', state: 'running', rounds: [], operations: [], reason: null }
-  act(() => {
-    root.render(
-      <StoreProvider store={store}>
-        <FlowRunStatus execution={running} />
-      </StoreProvider>,
-    )
-  })
-  await settle()
-  expect(container.textContent).not.toContain('Reviews')
-})
+/*
+ * The pinned revision a review run works at moved to `TeamRoomPane`'s own
+ * header meta line once #905 gave every Goal or room one header
+ * ("names the pinned revision..." in TeamRoomPane.test.tsx) — this
+ * component no longer reads `execution.target` at all, so there is nothing
+ * of that behaviour left to pin here.
+ */
 
 it('an interrupted check requires fresh confirmation and preserves its Goal, on a mismatched retry', async () => {
   const preview: FlowPreview = {

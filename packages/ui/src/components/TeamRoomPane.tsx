@@ -20,6 +20,7 @@ import {
 import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
+import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
 import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
@@ -247,6 +248,19 @@ export const TeamRoomPane = ({
     if (flowExecution || !run) return
     void store.readFlowExecution(run).catch(() => {})
   }, [flowExecution, run, store])
+  /**
+   * The commit every Seat of this Goal works at, for the header's meta line —
+   * a flow run's own resolved target first, since it names the branch too
+   * ("at a1b2c3d on feature"); `Goal.at` otherwise, for a front-door review
+   * this Goal was pinned to directly. Absent for an ordinary Goal, which
+   * works wherever its checkout does and has nothing to pin.
+   */
+  const pinnedAt = useMemo(() => {
+    const target = flowExecution?.target
+    if (target && target.kind !== 'diff' && target.head) return { sha: target.head, on: target.label }
+    if (goal?.goal.at) return { sha: goal.goal.at, on: null }
+    return null
+  }, [flowExecution, goal])
   /**
    * A trigger Goal's own status — its origin, and its live budget — read
    * once per Goal and polled while it is open, since both change under a
@@ -899,6 +913,17 @@ export const TeamRoomPane = ({
           {peers !== null && (hereCount === roster.length
             ? `${roster.length} here`
             : `${hereCount} of ${roster.length} here`)}
+          {/* The commit this Goal is pinned to review, when it has one — a
+              short seven-character sha with the full value one hover away,
+              never a raw path or ref. */}
+          {pinnedAt && (
+            <>
+              {(root || peers !== null) && ' · '}
+              <span title={pinnedAt.sha}>
+                {pinnedAt.on ? `at ${shortSha(pinnedAt.sha)} on ${pinnedAt.on}` : `at ${shortSha(pinnedAt.sha)}`}
+              </span>
+            </>
+          )}
         </span>
         {/* Everything to the left of this states a fact; everything to the
             right does something. The conversation's header draws the same
