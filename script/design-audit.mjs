@@ -1850,7 +1850,7 @@ const LAYOUT_HEIGHT = /%|\d(?:[sld]?v(?:h|w|min|max|b|i)|cq(?:h|w|i|b|min|max))\
  * and a role's inner box. Families are stems because CSS may add or the app
  * may adopt another longhand without that spelling becoming invisible.
  */
-const APPEARANCE_PROPERTIES = {
+export const APPEARANCE_PROPERTIES = {
   exact: new Set([
     'line-height', 'letter-spacing', 'word-spacing', 'text-transform', 'text-underline-offset', 'text-shadow',
     'color', 'fill', 'caret-color', 'accent-color', 'filter', 'backdrop-filter', 'mix-blend-mode',
@@ -2202,42 +2202,101 @@ export const looksLikeUnmappedAppearanceUtility = (token) =>
 const withoutImportantMarker = (token) => token.replace(/^!/, '').replace(/!$/, '')
 
 /**
- * Every `const NAME = …` in a file, however deep its scope — a screen's
- * shared class string is as often a component-local `const` (`SettingsAgents.tsx`'s
- * `fillClass`) as a module-level export. Scope is not tracked: the first
- * declaration of a name wins, which only differs from real JS scoping for a
- * shadowed name, a case this audit has not met.
+ * The scopes a reference node sits inside, innermost first: every enclosing
+ * `{ }` block and the file itself. A function's own parameter list is not a
+ * scope this walks into separately — nothing here resolves a parameter — and
+ * arrow bodies with no block (`() => expr`) hold no declarations to find.
  */
-const constDeclarationsIn = (ast) => {
-  const consts = new Map()
-  const visit = (node) => {
-    if (
-      ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer
-      && ts.isVariableDeclarationList(node.parent) && (node.parent.flags & ts.NodeFlags.Const) !== 0
-      && !consts.has(node.name.text)
-    ) {
-      consts.set(node.name.text, node.initializer)
-    }
-    ts.forEachChild(node, visit)
+const enclosingScopes = (node) => {
+  const scopes = []
+  let current = node.parent
+  while (current) {
+    if (ts.isSourceFile(current) || ts.isBlock(current)) scopes.push(current)
+    current = current.parent
   }
-  visit(ast)
-  return consts
+  return scopes
 }
 
-/** A named import's binding in one file → the name it was exported under and
- * the specifier it came from. Only `import { a, b as c } from '…'` — a
- * default or namespace import cannot be *the* constant a class site named. */
-const namedImportSpec = (ast, localName) => {
+/** A `const`/`let`/`var` declared directly in `scope`'s own statement list —
+ * not in a nested block, which is a different scope with its own turn in
+ * `enclosingScopes`. */
+const directDeclarationIn = (scope, name) => {
+  for (const statement of scope.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === name && declaration.initializer) return declaration
+    }
+  }
+  return null
+}
+
+/**
+ * A name, resolved to the nearest declaration in an enclosing scope — real JS
+ * scoping, not "the first one anywhere in the file": two components each
+ * declaring their own `const tone` are two declarations, and an inner block
+ * that shadows an outer `const tone` resolves to its own, not the outer one.
+ *
+ * `const` yields its one initializer. `let`/`var` is read the same way when
+ * it is never reassigned; when it is, every literal assignment reachable
+ * from the declaring scope — the initializer and each `name = …` found in it
+ * or a nested block, not inside a separate closure — is gathered, because a
+ * variable that can hold more than one thing statically is not the one
+ * declaration a `const` is. Either way the result is keyed by the
+ * declaration's own position (`pos`), not by name, so `countedDefs` can
+ * dedupe by the declaration rather than by a name two scopes both use.
+ */
+const nearestDeclaration = (refNode, name) => {
+  for (const scope of enclosingScopes(refNode)) {
+    const declaration = directDeclarationIn(scope, name)
+    if (!declaration) continue
+    if ((declaration.parent.flags & ts.NodeFlags.Const) !== 0) {
+      return { pos: declaration.pos, nodes: [declaration.initializer] }
+    }
+    const assignments = []
+    const visit = (node) => {
+      if (node !== scope && ts.isFunctionLike(node)) return
+      if (
+        ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        && ts.isIdentifier(node.left) && node.left.text === name
+      ) {
+        assignments.push(node.right)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(scope)
+    return { pos: declaration.pos, nodes: [declaration.initializer, ...assignments] }
+  }
+  return null
+}
+
+/** A named or default import's binding in one file → the name it was
+ * exported under (`'default'` for a default import) and the specifier it
+ * came from. A namespace import (`import * as ns`) is resolved separately,
+ * at its own `ns.NAME` property-access site, not by a bare name lookup. */
+const importBinding = (ast, localName) => {
+  for (const statement of ast.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+    const spec = statement.moduleSpecifier.text
+    const clause = statement.importClause
+    if (clause.name && clause.name.text === localName) return { spec, exportedName: 'default' }
+    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) {
+        if (element.name.text === localName) return { spec, exportedName: (element.propertyName ?? element.name).text }
+      }
+    }
+  }
+  return null
+}
+
+/** A namespace import's local binding (`import * as styles2 from '…'`) →
+ * the specifier it came from, for a `styles2.NAME` property access. */
+const namespaceImportSpec = (ast, localName) => {
   for (const statement of ast.statements) {
     if (!ts.isImportDeclaration(statement) || !statement.importClause) continue
     if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
     const bindings = statement.importClause.namedBindings
-    if (!bindings || !ts.isNamedImports(bindings)) continue
-    for (const element of bindings.elements) {
-      if (element.name.text === localName) {
-        return { exportedName: (element.propertyName ?? element.name).text, spec: statement.moduleSpecifier.text }
-      }
-    }
+    if (bindings && ts.isNamespaceImport(bindings) && bindings.name.text === localName) return statement.moduleSpecifier.text
   }
   return null
 }
@@ -2260,70 +2319,111 @@ const resolveConstModule = (fromFile, spec) => {
  * `LibraryActions.tsx`'s `SWITCH_TRACK`, read by `Library.tsx` too — would
  * otherwise be re-parsed by every consumer that reaches for it. */
 const constFileCache = new Map()
-const constsOfFile = (file) => {
+const parsedConstFile = (file) => {
   if (!constFileCache.has(file)) {
     const source = sourceOf(file)
-    const parsed = source === null ? null : { ast: parseScreenSource(file, source), consts: null }
-    if (parsed) parsed.consts = constDeclarationsIn(parsed.ast)
-    constFileCache.set(file, parsed)
+    constFileCache.set(file, source === null ? null : { ast: parseScreenSource(file, source) })
   }
   return constFileCache.get(file)
 }
 
 /**
- * A name used at a class site → the `const` it names, wherever that is: the
- * same file first, then one hop through a named import to the file that
- * exports it. A definition outside the screen boundary (`design/`, a test
- * file) is not followed — the boundary this whole rule enforces would
- * otherwise credit a screen's reference for the design system's own choice.
+ * An exported name's value in `file`'s top level — where an import always
+ * lands, since only a module's own top level can be exported — following a
+ * re-export (`export { NAME } from './Other'`, `hops` deep, default four)
+ * and a default export, either `export default <expr>` directly or
+ * `export default NAME` naming a local `const`. `directDeclarationIn` at the
+ * `SourceFile` scope is enough here; an export can never name a block-scoped
+ * local.
  */
-const resolveClassConst = (name, file, ast, localConsts) => {
-  if (localConsts.has(name)) return { file, name, node: localConsts.get(name), ast, consts: localConsts }
-  const imported = namedImportSpec(ast, name)
-  if (!imported) return null
-  const modulePath = resolveConstModule(file, imported.spec)
-  if (!modulePath || !isScreenTsx(modulePath)) return null
-  const parsed = constsOfFile(modulePath)
+const exportedValueIn = (file, exportedName, hops = 4) => {
+  const parsed = parsedConstFile(file)
   if (!parsed) return null
-  const node = parsed.consts.get(imported.exportedName)
-  if (!node) return null
-  return { file: modulePath, name: imported.exportedName, node, ast: parsed.ast, consts: parsed.consts }
+  if (exportedName === 'default') {
+    for (const statement of parsed.ast.statements) {
+      if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue
+      if (ts.isIdentifier(statement.expression)) {
+        const declaration = directDeclarationIn(parsed.ast, statement.expression.text)
+        return declaration ? { file, ast: parsed.ast, pos: declaration.pos, nodes: [declaration.initializer] } : null
+      }
+      return { file, ast: parsed.ast, pos: statement.pos, nodes: [statement.expression] }
+    }
+    return null
+  }
+  const declaration = directDeclarationIn(parsed.ast, exportedName)
+  if (declaration) return { file, ast: parsed.ast, pos: declaration.pos, nodes: [declaration.initializer] }
+  if (hops <= 0) return null
+  for (const statement of parsed.ast.statements) {
+    if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+    if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue
+    for (const element of statement.exportClause.elements) {
+      if (element.name.text === exportedName) {
+        const nextFile = resolveConstModule(file, statement.moduleSpecifier.text)
+        if (!nextFile || !isScreenTsx(nextFile)) return null
+        return exportedValueIn(nextFile, (element.propertyName ?? element.name).text, hops - 1)
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * A name used at a class site → the declaration it names, wherever that is:
+ * the nearest enclosing scope first, then one or more hops through an import
+ * to the file that (eventually, through a re-export chain) declares it. A
+ * definition outside the screen boundary (`design/`, a test file) is not
+ * followed — the boundary this whole rule enforces would otherwise credit a
+ * screen's reference for the design system's own choice.
+ */
+const resolveClassConst = (identifierNode, file, ast) => {
+  const name = identifierNode.text
+  const local = nearestDeclaration(identifierNode, name)
+  if (local) return { file, ast, pos: local.pos, nodes: local.nodes }
+  const binding = importBinding(ast, name)
+  if (!binding) return null
+  const modulePath = resolveConstModule(file, binding.spec)
+  if (!modulePath || !isScreenTsx(modulePath)) return null
+  return exportedValueIn(modulePath, binding.exportedName)
 }
 
 /**
  * Every class-bearing site in a screen `.tsx`, resolved through however many
  * layers separate it from the literal: a `className` — string, template
  * literal, ternary, array, a nested `cn`/`clsx`/`cx` call, or a name that
- * only leads to one of those through its own `const`; a `className:` key in
- * an object literal (`BrowserPane.tsx`'s `createElement('webview', {
+ * only leads to one of those through its own declaration; a `className:` key
+ * in an object literal (`BrowserPane.tsx`'s `createElement('webview', {
  * className: … })`); and a bare `cn`/`clsx`/`cx` call reached some other way,
  * such as a class list built once and assigned to a variable.
  *
- * The recursion has exactly one special case — resolving a name — because a
- * generic walk already reaches everything else a class site can be built
- * from: `ts.forEachChild` on a ternary visits both branches, on an array
- * every element, on a call every argument, on a template every span. Keeping
- * that generic fallback (rather than only recognizing the shapes named
- * above) means a shape nobody wrote a case for — a wrapping call this does
- * not recognize, say — still yields whatever plain string or template
- * literal sits inside it, exactly as it did before a name could be resolved
- * at all.
+ * The shapes this recurses into are named, not inferred by walking whatever
+ * a node happens to hold: a template's head and each span, a ternary's two
+ * branches, a `cond && '…'` guard's right side, an array's elements,
+ * `X.join(...)`'s `X`, a class-combiner call's arguments, and a name's
+ * resolved declaration(s) — nothing else.
+ * `const active = x === 'underline'` referenced at a class site counts
+ * nothing: a comparison is not one of the shapes above, so resolving `active`
+ * finds it and stops, rather than a blind walk finding the string on the
+ * comparison's other side. A property access reads only its object side
+ * (`styles.fileRow`'s `styles`, itself rarely resolvable) and never its `.name`
+ * as though it were a bare reference — `fileRow` is a property here, not a
+ * variable — except when the object is a namespace import, where `.name` is
+ * exactly the exported name being asked for.
  *
- * A name is counted once, at its `const`, however many times or files use
- * it: `countedDefs` is a set of `file::name` already resolved, shared across
- * every class site this walks in one audit run, so `EMPTY_TITLE_CLASSES`
- * used four times in `Conversation.tsx`, or `SWITCH_TRACK` used in both
- * `LibraryActions.tsx` and the `Library.tsx` that imports it, contributes its
- * declared utilities exactly once — the same thing a CSS class already does
- * by being declared once and applied many times. Every *direct* literal
- * (typed at the class site itself, not reached through a name) is still
- * counted at every occurrence: two screens copying the same string by hand
- * is two copies, not one shared declaration.
+ * A name is counted once, at its declaration, however many times or files
+ * use it: `countedDefs` is a set of `file::pos` already resolved — the
+ * declaration's own position, not its name, so two components each
+ * declaring `const tone` (two declarations) are not mistaken for one, and a
+ * shadowed inner `const tone` is not mistaken for the outer one — shared
+ * across every class site this walks in one audit run. Every *direct*
+ * literal (typed at the class site itself, not reached through a name) is
+ * still counted at every occurrence: two screens copying the same string by
+ * hand is two copies, not one shared declaration.
  *
  * `file` on each result names where its token's declaration actually lives —
- * the current file for a direct literal or a same-file `const`, the imported
- * module for one resolved across files — so the caller can label the finding
- * at its definition rather than at whichever site happened to trigger it.
+ * the current file for a direct literal or a same-scope declaration, the
+ * imported module for one resolved across files — so the caller can label
+ * the finding at its definition rather than at whichever site happened to
+ * trigger it.
  *
  * `visitedCalls` guards the one way a `cn`/`clsx`/`cx` call can otherwise be
  * read twice: `classSiteEntries` finds it directly, wherever it sits in the
@@ -2333,7 +2433,7 @@ const resolveClassConst = (name, file, ast, localConsts) => {
  * `const rowClass = cn('rounded-full')` used as `className={rowClass}`
  * counts `rounded-full` once, not twice.
  */
-const classSiteTokens = (node, file, ast, localConsts, countedDefs, out, visitedCalls) => {
+const classSiteTokens = (node, file, ast, countedDefs, out, visitedCalls) => {
   if (
     ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
     || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)
@@ -2341,44 +2441,98 @@ const classSiteTokens = (node, file, ast, localConsts, countedDefs, out, visited
     for (const piece of node.text.split(/\s+/)) if (piece) out.push({ text: piece, file })
     return
   }
-  if (ts.isIdentifier(node)) {
-    const resolved = resolveClassConst(node.text, file, ast, localConsts)
-    if (!resolved) return
-    const key = `${resolved.file}::${resolved.name}`
-    if (countedDefs.has(key)) return
-    countedDefs.add(key)
-    classSiteTokens(resolved.node, resolved.file, resolved.ast, resolved.consts, countedDefs, out, visitedCalls)
+  if (ts.isTemplateExpression(node)) {
+    classSiteTokens(node.head, file, ast, countedDefs, out, visitedCalls)
+    for (const span of node.templateSpans) {
+      classSiteTokens(span.expression, file, ast, countedDefs, out, visitedCalls)
+      classSiteTokens(span.literal, file, ast, countedDefs, out, visitedCalls)
+    }
+    return
+  }
+  if (ts.isParenthesizedExpression(node)) {
+    classSiteTokens(node.expression, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isConditionalExpression(node)) {
+    classSiteTokens(node.whenTrue, file, ast, countedDefs, out, visitedCalls)
+    classSiteTokens(node.whenFalse, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // `done && 'text-(--hd-secondary-foreground)'`, a `cn()` argument's other
+  // common conditional shape — a ternary missing its "else". `&&` only:
+  // `x === 'underline'` is a comparison, not one of the shapes named above,
+  // and correctly yields nothing by matching no case here at all.
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+    classSiteTokens(node.right, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    for (const element of node.elements) classSiteTokens(element, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'join') {
+    classSiteTokens(node.expression.expression, file, ast, countedDefs, out, visitedCalls)
     return
   }
   if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
     if (visitedCalls.has(node)) return
     visitedCalls.add(node)
-    for (const argument of node.arguments) classSiteTokens(argument, file, ast, localConsts, countedDefs, out, visitedCalls)
+    for (const argument of node.arguments) classSiteTokens(argument, file, ast, countedDefs, out, visitedCalls)
     return
   }
-  ts.forEachChild(node, (child) => classSiteTokens(child, file, ast, localConsts, countedDefs, out, visitedCalls))
+  if (ts.isPropertyAccessExpression(node)) {
+    if (ts.isIdentifier(node.expression)) {
+      const nsSpec = namespaceImportSpec(ast, node.expression.text)
+      if (nsSpec) {
+        const modulePath = resolveConstModule(file, nsSpec)
+        const resolved = modulePath && isScreenTsx(modulePath) ? exportedValueIn(modulePath, node.name.text) : null
+        if (resolved) {
+          const key = `${resolved.file}::${resolved.pos}`
+          if (!countedDefs.has(key)) {
+            countedDefs.add(key)
+            for (const value of resolved.nodes) classSiteTokens(value, resolved.file, resolved.ast, countedDefs, out, visitedCalls)
+          }
+        }
+        return
+      }
+    }
+    classSiteTokens(node.expression, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isIdentifier(node)) {
+    const resolved = resolveClassConst(node, file, ast)
+    if (!resolved) return
+    const key = `${resolved.file}::${resolved.pos}`
+    if (countedDefs.has(key)) return
+    countedDefs.add(key)
+    for (const value of resolved.nodes) classSiteTokens(value, resolved.file, resolved.ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // Anything else — a comparison, an arrow function, a call this does not
+  // recognize — is not one of the shapes a class site is built from, and is
+  // not walked looking for one.
 }
 
 /** Every class site's entries, `{ text, file }`, across a whole screen file. */
-const classSiteEntries = (ast, file, localConsts, countedDefs) => {
+const classSiteEntries = (ast, file, countedDefs) => {
   const out = []
   const visitedCalls = new Set()
   const visit = (node) => {
     if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'className') {
       let expr = node.initializer
       if (expr && ts.isJsxExpression(expr)) expr = expr.expression
-      if (expr) classSiteTokens(expr, file, ast, localConsts, countedDefs, out, visitedCalls)
+      if (expr) classSiteTokens(expr, file, ast, countedDefs, out, visitedCalls)
       return
     }
     if (ts.isPropertyAssignment(node)) {
       const keyText = ts.isIdentifier(node.name) ? node.name.text : ts.isStringLiteral(node.name) ? node.name.text : null
       if (keyText === 'className') {
-        classSiteTokens(node.initializer, file, ast, localConsts, countedDefs, out, visitedCalls)
+        classSiteTokens(node.initializer, file, ast, countedDefs, out, visitedCalls)
         return
       }
     }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
-      classSiteTokens(node, file, ast, localConsts, countedDefs, out, visitedCalls)
+      classSiteTokens(node, file, ast, countedDefs, out, visitedCalls)
       return
     }
     ts.forEachChild(node, visit)
@@ -2392,23 +2546,45 @@ const classSiteEntries = (ast, file, localConsts, countedDefs) => {
  * the `className` half of the split the module comment above describes.
  *
  * `ast` may be a tree already parsed for this file — the caller shares one
- * parse across this, `screenInlineStyleAppearanceOf` and
- * `screenUnmappedUtilityOf` — and `countedDefs` may be a set shared across
- * every file in one audit run, so a name resolved while scanning one screen
- * is not counted again reached from another. Fixtures pass neither: each
- * gets its own parse and its own empty set, so one test's resolutions never
- * leak into the next.
+ * parse across this, `screenInlineStyleAppearanceOf`, `screenUnmappedUtilityOf`
+ * and `screenUtilityUnclassifiedOf` — and `countedDefs` may be a set shared
+ * across every file in one audit run, so a name resolved while scanning one
+ * screen is not counted again reached from another. Fixtures pass neither:
+ * each gets its own parse and its own empty set, so one test's resolutions
+ * never leak into the next.
  */
 export const screenUtilityAppearanceOf = (file, source, ast, countedDefs = new Set()) => {
   if (!isScreenTsx(file)) return []
   const tree = ast ?? parseScreenSource(file, source)
-  const localConsts = constDeclarationsIn(tree)
   const findings = []
-  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, localConsts, countedDefs)) {
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, countedDefs)) {
     const token = withoutImportantMarker(utilityBase(rawToken))
     if (!token) continue
     const declaration = screenUtilityDeclarationOf(token)
     if (declaration && screenPropertySideOf(declaration.property, declaration.value) === 'appearance') {
+      findings.push(`${screenAppearanceName(originFile)}: ${rawToken} (${declaration.property})`)
+    }
+  }
+  return findings
+}
+
+/**
+ * A utility mapped to a real property that is on neither side of the screen
+ * boundary — reachable today only through the `[prop:value]`
+ * arbitrary-property escape hatch naming something `APPEARANCE_PROPERTIES`
+ * and `LAYOUT_BEHAVIOUR_PROPERTIES` do not track, such as `[text-indent:2px]`.
+ * Held to the same strict zero a stylesheet's own `screenUnclassifiedOf` is:
+ * the boundary is total, or it silently is not.
+ */
+export const screenUtilityUnclassifiedOf = (file, source, ast) => {
+  if (!isScreenTsx(file)) return []
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, new Set())) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (!token) continue
+    const declaration = screenUtilityDeclarationOf(token)
+    if (declaration && screenPropertySideOf(declaration.property, declaration.value) === 'unclassified') {
       findings.push(`${screenAppearanceName(originFile)}: ${rawToken} (${declaration.property})`)
     }
   }
@@ -2422,9 +2598,8 @@ export const screenUtilityAppearanceOf = (file, source, ast, countedDefs = new S
 export const screenUnmappedUtilityOf = (file, source, ast) => {
   if (!isScreenTsx(file)) return []
   const tree = ast ?? parseScreenSource(file, source)
-  const localConsts = constDeclarationsIn(tree)
   const findings = []
-  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, localConsts, new Set())) {
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, new Set())) {
     const token = withoutImportantMarker(utilityBase(rawToken))
     if (!token || screenUtilityDeclarationOf(token)) continue
     if (looksLikeUnmappedAppearanceUtility(token)) findings.push(`${screenAppearanceName(originFile)}: ${rawToken}`)
@@ -2494,11 +2669,14 @@ const styleObjectFindings = (object) => {
  * Appearance a screen draws with an inline `style` object instead of
  * composing it — the third spelling of the same boundary. A literal
  * `style={{ … }}` is legible this way, including through a `satisfies
- * CSSProperties` assertion and a `c ? {…} : {…}` conditional (both branches
- * read, whichever the ternary resolves to at runtime). `style={obj}` names a
- * value this cannot see into and is not counted, the same way a dynamic
- * `className` reference is not (`classNameIsStatic` in `ui-architecture.mjs`
- * draws the identical line for the same reason).
+ * CSSProperties` assertion, a `c ? {…} : {…}` conditional (both branches
+ * read) and a `c && {…}` guard (its right side read the same way a
+ * conditional's branch is); and so is `style={CONST}`, a same-file object
+ * `const` resolved the nearest-scope way `classSiteTokens` resolves one. A
+ * dynamic reference this cannot resolve — a prop, a parameter, anything not
+ * a `const` in scope — is not counted, the same way a dynamic `className`
+ * reference is not (`classNameIsStatic` in `ui-architecture.mjs` draws the
+ * identical line for the same reason).
  */
 export const screenInlineStyleAppearanceOf = (file, source, ast) => {
   if (!isScreenTsx(file)) return []
@@ -2508,7 +2686,15 @@ export const screenInlineStyleAppearanceOf = (file, source, ast) => {
     const resolved = unwrapStyleExpression(expression)
     if (!resolved) return
     if (ts.isObjectLiteralExpression(resolved)) { findings.push(...styleObjectFindings(resolved)); return }
-    if (ts.isConditionalExpression(resolved)) { stylesIn(resolved.whenTrue); stylesIn(resolved.whenFalse) }
+    if (ts.isConditionalExpression(resolved)) { stylesIn(resolved.whenTrue); stylesIn(resolved.whenFalse); return }
+    if (ts.isBinaryExpression(resolved) && resolved.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      stylesIn(resolved.right)
+      return
+    }
+    if (ts.isIdentifier(resolved)) {
+      const local = nearestDeclaration(resolved, resolved.text)
+      if (local) for (const value of local.nodes) stylesIn(value)
+    }
   }
   const visit = (node) => {
     if (
@@ -2998,6 +3184,10 @@ for (const file of tsxFiles()) {
   findings.screenAppearance.push(...screenUtilityAppearanceOf(file, source, screenAst, screenClassConstDefs))
   for (const detail of screenInlineStyleAppearanceOf(file, source, screenAst)) findings.screenAppearance.push(`${name}: ${detail}`)
   findings.unmappedScreenUtility.push(...screenUnmappedUtilityOf(file, source, screenAst))
+  // Held to the same strict zero a stylesheet's own unclassified property is:
+  // an arbitrary-property utility naming something on neither side of the
+  // boundary (`[text-indent:2px]`) is not silently uncounted.
+  findings.screenUnclassified.push(...screenUtilityUnclassifiedOf(file, source, screenAst))
 
   // A glyph control drawn smaller than a finger.
   //

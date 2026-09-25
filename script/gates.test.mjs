@@ -5,6 +5,7 @@ import { withoutComments } from './lib/without-comments.mjs'
 import { prose } from './design-doc.mjs'
 import * as usage from './design-usage.mjs'
 import {
+  APPEARANCE_PROPERTIES,
   codeOf,
   compareBaseline,
   createSourceCache,
@@ -22,6 +23,7 @@ import {
   screenUnmappedUtilityOf,
   screenUtilityAppearanceOf,
   screenUtilityDeclarationOf,
+  screenUtilityUnclassifiedOf,
   sheetsOf,
   squaresOf,
   STYLESHEET_OWNERS,
@@ -857,55 +859,71 @@ test('a Tailwind utility maps to a property by its own shape, not a second appea
 })
 
 /**
- * Item 3's mechanical coverage check: every family or exact property
- * `APPEARANCE_PROPERTIES` counts has a representative utility that
+ * Item 3's mechanical coverage check, walked FROM the real
+ * `APPEARANCE_PROPERTIES` export rather than a hand-copied list of its
+ * names: every family or exact property it counts needs an entry in
+ * `APPEARANCE_COVERAGE_SAMPLE` below, a representative utility that
  * `screenUtilityDeclarationOf` maps to it, or is named as a hint on
- * `looksLikeUnmappedAppearanceUtility` — never silently neither. A property
- * with no sample utility here (`hint: true`) is one Tailwind gives no default
- * scale to (`caret-color`, `filter`) or approximates only through the
- * arbitrary-property escape hatch (`word-spacing`); those are read from the
- * hint list instead of a mapped token.
+ * `looksLikeUnmappedAppearanceUtility` — never silently neither. Round 2
+ * review found the previous version of this test read a copy of the
+ * property names, so adding `text-indent` to the real table still passed:
+ * nothing forced a new sample to be written. Walking the export instead
+ * means a property or family with no entry here fails immediately, which is
+ * the proof this test is not vacuous — see the manual check in the task
+ * report, since committing the failing state itself would defeat the point.
+ *
+ * A property with no sample utility (`hint:` instead of a token) is one
+ * Tailwind gives no default scale to (`caret-color`, `filter`) or
+ * approximates only through the arbitrary-property escape hatch
+ * (`word-spacing`); those are read from the hint list instead of a mapped
+ * token.
  */
-test('every appearance property or family the CSS rule counts has a utility mapping or a hint', () => {
-  const coverage = [
-    ['line-height', 'leading-tight'],
-    ['letter-spacing', 'tracking-wide'],
-    ['word-spacing', '[word-spacing:0.1em]'],
-    ['text-transform', 'uppercase'],
-    ['text-underline-offset', 'underline-offset-2'],
-    ['text-shadow', 'text-shadow-md'],
-    ['color', 'text-red-500'],
-    ['fill', 'fill-current'],
-    ['caret-color', 'caret-red-500', { hint: true }],
-    ['accent-color', 'accent-red-500', { hint: true }],
-    ['filter', 'blur-md', { hint: true }],
-    ['backdrop-filter', 'backdrop-blur-sm', { hint: true }],
-    ['mix-blend-mode', 'mix-blend-multiply'],
-    ['box-shadow', 'shadow-md'],
-    ['height', 'h-8'],
-    ['min-height', 'min-h-8'],
-    ['max-height', 'max-h-8'],
-    ['font', 'font-mono'],
-    ['text-decoration', 'underline'],
-    ['background', 'bg-red-500'],
-    ['stroke', 'stroke-current'],
-    ['mask', 'mask-none'],
-    ['border', 'border'],
-    ['outline', 'outline'],
-    ['padding', 'p-2'],
-  ]
-  for (const [family, token, options] of coverage) {
-    if (options?.hint) {
-      assert.equal(screenUtilityDeclarationOf(token), null, `${family}: ${token} should be a hint, not a mapping`)
-      assert.ok(looksLikeUnmappedAppearanceUtility(token), `${family}: ${token} should be flagged as a hint`)
+const APPEARANCE_COVERAGE_SAMPLE = {
+  'line-height': 'leading-tight',
+  'letter-spacing': 'tracking-wide',
+  'word-spacing': '[word-spacing:0.1em]',
+  'text-transform': 'uppercase',
+  'text-underline-offset': 'underline-offset-2',
+  'text-shadow': 'text-shadow-md',
+  color: 'text-red-500',
+  fill: 'fill-current',
+  'caret-color': { hint: 'caret-red-500' },
+  'accent-color': { hint: 'accent-red-500' },
+  filter: { hint: 'blur-md' },
+  'backdrop-filter': { hint: 'backdrop-blur-sm' },
+  'mix-blend-mode': 'mix-blend-multiply',
+  'box-shadow': 'shadow-md',
+  height: 'h-8',
+  'min-height': 'min-h-8',
+  'max-height': 'max-h-8',
+  font: 'font-mono',
+  'text-decoration': 'underline',
+  background: 'bg-red-500',
+  stroke: 'stroke-current',
+  mask: 'mask-none',
+  border: 'border',
+  outline: 'outline',
+  padding: 'p-2',
+}
+
+test('every family or exact property APPEARANCE_PROPERTIES counts has a sample utility or a hint', () => {
+  for (const property of [...APPEARANCE_PROPERTIES.exact, ...APPEARANCE_PROPERTIES.families]) {
+    const sample = APPEARANCE_COVERAGE_SAMPLE[property]
+    assert.ok(
+      sample !== undefined,
+      `${property} has no coverage sample — teach screenUtilityDeclarationOf a spelling (or add it to the hint list) and add one here`,
+    )
+    if (typeof sample === 'object') {
+      assert.equal(screenUtilityDeclarationOf(sample.hint), null, `${property}: ${sample.hint} should be a hint, not a mapping`)
+      assert.ok(looksLikeUnmappedAppearanceUtility(sample.hint), `${property}: ${sample.hint} should be flagged as a hint`)
       continue
     }
-    const declaration = screenUtilityDeclarationOf(token)
-    assert.ok(declaration, `${family}: ${token} has no utility mapping`)
-    assert.equal(screenPropertySideOf(declaration.property, declaration.value), 'appearance', `${family}: ${token} -> ${declaration.property} is not appearance`)
+    const declaration = screenUtilityDeclarationOf(sample)
+    assert.ok(declaration, `${property}: ${sample} has no utility mapping`)
+    assert.equal(screenPropertySideOf(declaration.property, declaration.value), 'appearance', `${property}: ${sample} -> ${declaration.property} is not appearance`)
     assert.ok(
-      declaration.property === family || declaration.property.startsWith(`${family}-`),
-      `${family}: ${token} mapped to ${declaration.property}, not the ${family} family`,
+      declaration.property === property || declaration.property.startsWith(`${property}-`),
+      `${property}: ${sample} mapped to ${declaration.property}, not the ${property} family`,
     )
   }
 })
@@ -1000,6 +1018,148 @@ test('a const imported from another screen is counted once, at the file that def
   assert.deepEqual(consumingFindings, [])
 })
 
+/**
+ * Item 1 (round 2): resolution is scope-correct, not "the first declaration
+ * anywhere in the file". Two components each declaring their own `const
+ * tone` are two declarations — both counted — and a shadowed inner `const
+ * tone` resolves to its own declaration inside the block that shadows it,
+ * not the outer one a flat name lookup would have found first.
+ */
+test('two components each declaring their own const tone are two declarations, both counted', () => {
+  const source = [
+    "const A = () => { const tone = 'rounded-full'; return <div className={tone} /> }",
+    "const B = () => { const tone = 'text-xs'; return <div className={tone} /> }",
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a shadowed inner const resolves to its own declaration, not the outer one', () => {
+  const source = [
+    'const Example = () => {',
+    "  const tone = 'text-xs'",
+    '  if (x) {',
+    "    const tone = 'rounded-full'",
+    '    return <span className={tone} />',
+    '  }',
+    '  return <span className={tone} />',
+    '}',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+/**
+ * Item 2 (round 2): a property access's member name is never treated as a
+ * bare variable reference, and only a recognized shape (string, template,
+ * ternary, array, `.join`, a class-combiner call) is walked once resolved —
+ * an arbitrary expression, such as a comparison, is not.
+ */
+test('the name after a dot is never resolved as a variable: styles.fileRow does not find a const fileRow', () => {
+  const source = [
+    "const fileRow = 'rounded-full'",
+    'export const Example = () => <div className={styles.fileRow} />',
+  ].join('\n')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+})
+
+test('a const holding a comparison, referenced at a class site, counts nothing', () => {
+  const source = [
+    "const active = x === 'underline'",
+    'export const Example = () => <div className={active} />',
+  ].join('\n')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+})
+
+/**
+ * Item 4 (round 2): the spellings round 2 review found still missed, none
+ * used today. `let`/`var` behaves like `const` when never reassigned;
+ * reassigned, every literal assignment reachable from the declaring scope is
+ * gathered under the one declaration, since a variable that can hold more
+ * than one thing statically is not the one thing a `const` is.
+ */
+test('a let never reassigned resolves like a const', () => {
+  const source = "let tone = 'rounded-full'\nexport const Example = () => <div className={tone} />\n"
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [`${label('Example.tsx')}rounded-full (border-radius)`])
+})
+
+test('a reassigned let counts every literal assignment it was given', () => {
+  const source = [
+    "let tone = 'rounded-full'",
+    "if (x) { tone = 'bg-(--hd-card)' }",
+    'export const Example = () => <div className={tone} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}rounded-full (border-radius)`, `${label('Example.tsx')}bg-(--hd-card) (background)`],
+  )
+})
+
+test('a default import, a namespace import, a re-export, and a two-hop import all resolve, at their definition', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-import-shapes-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const write = (name, content) => fs.writeFileSync(path.join(components, name), content)
+  const read = (name) => fs.readFileSync(path.join(components, name), 'utf8')
+  const at = (name) => path.join(components, name)
+
+  write('DefaultBase.tsx', "export default 'rounded-full'\n")
+  write('DefaultUser.tsx', "import CLASS from './DefaultBase'\nexport const Example = () => <div className={CLASS} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('DefaultUser.tsx'), read('DefaultUser.tsx')),
+    ['components/DefaultBase.tsx: rounded-full (border-radius)'],
+  )
+
+  write('NsBase.tsx', "export const TONE = 'bg-(--hd-card)'\n")
+  write('NsUser.tsx', "import * as ns from './NsBase'\nexport const Example = () => <div className={ns.TONE} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('NsUser.tsx'), read('NsUser.tsx')),
+    ['components/NsBase.tsx: bg-(--hd-card) (background)'],
+  )
+
+  write('Origin.tsx', "export const SHARED = 'shadow-(--hd-hairline)'\n")
+  write('Reexport.tsx', "export { SHARED } from './Origin'\n")
+  write('ReexportUser.tsx', "import { SHARED } from './Reexport'\nexport const Example = () => <div className={SHARED} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('ReexportUser.tsx'), read('ReexportUser.tsx')),
+    ['components/Origin.tsx: shadow-(--hd-hairline) (box-shadow)'],
+  )
+
+  write('HopC.tsx', "export const DEEP = 'outline-2'\n")
+  write('HopB.tsx', "export { DEEP } from './HopC'\n")
+  write('HopA.tsx', "export { DEEP } from './HopB'\n")
+  write('HopUser.tsx', "import { DEEP } from './HopA'\nexport const Example = () => <div className={DEEP} />\n")
+  assert.deepEqual(
+    screenUtilityAppearanceOf(at('HopUser.tsx'), read('HopUser.tsx')),
+    ['components/HopC.tsx: outline-2 (outline)'],
+  )
+})
+
+test('style={c && {...}} reads the guard\'s right side, and style={CONST} resolves a same-file object const', () => {
+  const guardSource = 'export const Example = () => <div style={c && { color: "red" }} />\n'
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), guardSource), ['style color'])
+
+  const constSource = [
+    'const FROZEN_STYLE = { color: "red" }',
+    'export const Example = () => <div style={FROZEN_STYLE} />',
+  ].join('\n')
+  assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), constSource), ['style color'])
+})
+
+test('an arbitrary property the stylesheet rule treats as unclassified is a strict screenUnclassified finding', () => {
+  const source = classNameSource('[text-indent:2px]')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [])
+  assert.deepEqual(
+    screenUtilityUnclassifiedOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}[text-indent:2px] (text-indent)`],
+  )
+})
+
 test('a className written as an object key is a class site, the same as a JSX attribute', () => {
   // BrowserPane.tsx: createElement('webview', { className: `...` }).
   const source = [
@@ -1012,14 +1172,15 @@ test('a className written as an object key is a class site, the same as a JSX at
   )
 })
 
-test('an inline style counts its appearance keys and not its layout keys or a dynamic reference', () => {
+test('an inline style counts its appearance keys and not its layout keys or an unresolvable reference', () => {
   const styleSource = 'export const Example = () => <div style={{ background: "red", width: 10 }} />\n'
   assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), styleSource), ['style background'])
 
-  // What spelling would this rule miss? A `style` that names a value instead
-  // of writing the object literal in place — this cannot see into `obj`, the
-  // same way a dynamic `className={cls}` is not walked for tokens either.
-  const dynamicSource = 'const obj = { background: "red" }\nexport const Example = () => <div style={obj} />\n'
+  // A same-file object const is now resolved (item 4) — see the dedicated
+  // fixture below. What is still unresolvable is a value this cannot chase
+  // to any declaration at all: a function parameter, a prop, anything not a
+  // `const` this file itself declares.
+  const dynamicSource = 'export const Example = ({ obj }) => <div style={obj} />\n'
   assert.deepEqual(screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), dynamicSource), [])
 
   // camelCase -> kebab-case, including a vendor prefix, and a key already
