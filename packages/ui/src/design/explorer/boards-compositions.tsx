@@ -1339,7 +1339,7 @@ const AdoptedBoard = () => {
                     </TableCell>
                     <TableCell>{one.session}</TableCell>
                     <TableCell className="text-(--hd-muted-foreground)">{one.agent}</TableCell>
-                    <TableCell className="text-right tabular-nums">${one.spend}</TableCell>
+                    <TableCell align="end">${one.spend}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

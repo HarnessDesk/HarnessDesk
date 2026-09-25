@@ -32,8 +32,13 @@
   margin: 0;
 }
 
+/* Items a row's breath apart, by the gap between them rather than a height
+   each label claims; the list keeps the same breath above and below. */
 .list {
-  margin: 0;
+  margin: var(--hd-space-0-5) 0; /* desk: 0 → 2px 0, the breath each label's own padding gave the list's ends */
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
 }
 
 .listItem {
@@ -69,8 +74,12 @@
   flex: none;
 }
 
-.codeBody {
-  overflow: auto;
+/* The code as text while the editor loads: the code face at its own step,
+   laid out as the editor lays it, one line per line. */
+.codeFallback {
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre;
 }
 
 .document {
@@ -89,6 +98,12 @@
 .documentChevron {
   flex: none;
   display: inline-flex;
+}
+
+/* An open section's text sits under its heading's words, clear of the
+   chevron, with a step before the next heading. */
+.documentBody {
+  margin: 0 0 var(--hd-space-2) var(--hd-space-5);
 }
 
 .tableScroll {
@@ -121,6 +136,11 @@
 .treeSpacer {
   flex: none;
   width: 14px;
+}
+
+.treeLabel {
+  min-width: 0;
+  margin-right: var(--hd-space-2); /* the hint's floor of air, kept when a long label pushes it to the edge */
 }
 
 .treeHint {

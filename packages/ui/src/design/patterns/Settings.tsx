@@ -878,6 +878,8 @@ export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
   /** Fade a navigation name at its edge without inventing an ellipsis glyph. */
   fade?: boolean
   numeric?: boolean
+  /** A finished item in a checklist: struck through and stepped back, the way a row marked done is. */
+  done?: boolean
 }
 
 /** The interface's named text roles, including dashboard readouts. */
@@ -893,6 +895,7 @@ export const Text = ({
   truncateFrom,
   fade,
   numeric,
+  done,
   children,
   ...props
 }: TextProps) =>
@@ -906,6 +909,7 @@ export const Text = ({
       ...(tint ? { 'data-tint': tint } : {}),
       ...(ink ? { 'data-ink': ink } : {}),
       ...(truncateFrom ? { 'data-truncate-from': truncateFrom } : {}),
+      ...(done ? { 'data-done': '' } : {}),
       className: cx(
         TEXT_ROLE[role],
         tone
@@ -920,6 +924,7 @@ export const Text = ({
         truncateFrom === 'start' && '[direction:rtl] text-left',
         fade && 'overflow-hidden whitespace-nowrap [mask-image:var(--hd-fade)]',
         numeric && 'tabular-nums',
+        done && 'line-through opacity-60',
         className,
       ),
     },
