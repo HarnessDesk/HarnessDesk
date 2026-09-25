@@ -139,11 +139,18 @@ const quietWatcher = (): FSWatcher => Object.assign(new EventEmitter(), { close:
  * deterministically, the same way regardless of how unevenly the real events
  * that scheduled it arrived.
  */
-const fakeClock = (): Clock & { readonly advance: (ms: number) => void } => {
+const fakeClock = (): Clock & {
+  readonly advance: (ms: number) => void
+  readonly pendingCount: () => number
+  /** Every `setTimeout` this clock has ever been asked to schedule, cancelled or not — never decremented. */
+  readonly scheduledCount: () => number
+} => {
   let now = 0
+  let scheduled = 0
   const pending = new Set<{ readonly due: number; readonly callback: () => void; readonly unref: () => void }>()
   return {
     setTimeout: (callback, ms) => {
+      scheduled += 1
       const timer = { due: now + ms, callback, unref: () => {} }
       pending.add(timer)
       return timer
@@ -159,6 +166,16 @@ const fakeClock = (): Clock & { readonly advance: (ms: number) => void } => {
         due.callback()
       }
     },
+    // Every timer `AgentWatch` schedules — a settle, a rescan, a retry, a
+    // backoff re-check — goes through this clock and no other (#938): the
+    // count left in `pending` is a direct read of whether one is still
+    // waiting, not a guess from whether moving time forward raised anything.
+    pendingCount: () => pending.size,
+    // Monotonic, so a caller that already has one timer pending (a walk-up's
+    // own backoff, most of all) can still wait for yet *another*, distinct
+    // one to be scheduled — `pendingCount` alone cannot tell those apart, and
+    // its net count is exactly the thing under test where cancellation is.
+    scheduledCount: () => scheduled,
   }
 }
 
@@ -268,11 +285,16 @@ test('a root created in the gap between the ancestor check and the watch attachi
  * unless a test fires it — and synchronize on `watchFn` itself having been
  * called (`until`, never a fixed pause) before touching the filesystem, so
  * neither test's outcome depends on how long a real walk-up takes to arm on
- * whatever machine runs it. The one real-time pause each uses afterward
- * waits out a single already-started `reach` (one `realpath` call) settling,
- * a far smaller and more predictable gap than the arming itself. Before this
- * fix — a single fixed delay, or none at all — both time out or find
- * nothing when the assertion is reached.
+ * whatever machine runs it. Before this fix — a single fixed delay, or none
+ * at all — both time out or find nothing when the assertion is reached.
+ *
+ * The second test's own proof event still needs one real-time wait of its
+ * own afterward: the look it triggers (`reach`, a `realpath` call) is real
+ * async I/O the fake clock knows nothing about. That wait is on the settle
+ * timer the look schedules once it lands (`clock.pendingCount()`), not a
+ * fixed guess at how long the look itself takes — and the same count is
+ * what proves the backoff actually stopped afterward, rather than merely
+ * having nothing left to raise when the clock is moved (review of #938).
  */
 test('a name that appears while the watch is unproven is found by the backoff across several steps, even if the watcher never fires (#938)', async (t) => {
   const home = tempDir('hd-agent-watch-')
@@ -331,7 +353,10 @@ test('a watcher’s own event — even one naming nothing the walk-up is waiting
   t.after(() => watchInstance.dispose())
 
   await until(() => box.listener !== null, 'the ancestor watch to arm')
-  await pause(20)
+  // The walk-up's own backoff is armed in the same synchronous span as the
+  // watch itself: a re-check is already waiting on the clock, never merely
+  // "nothing has happened yet by coincidence".
+  await until(() => clock.pendingCount() > 0, 'the backoff’s first re-check to be scheduled')
   assert.deepEqual(said, [], 'nothing to notice yet')
 
   // The root appears, but the deliberately quiet watcher above has reported
@@ -346,17 +371,30 @@ test('a watcher’s own event — even one naming nothing the walk-up is waiting
   // notion of "first event proves it live") does on unfixed code, and why
   // this fails there rather than on a real future event happening to name
   // the right thing.
+  const scheduledBefore = clock.scheduledCount()
   mkdirSync(root, { recursive: true })
   box.listener?.('change', 'unrelated.txt')
-  await pause(20)
-  clock.advance(1_000) // lets the notice this proof's own check causes (`#poke`'s settle timer) land
+  // That proof's own look at the filesystem (`reach`, a real `realpath`) is
+  // async I/O off the fake clock entirely, so what is waited for here is not
+  // a guess at how long it takes — it is the settle timer it schedules once
+  // that look lands (`#poke`), on a real-time poll bounded generously, never
+  // a fixed pause a loaded machine could outrun before it fires (#938).
+  // `scheduledCount`, not `pendingCount`: the walk-up's own backoff re-check
+  // is already pending from the arm above, so "something is pending" is true
+  // before this event even fires — what proves the look actually landed is a
+  // *new* timer beyond that one, not merely a nonempty pending set.
+  await until(() => clock.scheduledCount() > scheduledBefore, 'the notice’s settle timer to be scheduled')
+  clock.advance(1_000) // fires that settle timer
   assert.ok(said.length > 0, 'the event that first proved the watcher live must have triggered one last look, finding the root that was already there')
   said.length = 0
 
   // Fully proved now: the backoff that would otherwise still be polling must
-  // have stopped, so moving the clock forward on its own raises nothing more.
+  // have actually stopped — nothing at all left waiting on the clock, proven
+  // directly (`pendingCount`), never inferred from moving time forward and
+  // seeing nothing come of it, which a timer merely gone quiet without ever
+  // being cleared would pass just the same.
+  assert.equal(clock.pendingCount(), 0, 'no backoff timer is left running once the watch has proved itself')
   clock.advance(1_000_000)
-  await pause(20)
   assert.deepEqual(said, [], 'once proved live, the backoff must not still be running underneath the watcher')
 })
 

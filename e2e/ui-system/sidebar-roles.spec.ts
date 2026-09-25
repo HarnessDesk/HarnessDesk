@@ -45,9 +45,11 @@ test('a healthy account reading keeps plain ink rather than success ink', async 
   expect(colours.reading).not.toBe(colours.success)
 })
 
-test('the accounts menu opens beside the sidebar', async ({ page }) => {
+test('the accounts menu opens above its row, inside the sidebar and as wide as the row', async ({ page }) => {
   await page.goto('/preview.html')
   const trigger = page.locator('button[class*="accountRow"]')
+  // Where the row sits in the app: at the foot of the window.
+  await trigger.evaluate((node) => node.scrollIntoView({ block: 'end' }))
   await trigger.click()
 
   const popup = page.locator('[data-slot="popover-popup"]')
@@ -56,12 +58,17 @@ test('the accounts menu opens beside the sidebar', async ({ page }) => {
     if (!(triggerNode instanceof HTMLElement)) throw new Error('account trigger missing')
     const sidebar = triggerNode.closest('[class*="sidebar_"]')
     if (!(sidebar instanceof HTMLElement)) throw new Error('sidebar missing')
-    return {
-      menuLeft: node.getBoundingClientRect().left,
-      sidebarRight: sidebar.getBoundingClientRect().right,
-    }
+    const menu = node.getBoundingClientRect()
+    const row = triggerNode.getBoundingClientRect()
+    const column = sidebar.getBoundingClientRect()
+    return { menu: { left: menu.left, right: menu.right, bottom: menu.bottom, width: menu.width }, row: { left: row.left, top: row.top, width: row.width }, column: { left: column.left, right: column.right } }
   }, await trigger.elementHandle())
-  expect(edges.menuLeft).toBeGreaterThanOrEqual(edges.sidebarRight)
+  // Unfolds from the row rather than being laid over the transcript beside it.
+  expect(edges.menu.bottom).toBeLessThanOrEqual(edges.row.top)
+  expect(edges.menu.left).toBeCloseTo(edges.row.left, 0)
+  expect(edges.menu.width).toBeCloseTo(edges.row.width, 0)
+  expect(edges.menu.left).toBeGreaterThanOrEqual(edges.column.left)
+  expect(edges.menu.right).toBeLessThanOrEqual(edges.column.right)
 })
 
 test('a settings group label is smaller than its page title', async ({ page }) => {

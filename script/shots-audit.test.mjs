@@ -706,7 +706,7 @@ test('the substitution both drivers run covers attributes, not only text (#296)'
      the substitution is literal, so the fixture may as well be one the
      tracked-files gate already sanctions. */
   const home = '/home/someone'
-  const text = [{ nodeValue: `Opened ${home}/work/storefront` }, { nodeValue: 'nothing to change' }]
+  const text = [{ nodeValue: `Opened ${home}/work/storefront`, parentElement: null }, { nodeValue: 'nothing to change', parentElement: null }]
   const titled = {
     value: `${home}/work/storefront`,
     getAttribute: (name) => (name === 'title' ? titled.value : null),
@@ -714,7 +714,6 @@ test('the substitution both drivers run covers attributes, not only text (#296)'
       titled.value = value
     },
   }
-  const field = { value: `file://${home}/work/browse/index.html` }
   const asked = []
   let next = 0
   const document = {
@@ -722,16 +721,82 @@ test('the substitution both drivers run covers attributes, not only text (#296)'
     createTreeWalker: () => ({ nextNode: () => text[next++] ?? null }),
     querySelectorAll: (selector) => {
       asked.push(selector)
-      return selector === 'input:not([type=hidden]), textarea' ? [field] : [titled]
+      return selector === '[title], [placeholder]' ? [titled] : []
     },
   }
-  new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4 })
+  new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 })
   assert.equal(text[0].nodeValue, 'Opened ~/work/storefront')
   assert.equal(text[1].nodeValue, 'nothing to change')
-  assert.deepEqual(asked, ['[title], [placeholder]', 'input:not([type=hidden]), textarea'])
+  assert.deepEqual(asked, ['[title], [placeholder]'])
   assert.equal(titled.value, '~/work/storefront', 'the tooltip the recording used to leave standing')
-  assert.equal(field.value, 'file://~/work/browse/index.html', 'the address bar, which is a field and not text')
 })
+
+test(
+  'TILDIFY never rewrites a field\'s value: an input or a textarea is exactly as editable as a ' +
+    'contenteditable region, and a script-driven .value write can still land as the field\'s real ' +
+    'content rather than only as a picture of one (#941)',
+  () => {
+    const home = '/home/someone'
+    const field = { value: `file://${home}/work/browse/index.html` } // hd-secrets-ok
+    const asked = []
+    const document = {
+      body: {},
+      createTreeWalker: () => ({ nextNode: () => null }),
+      querySelectorAll: (selector) => {
+        asked.push(selector)
+        return selector === 'input:not([type=hidden]), textarea' ? [field] : []
+      },
+    }
+    new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 })
+    assert.ok(!asked.includes('input:not([type=hidden]), textarea'), 'TILDIFY no longer even asks for input or textarea elements')
+    assert.equal(field.value, `file://${home}/work/browse/index.html`, 'the address bar\'s value is left standing') // hd-secrets-ok
+  },
+)
+
+test(
+  'TILDIFY never rewrites text inside a contenteditable region or the code editor\'s own root, because a ' +
+    'rewrite there lands in the live document, not only on screen — and the un-shortened text is still ' +
+    'refused by the ordinary OS-temp-path check (#941)',
+  () => {
+    const home = '/home/someone'
+    const editableParent = { closest: (selector) => (/contenteditable/.test(selector) ? editableParent : null) }
+    const cmParent = { closest: (selector) => (/cm-content/.test(selector) ? cmParent : null) }
+    const plainParent = { closest: () => null }
+    const nodes = [
+      { nodeValue: `${home}/work/storefront/live-edit.md`, parentElement: editableParent },
+      { nodeValue: `${home}/work/storefront/src/app.ts`, parentElement: cmParent },
+      { nodeValue: `Opened ${home}/work/storefront`, parentElement: plainParent },
+    ]
+    let next = 0
+    const document = {
+      body: {},
+      createTreeWalker: (root, whatToShow, filter) => ({
+        nextNode: () => {
+          while (next < nodes.length) {
+            const node = nodes[next++]
+            if (filter?.acceptNode && filter.acceptNode(node) !== 1) continue
+            return node
+          }
+          return null
+        },
+      }),
+      querySelectorAll: () => [],
+    }
+    new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 })
+    assert.equal(nodes[0].nodeValue, `${home}/work/storefront/live-edit.md`, 'a contenteditable region is left untouched')
+    assert.equal(nodes[1].nodeValue, `${home}/work/storefront/src/app.ts`, 'the code editor\'s own root is left untouched')
+    assert.equal(nodes[2].nodeValue, 'Opened ~/work/storefront', 'ordinary body text is still shortened')
+    // The other half of #941: an editor showing its real, un-shortened path is
+    // not merely un-redacted — the frame is refused for it, the same way any
+    // other unshortened OS temp path is (this rig's own home always resolves
+    // under `os.tmpdir()`, never under this machine's real home).
+    const refused = textReasons({ text: nodes[1].nodeValue, documentTitle: '', attributes: [] }, {})
+    assert.equal(refused.length, 0, 'a bare /home/someone path is not itself an OS temp root — the control')
+    const underTmp = textReasons({ text: `/tmp/harnessdesk-shots/person/work/storefront/src/app.ts`, documentTitle: '', attributes: [] }, {})
+    assert.equal(underTmp.length, 1)
+    assert.match(underTmp[0], /OS temp path/)
+  },
+)
 
 test('tildify redacts a home prefix wherever a path actually starts, and never mid-word (#904, #909)', () => {
   /* Round one of this fix (#904) tried several candidate homes to cover a

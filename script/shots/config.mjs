@@ -169,6 +169,24 @@ export const WORK = process.env['HD_SHOTS_WORK']
       return path
     })()
 
+/**
+ * Whether `codex` is the real built-in adapter, on its scripted fixture,
+ * rather than a camera ACP row wearing the Codex brand.
+ *
+ * Defaults on (#927). ACP gives no reliable ceiling read-back at all — an ACP
+ * fixture cannot report holding any level, documented in
+ * `docs/agent-capabilities.md` — so a camera-only desk refuses every seat a
+ * front-door start asks for, `{ kind: 'unheld', level: 'read', required: true }`,
+ * and no rig scene or in-app walk that starts a Goal through a shape can ever
+ * run end to end. The one row that can hold is the real adapter, which answers
+ * over the same `fake-codex.mjs` every `adapter-codex` test already runs
+ * against — no less invented than the camera rows it replaces, and every
+ * scene that cares which is running already branches on this flag rather than
+ * assuming one or the other. `'0'` opts back into the all-camera desk, the
+ * shape the rig staged before #927, for whatever still wants it.
+ */
+export const NATIVE_CODEX = process.env['HD_SHOTS_NATIVE_CODEX'] !== '0'
+
 // The built-in adapter is constructed even when a camera ACP row replaces it.
 // Capture and seed both use this inert configuration; importing it never stages
 // or clears the desk.
