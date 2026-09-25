@@ -288,7 +288,14 @@ const staticClassTokens = (attribute, ast) => {
   return found
 }
 
-const utilityBase = (token) => {
+/**
+ * Also exported for the screen appearance ceiling: a Tailwind token minus its
+ * variant prefixes (`hover:`, `data-[open]:`, `md:dark:`, however many are
+ * stacked), stopping at the last top-level `:` so a colon inside `[...]` or
+ * `(...)` — a selector variant, an arbitrary property's name — never reads as
+ * one more variant boundary.
+ */
+export const utilityBase = (token) => {
   let depth = 0
   let last = -1
   for (let index = 0; index < token.length; index += 1) {

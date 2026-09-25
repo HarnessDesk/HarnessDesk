@@ -622,31 +622,56 @@ these is opening every tab in a browser.
 
 ### What the audit refuses
 
-`pnpm design:audit --strict` holds eighteen categories at a baseline. Sixteen
-are at zero; `patternClass` sits at 3, which is three screens still drawing
-their own empty state, and `screenAppearance` sits at 2,783 declarations.
+`pnpm design:audit --strict` holds eighteen categories at a baseline.
+Seventeen are at zero; `screenAppearance` sits at 895 declarations —
+appearance a screen still draws for itself instead of composing it, in
+whichever of three spellings it chose.
 
-Every ordinary property in a screen sheet has to match one of two explicit
-tables after its vendor prefix is stripped. `APPEARANCE_PROPERTIES` owns type,
-ink and ground, edges and the inner box; its open-ended families match by
-prefix, so `font-variant-numeric`, `background-image`, `border-image-source`
-and the next standards longhand do not slip past a remembered list.
-`LAYOUT_BEHAVIOUR_PROPERTIES` owns geometry, flow, interaction and motion.
-Height, minimum height and maximum height share one value rule: a non-zero
-fixed or token metric counts as appearance, while zero — the flex/grid shrink
-reset — percentages, intrinsic sizes and viewport or container-query shares
-remain layout. Custom properties define values rather than either side and
-remain outside the split. Anything else is a `screenUnclassified` finding that
-names the property and sheet and fails the strict gate.
+Every ordinary property has to match one of two explicit tables after its
+vendor prefix is stripped, wherever it is spelled. `APPEARANCE_PROPERTIES`
+owns type, ink and ground, edges and the inner box; its open-ended families
+match by prefix, so `font-variant-numeric`, `background-image`,
+`border-image-source` and the next standards longhand do not slip past a
+remembered list. `LAYOUT_BEHAVIOUR_PROPERTIES` owns geometry, flow,
+interaction and motion. Height, minimum height and maximum height share one
+value rule: a non-zero fixed or token metric counts as appearance, while zero
+— the flex/grid shrink reset — percentages, intrinsic sizes and viewport or
+container-query shares remain layout. Custom properties define values rather
+than either side and remain outside the split. In a stylesheet, anything else
+is a `screenUnclassified` finding that names the property and sheet and fails
+the strict gate.
 
-`screenAppearance` is the appearance side of that total boundary. A class name
-cannot say whether `.head` is a title bar, a table header or a card heading,
-which is why `patternClass` could safely keep only `empty`; the declaration
-says what the screen actually owns. Markdown's prose ratio ladder and the diff
-viewer remain named specialized-renderer exemptions.
+`screenAppearance` is the appearance side of that total boundary, read in
+three spellings rather than one: a screen's own `.module.css`; a Tailwind
+utility in a `className` (or a `className:` key in an object literal, or a
+bare `cn`/`clsx`/`cx` call), resolved through a variant prefix, the important
+marker, a template literal, a ternary, an array joined with `.join(' ')`, or
+one hop through a named import to the `const` that actually declares it —
+`LibraryActions.tsx`'s `SWITCH_TRACK`, imported by `Library.tsx` too, counts
+once, at its definition, not once per file that reaches for it; and a key in
+an inline `style` object, including a `{ color }` shorthand, a `['color']`
+computed key, and a `satisfies CSSProperties` assertion, both branches of a
+conditional read. A class name cannot say whether `.head` is a title bar, a
+table header or a card heading, which is why `patternClass` could safely keep
+only `empty`; the declaration says what the screen actually owns. Markdown's
+prose ratio ladder and the diff viewer remain named specialized-renderer
+exemptions, in both the stylesheet and the `.tsx` that renders each.
 
-Two of those categories spent a long time reporting zero while they were simply
-unable to see:
+Three of those categories spent a long time reporting zero while they were
+simply unable to see:
+
+- `screenAppearance` read only a screen's `.module.css`, so moving a
+  declaration into a Tailwind utility string or an inline `style` object —
+  exactly what the rest of the app had been doing — made it disappear from a
+  count that said it was clean. Reading a `className`'s literal text closed
+  most of that gap, but not all of it on the first pass: a plain string
+  constant, a ternary, an array joined with `.join(' ')`, and a `className`
+  written as an object key rather than a JSX attribute were all still
+  invisible, because none of them are literal text at the class site itself —
+  they are a name that only leads to one through its own `const`. A second
+  pass found a fifth miss going the other way: an unknown (non-literal)
+  `height` value was defaulting to a metric it could not actually read, an
+  over-count now decided explicitly as layout instead of assumed.
 
 - `rawColour` named five properties and `box-shadow` was not one of them, so ten
   hand-written shadows sat outside a count that said there were none. It now
@@ -691,8 +716,8 @@ unable to see:
   every possibility, and reports what it cannot compute rather than assume
   it small.
 
-Both failures have the same shape as the line-height ratios before them: name
-the spellings you happen to remember, and everything else is invisible —
+All three have the same shape as the line-height ratios before them: name the
+spellings you happen to remember, and everything else is invisible —
 confidently, at zero. When adding a rule, the question is not "does this catch
 the case I am thinking of" but "what spelling of this would it miss".
 
