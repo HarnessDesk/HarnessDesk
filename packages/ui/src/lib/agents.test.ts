@@ -135,6 +135,18 @@ describe('agents in words', () => {
     expect(fixWords({ kind: 'ceilings' }, 'Claude')).toBe('Change what happens when a ceiling cannot be held')
   })
 
+  it('says the front-door case truly: a required hold is not this Mac’s own setting, and never names a runtime id', () => {
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: null, required: true }, 'Codex')).toBe(
+      'Codex’s seat cannot hold edit yet: it is not running, or has not reported. Start Codex, or choose another Agent.',
+    )
+    // Never "this Mac refuses a seat whose ceiling is only asked" — that is
+    // a setting's own words, and a required hold is true whatever the
+    // setting says.
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: null, required: true }, 'Codex')).not.toContain(
+      'this Mac refuses',
+    )
+  })
+
   it('heads each section by where it was found, the project by its name', () => {
     expect(originWords('project', 'storefront')).toBe('In storefront')
     expect(originWords('user', 'storefront')).toBe('Yours')
@@ -358,6 +370,20 @@ describe('agents in words', () => {
     }
     // Never the error's own message: that is the host's sentence, with a runtime id and a seat spec in it.
     expect(refusalOf({ code: 'seatRefused', message: 'seat cursor=opus-5 refused', data: { candidates: [good] } })).toEqual([good])
+  })
+
+  it('reads an "unheld" reason rather than dropping the candidate it is on', () => {
+    const heldCandidate = {
+      seat: { runtime: 'codex' },
+      label: 'Codex',
+      runtimeName: 'Codex',
+      state: 'passed',
+      reason: { kind: 'unheld', level: 'edit', detail: null, required: true },
+      fix: { kind: 'seats' },
+    }
+    expect(refusalOf({ code: 'seatRefused', data: { candidates: [heldCandidate] } })).toEqual([heldCandidate])
+    const withoutRequired = { ...heldCandidate, reason: { kind: 'unheld', level: 'read', detail: 'Sandbox reads back as Full access' } }
+    expect(refusalOf({ code: 'seatRefused', data: { candidates: [withoutRequired] } })).toEqual([withoutRequired])
   })
 
   /*

@@ -498,6 +498,58 @@ it('Start stays disabled through a step edit’s own render round trip, not just
   expect(button('Start').hasAttribute('disabled')).toBe(false)
 })
 
+it('a stale render answering after a later edit’s own render never re-enables Start — only the latest edit decides', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+
+  const resolvers: ((value: { readonly source: string; readonly issues: readonly unknown[] }) => void)[] = []
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'authoring/shape/render') return new Promise((resolve) => { resolvers.push(resolve as never) })
+    if (method === 'authoring/start/preview') {
+      const { source, vars } = params as { source: string; vars: Readonly<Record<string, string>> }
+      const policy = JSON.parse(source) as FlowPolicy
+      return previewFor(policy, { vars })
+    }
+    if (method === 'agent/list') return [AGENT]
+    return null
+  }) as never)
+
+  // Two edits land in quick succession — the second (Check) fires before the
+  // first (Agent) has answered — and only the second's own render, resolved
+  // last, decides.
+  act(() => button('Agent').click())
+  act(() => button('Check').click())
+  expect(button('Start').hasAttribute('disabled')).toBe(true)
+  expect(resolvers).toHaveLength(2)
+
+  const agentAnswer: FlowPolicy = {
+    version: 2, name: 'Your own shape', inputs: [{ id: 'task', label: 'Task' }],
+    roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }, { id: 'agent-1', kind: 'agent', uses: [], seats: [], isolate: false, grant: 'read', independentOf: [] }],
+    rules: [], seed: { role: 'review', title: '{{task}}' }, messaging: 'board-only', wait: 240,
+  }
+  // The stale first render answers, after the second edit already took the
+  // sequence — it must change nothing: Start stays disabled for the second
+  // edit's own still-pending render.
+  await act(async () => {
+    resolvers[0]!({ source: JSON.stringify(agentAnswer), issues: [] })
+  })
+  expect(button('Start').hasAttribute('disabled')).toBe(true)
+
+  const checkAnswer: FlowPolicy = {
+    version: 2, name: 'Your own shape', inputs: [{ id: 'task', label: 'Task' }],
+    roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }, { id: 'check-1', kind: 'check', check: { run: 'true', timeout: 900, exits: { '0': 'pass' }, otherwise: 'fail' } }],
+    rules: [], seed: { role: 'review', title: '{{task}}' }, messaging: 'board-only', wait: 240,
+  }
+  await act(async () => {
+    resolvers[1]!({ source: JSON.stringify(checkAnswer), issues: [] })
+  })
+  await settle()
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+})
+
 it('a bound input takes the start target’s own value, never its own YAML default — a hand-written binding from a branch is not refused', async () => {
   const bound: FlowPolicy = {
     version: 2, name: 'Review', inputs: [{ id: 'branch', label: 'Branch', default: 'placeholder-default' }],
@@ -553,6 +605,34 @@ it('an input bound from the start target renders read-only, as a fact, never an 
   const label = [...document.body.querySelectorAll('label')].find((one) => one.textContent === 'Branch')
   expect(label).toBeUndefined()
   expect(document.body.textContent).toContain('Branch')
+})
+
+it('a bound input carrying a commit shows it short, with the full sha in title — the same as the front door', async () => {
+  const bound: FlowPolicy = {
+    version: 2, name: 'Review', inputs: [{ id: 'head', label: 'Head commit' }],
+    roles: [{ id: 'reviewer', kind: 'person', outcomes: ['done'] }], rules: [],
+    seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only', wait: 240,
+    layout: { frontDoor: { bindings: [{ input: 'head', value: 'head' }] } },
+  }
+  const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'authoring/start/preview') {
+      const { source, vars } = params as { source: string; vars: Readonly<Record<string, string>> }
+      const policy = JSON.parse(source) as FlowPolicy
+      return previewFor(policy, { vars: { ...vars, head: SHA } })
+    }
+    if (method === 'agent/list') return [AGENT]
+    return null
+  }) as never)
+  renderWithSource(store, JSON.stringify(bound))
+  await settle()
+
+  const shortened = SHA.slice(0, 7)
+  expect(document.body.textContent).toContain(shortened)
+  expect(document.body.textContent).not.toContain(SHA)
+  const holder = [...document.body.querySelectorAll('[title]')].find((one) => one.getAttribute('title') === SHA)
+  expect(holder?.textContent).toBe(shortened)
 })
 
 it('removing a step uses the destructive tone, and only there', async () => {

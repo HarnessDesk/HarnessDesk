@@ -9,7 +9,8 @@ import {
   Field, Input, Note, NoteList, Row, Rows, SectionHead, Tabs, TabsList, TabsTrigger, Textarea,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
-import { boundInputIds, defaultRole, defaultRule, emptyShapePolicy, renameRoleReferences, roleRemovable, uniqueId, withGraphPositions } from '../lib/shapes'
+import { shortSha } from '../lib/evidence'
+import { boundInputIds, boundInputValues, defaultRole, defaultRule, emptyShapePolicy, renameRoleReferences, roleRemovable, uniqueId, withGraphPositions } from '../lib/shapes'
 import { PlusIcon, MoveDownIcon, MoveUpIcon, TrashIcon } from './Icons'
 import { FlowPreviewReport } from './FlowStart'
 import { ShapeGraph } from './ShapeGraph'
@@ -193,7 +194,15 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
       // disabled for the *whole* render round trip this edit takes, not just
       // once `runDryRun` itself starts: a click on Start while `renderShape`
       // is still out would otherwise redeem the dry run from before this edit.
-      sequence.current += 1
+      //
+      // Two edits can be in flight together — a second step change fired
+      // before the first's `renderShape` answered — and they need not land in
+      // order: `mine` is this call's own claim on the sequence, checked again
+      // after the await, so a stale answer (an earlier edit's, resolving
+      // late) touches no state at all once a later edit has already taken
+      // it, rather than re-enabling Start or racing it into `runDryRun` with
+      // the wrong policy.
+      const mine = ++sequence.current
       setPolicy(next)
       setFormIssues([])
       setPreviewPending(true)
@@ -201,10 +210,12 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
       try {
         rendered = await store.renderShape(next)
       } catch (error) {
+        if (mine !== sequence.current) return
         setFormIssues([{ at: 'file', text: error instanceof Error ? error.message : 'This change could not be checked.', fix: 'Try again.' }])
         setPreviewPending(false)
         return
       }
+      if (mine !== sequence.current) return
       if (rendered.issues.length > 0) {
         setFormIssues(rendered.issues)
         setPreviewPending(false)
@@ -311,7 +322,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
 
   const inputs = compiled?.format === 'agents' ? compiled.flow.inputs : []
   /** Which of `inputs` this shape's own layout fills from the resolved start target — head, base, a pull request — rather than from a person typing. */
-  const bound = compiled?.format === 'agents' ? boundInputIds(compiled.flow) : new Set<string>()
+  const bound = compiled?.format === 'agents' ? boundInputValues(compiled.flow) : new Map<string, never>()
 
   return (
     <Dialog
@@ -505,12 +516,24 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
 
           {inputs.filter((input) => bound.has(input.id)).length > 0 && (
             <Rows>
-              {inputs.filter((input) => bound.has(input.id)).map((input) => (
+              {inputs.filter((input) => bound.has(input.id)).map((input) => {
                 // A fact the chosen start already filled in — never a field
                 // that looks editable only to refuse the edit typing into it
                 // would send.
-                <Row key={input.id} title={input.label} desc={vars[input.id] || '—'} />
-              ))}
+                const value = vars[input.id] ?? ''
+                const kind = bound.get(input.id)
+                // `head`/`base` are commits — shown short, the full sha still
+                // reachable on hover; a branch, a pull request or a diff's own
+                // label is not a sha and is never shortened.
+                const isSha = (kind === 'head' || kind === 'base') && value !== ''
+                return (
+                  <Row
+                    key={input.id}
+                    title={input.label}
+                    desc={isSha ? <span title={value}>{shortSha(value)}</span> : (value || '—')}
+                  />
+                )
+              })}
             </Rows>
           )}
 
