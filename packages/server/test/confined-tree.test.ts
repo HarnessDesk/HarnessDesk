@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { existsSync, writeFileSync } from 'node:fs'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { lstat, mkdir, readdir, readFile, rename, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -153,4 +155,46 @@ test('a root replaced after it was pinned is refused rather than used', async ()
   await assert.rejects(ConfinedTree.open(project, { expect: pinned.identity }), /folder changed/i)
   await assert.rejects(pinned.replace('real/deeper/file.yml', 'inside bytes', 'after'), /folder changed/i)
   assert.equal(await readFile(join(project, 'real', 'deeper', 'file.yml'), 'utf8'), 'inside bytes')
+})
+
+test('createAtomic refuses a file that appears after its last look, and leaves that file and no temporary behind', async () => {
+  const { project } = await planted()
+  const tree = await ConfinedTree.open(project)
+  const target = join(project, 'real', 'made.yml')
+  /* The racer lands in the one gap a look-then-rename leaves: right after the
+     name was looked at and found empty. Hooked on the builtin itself, so the
+     module's own named import sees it. */
+  const promises = createRequire(import.meta.url)('node:fs/promises') as { lstat: typeof lstat }
+  const original = promises.lstat
+  promises.lstat = (async (...args: Parameters<typeof lstat>) => {
+    try {
+      return await original(...args)
+    } finally {
+      if (String(args[0]).endsWith('/real/made.yml') && !existsSync(target)) writeFileSync(target, 'the racer’s bytes', { flag: 'wx' })
+    }
+  }) as typeof lstat
+  syncBuiltinESMExports()
+  try {
+    await assert.rejects(tree.createAtomic('real/made.yml', 'ours'), (error: unknown) => (error as { code?: string }).code === 'EEXIST')
+  } finally {
+    promises.lstat = original
+    syncBuiltinESMExports()
+  }
+  assert.equal(await readFile(target, 'utf8'), 'the racer’s bytes')
+  assert.deepEqual((await readdir(join(project, 'real'))).sort(), ['deeper', 'made.yml'])
+})
+
+test('createAtomic makes its file under the process umask, as createFolder does', async () => {
+  const { project } = await planted()
+  const tree = await ConfinedTree.open(project)
+  const previous = process.umask(0o027)
+  try {
+    await tree.createAtomic('real/masked.yml', 'text')
+  } finally {
+    process.umask(previous)
+  }
+  assert.equal((await lstat(join(project, 'real', 'masked.yml'))).mode & 0o777, 0o640)
+  assert.equal(await readFile(join(project, 'real', 'masked.yml'), 'utf8'), 'text')
+  assert.equal((await lstat(join(project, 'real', 'masked.yml'))).nlink, 1, 'the temporary name is gone')
+  assert.deepEqual((await readdir(join(project, 'real'))).sort(), ['deeper', 'masked.yml'])
 })
