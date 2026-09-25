@@ -1281,23 +1281,6 @@ The glyph for what was published: a pull request, a review, a comment, an issue.
 
 A pull request's state in a word, toned as the judgement it is: merged is good news, closed without merging is not.
 
-### `PublicationCard`
-
-`packages/ui/src/design/patterns/PublicationCard.tsx`
-
-Something on the forge, as a card: a pull request, a review, a comment.
-
-Built on the agent card's anatomy — crest, bands, verbs — because the reader
-has learnt it there and a second anatomy for a second kind of thing would
-cost them the learning twice. What differs is the subject: a pull request
-has a state that is a judgement (merged is good news, closed without merging
-is not), so its pill takes a tone where an agent's tile takes a tint.
-
-The text on it is the forge's own. The card shows the pull request's title
-and the opening of its description exactly as GitHub holds them, which is
-how the signature at the end of a short description appears here — as part
-of the text, not as a claim the desk makes about it.
-
 ### `Dot`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1625,7 +1608,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 247 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
+| `screenAppearance` | 56 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
 | `singleAreaPrimitive` | 44 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
