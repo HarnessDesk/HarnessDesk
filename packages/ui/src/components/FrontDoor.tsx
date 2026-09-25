@@ -6,6 +6,7 @@ import { ActionError, Banner, Button, Dialog, Field, Input, Note, Row, RowButton
 import { useSnapshot, useStore } from '../state/context'
 import { FlowPreviewReport } from './FlowStart'
 import { ShapeEditor } from './ShapeEditor'
+import { TriggerCreate } from './TriggerCreate'
 
 /**
  * The front door: choose a file-based shape, read its populated dry run,
@@ -66,6 +67,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   const [roster, setRoster] = useState<ReadonlyMap<string, AgentEntry>>(new Map())
   const [chosen, setChosen] = useState<Chosen | null>(null)
   const [ownShape, setOwnShape] = useState(false)
+  const [everyTime, setEveryTime] = useState(false)
   const [source, setSource] = useState('')
   const [vars, setVars] = useState<Readonly<Record<string, string>>>({})
   const [sentence, setSentence] = useState('')
@@ -222,6 +224,9 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
             <Button variant="default" disabled={!startable || !sentenceValid || starting} onClick={() => void start()}>
               {starting ? 'Starting…' : 'Start'}
             </Button>
+            <Button variant="secondary" disabled={starting} onClick={() => setEveryTime(true)}>
+              Every time…
+            </Button>
             <Button variant="secondary" disabled={starting} onClick={() => setChosen(null)}>
               Choose a different shape
             </Button>
@@ -324,6 +329,15 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
 
           {startProblem && <ActionError>{startProblem}</ActionError>}
         </>
+      )}
+
+      {everyTime && chosen && (
+        <TriggerCreate
+          root={root}
+          opens={{ flow: chosen.id }}
+          onClose={() => setEveryTime(false)}
+          onSaved={() => setEveryTime(false)}
+        />
       )}
     </Dialog>
   )

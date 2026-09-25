@@ -412,8 +412,8 @@ two waited on work that was already gone.
 
 ## The file format, for a visual builder
 
-A drag-and-drop canvas is the next piece of work and a separate change. Two
-decisions in this format exist for it:
+A drag-and-drop canvas — *Your own shape*, below — reads and writes this
+format. Two decisions in it exist for that:
 
 - **`layout:` is reserved and ignored.** Node positions have to live somewhere,
   and a format with nowhere to put them forces a canvas to invent a second file
@@ -432,6 +432,53 @@ block scalars (`|`, `|-`, `>`, `>-`), one-line flow collections (`[a, b]`,
 are **refused by name, with the line**. A flow that is quietly mis-read is a
 room of agents doing the wrong thing unattended, so everything outside the
 slice fails loudly rather than being half-supported.
+
+---
+
+## Your own shape
+
+*Your own shape*, reached from the front door, is an ordered editor of a real
+`FlowPolicy` — the exact object the dry run and the engine already read —
+never a second grammar of its own. A step is an Agent, a check or a person,
+named in those plain words; a rule is which finished round it watches, any or
+every over the answers that round declared, the five evidence guards
+(`check`, `ci: green`, `review`, `pr`, `diff: true`), and one round it opens.
+Every edit calls the host's own `authoring/shape/render`, which is `writeShape`
+behind the wire: the source pane only ever shows text the host has already
+proven reads back as the exact policy on screen. Typing into that source pane
+directly works too, parsed back through the same dry run the front door runs;
+a source that does not parse to the current format keeps the last valid
+ordered form and marks it stale, with *Start* disabled, rather than guessing a
+fix or discarding what does not parse.
+
+**The graph is the same document, not a second one.** It renders the same
+`FlowPolicy` spatially — a node per step, a decorative line per rule, an
+accessible list of both beside the canvas so an off-screen node or a loop's
+back edge is still reachable and readable without a pointer. Moving a node,
+by drag or by the visible Horizontal/Vertical fields a selected node shows,
+edits `layout.positions` and nothing else: role order, seed, rules, grants,
+guards, messaging and budget are untouched, and no coordinate is written
+until a person actually moves something — an unpositioned shape draws stable
+role-order rows as a view default.
+
+`layout.frontDoor` is the other reserved key the front door reads: `order`
+places a shape among the shipped choices, and `contexts` names which starts
+(a plain project, a branch, a pull request, a diff, a working-tree diff) it
+accepts — absence of either is never a refusal, only the absence of an
+opinion. `packages/server/flows/` sets `order: 1`–`6` on
+`independent-review`, `fan-out`, `comparison`, `staged-relay`, `investigation`
+and `alignment`; `mechanical-contest` stays an unordered custom starting
+point. Like `layout.positions`, none of this grants, seats or routes
+anything — an authoring shortcut only, read defensively and never trusted for
+more than display.
+
+*Save* previews the exact diff — new Agents the shape names, then the flow
+file itself — for the project or for you, through the same guarded
+transaction an Agent's own field edits use; a project-only Agent a
+user-scope save cannot reach is a visible refusal, never a silently
+substituted one. Saving is independent of running: a shape built here can be
+started without ever being saved, the same in-memory `source` the shipped
+catalogue already starts from.
 
 ---
 
@@ -715,6 +762,23 @@ history and the machine's own pause and daily cap are covered in
 flow works. A webhook or an inbound message source is still undecided: Intake
 reads only host-validated facts it polled itself, and any future source enters
 that same boundary rather than a listener of its own.
+
+### Every time
+
+*Every time…*, on a shape (from the front door) or an Agent (from its page),
+composes exactly that declaration rather than a person hand-writing YAML: the
+source (pull request, issue or schedule), its finite fields, the Goal grouping
+and dedupe keys, budget, and — for a pull request or an issue — whether a
+later firing continues an open Goal's round or only records the fact. A
+schedule draft starts at 60 minutes, visibly editable; nothing here invents a
+field `triggers.yml` cannot already carry. *Save* writes the working tree
+alone, through the same guarded transaction a shape or an Agent field uses,
+and answers *Saved. Commit this file before arming* — it is never itself
+consent. Arming stays exactly what it was: the existing preview, bound to the
+*committed* bytes, and an explicit Arm. An unsaved shape is saved first, so no
+trigger ever names a renderer-only draft; an existing, unreadable
+`triggers.yml` refuses an addition rather than risk losing a declaration it
+cannot parse.
 
 ---
 

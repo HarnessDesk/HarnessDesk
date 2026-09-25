@@ -7,7 +7,8 @@
 .canvas {
   position: relative;
   overflow: auto;
-  min-height: var(--hd-space-16);
+  /* Height comes from the component's own inline style — the graph's real
+     computed extent, node positions included — never a fixed value here. */
 }
 
 .edges {
@@ -17,11 +18,10 @@
   pointer-events: none;
 }
 
-/* An edge line's own stroke width is data geometry, the same exception the
-   chart kit's own SVG marks already record (see design/ui/chart.tsx). */
+/* An edge line's own stroke is data geometry, drawn the same way chart.tsx's
+   own SVG marks are: as attributes on the element, not a screen appearance
+   rule (opacity alone is layout/behaviour, not appearance, and stays here). */
 .edgeLine {
-  stroke: currentColor;
-  stroke-width: 1;
   opacity: 0.35;
 }
 
@@ -34,7 +34,6 @@
   gap: var(--hd-space-0-5);
   white-space: normal;
   text-align: left;
-  cursor: grab;
 }
 
 .nodeTitle {

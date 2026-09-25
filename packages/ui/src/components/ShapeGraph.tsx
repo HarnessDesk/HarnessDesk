@@ -106,7 +106,18 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
             if (fromIndex === undefined || toIndex === undefined) return null
             const from = centerOf(rule.on, fromIndex)
             const to = centerOf(rule.then.role, toIndex)
-            return <line key={rule.id} x1={from.x} y1={from.y} x2={to.x} y2={to.y} className={styles.edgeLine} />
+            return (
+              <line
+                key={rule.id}
+                x1={from.x}
+                y1={from.y}
+                x2={to.x}
+                y2={to.y}
+                className={styles.edgeLine}
+                stroke="currentColor"
+                strokeWidth={1}
+              />
+            )
           })}
         </svg>
         {policy.roles.map((role, index) => {

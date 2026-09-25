@@ -516,6 +516,85 @@ marker (the reconciliation rule, never a looser match) is skipped in every
 mode, and the id of every comment the desk posts is remembered across a
 restart, so a comment whose marker was edited away is still the desk's.
 
+## The front door's shapes are ordinary files, and its two clicks are a property of the dry run, not a wizard
+
+The front door names no use case in product code. "Fan out," "Review,"
+"Compare," "Relay," "Investigate," "Align" are six ordinary flow files that
+ship with the desk, read through the same `flow/catalog` a project's own
+Flows page already lists; a seventh, `mechanical-contest`, ships unordered on
+purpose, as the thing a person copies rather than one of the labelled six. A
+shape earns its place in the front door's own order and its context list
+(a branch, a pull request, a diff, a plain project) from `layout.frontDoor`,
+metadata the engine never reads and a person can edit like any other line in
+the file. The alternative — a `kind` the front door itself switches on — would
+have made "add a starting point" a code change forever, for something a
+project should be able to do by writing a file.
+
+Two clicks is what the plan promises, and it holds only because nothing
+between choosing a shape and pressing Start is allowed to ask a question the
+dry run itself does not already answer. A wizard, a confirmation step, or a
+second dialog to fill in what the dry run could have shown would each be one
+click away from three, quietly. What a click *does* buy — typing the
+sentence a Goal starts with, or building a shape from nothing in *Your own
+shape* — is not counted against the promise, because it is work a person
+chose to do, not a gate the front door put in the way of work they had
+already decided on.
+
+**The rule:** a shape is a file, ordered and gated by its own metadata, and a
+click that is not choosing a shape or pressing Start is a defect, not a
+feature, in the two-click path.
+
+## Starting a team requires a held ceiling; an asked one is a refusal shown, not a downgrade
+
+Phase 3's watched conversations tolerate a runtime that can only be *asked* to
+hold a ceiling — the standing order carries the limit, and the person is
+trusting the runtime to keep to it, because a person is watching. The front
+door starts a team that may run unattended for rounds at a time, with nobody
+necessarily reading every turn as it happens, so that same tolerance would be
+consent obtained under a materially different risk than the one it was
+designed for. A front-door run instead requires every Seat it ever opens —
+including a later or a recovered round — to *hold* its ceiling: the runtime
+must accept the control and read it back, or the candidate is passed over
+before it is given a brief, a tool or a card.
+
+This is why a fresh install with a runtime that can only be asked shows an
+honest refusal — a candidate name, a reason, a fix — rather than starting
+under a weaker policy and calling that success. The temptation the other way
+is real: silently relabelling an asked seat as held would make more desks
+pass the "two clicks from empty" demonstration, at the cost of the sentence
+that requirement is supposed to prove. A person can still explicitly widen a
+shape's own grants, or seat something asked-only by hand elsewhere — this
+decision governs only what the front door starts *for them*, by default,
+without them having read the file.
+
+**The rule:** a front-door run's requirement for held Seats is policy layered
+onto the existing seating path, not a second enforcement mechanism, and it
+never quietly becomes an asked run to make a demonstration succeed.
+
+## A shape's `layout:` is a shortcut a person can trust to be inert
+
+`layout.frontDoor` and `layout.positions` are the same reserved key the
+engine has always ignored, extended for two new readers: the front door's
+ordering and context list, and the graph's node positions. Both are read
+defensively — an unknown role, a value outside a stated bound, or a shape the
+reader does not recognise is dropped with a reason, never trusted, and never
+mistaken for a reason to stop reading the rest of the file. The alternative,
+trusting `layout:` enough to let it fill an input, choose a grant or route a
+round, would turn a canvas position into an attack surface: a cloned
+repository's own file could then shape what runs by shaping where a node
+happened to be drawn.
+
+Because nothing here can grant, seat, guard or route, the ordered editor and
+its graph can share one document with no risk that arranging a shape visually
+changes what it means: moving a node is exactly as consequential as
+scrolling a text file, and the render call that produces a shape's exact
+bytes (`authoring/shape/render`) never once inspects `layout:` to decide
+whether the result is valid.
+
+**The rule:** `layout:` may only ever offer a shortcut to a surface that
+already trusts nothing else in the file; the day it grants something is the
+day it needs to be a different key.
+
 ## A declared attachment is a catalogue name, never an executable spec
 
 An Agent's `skills:`/`mcp:` lines name entries by identifier, not by command

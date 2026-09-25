@@ -15,6 +15,7 @@ import { ShapeGraph } from './ShapeGraph'
 import { ShapeRule } from './ShapeRule'
 import { ShapeSave } from './ShapeSave'
 import { ShapeStep } from './ShapeStep'
+import { TriggerCreate } from './TriggerCreate'
 
 /**
  * Your own shape: an ordered editor of a real flow policy, and the exact,
@@ -58,6 +59,9 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
   const [starting, setStarting] = useState(false)
   const [startProblem, setStartProblem] = useState<string | null>(null)
   const [showSave, setShowSave] = useState(false)
+  const [saveForTrigger, setSaveForTrigger] = useState(false)
+  const [savedFlowId, setSavedFlowId] = useState<string | null>(document?.target.kind === 'flow' ? document.target.id : null)
+  const [everyTime, setEveryTime] = useState(false)
   const sequence = useRef(0)
 
   useEffect(() => {
@@ -251,6 +255,19 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
             {starting ? 'Starting…' : 'Start'}
           </Button>
           <Button variant="secondary" disabled={!policy} onClick={() => setShowSave(true)}>Save…</Button>
+          <Button
+            variant="secondary"
+            disabled={!policy}
+            onClick={() => {
+              if (savedFlowId) setEveryTime(true)
+              else {
+                setSaveForTrigger(true)
+                setShowSave(true)
+              }
+            }}
+          >
+            Every time…
+          </Button>
           <Button variant="secondary" onClick={onClose}>Close</Button>
         </>
       )}
@@ -359,7 +376,7 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
           {tab === 'source' && (
             <Field label="Source" hint="The exact file this would write. Unrecognized syntax stays here, never silently stripped.">
               {(control) => (
-                <Textarea {...control} className="font-mono text-xs" rows={20} value={source} onChange={(event) => editSource(event.target.value)} />
+                <Textarea {...control} variant="code" rows={20} value={source} onChange={(event) => editSource(event.target.value)} />
               )}
             </Field>
           )}
@@ -410,8 +427,31 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
             expected: document?.target.kind === 'flow' && document.exists ? document.digest : null,
             source,
           }}
-          onSaved={() => setShowSave(false)}
-          onClose={() => setShowSave(false)}
+          onSaved={(result) => {
+            setShowSave(false)
+            // Every time on an unsaved shape first saves it, then names the
+            // saved flow id it opens — never a renderer-only draft.
+            const written = result.written[0]
+            const match = written ? /(?:^|\/)([a-z0-9][a-z0-9_-]*)\.ya?ml$/.exec(written) : null
+            if (saveForTrigger && match) {
+              setSavedFlowId(match[1]!)
+              setEveryTime(true)
+            }
+            setSaveForTrigger(false)
+          }}
+          onClose={() => {
+            setShowSave(false)
+            setSaveForTrigger(false)
+          }}
+        />
+      )}
+
+      {everyTime && savedFlowId && (
+        <TriggerCreate
+          root={root}
+          opens={{ flow: savedFlowId }}
+          onClose={() => setEveryTime(false)}
+          onSaved={() => setEveryTime(false)}
         />
       )}
     </Dialog>

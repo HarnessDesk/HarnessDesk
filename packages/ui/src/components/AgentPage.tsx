@@ -63,6 +63,7 @@ import { AgentAttachments } from './AgentAttachments'
 import { AgentFields, AgentPageSections, FieldEditDialog, PreferFieldDialog } from './AgentFields'
 import { AgentNotes } from './AgentNotes'
 import { CeilingUpdate } from './CeilingUpdate'
+import { TriggerCreate } from './TriggerCreate'
 
 /** The one file `AgentFields` reads and saves through — a project's own Agent needs the project that owns it. */
 const authoringTarget = (entry: AgentEntry, project: string | null): AuthoringTarget => ({
@@ -113,6 +114,7 @@ export const AgentPage = ({
   const [agentDocument, setAgentDocument] = useState<AuthoringDocument | null>(null)
   const [documentProblem, setDocumentProblem] = useState<string | null>(null)
   const [fieldsBusy, setFieldsBusy] = useState(false)
+  const [everyTime, setEveryTime] = useState(false)
   const definition = entry.definition
   const name = agentName(entry)
   const project = projectName(snapshot.workspace)
@@ -236,11 +238,16 @@ export const AgentPage = ({
        * needs either a wrap or a second line for more than one wide action,
        * not a second composition here working around it.
        */}
-      {(targets.length > 0 || (folder && entry.origin !== 'builtin')) && (
+      {(targets.length > 0 || (folder && entry.origin !== 'builtin') || (definition && snapshot.agentsProject)) && (
         <span className={styles.actions}>
           {targets.length > 0 && (
             <Button variant="outline" onClick={() => setCustomizing(true)}>
               Customize…
+            </Button>
+          )}
+          {definition && snapshot.agentsProject && (
+            <Button variant="outline" onClick={() => setEveryTime(true)}>
+              Every time…
             </Button>
           )}
           {folder && entry.origin !== 'builtin' && (
@@ -436,6 +443,15 @@ export const AgentPage = ({
           hasMachineSeat={plan?.from === 'machine'}
           onClose={() => setRemoving(false)}
           onRemoved={onBack}
+        />
+      )}
+
+      {everyTime && snapshot.agentsProject && (
+        <TriggerCreate
+          root={snapshot.agentsProject}
+          opens={{ agent: entry.id }}
+          onClose={() => setEveryTime(false)}
+          onSaved={() => setEveryTime(false)}
         />
       )}
     </>
