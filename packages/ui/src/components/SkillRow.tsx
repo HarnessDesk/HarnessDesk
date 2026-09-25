@@ -2,12 +2,13 @@ import { useMemo } from 'react'
 
 import {
   entryHasProblem,
+  isReachProblem,
   type LibraryEntry,
   type ReachState,
 } from '@harnessdesk/protocol'
 
 import { RuntimeMark } from './BrandIcons'
-import { CodeText, LibraryReachFace, Monogram, Rows, RowButton, Text } from '../design'
+import { CodeText, IconTile, Monogram, Rows, RowButton, Text } from '../design'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../design'
 import { REACH_SENTENCE } from '../lib/reach-states'
 import type { LibraryColumn } from './LibraryActions'
@@ -102,7 +103,19 @@ const ReachFace = ({
     <Tooltip>
       <TooltipTrigger
         render={
-          <LibraryReachFace state={state} label={`${column.label}: ${sentence}`} />
+          /* The agent's mark on its round tile: the warning ground for a
+             problem, the neutral one where it loads, the same tile faded
+             for every other "not this one". */
+          <IconTile
+            size="xs"
+            shape="round"
+            tone={isReachProblem(state) ? 'warning' : 'neutral'}
+            data-reach={state}
+            {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
+            role="img"
+            aria-label={`${column.label}: ${sentence}`}
+            className={state === 'reaches' || isReachProblem(state) ? undefined : 'opacity-40'}
+          />
         }
       >
         {column.info ? (

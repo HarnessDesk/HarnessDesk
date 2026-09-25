@@ -41,6 +41,7 @@ import {
   Card,
   CardContent,
   Chip,
+  CodeText,
   DetailMark,
   DetailHead,
   PageHead,
@@ -50,13 +51,11 @@ import {
   Rows,
   Search,
   SectionHead,
-  SectionToggle,
   NativeSelect,
   Separator,
   Switch,
   Text,
   Toolbar,
-  WireText,
 } from '../design'
 import { Tabs, TabsList, TabsTrigger } from '../design'
 import { SchemaForm } from './SchemaForm'
@@ -305,10 +304,10 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
             name={KIND_HEADING[kind]}
             action={
               kind === 'tool' || kind === 'command' ? (
-                <SectionToggle>
+                <Text as="label" role="muted" ink="muted" className="inline-flex items-center gap-2">
                   Tool names
                   <Switch aria-label="Show tool names" checked={wire} onCheckedChange={setWire} />
-                </SectionToggle>
+                </Text>
               ) : undefined
             }
           />
@@ -319,7 +318,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
                 title={contributionSentence(contribution)}
                 control={
                   wire && (kind === 'tool' || kind === 'command') ? (
-                    <WireText>{describeContribution(contribution)}</WireText>
+                    <Text role="meta"><CodeText>{describeContribution(contribution)}</CodeText></Text>
                   ) : undefined
                 }
               />
@@ -357,7 +356,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
 
       <SectionHead name="About" />
       <Rows>
-        <Row title="Identifier" control={<WireText>{plugin.identity.id}</WireText>} />
+        <Row title="Identifier" control={<Text role="meta"><CodeText>{plugin.identity.id}</CodeText></Text>} />
         <Row
           title="Source"
           control={

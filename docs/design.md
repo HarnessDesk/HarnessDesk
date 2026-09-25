@@ -393,7 +393,7 @@ read in the interface's face. They are names, whatever produced them.
 Two uses of the code face survive in components, and both are the rule rather
 than an exception to it:
 
-1. A JSON value in `SchemaForm` (rendered with the canonical `WireText` pattern),
+1. A JSON value in `SchemaForm` (`CodeText` in the `meta` text role),
    which is output.
 2. A slash command in `TriggerMenu` (`.nameMono`), which is something you type.
 

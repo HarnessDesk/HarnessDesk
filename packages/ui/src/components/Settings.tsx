@@ -80,6 +80,7 @@ import {
   BackLink,
   Button,
   Chip,
+  CodeText,
   DetailMark,
   DetailHead,
   Dot,
@@ -98,12 +99,10 @@ import {
   Search,
   Section,
   SectionHead,
-  SectionToggle,
   NativeSelect,
   Monogram,
   Switch,
   Text,
-  WireText,
 } from '../design'
 import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
@@ -927,9 +926,9 @@ const ModelsSection = () => {
         action={
           <>
             {total > 0 && (
-              <SectionToggle>
+              <Text role="muted" ink="muted">
                 {shown === total ? 'All in the composer' : `${shown} of ${total} in the composer`}
-              </SectionToggle>
+              </Text>
             )}
             {total > 4 && shown > 0 && (
               <Button size="sm" variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, true)}>
@@ -1181,7 +1180,7 @@ const SkillPage = ({
 
       <SectionHead name="About" />
       <Rows>
-        <Row title="Identifier" control={<WireText>{skill.name}</WireText>} />
+        <Row title="Identifier" control={<Text role="meta"><CodeText>{skill.name}</CodeText></Text>} />
         {skill.path && (
           <Row
             title="Where it lives"

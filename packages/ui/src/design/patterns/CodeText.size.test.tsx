@@ -23,3 +23,11 @@ it('sizes code relative to its sentence, through a token, never below the smalle
   // The guard on the guard: the rule is the one the part wears.
   expect(renderToStaticMarkup(<CodeText>main</CodeText>)).toMatch(/data-slot="code-text"/)
 })
+
+it('spaces a code read aloud through a token, and only when asked', () => {
+  const rule = (/(?:^|\n)\.mono\[data-spaced\],\n\.mono\[data-spaced\] \* \{([^}]*)\}/.exec(css)?.[1] ?? '')
+  expect(rule).toMatch(/letter-spacing:\s*var\(--hd-code-tracking-spaced\)/)
+  expect(/--hd-code-tracking-spaced:\s*([^;]+);/.exec(tokens)?.[1]).toBe('0.18em')
+  expect(renderToStaticMarkup(<CodeText spaced>WDJB-MJHT</CodeText>)).toContain('data-spaced=""')
+  expect(renderToStaticMarkup(<CodeText>main</CodeText>)).not.toContain('data-spaced')
+})

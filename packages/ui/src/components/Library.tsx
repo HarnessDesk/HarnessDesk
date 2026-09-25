@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   entryHasProblem,
@@ -32,6 +32,7 @@ import {
   RetryIcon,
   RowsLooseIcon,
   SearchIcon,
+  TodoPendingIcon,
   TrashIcon,
 } from './Icons'
 import {
@@ -39,7 +40,7 @@ import {
   Alert,
   Chip,
   CodeText,
-  LibraryReachMark,
+  Dot,
   Menu,
   MenuItem,
   MenuLabel,
@@ -135,15 +136,60 @@ type Filter =
   | 'unused'
   | 'off'
 
-
 /**
  * The mark for one state.
  *
  * Shape carries the meaning and colour only reinforces it, so the table reads
- * the same to anyone who does not separate red from green. `absent` is a rule,
- * not a glyph: nothing is wrong, and a symbol there would compete with the
- * ones that mean something.
+ * the same to anyone who does not separate red from green. `absent` is the
+ * table's own no-value dash, not a glyph: nothing is wrong, and a symbol there
+ * would compete with the ones that mean something.
+ *
+ * Every mark is a part the app already has, set in the meta role's ink — the
+ * warning ink where the copy needs mending, the muted one everywhere else: a
+ * problem is its icon, a copy no agent has read is the task list's pending
+ * ring, a copy that loads is the readiness light, one not loaded yet the
+ * neutral light. Only "switched off" — the neutral light struck through — is
+ * drawn here.
  */
+const ReachMark = ({
+  state,
+  label,
+  placement = 'inline',
+}: {
+  state: ReachState
+  label: string
+  placement?: 'inline' | 'cell'
+}) => {
+  let mark: ReactNode
+  if (state === 'hollow' || state === 'rejected') mark = <AlertIcon size={13} />
+  else if (state === 'differs') mark = <DiffIcon size={13} />
+  else if (state === 'unhostable') mark = <CrossIcon size={13} />
+  else if (state === 'reaches') mark = <Dot state="ready" />
+  else if (state === 'unscanned') mark = <TodoPendingIcon size={10} />
+  else if (state === 'stale') mark = <Dot />
+  else if (state === 'off') {
+    mark = (
+      <span className="relative inline-flex size-3 items-center justify-center">
+        <Dot />
+        <span className="absolute h-px w-3 bg-current" />
+      </span>
+    )
+  } else mark = '—'
+  const warning = state === 'hollow' || state === 'rejected' || state === 'differs' || state === 'unscanned'
+  return (
+    <Text
+      role="meta"
+      {...(warning ? { tone: 'warning' as const } : { ink: 'muted' as const })}
+      data-reach={state}
+      data-placement={placement}
+      className={`inline-flex shrink-0 items-center justify-center ${placement === 'cell' ? 'w-full' : ''}`}
+    >
+      {/* The mark is a picture of its label; `Text`'s own `role` is its type role. */}
+      <span role="img" aria-label={label} className="inline-flex items-center justify-center">{mark}</span>
+    </Text>
+  )
+}
+
 /**
  * What the marks in the table mean — the ones actually on screen, and no
  * others.
@@ -181,7 +227,7 @@ const Legend = ({ rows }: { rows: readonly LibraryEntry[] }) => {
       <Text as="p" role="meta" className={styles.legend}>
         {present.map((state) => (
           <span key={state} className={styles.legendItem}>
-            <LibraryReachMark state={state} label={REACH_NAME[state]} />
+            <ReachMark state={state} label={REACH_NAME[state]} />
             {REACH_NAME[state]}
           </span>
         ))}
@@ -1216,7 +1262,7 @@ const Entry = ({
               {...(isReachProblem(reach.state) ? { 'data-problem': '' } : {})}
               title={reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state]}
             >
-              <LibraryReachMark state={reach.state} label={label} placement="cell" />
+              <ReachMark state={reach.state} label={label} placement="cell" />
             </TableCell>
           )
         })}

@@ -2,7 +2,7 @@ import { useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -16,13 +16,6 @@ import {
   Banner,
   BannerAction,
   ActionError,
-  AccessCode,
-  AccessDetail,
-  AccessFact,
-  AccessRail,
-  AccessRailFooter,
-  AccessRailHeader,
-  AccessRailList,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -59,17 +52,12 @@ import {
   NativeSelect,
   PageHead,
   PatchHeader,
-  PatchSection,
   Row,
   RowButton,
   Checkbox,
   RowChoice,
   Rows,
   Lightbox,
-  LibraryOperationList,
-  LibraryOperationMark,
-  LibraryReachFace,
-  LibraryReachMark,
   MetaList,
   Monogram,
   NavigationGroupHeader,
@@ -79,13 +67,11 @@ import {
   PopoverSurface,
   RefusedAction,
   SectionHead,
-  SearchMatch,
   Segmented,
   StatePill,
   Spinner,
-  StateStrip,
-  StatusSummary,
   Text,
+  TextMark,
   Switch,
   SwitchShape,
   ToggleGroup,
@@ -272,44 +258,10 @@ const StateBoard = () => (
       <Case label="running operation">
         <Spinner size="sm" tone="brand" aria-label="Loading" />
       </Case>
-      <Case label="account-access status">
-        <div className="flex w-full flex-col gap-3">
-          <StateStrip states={['ready', 'signin', 'limit', 'broken']} />
-          <StatusSummary
-            tone="success"
-            icon={<CheckIcon size={16} />}
-            title="Account connected"
-            description="Ready to start a conversation."
-          />
-        </div>
-      </Case>
-      <Case label="account-access sheet anatomy">
-        <div className="grid w-full grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
-          <AccessRail aria-label="Agents">
-            <AccessRailHeader>Your agents</AccessRailHeader>
-            <AccessRailList>Agent rows</AccessRailList>
-            <AccessRailFooter>Credentials stay local.</AccessRailFooter>
-          </AccessRail>
-          <AccessDetail>
-            <AccessFact label="Credential" value="~/.agent">Kept on this machine.</AccessFact>
-            <AccessCode>ABCD-EFGH</AccessCode>
-          </AccessDetail>
-        </div>
-      </Case>
-      <Case label="library reach">
-        <LibraryReachMark state="reaches" label="Reaches" placement="cell" />
-        <LibraryReachMark state="off" label="Switched off" />
-        <LibraryReachMark state="unscanned" label="Not scanned" />
-        <LibraryReachMark state="hollow" label="Empty on disk" />
-        <LibraryReachFace state="reaches" label="Agent A: reaches">A</LibraryReachFace>
-        <LibraryReachFace state="hollow" label="Agent B: empty on disk">B</LibraryReachFace>
-      </Case>
-      <Case label="library operations">
-        <LibraryOperationList>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="planned" />Planned</div>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="done" />Done</div>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="failed" />Failed</div>
-        </LibraryOperationList>
+      <Case label="text marks">
+        <span className="flex items-baseline gap-2"><TextMark role="row"><TodoPendingIcon size={12} /></TextMark><Text role="row">Planned</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="success"><CheckIcon size={12} /></TextMark><Text role="row">Done</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="warning"><CrossIcon size={12} /></TextMark><Text role="row">Failed</Text></span>
       </Case>
       <Case label="library row facts">
         <Monogram>CR</Monogram>
@@ -598,11 +550,11 @@ const BannerBoard = () => (
       <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
       <Card variant="flush">
         <PatchHeader>packages/ui/src/components/GitPane.tsx</PatchHeader>
-        <PatchSection className="flex items-center gap-2 px-3 py-2">
+        <section className="flex items-center gap-2 px-3 py-2">
           <FileState state="modified" />
           <span>One implementation for repository presentation</span>
           <ChangeStats added={12} removed={3} className="ml-auto" />
-        </PatchSection>
+        </section>
       </Card>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
@@ -706,7 +658,7 @@ const QueueBoard = () => (
         <Button variant="navigation" size="navigation" className="w-full">/review</Button>
       </PopoverSurface>
       <Text role="muted" as="div">
-        Press <Keycap>esc</Keycap> to close; “Set<SearchMatch>tings</SearchMatch>” shows the matched text.
+        Press <Keycap>esc</Keycap> to close; “Set<Text as="b" role="meta" ink="primary" weight="semibold">tings</Text>” shows the matched text at full ink and weight.
       </Text>
       <NoteList><li>A short supporting fact keeps its list anatomy.</li></NoteList>
       <ComposerShell className="relative min-h-20">
