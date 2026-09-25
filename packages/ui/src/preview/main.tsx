@@ -26,7 +26,7 @@ import { SaveAsAgentDialog } from '../components/SaveAsAgent'
 import { Settings, WorkspacesSection, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
-import { SIGN_IN_SCENES, SIGN_IN_SELECTED, signInSeed, type SignInScene } from './signin-fixture'
+import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
@@ -253,6 +253,15 @@ const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => 
   return (
     <StoreProvider store={own}>
       <SignIn runtime={SIGN_IN_SELECTED[scene]} onClose={onClose} />
+    </StoreProvider>
+  )
+}
+
+const RuntimesPreview = () => {
+  const own = useMemo(() => previewStore(runtimesSeed()), [])
+  return (
+    <StoreProvider store={own}>
+      <Settings section="runtimes" onSection={() => {}} onClose={() => {}} onSignIn={() => {}} />
     </StoreProvider>
   )
 }
@@ -496,6 +505,14 @@ const Preview = () => {
           onChange={setSettingsSection}
         />
       </div>
+      {/* Settings › Runtimes on a roster that needs something: the page's own
+          frame, because the sheet above opens on the all-signed-in fixture,
+          which is the one roster this page never has to help with. */}
+      <Frame title="Runtimes — what needs you, then what is ready">
+        <div className="relative h-[860px]" style={{ transform: 'translateZ(0)' }}>
+          <RuntimesPreview />
+        </div>
+      </Frame>
       {/* The Agents window: the owner's left-menu decision, in its own
           top-level screen, never a Settings page — the same containment
           trick as Settings and Usage, both `AppWindow`s too. */}

@@ -1081,7 +1081,10 @@ export class AppStore {
       const start = await this.transport.request('runtime/login', { runtime, method })
       this.#setLogin(runtime, startedLogin(method, start))
     } catch (error) {
-      this.notice('error', describe(error))
+      // Named, because the notice outlives the page it was pressed on: a
+      // sentence about "its sign-in command" has to say whose.
+      const name = this.#snapshot.runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? 'The agent'
+      this.notice('error', `${name} could not start signing in. ${describe(error)}`)
     }
   }
 

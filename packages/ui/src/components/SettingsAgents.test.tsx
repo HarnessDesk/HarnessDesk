@@ -426,57 +426,116 @@ const mountList = async (
   })
 }
 
-/** The name of every agent currently drawn, in order — read off its caret. */
+/** The name of every agent currently drawn, in order — read off its line. */
 const listed = (): string[] =>
-  [...document.body.querySelectorAll('button[aria-expanded]')].map(
-    (node) => node.getAttribute('aria-label')?.replace(/^(Show|Hide) the accounts under /, '') ?? '',
+  [...document.body.querySelectorAll('[data-slot="agent-row"]')].map(
+    (node) => node.querySelector('[data-role="subject"]')?.textContent ?? '',
   )
 
-it("each agent's header summarises the accounts under it, and stays quiet when it can", async () => {
+/** The agents under each group's head, by group. */
+const grouped = (): Record<string, string[]> =>
+  Object.fromEntries(
+    [...document.body.querySelectorAll('[role="group"][aria-label]')].map((group) => [
+      group.getAttribute('aria-label'),
+      [...group.querySelectorAll('[data-slot="agent-row"]')].map(
+        (node) => node.querySelector('[data-role="subject"]')?.textContent ?? '',
+      ),
+    ]),
+  )
+
+/** An agent's line, by its name. */
+const line = (name: string): HTMLButtonElement =>
+  [...document.body.querySelectorAll('[data-slot="agent-row"]')].find(
+    (node) => node.querySelector('[data-role="subject"]')?.textContent === name,
+  ) as HTMLButtonElement
+
+it("each agent's line says who it is signed in as, and at its end only what is not fine", async () => {
   await mountList()
 
-  // Counted across the agent's runtimes, not just its first one.
-  expect(document.body.textContent).toContain('2 accounts')
-  expect(document.body.textContent).toContain('1 account')
-  // How the credential arrives, read from the flows the runtime declares.
-  expect(document.body.textContent).toContain('Browser sign-in')
-  expect(document.body.textContent).toContain('API key')
-
-  // The header answers with a count and a state, and nothing where it has
-  // neither: a page of ten agents each saying "No account needed" is one
-  // sentence of information and ten rows of height. See docs/design.md.
+  // The account is the line, across the agent's runtimes — not a count.
+  expect(line('Alpha').textContent).toContain('ada@example.com and 1 more')
+  expect(line('Beta').textContent).toContain('API key')
+  expect(document.body.textContent).not.toMatch(/\b1 account\b/)
+  // How the credential arrives is the agent's definition, not a state: it is
+  // on its page and in Sign in, not on every line.
+  expect(document.body.textContent).not.toContain('Browser sign-in')
+  // Nothing is said where there is nothing to say: no "No account", no "Ready".
   expect(document.body.textContent).not.toContain('No account')
-  // The state is named, never left as a coloured dot to decode — and only
-  // where it is not the state everything is meant to be in.
   const chips = [...document.body.querySelectorAll('[class*=chip]')].map((node) => node.textContent)
-  expect(chips).toContain('Needs sign-in')
   expect(chips).toContain('Default')
   expect(chips).not.toContain('Ready')
+  // A signed-out agent carries its Sign in, not a chip saying it needs one.
+  expect(chips).not.toContain('Needs sign-in')
 })
 
-it('an agent that will not start shows its own words, its lines kept, and the repair', async () => {
+it('lists what needs you first, with its Sign in on its own line', async () => {
+  const signInAgent = vi.fn(async () => {})
+  await mountList({ store: { signInAgent } })
+
+  // Alpha's second account is signed in too, so an unfinished sibling is not
+  // allowed to report the whole agent as needing one.
+  expect(grouped()).toEqual({ 'Needs attention': ['Gamma'], Ready: ['Alpha', 'Beta'] })
+
+  // A real button beside the line, not inside it: the line opens the page.
+  const signIn = line('Gamma').closest('[data-slot="row-folding"]')?.querySelector('[data-slot="row-action"] button')
+  expect(signIn?.textContent).toContain('Sign in')
+  expect(line('Gamma').contains(signIn ?? null)).toBe(false)
+  await act(async () => (signIn as HTMLButtonElement).click())
+  expect(signInAgent).toHaveBeenCalledWith('gamma')
+})
+
+it("a line opens its agent's page, where the accounts under it are", async () => {
+  await mountList()
+  expect(document.body.textContent).not.toContain('grace@example.com')
+
+  await act(async () => line('Alpha').click())
+  const accounts = [...document.body.querySelectorAll('[data-slot="section-name"]')].find(
+    (node) => node.textContent === 'Accounts',
+  )
+  expect(accounts).toBeTruthy()
+  expect(document.body.textContent).toContain('ada@example.com')
+  expect(document.body.textContent).toContain('grace@example.com')
+  // The account's plan and which way its figure counts: automatic uses the
+  // shortest reported account-wide window, so 70% remains in the 5-hour lane
+  // while the longer weekly lane has 27% remaining.
+  expect(document.body.textContent).toContain('Pro')
+  expect(document.body.textContent).toContain('70% left')
+  expect(document.body.textContent).not.toMatch(/\b27% left/)
+  // Its ways to add another stand in the section's head.
+  expect(button('Add account')).toBeTruthy()
+
+  await act(async () => button('Runtimes')?.click())
+  expect(listed()).toEqual(['Gamma', 'Alpha', 'Beta'])
+})
+
+it('an agent that will not start shows its own words on its page, its lines kept, and the repair', async () => {
+  const health = {
+    state: 'unavailable',
+    reason: 'unknown',
+    message:
+      'Delta refuses its own configuration:\nconfig is invalid: ~/.delta/x.json\n\u00d7 x.json:12 \u2014 Unrecognized key: "a"',
+    remediation: '`delta doctor --fix` migrates the keys it knows.',
+  }
   await mountList({
     runtimes: [
       ...ROSTER.runtimes,
       runtime({ id: 'delta', name: 'Delta', presentation: { name: 'Delta' } }),
     ],
     accountsByRuntime: { ...ROSTER.accountsByRuntime, delta: signedIn([], []) },
-    healthByRuntime: {
-      delta: {
-        state: 'unavailable',
-        reason: 'unknown',
-        message:
-          'Delta refuses its own configuration:\nconfig is invalid: ~/.delta/x.json\n\u00d7 x.json:12 \u2014 Unrecognized key: "a"',
-        remediation: '`delta doctor --fix` migrates the keys it knows.',
-      },
-    },
+    healthByRuntime: { delta: health },
+    store: { healthFor: async () => health },
   })
+
+  // On the list it is named, not explained: the explanation is its page's.
+  expect(grouped()['Needs attention']).toContain('Delta')
+  expect([...line('Delta').querySelectorAll('[class*=chip]')].map((node) => node.textContent)).toContain('Unavailable')
+  await act(async () => line('Delta').click())
 
   // The agent's own output keeps its line breaks; a validator writes one
   // finding per line and a paragraph of them is what nobody read.
   const block = document.body.querySelector('pre')
-  // It scrolls inside a window of 170px rather than pushing the agents below
-  // it off the screen, and the window is a flush card that keeps its corners.
+  // It scrolls inside a window of 170px, and the window is a flush card that
+  // keeps its corners.
   const window = block?.closest('[data-slot="card-viewport"]') as HTMLElement | null
   expect(window?.getAttribute('data-size')).toBe('lines')
   expect(window?.style.maxHeight).toBe('170px')
@@ -493,54 +552,15 @@ it('an agent that will not start shows its own words, its lines kept, and the re
   expect([...document.body.querySelectorAll('code')].map((node) => node.textContent)).toContain(
     'delta doctor --fix',
   )
-})
-
-it('a healthy agent arrives folded; one that needs attention arrives open', async () => {
-  await mountList()
-
-  // Alpha is signed in and healthy, so its account rows wait behind the caret.
-  expect(document.body.textContent).not.toContain('ada@example.com')
-  // Gamma is waiting on a sign-in — that story is why anyone is here, so it
-  // is already open and saying so.
-  expect(document.body.textContent).toContain('has no credential here yet')
-})
-
-it('the caret opens an agent and folds it again, leaving the rest alone', async () => {
-  await mountList()
-
-  const caret = [...document.body.querySelectorAll('button[aria-expanded]')][0] as HTMLButtonElement
-  await act(async () => caret.click())
-  expect(document.body.textContent).toContain('ada@example.com')
-
-  await act(async () => caret.click())
-  expect(document.body.textContent).not.toContain('ada@example.com')
-  // Folded, not filtered: the agent is still on the page, and so is everyone else.
-  expect(listed()).toEqual(['Alpha', 'Beta', 'Gamma'])
-  expect(document.body.textContent).toContain('2 accounts')
-})
-
-it('Expand all opens every block, and Collapse all folds the roster flat', async () => {
-  await mountList()
-
-  await act(async () => button('Expand all')?.click())
-  expect(document.body.textContent).toContain('ada@example.com')
-
-  // With everything open, the same control offers the way back.
-  expect(button('Expand all')).toBeUndefined()
-  await act(async () => button('Collapse all')?.click())
-  expect(document.body.textContent).not.toContain('ada@example.com')
-  // Collapse all is a say-so: it folds even the agent that opened itself.
+  // Said once: the accounts card does not tell a dead agent's story again, nor
+  // call it one that needs a credential.
   expect(document.body.textContent).not.toContain('has no credential here yet')
-  expect(listed()).toEqual(['Alpha', 'Beta', 'Gamma'])
 })
 
 it('search finds an agent by the address of an account under it', async () => {
   await mountList()
   type('input[aria-label="Search runtimes or accounts"]', 'grace@')
-
   expect(listed()).toEqual(['Alpha'])
-  // A hit is shown open — hiding what was searched for would be the wrong answer.
-  expect(document.body.textContent).toContain('grace@example.com')
 })
 
 it('a search that finds nothing offers the way back', async () => {
@@ -550,42 +570,8 @@ it('a search that finds nothing offers the way back', async () => {
   expect(listed()).toEqual([])
   expect(document.body.textContent).toContain('No runtime matches')
 
-  await act(async () => button('Clear filters')?.click())
-  expect(listed()).toEqual(['Alpha', 'Beta', 'Gamma'])
-})
-
-it('the status filter answers with the agents in that state', async () => {
-  await mountList()
-  const select = document.body.querySelector('select[aria-label="Filter by status"]') as HTMLSelectElement
-
-  const pick = async (value: string): Promise<void> => {
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
-      setter?.call(select, value)
-      select.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-  }
-
-  await pick('signin')
-  expect(listed()).toEqual(['Gamma'])
-
-  // Alpha's second account is signed in too, so an unfinished sibling is not
-  // allowed to report the whole agent as needing one.
-  await pick('ready')
-  expect(listed()).toEqual(['Alpha', 'Beta'])
-})
-
-it('an account row says its plan and which way its figure counts', async () => {
-  await mountList()
-  // The row lives inside Alpha's block, which arrives folded.
-  const caret = [...document.body.querySelectorAll('button[aria-expanded]')][0] as HTMLButtonElement
-  await act(async () => caret.click())
-
-  expect(document.body.textContent).toContain('Pro')
-  // Automatic uses the shortest reported account-wide window: 70% remains in
-  // the 5-hour lane, while the longer weekly lane has 27% remaining.
-  expect(document.body.textContent).toContain('70% left')
-  expect(document.body.textContent).not.toMatch(/\b27% left/)
+  await act(async () => button('Clear search')?.click())
+  expect(listed()).toEqual(['Gamma', 'Alpha', 'Beta'])
 })
 
 it('a pin on a copy that has gone says so, and names the copy that runs (#219)', async () => {
@@ -814,11 +800,8 @@ it("an agent's own page shows every copy on the machine, and offers the two verb
     store: { installsFor, useInstall, updateAgent },
   })
 
-  // The agent's name opens its own page; the caret only folds its accounts.
-  const open = [...document.body.querySelectorAll('button')].find((node) =>
-    node.className.includes('headOpen'),
-  ) as HTMLButtonElement
-  await act(async () => open.click())
+  // The agent's line opens its own page.
+  await act(async () => line('OpenCode').click())
 
   expect(installsFor).toHaveBeenCalledWith('opencode')
   // Every copy, its road, and why each stands where it does.
@@ -850,16 +833,4 @@ it("an agent's own page shows every copy on the machine, and offers the two verb
   )
   await act(async () => (update as HTMLButtonElement).click())
   expect(updateAgent).toHaveBeenCalledWith('opencode')
-})
-
-it('closes an open agent with a bar of its account actions, ruled off above', async () => {
-  await mountList()
-  const fold = [...document.body.querySelectorAll('button')].find(
-    (node) => node.getAttribute('aria-label') === 'Show the accounts under Alpha',
-  ) as HTMLButtonElement
-  await act(async () => fold.click())
-  const bar = [...document.body.querySelectorAll('[data-slot="bar"]')].find((node) =>
-    node.textContent?.includes('Add account'),
-  )
-  expect(bar?.getAttribute('data-rule')).toBe('top')
 })

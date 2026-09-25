@@ -121,6 +121,10 @@ const mount = async (usage: readonly UsageReport[]): Promise<AppStore> => {
     agentCatalog: vi.fn(async () => []),
     acpRegistry: vi.fn(async () => ({ agents: [], fetchedAt: 1 })),
     setAccountPrefs: vi.fn(),
+    // What the agent's own page asks for, where its accounts now are.
+    healthFor: vi.fn(async () => null),
+    optionsFor: vi.fn(async () => []),
+    newSessionDefaultsFor: vi.fn(async () => []),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -129,12 +133,10 @@ const mount = async (usage: readonly UsageReport[]): Promise<AppStore> => {
       </StoreProvider>,
     )
   })
-  // Nothing needs attention, so the block starts closed; the rows are the
-  // subject here.
-  const toggle = [...container.querySelectorAll('button')].find((node) =>
-    node.getAttribute('aria-label')?.startsWith('Show the accounts under'),
-  )
-  if (toggle) await act(async () => toggle.click())
+  // The account rows are on the agent's own page, which its line opens; the
+  // rows are the subject here.
+  const line = container.querySelector('[data-slot="agent-row"]')
+  if (line) await act(async () => (line as HTMLButtonElement).click())
   return store
 }
 

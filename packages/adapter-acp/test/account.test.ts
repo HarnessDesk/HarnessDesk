@@ -709,7 +709,13 @@ test('a sign-in command that does not exist is a refusal in words, not a crashed
   await runtime.start()
   try {
     const started = Date.now()
-    await assert.rejects(runtime.login('cli-browser'), /could not start \(hd-no-such-sign-in-binary\).*ENOENT/)
+    // Said as what to do about it, not as errno: `spawn … ENOENT` is the
+    // one reading of a missing command nobody acts on.
+    await assert.rejects(
+      runtime.login('cli-browser'),
+      (error: Error) =>
+        error.message === 'Its sign-in command, "hd-no-such-sign-in-binary", was not found. Install it, or put it on the PATH HarnessDesk starts agents with.',
+    )
     /* At once, not after the URL timeout. Node may never emit `'exit'` after
        a spawn error, so a listener that only kept the process alive would
        leave the flow waiting out the whole timeout before saying anything. */
@@ -804,7 +810,7 @@ test('an error and an exit in the same tick, before the URL, report no completio
   const login = accountWith(child, events).login()
   child.emit('error', Object.assign(new Error('spawn hd-missing ENOENT'), { code: 'ENOENT' }))
   child.emit('exit', null)
-  await assert.rejects(login, /could not start \(hd-missing\)/)
+  await assert.rejects(login, /"hd-missing", was not found/)
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(completions(events), 0)
 })
