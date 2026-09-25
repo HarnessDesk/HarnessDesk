@@ -39,6 +39,13 @@
   gap: 2px;
 }
 
+/* Its lines start where the words in the goal and queue cards beside it
+   start, one card inset in from the column's edge: a placement among its
+   neighbours, since the strip has no box of its own to be inset from. */
+.jobs > * {
+  margin-inline: var(--hd-space-3);
+}
+
 .job {
   display: flex;
   align-items: center;

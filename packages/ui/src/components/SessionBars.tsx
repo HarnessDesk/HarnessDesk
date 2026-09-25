@@ -126,7 +126,7 @@ export const JobsBar = () => {
   if (running.length === 0) return null
 
   return (
-    <div className={`${styles.jobs} px-(--hd-space-3)`}>
+    <div className={styles.jobs}>
       <Text as="div" role="meta">
         {running.length === 1 ? '1 command' : `${running.length} commands`} running in this turn
       </Text>
