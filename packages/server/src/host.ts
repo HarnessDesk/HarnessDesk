@@ -3149,6 +3149,7 @@ export class Host {
         confineGitRoot: (root) => this.#confineGitRoot(root),
         confineProvenanceRoot: (root) => this.#confineProvenanceRoot(root),
         topLevel: (path) => gitOps.topLevel(path),
+        realPath: (path) => this.#realPath(path),
         confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
         repoOf: (cwd) => this.#repoOf(cwd),
@@ -3814,7 +3815,22 @@ export class Host {
 
   async #openWorkspace(path: string) {
     const described = await describeWorkspace(path)
-    const record = { ...described, lastOpenedAt: Date.now() }
+    // `describeWorkspace` keeps `path` at the spelling it was opened at, on
+    // purpose (see its own comment) — `repo`/`checkoutRoot` below are the
+    // renderer's canonical answer inside a repository, and this is the same
+    // answer outside one, so a non-git folder opened through a link (#907)
+    // has something to compare its own sessions against too. `#realPath`
+    // already exists for the identical reason a confinement check has.
+    //
+    // Resolved once, here, and carried into the persisted record itself
+    // (`WorkspaceRecord.realPath`) rather than only into this call's own
+    // return value: `workspace/recent` (#943) reads it straight back off
+    // every remembered entry with no filesystem call of its own, the way it
+    // already did before it needed a comparison key at all — a call per
+    // entry, unbounded over up to 50 remembered folders, is exactly the cost
+    // recording it here avoids.
+    const realPath = await this.#realPath(described.path)
+    const record = { ...described, lastOpenedAt: Date.now(), realPath }
     await this.#state.touchWorkspace(record)
     // Here, not at one call site: `workspace/pick` opens a workspace too, and
     // only `workspace/open` was clearing this. A folder that resolved to no
@@ -3840,13 +3856,6 @@ export class Host {
       // surface comparing against this never disagrees with what a change
       // notification names.
       checkoutRoot: await this.#topLevelOf(described.path),
-      // `describeWorkspace` keeps `path` at the spelling it was opened at, on
-      // purpose (see its own comment) — `repo`/`checkoutRoot` are the
-      // renderer's canonical answer inside a repository, and this is the same
-      // answer outside one, so a non-git folder opened through a link (#907)
-      // has something to compare its own sessions against too. `#realPath`
-      // already exists for the identical reason a confinement check has.
-      realPath: await this.#realPath(described.path),
     }
   }
 
