@@ -331,7 +331,8 @@ it('the footer has exactly one primary action; the rest are secondary, an overfl
   render(store)
   await settle()
 
-  const primaries = document.body.querySelectorAll('[data-slot="button"][data-variant="default"]')
+  const footer = document.body.querySelector('[data-slot="dialog-footer"]')!
+  const primaries = footer.querySelectorAll('[data-slot="button"][data-variant="default"]')
   expect(primaries).toHaveLength(1)
   expect(primaries[0]?.textContent?.trim()).toBe('Start')
 
@@ -341,9 +342,11 @@ it('the footer has exactly one primary action; the rest are secondary, an overfl
   // pressable. Close is the ordinary, enclosed action the footer already is.
   expect(button('Close').getAttribute('data-variant')).toBe('secondary')
 
-  // "Every time…" is not a standing button of its own any more — it moved
-  // behind the overflow next to Save.
-  expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Every time…')).toBe(false)
+  // "Every time…" stands in the footer itself, as an ordinary secondary
+  // button — a menu the design audit's footer reader cannot see into (a
+  // `DropdownMenu`'s trigger is a `render` prop, not readable JSX) is not a
+  // shape a dialog footer's one-filled-act rule can hold.
+  expect(button('Every time…').getAttribute('data-variant')).toBe('secondary')
 })
 
 it('a typed input survives a dry run and reaches Start, never reset to its default', async () => {

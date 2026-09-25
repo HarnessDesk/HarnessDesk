@@ -70,6 +70,20 @@ const rowFor = (label: string): HTMLButtonElement => {
   return found
 }
 
+it('the changed file’s path reads in the interface’s own face — a name, never mono', async () => {
+  const { store } = requestSpy({
+    'authoring/save/preview': (): AuthoringSavePreview => (
+      { token: 'tok', edits: [{ path: '.harnessdesk/flows/my-shape.yml', before: null, after: INPUT.source }], issues: [], resuming: false }
+    ),
+  })
+
+  render(store)
+  await settle()
+
+  expect(document.body.textContent).toContain('.harnessdesk/flows/my-shape.yml')
+  expect(document.body.querySelector('[data-slot="code-text"]')).toBeNull()
+})
+
 it('a project-only dependency refuses a user-scope save visibly, with no silent fallback Agent', async () => {
   const { store } = requestSpy({
     'authoring/save/preview': (params): AuthoringSavePreview => {

@@ -78,6 +78,16 @@ const button = (label: string): HTMLButtonElement => {
   return found
 }
 
+it('the changed file’s path reads in the interface’s own face — a name, never mono', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+
+  expect(document.body.textContent).toContain('.harnessdesk/triggers.yml')
+  expect(document.body.querySelector('[data-slot="code-text"]')).toBeNull()
+})
+
 it('saving a trigger calls only authoring/save/preview and authoring/save/apply — never trigger/arm or a machine preference', async () => {
   const store = new AppStore('ws://localhost:0/')
   const spy = fakeHost(store)
@@ -110,6 +120,27 @@ it('an existing malformed triggers file refuses an addition rather than risk los
   expect(document.body.textContent).toContain('cannot take an addition yet')
   expect(document.body.textContent).toContain('This is not a list.')
   expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Save')).toBe(false)
+
+  // A dialog footer's lone button is its act, filled — never a bare `secondary`.
+  const footer = document.body.querySelector('[data-slot="dialog-footer"]')!
+  const buttons = [...footer.querySelectorAll('button')]
+  expect(buttons.map((one) => one.textContent?.trim())).toEqual(['Close'])
+  expect(buttons[0]!.getAttribute('data-variant')).toBe('default')
+})
+
+it('once saved, the lone Close in the footer is the filled act', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+
+  act(() => button('Save').click())
+  await settle()
+
+  const footer = document.body.querySelector('[data-slot="dialog-footer"]')!
+  const buttons = [...footer.querySelectorAll('button')]
+  expect(buttons.map((one) => one.textContent?.trim())).toEqual(['Close'])
+  expect(buttons[0]!.getAttribute('data-variant')).toBe('default')
 })
 
 it('a changed document since it was read is shown as an issue, and the drafted trigger is not silently lost', async () => {

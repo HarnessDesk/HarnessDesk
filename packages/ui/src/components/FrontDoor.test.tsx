@@ -282,6 +282,22 @@ it('"Choose a different shape" reads before "Every time…" in the footer', asyn
   expect(chooseIndex).toBeLessThan(everyTimeIndex)
 })
 
+it('before a shape is chosen, the lone Cancel in the footer is the filled act — a dialog footer never holds an unfilled lone button', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')],
+    'agent/list': () => [],
+  })
+
+  render(store)
+  await settle()
+
+  const footer = document.body.querySelector('[data-slot="dialog-footer"]')!
+  const buttons = [...footer.querySelectorAll('button')]
+  expect(buttons.map((one) => one.textContent?.trim())).toEqual(['Cancel'])
+  expect(buttons[0]!.getAttribute('data-variant')).toBe('default')
+})
+
 it('names no internal path or layout key in its copy', async () => {
   const store = new AppStore('ws://localhost:0/')
   requestSpy(store, {

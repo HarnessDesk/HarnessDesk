@@ -54,7 +54,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Field,
-  FormStack,
   NativeSelect,
   Note,
   Row,
@@ -789,59 +788,57 @@ const AddSeatDialog = ({
         </>
       }
     >
-      <FormStack>
-        {expected === null && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
-        <Field label="Runtime">
+      {expected === null && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
+      <Field label="Runtime">
+        {(control) => (
+          <NativeSelect {...control} value={runtime} onChange={(event) => setRuntime(event.target.value)}>
+            {snapshot.runtimes.map((one) => (
+              <option key={one.id} value={one.id}>
+                {one.presentation.name}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
+      </Field>
+      <Field label="Model" {...(models === null ? { hint: 'Asking the runtime…' } : {})}>
+        {(control) => (
+          <NativeSelect
+            {...control}
+            value={model}
+            disabled={models === null}
+            onChange={(event) => {
+              setModel(event.target.value)
+              setEffort('')
+              setThinking(false)
+            }}
+          >
+            <option value="">Its default</option>
+            {(models ?? []).map((one) => (
+              <option key={one.id} value={one.id}>
+                {one.displayName}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
+      </Field>
+      {shape && shape.reasoningLevels.length > 0 && (
+        <Field label="Effort">
           {(control) => (
-            <NativeSelect {...control} value={runtime} onChange={(event) => setRuntime(event.target.value)}>
-              {snapshot.runtimes.map((one) => (
-                <option key={one.id} value={one.id}>
-                  {one.presentation.name}
-                </option>
-              ))}
-            </NativeSelect>
-          )}
-        </Field>
-        <Field label="Model" {...(models === null ? { hint: 'Asking the runtime…' } : {})}>
-          {(control) => (
-            <NativeSelect
-              {...control}
-              value={model}
-              disabled={models === null}
-              onChange={(event) => {
-                setModel(event.target.value)
-                setEffort('')
-                setThinking(false)
-              }}
-            >
+            <NativeSelect {...control} value={effort} onChange={(event) => setEffort(event.target.value)}>
               <option value="">Its default</option>
-              {(models ?? []).map((one) => (
-                <option key={one.id} value={one.id}>
-                  {one.displayName}
+              {shape.reasoningLevels.map((level) => (
+                <option key={level.id} value={level.id}>
+                  {level.label}
                 </option>
               ))}
             </NativeSelect>
           )}
         </Field>
-        {shape && shape.reasoningLevels.length > 0 && (
-          <Field label="Effort">
-            {(control) => (
-              <NativeSelect {...control} value={effort} onChange={(event) => setEffort(event.target.value)}>
-                <option value="">Its default</option>
-                {shape.reasoningLevels.map((level) => (
-                  <option key={level.id} value={level.id}>
-                    {level.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            )}
-          </Field>
-        )}
-        {shape?.thinking === 'optional' && (
-          <Field label="Thinking">{(control) => <Switch {...control} checked={thinking} onCheckedChange={setThinking} />}</Field>
-        )}
-        {problem && <Note tone="bad">{problem}</Note>}
-      </FormStack>
+      )}
+      {shape?.thinking === 'optional' && (
+        <Field label="Thinking">{(control) => <Switch {...control} checked={thinking} onCheckedChange={setThinking} />}</Field>
+      )}
+      {problem && <Note tone="bad">{problem}</Note>}
     </Dialog>
   )
 }

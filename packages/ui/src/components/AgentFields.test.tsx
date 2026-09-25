@@ -152,6 +152,12 @@ it('one key produces one previewed patch, bound to the original digest, then an 
     expect(Object.keys(call[2] as object)).toEqual(['key', 'value'])
   }
 
+  // The changed file's own path is a name, read in the interface's own face
+  // — never mono, which is for code and output, not for something that
+  // merely came from a machine.
+  expect(document.body.textContent).toContain('agents/reviewer/AGENT.md')
+  expect(document.body.querySelector('[data-slot="code-text"]')).toBeNull()
+
   act(() => dialogButton('Save').click())
   await settle()
 

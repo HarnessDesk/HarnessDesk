@@ -14,8 +14,8 @@ import {
 
 import { agentName, ceilingMeaning, ceilingWords, wordList } from '../lib/agents'
 import {
-  Banner, BoardMenuButton, Button, CodeText, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-  DropdownMenuTrigger, Field, Input, Note, Row, RowChoice, Rows, SectionHead, Textarea,
+  Banner, BoardMenuButton, Button, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+  DropdownMenuTrigger, Field, Input, Note, Row, RowChoice, Rows, SectionHead, Text, Textarea,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
@@ -312,7 +312,7 @@ export const FieldEditDialog = ({
       )}
       {edit && !issue && (
         <div className="space-y-2">
-          <CodeText>{edit.path}</CodeText>
+          <Text>{edit.path}</Text>
           <Note>The exact line this would write:</Note>
           <DiffView diff={lineDiff(edit.path, edit.before ?? '', edit.after)} wrap />
         </div>
@@ -524,7 +524,7 @@ export const PreferFieldDialog = ({
       )}
       {edit && !issue && (
         <div className="space-y-2">
-          <CodeText>{edit.path}</CodeText>
+          <Text>{edit.path}</Text>
           <Note>The exact line this would write:</Note>
           <DiffView diff={lineDiff(edit.path, edit.before ?? '', edit.after)} wrap />
         </div>

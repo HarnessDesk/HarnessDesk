@@ -244,7 +244,9 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
             </Button>
           </>
         ) : (
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          // A dialog footer's lone button is its act, filled — never a bare
+          // `secondary`, which is a frame the same grey as the footer under it.
+          <Button variant="default" onClick={onClose}>Cancel</Button>
         )
       }
     >

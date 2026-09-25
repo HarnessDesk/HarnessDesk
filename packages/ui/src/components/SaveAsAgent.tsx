@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { CEILING_LEVELS, type CeilingLevel, type Session } from '@harnessdesk/protocol'
 
-import { Button, Dialog, Field, FormStack, Input, Note, RowChoice, Rows, SectionHead } from '../design'
+import { Button, Dialog, Field, Input, Note, RowChoice, Rows, SectionHead } from '../design'
 import { ceilingMeaning, ceilingWords, projectName, seatOf, seatWordsOf } from '../lib/agents'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
@@ -71,63 +71,61 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
         </>
       }
     >
-      <FormStack>
-        <Note>{`Its first seat is the one this conversation is on: ${words}.`}</Note>
-        <Field label="Name">
-          {(control) => (
-            <Input
-              {...control}
-              autoFocus
-              value={name}
-              placeholder="Checkout reviewer"
-              onChange={(event) => setName(event.target.value)}
-            />
-          )}
-        </Field>
-        <Field label="What it is for" hint="One line. The roster shows it under the name.">
-          {(control) => (
-            <Input {...control} value={description} maxLength={120} onChange={(event) => setDescription(event.target.value)} />
-          )}
-        </Field>
-        <section aria-label="The most it may do">
-          <SectionHead name="The most it may do" />
-          <Rows role="radiogroup" aria-label="The most it may do">
-            {CEILING_LEVELS.map((one) => (
-              <RowChoice
-                key={one}
-                title={ceilingWords(one)}
-                desc={<span className="whitespace-normal">{ceilingMeaning(one)}</span>}
-                selected={ceiling === one}
-                onClick={() => setCeiling(one)}
-              />
-            ))}
-          </Rows>
-        </section>
-        <section aria-label="Where it is kept">
-          <SectionHead name="Where it is kept" />
-          <Rows role="radiogroup" aria-label="Where it is kept">
-            {snapshot.workspace && (
-              <RowChoice
-                title={`For ${project ?? 'this project'}`}
-                desc={
-                  <span className="whitespace-normal">
-                    {`Committed with the code, naming ${runtime} alone; this Mac keeps ${words} in seating.json.`}
-                  </span>
-                }
-                selected={to === 'project'}
-                onClick={() => setTo('project')}
-              />
-            )}
+      <Note>{`Its first seat is the one this conversation is on: ${words}.`}</Note>
+      <Field label="Name">
+        {(control) => (
+          <Input
+            {...control}
+            autoFocus
+            value={name}
+            placeholder="Checkout reviewer"
+            onChange={(event) => setName(event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label="What it is for" hint="One line. The roster shows it under the name.">
+        {(control) => (
+          <Input {...control} value={description} maxLength={120} onChange={(event) => setDescription(event.target.value)} />
+        )}
+      </Field>
+      <section aria-label="The most it may do">
+        <SectionHead name="The most it may do" />
+        <Rows role="radiogroup" aria-label="The most it may do">
+          {CEILING_LEVELS.map((one) => (
             <RowChoice
-              title="For you"
-              desc={<span className="whitespace-normal">{`In ${yours}, on this Mac only.`}</span>}
-              selected={to === 'user'}
-              onClick={() => setTo('user')}
+              key={one}
+              title={ceilingWords(one)}
+              desc={<span className="whitespace-normal">{ceilingMeaning(one)}</span>}
+              selected={ceiling === one}
+              onClick={() => setCeiling(one)}
             />
-          </Rows>
-        </section>
-        {problem && <Note tone="bad">{problem}</Note>}
-      </FormStack>
+          ))}
+        </Rows>
+      </section>
+      <section aria-label="Where it is kept">
+        <SectionHead name="Where it is kept" />
+        <Rows role="radiogroup" aria-label="Where it is kept">
+          {snapshot.workspace && (
+            <RowChoice
+              title={`For ${project ?? 'this project'}`}
+              desc={
+                <span className="whitespace-normal">
+                  {`Committed with the code, naming ${runtime} alone; this Mac keeps ${words} in seating.json.`}
+                </span>
+              }
+              selected={to === 'project'}
+              onClick={() => setTo('project')}
+            />
+          )}
+          <RowChoice
+            title="For you"
+            desc={<span className="whitespace-normal">{`In ${yours}, on this Mac only.`}</span>}
+            selected={to === 'user'}
+            onClick={() => setTo('user')}
+          />
+        </Rows>
+      </section>
+      {problem && <Note tone="bad">{problem}</Note>}
     </Dialog>
   )
 }

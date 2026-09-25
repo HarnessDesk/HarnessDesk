@@ -7,7 +7,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import {
-  ActionError, Banner, Button, CodeText, Dialog, Field, FormStack, Input, NativeSelect, Note, NoteList, Row, RowChoice, Rows, SectionHead, Switch,
+  ActionError, Banner, Button, Dialog, Field, FormStack, Input, NativeSelect, Note, NoteList, Row, RowChoice, Rows, SectionHead, Switch, Text,
 } from '../design'
 import { triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerSentence } from '../lib/intake'
 import { wholeTextDiff } from '../lib/diff'
@@ -178,7 +178,7 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
   if (readProblem) return <Banner tone="danger" title="This project's triggers could not be read">{readProblem}</Banner>
   if (existing && existing.issues.length > 0) {
     return (
-      <Dialog title="Every time" onClose={onClose} footer={<Button variant="secondary" onClick={onClose}>Close</Button>}>
+      <Dialog title="Every time" onClose={onClose} footer={<Button variant="default" onClick={onClose}>Close</Button>}>
         <Banner tone="danger" title="This project's triggers file cannot take an addition yet">
           <NoteList>
             {existing.issues.map((one) => <li key={`${one.at}-${one.text}`}><code>{one.at}</code> — {one.text} {one.fix}</li>)}
@@ -195,7 +195,7 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
       size="lg"
       onClose={onClose}
       footer={saved ? (
-        <Button variant="secondary" onClick={onClose}>Close</Button>
+        <Button variant="default" onClick={onClose}>Close</Button>
       ) : (
         <>
           <Button variant="default" disabled={!canSave} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</Button>
@@ -418,7 +418,7 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
 
           {preview && preview.edits.map((edit2) => (
             <div key={edit2.path} className="flex flex-col gap-(--hd-space-2)">
-              <CodeText>{edit2.path}</CodeText>
+              <Text>{edit2.path}</Text>
               <DiffView diff={edit2.before === null ? edit2.after : wholeTextDiff(edit2.before, edit2.after)} wholeFile={edit2.before === null} wrap />
             </div>
           ))}

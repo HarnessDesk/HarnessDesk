@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { AuthoringSaveInput, AuthoringSaveResult, AuthoringSavePreview } from '@harnessdesk/protocol'
 
-import { Banner, Button, CodeText, Dialog, Field, Input, NoteList, RowChoice, Rows } from '../design'
+import { Banner, Button, Dialog, Field, Input, NoteList, RowChoice, Rows, Text } from '../design'
 import { wholeTextDiff } from '../lib/diff'
 import { useStore } from '../state/context'
 import { DiffView } from './Diff'
@@ -130,7 +130,7 @@ export const ShapeSave = ({ input, onSaved, onClose }: ShapeSaveProps) => {
 
       {preview && preview.edits.map((edit) => (
         <div key={edit.path} className="flex flex-col gap-(--hd-space-2)">
-          <CodeText>{edit.path}</CodeText>
+          <Text>{edit.path}</Text>
           <DiffView diff={edit.before === null ? edit.after : wholeTextDiff(edit.before, edit.after)} wholeFile={edit.before === null} wrap />
         </div>
       ))}

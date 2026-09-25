@@ -324,22 +324,23 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
             {starting ? 'Starting…' : 'Start'}
           </Button>
           <Button variant="secondary" disabled={!policy} onClick={() => setShowSave(true)}>Save…</Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger disabled={!policy} render={<BoardMenuButton aria-label="More ways to save" disabled={!policy} />} />
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => {
-                  if (savedFlowId) setEveryTime(true)
-                  else {
-                    setSaveForTrigger(true)
-                    setShowSave(true)
-                  }
-                }}
-              >
-                Every time…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* A dialog footer's own rule holds every control in it, and a
+              `DropdownMenu`'s trigger is a `render` prop — not JSX the
+              audit's footer reader can see into. This stands as an ordinary
+              button instead of hiding behind an overflow menu. */}
+          <Button
+            variant="secondary"
+            disabled={!policy}
+            onClick={() => {
+              if (savedFlowId) setEveryTime(true)
+              else {
+                setSaveForTrigger(true)
+                setShowSave(true)
+              }
+            }}
+          >
+            Every time…
+          </Button>
           <Button variant="secondary" onClick={onClose}>Close</Button>
         </>
       )}
