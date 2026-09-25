@@ -53,7 +53,7 @@ for (const theme of ['light', 'dark']) {
         expect(new Set(layout.buttonRows).size).toBeGreaterThan(1)
       } else {
         expect(layout.actionsTop).toBe(layout.textTop)
-        expect(layout.buttonRows[0] - layout.textTop).toBe(6)
+        expect(layout.buttonRows[0] - layout.textTop).toBe(4)
         expect(layout.actionsRight).toBe(layout.right)
       }
       await frame.screenshot({ path: testInfo.outputPath('detail-head.png') })

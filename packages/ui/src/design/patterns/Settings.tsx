@@ -12,6 +12,7 @@ import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
 import { IconTile } from '../ui/icon-tile'
 import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
+import { GroupLabel } from '../ui/group-label'
 import styles from './Settings.module.css'
 
 /**
@@ -779,10 +780,10 @@ export const SectionHead = ({
 }) => (
   <div className={cx(styles.sectionHead, className)} {...(sticky ? { 'data-sticky': '' } : {})}>
     <div className={styles.sectionHeadText}>
-      {createElement(
-        level === 'heading' ? 'h2' : 'span',
-        { className: styles.sectionName, 'data-slot': 'section-name', 'data-level': level },
-        name,
+      {level === 'heading' ? (
+        <h2 className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</h2>
+      ) : (
+        <GroupLabel className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
       )}
       {description != null && (
         <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
@@ -909,7 +910,7 @@ export const NavigationGroupHeader = ({
     {...(filtering ? { 'data-filtering': '' } : {})}
     className={cx(styles.navigationGroupHeader, className)}
   >
-    <span className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</span>
+    <GroupLabel className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</GroupLabel>
     {children}
   </div>
 )

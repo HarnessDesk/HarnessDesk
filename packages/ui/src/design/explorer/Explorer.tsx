@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { Boundary } from '../../preview/boundary'
 import { PropagationPage } from '../showcase/PropagationPage'
 
-import { Button, Input } from '..'
+import { Button, GroupLabel, Input } from '..'
 import { CATALOG_ENTRIES } from '../catalog/manifest'
 import { BOARDS } from './boards'
 import { COMPOSITION_BOARDS } from './boards-compositions'
@@ -305,13 +305,13 @@ export const Explorer = () => {
           placeholder="Find components"
           aria-label="Find components"
         />
-        <div className={styles.section}>Foundation</div>
+        <GroupLabel as="div" className={styles.section}>Foundation</GroupLabel>
         <NavItem
           title="Foundation"
           selected={boardId === 'foundation'}
           onClick={() => setBoardId('foundation')}
         />
-        <div className={styles.section}>Primitives</div>
+        <GroupLabel as="div" className={styles.section}>Primitives</GroupLabel>
         {primitiveBoards.map((one) => (
           <NavItem
             key={one.id}
@@ -320,7 +320,7 @@ export const Explorer = () => {
             onClick={() => setBoardId(one.id)}
           />
         ))}
-        <div className={styles.section}>Patterns</div>
+        <GroupLabel as="div" className={styles.section}>Patterns</GroupLabel>
         {patternBoards.map((one) => (
           <NavItem
             key={one.id}
@@ -329,7 +329,7 @@ export const Explorer = () => {
             onClick={() => setBoardId(one.id)}
           />
         ))}
-        <div className={styles.section}>Product Surfaces</div>
+        <GroupLabel as="div" className={styles.section}>Product Surfaces</GroupLabel>
         {productSurfaces.map((one) => (
           <NavItem
             key={one.id}
@@ -338,7 +338,7 @@ export const Explorer = () => {
             onClick={() => setBoardId(one.id)}
           />
         ))}
-        <div className={styles.section}>Coverage</div>
+        <GroupLabel as="div" className={styles.section}>Coverage</GroupLabel>
         <NavItem title="Manifest" selected={boardId === 'coverage'} onClick={() => setBoardId('coverage')} />
       </nav>
       <main className={styles.main}>
@@ -459,7 +459,7 @@ const FoundationBoard = () => {
       </p>
       {TOKEN_GROUPS.map((group) => (
         <section key={group.title}>
-          <div className={styles.section}>{group.title}</div>
+          <GroupLabel as="div" className={styles.section}>{group.title}</GroupLabel>
           <div className={styles.tokens}>
             {tokens
               .filter((token) => group.match(token.name))

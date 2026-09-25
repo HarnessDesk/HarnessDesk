@@ -323,7 +323,7 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 
 ### The section label
 
-The word over a group of rows — "Workspaces", "Capabilities", "Agents". Desk sets it at the rows' own 13px size in sentence case, regular weight and muted ink, so it names the group quietly. Studio sets it at 12px in uppercase medium with tracking, so the group reads distinctly without a rule beneath it.
+The word over a group of rows — "Workspaces", "Capabilities", "Agents". There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Studio sets the same label in the medium weight with more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
 
 ### The card
 
@@ -379,11 +379,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-nav-h-group` | `calc(14px * 1.5 + 4px * 2)` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-inset` | `8px` |
-| `--hd-label-size` | `` |
 | `--hd-label-weight` | `` |
-| `--hd-label-tracking` | `` |
-| `--hd-label-transform` | `` |
-| `--hd-label-ink` | `` |
 | `--hd-label-space` | `` |
 | `--hd-card-fill` | `` |
 | `--hd-card-border` | `` |
@@ -617,6 +613,22 @@ having written the judgement down.
 **Not** — A hand-drawn `Row` titled "No … yet", or a bold title in a card of its own. Both were how the app came to have five empty layouts.
 
 **Why** — The card keeps its shape whether it holds nothing or twelve things, so the page does not jump when the first one arrives.
+
+### `one step`
+
+**Use** — Every page head, a list page's `PageHead` and a drilled-into `DetailHead` alike: the page-title step, 20px semibold — the wordmark's own type.
+
+**Not** — A second size for a detail page. What tells a detail page apart is its mark and its owner chip, never a bigger or lighter name.
+
+**Why** — At 24px regular a drilled-into page read lighter and less finished than the list it came from, and the sidebar's wordmark beside it. The owner settled it in #832: page titles match the wordmark.
+
+### `GroupLabel`
+
+**Use** — The word over any group — a card of rows, a rail's list, a section of a page: 13px, the secondary ink, sentence case. `SectionHead`, `Section`, `NavigationGroupHeader` and the catalogue rail all draw it.
+
+**Not** — Capitals. No label outside a `Keycap` is set in uppercase, tracked or not; the design audit counts every one (`uppercaseLabel`) and its ceiling may only fall.
+
+**Why** — The app had three group-label styles and a column of six 12px tracked capitals read as shouted — the one group that needed finding stopped standing out. A key is the exception because it is a physical thing with printing on it.
 
 ### `default`
 
@@ -1332,6 +1344,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
 | `screenAppearance` | 892 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
+| `uppercaseLabel` | 9 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |

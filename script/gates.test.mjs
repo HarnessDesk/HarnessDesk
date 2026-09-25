@@ -27,6 +27,7 @@ import {
   sheetsOf,
   squaresOf,
   STYLESHEET_OWNERS,
+  uppercaseLabelsOf,
   visualKindUnionsOf,
 } from './design-audit.mjs'
 import { SECTIONS } from './design-sections.mjs'
@@ -664,6 +665,37 @@ test('an unclassified screen property fails --strict and names the property and 
   } finally {
     fs.writeFileSync(file, original)
   }
+})
+
+/**
+ * The one group label is sentence case, and the only capitals the app keeps
+ * are printed on a `Keycap`. `uppercaseLabel` counts every other one, in the
+ * three spellings a screen has — a stylesheet's `text-transform`, a class
+ * list's `uppercase` utility, an inline style's `textTransform` — and never a
+ * comment, a keycap, or a string method that merely has the word in it.
+ */
+test('uppercaseLabel counts capitals on a label in every spelling, and none on a keycap', () => {
+  const css = path.join(repoRoot, 'packages/ui/src/components/Example.module.css')
+  const tsx = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const cases = [
+    [css, '.label { font-size: var(--hd-text-xs); text-transform: uppercase; }', 1],
+    [css, '.label { text-transform: var(--hd-label-transform, uppercase); }', 1],
+    [css, '.a, .b { letter-spacing: 0.04em; text-transform: uppercase }', 1],
+    [css, '.keycap { text-transform: uppercase; }', 0],
+    [css, '.label { text-transform: none; }', 0],
+    [css, '/* .label { text-transform: uppercase; } */ .label { color: red; }', 0],
+    [tsx, 'export const A = () => <span className="text-xs font-medium uppercase" />\n', 1],
+    [tsx, 'export const A = () => <span className="data-[on]:uppercase" />\n', 1],
+    [tsx, "export const A = () => <span style={{ textTransform: 'uppercase' }} />\n", 1],
+    [tsx, 'export const A = () => <><span className="uppercase" /><b className="uppercase" /></>\n', 2],
+    [tsx, 'export const A = ({ name }: { name: string }) => <span>{name.toUpperCase()}</span>\n', 0],
+    [tsx, '// uppercase once lived here\nexport const A = () => <span className="normal-case" />\n', 0],
+    [tsx, 'export const A = () => <Keycap className="uppercase">k</Keycap>\n', 0],
+  ]
+  for (const [file, source, count] of cases) {
+    assert.equal(uppercaseLabelsOf(file, source).length, count, source)
+  }
+  assert.match(uppercaseLabelsOf(css, '.railLabel { text-transform: uppercase }')[0], /components\/Example\.module\.css: \.railLabel/)
 })
 
 test('screen appearance excludes the design system and its named specialized renderers', (t) => {

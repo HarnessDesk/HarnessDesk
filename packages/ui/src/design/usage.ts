@@ -238,6 +238,22 @@ export const ELEMENTS: readonly UsageRule[] = [
       'The card keeps its shape whether it holds nothing or twelve things, so the page does not jump when the first one arrives.',
   },
   {
+    family: 'title',
+    variant: 'one step',
+    when: 'Every page head, a list page\'s `PageHead` and a drilled-into `DetailHead` alike: the page-title step, 20px semibold — the wordmark\'s own type.',
+    never: 'A second size for a detail page. What tells a detail page apart is its mark and its owner chip, never a bigger or lighter name.',
+    because:
+      'At 24px regular a drilled-into page read lighter and less finished than the list it came from, and the sidebar\'s wordmark beside it. The owner settled it in #832: page titles match the wordmark.',
+  },
+  {
+    family: 'label',
+    variant: 'GroupLabel',
+    when: 'The word over any group — a card of rows, a rail\'s list, a section of a page: 13px, the secondary ink, sentence case. `SectionHead`, `Section`, `NavigationGroupHeader` and the catalogue rail all draw it.',
+    never: 'Capitals. No label outside a `Keycap` is set in uppercase, tracked or not; the design audit counts every one (`uppercaseLabel`) and its ceiling may only fall.',
+    because:
+      'The app had three group-label styles and a column of six 12px tracked capitals read as shouted — the one group that needed finding stopped standing out. A key is the exception because it is a physical thing with printing on it.',
+  },
+  {
     family: 'key-value',
     variant: 'default',
     when: 'Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.',

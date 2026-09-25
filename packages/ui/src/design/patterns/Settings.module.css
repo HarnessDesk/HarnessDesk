@@ -116,15 +116,12 @@
   padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-bar-pad) var(--hd-space-1) var(--hd-bar-ink);
 }
 
+/* The label's type is `GroupLabel`'s (design/ui/group-label.tsx), the one
+   group heading: 13px, secondary ink, sentence case. Only its place in the
+   header is said here. */
 .navigationGroupLabel {
   flex: none;
   white-space: nowrap;
-  font-size: var(--hd-label-size, var(--hd-text-sm));
-  line-height: var(--hd-line-sm);
-  font-weight: var(--hd-label-weight, var(--hd-weight-normal));
-  letter-spacing: var(--hd-label-tracking, 0);
-  text-transform: var(--hd-label-transform, none);
-  color: var(--hd-label-ink, var(--hd-secondary-foreground));
 }
 
 .navigationGroupHeader[data-filtering] .navigationGroupLabel {
@@ -751,14 +748,11 @@
   min-width: 0;
 }
 
-/* The word over a settings card is a group label, not another page title. */
+/* The word over a settings card is a group label, not another page title: it
+   is drawn by `GroupLabel`, and only its place in the head is said here. */
 .sectionName {
   flex: none;
   margin: 0;
-  font-size: var(--hd-text-sm); /* desk: --hd-heading → --hd-text-sm, card groups return to their label role */
-  line-height: var(--hd-line-sm); /* desk: --hd-line-heading → --hd-line-sm, the line follows the label step */
-  font-weight: var(--hd-weight-normal); /* desk: --hd-weight-semibold → --hd-weight-normal, a group label does not compete with the page title */
-  color: var(--hd-secondary-foreground); /* desk: primary → secondary ink, the rows remain the reading subject */
 }
 
 /* A page band opts into the one larger role SectionHead supports. */
@@ -982,17 +976,28 @@
   min-width: min(16rem, 100%); /* desk: 0 → min(16rem, 100%), keep the measure inside a narrow head */
 }
 
+/* One title step for every page head. A detail page names its subject in the
+   page title's own type — 20px semibold, the wordmark's — and tells itself
+   apart by its mark and its owner chip, not by a second size: at 24px regular
+   the drilled-into page read lighter and less finished than the list it came
+   from (#832). */
 .detailName {
   display: flex;
   align-items: baseline;
   gap: var(--hd-space-2);
-  font-size: var(--hd-title); /* desk: 20 → 24, the canonical page spelling */
-  line-height: var(--hd-line-title); /* desk: 28 → 30, with the size */
-  font-weight: var(--hd-weight-normal); /* desk: semibold → regular, names do not shout */
-  letter-spacing: -0.02em; /* desk: -0.01em → -0.02em, the 24px title tracking */
+  font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, one title step for every page head (24 → 20) */
+  line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, with the size (30 → 28) */
+  font-weight: var(--hd-weight-semibold); /* desk: --hd-weight-normal → --hd-weight-semibold, the page title's weight */
+  letter-spacing: -0.01em; /* desk: -0.02em → -0.01em, the page title's tracking */
 }
 
+/* Who it belongs to, or where it lives: a name or a path, so it gives way at
+   its end before the name beside it does. */
 .detailOwner {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: var(--hd-text-sm);
   font-weight: var(--hd-weight-normal);
   color: var(--hd-muted-foreground);
@@ -1013,7 +1018,7 @@
   max-width: 100%;
   align-items: center;
   gap: 10px;
-  padding-top: 6px;
+  padding-top: 4px; /* desk: 6 → 4, the page head's own offset now that the two titles are one line height */
 }
 
 /* --- odds and ends the pages share -------------------------------------- */

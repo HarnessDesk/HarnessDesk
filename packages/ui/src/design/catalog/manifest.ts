@@ -67,6 +67,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   'dropdown-menu': 'packages/ui/src/components/TeamBoardPane.tsx',
   'empty-state': 'packages/ui/src/components/Library.tsx',
   field: 'packages/ui/src/components/Settings.tsx',
+  'group-label': 'packages/ui/src/components/Settings.tsx',
   'hover-card': 'packages/ui/src/components/AgentCards.tsx',
   'icon-tile': 'packages/ui/src/components/SkillSheet.tsx',
   input: 'packages/ui/src/components/SignIn.tsx',
@@ -94,6 +95,8 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      in for every feature — so the handle was documented against a drawing of
      the thing it drags. */
   'resize-handle': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  /* The catalogue's own rail heads its groups with it. */
+  'group-label': 'packages/ui/src/design/explorer/Explorer.tsx',
   badge: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   card: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'hover-card': 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -114,7 +117,7 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'alert-dialog', 'avatar', 'avatar-stack', 'board',
   'breadcrumb', 'card', 'chart', 'checkbox', 'composer',
-  'data-table', 'delta', 'dialog', 'dropdown-menu', 'empty-state', 'field',
+  'data-table', 'delta', 'dialog', 'dropdown-menu', 'empty-state', 'field', 'group-label',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
@@ -149,6 +152,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'dropdown-menu': ['default'],
   'empty-state': ['panel', 'inline', 'row'],
   field: ['default'],
+  'group-label': ['default'],
   'hover-card': ['default'],
   'icon-tile': ['default'],
   input: ['default', 'quiet', 'filled', 'chrome', 'code'],
@@ -225,6 +229,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   'dropdown-menu': ['closed', 'open', 'selected', 'disabled'],
   'empty-state': ['empty', 'loading', 'error'],
   field: ['default', 'focus-visible', 'disabled', 'error'],
+  'group-label': ['default'],
   'hover-card': ['closed', 'open'],
   'icon-tile': ['default', 'hover', 'selected'],
   input: ['default', 'focus-visible', 'disabled', 'error'],
@@ -413,6 +418,7 @@ export const CANONICAL_UI_MODULES = [
   ['dropdown-menu', 'propagation', 'Base UI dropdown-menu parts'],
   ['empty-state', 'empty', 'Empty and unavailable states'],
   ['field', 'field', 'Label, help and validation anatomy'],
+  ['group-label', 'section', 'The one group heading: 13px, secondary, sentence case'],
   ['hover-card', 'adopted', 'Preview-card behavior'],
   ['icon-tile', 'tile', 'Icon and mark plate'],
   ['input', 'field', 'Single-line text input'],
