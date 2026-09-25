@@ -1048,7 +1048,7 @@
 .rowDescTruncate {
   overflow: hidden; /* desk: the opt-in flips — wrapping was the exception (.rowDescWrap), truncating is now (a name or a path) */
   text-overflow: ellipsis; /* desk: as above, the opt-in flips to the one-line case */
-  white-space: nowrap;
+  white-space: nowrap; /* desk: as above — one line for a name or a path */
 }
 
 /* Beside the title the control keeps its own width, as before: the title
