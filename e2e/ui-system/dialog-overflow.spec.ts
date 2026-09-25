@@ -89,11 +89,14 @@ for (const [where, width, height] of [
     await page.setViewportSize({ width, height })
     await page.goto('/preview.html')
     await page.evaluate(async () => { await document.fonts.ready })
+    // The signed-in scene: it is the one that draws the hand-off alert, whose
+    // copy is what a crushed column squeezes to nothing.
+    await page.getByLabel('sign in scene').selectOption('connected')
     await page.getByLabel('dialog').selectOption('sign in')
     const dialog = page.getByRole('dialog').first()
     await expect(dialog).toBeVisible()
-    // The roster is grouped by what each agent needs; the page's agents are all signed in.
-    await expect(dialog.getByText('Connected', { exact: true })).toBeVisible()
+    await expect(dialog.getByRole('group', { name: 'Connected', exact: true })).toBeVisible()
+    await expect(dialog.locator('[data-slot="alert-content"]')).toBeVisible()
 
     const held = await dialog.evaluate(node => {
       const box = node.getBoundingClientRect()

@@ -384,10 +384,10 @@ const Preview = () => {
           onChange={(next) => { setFlowScene(next); setPreviewFlowExecutionScene(next) }}
         />
       </div>
-      {/* Sign-in is on this page's own store rather than the worktree one: it
-          reads the roster, which the fixture already has, and it is the one
-          screen here that is *only* ever a dialog — so at a narrow window
-          nothing else on the page shows what it does. */}
+      {/* Sign-in stands on a store of its own, seeded by `signin-fixture.ts`:
+          the page's roster is all signed in, which is the one roster this
+          dialog never has to help with. The scene dial picks which state it
+          opens on. */}
       {dialog === 'sign in' && <SignInPreview key={signInScene} scene={signInScene} onClose={() => setDialog('off')} />}
       {dialog === 'what was observed' && (
         <ObservedDialog

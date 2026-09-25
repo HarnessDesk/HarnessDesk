@@ -157,8 +157,10 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
   if (driveable.length > 0) {
     return { info, status: 'out', state, detail: STATUS_LABEL.out, methods, pending }
   }
+  // Ways in this window cannot drive, and no account: signed out all the
+  // same, and the way in is a step taken elsewhere — which is the line.
   if (methods.length > 0) {
-    return { info, status: 'manual', state: 'ready', detail: methods[0]!.label, methods, pending }
+    return { info, status: 'manual', state, detail: methods[0]!.label, methods, pending }
   }
   // No status at all is not an empty one. A runtime registered a moment ago
   // has not answered `runtime/account` yet, and calling that "runs without
@@ -166,6 +168,11 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
   // detail pane beside it, which says it is starting.
   if (status === undefined) {
     return { info, status: 'asking', state, detail: STATUS_LABEL.asking, methods, pending }
+  }
+  // An agent that refused to work signed out and offered no way in has not
+  // "run without one" — it said the opposite, and its card says what it said.
+  if (status.refusal) {
+    return { info, status: 'out', state, detail: STATUS_LABEL.out, methods, pending }
   }
   return { info, status: 'none', state: 'ready', detail: 'Runs without one', methods, pending }
 }
@@ -249,7 +256,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
           <AppWindowRail aria-label="Agents" className={own.rail}>
             <RailSection stretch="list" density="comfortable" className={own.railList}>
               {groups.map((group) => (
-                <section key={group.name} aria-label={`${group.name}: ${group.rows.length}`} className={own.group}>
+                <div key={group.name} role="group" aria-label={group.name} className={own.group}>
                   <SectionHead
                     name={group.name}
                     action={<Text role="meta" numeric>{group.rows.length}</Text>}
@@ -274,11 +281,11 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                     />
                   ))}
                   </ListRows>
-                </section>
+                </div>
               ))}
 
               {registryRows.length > 0 && (
-                <section aria-label="From the ACP registry" className={own.group}>
+                <div role="group" aria-label="From the ACP registry" className={own.group}>
                   <SectionHead name="From the ACP registry" />
                   {/* Two agents need no finding aid; forty do. */}
                   {registryRows.length > 8 && (
@@ -313,13 +320,13 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                   {listedRegistry.length === 0 && (
                     <Text as="div" role="meta" className={own.railNote}>Nothing in the registry matches.</Text>
                   )}
-                </section>
+                </div>
               )}
               {registryRows.length === 0 && registry?.unavailable && (
-                <section aria-label="From the ACP registry" className={own.group}>
+                <div role="group" aria-label="From the ACP registry" className={own.group}>
                   <SectionHead name="From the ACP registry" />
                   <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
-                </section>
+                </div>
               )}
             </RailSection>
 
@@ -383,25 +390,29 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 }
 
 /**
- * Whether a row belongs under "Connected". An account still starting is not
- * connected and is not signed out either — it has not answered — so it waits
- * with the ones that are not connected, where its "Starting…" is read, and is
- * never counted as connected.
+ * Whether a row belongs under "Connected": it holds an account, or it answered
+ * that it needs none. An account still starting is not connected and is not
+ * signed out either — it has not answered — so it waits with the ones that
+ * are not connected, where its "Starting…" is read. One whose only ways in
+ * are taken elsewhere is signed out all the same.
  */
-const isConnected = (row: Row): boolean => row.status !== 'out' && row.status !== 'asking'
+const isConnected = (row: Row): boolean => row.status !== 'out' && row.status !== 'asking' && row.status !== 'manual'
 
 /**
  * A rail row's second line: only what its group does not already say. Under
  * "Not connected", a plain "Not connected" on every row is the group's own
  * sentence repeated, so the line is kept for what differs — a sign-in under
- * way, an agent starting, one that did not start.
+ * way, an agent starting, one that did not start, a way in taken elsewhere.
  */
 const railLine = (row: Row): ReactNode => {
   if (row.pending) return <Text role="meta" tone="brand">Waiting…</Text>
   if (!isConnected(row)) {
     if (row.state === 'broken') return <Text role="meta" tone="danger">Did not start</Text>
-    return row.status === 'asking' ? <Text role="meta">{row.detail}</Text> : undefined
+    return row.status === 'asking' || row.status === 'manual' ? <Text role="meta">{row.detail}</Text> : undefined
   }
+  // Nor under "Connected": an account with no name of its own says only that
+  // it is signed in, which is the group's word again.
+  if (row.detail === STATUS_LABEL.in) return undefined
   return (
     <Text role="meta" tone={row.state === 'limit' ? 'warning' : undefined}>
       {row.detail}
@@ -453,9 +464,9 @@ const METHOD_ICON: Record<AuthMethod['flow'], typeof KeyIcon> = {
  * — so the email is only worth repeating here when the label is something
  * else, and the plan is what a person actually wants beside it.
  */
-const connectedHint = (account: Account): string => {
+const connectedHint = (account: Account): string | undefined => {
   const extra = account.email && account.email !== account.label ? account.email : null
-  return [account.planType, extra].filter(Boolean).join(' · ') || 'Connected'
+  return [account.planType, extra].filter(Boolean).join(' · ') || undefined
 }
 
 /**
@@ -525,15 +536,15 @@ const CardHead = ({
   meta?: string
   children: ReactNode
 }) => (
-  <header className={own.head} data-slot="sign-in-head">
+  <div className={own.head} data-slot="sign-in-head">
     {/* The mark stands in its name's ink: the tile's own is for glyphs. */}
     <IconTile size="lg" className={own.headTile}>
       <Text role="subject" className={own.headMark}>{mark}</Text>
     </IconTile>
-    <Text as="h3" role="subject" align="center" className={own.headName}>{name}</Text>
+    <Text as="h2" role="subject" align="center" className={own.headName}>{name}</Text>
     {meta ? <Text as="div" role="meta" align="center">{meta}</Text> : null}
     <Text as="p" role="muted" align="center" className={own.headLine}>{children}</Text>
-  </header>
+  </div>
 )
 
 /**
@@ -618,6 +629,13 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
         {info.presentation.tagline ?? `${STATUS_LABEL[row.status]}.`}
       </CardHead>
 
+      {/* What the agent said when it refused to work signed out. Said once,
+          above every way in, because it answers all of them — and said even
+          when it offered none, since then it is the only instruction there is. */}
+      {status?.refusal && !signedIn && !pending ? (
+        <Note className={own.noteFlush} icon={<AlertIcon size={14} />}><Prose text={status.refusal} /></Note>
+      ) : null}
+
       {login && pending ? (
         <Pending
           runtime={info.id}
@@ -645,7 +663,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
               data-slot="sign-in-account"
               mark={<StateMark tone="success"><CheckIcon size={14} /></StateMark>}
               title={account.label || 'Already connected'}
-              desc={connectedHint(account)}
+              {...(connectedHint(account) ? { desc: connectedHint(account) } : {})}
             />
           </Rows>
           <SignOut
@@ -684,11 +702,6 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
         <KeyField {...keyProps} method={openedMethod} onBack={() => setOpened(null)} />
       ) : driveable.length > 0 ? (
         <div className={own.stack}>
-          {/* What the agent said when it refused to start signed out. Said
-              once, above every way in, because it answers all of them. */}
-          {status?.refusal ? (
-            <Note className={own.noteFlush} icon={<AlertIcon size={14} />}><Prose text={status.refusal} /></Note>
-          ) : null}
           {choices.length > 0 ? (
             <Rows role="group" aria-label="Ways to connect">
               {choices.map((method) => (
@@ -742,7 +755,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           on "as soon as it answers" for an answer that is not coming. */}
       {/* A signed-in agent that offers no way in has nothing missing: its
           account is the answer, and "needs no account" would contradict it. */}
-      {row.methods.length === 0 && !account ? (
+      {row.methods.length === 0 && !account && !status?.refusal ? (
         status === null ? (
           broken ? (
             <div className={own.stack}>

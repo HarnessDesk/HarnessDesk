@@ -11,6 +11,7 @@ import type { AgentEvent } from '@harnessdesk/protocol'
 import { EventEmitter } from 'node:events'
 
 import { CliAccount } from '../src/account.js'
+import { firstSentence } from '../src/runtime.js'
 import { AcpRuntime, parseStatus, type AcpAgentConfig } from '../src/index.js'
 
 /**
@@ -464,10 +465,24 @@ test('a cancelled ACP sign-in ends at once, and the agent signing in anyway stil
       1,
       'the flow ended once, however the agent finished',
     )
-    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    const after = await runtime.getAccount()
+    assert.deepEqual(after.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    assert.equal(after.refusal, undefined, 'a refusal is not kept past the sign-in that answered it')
   } finally {
     await runtime.dispose()
   }
+})
+
+test('a refusal keeps its sentence and drops only a record the agent appended', () => {
+  // Qwen Code's own shape: a sentence, then its `error.data` as JSON.
+  assert.equal(
+    firstSentence('Authentication required: Use Qwen Code CLI to authenticate first.: {"authMethods":[{"id":"openai"}]}'),
+    'Authentication required: Use Qwen Code CLI to authenticate first.',
+  )
+  assert.equal(firstSentence('Sign-in failed: [{"code":1}]'), 'Sign-in failed')
+  // A reason written in brackets is the clue, not a record.
+  assert.equal(firstSentence('Sign-in failed: [Errno 13] Permission denied'), 'Sign-in failed: [Errno 13] Permission denied')
+  assert.equal(firstSentence('Sign-in failed: [auth] token expired'), 'Sign-in failed: [auth] token expired')
 })
 
 test('an agent that declared no methods is still refused a sign-in in words', async () => {

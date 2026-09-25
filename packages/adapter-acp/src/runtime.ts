@@ -2719,13 +2719,15 @@ const isAuthRefusal = (error: unknown): boolean =>
   AUTH_REQUIRED_WORDS.test(`${error.message}\n${(error as AcpError).details ?? ''}`)
 
 /** The first sentence of what an agent said, for a line a person reads. */
-const firstSentence = (text: string): string => {
+export const firstSentence = (text: string): string => {
   const first = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
   // An agent's `error.data` that is neither a string nor `{details}` nor
   // `{message}` arrives as JSON after a colon — Qwen Code refuses with
   // `…authenticate first.: {"authMethods":[…]}`. The record is for a program,
-  // and the sentence before it is the part a person reads.
-  const line = first.replace(/\s*:\s*[{[].*$/, '').trim()
+  // and the sentence before it is the part a person reads. Only a record's
+  // own opening is cut — `{"`, `[{`, `["` — so a reason an agent writes in
+  // brackets, `[Errno 13] Permission denied`, is kept: it is the clue.
+  const line = first.replace(/\s*:\s*(?:\{"|\[\{|\[").*$/, '').trim()
   const cut = line.search(/[.!?](\s|$)/)
   return (cut === -1 ? line : line.slice(0, cut + 1)).slice(0, 200)
 }

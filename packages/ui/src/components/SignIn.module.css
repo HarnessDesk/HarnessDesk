@@ -77,7 +77,7 @@
 .row {
   display: flex;
   align-items: center;
-  gap: var(--hd-space-2); /* desk: 8px, unchanged — the diff pairs it with the retired mark-to-name gap */
+  gap: var(--hd-space-2); /* desk: 8px, unchanged */
 }
 
 .actions {
