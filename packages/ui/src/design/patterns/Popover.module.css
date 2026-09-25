@@ -81,10 +81,11 @@
 }
 
 /* The row that opened it, unfolded: exactly the trigger's width, which Base
-   UI's positioner measures as `--anchor-width`. */
+   UI's positioner measures as `--anchor-width`. The panel's 180px floor
+   still holds, so a sidebar dragged to its narrowest keeps a readable menu
+   that overhangs the column rather than wrapping every label. */
 .panel[data-width='trigger'] {
   width: var(--anchor-width, auto); /* desk: content width → the trigger's, for a menu opened from a full-width row */
-  min-width: 0; /* desk: 180px → 0, the row decides */
 }
 
 .groupLabel {

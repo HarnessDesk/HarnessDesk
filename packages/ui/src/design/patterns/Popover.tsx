@@ -227,6 +227,10 @@ export const Popover = ({
             align={sideAlign ?? (align === 'left' ? 'start' : 'end')}
             sideOffset={sideOffset}
             collisionPadding={8}
+            /* A row unfolded may flip to the row's other side, never off to a
+               third one: short of room it scrolls under `--available-height`,
+               the way Base UI's own dropdowns do. */
+            {...(panelWidth === 'trigger' ? { collisionAvoidance: { fallbackAxisSide: 'none' as const } } : {})}
             className={styles.positioner}
           >
             <PopoverPopup

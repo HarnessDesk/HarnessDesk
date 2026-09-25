@@ -162,7 +162,7 @@ it('ticks the default in the menu, chooses on a seat’s press, and signs out of
   expect(selectRuntime).toHaveBeenCalledWith(CODEX)
 })
 
-it('opens upward from the footer, inside the sidebar and as wide as its row', () => {
+it('asks for its menu above the footer row, at the row’s width', () => {
   mount()
   click(row())
   const panel = document.querySelector('[role="menu"]')?.closest('[data-width]')

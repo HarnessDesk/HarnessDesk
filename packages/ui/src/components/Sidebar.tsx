@@ -557,7 +557,7 @@ export const AccountFooter = ({
         <AccountHoverCard
           info={here.info}
           account={here.account}
-          side="top"
+          side="right"
           align="end"
           className={styles.seatTrigger}
           onOpenUsage={onOpenUsage}
@@ -664,7 +664,7 @@ export const AccountFooter = ({
                 <AccountHoverCard
                   info={seat.info}
                   account={seat.account}
-                  side="top"
+                  side="right"
                   align="start"
                   className={styles.seatTrigger}
                   /* The same verbs as the badge's card on the row below: two
