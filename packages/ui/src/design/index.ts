@@ -196,7 +196,6 @@ export {
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,
-  MessageQueueTiming,
 } from './patterns/MessageQueue'
 export * from './ui'
 export {

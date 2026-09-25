@@ -15,8 +15,13 @@ import { cn } from '@/lib/utils'
  *   drag      from the handle, which appears on the row's hover (or its own
  *             focus). A drag that starts anywhere else is cancelled, so the
  *             row's text stays selectable. A line shows where it will land.
- *   keyboard  ⌥↑ / ⌥↓ from anywhere in the row — the handle is a tab stop
- *             that says so — one place at a time, focus staying with the row.
+ *             Items that are themselves the handle — a tab in a strip — ask
+ *             for `grip: 'item'`.
+ *   keyboard  ⌥↑ / ⌥↓ from anywhere in the row (⌥← / ⌥→ along a
+ *             `horizontal` strip) — the handle is a tab stop that says so —
+ *             one place at a time, focus staying with the row.
+ *   menu      `move(id, to)`, for a row's own Move items: the same request,
+ *             answered and announced the same way.
  *   remove    is not a move: it lives in the row's `⋯` menu or a hover ×,
  *             whichever the row already has.
  *
@@ -27,19 +32,15 @@ import { cn } from '@/lib/utils'
  * (`aria-live`), because reordering is silent by nature — and a row that the
  * browser blurred on the way to its new place gets its focus back.
  *
- * `SortableAnnouncer` and `sortableMoveMessage` are the same announcement for
- * a list whose moves are made somewhere else — a menu's Move rows — so every
- * reorder in the app is spoken in the same words.
+ * `SortableAnnouncer` is where the sentence is said: the list renders it
+ * beside itself (an `ol` holds only rows), so every reorder in the app is
+ * spoken in the same words, from the same kind of region.
  */
-
-const MOVE_KEYS = 'Alt+ArrowUp Alt+ArrowDown'
 
 /** The one sentence a move is announced in. */
 const sortableMoveMessage = (name: string, position: number, total: number): string =>
   `Moved ${name} to position ${position} of ${total}`
 
-/** The shortcut words, for a menu row or a tooltip that names them. */
-const SORTABLE_SHORTCUT = { up: '⌥↑', down: '⌥↓' } as const
 
 type SortableOptions = {
   /** The order, as the owner last gave it. */
@@ -50,12 +51,22 @@ type SortableOptions = {
   readonly name: (id: string) => string
   /** A row that cannot move right now (one on its way out): no drag, no keys. */
   readonly movable?: (id: string) => boolean
+  /** A strip reads ⌥← / ⌥→; a list reads ⌥↑ / ⌥↓. */
+  readonly orientation?: 'vertical' | 'horizontal'
+  /** Where a drag may start: the handle (a row with text in it), or the whole item (a tab). */
+  readonly grip?: 'handle' | 'item'
+  /** What to say when a move takes a row out of the order altogether. */
+  readonly left?: (id: string) => string
 }
 
 type RowProps = Pick<
-  React.LiHTMLAttributes<HTMLLIElement>,
+  React.HTMLAttributes<HTMLElement>,
   'draggable' | 'onDragStart' | 'onDragEnd' | 'onDragOver' | 'onDrop' | 'onKeyDown'
-> & { readonly dragging: boolean; readonly drop: boolean }
+> & {
+  readonly ref: (node: HTMLElement | null) => void
+  readonly dragging: boolean
+  readonly drop: boolean
+}
 
 type HandleProps = {
   readonly ref: (node: HTMLButtonElement | null) => void
@@ -68,7 +79,10 @@ type HandleProps = {
   readonly disabled: boolean
 }
 
-const useSortable = ({ ids, onMove, name, movable = () => true }: SortableOptions) => {
+const useSortable = ({ ids, onMove, name, movable = () => true, orientation = 'vertical', grip = 'handle', left }: SortableOptions) => {
+  const [back, on] = orientation === 'horizontal' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown']
+  const keys = `Alt+${back} Alt+${on}`
+  const shortcut = orientation === 'horizontal' ? '⌥← ⌥→' : '⌥↑ ⌥↓'
   /*
    * Which row is moving lives in a ref, not in state: the drag events of one
    * gesture can arrive in a single task, and a handler reading state would
@@ -80,6 +94,7 @@ const useSortable = ({ ids, onMove, name, movable = () => true }: SortableOption
   const [drag, setDrag] = useState<{ id: string | null; over: number | null }>({ id: null, over: null })
   const pending = useRef<{ id: string; from: number; refocus: boolean; order: string } | null>(null)
   const handles = useRef(new Map<string, HTMLButtonElement>())
+  const items = useRef(new Map<string, HTMLElement>())
   const [announcement, setAnnouncement] = useState('')
 
   // The owner answered: say where the row went, and hand focus back to it if
@@ -90,20 +105,25 @@ const useSortable = ({ ids, onMove, name, movable = () => true }: SortableOption
     if (!moved || ids.join('\0') === moved.order) return
     pending.current = null
     const index = ids.indexOf(moved.id)
+    // Out of the order altogether: said, if the owner has words for it.
+    if (index === -1) {
+      if (moved.from !== -1 && left) setAnnouncement(left(moved.id))
+      return
+    }
     // The owner answered with something else — refused, or moved another row.
-    if (index === -1 || index === moved.from) return
+    if (index === moved.from) return
     setAnnouncement(sortableMoveMessage(name(moved.id), index + 1, ids.length))
     if (!moved.refocus) return
-    const handle = handles.current.get(moved.id)
-    const active = document.activeElement
-    if (handle && (active === null || active === document.body || !handle.isConnected || !handle.closest('li')?.contains(active))) {
-      handle.focus()
-    }
-  }, [ids, name])
+    // The handle when the row has one, the item itself when it is its own grip.
+    const item = items.current.get(moved.id)
+    const target = handles.current.get(moved.id) ?? item
+    if (target && !(item ?? target).contains(document.activeElement)) target.focus()
+  }, [ids, name, left])
 
   const request = useCallback((id: string, to: number, refocus: boolean) => {
+    // A row not in the order yet may join it (a menu's Move on an unarranged item).
     const from = ids.indexOf(id)
-    if (from === -1 || to === from) return
+    if (to === from) return
     pending.current = { id, from, refocus, order: ids.join('\0') }
     onMove(id, to)
   }, [ids, onMove])
@@ -117,11 +137,15 @@ const useSortable = ({ ids, onMove, name, movable = () => true }: SortableOption
   const row = (id: string, index: number): RowProps => {
     const canMove = movable(id)
     return {
+      ref: (node) => {
+        if (node) items.current.set(id, node)
+        else items.current.delete(id)
+      },
       dragging: drag.id === id,
       drop: drag.id !== null && drag.id !== id && drag.over === index,
       draggable: canMove,
       onDragStart: (event) => {
-        if (!canMove || !grabbed.current) {
+        if (!canMove || (grip === 'handle' && !grabbed.current)) {
           event.preventDefault()
           return
         }
@@ -146,10 +170,10 @@ const useSortable = ({ ids, onMove, name, movable = () => true }: SortableOption
       },
       onKeyDown: (event) => {
         if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return
-        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+        if (event.key !== back && event.key !== on) return
         if (!canMove) return
         event.preventDefault()
-        const to = event.key === 'ArrowUp' ? index - 1 : index + 1
+        const to = event.key === back ? index - 1 : index + 1
         if (to < 0 || to >= ids.length) {
           setAnnouncement(`${name(id)} is already ${to < 0 ? 'first' : 'last'}`)
           return
@@ -169,14 +193,17 @@ const useSortable = ({ ids, onMove, name, movable = () => true }: SortableOption
     // A press that did not become a drag: a later drag from the text is not one.
     onPointerUp: () => { grabbed.current = false },
     'aria-label': `Move ${name(id)}`,
-    'aria-keyshortcuts': MOVE_KEYS,
-    title: `Drag to reorder, or ${SORTABLE_SHORTCUT.up} ${SORTABLE_SHORTCUT.down}`,
+    'aria-keyshortcuts': keys,
+    title: `Drag to reorder, or ${shortcut}`,
     // A row that cannot move keeps the handle's room, so the rows stay in
     // one column, and draws nothing a pointer or a Tab could land on.
     disabled: !movable(id),
   })
 
-  return { row, handle, announcement }
+  /** A move asked for from elsewhere — a menu's Move row — answered and said like any other. */
+  const move = (id: string, to: number): void => request(id, to, false)
+
+  return { row, handle, move, announcement, keys }
 }
 
 /** Where a reorder is said out loud. Visually nothing. */
@@ -186,25 +213,13 @@ const SortableAnnouncer = ({ message }: { message: string }) => (
   </span>
 )
 
-/** The list itself, and the one place its moves are announced. */
-const SortableList = ({
-  announcement,
-  className,
-  ...props
-}: React.OlHTMLAttributes<HTMLOListElement> & { announcement: string }) => (
-  <>
-    <ol data-slot="sortable-list" className={cn('m-0 list-none p-0', className)} {...props} />
-    <SortableAnnouncer message={announcement} />
-  </>
-)
-
 /** One row: dimmed while it is the one being dragged, a line above it where a drop would land. */
 const SortableRow = ({
   dragging = false,
   drop = false,
   className,
   ...props
-}: React.LiHTMLAttributes<HTMLLIElement> & { dragging?: boolean; drop?: boolean }) => (
+}: React.ComponentProps<'li'> & { dragging?: boolean; drop?: boolean }) => (
   <li
     data-slot="sortable-row"
     {...(dragging ? { 'data-dragging': '' } : {})}
@@ -241,12 +256,4 @@ const SortableHandle = ({
   </button>
 )
 
-export {
-  SORTABLE_SHORTCUT,
-  SortableAnnouncer,
-  SortableHandle,
-  SortableList,
-  SortableRow,
-  sortableMoveMessage,
-  useSortable,
-}
+export { SortableAnnouncer, SortableHandle, SortableRow, useSortable }

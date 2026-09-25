@@ -10,10 +10,10 @@ import {
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,
-  MessageQueueTiming,
   SortableHandle,
   Spinner,
   Text,
+  ToolbarGap,
   useSortable,
 } from '../design'
 import { AlertIcon, CrossIcon, PencilIcon, QueueIcon } from './Icons'
@@ -109,6 +109,7 @@ export const MessageQueue = () => {
             ? `${queue.reason ?? 'The turn did not finish.'} ${count} message${count === 1 ? '' : 's'} waiting.`
             : `${count} message${count === 1 ? '' : 's'} waiting — sent when this turn ends`}
         </Text>
+        <ToolbarGap />
         {paused && (
           <Button
             variant="quiet" size="sm" className={styles.action}
@@ -188,21 +189,9 @@ const When = ({
   state: string
 }) => {
   if (state === 'sending') return null
-  if (paused) {
-    return (
-      <MessageQueueTiming>
-        held
-      </MessageQueueTiming>
-    )
-  }
-  if (index === 0) {
-    return (
-      <MessageQueueTiming tone="next">
-        next
-      </MessageQueueTiming>
-    )
-  }
-  if (index === 1) return <MessageQueueTiming>then</MessageQueueTiming>
+  if (paused) return <Text role="meta">held</Text>
+  if (index === 0) return <Text role="meta" tone="brand">next</Text>
+  if (index === 1) return <Text role="meta">then</Text>
   return null
 }
 

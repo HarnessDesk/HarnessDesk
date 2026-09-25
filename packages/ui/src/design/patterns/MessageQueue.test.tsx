@@ -9,7 +9,6 @@ import {
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,
-  MessageQueueTiming,
 } from './MessageQueue'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -35,7 +34,6 @@ it('owns the queued-message frame, rows and state marks', () => {
       <MessageQueueList announcement="Moved it to position 1 of 1">
         <MessageQueueRow sending dragging drop>
           <SortableHandle ref={() => {}} onPointerDown={() => {}} onMouseDown={() => {}} onPointerUp={() => {}} aria-label="Move it" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" title="" disabled={false} />
-          <MessageQueueTiming tone="next">next</MessageQueueTiming>
           <MessageQueueActions><button>Remove</button></MessageQueueActions>
         </MessageQueueRow>
       </MessageQueueList>
@@ -43,9 +41,11 @@ it('owns the queued-message frame, rows and state marks', () => {
   ))
 
   expect(container.querySelector('[data-slot="message-queue"]')?.hasAttribute('data-paused')).toBe(true)
+  // Its head is a toolbar, and its list an ordered list of sortable rows.
   expect(container.querySelector('[data-slot="message-queue-header"]')?.textContent).toBe('Two messages waiting')
-  // The list and its rows are the sortable list's: the queue draws only its inset and hover.
-  expect(container.querySelector('[data-slot="sortable-list"]')?.tagName).toBe('OL')
+  expect(container.querySelector('[data-slot="message-queue-header"]')?.className).toContain('flex-nowrap')
+  // The rows are the sortable list's: the queue draws only its inset and hover.
+  expect(container.querySelector('[data-slot="message-queue-list"]')?.tagName).toBe('OL')
   expect(container.querySelector('[data-slot="sortable-announcer"]')?.textContent).toBe('Moved it to position 1 of 1')
   const row = container.querySelector('[data-slot="sortable-row"]')
   expect(row?.tagName).toBe('LI')
@@ -53,6 +53,5 @@ it('owns the queued-message frame, rows and state marks', () => {
   expect(row?.hasAttribute('data-dragging')).toBe(true)
   expect(row?.hasAttribute('data-drop')).toBe(true)
   expect(container.querySelector('[data-slot="sortable-handle"]')?.tagName).toBe('BUTTON')
-  expect(container.querySelector('[data-slot="message-queue-timing"]')?.getAttribute('data-tone')).toBe('next')
   expect(container.querySelector('[data-slot="message-queue-actions"] button')?.textContent).toBe('Remove')
 })

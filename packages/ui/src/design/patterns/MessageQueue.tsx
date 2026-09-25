@@ -2,7 +2,8 @@ import type { ComponentProps, HTMLAttributes } from 'react'
 
 import { cn } from '@/lib/utils'
 
-import { SortableList, SortableRow } from '../ui/sortable-list'
+import { Toolbar } from '../ui/section'
+import { SortableAnnouncer, SortableRow } from '../ui/sortable-list'
 
 /** The messages held between the transcript and the composer. */
 export const MessageQueueFrame = ({
@@ -23,12 +24,13 @@ export const MessageQueueFrame = ({
   />
 )
 
-export const MessageQueueHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
-  <div
+/** The queue's head: a toolbar — what is waiting, then what can be done about it. */
+export const MessageQueueHeader = ({ className, ...props }: ComponentProps<typeof Toolbar>) => (
+  <Toolbar
     {...props}
     data-slot="message-queue-header"
     className={cn(
-      'flex items-center gap-2 py-1.5 pr-2 pl-3',
+      'flex-nowrap py-1.5 pr-2 pl-3',
       'group-data-[paused]/queue:bg-[color-mix(in_srgb,var(--hd-warning)_10%,transparent)]',
       className,
     )}
@@ -38,11 +40,18 @@ export const MessageQueueHeader = ({ className, ...props }: HTMLAttributes<HTMLD
 /**
  * The queue is a sortable list (`design/ui/sortable-list`): its order, its
  * handle, its drop line, its keys and its announcement are that part's. What
- * is the queue's own is only its row's inset, its hover ground and the look
- * of a message on its way out.
+ * is the queue's own is only its rows' inset and hover ground. The sentence a
+ * move is announced in sits beside the list, since an `ol` holds only rows.
  */
-export const MessageQueueList = ({ className, ...props }: ComponentProps<typeof SortableList>) => (
-  <SortableList {...props} className={cn('pb-1', className)} />
+export const MessageQueueList = ({
+  announcement,
+  className,
+  ...props
+}: ComponentProps<'ol'> & { announcement: string }) => (
+  <>
+    <ol {...props} data-slot="message-queue-list" className={cn('m-0 list-none p-0 pb-1', className)} />
+    <SortableAnnouncer message={announcement} />
+  </>
 )
 
 export const MessageQueueRow = ({
@@ -53,37 +62,17 @@ export const MessageQueueRow = ({
   <SortableRow
     {...props}
     {...(sending ? { 'data-sending': '' } : {})}
-    className={cn(
-      'flex items-center gap-2 py-1 pr-2 pl-1 text-sm leading-(--hd-line-sm)',
-      'hover:bg-(--hd-hover) data-[sending]:text-(--hd-muted-foreground)',
-      className,
-    )}
+    className={cn('flex items-center gap-2 py-1 pr-2 pl-1 hover:bg-(--hd-hover)', className)}
   />
 )
 
+/** A row's own actions, drawn while the row is under the pointer or holds the focus. */
 export const MessageQueueActions = ({ className, ...props }: HTMLAttributes<HTMLSpanElement>) => (
   <span
     {...props}
     data-slot="message-queue-actions"
     className={cn(
       'flex shrink-0 items-center gap-px opacity-0 group-hover/sortable-row:opacity-100 focus-within:opacity-100',
-      className,
-    )}
-  />
-)
-
-export const MessageQueueTiming = ({
-  tone = 'quiet',
-  className,
-  ...props
-}: HTMLAttributes<HTMLSpanElement> & { tone?: 'quiet' | 'next' }) => (
-  <span
-    {...props}
-    data-slot="message-queue-timing"
-    data-tone={tone}
-    className={cn(
-      'inline-flex h-4.5 shrink-0 items-center whitespace-nowrap rounded-(--hd-radius-md) px-2',
-      'text-xs leading-none text-(--hd-muted-foreground) data-[tone=next]:text-(--hd-primary-ink)',
       className,
     )}
   />

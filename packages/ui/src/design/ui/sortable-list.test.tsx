@@ -2,7 +2,7 @@ import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { SortableHandle, SortableList, SortableRow, sortableMoveMessage, useSortable } from './sortable-list'
+import { SortableAnnouncer, SortableHandle, SortableRow, useSortable } from './sortable-list'
 
 /**
  * The sortable list, through the DOM: order shown by position; a move is a
@@ -44,15 +44,18 @@ const List = ({ onMove, answer = true, locked = [] }: { onMove: (id: string, to:
     },
   })
   return (
-    <SortableList announcement={sortable.announcement}>
-      {ids.map((id, index) => (
-        <SortableRow key={id} {...sortable.row(id, index)}>
-          <SortableHandle {...sortable.handle(id)} />
-          <span>{id}</span>
-          <button type="button">Remove {id}</button>
-        </SortableRow>
-      ))}
-    </SortableList>
+    <>
+      <ol>
+        {ids.map((id, index) => (
+          <SortableRow key={id} {...sortable.row(id, index)}>
+            <SortableHandle {...sortable.handle(id)} />
+            <span>{id}</span>
+            <button type="button">Remove {id}</button>
+          </SortableRow>
+        ))}
+      </ol>
+      <SortableAnnouncer message={sortable.announcement} />
+    </>
   )
 }
 
@@ -95,7 +98,6 @@ describe('SortableList', () => {
   it('announces a move when the owner answers, in the one sentence every reorder uses', () => {
     act(() => root.render(<List onMove={() => {}} />))
     press(handle('gamma'), 'ArrowUp')
-    expect(said()).toBe(sortableMoveMessage('gamma', 2, 3))
     expect(said()).toBe('Moved gamma to position 2 of 3')
     const region = container.querySelector('[data-slot="sortable-announcer"]') as HTMLElement
     expect(region.getAttribute('role')).toBe('status')
@@ -188,5 +190,82 @@ describe('dragging a sortable row', () => {
       rows()[1]?.dispatchEvent(start)
     })
     expect(start.defaultPrevented).toBe(true)
+  })
+})
+
+/** A strip of tabs: each tab is its own grip, and the keys run along it. */
+const Strip = ({ onMove }: { onMove: (id: string, to: number) => void }) => {
+  const [ids, setIds] = useState(['one', 'two', 'three'])
+  const sortable = useSortable({
+    ids,
+    name: (id) => `tab ${id}`,
+    orientation: 'horizontal',
+    grip: 'item',
+    left: (id) => `tab ${id} closed`,
+    onMove: (id, to) => {
+      onMove(id, to)
+      setIds((was) => {
+        const rest = was.filter((one) => one !== id)
+        return to >= was.length ? rest : [...rest.slice(0, to), id, ...rest.slice(to)]
+      })
+    },
+  })
+  return (
+    <>
+      <div role="tablist">
+        {ids.map((id, index) => {
+          const { dragging, drop, ...order } = sortable.row(id, index)
+          return (
+            <span key={id} role="tab" tabIndex={0} aria-keyshortcuts={sortable.keys} data-dragging={dragging || undefined} data-drop={drop || undefined} {...order}>
+              {id}
+            </span>
+          )
+        })}
+      </div>
+      <button type="button" onClick={() => sortable.move('one', 9)}>Close one</button>
+      <SortableAnnouncer message={sortable.announcement} />
+    </>
+  )
+}
+
+describe('a horizontal strip whose items are their own grip', () => {
+  const tabs = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[role="tab"]')]
+
+  it('moves along the strip with ⌥← and ⌥→, not ⌥↑ and ⌥↓, and keeps focus on the tab', () => {
+    const onMove = vi.fn()
+    act(() => root.render(<Strip onMove={onMove} />))
+    expect(tabs()[0]?.getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowLeft Alt+ArrowRight')
+    const first = tabs()[0] as HTMLElement
+    first.focus()
+    expect(press(first, 'ArrowDown').defaultPrevented).toBe(false)
+    press(first, 'ArrowRight')
+    expect(onMove).toHaveBeenLastCalledWith('one', 1)
+    expect(tabs().map((tab) => tab.textContent)).toEqual(['two', 'one', 'three'])
+    expect(said()).toBe('Moved tab one to position 2 of 3')
+    expect(document.activeElement?.textContent).toBe('one')
+  })
+
+  it('starts a drag from anywhere on the item', () => {
+    const onMove = vi.fn()
+    act(() => root.render(<Strip onMove={onMove} />))
+    const data = { effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: () => '' } as unknown as DataTransfer
+    const fire = (node: Element, type: string): Event => {
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'dataTransfer', { value: data })
+      act(() => { node.dispatchEvent(event) })
+      return event
+    }
+    expect(fire(tabs()[2]!, 'dragstart').defaultPrevented).toBe(false)
+    fire(tabs()[0]!, 'dragover')
+    fire(tabs()[0]!, 'drop')
+    expect(onMove).toHaveBeenCalledWith('three', 0)
+  })
+
+  it('says what the owner calls a move that takes an item out of the order', () => {
+    act(() => root.render(<Strip onMove={() => {}} />))
+    const close = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Close one') as HTMLButtonElement
+    act(() => close.click())
+    expect(tabs().map((tab) => tab.textContent)).toEqual(['two', 'three'])
+    expect(said()).toBe('tab one closed')
   })
 })

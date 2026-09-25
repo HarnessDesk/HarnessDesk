@@ -9,8 +9,8 @@ import { WorkspaceMenu } from './WorkspaceMenu'
 
 /**
  * A project's Move rows are the sidebar's keyboard route through its arranged
- * run, and a move made there is said out loud in the sortable list's own
- * words (`sortableMoveMessage`), beside the menu rather than inside it.
+ * run: the sortable part's `move`, said out loud in the part's own words once
+ * the store has answered, beside the menu rather than inside it.
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -31,9 +31,20 @@ afterEach(() => {
 
 const group = (root: string, name: string): ProjectGroup => ({ root, name, sessions: [], updatedAt: 0 })
 
+/** A store that answers a move the way the real one does: the pinned run is the order. */
 const mount = (pinned: string[], subject: ProjectGroup) => {
-  const snapshot = { ...emptySnapshot(), listPrefs: { ...emptySnapshot().listPrefs, pinned } } as AppSnapshot
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, moveProject: vi.fn() } as unknown as AppStore
+  let snapshot = { ...emptySnapshot(), listPrefs: { ...emptySnapshot().listPrefs, pinned } } as AppSnapshot
+  const listeners = new Set<() => void>()
+  const store = {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot: () => snapshot,
+    moveProject: vi.fn((root: string, to: number) => {
+      const rest = snapshot.listPrefs.pinned.filter((entry) => entry !== root)
+      const next = to < 0 || to > rest.length ? rest : [...rest.slice(0, to), root, ...rest.slice(to)]
+      snapshot = { ...snapshot, listPrefs: { ...snapshot.listPrefs, pinned: next } }
+      for (const listener of listeners) listener()
+    }),
+  } as unknown as AppStore
   act(() => root.render(
     <StoreProvider store={store}>
       <WorkspaceMenu group={subject} at={{ x: 10, y: 10 }} onClose={() => {}} onNewWorktree={() => {}} />
@@ -63,4 +74,17 @@ it('announces the last project moving down as leaving the run for the sort', () 
   act(() => row('Move down').click())
   expect(store.moveProject).toHaveBeenCalledWith('/b', 2)
   expect(said()).toBe('billing is back in automatic order')
+})
+
+it('says nothing when the store has not moved anything', () => {
+  const snapshot = { ...emptySnapshot(), listPrefs: { ...emptySnapshot().listPrefs, pinned: ['/a', '/b'] } } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, moveProject: vi.fn() } as unknown as AppStore
+  act(() => root.render(
+    <StoreProvider store={store}>
+      <WorkspaceMenu group={group('/b', 'billing')} at={{ x: 10, y: 10 }} onClose={() => {}} onNewWorktree={() => {}} />
+    </StoreProvider>,
+  ))
+  act(() => row('Move up').click())
+  expect(store.moveProject).toHaveBeenCalledWith('/b', 0)
+  expect(said()).toBe('')
 })

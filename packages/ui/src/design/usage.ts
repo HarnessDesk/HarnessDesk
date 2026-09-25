@@ -191,7 +191,7 @@ export const ELEMENTS: readonly UsageRule[] = [
   },
   {
     family: 'order',
-    variant: 'SortableList · useSortable',
+    variant: 'useSortable · SortableRow · SortableHandle',
     when: 'Rows whose order the person sets — a queue, seats, steps. Order is shown by position; a row moves by a drag from the handle that appears on hover, or ⌥↑/⌥↓ from anywhere in it, and every move is announced. Removal is the row\'s own `⋯` menu or hover ×.',
     never: '"Move up" / "Move down" buttons on each row — three controls a row to say what its place already says — or a list that reorders itself before the owner of the order has answered.',
     because:

@@ -76,7 +76,6 @@ import {
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,
-  MessageQueueTiming,
   NavigationGroupHeader,
   Note,
   NoteList,
@@ -679,7 +678,7 @@ const QueueRows = () => {
           <SortableHandle {...sortable.handle(id)} />
           <Text role="meta">{index + 1}</Text>
           <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
-          {index === 0 ? <MessageQueueTiming tone="next">next</MessageQueueTiming> : null}
+          {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
           <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
         </MessageQueueRow>
       ))}

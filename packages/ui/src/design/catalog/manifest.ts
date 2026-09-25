@@ -453,7 +453,7 @@ export const CANONICAL_UI_MODULES = [
   ['section', 'section', 'Titled content region, and the page section that owns its spacing'],
   ['select', 'adopted', 'Custom Base UI select'],
   ['separator', 'adopted', 'Semantic divider'],
-  ['sortable-list', 'queue', 'Rows the person orders: drag handle, ⌥↑/⌥↓, announced moves'],
+  ['sortable-list', 'queue', 'Orders the person sets: drag handle, ⌥↑/⌥↓ (⌥←/⌥→ on a strip), announced moves'],
   ['bar', 'panels', 'Bar-height row: title bars, filter rows, facts lines'],
   ['spark', 'spark', 'Inline quantitative marks'],
   ['stat', 'stat', 'Primary reading tile'],

@@ -26,8 +26,8 @@ import {
   MenuSeparator,
   PopoverGroupLabel,
   SortableAnnouncer,
-  sortableMoveMessage,
   useMenuClose,
+  useSortable,
   type MenuPoint,
 } from '../design'
 import styles from './WorkspaceMenu.module.css'
@@ -59,17 +59,26 @@ export const WorkspaceMenu = ({
   /** Raises the new-worktree dialog; it belongs to the list, not to a row. */
   onNewWorktree: (root: string) => void
 }) => {
-  /* A move made from this menu is said out loud in the sortable list's own
-     words, the way a drag or ⌥↑/⌥↓ on a sortable row is. The announcer sits
-     beside the menu rather than in it: a menu holds menu items, and the
-     sentence has to outlive the menu closing. */
-  const [said, setSaid] = useState('')
+  const store = useStore()
+  const snapshot = useSnapshot()
+  /* The arranged run is a sortable order, and this menu's Move rows are its
+     keyboard route: a move is the sortable part's request, answered by the
+     store and then said out loud in the part's own words, the way a drag or
+     ⌥↑/⌥↓ on a sortable row is. The announcer sits beside the menu rather
+     than in it: a menu holds menu items, and the sentence has to outlive the
+     menu closing. */
+  const sortable = useSortable({
+    ids: snapshot.listPrefs.pinned,
+    onMove: (root, to) => store.moveProject(root, to),
+    name: (root) => (root === group.root ? group.name : root),
+    left: (root) => `${root === group.root ? group.name : root} is back in automatic order`,
+  })
   return (
     <>
       <ContextMenu at={at} label={`Actions for ${group.name}`} onClose={onClose}>
-        <WorkspaceRows group={group} onNewWorktree={onNewWorktree} onMoved={setSaid} />
+        <WorkspaceRows group={group} onNewWorktree={onNewWorktree} onMove={sortable.move} />
       </ContextMenu>
-      <SortableAnnouncer message={said} />
+      <SortableAnnouncer message={sortable.announcement} />
     </>
   )
 }
@@ -77,11 +86,11 @@ export const WorkspaceMenu = ({
 const WorkspaceRows = ({
   group,
   onNewWorktree,
-  onMoved,
+  onMove,
 }: {
   group: ProjectGroup
   onNewWorktree: (root: string) => void
-  onMoved: (sentence: string) => void
+  onMove: (root: string, to: number) => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -105,15 +114,9 @@ const WorkspaceRows = ({
   const count = group.sessions.length
   const sessionsWord = count === 1 ? '1 session' : `${count} sessions`
 
-  /* Past the end of the arranged run is back into the sort; anywhere in it is
-     a place in the run, counted the way the sidebar shows it. */
-  const move = (to: number): void => {
-    const rest = order.filter((entry) => entry !== group.root)
-    store.moveProject(group.root, to)
-    onMoved(to < 0 || to > rest.length
-      ? `${group.name} is back in automatic order`
-      : sortableMoveMessage(group.name, to + 1, rest.length + 1))
-  }
+  /* Past the end of the arranged run is back into the sort (the store
+     unpins it); anywhere in it is a place in the run. */
+  const move = (to: number): void => onMove(group.root, to)
 
   const run = async (work: () => Promise<void>): Promise<void> => {
     setBusy(true)
