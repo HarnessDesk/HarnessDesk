@@ -49,6 +49,32 @@
   min-width: 0;
 }
 
+/* A head with lines under its name holds to their top: the mark and the way
+   out stay level with the name, not with the middle of a paragraph. */
+.header[data-lines] {
+  align-items: flex-start;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.titleLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.titleText {
+  min-width: 0;
+}
+
 /* Under the header, above the body, and outside the scroll — so a breadcrumb
    still says where you are after you have scrolled the list below it. */
 .subhead {
