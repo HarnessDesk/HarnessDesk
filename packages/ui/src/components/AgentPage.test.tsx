@@ -1036,3 +1036,80 @@ it('Seats’ own Edit… opens the same authoring path for prefer, and a legacy-
     { key: 'prefer', value: [] },
   )
 })
+
+/*
+ * #897. An Agent whose ceiling is above edit could only ever be seated at edit
+ * from the app, so an MCP server — which needs a Seat that may merge — never
+ * loaded there. Its page now offers the level to start at, up to its ceiling
+ * and only where the runtime that would take the seat holds it, by a
+ * person's explicit choice; the plain Start is unchanged.
+ */
+const higher = (ceiling: 'edit' | 'merge', holds: readonly string[]) => {
+  const entry: AgentEntry = {
+    ...ROSTER[2]!,
+    definition: { ...ROSTER[2]!.definition!, ceiling, ceilingFrom: 'ceiling', mcp: ['review-tools'] } as AgentEntry['definition'],
+  }
+  const snapshot = {
+    ...snapshotFor(SEATING),
+    agents: [entry],
+    runtimes: [{
+      id: runtimeId('claude-code'), capabilities: {}, presentation: { name: 'Claude' },
+      ceilings: Object.fromEntries(holds.map((level) => [level, { how: 'its own control' }])),
+    } as unknown as RuntimeInfo],
+  } as unknown as AppSnapshot
+  const store = storeFor(snapshot)
+  const onLeave = vi.fn()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentPage entry={entry} onBack={() => {}} onLeave={onLeave} />
+      </StoreProvider>,
+    )
+  })
+  return { store, onLeave }
+}
+
+const radios = () => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] [role="radio"]')]
+
+it('an Agent above edit can be started at a higher ceiling its runtime holds, by choice, and says what merge loads', async () => {
+  const { store, onLeave } = higher('merge', ['edit', 'publish', 'merge'])
+  await settle()
+  act(() => button('Start at a higher ceiling…').click())
+  await settle()
+  expect(radios().map((one) => one.textContent)).toEqual([
+    expect.stringContaining('Edit'),
+    expect.stringContaining('Publish'),
+    expect.stringContaining('Merge'),
+  ])
+  expect(radios()[0]!.getAttribute('aria-checked')).toBe('true')
+  expect(radios()[2]!.textContent).toContain('Seat at Merge to load its MCP server.')
+  const confirm = () => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((one) => one.textContent?.startsWith('Start at'))!
+  expect(confirm().textContent).toBe('Start at Edit')
+  act(() => radios()[2]!.click())
+  expect(confirm().textContent).toBe('Start at Merge')
+  act(() => confirm().click())
+  await settle()
+  expect(store.startAsAgent).toHaveBeenCalledWith('judge', { ceiling: 'merge' })
+  expect(onLeave).toHaveBeenCalled()
+})
+
+it('a level its runtime cannot hold is shown and not offered, and the plain Start still starts at the default', async () => {
+  const { store } = higher('merge', ['edit', 'publish'])
+  await settle()
+  act(() => button('Start at a higher ceiling…').click())
+  await settle()
+  expect(radios()[1]!.disabled).toBe(false)
+  expect(radios()[2]!.disabled).toBe(true)
+  expect(radios()[2]!.textContent).toContain('cannot hold this ceiling')
+  act(() => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((one) => one.textContent === 'Keep')!.click())
+  await settle()
+  act(() => button('Start a conversation as Judge').click())
+  await settle()
+  expect(store.startAsAgent).toHaveBeenCalledWith('judge')
+})
+
+it('an Agent whose ceiling is edit offers no higher start', async () => {
+  higher('edit', ['edit', 'publish', 'merge'])
+  await settle()
+  expect(hasButton('Start at a higher ceiling…')).toBe(false)
+})

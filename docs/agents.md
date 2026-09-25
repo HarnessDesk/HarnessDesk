@@ -195,7 +195,12 @@ from it.
   seated here stays — greyed, with its reason — and pressing it shows every
   seat it would take and what stands in the way.
 - **⌘K** offers *Start as <Agent>* and *Open <Agent>*.
-- **An Agent's page** offers *Start a conversation as <name>*.
+- **An Agent's page** offers *Start a conversation as <name>*. That seats it
+  at `edit`, whatever its ceiling. An Agent whose ceiling is `publish` or
+  `merge` also offers **Start at a higher ceiling…**: a choice, up to its own
+  ceiling, of only the levels the runtime that would take the seat here
+  holds, each said in the words of the page's Ceiling row. It is the app's
+  path to a Seat that loads an Agent's MCP servers, which need `merge`.
 - **A room's +** offers the project's Agents first; one seated there joins
   under the Agent's name.
 

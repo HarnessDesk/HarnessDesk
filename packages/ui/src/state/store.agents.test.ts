@@ -453,6 +453,15 @@ it('a start the plan allows is seated in the open folder, and shown', async () =
   expect(store.getSnapshot().seatRefusal).toBeNull()
 })
 
+it('a higher ceiling a person chose is the seating’s grant; without one the host seats at its default (#897)', async () => {
+  answering({ 'agent/seat/dry': () => [seatPlan(0)], 'agent/seat': () => SEATED })
+  await store.openWorkspace(WORKSPACE.path)
+  await store.startAsAgent('code-reviewer', { ceiling: 'merge' })
+  expect(asked.filter((one) => one.method === 'agent/seat').map((one) => one.params)).toEqual([
+    { id: 'code-reviewer', cwd: WORKSPACE.path, project: WORKSPACE.path, permission: 'merge' },
+  ])
+})
+
 it('a fix asked for from deep inside is held until the shell takes it where it is fixed', () => {
   store.askSeatFix({ kind: 'signIn', runtime: 'cursor' }, 'code-reviewer')
   expect(store.getSnapshot().seatFix).toEqual({ fix: { kind: 'signIn', runtime: 'cursor' }, agent: 'code-reviewer' })

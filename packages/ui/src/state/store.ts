@@ -4686,10 +4686,14 @@ export class AppStore {
    * `opened` carries whether "Nothing was opened" is still true. The folder is
    * also the project the Agent is read for, because that is whose Agents a
    * conversation there should get.
+   *
+   * `ceiling` is a level a person chose above the default (`edit`), up to the
+   * Agent's own — never set by anything but that choice (#897). It travels as
+   * the seating's grant; the host still narrows it to the Agent's ceiling.
    */
   async startAsAgent(
     id: string,
-    options: { readonly cwd?: string; readonly reveal?: boolean } = {},
+    options: { readonly cwd?: string; readonly reveal?: boolean; readonly ceiling?: 'publish' | 'merge' } = {},
   ): Promise<SessionKey | null> {
     const cwd = options.cwd ?? this.#snapshot.workspace?.path
     // As `newSession`: a folder this app has proof is gone is never where a conversation starts.
@@ -4723,7 +4727,11 @@ export class AppStore {
       return null
     }
     try {
-      const session = await this.transport.request('agent/seat', { id, cwd, project: cwd })
+      const session = await this.transport.request('agent/seat', {
+        id, cwd, project: cwd,
+        // A person's own choice above the default; without one the host seats at `edit`.
+        ...(options.ceiling ? { permission: options.ceiling } : {}),
+      })
       this.#setSession(session)
       const key = sessionKey(session.runtime, session.id)
       if (options.reveal !== false) this.#showInPane(key)
