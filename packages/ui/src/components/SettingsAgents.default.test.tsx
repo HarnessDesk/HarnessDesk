@@ -135,6 +135,10 @@ it('names each runtime in the subject role', async () => {
     (node) => node.textContent === 'Claude Code',
   )
   expect(name?.getAttribute('data-role')).toBe('subject')
+  // The subject step — 14px medium — a step above the 13px row titles of the
+  // accounts under it; measured in the engine in e2e/ui-system/row-fold.spec.ts.
+  expect(name?.className).toContain('text-base')
+  expect(name?.className).toContain('font-medium')
 })
 
 /** The button that opens the agent's own page: the one carrying its name. */

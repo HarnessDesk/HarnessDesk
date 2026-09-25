@@ -5,8 +5,8 @@ import { expect, test } from '@playwright/test'
  * and a checkbox named by its label.
  *
  * The fold is a toggle at the row's end: down while folded, up while open, the
- * same box either way (no popup-trigger fill), with the row's own inset at its
- * end. The pair draws one rule under itself while something follows it in the
+ * same box either way (no popup-trigger fill), its mark on the column the
+ * drill-in chevrons of the rows under it stand in. The pair draws one rule under itself while something follows it in the
  * card and none when it is the card's last row — the doubled and stray rules
  * the runtime cards used to draw.
  *
@@ -25,7 +25,6 @@ test('a folding row draws one rule open, none folded, and one box either way', a
     const opener = node.querySelector('button:not([aria-expanded])') as HTMLElement
     const foldButton = node.querySelector('button[aria-expanded]') as HTMLElement
     const mark = foldButton.querySelector('[data-slot="disclosure-chevron"]') as SVGElement
-    const card = node.parentElement as HTMLElement
     const pairBox = node.getBoundingClientRect()
     const foldBox = foldButton.getBoundingClientRect()
     const rules = [node, ...node.querySelectorAll('*')].filter((one) => {
@@ -38,8 +37,6 @@ test('a folding row draws one rule open, none folded, and one box either way', a
       rules,
       foldGround: getComputedStyle(foldButton).backgroundColor,
       turn: getComputedStyle(mark).rotate,
-      inset: card.getBoundingClientRect().right - foldBox.right,
-      cardInset: parseFloat(getComputedStyle(document.body).getPropertyValue('--hd-card-padding')),
       fillsHead: foldBox.bottom <= pairBox.bottom && foldBox.top >= pairBox.top,
     }
   })
@@ -51,8 +48,6 @@ test('a folding row draws one rule open, none folded, and one box either way', a
   expect(folded.rules).toBe(0)
   expect(folded.turn).toBe('none')
   expect(folded.fillsHead).toBe(true)
-  // The row's inset holds the fold's end, as it holds any row control's.
-  expect(Math.round(folded.inset)).toBe(Math.round(folded.cardInset + 1))
 
   await fold.click()
   await page.mouse.move(0, 0)
@@ -65,6 +60,30 @@ test('a folding row draws one rule open, none folded, and one box either way', a
   // A toggle, not a menu: nothing fills the fold because it is open.
   expect(open.foldGround).toBe(folded.foldGround)
   await expect(card.getByRole('button', { name: 'Hide the accounts under Codex' })).toBeVisible()
+
+  // One trailing column of marks: the fold's mark is centred on the column
+  // the drill-in chevrons of the rows under it stand in.
+  const centres = await card.evaluate((node) => {
+    const centre = (mark: Element | null | undefined) => {
+      const box = mark?.getBoundingClientRect()
+      return box ? box.left + box.width / 2 : NaN
+    }
+    const fold = node.querySelector('[data-slot="row-folding"] [data-slot="disclosure-chevron"]')
+    const account = [...node.querySelectorAll('button')].find((one) => one.textContent?.includes('dev@example.com'))
+    return { fold: centre(fold), chevron: centre(account?.querySelector('.lucide-chevron-right')) }
+  })
+  expect(Number.isFinite(centres.chevron)).toBe(true)
+  expect(Math.abs(centres.fold - centres.chevron)).toBeLessThanOrEqual(1)
+
+  // The head's name is the subject step, a step above the row titles under it.
+  const sizes = await card.evaluate((node) => {
+    const name = node.querySelector('[data-slot="row-folding"] [data-role="subject"]') as HTMLElement
+    const account = [...node.querySelectorAll('button')].find((one) => one.textContent?.includes('dev@example.com'))
+    const title = [...(account?.querySelectorAll('span') ?? [])].find((one) => one.textContent === 'dev') as HTMLElement
+    return { name: parseFloat(getComputedStyle(name).fontSize), title: parseFloat(getComputedStyle(title).fontSize) }
+  })
+  expect(sizes.name).toBe(14)
+  expect(sizes.name).toBeGreaterThan(sizes.title)
 })
 
 test('a labelled checkbox is named by its words and ticked by them', async ({ page }) => {

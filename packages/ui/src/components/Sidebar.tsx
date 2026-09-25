@@ -724,7 +724,17 @@ export const AccountFooter = ({
               </span>
               <Text role="muted" tone={usageReadingTone(here?.tone)} numeric className={styles.accountMenuMeta}>
                 {here?.figure ?? '—'}
-                {hasUsage && <DisclosureChevron open={usageOpen} placement="trailing" className={styles.accountMenuCaret} />}
+                {/* The fold wears the figure's trouble, as the figure beside it does.
+                    A fold has one trouble tone, so a spent window's red figure
+                    folds under the warning mark. */}
+                {hasUsage && (
+                  <DisclosureChevron
+                    open={usageOpen}
+                    placement="trailing"
+                    tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
+                    className={styles.accountMenuCaret}
+                  />
+                )}
               </Text>
             </MenuItem>
             {usageOpen && usageView && (

@@ -222,6 +222,21 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
 })
 
+it.each([
+  ['with room', 40, 'neutral'],
+  ['running low', 88, 'warning'],
+  ['spent', 100, 'warning'],
+] as const)('folds Usage remaining under a mark in the figure\'s trouble — %s', (_state, usedPercent, tone) => {
+  // A fold has one trouble tone: a spent window's red figure folds under the
+  // warning mark, a low one's amber figure too, and room is neutral.
+  mount({ usage: [usageReport(CLAUDE, [lane({ id: 'weekly', label: 'Weekly', usedPercent })])] })
+  click(row())
+  const usage = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
+    item.textContent?.includes('Usage remaining'),
+  )
+  expect(usage?.querySelector('[data-slot="disclosure-chevron"]')?.getAttribute('data-tone')).toBe(tone)
+})
+
 it('resets expanded account and usage state when the trigger closes and reopens the menu', () => {
   const report = usageReport(CLAUDE, [
     lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300 }),

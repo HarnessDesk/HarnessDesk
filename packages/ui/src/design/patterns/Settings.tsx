@@ -1,5 +1,5 @@
 import { Button } from '../ui/button'
-import { Children, createContext, createElement, isValidElement, useContext, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
+import { Children, createContext, createElement, isValidElement, useContext, useId, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 
 import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
 
@@ -1044,6 +1044,13 @@ export const Row = ({
 )
 
 /**
+ * The drill-in chevron's edge, in px: the one width the row's trailing column
+ * of marks is built on. The chevron is drawn at it, and a fold's mark is
+ * centred in a box of it, so the two share one column.
+ */
+const ROW_CHEVRON = 15
+
+/**
  * What a row that opens something also folds in place: the accounts under an
  * agent. The fold is a second target at the row's end, beside the button
  * rather than inside it.
@@ -1116,7 +1123,7 @@ export const RowButton = ({
           {control ? <span className={styles.rowCtl}>{control}</span> : null}
           {chevron && !fold ? (
             <span className={styles.rowChev}>
-              <ChevronIcon size={15} />
+              <ChevronIcon size={ROW_CHEVRON} />
             </span>
           ) : null}
         </span>
@@ -1127,7 +1134,7 @@ export const RowButton = ({
   return (
     <div className={styles.rowFolding} data-slot="row-folding" {...(fold.open ? { 'data-open': '' } : {})}>
       {button}
-      <span className={styles.rowFoldEnd}>
+      <span className={styles.rowFoldEnd} style={{ '--row-chevron': `${ROW_CHEVRON}px` } as CSSProperties}>
         <Button
           variant="row"
           size="pattern"
