@@ -39,12 +39,14 @@ import {
   Boundary,
   EDGE_ROOM,
   EMPTY_ROOM,
+  PREVIEW_EMPTY_SESSION_KEY,
   PREVIEW_PLANS,
   PREVIEW_ROOM,
   PREVIEW_SESSION_KEY,
   runtime,
   store,
 } from './harness'
+import { PublicationCard } from '../components/Publication'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
@@ -56,6 +58,11 @@ import { MessageQueue } from '../components/MessageQueue'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
+/* A second full `<Conversation>` duplicates every ambient header element —
+   the plan strip, its "other agents" trigger — which is exactly what broke
+   the composer frames above before they were gated the same way. Only on
+   `preview.html?empty`, for the same reason. */
+const SHOW_EMPTY = new URLSearchParams(window.location.search).has('empty')
 /* Painted only when asked for: the fixture draws its two pictures at load. */
 const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
@@ -544,6 +551,56 @@ const Preview = () => {
               onOpenRuntimes={() => {}}
             />
           </PaneProvider>
+        </div>
+      </Frame>
+
+      {/* A pane scoped to no session at all: the transcript's own pitch,
+          "What should we build?", the pane a fresh conversation opens on.
+          Only on `preview.html?empty` — see `SHOW_EMPTY` above. */}
+      {SHOW_EMPTY && (
+        <Frame title="Conversation — the empty pane">
+          <div className="h-[560px]">
+            <PaneProvider
+              scope={{
+                paneId: 'preview-empty' as never,
+                view: { kind: 'conversation', session: PREVIEW_EMPTY_SESSION_KEY } as never,
+                sessionKey: PREVIEW_EMPTY_SESSION_KEY,
+              }}
+            >
+              <Conversation
+                onChooseProject={() => {}}
+                onSignIn={() => {}}
+                onOpenUsage={() => {}}
+                onOpenRuntimes={() => {}}
+              />
+            </PaneProvider>
+          </div>
+        </Frame>
+      )}
+
+      {/* The card a publication chip opens on hover: the forge's own crest,
+          state, size and excerpt. Rendered directly — no transcript in this
+          fixture set carries a publication item yet. */}
+      <Frame title="Publication card — a pull request">
+        <div className="w-[320px] rounded-(--hd-radius-lg) shadow-[inset_0_0_0_1px_var(--hd-border-strong)] bg-(--hd-popover)">
+          <PublicationCard
+            reference={{
+              kind: 'pullRequest',
+              action: 'opened',
+              repo: 'harnessdesk/harnessdesk',
+              number: 748,
+              url: 'https://github.com/harnessdesk/harnessdesk/pull/748',
+              title: 'Converge the conversation, its cards and its bars onto the design system',
+              state: 'open',
+              author: 'shane',
+              additions: 214,
+              deletions: 58,
+              files: 6,
+              excerpt: 'Screens compose the parts design/ already owns instead of drawing their own appearance.',
+              via: 'gh',
+              signature: null,
+            }}
+          />
         </div>
       </Frame>
 

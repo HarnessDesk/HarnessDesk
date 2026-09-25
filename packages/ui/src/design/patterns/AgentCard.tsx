@@ -201,13 +201,21 @@ const CAUTION_ICON = {
   quiet: InfoIcon,
 } as const
 
-/** A band, drawn only because its caller had something to put in it. */
-const Band = ({ label, children }: { label?: string; children: ReactNode }) => (
+/**
+ * A band, drawn only because its caller had something to put in it.
+ *
+ * Not `AgentCard`'s alone: `Publication.tsx`'s forge card is built on the same
+ * anatomy — crest, bands, verbs — for the reason its own doc comment gives,
+ * and its bands were redrawing this one privately (their own `border-t
+ * border-(--hd-border-strong) px-3 py-2`, a hairline off this one's `py-2.5`).
+ * Exported so both compose the one band rather than two close drawings of it.
+ */
+export const CardBand = ({ label, children, className }: { label?: string; children: ReactNode; className?: string }) => (
   /* Named, because how many bands were drawn is the rule this component
      exists to keep and a test has to be able to ask. Counting `border-t`
      instead coupled that test to a divider style, so a restyle that used a
      gap or an `<hr>` would have broken the test without breaking the rule. */
-  <div data-slot="agent-card-band" className="border-t border-(--hd-border-strong) px-3 py-2.5">
+  <div data-slot="agent-card-band" className={`border-t border-(--hd-border-strong) px-3 py-2.5${className ? ` ${className}` : ''}`}>
     {label && (
       <div className="mb-1">
         <PopoverGroupLabel inset={false}>{label}</PopoverGroupLabel>
@@ -283,7 +291,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
       </div>
 
       {agent && (
-        <Band label="Agent">
+        <CardBand label="Agent">
           <div className="flex items-baseline gap-1.5">
             <span className="min-w-0 flex-1 truncate text-xs font-medium">{agent.name}</span>
             <span className="flex-none">{agent.ceiling}</span>
@@ -296,11 +304,11 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               Passed over {line}
             </div>
           ))}
-        </Band>
+        </CardBand>
       )}
 
       {hasRunning && running && (
-        <Band label="Running">
+        <CardBand label="Running">
           {running.model && (
             <div className="flex items-baseline gap-1.5">
               <span className="min-w-0 flex-1 truncate text-xs font-medium">{running.model}</span>
@@ -314,11 +322,11 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           {running.state && (
             <div className="mt-0.5 text-xs text-(--hd-muted-foreground)">{running.state}</div>
           )}
-        </Band>
+        </CardBand>
       )}
 
       {meter && (
-        <Band label={meter.label}>
+        <CardBand label={meter.label}>
           {/* The bar fills with what is LEFT because the value passed is what
               is left; `Progress` does not invert, and the label says which
               number it is showing. */}
@@ -331,11 +339,11 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
             className="mb-1.5"
           />
           <div className="text-xs tabular-nums">{meter.reading}</div>
-        </Band>
+        </CardBand>
       )}
 
       {hasOn && on && (
-        <Band label="On">
+        <CardBand label="On">
           {on.title && (
             <div className="flex items-baseline gap-1.5">
               {on.taskId && (
@@ -353,7 +361,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               {on.where}
             </div>
           )}
-        </Band>
+        </CardBand>
       )}
 
       {/* Every caution, not the highest-ranked one. */}
@@ -372,7 +380,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
       })}
 
       {choice && (
-        <Band label={choice.label}>
+        <CardBand label={choice.label}>
           {/* Named so the card can tell a setting from a verb: every other
               control here acts on something behind the card and dismisses it,
               and a picker that vanished the instant you chose would never show
@@ -385,7 +393,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               onChange={choice.onChange}
             />
           </span>
-        </Band>
+        </CardBand>
       )}
 
       {actions.length > 0 && (
