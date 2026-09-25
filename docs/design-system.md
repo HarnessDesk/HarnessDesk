@@ -1300,12 +1300,6 @@ A compact whole-roster reading: one segment per agent, in readiness order.
 
 One operation or account state: judged mark, title, and the reason beneath it.
 
-### `AccessHeader`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The horizontal title band of an account-access sheet.
-
 ### `AccessRail`
 
 `packages/ui/src/design/patterns/Settings.tsx`

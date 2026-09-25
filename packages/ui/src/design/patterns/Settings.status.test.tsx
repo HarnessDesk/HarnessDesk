@@ -6,7 +6,6 @@ import {
   AccessCode,
   AccessDetail,
   AccessFact,
-  AccessHeader,
   AccessRail,
   AccessRailFooter,
   AccessRailHeader,
@@ -40,7 +39,6 @@ describe('access status roles', () => {
   it('names the access sheet regions and preserves verbatim values', () => {
     const markup = renderToStaticMarkup(
       <>
-        <AccessHeader>Sign in</AccessHeader>
         <AccessRail aria-label="Agents">
           <AccessRailHeader>Your agents</AccessRailHeader>
           <AccessRailList>Agent rows</AccessRailList>
@@ -53,7 +51,7 @@ describe('access status roles', () => {
       </>,
     )
 
-    for (const slot of ['access-header', 'access-rail', 'access-rail-header', 'access-rail-list', 'access-rail-footer', 'access-detail', 'access-fact', 'access-code']) {
+    for (const slot of ['access-rail', 'access-rail-header', 'access-rail-list', 'access-rail-footer', 'access-detail', 'access-fact', 'access-code']) {
       expect(markup).toContain(`data-slot="${slot}"`)
     }
     expect(markup).toContain('<code')

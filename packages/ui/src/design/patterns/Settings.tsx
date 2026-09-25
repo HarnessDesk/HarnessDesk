@@ -136,15 +136,6 @@ export const StatusSummary = ({
   </div>
 )
 
-/** The horizontal title band of an account-access sheet. */
-export const AccessHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
-  <div
-    data-slot="access-header"
-    className={cx('flex shrink-0 items-center gap-2.5 border-b border-(--hd-border) px-4 py-4', className)}
-    {...props}
-  />
-)
-
 /** The roster column of an account-access sheet. */
 export const AccessRail = ({ className, ...props }: ComponentProps<'nav'>) => (
   <nav

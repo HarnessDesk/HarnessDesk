@@ -19,7 +19,6 @@ import {
   AccessCode,
   AccessDetail,
   AccessFact,
-  AccessHeader,
   AccessRail,
   AccessRailFooter,
   AccessRailHeader,
@@ -292,7 +291,6 @@ const StateBoard = () => (
             <AccessRailFooter>Credentials stay local.</AccessRailFooter>
           </AccessRail>
           <AccessDetail>
-            <AccessHeader>Sign in</AccessHeader>
             <AccessFact label="Credential" value="~/.agent">Kept on this machine.</AccessFact>
             <AccessCode>ABCD-EFGH</AccessCode>
           </AccessDetail>
