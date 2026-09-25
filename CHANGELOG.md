@@ -14,8 +14,17 @@ move is real work and is not news to a person weighing an upgrade.
   meant for its reload button — all unclickable until the notice was
   dismissed. A room now leaves room for whatever notice is showing, its rail
   and reading side moving together; the notice itself now confines its own
-  width to the pane it's about, never a right panel or an unrelated pane
-  beside it in a split.
+  width to the pane it's about — reading the pane's own box directly, so a
+  zoomed right or bottom panel, or a right panel a narrow window widened,
+  is never mistaken for room the notice can spill into either.
+
+- **A Goal's work survives a relaunch.** Quitting while a Goal's agent was
+  working, or waiting for you to approve a command, used to leave the Goal
+  reading "Running" after the next launch while nothing ran and the approval
+  was gone. Now the desk reopens that agent's conversation and hands it its
+  card again, so it picks the work back up and asks again; one that cannot
+  be reopened stops the run and says why. A Goal's Findings pane now shows
+  the run that is going on, not an older stopped one that shares its Goal.
 
 - **A Goal or room now has one header, and it says what it should.** A Goal's
   page used to stack two headers naming it — its own, then the room's, one

@@ -2,7 +2,7 @@ import { useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -16,13 +16,6 @@ import {
   Banner,
   BannerAction,
   ActionError,
-  AccessCode,
-  AccessDetail,
-  AccessFact,
-  AccessRail,
-  AccessRailFooter,
-  AccessRailHeader,
-  AccessRailList,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -59,24 +52,14 @@ import {
   NativeSelect,
   PageHead,
   PatchHeader,
-  PatchSection,
   Row,
   RowButton,
   Checkbox,
   RowChoice,
   Rows,
   Lightbox,
-  LibraryOperationList,
-  LibraryOperationMark,
-  LibraryReachFace,
-  LibraryReachMark,
   MetaList,
   Monogram,
-  MessageQueueActions,
-  MessageQueueFrame,
-  MessageQueueHeader,
-  MessageQueueList,
-  MessageQueueRow,
   NavigationGroupHeader,
   Note,
   NoteList,
@@ -84,19 +67,20 @@ import {
   PopoverSurface,
   RefusedAction,
   SectionHead,
-  SearchMatch,
   Segmented,
   StatePill,
   Spinner,
-  StateStrip,
-  StatusSummary,
   Text,
+  TextMark,
   Switch,
   SwitchShape,
   ToggleGroup,
   ToggleGroupItem,
   stateTone,
+  SortableAnnouncer,
   SortableHandle,
+  Toolbar,
+  sortableItemClass,
   useSortable,
 } from '..'
 import styles from './explorer.module.css'
@@ -274,44 +258,10 @@ const StateBoard = () => (
       <Case label="running operation">
         <Spinner size="sm" tone="brand" aria-label="Loading" />
       </Case>
-      <Case label="account-access status">
-        <div className="flex w-full flex-col gap-3">
-          <StateStrip states={['ready', 'signin', 'limit', 'broken']} />
-          <StatusSummary
-            tone="success"
-            icon={<CheckIcon size={16} />}
-            title="Account connected"
-            description="Ready to start a conversation."
-          />
-        </div>
-      </Case>
-      <Case label="account-access sheet anatomy">
-        <div className="grid w-full grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
-          <AccessRail aria-label="Agents">
-            <AccessRailHeader>Your agents</AccessRailHeader>
-            <AccessRailList>Agent rows</AccessRailList>
-            <AccessRailFooter>Credentials stay local.</AccessRailFooter>
-          </AccessRail>
-          <AccessDetail>
-            <AccessFact label="Credential" value="~/.agent">Kept on this machine.</AccessFact>
-            <AccessCode>ABCD-EFGH</AccessCode>
-          </AccessDetail>
-        </div>
-      </Case>
-      <Case label="library reach">
-        <LibraryReachMark state="reaches" label="Reaches" placement="cell" />
-        <LibraryReachMark state="off" label="Switched off" />
-        <LibraryReachMark state="unscanned" label="Not scanned" />
-        <LibraryReachMark state="hollow" label="Empty on disk" />
-        <LibraryReachFace state="reaches" label="Agent A: reaches">A</LibraryReachFace>
-        <LibraryReachFace state="hollow" label="Agent B: empty on disk">B</LibraryReachFace>
-      </Case>
-      <Case label="library operations">
-        <LibraryOperationList>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="planned" />Planned</div>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="done" />Done</div>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="failed" />Failed</div>
-        </LibraryOperationList>
+      <Case label="text marks">
+        <span className="flex items-baseline gap-2"><TextMark role="row"><TodoPendingIcon size={12} /></TextMark><Text role="row">Planned</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="success"><CheckIcon size={12} /></TextMark><Text role="row">Done</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="warning"><CrossIcon size={12} /></TextMark><Text role="row">Failed</Text></span>
       </Case>
       <Case label="library row facts">
         <Monogram>CR</Monogram>
@@ -600,11 +550,11 @@ const BannerBoard = () => (
       <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
       <Card variant="flush">
         <PatchHeader>packages/ui/src/components/GitPane.tsx</PatchHeader>
-        <PatchSection className="flex items-center gap-2 px-3 py-2">
+        <section className="flex items-center gap-2 px-3 py-2">
           <FileState state="modified" />
           <span>One implementation for repository presentation</span>
           <ChangeStats added={12} removed={3} className="ml-auto" />
-        </PatchSection>
+        </section>
       </Card>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
@@ -658,9 +608,9 @@ const BannerBoard = () => (
 )
 
 /**
- * The queue's rows are a sortable list: drag from the handle, or ⌥↑/⌥↓ from
- * a row, and the move is announced. This owner answers at once; the app's
- * queue answers when the host does.
+ * A sortable list: drag from the handle, or ⌥↑/⌥↓ from a row, and the move is
+ * announced. This owner answers at once; the app's message queue — the one
+ * consumer drawn here — answers when the host does.
  */
 const QueueRows = () => {
   const [ids, setIds] = useState(['Run the focused tests again', 'Then write the release note', 'Open a pull request'])
@@ -673,37 +623,42 @@ const QueueRows = () => {
     }),
   })
   return (
-    <MessageQueueList announcement={sortable.announcement} aria-label="Waiting messages" data-catalog-case="sortable-list">
-      {ids.map((id, index) => (
-        <MessageQueueRow key={id} {...sortable.row(id, index)}>
-          <SortableHandle {...sortable.handle(id)} />
-          <Text role="meta">{index + 1}</Text>
-          <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
-          {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
-          <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
-        </MessageQueueRow>
-      ))}
-    </MessageQueueList>
+    <>
+      <ol aria-label="Waiting messages" data-catalog-case="sortable-list" className="flex flex-col gap-0.5">
+        {ids.map((id, index) => (
+          <li key={id} data-slot="sortable-row" {...sortable.row(id, index)} className={`${sortableItemClass()} flex items-center gap-2`}>
+            <SortableHandle {...sortable.handle(id)} />
+            <Text role="meta">{index + 1}</Text>
+            <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
+            {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
+            <span data-slot="sortable-actions" className="flex shrink-0 items-center">
+              <Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <SortableAnnouncer message={sortable.announcement} />
+    </>
   )
 }
 
 const QueueBoard = () => (
   <>
     <div className={styles.stack}>
-      <MessageQueueFrame paused>
-        <MessageQueueHeader>
+      <Alert variant="soft" tone="warning" className="flex-col items-stretch gap-1.5">
+        <Toolbar className="flex-nowrap">
           <Text role="meta" tone="warning"><AlertIcon size={13} /></Text>
           <Text role="meta" ink="primary" className="flex-1">The turn did not finish. Two messages waiting.</Text>
           <Button variant="quiet" size="sm">Send now</Button>
-        </MessageQueueHeader>
+        </Toolbar>
         <QueueRows />
-      </MessageQueueFrame>
+      </Alert>
       <PopoverSurface limit="trigger">
         <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
         <Button variant="navigation" size="navigation" className="w-full">/review</Button>
       </PopoverSurface>
       <Text role="muted" as="div">
-        Press <Keycap>esc</Keycap> to close; “Set<SearchMatch>tings</SearchMatch>” shows the matched text.
+        Press <Keycap>esc</Keycap> to close; “Set<Text as="b" role="meta" ink="primary" weight="semibold">tings</Text>” shows the matched text at full ink and weight.
       </Text>
       <NoteList><li>A short supporting fact keeps its list anatomy.</li></NoteList>
       <ComposerShell className="relative min-h-20">
@@ -1083,7 +1038,7 @@ One-line fix, right target, no regressions. Ship it.`
 export const BOARDS: Board[] = [
   {
     id: 'queue',
-    title: 'MessageQueue · Trigger picker',
+    title: 'Sortable list · Trigger picker',
     about: 'Work waiting beside the composer, and the list that inserts into it.',
     render: QueueBoard,
   },

@@ -4,7 +4,6 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import {
   Counts,
-  DayLabel,
   GroupLine,
   PanelBody,
   PanelEmpty,
@@ -48,7 +47,6 @@ it('composes the inspector roles instead of drawing them in the screen sheet', (
         <PanelTools><PanelPill>Refresh</PanelPill></PanelTools>
         <PanelBody>
           <GroupLine left="Today" right="3" />
-          <DayLabel>Friday</DayLabel>
           <PanelRow title="Changed file" sub="src/app.ts" selected onClick={() => {}} trail={<RowTime>10:42</RowTime>} />
           <Counts added={4} removed={2} />
           <PanelPill as="span">this week</PanelPill>
@@ -64,11 +62,13 @@ it('composes the inspector roles instead of drawing them in the screen sheet', (
   expect(container.querySelector('[data-slot="inspector-tools"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="inspector-body"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="inspector-group"]')).not.toBeNull()
-  expect(container.querySelector('[data-slot="inspector-day"]')?.textContent).toBe('Friday')
   expect(container.querySelector('[data-slot="inspector-row"]')?.hasAttribute('data-selected')).toBe(true)
   expect(container.querySelector('[data-slot="change-stats"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="chip-words"]')?.textContent).toBe('this week')
   expect(container.querySelector('[data-slot="dot"]')?.hasAttribute('data-pulse')).toBe(true)
   expect(container.querySelector('[data-slot="inspector-empty"]')?.textContent).toBe('No changes')
-  expect(container.querySelector('[data-slot="inspector-footer"]')?.textContent).toContain('Ready')
+  const footer = container.querySelector('[data-slot="inspector-footer"]')
+  expect(footer?.getAttribute('data-slot')).toBe('inspector-footer')
+  expect([...(footer?.querySelectorAll(':scope > [data-slot="text"]') ?? [])].map((node) => [node.getAttribute('data-role'), node.textContent]))
+    .toEqual([['meta', '1 file'], ['meta', 'Ready']])
 })

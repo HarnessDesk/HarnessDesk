@@ -52,6 +52,81 @@ const PAGED = [
   'turn-p3: userMessage, assistantMessage',
 ]
 
+test('two threads keep their own working folder — a second thread/start never bleeds into the first (#917)', async (t) => {
+  const server = new CodexAppServer({
+    clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.0.0' },
+    binaryPath: FAKE,
+    env: {},
+  })
+  t.after(() => server.stop())
+  await server.start()
+  const first = await server.request('thread/start', { cwd: '/repo-a' })
+  assert.equal(first.thread.cwd, '/repo-a', "the first thread is in the folder it was started in")
+  const second = await server.request('thread/start', { cwd: '/repo-b' })
+  assert.equal(second.thread.cwd, '/repo-b', "the second thread is in its own folder, not the first's")
+  // Reading each back — after the other thread has changed what was, before
+  // this fix, one shared `cwd` for the whole process — proves neither
+  // thread's folder was overwritten by starting the other.
+  const rereadFirst = await server.request('thread/read', { threadId: first.thread.id, includeTurns: false })
+  assert.equal(rereadFirst.thread.cwd, '/repo-a', "the first thread's folder survives a second thread/start")
+  const rereadSecond = await server.request('thread/read', { threadId: second.thread.id, includeTurns: false })
+  assert.equal(rereadSecond.thread.cwd, '/repo-b')
+})
+
+test('a resumed thread keeps its own working folder, not whatever a different thread active in this process last left', async (t) => {
+  const server = new CodexAppServer({
+    clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.0.0' },
+    binaryPath: FAKE,
+    env: {},
+  })
+  t.after(() => server.stop())
+  await server.start()
+  const first = await server.request('thread/start', { cwd: '/repo-a' })
+  await server.request('thread/start', { cwd: '/repo-b' })
+  // Resuming the first thread, naming no cwd of its own, must pick up
+  // `/repo-a` again — not `/repo-b`, which is merely whichever thread this
+  // process handled most recently.
+  const resumed = await server.request('thread/resume', { threadId: first.thread.id })
+  assert.equal(resumed.thread.cwd, '/repo-a')
+})
+
+test("the canned history rows keep their own folder, not whatever thread is live in this process (#917 review)", async (t) => {
+  const server = new CodexAppServer({
+    clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.0.0' },
+    binaryPath: FAKE,
+    env: {},
+  })
+  t.after(() => server.stop())
+  await server.start()
+  const before = await server.request('thread/list', { cursor: null, limit: 40, archived: false })
+  const canned = ['thread-2', 'thread-3', 'thread-4']
+  for (const id of canned) {
+    assert.equal(before.data.find((row) => row.id === id)?.cwd, '/w', `${id} starts in /w, before anything else runs`)
+  }
+  // A live thread, started and moved somewhere else entirely, must never
+  // leak into a listing of conversations this process never actually ran.
+  const started = await server.request('thread/start', { cwd: '/repo-moved' })
+  assert.equal(started.thread.cwd, '/repo-moved')
+  const after = await server.request('thread/list', { cursor: null, limit: 40, archived: false })
+  for (const id of canned) {
+    assert.equal(after.data.find((row) => row.id === id)?.cwd, '/w', `${id} still reads /w, after a live thread moved to /repo-moved`)
+  }
+})
+
+test('a cwd change through thread/settings/update is this thread’s own, read back by thread/read', async (t) => {
+  const server = new CodexAppServer({
+    clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.0.0' },
+    binaryPath: FAKE,
+    env: {},
+  })
+  t.after(() => server.stop())
+  await server.start()
+  const started = await server.request('thread/start', { cwd: '/repo-a' })
+  await server.request('thread/settings/update', { threadId: started.thread.id, cwd: '/repo-a-moved' })
+  const reread = await server.request('thread/read', { threadId: started.thread.id, includeTurns: false })
+  assert.equal(reread.thread.cwd, '/repo-a-moved', 'thread/read answers the folder the settings update actually set, not the one thread/start gave it')
+})
+
 test('control: the fake deprecates a whole read of a paginated thread where 0.155.0 does', async (t) => {
   const server = new CodexAppServer({
     clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.0.0' },

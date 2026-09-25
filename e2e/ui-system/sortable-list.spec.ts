@@ -124,3 +124,27 @@ test('Space picks a row up, the arrows carry it, and focus and the words follow 
   await expect(handle).toHaveAttribute('aria-pressed', 'false')
   expect(await order(page)).toEqual(['Then write the release note', 'Run the focused tests again', 'Open a pull request'])
 })
+
+/*
+ * A row's own actions are the sortable item's to reveal, not the row's to
+ * spell: hidden at rest, drawn under the pointer, and drawn while the focus is
+ * anywhere in the row — so a keyboard that reaches the grip finds the remove
+ * beside it before it has to guess where it is.
+ */
+test('a row’s actions come up with the pointer and with the keyboard’s focus', async ({ page }) => {
+  await page.goto('/design.html?view=queue')
+  await expect(list(page)).toBeVisible()
+  const rows = list(page).locator('[data-slot="sortable-row"]')
+  const actions = rows.nth(1).locator('[data-slot="sortable-actions"]')
+  await expect(actions).toHaveCSS('opacity', '0')
+
+  await rows.nth(1).hover()
+  await expect(actions).toHaveCSS('opacity', '1')
+  await page.mouse.move(0, 0)
+  await expect(actions).toHaveCSS('opacity', '0')
+
+  // From the keyboard: the grip takes the focus, and the actions beside it show.
+  await rows.nth(1).locator('[data-slot="sortable-handle"]').focus()
+  await expect(actions).toHaveCSS('opacity', '1')
+  await expect(rows.nth(0).locator('[data-slot="sortable-actions"]')).toHaveCSS('opacity', '0')
+})

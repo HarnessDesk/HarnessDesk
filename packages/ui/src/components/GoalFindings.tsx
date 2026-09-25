@@ -23,6 +23,7 @@ import {
 } from '../design'
 import { ReviewIcon } from './Icons'
 import { blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
+import { goalRunOf } from '../lib/goal-run'
 import { useSnapshot, useStore } from '../state/context'
 import { FindingDecision } from './FindingDecision'
 import { FindingDetail } from './FindingDetail'
@@ -54,7 +55,9 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const [publicationPending, setPublicationPending] = useState<boolean | null>(null)
   const [publicationError, setPublicationError] = useState<string | null>(null)
 
-  const run = [...snapshot.flowExecutions.values()].find((one) => one.goal === goal && one.findings)
+  const goalView = snapshot.goals.get(goal)
+  /* The same run the room's header reads, among those keeping findings (#890). */
+  const run = goalRunOf(goal, goalView, snapshot.flowExecutions, (one) => Boolean(one.findings))
   const runView = run ? snapshot.findingRuns.get(run.id) : undefined
 
   useEffect(() => {
@@ -71,7 +74,6 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
     void store.loadFindings(goal, next)
   }
 
-  const goalView = snapshot.goals.get(goal)
   const boundPr = goalHasBoundPr(snapshot.boardEvidence.get(goal))
   const confirmedPublication = goalView?.goal.findingPublication !== false
   const publicationOn = publicationPending ?? confirmedPublication

@@ -465,24 +465,48 @@ export class AgentWatch {
       const seen = await reach(above, follow.within)
       if (seen !== null) {
         const next = join(above, name)
-        this.#watch(follow, seen, false, (filename) => {
-          if (filename !== null && filename !== name) return
-          /* A bare name match is not proof that anything worth a notice
-             happened: watching a folder that already holds an entry of this
-             name — a link leading out, most of all — can report one on its
-             own the moment the watch attaches, nothing having changed at all.
-             So the name is looked at again, and only a *real* transition —
-             it now there, and read by the roster's rule — is a notice and a
-             reason to follow afresh. `next`, not `follow.target`: a walk more
-             than one level up asks about the name this ancestor is watching
-             for, not the final target several names further down, which a
-             real transition here need not have reached yet. */
+        /* A bare name match is not proof that anything worth a notice
+           happened: watching a folder that already holds an entry of this
+           name — a link leading out, most of all — can report one on its
+           own the moment the watch attaches, nothing having changed at all.
+           So the name is looked at again, and only a *real* transition —
+           it now there, and read by the roster's rule — is a notice and a
+           reason to follow afresh. `next`, not `follow.target`: a walk more
+           than one level up asks about the name this ancestor is watching
+           for, not the final target several names further down, which a
+           real transition here need not have reached yet. */
+        const noticeIfThere = (): void => {
           void reach(next, follow.within).then((now) => {
             if (now === null) return
+            /* `next` can be `follow.target` itself — a walk exactly one hop
+               above it, most of all — in which case "it resolves" is not
+               automatically "notice this": the walk-up was chosen precisely
+               because that same resolution covers the Agents folder from
+               above (a committed `.harnessdesk/agents -> ..`, chief among
+               them), and nothing about that has changed. Re-following an
+               unchanged refusal forever — once for every accepted event, and
+               once more for every `#follow` it starts — is exactly what a
+               bare "it resolves" check causes here; `#follow`'s own gate,
+               asked again, catches it the same way it did the first time. */
+            if (next === follow.target && coversAgentsFolder(now, follow)) return
             this.#poke(follow.scope)
             this.#refollow(follow)
           })
+        }
+        this.#watch(follow, seen, false, (filename) => {
+          if (filename !== null && filename !== name) return
+          noticeIfThere()
         })
+        /* The same look, run once right away: `next` can appear in the gap
+           between the `reach` above and this watcher actually attaching — a
+           concurrent `mkdir -p` landing there, most of all — and a fresh
+           watcher only ever reports a *future* event, never one that already
+           happened by the time it starts listening. Without this, a project
+           opened while something else is still creating its own
+           `.harnessdesk/agents` never gets picked up at all: the ancestor
+           watch is armed, the name it wants appears in the window it could
+           not see, and nothing after that ever tells it so. */
+        noticeIfThere()
         return
       }
       if (above === follow.within || dirname(above) === above) return

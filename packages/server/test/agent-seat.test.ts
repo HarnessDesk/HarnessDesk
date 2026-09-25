@@ -3372,6 +3372,9 @@ const writeProjectReviewer = async (project: string, prefer: string): Promise<vo
 test("through the host: this Mac's seats are set and cleared by one verb, and every window is told of each", async (t) => {
   const { harness, client, work } = await desk(t)
   await writeProjectReviewer(work, 'seatfake=big/high')
+  // This write is watched too, and told on its own settle timer, but
+  // `machineNotices` below counts only `project: null` — never this write's
+  // own `project: work` — so nothing here needs to wait it out first.
   const set = (await client.call('agent/seating/set', {
     id: 'reviewer',
     seats: [{ runtime: 'seatfake', model: 'small' }],

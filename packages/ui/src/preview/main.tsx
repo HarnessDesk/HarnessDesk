@@ -51,7 +51,14 @@ import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVE
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
 import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
+import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
+import { MessageQueue } from '../components/MessageQueue'
 import '../styles/app.css'
+
+const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
+/* Painted only when asked for: the fixture draws its two pictures at load. */
+const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
+const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -539,6 +546,50 @@ const Preview = () => {
           </PaneProvider>
         </div>
       </Frame>
+
+      {/* The composer holding everything it can at once, on a store of its
+          own: a model list that folds behind a filter, a build with a newer
+          one out, three messages waiting, and a sent message with two
+          pictures to open in the lightbox. Only on `preview.html?composer`:
+          a second conversation on the page would give every spec that finds
+          "the" model trigger or "the" transcript two of them. */}
+      {SHOW_COMPOSER && <>
+      <Frame title="Composer — its pickers, the queue and a picture">
+        <div className="h-[820px]" data-preview="composer">
+          <StoreProvider store={composerWaiting}>
+            <PaneProvider
+              scope={{
+                paneId: 'preview-composer' as never,
+                view: { kind: 'conversation', session: COMPOSER_SESSION_KEY } as never,
+                sessionKey: COMPOSER_SESSION_KEY,
+              }}
+            >
+              <Conversation
+                onChooseProject={() => {}}
+                onSignIn={() => {}}
+                onOpenUsage={() => {}}
+                onOpenRuntimes={() => {}}
+              />
+            </PaneProvider>
+          </StoreProvider>
+        </div>
+      </Frame>
+      <Frame title="Composer — a paused queue">
+        <div className="p-4" data-preview="queue-paused">
+          <StoreProvider store={composerPaused}>
+            <PaneProvider
+              scope={{
+                paneId: 'preview-queue' as never,
+                view: { kind: 'conversation', session: COMPOSER_SESSION_KEY } as never,
+                sessionKey: COMPOSER_SESSION_KEY,
+              }}
+            >
+              <MessageQueue />
+            </PaneProvider>
+          </StoreProvider>
+        </div>
+      </Frame>
+      </>}
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
         {/* The two right-dock panels, at the width the dock actually gives

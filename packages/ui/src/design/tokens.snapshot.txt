@@ -82,6 +82,7 @@
 --hd-code-selection = rgba(0, 92, 197, 0.18)
 --hd-code-string = rgb(23, 110, 62)
 --hd-code-text = 12px
+--hd-code-tracking-spaced = 0.18em
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
 --hd-column = 736px
@@ -123,13 +124,6 @@
 --hd-icon-target-sm = 20px
 --hd-input = rgb(255, 255, 255)
 --hd-input-shadow = none
---hd-lightbox-canvas = rgb(255, 255, 255)
---hd-lightbox-control = rgba(255, 255, 255, 0.12)
---hd-lightbox-control-hover = rgba(255, 255, 255, 0.24)
---hd-lightbox-foreground = rgba(255, 255, 255, 0.92)
---hd-lightbox-muted = rgba(255, 255, 255, 0.6)
---hd-lightbox-scrim = rgba(0, 0, 0, 0.78)
---hd-lightbox-shadow = 0 24px 60px rgba(0, 0, 0, 0.5)
 --hd-line = 21px
 --hd-line-display = 40px
 --hd-line-heading = 28px
@@ -535,6 +529,7 @@
 --hd-code-selection = rgba(56, 139, 253, 0.32)
 --hd-code-string = rgb(126, 231, 135)
 --hd-code-text = 12px
+--hd-code-tracking-spaced = 0.18em
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
 --hd-column = 736px
@@ -576,13 +571,6 @@
 --hd-icon-target-sm = 20px
 --hd-input = rgb(33, 33, 33)
 --hd-input-shadow = none
---hd-lightbox-canvas = rgb(255, 255, 255)
---hd-lightbox-control = rgba(255, 255, 255, 0.12)
---hd-lightbox-control-hover = rgba(255, 255, 255, 0.24)
---hd-lightbox-foreground = rgba(255, 255, 255, 0.92)
---hd-lightbox-muted = rgba(255, 255, 255, 0.6)
---hd-lightbox-scrim = rgba(0, 0, 0, 0.78)
---hd-lightbox-shadow = 0 24px 60px rgba(0, 0, 0, 0.5)
 --hd-line = 21px
 --hd-line-display = 40px
 --hd-line-heading = 28px
@@ -992,6 +980,7 @@
 --hd-code-selection = rgba(0, 92, 197, 0.18)
 --hd-code-string = rgb(23, 110, 62)
 --hd-code-text = 12px
+--hd-code-tracking-spaced = 0.18em
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
 --hd-column = 736px
@@ -1036,13 +1025,6 @@
 --hd-input-shadow = 0 1px 2px rgba(0, 0, 0, 0.05)
 --hd-label-space = 20px
 --hd-label-weight = 500
---hd-lightbox-canvas = rgb(255, 255, 255)
---hd-lightbox-control = rgba(255, 255, 255, 0.12)
---hd-lightbox-control-hover = rgba(255, 255, 255, 0.24)
---hd-lightbox-foreground = rgba(255, 255, 255, 0.92)
---hd-lightbox-muted = rgba(255, 255, 255, 0.6)
---hd-lightbox-scrim = rgba(0, 0, 0, 0.78)
---hd-lightbox-shadow = 0 24px 60px rgba(0, 0, 0, 0.5)
 --hd-line = 21px
 --hd-line-display = 40px
 --hd-line-heading = 28px
@@ -1457,6 +1439,7 @@
 --hd-code-selection = rgba(56, 139, 253, 0.32)
 --hd-code-string = rgb(126, 231, 135)
 --hd-code-text = 12px
+--hd-code-tracking-spaced = 0.18em
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
 --hd-column = 736px
@@ -1501,13 +1484,6 @@
 --hd-input-shadow = 0 0 0 1px rgba(255, 255, 255, 0.04)
 --hd-label-space = 20px
 --hd-label-weight = 500
---hd-lightbox-canvas = rgb(255, 255, 255)
---hd-lightbox-control = rgba(255, 255, 255, 0.12)
---hd-lightbox-control-hover = rgba(255, 255, 255, 0.24)
---hd-lightbox-foreground = rgba(255, 255, 255, 0.92)
---hd-lightbox-muted = rgba(255, 255, 255, 0.6)
---hd-lightbox-scrim = rgba(0, 0, 0, 0.78)
---hd-lightbox-shadow = 0 24px 60px rgba(0, 0, 0, 0.5)
 --hd-line = 21px
 --hd-line-display = 40px
 --hd-line-heading = 28px

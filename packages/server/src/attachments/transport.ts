@@ -41,7 +41,22 @@ const MAX_STDERR_CHARS = 8 * 1024
 /** How long a server has to exit after SIGTERM before it is killed outright. */
 const KILL_GRACE_MS = 2_000
 
-export class McpTransportError extends Error {}
+export class McpTransportError extends Error {
+  /**
+   * Set only when this error is the one, specific rejection a per-request
+   * timer produces by firing: never for a protocol error, a crash, or an
+   * abort. `listStdioMcpServerTools` uses it to tell "this round trip's own
+   * clock ran out" apart from every other way a request can fail — a
+   * structural check, not a second `Date.now()` reading raced against the
+   * first, which is exactly the race that let a page's own "did not answer"
+   * message escape in place of the listing's one overall deadline message.
+   */
+  readonly timedOut: boolean
+  constructor(message: string, options: { readonly timedOut?: boolean } = {}) {
+    super(message)
+    this.timedOut = options.timedOut === true
+  }
+}
 
 /**
  * The last `limit` characters of a stream and nothing more: a server that
@@ -197,7 +212,7 @@ async function withStdioMcpServer<T>(
       }
       const timer = setTimeout(() => {
         pending.delete(id)
-        reject(new McpTransportError(`${spec.name} did not answer ${method} within ${timeoutMs}ms.`))
+        reject(new McpTransportError(`${spec.name} did not answer ${method} within ${timeoutMs}ms.`, { timedOut: true }))
       }, timeoutMs)
       pending.set(id, {
         resolve: (message) => {
@@ -290,7 +305,14 @@ export async function listStdioMcpServerTools(
         try {
           page = await request('tools/list', cursor !== undefined ? { cursor } : {}, remaining)
         } catch (error) {
-          if (Date.now() >= deadline) throw late()
+          // This page's own request was given exactly the time remaining
+          // before the listing's overall deadline, so its timer firing IS
+          // the deadline being reached — never a second, separately-timed
+          // event to race against a `Date.now()` re-check. Comparing wall
+          // clocks here (instead of trusting the structural `timedOut` flag)
+          // is exactly what let a page's own "did not answer" message win
+          // that race under load and escape in place of the deadline's own.
+          if (error instanceof McpTransportError && error.timedOut) throw late()
           throw error
         }
         const rawTools = isRecord(page) && Array.isArray(page['tools']) ? page['tools'] : []

@@ -1,17 +1,14 @@
 import { Button } from '../ui/button'
 import { Children, createContext, createElement, isValidElement, useContext, useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 
-import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
-
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
-import { AlertIcon, ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, DiffIcon, FilterIcon, SearchIcon, StaleIcon } from '../../components/Icons'
+import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, FilterIcon, SearchIcon, StaleIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { IconTile } from '../ui/icon-tile'
 import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import { GroupLabel } from '../ui/group-label'
 import { useInPageSection } from '../ui/section'
@@ -46,7 +43,8 @@ export const Dot = ({
   className,
   ...props
 }: HTMLAttributes<HTMLSpanElement> & {
-  state: Readiness
+  /** Absent: the neutral light — a state that is neither good nor bad news. */
+  state?: Readiness
   pulse?: boolean
   variant?: 'default' | 'navigation' | 'presence'
   /** The surface a presence light's tile stands on. */
@@ -56,7 +54,7 @@ export const Dot = ({
     {...props}
     className={cx(styles.dot, className)}
     data-slot="dot"
-    data-state={state}
+    {...(state ? { 'data-state': state } : {})}
     data-variant={variant}
     {...(variant === 'presence' ? { 'data-ground': ground } : {})}
     {...(pulse ? { 'data-pulse': '' } : {})}
@@ -94,269 +92,6 @@ export const Spinner = ({ className, tone = 'neutral', size = 'default', ...prop
     {...props}
   />
 )
-
-const STATE_STRIP_FILL: Record<Readiness, string> = {
-  ready: 'bg-(--hd-success)',
-  signin: 'bg-(--hd-primary)',
-  limit: 'bg-(--hd-warning)',
-  broken: 'bg-(--hd-danger)',
-  available: 'bg-(--hd-border-emphasis)',
-}
-
-/** A compact whole-roster reading: one segment per agent, in readiness order. */
-export const StateStrip = ({ states, className }: { states: readonly Readiness[]; className?: string }) => {
-  const counts = new Map<Readiness, number>()
-  for (const state of states) counts.set(state, (counts.get(state) ?? 0) + 1)
-  const named = ([
-    ['ready', 'ready'],
-    ['signin', 'needs sign-in'],
-    ['limit', 'at a limit'],
-    ['broken', 'unavailable'],
-    ['available', 'not added'],
-  ] as const)
-    .flatMap(([state, label]) => counts.has(state) ? [`${counts.get(state)} ${label}`] : [])
-    .join(', ')
-  return (
-    <span
-      data-slot="state-strip"
-      role="img"
-      aria-label={`${states.length} agents: ${named}`}
-      className={cx('flex gap-1', className)}
-    >
-      {states.map((state, index) => (
-        <span
-          key={`${state}:${index}`}
-          data-state={state}
-          aria-hidden="true"
-          className={cx('h-1 flex-1 rounded-(--hd-radius-2xs)', STATE_STRIP_FILL[state])}
-        />
-      ))}
-    </span>
-  )
-}
-
-/** One operation or account state: judged mark, title, and the reason beneath it. */
-export const StatusSummary = ({
-  icon,
-  title,
-  description,
-  tone = 'neutral',
-  className,
-}: {
-  icon: ReactNode
-  title: ReactNode
-  description?: ReactNode
-  tone?: Tone
-  className?: string
-}) => (
-  <div data-slot="status-summary" data-tone={tone} className={cx('flex items-center gap-3', className)}>
-    <IconTile size="default" shape="round" tone={tone}>{icon}</IconTile>
-    <span className="flex min-w-0 flex-col gap-px">
-      <span data-slot="status-summary-title" className="text-base font-medium text-(--hd-foreground)">
-        {title}
-      </span>
-      {description != null ? (
-        <span data-slot="status-summary-description" className="text-sm leading-(--hd-line-sm) text-(--hd-secondary-foreground)">
-          {description}
-        </span>
-      ) : null}
-    </span>
-  </div>
-)
-
-/** The roster column of an account-access sheet. */
-export const AccessRail = ({ className, ...props }: ComponentProps<'nav'>) => (
-  <nav
-    data-slot="access-rail"
-    className={cx('flex min-h-0 flex-col border-r border-(--hd-border) bg-(--hd-sidebar-plate) max-[720px]:border-r-0 max-[720px]:border-b', className)}
-    {...props}
-  />
-)
-
-export const AccessRailHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
-  <div
-    data-slot="access-rail-header"
-    className={cx('shrink-0 border-b border-(--hd-border) p-3', className)}
-    {...props}
-  />
-)
-
-export const AccessRailList = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
-  <div
-    data-slot="access-rail-list"
-    className={cx('min-h-0 flex-1 overflow-y-auto p-2', className)}
-    {...props}
-  />
-)
-
-export const AccessRailFooter = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
-  <div
-    data-slot="access-rail-footer"
-    className={cx('shrink-0 border-t border-(--hd-border) px-3 py-2.5', className)}
-    {...props}
-  />
-)
-
-/** The scrolled work pane beside an access roster. */
-export const AccessDetail = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
-  <div
-    data-slot="access-detail"
-    className={cx('flex min-h-0 flex-col overflow-y-auto px-6 pb-6 pt-5', className)}
-    {...props}
-  />
-)
-
-/** A labelled path or consequence in an account-access flow. */
-export const AccessFact = ({
-  label,
-  value,
-  children,
-  className,
-}: {
-  label: ReactNode
-  value?: ReactNode
-  children?: ReactNode
-  className?: string
-}) => (
-  <div data-slot="access-fact" className={cx('mb-4 flex max-w-130 flex-col items-start gap-1.5', className)}>
-    <Text role="muted">{label}</Text>
-    {value != null ? (
-      <CodeText
-        as="code"
-        className="max-w-full select-all rounded-(--hd-radius-sm) bg-(--hd-muted) px-2 py-1 text-sm leading-(--hd-line-sm) text-(--hd-secondary-foreground) [overflow-wrap:anywhere]"
-      >
-        {value}
-      </CodeText>
-    ) : null}
-    {children != null ? <Text role="muted">{children}</Text> : null}
-  </div>
-)
-
-/** A one-time code: verbatim, selectable, and visually separate from prose. */
-export const AccessCode = ({ className, ...props }: ComponentProps<'div'>) => (
-  <div
-    data-slot="access-code"
-    className={cx(
-      'select-all rounded-(--hd-radius) bg-(--hd-muted) p-4 text-center font-mono text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[0.18em]',
-      className,
-    )}
-    {...props}
-  />
-)
-
-const REACH_INK: Partial<Record<ReachState, string>> = {
-  hollow: 'text-(--hd-warning-ink)',
-  rejected: 'text-(--hd-warning-ink)',
-  differs: 'text-(--hd-warning-ink)',
-  unscanned: 'text-(--hd-warning-ink)',
-  unhostable: 'text-(--hd-muted-foreground)',
-}
-
-/** One state in the Library matrix, distinguished by shape before colour. */
-export const LibraryReachMark = ({
-  state,
-  label,
-  placement = 'inline',
-  className,
-  ...props
-}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
-  state: ReachState
-  label: string
-  placement?: 'inline' | 'cell'
-}) => {
-  let mark: ReactNode
-  if (state === 'hollow' || state === 'rejected') mark = <AlertIcon size={13} />
-  else if (state === 'differs') mark = <DiffIcon size={13} />
-  else if (state === 'unhostable') mark = <CrossIcon size={13} />
-  else if (state === 'unscanned') mark = <span className="size-2 rounded-full border border-(--hd-warning-ink)" />
-  else if (state === 'stale') mark = <span className="size-1.5 rounded-full bg-(--hd-muted-foreground)" />
-  else if (state === 'reaches') mark = <span className="size-1.5 rounded-full bg-(--hd-success)" />
-  else if (state === 'off') {
-    mark = (
-      <span className="relative inline-flex size-3 items-center justify-center">
-        <span className="size-1.5 rounded-full bg-(--hd-muted-foreground)" />
-        <span className="absolute h-px w-3 bg-(--hd-muted-foreground)" />
-      </span>
-    )
-  } else mark = <span className="h-px w-2 bg-(--hd-border-emphasis)" />
-
-  return (
-    <span
-      {...props}
-      data-slot="library-reach-mark"
-      data-state={state}
-      data-placement={placement}
-      role="img"
-      aria-label={label}
-      className={`inline-flex shrink-0 items-center justify-center ${placement === 'cell' ? 'h-(--hd-control-h) w-full' : 'size-3.5'} ${REACH_INK[state] ?? 'text-(--hd-muted-foreground)'} ${className ?? ''}`}
-    >
-      {mark}
-    </span>
-  )
-}
-
-/** An agent's identity mark, with reach expressed only by the plate around it. */
-export const LibraryReachFace = ({
-  state,
-  label,
-  children,
-  className,
-  ...props
-}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
-  state: ReachState
-  label: string
-  children?: ReactNode
-}) => (
-  <span
-    {...props}
-    data-slot="skill-reach"
-    data-state={state}
-    {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
-    role="img"
-    aria-label={label}
-    className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full text-(--hd-muted-foreground) opacity-40 data-[state=reaches]:bg-(--hd-muted) data-[state=reaches]:text-(--hd-foreground) data-[state=reaches]:opacity-100 data-[problem]:bg-(--hd-warning-dim) data-[problem]:text-(--hd-warning-ink) data-[problem]:opacity-100 ${className ?? ''}`}
-  >
-    {children}
-  </span>
-)
-
-type LibraryOperationState = 'planned' | 'refuse' | 'done' | 'failed' | 'skipped'
-
-/** The list's floor keeps a one-change plan reading as a composed preview. */
-export const LibraryOperationList = ({
-  children,
-  className,
-  ...props
-}: HTMLAttributes<HTMLDivElement>) => (
-  <div
-    {...props}
-    data-slot="library-operation-list"
-    role="list"
-    className={`flex min-h-18 flex-col ${className ?? ''}`}
-  >
-    {children}
-  </div>
-)
-
-/** One planned operation or result, using the glyph the Library already taught. */
-export const LibraryOperationMark = ({ state }: { state: LibraryOperationState }) => {
-  const mark =
-    state === 'refuse' ? <AlertIcon size={13} />
-      : state === 'done' ? <CheckIcon size={13} />
-        : state === 'failed' ? <CrossIcon size={13} />
-          : state === 'skipped' ? <span className="opacity-60">·</span>
-            : <span className="size-1.5 rounded-full bg-current opacity-70" />
-  return (
-    <span
-      data-slot="library-operation-mark"
-      data-state={state}
-      aria-hidden="true"
-      className="inline-flex w-4 shrink-0 items-center justify-center self-center text-(--hd-muted-foreground) data-[state=done]:text-(--hd-success) data-[state=failed]:text-(--hd-warning-ink) data-[state=refuse]:text-(--hd-warning-ink)"
-    >
-      {mark}
-    </span>
-  )
-}
 
 type ChipBaseProps = {
   label?: ReactNode
@@ -586,11 +321,6 @@ export const NavigationList = ({ className, ...props }: ComponentProps<'div'>) =
 /** A keyboard name shown as a physical key rather than explanatory copy. */
 export const Keycap = ({ className, ...props }: ComponentProps<'kbd'>) => (
   <kbd data-slot="keycap" className={cx(styles.keycap, className)} {...props} />
-)
-
-/** The exact part of a search result that matched the query. */
-export const SearchMatch = ({ className, ...props }: ComponentProps<'mark'>) => (
-  <mark data-slot="search-match" className={cx(styles.searchMatch, className)} {...props} />
 )
 
 /** What `Field` hands its control: the id its label points at, and the wiring to its note. */
@@ -885,6 +615,13 @@ const TEXT_ROLE_INK = {
   prose: 'text-(--hd-foreground)',
 } as const
 
+/** A role's own weight, or one of the scale's rungs in its place. */
+const TEXT_WEIGHT = {
+  normal: 'font-normal',
+  medium: 'font-medium',
+  semibold: 'font-semibold',
+} as const
+
 const TEXT_INK = {
   primary: 'text-(--hd-foreground)',
   secondary: 'text-(--hd-secondary-foreground)',
@@ -894,7 +631,7 @@ const TEXT_INK = {
 
 export type TextRole = keyof typeof TEXT_ROLE
 export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
-  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'h3' | 'h4' | 'summary' | 'label' | 'li'
+  as?: 'span' | 'div' | 'p' | 'strong' | 'b' | 'h2' | 'h3' | 'h4' | 'summary' | 'label' | 'li'
   children: ReactNode
   role?: TextRole
   tone?: Tone
@@ -902,6 +639,11 @@ export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
   tint?: Tint
   /** Preserve a role's size and weight while selecting one of the three ink tiers. */
   ink?: keyof typeof TEXT_INK
+  /**
+   * Keep the role's size and ink on a different rung of the weight scale — the
+   * words a search matched, lifted inside the line they were found in.
+   */
+  weight?: keyof typeof TEXT_WEIGHT
   align?: 'start' | 'center' | 'end'
   truncate?: boolean
   /** Put the ellipsis at the beginning, so a path keeps the filename end. */
@@ -921,6 +663,7 @@ export const Text = ({
   tone,
   tint,
   ink,
+  weight,
   align = 'start',
   truncate,
   truncateFrom,
@@ -939,10 +682,11 @@ export const Text = ({
       ...(tone ? { 'data-tone': tone } : {}),
       ...(tint ? { 'data-tint': tint } : {}),
       ...(ink ? { 'data-ink': ink } : {}),
+      ...(weight ? { 'data-weight': weight } : {}),
       ...(truncateFrom ? { 'data-truncate-from': truncateFrom } : {}),
       ...(done ? { 'data-done': '' } : {}),
       className: cx(
-        TEXT_ROLE[role],
+        weight ? TEXT_ROLE[role].replace(/\bfont-(?:normal|medium|semibold)\b/, TEXT_WEIGHT[weight]) : TEXT_ROLE[role],
         tone
           ? inkTone({ tone })
           : tint
@@ -973,16 +717,20 @@ export const Text = ({
  */
 export const TextMark = ({
   role = 'navigation',
+  tone,
   className,
   children,
 }: {
   role?: TextRole
+  /** A mark that judges — a finished step, a failed one — takes its tone's ink; every other mark is muted. */
+  tone?: Tone
   className?: string
   children: ReactNode
 }) => (
   <Text
     role={role}
     ink="muted"
+    {...(tone ? { tone } : {})}
     aria-hidden="true"
     data-mark=""
     className={cx('inline-flex w-3 shrink-0 items-center justify-center', className)}
@@ -1459,10 +1207,6 @@ export const DetailMark = ({ children, className }: { children: ReactNode; class
   <span className={cx(styles.detailMark, className)}>{children}</span>
 )
 
-export const SectionToggle = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={cx(styles.sectionToggle, className)}>{children}</span>
-)
-
 /**
  * Code and output in the code face.
  *
@@ -1481,6 +1225,7 @@ export const CodeText = ({
   block = false,
   ground = 'none',
   wrap = false,
+  spaced = false,
   className,
   children,
   ...props
@@ -1492,6 +1237,8 @@ export const CodeText = ({
   ground?: 'none' | 'muted'
   /** Fold a block's long lines; only a `block` takes it. */
   wrap?: boolean
+  /** Space the characters, for a code read aloud and typed elsewhere — a one-time code. */
+  spaced?: boolean
   children: ReactNode
 }) => createElement(as, {
   ...props,
@@ -1500,6 +1247,7 @@ export const CodeText = ({
   ...(block ? { 'data-block': '' } : {}),
   ...(block && ground !== 'none' ? { 'data-ground': ground } : {}),
   ...(block && wrap ? { 'data-wrap': '' } : {}),
+  ...(spaced ? { 'data-spaced': '' } : {}),
   className: cx(styles.mono, size === 'inherit' && styles.monoInherit, block && styles.monoBlock, className),
 }, children)
 
@@ -1511,10 +1259,6 @@ export const Monogram = ({ children, className }: { children: ReactNode; classNa
 /** Compact facts whose dot separators belong to the role, not to each caller. */
 export const MetaList = ({ children, className }: { children: ReactNode; className?: string }) => (
   <span data-slot="meta-list" className={cx(styles.metaList, className)}>{children}</span>
-)
-
-export const WireText = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={cx(styles.wire, className)}>{children}</span>
 )
 
 export const AccountMark = ({

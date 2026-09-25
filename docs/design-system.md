@@ -350,13 +350,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-surface-radius` | `14px` |
 | `--hd-surface-shadow` | `0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)` |
 | `--hd-scrim` | `rgba(7, 9, 14, 0.28)` |
-| `--hd-lightbox-scrim` | `rgba(0, 0, 0, 0.78)` |
-| `--hd-lightbox-canvas` | `rgb(255, 255, 255)` |
-| `--hd-lightbox-foreground` | `rgba(255, 255, 255, 0.92)` |
-| `--hd-lightbox-muted` | `rgba(255, 255, 255, 0.6)` |
-| `--hd-lightbox-control` | `rgba(255, 255, 255, 0.12)` |
-| `--hd-lightbox-control-hover` | `rgba(255, 255, 255, 0.24)` |
-| `--hd-lightbox-shadow` | `0 24px 60px rgba(0, 0, 0, 0.5)` |
 | `--hd-external-canvas` | `rgb(255, 255, 255)` |
 | `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
 | `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
@@ -1153,9 +1146,20 @@ back where it started.
 
 `packages/ui/src/design/patterns/Lightbox.tsx`
 
-The canonical full-window image viewer. Base UI owns the modal lifecycle,
-focus containment/return, outside press, portal and topmost Escape policy;
-this pattern owns gallery navigation and image metadata.
+The canonical image viewer: a picture opened to the size of the window.
+
+It is a dialog showing an image, and it is drawn as one — the dialog's own
+surface, scrim and close, the picture's name as the dialog's title and its
+size as the dialog's description, and the gallery's steps as the floating
+buttons every control over content wears. Nothing here draws a look of its
+own. The version this replaces set a black scrim, white words and
+translucent white buttons in a stylesheet of its own, and the dialog's
+utilities outranked every one of them: in the light theme the name, the
+size and both arrows were white on a white sheet.
+
+Base UI owns the modal lifecycle, focus containment and return, outside
+press, portal and topmost Escape policy; this owns the gallery's position
+and the picture's facts.
 
 ### `Menu`
 
@@ -1177,33 +1181,6 @@ it after the last.
 `packages/ui/src/design/patterns/Menu.tsx`
 
 A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
-
-### `MessageQueueFrame`
-
-`packages/ui/src/design/patterns/MessageQueue.tsx`
-
-The messages held between the transcript and the composer.
-
-### `MessageQueueHeader`
-
-`packages/ui/src/design/patterns/MessageQueue.tsx`
-
-The queue's head: a toolbar — what is waiting, then what can be done about it.
-
-### `MessageQueueList`
-
-`packages/ui/src/design/patterns/MessageQueue.tsx`
-
-The queue is a sortable list (`design/ui/sortable-list`): its order, its
-handle, its drop line, its keys and its announcement are that part's. What
-is the queue's own is only its rows' inset and hover ground. The sentence a
-move is announced in sits beside the list, since an `ol` holds only rows.
-
-### `MessageQueueActions`
-
-`packages/ui/src/design/patterns/MessageQueue.tsx`
-
-A row's own actions, drawn while the row is under the pointer or holds the focus.
 
 ### `DialogHead`
 
@@ -1337,66 +1314,6 @@ than stuck on it.
 
 A running operation whose words live beside it.
 
-### `StateStrip`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-A compact whole-roster reading: one segment per agent, in readiness order.
-
-### `StatusSummary`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-One operation or account state: judged mark, title, and the reason beneath it.
-
-### `AccessRail`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The roster column of an account-access sheet.
-
-### `AccessDetail`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The scrolled work pane beside an access roster.
-
-### `AccessFact`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-A labelled path or consequence in an account-access flow.
-
-### `AccessCode`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-A one-time code: verbatim, selectable, and visually separate from prose.
-
-### `LibraryReachMark`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-One state in the Library matrix, distinguished by shape before colour.
-
-### `LibraryReachFace`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-An agent's identity mark, with reach expressed only by the plate around it.
-
-### `LibraryOperationList`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The list's floor keeps a one-change plan reading as a composed preview.
-
-### `LibraryOperationMark`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-One planned operation or result, using the glyph the Library already taught.
-
 ### `Chip`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1453,12 +1370,6 @@ The inset around a list of destination rows.
 `packages/ui/src/design/patterns/Settings.tsx`
 
 A keyboard name shown as a physical key rather than explanatory copy.
-
-### `SearchMatch`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The exact part of a search result that matched the query.
 
 ### `Field`
 
@@ -1715,8 +1626,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 395 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
-| `singleAreaPrimitive` | 45 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
+| `screenAppearance` | 247 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
+| `singleAreaPrimitive` | 44 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |

@@ -36,21 +36,11 @@ export {
   Dot,
   Spinner,
   type SpinnerProps,
-  StateStrip,
-  StatusSummary,
-  AccessRail,
-  AccessRailHeader,
-  AccessRailList,
-  AccessRailFooter,
-  AccessDetail,
-  AccessFact,
-  AccessCode,
   Chip,
   type ChipProps,
   Search,
   NavigationList,
   Keycap,
-  SearchMatch,
   NavigationGroupHeader,
   Field,
   type FieldControl,
@@ -73,21 +63,15 @@ export {
   CodeText,
   Monogram,
   MetaList,
-  LibraryOperationList,
-  LibraryOperationMark,
-  LibraryReachFace,
-  LibraryReachMark,
   DetailMark,
   PageDescription,
   RowInput,
   RowMark,
   RowValue,
-  SectionToggle,
   Text,
   TextMark,
   type TextProps,
   type TextRole,
-  WireText,
 } from './patterns/Settings'
 export { Button, buttonVariants } from './ui/button'
 export { DisclosureChevron } from './ui/disclosure-chevron'
@@ -126,7 +110,7 @@ export {
   AppWindowSurface,
 } from './patterns/AppWindow'
 export * from './patterns/InspectorPanel'
-export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue } from './patterns/Change'
+export { ChangeStats, FileState, PatchHeader, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
 export {
@@ -165,28 +149,17 @@ export {
   Popover,
   dismissOverlays,
   PopoverGroupLabel,
-  PopoverDim,
-  PopoverFilterInput,
   PopoverOption,
   PopoverOptionBody,
   PopoverOptionHint,
   PopoverOptionLabel,
   PopoverOptionLive,
   PopoverOptionMark,
-  PopoverStrong,
-  PopoverUpdateNote,
   PopoverSurface,
   useDismissOverlays,
   useEscapeSurface,
   type DismissDetail,
 } from './patterns/Popover'
-export {
-  MessageQueueActions,
-  MessageQueueFrame,
-  MessageQueueHeader,
-  MessageQueueList,
-  MessageQueueRow,
-} from './patterns/MessageQueue'
 export * from './ui'
 export {
   ChannelMessage,

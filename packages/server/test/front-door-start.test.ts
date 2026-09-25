@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
+import { CodexRuntime } from '@harnessdesk/adapter-codex'
 import {
   runtimeId, sessionId, SeatRefusedError,
   type CeilingLevel, type FlowExecution, type FlowSeat, type FrontDoorPreview, type FlowPreview, type SeatRecord, type Session,
@@ -104,6 +106,78 @@ test('ordinary start keeps watched semantics', async (t) => {
   assert.deepEqual(view.members[0]?.ceiling, { level: 'read', hold: 'asked' })
   assert.equal(plain.sessions.size, 1)
   assert.ok(sent.some((one) => one.startsWith('fake ')), 'the brief was handed over')
+})
+
+// The same fake `packages/server/test/agent-seat.test.ts` runs the real Codex
+// adapter against.
+const CODEX_FAKE = fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url))
+
+/*
+ * `HoldFake` above proves the mechanism; this proves it against a real
+ * adapter and its own fake process. Every shipped shape's `grant` is `read`
+ * or `edit` (`packages/server/flows/*.yml`), both levels `CODEX_CEILINGS`
+ * declares (`packages/adapter-codex/src/runtime.ts`), so a front-door start
+ * seating Codex for either should hold — not just ask — exactly as it would
+ * for the real binary.
+ *
+ * This is not, by itself, the fake-agent rig: `script/shots/seed.mjs`
+ * registers every cast member, `codex` included, as the same uniform ACP
+ * fixture (`script/shots/agent.mjs`), which — like every ACP adapter,
+ * documented in `docs/agent-capabilities.md` — gives no reliable ceiling
+ * read-back at all. `script/shots-front-door.test.mjs` is the test that
+ * proves the rig itself: staged with the real `seed.mjs`, in the one existing
+ * mode (`HD_SHOTS_NATIVE_CODEX=1`) where the reserved `codex` id is freed for
+ * the real built-in adapter — over this same fixture — to answer instead.
+ * Refs #927: making that the rig's own default, or building the front-door
+ * scene the issue's routing comment also asks for, is screenshot-rig work
+ * this lane leaves alone.
+ */
+test('a front-door start over the real Codex adapter and its fake seats every role held (#927)', async (t) => {
+  const stateDir = tempDir('hd-front-door-codex-state-')
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+    builtinAgents: tempDir('hd-front-door-codex-builtins-'),
+    catalogRefreshMs: 0,
+  })
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test' })
+  host.register(runtime)
+  await host.start()
+  await runtime.start()
+  t.after(async () => {
+    await runtime.dispose()
+    await host.dispose()
+  })
+  const work = tempDir('hd-front-door-codex-work-')
+  await host.call('workspace/open', { path: work })
+  await mkdir(join(stateDir, 'agents', 'reviewer'), { recursive: true })
+  await writeFile(
+    join(stateDir, 'agents', 'reviewer', 'AGENT.md'),
+    '---\nname: Reviewer\nceiling: read\nanswers: [done]\nprefer: [codex]\n---\nRead the diff.\n',
+    'utf8',
+  )
+
+  // The dry preview already reads back held — never merely asked — because
+  // Codex's own control set (`permissions`, `approvalsReviewer`) is one the
+  // fake's `thread/settings/update` genuinely applies and reports back.
+  const preview = (await host.call('authoring/start/preview', {
+    context: { kind: 'project', root: work },
+    source: SHAPE,
+    vars: {},
+  })) as FrontDoorPreview
+  assert.ok(preview.flow.token, JSON.stringify(preview.flow.problems))
+  assert.deepEqual(preview.flow.seats[0]?.plan.ceiling, { level: 'read', hold: 'held' })
+
+  const run = (await host.call('flow/start-goal', {
+    root: work,
+    source: SHAPE,
+    token: preview.flow.token,
+    sentence: preview.sentence,
+  })) as FlowExecution
+  assert.equal(run.state, 'running', run.reason ?? '')
+  const view = (await host.call('goal/read', { goal: run.goal })) as { members: readonly SeatRecord[] }
+  assert.equal(view.members.length, 1)
+  assert.deepEqual(view.members[0]?.ceiling, { level: 'read', hold: 'held' })
 })
 
 /** `seatAgent` itself, on the host's seating path, with the hold, the Seat record and the brief as ports a test drives. */

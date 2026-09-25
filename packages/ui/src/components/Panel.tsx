@@ -6,7 +6,6 @@
  */
 export {
   Counts,
-  DayLabel,
   GroupLine,
   PanelBody,
   PanelEmpty,

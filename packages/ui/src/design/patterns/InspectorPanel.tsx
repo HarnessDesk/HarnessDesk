@@ -34,13 +34,12 @@ const PanelBody = ({ children }: { children: ReactNode }) => (
   </div>
 )
 
+/** The quiet facts line under the list: a bar whose two readings are the meta role. */
 const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => (
-  <Bar
-    data-slot="inspector-footer"
-    rule="top"
-    className="text-xs leading-(--hd-line-xs) text-(--hd-muted-foreground)"
-  >
-    {left}<span className="flex-1" />{right}
+  <Bar data-slot="inspector-footer" rule="top">
+    <Text role="meta">{left}</Text>
+    <span className="flex-1" />
+    <Text role="meta">{right}</Text>
   </Bar>
 )
 
@@ -61,15 +60,6 @@ const GroupLine = ({ left, right, sticky = false }: { left: ReactNode; right?: R
     <Text role="muted" ink="secondary">{left}</Text>
     <span className="flex-1" />
     {right != null && <Text role="meta">{right}</Text>}
-  </div>
-)
-
-const DayLabel = ({ children }: { children: ReactNode }) => (
-  <div
-    data-slot="inspector-day"
-    className="px-2 pt-2.5 pb-1 text-sm leading-(--hd-line-sm) text-(--hd-secondary-foreground)"
-  >
-    {children}
   </div>
 )
 
@@ -238,7 +228,6 @@ const PanelPill = ({
 
 export {
   Counts,
-  DayLabel,
   GroupLine,
   PanelBody,
   PanelEmpty,
