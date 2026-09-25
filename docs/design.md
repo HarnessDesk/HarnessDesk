@@ -778,7 +778,7 @@ these is opening every tab in a browser.
 ### What the audit refuses
 
 `pnpm design:audit --strict` holds eighteen categories at a baseline.
-Seventeen are at zero; `screenAppearance` sits at 840 declarations —
+Seventeen are at zero; `screenAppearance` sits at 607 declarations —
 appearance a screen still draws for itself instead of composing it, in
 whichever of three spellings it chose.
 
@@ -812,19 +812,37 @@ only `empty`; the declaration says what the screen actually owns. Markdown's
 prose ratio ladder and the diff viewer remain named specialized-renderer
 exemptions, in both the stylesheet and the `.tsx` that renders each.
 
-The same boundary reaches into `design/` itself. An exported part there whose
-every screen consumer sits in one screen area — one file, or a named
-multi-file family such as Git or the conversation transcript — is that
-screen's own appearance parked in the design folder rather than composed, so
-its CSS-module rules, its own Tailwind utilities and its own inline styles
-are charged to `screenAppearance` the same way a screen's are; an export two
-or more areas reach for stays uncharged, because moving it would break
-whichever area lost it. Consumers are resolved per exported name, not per
-file: one export used everywhere does not make a single-area sibling in the
-same module look shared, and a re-export — `export *`, a renamed named
-export, or a shim entirely outside `design/` forwarding a name back out —
-is followed to wherever the name is actually declared before its consumers
-are counted.
+The same boundary reaches into `design/patterns/` — typed, product-specific
+composition contracts — but not into `design/ui/`, the shadcn-registry
+primitive layer. A pattern export whose every screen consumer sits in one
+screen area — one file, or a named multi-file family such as Git or the
+conversation transcript — is that screen's own appearance parked in the
+design folder rather than composed, so its CSS-module rules, its own
+Tailwind utilities and its own inline styles are charged to
+`screenAppearance` the same way a screen's are; an export two or more areas
+reach for stays uncharged, because moving it would break whichever area lost
+it. Consumers are resolved per exported name, not per file: one export used
+everywhere does not make a single-area sibling in the same module look
+shared, and a re-export — `export *`, a renamed named export, or a shim
+entirely outside `design/` forwarding a name back out — is followed to
+wherever the name is actually declared before its consumers are counted. A
+part imported by *another design part* inherits that part's own resolved
+reach, cycles guarded, rather than stopping at the design file that happens
+to import it directly — `RailSection` has one direct screen importer
+(Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+and `AppWindowRailScroll`, which the app's shared window shell mounts for
+Settings, the Agents window and more, so `RailSection` reads as several areas
+rather than Sidebar's alone.
+
+`design/ui/`'s primitives — the chart kit, `Board`, `ToolPane`, `Card`,
+`Bar`, `KeyValue`, `Spark`, `Dialog`, `Breadcrumb`, `Delta` and the rest — are
+never charged even when every screen that reaches for one sits in a single
+area today: a primitive is meant to exist before it has grown a second
+caller, the way a design system's own vocabulary always does, and charging
+one for that would make the strict zero unreachable without inventing a
+pointless second caller. `pnpm design:audit --verbose` lists a single-area
+primitive under "Single-area primitives (watch; not counted)" instead, so a
+reviewer can see it without the ceiling ever counting it.
 
 Three of those categories spent a long time reporting zero while they were
 simply unable to see:
@@ -899,8 +917,21 @@ simply unable to see:
   from `'../design'`) traced no consumer to `design/` at all. Following
   `export *` and a shim however many hops deep, naming the conversation,
   settings, agent-roster and room families, and resolving consumers per
-  export rather than per module closed all four; the baseline rose from 480
-  to 840 (#914).
+  export rather than per module closed all four.
+
+  The first pass over-corrected in two ways review caught before merge:
+  charging `design/ui/`'s primitives the same way as a `design/patterns/`
+  composition would have made the strict zero unreachable the moment any
+  generic primitive picked up a first caller, and stopping consumer
+  resolution at the nearest design file — rather than following it into
+  whatever *that* file's own exports reach — read `RailSection` as
+  Sidebar's alone when `AppWindow.tsx` also composes it into parts the
+  app's shared window shell mounts for Settings and the Agents window too.
+  Restricting the charge to `design/patterns/` and resolving through
+  design-to-design use, cycles guarded, closed both; the baseline rose from
+  480 to 607 (#914). (#924, open at the time, removes `AccessHeader`, one of
+  the `design/patterns/Settings.tsx` exports this closed on — expect that
+  finding to disappear once it merges.)
 
 All four have the same shape as the line-height ratios before them: name the
 spellings you happen to remember, and everything else is invisible —
