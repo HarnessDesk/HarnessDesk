@@ -5,6 +5,7 @@ import type { AgentEntry, FlowEntry, FlowExecution, StartContext } from '@harnes
 import { ActionError, Banner, Button, Dialog, Field, Input, Note, Row, RowButton, Rows } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { FlowPreviewReport } from './FlowStart'
+import { ShapeEditor } from './ShapeEditor'
 
 /**
  * The front door: choose a file-based shape, read its populated dry run,
@@ -64,6 +65,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   const [unlisted, setUnlisted] = useState<string | null>(null)
   const [roster, setRoster] = useState<ReadonlyMap<string, AgentEntry>>(new Map())
   const [chosen, setChosen] = useState<Chosen | null>(null)
+  const [ownShape, setOwnShape] = useState(false)
   const [source, setSource] = useState('')
   const [vars, setVars] = useState<Readonly<Record<string, string>>>({})
   const [sentence, setSentence] = useState('')
@@ -205,6 +207,10 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
     }
   }
 
+  if (ownShape) {
+    return <ShapeEditor root={root} context={context} onClose={() => setOwnShape(false)} onStarted={onStarted} />
+  }
+
   return (
     <Dialog
       title={chosen ? `Start ${chosen.name}` : 'Start a team'}
@@ -252,6 +258,16 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
               onClick={() => void choose(entry)}
             />
           ))}
+        </Rows>
+      )}
+
+      {!chosen && (
+        <Rows>
+          <RowButton
+            title="Your own shape…"
+            desc="Build steps and rules in an ordered editor, see the exact file, then start or save it."
+            onClick={() => setOwnShape(true)}
+          />
         </Rows>
       )}
 

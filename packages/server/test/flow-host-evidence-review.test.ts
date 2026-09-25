@@ -31,7 +31,10 @@ test('independent review with every Seat working inside its brief: each completi
   const done = await settled(d, run.id)
   assert.deepEqual(done.rounds.map((one) => one.role), ['build', 'specialists', 'ship'])
   const cards = await board(d, run.goal)
-  assert.deepEqual(cards.map((one) => [one.role, one.state]), [['build', 'done'], ['specialists', 'done'], ['specialists', 'done'], ['ship', 'done']])
+  assert.deepEqual(
+    cards.map((one) => [one.role, one.state]),
+    [['build', 'done'], ['specialists', 'done'], ['specialists', 'done'], ['specialists', 'done'], ['ship', 'done']],
+  )
   // Nothing re-opened a finished card: no card was handed a second order after it was done.
   const reordered = done.operations.filter((one) => one.kind === 'turn' && one.state !== 'finished' && one.state !== 'prepared')
   assert.deepEqual(reordered, [])
@@ -41,7 +44,7 @@ test('the independent review flow reaches its end', E2E, async (t) => {
   const d = await desk(t)
   const run = await start(d, await shipped(d, 'independent-review'), TASK)
   await write(d, (await claimed(d, run.goal, 'build', 1))[0]!, 'built')
-  for (const card of await claimed(d, run.goal, 'specialists', 2)) await review(d, card, 'approve')
+  for (const card of await claimed(d, run.goal, 'specialists', 3)) await review(d, card, 'approve')
   await person(d, run.goal, 'ship', 'shipped')
   await settled(d, run.id)
 })

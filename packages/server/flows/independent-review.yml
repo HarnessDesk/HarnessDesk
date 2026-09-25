@@ -1,6 +1,6 @@
 version: 2
 name: "Independent review"
-description: "A change is built, then read by several different specialists at once — a security pass and an API pass, never the same eyes twice."
+description: "A change is built, then read by several different specialists at once — security, performance and API, never the same eyes twice."
 inputs:
   task:
     label: "Task"
@@ -12,7 +12,7 @@ roles:
     independentOf: []
   specialists:
     kind: agent
-    uses: [security-reviewer, api-reviewer]
+    uses: [security-reviewer, performance-reviewer, api-reviewer]
     grant: read
     independentOf: [build]
   ship:
@@ -32,3 +32,7 @@ messaging: board-only
 # closed rounds in a row that brought no new evidence. Raise it for longer loops.
 budget: { rounds: 3, without-progress: 2 }
 wait: 240
+# Front-door metadata only: no grant, seat or route lives here. Order is this
+# shape's place among the six default choices; contexts says a branch, a pull
+# request or a diff can start it directly, same as a plain project can.
+layout: {"frontDoor":{"order":1,"contexts":["project","branch","pull-request","diff","working-diff"]}}

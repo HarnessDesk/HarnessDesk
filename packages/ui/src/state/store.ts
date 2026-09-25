@@ -107,10 +107,14 @@ import {
   type AuthoringSaveInput,
   type AuthoringSavePreview,
   type AuthoringSaveResult,
+  type AuthoringIssue,
   type AuthoringTarget,
+  type FlowPolicy,
   type FrontDoorPreview,
   type FrontDoorPreviewInput,
   type StartContext,
+  type TriggerDefinition,
+  type TriggerSource,
   type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
@@ -4283,6 +4287,26 @@ export class AppStore {
       this.#patch({ frontDoor: { ...this.#snapshot.frontDoor, preview } })
     }
     return preview
+  }
+
+  /**
+   * A shape's exact, host-normalized YAML for one policy — validation and
+   * rendering only. Spends nothing and grants nothing; the editor's own
+   * source pane and its graph both read through this so neither can drift
+   * from what a save would actually write. Throws.
+   */
+  async renderShape(policy: FlowPolicy): Promise<{ readonly source: string; readonly issues: readonly AuthoringIssue[] }> {
+    return this.transport.request('authoring/shape/render', { policy })
+  }
+
+  /** A brand-new trigger's phase-8 defaults, from its own parser. Drafts only: nothing is written or armed. Throws. */
+  async draftTrigger(input: { readonly id: string; readonly on: TriggerSource; readonly opens: TriggerDefinition['opens'] }): Promise<TriggerDefinition> {
+    return this.transport.request('authoring/triggers/draft', input)
+  }
+
+  /** Every trigger's exact, host-normalized YAML, `parseTriggers`-checked before it is offered. Throws. */
+  async renderTriggers(definitions: readonly TriggerDefinition[]): Promise<{ readonly source: string; readonly issues: readonly AuthoringIssue[] }> {
+    return this.transport.request('authoring/triggers/render', { definitions })
   }
 
   // ------------------------------------------------------------------ evidence

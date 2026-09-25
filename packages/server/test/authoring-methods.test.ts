@@ -54,6 +54,26 @@ test('wire refuses arbitrary paths and forged origins', async () => {
   refused('authoring/save/preview', { target: flow, expected: null, source: 'x', agents: [{ id: '../x', source: 'y' }] })
   refused('authoring/save/preview', { target: flow, expected: null, source: 'x', agents: Array.from({ length: 17 }, (_value, index) => ({ id: `a${index}`, source: 'y' })) })
 
+  // A rendered policy is the right shape before it ever reaches `writeShape`'s own round-trip check.
+  refused('authoring/shape/render', { policy: { version: 1 } })
+  refused('authoring/shape/render', { policy: { version: 2, name: 'x', inputs: [], roles: [{ id: 'a', kind: 'wizard' }], rules: [], seed: { role: 'a', title: 't' }, messaging: 'board-only', wait: 60 } })
+  refused('authoring/shape/render', { policy: { version: 2, name: 'x', inputs: [], roles: [], rules: [], seed: { role: 'a', title: 't' }, messaging: 'shout', wait: 60 } })
+  refused('authoring/shape/render', {
+    policy: {
+      version: 2, name: 'x', inputs: [], rules: [], seed: { role: 'a', title: 't' }, messaging: 'board-only', wait: 60,
+      roles: [{ id: 'a', kind: 'agent', uses: ['reviewer'], seats: [], isolate: false, grant: 'root', independentOf: [] }],
+    },
+  })
+  // A trigger draft and a rendered list are exactly the closed vocabulary phase 8 reads.
+  refused('authoring/triggers/draft', { id: 'x', on: 'push', opens: { flow: 'a' } })
+  refused('authoring/triggers/draft', { id: 'x', on: 'schedule', opens: { flow: 'a', agent: 'b' } })
+  refused('authoring/triggers/render', {
+    definitions: [{
+      id: 'x', on: { kind: 'pull-request', events: ['opened'] }, opens: { flow: 'a' }, goal: ['pr'], again: null,
+      dedupe: ['pr'], concurrency: 1, forks: 'sometimes', budget: { usd: 1, rounds: 1, hours: 1, withoutProgress: 1 },
+    }],
+  })
+
   // What does parse is handed to the one owner as it was parsed, and nothing refused above ever reaches it.
   const calls: [string, unknown[]][] = []
   const port = new Proxy({}, { get: (_target, name) => async (...args: unknown[]) => { calls.push([String(name), args]); return null } })
@@ -66,12 +86,29 @@ test('wire refuses arbitrary paths and forged origins', async () => {
     ['authoring/save/pending', {}],
     ['authoring/save/resume', { id: 'b'.repeat(32) }],
     ['authoring/save/discard', { id: 'b'.repeat(32) }],
+    [
+      'authoring/shape/render',
+      { policy: { version: 2, name: 'x', inputs: [], roles: [], rules: [], seed: { role: 'a', title: 't' }, messaging: 'board-only', wait: 60 } },
+    ],
+    ['authoring/triggers/draft', { id: 'nightly', on: 'schedule', opens: { flow: 'sweep' } }],
+    [
+      'authoring/triggers/render',
+      {
+        definitions: [{
+          id: 'x', on: { kind: 'pull-request', events: ['opened'] }, opens: { flow: 'a' }, goal: ['pr'], again: null,
+          dedupe: ['pr'], concurrency: 1, forks: 'never', budget: { usd: 1, rounds: 1, hours: 1, withoutProgress: 1 },
+        }],
+      },
+    ],
   ]
   for (const [method, params] of good) {
     const message = parseClientMessage({ id: 1, method, params }) as unknown as { method: HostMethodName; params: never }
     await dispatch(ctx, message.method, message.params)
   }
-  assert.deepEqual(calls.map(([name]) => name), ['read', 'patch', 'preview', 'apply', 'pending', 'resume', 'discard'])
+  assert.deepEqual(
+    calls.map(([name]) => name),
+    ['read', 'patch', 'preview', 'apply', 'pending', 'resume', 'discard', 'renderShape', 'triggerDraft', 'renderTriggers'],
+  )
   // The seat validator names its optional fields as undefined; what was sent is what arrives.
   assert.deepEqual(JSON.parse(JSON.stringify(calls[1]![1])), [agent, DIGEST, { key: 'prefer', value: [{ runtime: 'fixture' }] }])
   assert.deepEqual(calls[2]![1], [{ target: { kind: 'triggers', origin: 'project', root: ROOT }, expected: null, source: '' }])
@@ -141,4 +178,41 @@ test('creation and scope are explicit', async () => {
   assert.equal(scout.displayPath, 'scout/AGENT.md')
   const builtinSave = await plane.preview({ target: { kind: 'agent', origin: 'builtin' as never, id: 'scout' }, expected: scout.digest, source: 'x' })
   assert.equal(builtinSave.token, null)
+})
+
+test('rendering a shape or a trigger writes nothing and never claims a bad value round-trips', async () => {
+  const { plane } = await setup()
+  const good: import('@harnessdesk/protocol').FlowPolicy = {
+    version: 2, name: 'Mine', inputs: [], messaging: 'board-only', wait: 240,
+    roles: [
+      { id: 'r', kind: 'agent', uses: ['reviewer'], seats: [], isolate: false, grant: 'read', independentOf: [] },
+      { id: 'p', kind: 'person', outcomes: ['done'] },
+    ],
+    rules: [{ id: 'go', on: 'r', then: { role: 'p', title: 'Decide' } }],
+    seed: { role: 'r', title: 'Go' },
+  }
+  const rendered = await plane.renderShape(good)
+  assert.deepEqual(rendered.issues, [])
+  assert.match(rendered.source, /name: "Mine"/)
+  // A value that cannot survive the round trip is an issue, never a guessed source.
+  const bad = await plane.renderShape({ ...good, name: 'bell\u0007' })
+  assert.equal(bad.source, '')
+  assert.ok(bad.issues.length > 0 && bad.issues.every((one) => one.fix.length > 0))
+
+  // A schedule draft starts disarmed at 60 minutes, from the parser's own defaults.
+  const draft = await plane.triggerDraft({ id: 'nightly', on: 'schedule', opens: { flow: 'sweep' } })
+  assert.equal(draft.id, 'nightly')
+  assert.deepEqual(draft.on, { kind: 'schedule', events: ['tick'], everyMinutes: 60 })
+  assert.deepEqual(draft.opens, { flow: 'sweep' })
+  assert.deepEqual(draft.goal, ['slot'])
+  assert.equal(draft.concurrency, 1)
+  await assert.rejects(plane.triggerDraft({ id: 'Not A Slug', on: 'schedule', opens: { flow: 'sweep' } }))
+
+  const rendered2 = await plane.renderTriggers([draft])
+  assert.deepEqual(rendered2.issues, [])
+  assert.match(rendered2.source, /every: 60/)
+  const scheduleAgain = { ...draft, again: { role: 'reviewer', title: 'Continue this work', detail: null } }
+  const badTrigger = await plane.renderTriggers([scheduleAgain])
+  assert.equal(badTrigger.source, '')
+  assert.ok(badTrigger.issues.length > 0)
 })

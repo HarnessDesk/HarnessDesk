@@ -26,4 +26,10 @@ export const authoringMethods = {
     vars: params.vars,
     ...(params.goal ? { goal: params.goal } : {}),
   }),
+  /** A shape's exact YAML for one policy — the ordered editor and its graph both render through this. */
+  'authoring/shape/render': (ctx: HostContext, params) => ctx.authoring.renderShape(params.policy),
+  /** A brand-new trigger's phase-8 defaults. Drafts only: nothing is written or armed. */
+  'authoring/triggers/draft': (ctx: HostContext, params) => ctx.authoring.triggerDraft({ id: params.id, on: params.on, opens: params.opens }),
+  /** Every trigger's exact YAML, `parseTriggers`-checked before it is offered. */
+  'authoring/triggers/render': (ctx: HostContext, params) => ctx.authoring.renderTriggers(params.definitions),
 } satisfies MethodsUnder<'authoring/'>

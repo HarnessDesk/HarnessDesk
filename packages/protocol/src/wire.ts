@@ -3,6 +3,7 @@ import type { ApprovalDecision } from './approval.js'
 import type {
   AgentFieldEdit,
   AuthoringDocument,
+  AuthoringIssue,
   AuthoringPending,
   AuthoringSaveInput,
   AuthoringSavePreview,
@@ -34,12 +35,14 @@ import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, Se
 import type { GoalMemoryIndex, MemoryFile, MemoryResolution, MemorySnapshot } from './memory.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
-  TriggerArmPreview, TriggerAttention, TriggerGoalStatus, TriggerHistoryPage, TriggerPreferences, TriggerProjectView, TriggerView,
+  TriggerArmPreview, TriggerAttention, TriggerDefinition, TriggerGoalStatus, TriggerHistoryPage, TriggerPreferences,
+  TriggerProjectView, TriggerSource, TriggerView,
 } from './intake.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
   FlowEntry,
   FlowExecution,
+  FlowPolicy,
   FlowPreview,
   FlowStartRequest,
   FlowUpdatePreview,
@@ -1857,6 +1860,31 @@ export interface HostMethods {
    * token is redeemed by `flow/start-goal`, bound to this target and Goal.
    */
   'authoring/start/preview': { params: FrontDoorPreviewInput; result: FrontDoorPreview }
+  /**
+   * A shape's exact, host-normalized YAML for one policy — the ordered editor
+   * and its graph both render through this, so what a person sees is always
+   * what `writeShape` would actually write. Validation and rendering only:
+   * it grants no start or save authority, and writes nothing on its own.
+   */
+  'authoring/shape/render': { params: { readonly policy: FlowPolicy }; result: { readonly source: string; readonly issues: readonly AuthoringIssue[] } }
+  /**
+   * A brand-new trigger's phase-8 defaults, from its own parser over a
+   * minimal trusted document — a schedule starts disarmed at 60 minutes.
+   * Drafts only: nothing is written, and nothing here arms anything.
+   */
+  'authoring/triggers/draft': {
+    params: { readonly id: string; readonly on: TriggerSource; readonly opens: TriggerDefinition['opens'] }
+    result: TriggerDefinition
+  }
+  /**
+   * Every trigger's exact, host-normalized YAML, `parseTriggers`-checked
+   * before it is offered. A save away from disk, and — once committed — an
+   * explicit Arm away from running; this call alone starts nothing.
+   */
+  'authoring/triggers/render': {
+    params: { readonly definitions: readonly TriggerDefinition[] }
+    result: { readonly source: string; readonly issues: readonly AuthoringIssue[] }
+  }
 
   // -- agents: who does the work, as opposed to the runtime it runs on. Read
   // only: an Agent is a file, and writing one is editing that file.

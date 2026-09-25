@@ -17,6 +17,7 @@ import {
   type ShapeLayout,
   type StartContext,
   type TriggerDefinition,
+  type TriggerSource,
 } from '@harnessdesk/protocol'
 
 import { parseAgentDefinition } from '../agent-def.js'
@@ -356,4 +357,23 @@ export function writeTriggers(definitions: readonly TriggerDefinition[]): string
     throw new Error('These triggers could not be written exactly: a setting would read back differently. Check each trigger and save again.')
   }
   return text
+}
+
+/**
+ * A brand-new trigger's defaults, from phase 8's own `parseTriggers` over a
+ * minimal, trusted document — never a second, renderer-side copy of what an
+ * omitted setting means. A schedule draft explicitly starts at 60 minutes:
+ * an authoring choice for a fresh draft, not an Intake schema default, so it
+ * is written here rather than in `TRIGGER_DEFAULTS`.
+ */
+export function draftTrigger(id: string, source: TriggerSource, opens: TriggerDefinition['opens']): TriggerDefinition {
+  const lines = [`- id: ${slugOrQuoted(id)}`, `  on: ${source}`]
+  if (source === 'schedule') lines.push('  every: 60')
+  lines.push('flow' in opens ? `  opens: { flow: ${slugOrQuoted(opens.flow)} }` : `  opens: { agent: ${slugOrQuoted(opens.agent)} }`)
+  const parsed = parseTriggers(`${lines.join('\n')}\n`)
+  if (parsed.problems.length > 0) {
+    const first = parsed.problems[0]!
+    throw new Error(`${first.text} ${first.fix}`)
+  }
+  return parsed.definitions[0]!
 }

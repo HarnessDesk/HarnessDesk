@@ -116,9 +116,12 @@ test('mechanical-contest maps exit statuses to declared winners with no "winner"
   const decide = document.flow.roles.find((role) => role.kind === 'check')
   assert.ok(decide?.kind === 'check')
   // The mapping lives entirely in ordinary file data — exits, and the rules
-  // reading their answers — never a kind the engine special-cases.
-  assert.deepEqual(decide.check.exits, { '0': 'first', '1': 'second' })
+  // reading their answers — never a kind the engine special-cases. A draw is
+  // its own distinct outcome, routed to a person; a missing result (the
+  // script's own error, `otherwise`) is not itself routed anywhere.
+  assert.deepEqual(decide.check.exits, { '0': 'first', '1': 'second', '2': 'draw' })
   assert.equal(decide.check.otherwise, 'no-contest')
+  assert.ok(document.flow.rules.some((rule) => rule.when?.every?.includes('draw')), 'a draw is routed, distinctly from a missing result')
   assert.ok(!document.flow.rules.some((rule) => rule.when?.every?.includes('no-contest') || rule.when?.any?.includes('no-contest')), 'a missing result opens nothing — it is not itself routed anywhere')
 })
 

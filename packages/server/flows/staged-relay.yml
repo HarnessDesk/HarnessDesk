@@ -45,3 +45,4 @@ messaging: board-only
 # closed rounds in a row that brought no new evidence. Raise it for longer loops.
 budget: { rounds: 8, without-progress: 2 }
 wait: 240
+layout: {"frontDoor":{"order":4,"contexts":["project"]}}

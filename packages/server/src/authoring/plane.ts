@@ -11,6 +11,9 @@ import type {
   AuthoringSaveResult,
   AuthoringTarget,
   FlowFileEdit,
+  FlowPolicy,
+  TriggerDefinition,
+  TriggerSource,
   WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
@@ -22,7 +25,7 @@ import { FLOW_FILE_LIMIT } from '../flow-catalog.js'
 import { parseFlowPolicy } from '../flow-policy.js'
 import { confinedWrites, StateJournal, type ConfinedLayout, type ConfinedWrites, type TreeQueue } from '../flow-update.js'
 import { parseTriggers, TRIGGER_FILE_LIMIT } from '../intake/definition.js'
-import { editAgentSource, readShapeLayout } from './model.js'
+import { draftTrigger, editAgentSource, readShapeLayout, writeShape, writeTriggers } from './model.js'
 import { applySave, type SaveEdit, type SavePort } from './save.js'
 
 /**
@@ -689,6 +692,45 @@ export class AuthoringPlane {
       resume: { id, tx: journal.tx },
     })
     return { token, edits: display, issues: [], resuming: true }
+  }
+
+  // -------------------------------------------------------------- rendering
+
+  /**
+   * A shape's exact, host-normalized YAML for one policy — what the ordered
+   * editor and its graph both show as "the file", so neither can drift from
+   * what a save would actually write. Never throws: a policy that would not
+   * read back exactly as itself (`writeShape`'s own round-trip check) comes
+   * back as an issue, with the source empty rather than a guess at one.
+   */
+  async renderShape(policy: FlowPolicy): Promise<{ readonly source: string; readonly issues: readonly AuthoringIssue[] }> {
+    try {
+      return { source: writeShape(policy), issues: [] }
+    } catch (error) {
+      return { source: '', issues: [issue('file', error instanceof Error ? error.message : String(error), 'Change the value that could not be written exactly.')] }
+    }
+  }
+
+  /**
+   * A brand-new trigger's phase-8 defaults, from its own parser. Drafts only:
+   * nothing is written, and this alone arms nothing.
+   */
+  async triggerDraft(input: { readonly id: string; readonly on: TriggerSource; readonly opens: TriggerDefinition['opens'] }): Promise<TriggerDefinition> {
+    return draftTrigger(input.id, input.on, input.opens)
+  }
+
+  /**
+   * Every trigger's exact, host-normalized YAML, `parseTriggers`-checked
+   * before it is offered — a save away from disk, and an explicit, committed
+   * Arm away from running. Never throws; a definition that would not read
+   * back exactly comes back as an issue.
+   */
+  async renderTriggers(definitions: readonly TriggerDefinition[]): Promise<{ readonly source: string; readonly issues: readonly AuthoringIssue[] }> {
+    try {
+      return { source: writeTriggers(definitions), issues: [] }
+    } catch (error) {
+      return { source: '', issues: [issue('file', error instanceof Error ? error.message : String(error), 'Correct the trigger that could not be written exactly.')] }
+    }
   }
 
   /** Drops the record of an unfinished save; every file stays exactly as it is. */
