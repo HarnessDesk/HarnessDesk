@@ -157,6 +157,62 @@ export const ELEMENTS: readonly UsageRule[] = [
     because:
       'A hover card that wore a dialog\'s shadow would claim the window\'s attention for something the pointer merely passed over.',
   },
+  {
+    family: 'tone',
+    variant: 'warning',
+    when: 'The person must act now — sign in, approve, free a limit — and the thing cannot go on without them. Chip, Badge, Note and Banner all read it this way.',
+    never: 'For a default or a normal state: a permission that is "asked" by default, an open finding, a shadowed copy, a limit working as designed. Those are neutral or carry no chip.',
+    because:
+      'The Permissions page once drew 48 identical amber chips for the default. Amber on every row is how the one row that does need someone stops being found.',
+  },
+  {
+    family: 'tone',
+    variant: 'danger',
+    when: 'Something is broken, or will be lost: a failed check, a missing executable, an action that deletes.',
+    never: 'For a stop the person asked for. "The agent was stopped." after pressing Stop is neutral — it is the outcome they chose.',
+    because:
+      'Red is the loudest thing a screen can say. Spent on an outcome the reader chose, it teaches them to look past the red that matters.',
+  },
+  {
+    family: 'tone',
+    variant: 'neutral',
+    when: 'Every default, every normal state and every fact that asks nothing of the reader — or no chip at all.',
+    never: 'Promoted to a colour to make a row look busier. A tone is a claim about what the reader should do.',
+    because:
+      'Most of what a desk reports is fine. Neutral is what lets the exceptions be seen.',
+  },
+  {
+    family: 'chip',
+    variant: 'one line',
+    when: 'Always. A chip never wraps: it stops at its box (at most 240px), ellipsises, and names itself whole in `title` while it is cut. The Chip enforces this.',
+    never: 'Forced into two lines by a caller. A fact that needs a second line is a row\'s description or a dialog\'s, not a chip.',
+    because:
+      'A pill with two lines in it is a card pretending to be a mark — the board\'s wrapped evidence chips were the loudest thing on every card that carried one.',
+  },
+  {
+    family: 'chip',
+    variant: 'stale',
+    when: 'A fact recorded before what is there now. Pass `stale`: the Chip mutes it, drops its tone, leads with the history glyph and says "stale" to a screen reader.',
+    never: 'A strikethrough. Struck text reads as "wrong", and a stale fact was right when it was recorded.',
+    because:
+      'Muted with a glyph keeps the fact legible for what it was, and still says it is no longer current.',
+  },
+  {
+    family: 'chip',
+    variant: 'count',
+    when: 'A chip that counts something takes `count`, and a zero draws nothing. `showZero` is for the rare set where zero is itself the finding.',
+    never: 'A row of zero-count chips, or "+0 −0 in 0 files" on every card: a chip that counts none has nothing to say.',
+    because:
+      'A zero draws the eye exactly as much as a seven, and it asks nothing.',
+  },
+  {
+    family: 'chip',
+    variant: 'earned',
+    when: 'A chip says something the row does not already say. A chip that is identical on every row of a group belongs in the group\'s heading, once.',
+    never: 'Repeating the row\'s own title ("Healthy" beside a row titled Healthy), or the state a control beside it already shows ("Off" beside a switch that is off).',
+    because:
+      'Every chip costs the row some of its name. One that repeats the title or the control is paid for twice and says nothing.',
+  },
 ]
 
 /**

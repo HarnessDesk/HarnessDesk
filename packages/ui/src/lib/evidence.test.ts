@@ -19,7 +19,7 @@ describe('a fact, as its chip', () => {
     expect([chipOf(diffView()).label, chipOf(diffView()).outcome]).toEqual(['+120 −30 in 6 files', null])
   })
 
-  it('a stale fact says how far behind it is, and is marked stale for the chip to strike through', () => {
+  it('a stale fact says how far behind it is, and is marked stale for the chip to mute', () => {
     const behind = chipOf(checkView({ freshness: { state: 'behind', commits: 2 } }))
     expect(behind).toEqual({ key: 'check:verify', label: 'verify ✓ @a1b2c3d — 2 commits since', outcome: 'passed', stale: true, unknown: false })
     expect(chipOf(checkView({ freshness: { state: 'moved' } })).label).toBe('verify ✓ @a1b2c3d — rewritten since')
@@ -58,6 +58,12 @@ describe("a card's chips", () => {
   it('a check running now stands in for that check’s last fact, and the rest keep their order', () => {
     const chips = cardChips(cardEvidence(3, [checkView({ exit: 1 }), prView('open')], [{ name: 'verify', since: 1 }]))
     expect(chips.map((one) => one.label)).toEqual(['verify running', 'PR #12 open'])
+  })
+
+  it('a diff that changed nothing draws no chip, while one that changed something does', () => {
+    const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
+    expect(cardChips(cardEvidence(1, [none, prView('open')])).map((one) => one.label)).toEqual(['PR #12 open'])
+    expect(cardChips(cardEvidence(1, [diffView()])).map((one) => one.label)).toEqual(['+120 −30 in 6 files'])
   })
 
   it('a card the desk observed nothing about has none', () => {

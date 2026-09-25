@@ -28,6 +28,11 @@ import styles from './Banner.module.css'
  * is the caller's here, `undefined` included.
  *
  * Adopting a component is not the same as adopting every opinion in it.
+ *
+ * **Tone** is the one contract in `design/usage.ts` (family `tone`):
+ * `warning` when the person must act now, `danger` when something is broken
+ * or will be lost. A default state, a limit that is working as designed, and
+ * a stop the person asked for ("The agent was stopped.") are `neutral`.
  */
 
 export type BannerTone = 'neutral' | 'info' | 'warning' | 'danger'

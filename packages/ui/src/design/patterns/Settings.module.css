@@ -70,12 +70,21 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* One line, bounded: a chip stops at its box and ellipsises rather than
+     wrapping inside its pill. The container's width wins when it is the
+     narrower, so a chip in a card never runs past the card. */
+  max-width: min(100%, 240px);
   height: var(--hd-chip-h);
   padding: 0 var(--hd-space-2) 0 var(--hd-space-2);
   border-radius: var(--hd-chip-radius);
   font-size: var(--hd-text-xs);
   line-height: 1;
   white-space: nowrap;
+}
+
+/* The stale mark rides in front of the words and never shrinks away. */
+.chipGlyph {
+  flex: none;
 }
 
 .chip[data-size='sm'] {
@@ -216,9 +225,16 @@
   background: currentColor;
 }
 
+/* Stale is quiet rather than struck: muted ink for the mark and the words,
+   the history glyph in front. A strikethrough says "wrong", and a stale fact
+   was right when it was recorded. */
+.chip[data-stale] {
+  color: var(--hd-muted-foreground);
+}
+
 .chip[data-stale] .chipWords {
   color: var(--hd-muted-foreground);
-  text-decoration: line-through;
+  text-decoration: none; /* desk: line-through → none, stale reads as muted with a glyph, never struck */
 }
 
 /* --- controls ------------------------------------------------------------ */

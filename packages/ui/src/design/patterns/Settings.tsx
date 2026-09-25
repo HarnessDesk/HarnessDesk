@@ -4,7 +4,7 @@ import { createElement, useId, type ButtonHTMLAttributes, type ComponentProps, t
 import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
 
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
-import { AlertIcon, ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, DiffIcon, FilterIcon, SearchIcon } from '../../components/Icons'
+import { AlertIcon, ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, DiffIcon, FilterIcon, SearchIcon, StaleIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
@@ -342,9 +342,18 @@ type ChipBaseProps = {
   stale?: boolean
   unknown?: boolean
   children?: ReactNode
+  /** Always shown. Without one, the chip names itself in full on hover only while it is cut. */
   title?: string
   size?: 'default' | 'sm'
   variant?: 'default' | 'outline'
+  /**
+   * A count the chip leads with — `count={3}` and `copies differ` read as
+   * "3 copies differ". Zero draws nothing: a chip that counts none is a
+   * statement that there is nothing to say.
+   */
+  count?: number
+  /** Draw a zero count anyway, for the rare set where zero is the finding. */
+  showZero?: boolean
 }
 
 export type ChipProps = ChipBaseProps & (
@@ -361,11 +370,38 @@ const READINESS_TONE: Record<Readiness, Tone> = {
   broken: 'danger',
 }
 
+/** Whether any line of a chip's words is cut by its box right now. */
+const chipIsCut = (words: Element): boolean =>
+  [words, ...Array.from(words.children)].some((node) => node.scrollWidth > node.clientWidth)
+
 /**
  * A compact state, said out loud. Readiness keeps its dot and default word;
  * a judged fact takes a semantic `tone`, while an identity takes a `tint`.
  * The emphatic brand tone marks the current fact in a set. Stale and unknown
  * facts keep those meanings distinct in both ink and their accessible names.
+ *
+ * **Grammar.** A chip is a mark, not a sentence:
+ *
+ * - **One line, always.** It never wraps: it stops at its box (at most 240px,
+ *   less when its container is narrower), ellipsises, and says itself whole
+ *   in `title` while it is cut. A fact that needs two lines is a row's
+ *   description, not a chip.
+ * - **Stale is quiet, never struck.** A stale fact takes the neutral fill,
+ *   muted ink and a leading history glyph; the word "stale" is there for a
+ *   screen reader. A strikethrough reads as "wrong", and a stale fact was
+ *   right when it was recorded.
+ * - **Zero draws nothing.** Give counts as `count`; zero renders no chip
+ *   unless `showZero` says zero is itself the finding.
+ * - **A chip earns its place.** It never repeats the row's own title, nor the
+ *   state a control beside it already shows (an "Off" chip by an off switch).
+ *   A chip that is identical on every row of a group says something about the
+ *   group: it belongs in the group's heading, once.
+ *
+ * **Tone.** `warning` means the person must act now; `danger` means
+ * something is broken or will be lost. A default or normal state is
+ * `neutral` or has no chip at all, and a stop the person asked for is
+ * neutral. Colour on every row is noise that hides the one row that needs
+ * someone. See `design/usage.ts`, family `tone`.
  */
 export const Chip = (props: ChipProps) => {
   const {
@@ -377,17 +413,33 @@ export const Chip = (props: ChipProps) => {
     title,
     size = 'default',
     variant = 'default',
+    count,
+    showZero = false,
   } = props
+  if (count === 0 && !showZero) return null
   const state = props.state
   const tint = props.tint
   const emphasis = props.emphasis
   const requestedTone = props.tone ?? ((stale || unknown) && state ? READINESS_TONE[state] : undefined)
-  const tone = unknown || (stale && requestedTone === 'success') ? 'neutral' : requestedTone
-  const words = children ?? label ?? (unknown ? 'Unknown' : state ? READINESS_LABEL[state] : null)
+  /* A stale or unknown fact claims no judgement: it was true, or may be, and
+     neither is a colour. */
+  const tone = unknown || stale ? (requestedTone ? 'neutral' : undefined) : requestedTone
+  const said = children ?? label ?? (unknown ? 'Unknown' : state ? READINESS_LABEL[state] : null)
+  const counted = count === undefined
+    ? said
+    : said == null
+      ? String(count)
+      : typeof said === 'string' || typeof said === 'number'
+        ? `${count} ${said}`
+        : <>{count} {said}</>
+  /* Bare words go in a span of their own, because the ellipsis is drawn by the
+     box that holds the text and the words' own box is a flex row. */
+  const words = typeof counted === 'string' || typeof counted === 'number' ? <span>{counted}</span> : counted
 
   return (
     <span
       className={cx(styles.chip, tone && softTone({ tone }), tint && softTint({ tint }), className)}
+      data-slot="chip"
       data-size={size}
       data-variant={variant}
       {...(state ? { 'data-state': state } : {})}
@@ -396,8 +448,18 @@ export const Chip = (props: ChipProps) => {
       {...(emphasis ? { 'data-emphasis': '' } : {})}
       {...(stale ? { 'data-stale': '' } : {})}
       {...(unknown ? { 'data-unknown': '' } : {})}
-      {...(title ? { title } : {})}
+      {...(title
+        ? { title }
+        : {
+            onMouseEnter: (event: { readonly currentTarget: HTMLSpanElement }) => {
+              const node = event.currentTarget
+              const box = node.querySelector('[data-slot="chip-words"]')
+              if (box && chipIsCut(box)) node.title = box.textContent ?? ''
+              else node.removeAttribute('title')
+            },
+          })}
     >
+      {stale && <StaleIcon size={11} aria-hidden="true" className={styles.chipGlyph} />}
       {state && <Dot state={state} />}
       <span className={styles.chipWords} data-slot="chip-words">{words}</span>
       {stale && <span className="sr-only"> (stale)</span>}
@@ -568,7 +630,14 @@ export const FormStack = ({ children }: { children: ReactNode }) => (
   <div className={styles.formStack}>{children}</div>
 )
 
-/** The short paragraph that belongs to a group of rows rather than to one of them. */
+/**
+ * The short paragraph that belongs to a group of rows rather than to one of them.
+ *
+ * Tone follows the one contract (`design/usage.ts`, family `tone`): `warn`
+ * only when the person must act now, `bad` only when something is broken or
+ * will be lost. Ordinary information — including a stop the person asked for,
+ * or a limit that is simply how the thing works — is an untoned note.
+ */
 export const Note = ({
   children,
   tone,

@@ -61,11 +61,7 @@ export const EvidenceChips = ({
         onClick={() => setOpen(true)}
       >
         {chips.map((one) => (
-          <FactChipView
-            key={one.key}
-            chip={one}
-            className="h-auto! min-h-(--hd-chip-h) max-w-full! py-1! leading-(--hd-line-sm)! whitespace-normal! [&_[data-slot=chip-words]]:break-words!"
-          />
+          <FactChipView key={one.key} chip={one} />
         ))}
       </Button>
       {open && <ObservedDialog id={id} title={title} card={card} onClose={() => setOpen(false)} />}

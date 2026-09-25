@@ -169,6 +169,9 @@ export const cardChips = (card: CardEvidence | undefined): readonly FactChip[] =
     })),
     ...card.facts
       .filter((view) => !(view.record.fact.kind === 'check' && running.has(view.record.fact.name)))
+      /* A diff that changed nothing is a count of zero, and a chip that counts
+         none says nothing; the dialog still lists the fact. */
+      .filter((view) => !(view.record.fact.kind === 'diff' && view.record.fact.files === 0 && view.record.fact.added === 0 && view.record.fact.removed === 0))
       .map(chipOf),
   ]
 }

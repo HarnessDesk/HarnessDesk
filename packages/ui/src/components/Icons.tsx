@@ -425,6 +425,8 @@ export const CostIcon = icon(CircleDollarSign, 'CostIcon')
 export const SortNameIcon = icon(ArrowDownAZ, 'SortNameIcon')
 /** What happened, in order. */
 export const HistoryIcon = icon(History, 'HistoryIcon')
+/** A fact recorded before what is there now — a stale chip's leading mark. */
+export const StaleIcon = icon(History, 'StaleIcon')
 export const ServerIcon = icon(Server, 'ServerIcon')
 export const DownloadIcon = icon(Download, 'DownloadIcon')
 /** Approved, and for the rest of the session too. */
