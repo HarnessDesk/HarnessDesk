@@ -2,6 +2,7 @@ import { Menu as DropdownMenuPrimitive } from '@base-ui/react/menu'
 import * as React from 'react'
 
 import { CheckIcon, BulletIcon } from '@/components/Icons'
+import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
 
 /* Vendored from shadcn/ui (dropdown-menu). Icons come from the app's
@@ -26,11 +27,18 @@ const DropdownMenuPositioner = React.forwardRef<
 ))
 DropdownMenuPositioner.displayName = 'DropdownMenuPositioner'
 
+/* A surface that takes focus wears no ring; see `SURFACE_FOCUS` in dialog.tsx. */
+const SURFACE_FOCUS = 'outline-none focus-visible:outline-none'
+const surfaceFocus = <S,>(className: string | ((state: S) => string | undefined) | undefined) =>
+  typeof className === 'function' ? (state: S) => cn(SURFACE_FOCUS, className(state)) : cn(SURFACE_FOCUS, className)
+
 const DropdownMenuPopup = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Popup>,
   React.ComponentProps<typeof DropdownMenuPrimitive.Popup>
->(({ ...props }, ref) => (
-  <DropdownMenuPrimitive.Popup ref={ref} data-slot="dropdown-menu-popup" {...props} />
+>(({ className, ...props }, ref) => (
+  <DialogFormContext.Provider value={false}>
+    <DropdownMenuPrimitive.Popup ref={ref} data-slot="dropdown-menu-popup" className={surfaceFocus(className)} {...props} />
+  </DialogFormContext.Provider>
 ))
 DropdownMenuPopup.displayName = 'DropdownMenuPopup'
 
@@ -48,18 +56,21 @@ const DropdownMenuContent = ({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Popup> &
   Pick<React.ComponentProps<typeof DropdownMenuPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'>) => (
+  <DialogFormContext.Provider value={false}>
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Positioner align={align} side={side} sideOffset={sideOffset} className="z-(--hd-z-popover)">
       <DropdownMenuPrimitive.Popup
         data-slot="dropdown-menu-content"
         className={cn(
           'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 max-h-(--available-height) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border p-1 shadow-md',
+          SURFACE_FOCUS,
           className,
         )}
         {...props}
       />
     </DropdownMenuPrimitive.Positioner>
   </DropdownMenuPrimitive.Portal>
+  </DialogFormContext.Provider>
 )
 
 const DropdownMenuGroup = ({
@@ -217,6 +228,7 @@ const DropdownMenuSubContent = ({
     React.ComponentProps<typeof DropdownMenuPrimitive.Positioner>,
     'align' | 'side' | 'sideOffset' | 'collisionAvoidance' | 'sticky'
   >) => (
+  <DialogFormContext.Provider value={false}>
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Positioner
       align={align}
@@ -230,12 +242,14 @@ const DropdownMenuSubContent = ({
         data-slot="dropdown-menu-sub-content"
         className={cn(
           'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 min-w-32 origin-(--transform-origin) overflow-hidden rounded-lg border p-1 shadow-lg',
+          SURFACE_FOCUS,
           className,
         )}
         {...props}
       />
     </DropdownMenuPrimitive.Positioner>
   </DropdownMenuPrimitive.Portal>
+  </DialogFormContext.Provider>
 )
 
 export {

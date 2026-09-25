@@ -72,18 +72,35 @@ const BOX = [
 ]
 
 const VARIANTS = {
+  /* Disabled, a filled act (this and `danger`) keeps its own hue, dimmed
+     toward the footer's ground — `--hd-btn-*-disabled-*` — instead of the
+     shared half opacity, which mixed the ink into whatever was under it and
+     drew a mid-grey slab. One treatment for both, so a disabled Delete and a
+     disabled Save read as the same state. */
   default:
-    'bg-(--hd-btn-primary-fill) text-(--hd-btn-primary-foreground) hover:bg-(--hd-btn-primary-hover)',
+    'bg-(--hd-btn-primary-fill) text-(--hd-btn-primary-foreground) hover:bg-(--hd-btn-primary-hover) disabled:opacity-100 aria-disabled:opacity-100 disabled:bg-(--hd-btn-primary-disabled-fill) aria-disabled:bg-(--hd-btn-primary-disabled-fill) disabled:text-(--hd-btn-primary-disabled-foreground) aria-disabled:text-(--hd-btn-primary-disabled-foreground)',
   outline:
     'border-(--hd-btn-border) bg-(--hd-background) text-(--hd-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground)',
+  /* In a dialog's footer that holds a filled act, the confirm is the one
+     filled button, so the ordinary action beside it — Cancel, Close — is
+     drawn quiet: no fill, the secondary ink, the hover fill. The screen still
+     writes `secondary`; the footer decides, and only when a filled act
+     (`data-filled`, below) stands in it. A footer is never a lone
+     `secondary` — its one button is the act, filled, which the design audit
+     holds — because a secondary's grey is the footer's own ground. */
   secondary:
-    'bg-(--hd-btn-fill) text-(--hd-foreground) hover:bg-(--hd-hover) aria-expanded:bg-(--hd-hover)',
+    'bg-(--hd-btn-fill) text-(--hd-foreground) hover:bg-(--hd-hover) aria-expanded:bg-(--hd-hover) [[data-slot=dialog-footer]:has([data-filled])_&]:bg-transparent [[data-slot=dialog-footer]:has([data-filled])_&]:text-(--hd-secondary-foreground) [[data-slot=dialog-footer]:has([data-filled])_&]:hover:bg-(--hd-hover) [[data-slot=dialog-footer]:has([data-filled])_&]:hover:text-(--hd-foreground)',
   ghost:
     'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground) data-[swatch]:data-[on]:shadow-[0_0_0_2px_var(--hd-card),0_0_0_4px_var(--hd-ring)]',
   /* A control that floats over content needs its own ground so its edge
      does not disappear into whatever happens to scroll beneath it. */
   floating:
     'rounded-full bg-(--hd-card) shadow-[var(--hd-shadow-raised),inset_0_0_0_1px_var(--hd-border-strong)] hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground)',
+  /* The act of a destructive confirm: a filled red button, the footer's one
+     filled button. `destructive` stays the soft, ink-only spelling for a
+     remove action set among others on a page or in a row. */
+  danger:
+    'bg-(--hd-btn-danger-fill) text-(--hd-btn-danger-foreground) hover:bg-(--hd-btn-danger-fill-hover) disabled:opacity-100 aria-disabled:opacity-100 disabled:bg-(--hd-btn-danger-disabled-fill) aria-disabled:bg-(--hd-btn-danger-disabled-fill) disabled:text-(--hd-btn-danger-disabled-foreground) aria-disabled:text-(--hd-btn-danger-disabled-foreground)',
   destructive:
     'text-(--hd-btn-danger-ink) hover:bg-(--hd-btn-danger-hover) aria-expanded:bg-(--hd-btn-danger-hover) data-[overlay]:border-2 data-[overlay]:border-(--hd-card) data-[overlay]:bg-(--hd-solid) data-[overlay]:text-(--hd-solid-foreground) data-[overlay]:hover:bg-(--hd-danger) data-[overlay]:hover:text-(--hd-destructive-foreground)',
   link: 'text-(--hd-primary-ink) underline-offset-4 hover:underline',
@@ -223,6 +240,10 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   quietHover?: boolean
 }
 
+/* The variants that fill their button. A filled button says so on the
+   element, which is what a footer reads to quiet the buttons beside it. */
+const FILLED = new Set<string>(['default', 'primary', 'danger'])
+
 const Button = ({
   className,
   variant = 'default',
@@ -237,6 +258,7 @@ const Button = ({
   <ButtonPrimitive
     data-slot="button"
     data-variant={variant}
+    {...(FILLED.has(variant) ? { 'data-filled': '' } : {})}
     className={cn(
       buttonVariants({ variant, size, className }),
       !bordered && 'border-0',

@@ -78,10 +78,18 @@ export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
     variant: 'secondary',
-    when: 'An ordinary action inside something that already encloses it — a dialog footer, a card, a row.',
+    when: 'An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet whenever a filled act stands beside it, so the confirm is the one filled button. Never alone in a footer: a lone footer button is the act, `default`.',
     never: 'In a page or section head. It is the same grey as the surfaces around it and disappears into them.',
     because:
-      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn.',
+      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn. In a footer that holds a filled act the footer decides its look (`:has()` on the footer slot), so a screen writes `secondary` and gets the quiet way out. A lone footer button is the act and is filled, which the audit holds.',
+  },
+  {
+    family: 'button',
+    variant: 'quiet',
+    when: 'The way out of a question — Keep, Cancel, Close — when the act beside it is filled.',
+    never: 'As the only action on a surface, or for the act itself: a quiet button is the answer that changes nothing.',
+    because:
+      'A footer with two equally weighted buttons has no default. The quiet one is still a button — it takes the hover fill and the ring — but the eye lands on the filled one first.',
   },
   {
     family: 'button',
@@ -94,10 +102,18 @@ export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
     variant: 'destructive',
-    when: 'An action that removes something a person cannot get back.',
-    never: 'For an action that merely closes, cancels or hides. Those are ordinary.',
+    when: 'A remove action set among others on a page or in a row — the door to a confirm, not the confirm.',
+    never: 'For an action that merely closes, cancels or hides (those are ordinary), and never in a dialog footer: the act of a destructive confirm is `danger`, filled, and the audit refuses the soft red there.',
     because:
-      'It is soft in this app — danger ink on nothing, filling on hover — rather than a solid red. A red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.',
+      'It is soft — danger ink on nothing, filling on hover — rather than a solid red. On a page a red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.',
+  },
+  {
+    family: 'button',
+    variant: 'danger',
+    when: 'The act of a destructive confirm: Delete, Remove worktree, Discard — the one filled button in that footer. `ConfirmDialog tone="destructive"` draws it.',
+    never: 'Beside another filled button, or on a page. Anywhere but the answer to "are you sure?" it is `destructive`.',
+    because:
+      'In the confirm the question has already been asked, so the red is no longer competing with what you came to do — it is what you came to do. A red-text act beside a plain-text Keep was two equal ghosts with no default.',
   },
 ]
 
@@ -148,6 +164,22 @@ export const ELEMENTS: readonly UsageRule[] = [
     never: 'On a chip or a tag. Those are marks and take `--hd-radius-sm`, one rung down.',
     because:
       'A button and the chip beside it were the same shape, so a row of controls read as a row of labels. One rung apart is what separates them.',
+  },
+  {
+    family: 'choice',
+    variant: 'Segmented · NativeSelect · ChoiceList · Checkbox',
+    when: 'One answer among two to four short ones: `Segmented`, or a `NativeSelect` when the words are long or the list may grow. One answer that needs a line to explain it: `ChoiceList` — compact radio rows, each with its description under its title in the hint step, so answers can be compared and choosing moves nothing. Several members at once (which Agents to seat, which files to take): checkboxes.',
+    never: 'A switch for picking a member — a switch acts the moment it is flipped, and ticking who comes along is not an action. Nor a card of 60px settings rows for four words in a dialog; inside a dialog a `Rows` radio group made only of `RowChoice` rows already draws as a `ChoiceList` (a group of anything else keeps its card).',
+    because:
+      'A choice is read before it is made, so every answer shows what it means — in the hint step, a size below its title, so the titles still scan as a list. A description shown only on the chosen answer moved the rows under the pointer and hid what a person needed to compare.',
+  },
+  {
+    family: 'form',
+    variant: 'Field · Fieldset · FormStack',
+    when: 'Anything a dialog asks for. A label sits 6px over its control, the next field starts 16px below, a group of controls takes a `Fieldset` legend the way a field takes a label, and a field that may be left empty says `optional` at its label\'s end.',
+    never: 'Spacing a dialog\'s fields by hand, or a page\'s `SectionHead` as a group label: inside a dialog the body is already the form stack and a `SectionHead` already draws as a legend.',
+    because:
+      'A form is scanned by its labels. When every label is the same distance from its control and every field the same distance from the next, the eye stops measuring and reads; the "toy dialog" was one where each of those distances was a different accident.',
   },
   {
     family: 'surface',
@@ -284,12 +316,14 @@ export const SLOTS: readonly {
   /** `full` is `--hd-btn-h`; `sm` is the rung below it. */
   readonly size: 'full' | 'sm'
   /**
-   * Whether the slot may hold more than one ink action.
+   * Whether the slot may hold more than one filled action (`default`,
+   * `primary`, `danger`).
    *
    * "At most one per screen" is the loudest claim the button vocabulary makes
    * and the one a machine can least often check, because a screen is not a
-   * syntactic thing. A slot is, so the part that *can* be checked is: two ink
-   * buttons in one header is two primaries, which is none.
+   * syntactic thing. A slot is, so the part that *can* be checked is: two
+   * filled buttons in one header or one footer is two primaries, which is
+   * none.
    */
   readonly oneInk?: true
   readonly why: string
@@ -312,9 +346,9 @@ export const SLOTS: readonly {
   {
     slot: 'dialogFooter',
     what: 'the `footer` of a `Dialog`',
-    allow: ['default', 'primary', 'secondary', 'destructive', 'danger', 'outline'],
+    allow: ['default', 'primary', 'secondary', 'quiet', 'danger', 'outline'],
     size: 'full',
     oneInk: true,
-    why: 'The dialog encloses them, so `secondary` is the ordinary answer and the confirm is the one `default`. `ghost` is not: a footer button with no edge reads as a link in a place where every choice should look equally pressable.',
+    why: 'Every footer has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is that act, filled: a lone `secondary` is a frame the grey of the footer under it. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page\'s remove action, not a confirm\'s act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`.',
   },
 ]
