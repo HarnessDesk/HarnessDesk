@@ -2,7 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { KeyValue, KeyValueRow, MiddleTruncate } from './key-value'
+import { KeyValue, KeyValueRow, MiddleTruncate, splitPath } from './key-value'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -85,7 +85,7 @@ it('gives a path up in the middle, keeping its last segment whole', () => {
   // Only the head gives way; the name keeps itself whole while it can.
   expect(tail?.className).toContain('shrink-0')
   expect(head?.className).toContain('min-w-6')
-  expect(line.textContent).toBe(path)
+  expect(line.querySelector('.sr-only')?.textContent).toBe(path)
 })
 
 it('names the whole path in title while it is cut, and nothing once it fits', () => {
@@ -113,4 +113,26 @@ it('keeps the panel variant compact and left-aligned', () => {
   expect(list.querySelector('dt')?.className).toContain('text-xs')
   expect(list.querySelector('dt')?.className).not.toContain('min-w-20')
   expect(list.querySelector('dd')?.className).toContain('text-left')
+})
+
+it('says the whole path once: one hidden run for reading and copying, the visible halves hidden from both', () => {
+  const path = '~/work/storefront/.harnessdesk/triggers/review.json'
+  const line = draw(<MiddleTruncate>{path}</MiddleTruncate>)
+  const whole = line.querySelector('.sr-only')
+  expect(whole?.textContent).toBe(path)
+  for (const part of line.querySelectorAll('[data-part]')) {
+    expect(part.getAttribute('aria-hidden')).toBe('true')
+    expect(part.className).toContain('select-none')
+  }
+})
+
+it('splits on graphemes and on either separator', () => {
+  expect(splitPath('C:\\Users\\shane\\review.json')).toEqual(['C:\\Users\\shane', '\\review.json'])
+  expect(splitPath('~/work/a/b.json')).toEqual(['~/work/a', '/b.json'])
+  // No separator: the last twelve graphemes, and a family emoji is one of them, never half of one.
+  const family = '👨‍👩‍👧'
+  const [head, tail] = splitPath(`notes-for-the-release-${family}-final`)
+  expect(tail).toBe(`ease-${family}-final`)
+  expect(head + tail).toBe(`notes-for-the-release-${family}-final`)
+  expect(Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(tail)).length).toBe(12)
 })

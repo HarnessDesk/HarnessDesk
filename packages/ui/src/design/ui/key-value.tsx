@@ -9,18 +9,38 @@ import { cn } from '@/lib/utils'
  * repository) and what it names (the file). Ellipsising the end, which is
  * what `truncate` does, keeps the part every path in the list shares and
  * throws away the part that tells them apart. So the text is split before
- * its last segment: the head shortens with an ellipsis, the tail stays whole,
- * and `~/work/storefront/packages/…/retry.ts` is what a narrow box shows.
+ * its last segment — at the last `/` or `\` — the head shortens with an
+ * ellipsis, the tail stays whole, and `~/work/storefront/packages/…/retry.ts`
+ * is what a narrow box shows. The split counts graphemes, so it never lands
+ * inside an emoji or a combined letter; with no separator, the last twelve
+ * graphemes are the tail. When even the tail is wider than what the head
+ * leaves, it ellipsises too — the line never runs past its container.
  *
- * Without a `/`, the last twelve characters are the tail. When even the tail
- * is wider than what the head leaves, it ellipsises too — the line never runs
- * past its container. The whole text is the `title` while it is cut, decided as the
- * pointer arrives, as `Clipped` does.
+ * **The text is the whole path, once.** The two visible halves are layout
+ * only: flex items, which a copy and an accessible name would each join with
+ * a break or a space ("…/triggers\n/review.json"). So they are hidden from
+ * assistive technology and from selection, and the whole path sits beside
+ * them as one visually hidden run — what a screen reader reads and what a
+ * copy takes. The whole path is also the `title` while it is cut, decided as
+ * the pointer arrives, as `Clipped` does.
  */
-const splitAt = (text: string): number => {
-  const slash = text.lastIndexOf('/')
-  if (slash > 0) return slash
-  return Math.max(0, text.length - 12)
+const graphemes = (text: string): string[] =>
+  typeof Intl.Segmenter === 'function'
+    ? Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text), (part) => part.segment)
+    : Array.from(text)
+
+/** Where a path gives way: before its last separator, or before its last twelve graphemes. */
+export const splitPath = (text: string): readonly [head: string, tail: string] => {
+  const parts = graphemes(text)
+  let at = -1
+  for (let index = parts.length - 1; index > 0; index -= 1) {
+    if (parts[index] === '/' || parts[index] === '\\') {
+      at = index
+      break
+    }
+  }
+  if (at < 0) at = Math.max(0, parts.length - 12)
+  return [parts.slice(0, at).join(''), parts.slice(at).join('')]
 }
 
 type MiddleTruncateProps = Omit<React.ComponentProps<'span'>, 'children'> & {
@@ -28,30 +48,29 @@ type MiddleTruncateProps = Omit<React.ComponentProps<'span'>, 'children'> & {
 }
 
 const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) => {
-  const at = splitAt(children)
-  const head = children.slice(0, at)
-  const tail = children.slice(at)
-  const long = head.length > 3
+  const [head, tail] = splitPath(children)
+  const long = graphemes(head).length > 3
   return (
     <span
       data-slot="middle-truncate"
       className={cn('inline-flex min-w-0 max-w-full overflow-hidden whitespace-nowrap align-bottom', className)}
       onMouseEnter={(event) => {
         const node = event.currentTarget
-        const cut = [...node.children].some((part) => part.scrollWidth > part.clientWidth)
+        const cut = [...node.querySelectorAll('[data-part]')].some((part) => part.scrollWidth > part.clientWidth)
         if (cut) node.title = children
         else node.removeAttribute('title')
       }}
       {...props}
     >
+      <span className="sr-only">{children}</span>
       {/* Only the head gives way, so the name stays whole while there is any
           head left to give — and the head keeps enough of itself (`~/…`) to
           show that something was cut. A name wider than all of that is the
           one case where the tail ellipsises too. */}
       {head !== '' && (
-        <span data-part="head" className={cn('truncate', long ? 'min-w-6' : 'min-w-0')}>{head}</span>
+        <span aria-hidden="true" data-part="head" className={cn('truncate select-none', long ? 'min-w-6' : 'min-w-0')}>{head}</span>
       )}
-      <span data-part="tail" className={cn('shrink-0 truncate', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail}</span>
+      <span aria-hidden="true" data-part="tail" className={cn('shrink-0 truncate select-none', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail}</span>
     </span>
   )
 }

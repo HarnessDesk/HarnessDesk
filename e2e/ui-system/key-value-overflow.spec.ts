@@ -10,6 +10,8 @@ import { expect, test } from '@playwright/test'
  * window narrow enough to force both, and asks the layout — not the classes.
  */
 const PATH = '~/work/storefront-and-its-long-name/.harnessdesk/triggers/pull-requests/review.json'
+test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
+
 const SENTENCE = 'When a pull request opens or is pushed, open review-pr, at most 4 at once.'
 
 test('a path gives up its middle and a sentence wraps, inside a narrow dialog', async ({ page }) => {
@@ -86,4 +88,24 @@ test('a path gives up its middle and a sentence wraps, inside a narrow dialog', 
   const line = dialog.locator('[data-slot="middle-truncate"]')
   await line.hover()
   await expect(line).toHaveAttribute('title', PATH)
+
+  // What a screen reader hears is the whole path, with no gap where it was cut.
+  const value = dialog.locator('[data-slot="key-value"] dd').first()
+  expect(await value.ariaSnapshot()).toContain(PATH)
+
+  // And what a copy takes is the whole path, on one line: select the value
+  // the way a triple-click does, and press the platform's copy key.
+  for (const target of [value, dialog.locator('[data-slot="key-value"]')]) {
+    await target.evaluate((node) => {
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const selection = getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    })
+    await page.keyboard.press('ControlOrMeta+C')
+    const copied = await page.evaluate(() => navigator.clipboard.readText())
+    expect(copied).toContain(PATH)
+    expect(copied.split('\n').some((one) => one.trim() === PATH || one.trim().endsWith(PATH))).toBe(true)
+  }
 })
