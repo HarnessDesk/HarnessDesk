@@ -205,6 +205,24 @@ const storeFor = (snapshot: AppSnapshot, overrides: Record<string, unknown> = {}
     writeAttachmentEdit: vi.fn(async (entry: AgentEntry) => entry),
     readAgentNotes: vi.fn(async () => ({ path: '/NOTES.md', text: null, digest: null, writable: true, problem: null })),
     clearAgentNotes: vi.fn(async () => ({ path: '/NOTES.md', text: '', digest: 'e'.repeat(64), writable: true, problem: null })),
+    // Task 5's editable fields: a neutral document for whichever Agent is
+    // open, so every existing test — which has no opinion about editing a
+    // field — still settles rather than throwing "not a function".
+    readAuthoring: vi.fn(async (target: { readonly id?: string }) => ({
+      target,
+      source: '---\nname: x\n---\nBrief.\n',
+      digest: `digest-${target.id ?? 'x'}`,
+      exists: true,
+      displayPath: 'AGENT.md',
+      writable: true,
+      issues: [],
+    })),
+    previewAgentEdit: vi.fn(async () => ({ token: null, edits: [], issues: [{ at: 'file', text: 'not wired in this test', fix: '' }], resuming: false })),
+    applyAuthoringSave: vi.fn(async () => ({ state: 'refused', written: [], message: 'not wired in this test' })),
+    // The overview's unfinished-saves banner: neutral (none) unless a test says otherwise.
+    authoringPending: vi.fn(async () => []),
+    resumeAuthoringSave: vi.fn(async () => ({ token: null, edits: [], issues: [{ at: 'save', text: 'not wired in this test', fix: '' }], resuming: true })),
+    discardAuthoringSave: vi.fn(async () => []),
     ...overrides,
   }) as unknown as AppStore
 
@@ -337,6 +355,16 @@ it('removes one of yours to the Trash, after asking, and goes back to the roster
   expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
 })
 
+it('Remove… lives in its own Danger section at the foot of the page, never alone under the title, and its confirm is explicitly destructive', async () => {
+  mount({ focus: 'scout' })
+  expect(section('Danger')).toContain('Remove…')
+  // The button that reads "Remove…" is the Danger section's own, not a loose one under the head.
+  expect(button('Remove…').closest('section[aria-label="Danger"]')).not.toBeNull()
+
+  act(() => button('Remove…').click())
+  expect(document.body.querySelector('[role="alertdialog"] [data-tone]')?.getAttribute('data-tone')).toBe('destructive')
+})
+
 it('opens a file that will not parse on why, with nothing to start', () => {
   mount({ focus: 'draft' })
   const text = container.textContent ?? ''
@@ -448,9 +476,16 @@ it('shows Remove’s own refusal in its dialog on a server-only host, and stays 
 /* --- On this Mac (Task 16) ------------------------------------------------ */
 
 const section = (label: string): string => container.querySelector(`section[aria-label="${label}"]`)?.textContent ?? ''
-const labelled = (label: string): HTMLButtonElement[] => [
-  ...container.querySelectorAll<HTMLButtonElement>(`button[aria-label="${label}"]`),
+/** Move up/down/remove live behind each "On this Mac" row's own "… actions" menu, in row order. */
+const seatMenus = (): HTMLButtonElement[] => [
+  ...container.querySelectorAll<HTMLButtonElement>('section[aria-label="On this Mac"] [aria-label$=" actions"]'),
 ]
+/** A row's overflow menu item — Base UI's `Menu.Item` renders a `<div role="menuitem">`, never a `<button>`. */
+const menuItem = (label: string): HTMLElement => {
+  const found = [...document.body.querySelectorAll('[role="menuitem"]')].find((one) => one.textContent?.trim() === label)
+  if (!found) throw new Error(`no menu item “${label}”`)
+  return found as HTMLElement
+}
 const choose = (label: string, value: string): void => {
   const tag = [...document.body.querySelectorAll('label')].find((one) => one.textContent === label)
   const select = tag ? document.getElementById(tag.htmlFor) : null
@@ -471,23 +506,35 @@ it('lists this Mac’s seats in order, each with its state here, and names the f
   expect(here).toContain('~/.harnessdesk/seating.json')
 })
 
+it('no bare per-row Move up, Move down or remove button sits on "On this Mac" — every one lives behind its row’s own … menu', () => {
+  mount({ focus: 'code-reviewer' })
+  const here = container.querySelector('section[aria-label="On this Mac"]')!
+  expect([...here.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Move up')).toBe(false)
+  expect([...here.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Move down')).toBe(false)
+  expect([...here.querySelectorAll('button[aria-label="Remove this seat"]')]).toHaveLength(0)
+  expect(seatMenus().length).toBeGreaterThan(0)
+})
+
 it('a seat moves, or goes, and Clear gives the Agent its own list back', async () => {
   const { store } = mount({ focus: 'code-reviewer' })
   const expected = [{ runtime: 'codex' }, { runtime: 'claude-code' }]
-  expect(labelled('Move up')).toHaveLength(2)
-  expect(labelled('Move down')).toHaveLength(2)
-  expect(labelled('Move up')[0]!.textContent).toContain('Move up')
-  expect(labelled('Move down')[0]!.textContent).toContain('Move down')
-  expect(labelled('Move up')[0]!.disabled).toBe(true)
-  expect(labelled('Move down')[1]!.disabled).toBe(true)
-  act(() => labelled('Move down')[0]!.click())
+  expect(seatMenus()).toHaveLength(2)
+
+  act(() => seatMenus()[0]!.click())
+  await settle()
+  expect(menuItem('Move up').getAttribute('aria-disabled')).toBe('true')
+  act(() => menuItem('Move down').click())
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith(
     'code-reviewer',
     [{ runtime: 'claude-code' }, { runtime: 'codex' }],
     expected,
   )
-  act(() => labelled('Remove this seat')[1]!.click())
+
+  act(() => seatMenus()[1]!.click())
+  await settle()
+  expect(menuItem('Move down').getAttribute('aria-disabled')).toBe('true')
+  act(() => menuItem('Remove seat').click())
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'codex' }], expected)
   act(() => button('Clear').click())
@@ -495,12 +542,14 @@ it('a seat moves, or goes, and Clear gives the Agent its own list back', async (
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null, expected)
 })
 
-it('the last seat removed gives the Agent its own list back too', () => {
+it('the last seat removed gives the Agent its own list back too', async () => {
   const { store } = mount({
     focus: 'code-reviewer',
     seating: { ...SEATING, entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }] },
   })
-  act(() => labelled('Remove this seat')[0]!.click())
+  act(() => seatMenus()[0]!.click())
+  await settle()
+  act(() => menuItem('Remove seat').click())
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null, [{ runtime: 'codex' }])
 })
 
@@ -509,14 +558,17 @@ it('disables every seat edit while a move is in flight, so a quick remove cannot
   const write = deferred<void>()
   store.setSeating = vi.fn(() => write.promise)
 
-  act(() => labelled('Move down')[0]!.click())
-  expect(labelled('Move up').every((one) => one.disabled)).toBe(true)
-  expect(labelled('Move down').every((one) => one.disabled)).toBe(true)
-  expect(labelled('Remove this seat').every((one) => one.disabled)).toBe(true)
+  act(() => seatMenus()[0]!.click())
+  await settle()
+  act(() => menuItem('Move down').click())
+  // Every seat's own "… actions" trigger is disabled while the move is in flight.
+  expect(seatMenus().every((one) => one.disabled)).toBe(true)
   expect(button('Clear').disabled).toBe(true)
   expect(button('Add a seat…').disabled).toBe(true)
 
-  act(() => labelled('Remove this seat')[1]!.click())
+  // A disabled trigger cannot be reopened to fire a second edit from the old list.
+  act(() => seatMenus()[1]!.click())
+  expect(document.body.querySelector('[role="menu"]')).toBeNull()
   expect(store.setSeating).toHaveBeenCalledTimes(1)
   expect(store.setSeating).toHaveBeenCalledWith(
     'code-reviewer',
@@ -569,16 +621,19 @@ it('two pages editing one Agent refuse the stale page, reload it, and show the r
   vi.mocked(staleStore.loadSeating).mockClear()
   const first = container.querySelector<HTMLElement>('[data-page="first"]')!
   const stale = container.querySelector<HTMLElement>('[data-page="stale"]')!
-  const firstMove = [...first.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.getAttribute('aria-label') === 'Move down')!
-  const staleRemoves = [...stale.querySelectorAll<HTMLButtonElement>('button')].filter(
-    (one) => one.getAttribute('aria-label') === 'Remove this seat',
-  )
+  const menusIn = (scope: HTMLElement): HTMLButtonElement[] => [
+    ...scope.querySelectorAll<HTMLButtonElement>('[aria-label$=" actions"]'),
+  ]
 
-  act(() => firstMove.click())
+  act(() => menusIn(first)[0]!.click())
+  await settle()
+  act(() => menuItem('Move down').click())
   await settle()
   expect(hostSeats).toEqual([{ runtime: 'claude-code' }, { runtime: 'codex' }])
 
-  act(() => staleRemoves[1]!.click())
+  act(() => menusIn(stale)[1]!.click())
+  await settle()
+  act(() => menuItem('Remove seat').click())
   await settle()
   expect(staleStore.setSeating).toHaveBeenCalledWith('code-reviewer', [{ runtime: 'codex' }], original)
   expect(staleStore.loadSeating).toHaveBeenCalledTimes(1)
@@ -681,7 +736,7 @@ it('only an editable flagged Agent offers Update…, and it opens from the Ceili
     diff: `--- a/AGENT.md\n+++ b/AGENT.md\n@@ -3 +3 @@\n-permission: read\n+ceiling: ${level}\n`,
   }))
   project.store.writeCeiling = vi.fn(async (entry) => entry)
-  expect(section('Ceiling')).toContain('Written with permission:')
+  expect(section('Ceiling')).toContain('Written with permission,')
   act(() => button('Update…').click())
   await settle()
   expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Update Code reviewer')
@@ -697,6 +752,14 @@ it('only an editable flagged Agent offers Update…, and it opens from the Ceili
   const store = storeFor(snapshot)
   act(() => root.render(<StoreProvider store={store}><AgentPage entry={explicit} onBack={() => {}} onLeave={() => {}} /></StoreProvider>))
   expect(section('Ceiling')).not.toContain('Update…')
+})
+
+it('a legacy Agent’s Ceiling row offers one action, never both Update… and an always-refusing Edit…', () => {
+  mount({ focus: 'code-reviewer' })
+  const ceiling = container.querySelector('section[aria-label="Ceiling"]')!
+  const labels = [...ceiling.querySelectorAll('button')].map((one) => one.textContent?.trim())
+  expect(labels).toContain('Update…')
+  expect(labels).not.toContain('Edit…')
 })
 
 it('a successful update removes the flag, and project navigation closes an old preview', async () => {
@@ -736,7 +799,7 @@ it('a successful update removes the flag, and project navigation closes an old p
   await vi.waitFor(() => expect(button('Write this line').disabled).toBe(false))
   act(() => button('Write this line').click())
   await settle()
-  expect(section('Ceiling')).not.toContain('Written with permission:')
+  expect(section('Ceiling')).not.toContain('Written with permission,')
   expect(section('Ceiling')).not.toContain('Update…')
 
   act(() => {
@@ -763,4 +826,87 @@ it('a successful update removes the flag, and project navigation closes an old p
     diff: '-permission: edit\n+ceiling: edit\n',
   }))
   expect(store.writeCeiling).toHaveBeenCalledTimes(1)
+})
+
+it('a migrated Agent’s ceiling offers Edit… beside the legacy Update…, through the same authoring path as its other fields', async () => {
+  const migrated = agent('explicit', 'Explicit', 'user', {
+    definition: { ...agent('explicit', 'Explicit', 'user').definition!, ceilingFrom: 'ceiling', ceiling: 'read' },
+  })
+  const snapshot = { ...snapshotFor(SEATING), agents: [migrated], agentPlans: new Map() } as AppSnapshot
+  const previewAgentEdit = vi.fn(async () => ({
+    token: 'ceiling-tok',
+    edits: [{ path: migrated.path, before: 'ceiling: read', after: 'ceiling: edit' }],
+    issues: [],
+    resuming: false,
+  }))
+  const applyAuthoringSave = vi.fn(async () => ({ state: 'applied', written: [migrated.path], message: 'Saved.' }))
+  const store = storeFor(snapshot, { previewAgentEdit, applyAuthoringSave })
+  act(() => root.render(<StoreProvider store={store}><AgentPage entry={migrated} onBack={() => {}} onLeave={() => {}} /></StoreProvider>))
+
+  // Nothing to update: this Agent already reads `ceiling:`.
+  expect(section('Ceiling')).not.toContain('Update…')
+  const edit = [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Ceiling"] button')].find((one) => one.textContent?.trim() === 'Edit…')
+  if (!edit) throw new Error('no Edit… on the Ceiling row')
+  // Disabled until its document is read — the digest an edit previews against.
+  await vi.waitFor(() => expect(edit.hasAttribute('disabled')).toBe(false))
+  act(() => edit.click())
+  await settle()
+
+  const ceilingDialog = document.body.querySelector('[role="dialog"]')!
+  expect(ceilingDialog.textContent).toContain('Edit Ceiling')
+  const editChoice = [...ceilingDialog.querySelectorAll<HTMLElement>('button, [role="radio"]')].find((one) => one.textContent?.startsWith('Edit'))!
+  act(() => editChoice.click())
+  await settle()
+  expect(previewAgentEdit).toHaveBeenCalledWith(
+    { kind: 'agent', origin: 'user', id: 'explicit' },
+    'digest-explicit',
+    { key: 'ceiling', value: 'edit' },
+  )
+
+  act(() => {
+    const save = [...ceilingDialog.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Save')!
+    save.click()
+  })
+  await settle()
+  expect(applyAuthoringSave).toHaveBeenCalledWith('ceiling-tok')
+})
+
+it('Seats’ own Edit… opens the same authoring path for prefer, and a legacy-permission Agent’s ceiling still refuses there rather than being silently reinterpreted', async () => {
+  // The default `agent()` fixture is `ceilingFrom: 'permission'` — this
+  // proves prefer editing on a legacy Agent works read/writes seats without
+  // ever touching its ceiling, and that a *ceiling* edit attempted through
+  // the same document still comes back refused in the host's own words.
+  const previewAgentEdit = vi.fn(async (_target: unknown, _digest: string, edit: { readonly key: string }) =>
+    edit.key === 'prefer'
+      ? { token: 'prefer-tok', edits: [{ path: ROSTER[0]!.path, before: 'prefer: []', after: 'prefer: [claude-code]' }], issues: [], resuming: false }
+      : { token: null, edits: [], issues: [{ at: 'ceiling', text: 'This Agent still says permission:, which is read differently from a ceiling.', fix: 'Update it to a ceiling from the Agent page first, then change it here.' }], resuming: false })
+  const store = storeFor(snapshotFor(SEATING), { previewAgentEdit })
+  act(() => root.render(<StoreProvider store={store}><AgentsRosterSection focus="code-reviewer" /></StoreProvider>))
+
+  const editSeats = await vi.waitFor(() => {
+    const found = [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Seats"] button')].find((one) => one.textContent?.trim() === 'Edit…')
+    if (!found) throw new Error('no Edit… on Seats yet')
+    return found
+  })
+  act(() => editSeats.click())
+  await settle()
+  const dialog = document.body.querySelector('[role="dialog"]')
+  expect(dialog?.textContent).toContain('Edit Seats for Code reviewer')
+  // Move up/down/remove live behind the seat's own "… actions" menu now, not
+  // as a standing per-row button.
+  const seatActions = dialog!.querySelector('[aria-label="Claude seat actions"]') as HTMLButtonElement
+  expect(seatActions).not.toBeNull()
+
+  act(() => seatActions.click())
+  await settle()
+  act(() => {
+    const remove = [...document.body.querySelectorAll('[role="menuitem"]')].find((one) => one.textContent?.trim() === 'Remove seat') as HTMLElement
+    remove.click()
+  })
+  await settle()
+  expect(previewAgentEdit).toHaveBeenLastCalledWith(
+    { kind: 'agent', origin: 'project', id: 'code-reviewer', root: '/w/storefront' },
+    'digest-code-reviewer',
+    { key: 'prefer', value: [] },
+  )
 })

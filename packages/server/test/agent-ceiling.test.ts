@@ -10,6 +10,7 @@ import { parseClientMessage, ValidationError, type AgentEntry, type CeilingUpdat
 
 import { ceilingEdit, parseAgentDefinition } from '../src/agent-def.js'
 import { Host, StateStore } from '../src/index.js'
+import { ConfinedTree } from '../src/confined-tree.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { shippedAgentsCopy, silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -162,4 +163,29 @@ test('through the host: one of your Agents that wrote no ceiling gets the one li
     () => parseClientMessage({ id: 1, method: 'agent/ceiling/write', params: { id: 'scout', origin: 'user', level: 'owner', digest: 'd' } }),
     ValidationError,
   )
+})
+
+test('through the host: Update… waits for an unfinished save of the same file, so that save stays resumable', async (t) => {
+  const { host, stateDir, project, file } = await desk(t)
+  // What a save that stopped part-way leaves: its record prepared, nothing on disk yet.
+  const saved = OLD.replace('Reads a diff.', 'Reads a diff, saved from the editor.')
+  const tree = await ConfinedTree.open(project)
+  const id = 'cd'.repeat(16)
+  await mkdir(join(stateDir, 'authoring', 'transactions'), { recursive: true })
+  await writeFile(join(stateDir, 'authoring', 'transactions', `${id}.json`), JSON.stringify({
+    version: 1, id, tx: 'crashed', scope: 'project', root: tree.root, project: tree.root, rootIdentity: tree.identity,
+    edits: [{ path: '.harnessdesk/agents/reviewer/AGENT.md', before: OLD, after: saved }], written: [], state: 'prepared', created: 1,
+  }))
+  const shown = (await host.call('agent/ceiling/preview', { id: 'reviewer', origin: 'project', project, level: 'edit' })) as CeilingUpdate
+  await assert.rejects(
+    host.call('agent/ceiling/write', { id: 'reviewer', origin: 'project', project, level: 'edit', digest: shown.digest }),
+    /An earlier save of one of these files did not finish\. Resume or discard that save/,
+  )
+  assert.equal(await readFile(file, 'utf8'), OLD, 'nothing written past the unfinished save')
+  // The save is still exactly resumable, and lands.
+  const resumed = (await host.call('authoring/save/resume', { id })) as { token: string | null; issues: readonly unknown[] }
+  assert.ok(resumed.token, JSON.stringify(resumed.issues))
+  const applied = (await host.call('authoring/save/apply', { token: resumed.token! })) as { state: string }
+  assert.equal(applied.state, 'applied')
+  assert.equal(await readFile(file, 'utf8'), saved)
 })

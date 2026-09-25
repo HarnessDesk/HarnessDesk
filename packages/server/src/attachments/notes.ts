@@ -8,8 +8,8 @@ import { randomUUID } from 'node:crypto'
  * ordinary committed Markdown, read the same confined, no-follow way an
  * Agent's own source already is. A missing file reads as `text: null`, never
  * created by the read itself; clearing writes an empty file, digest-bound to
- * what was actually shown, through the same atomic temp-then-rename swap
- * `rewriteAgentFile` uses, refusing outright the moment anything on the path
+ * what was actually shown, through an atomic temp-then-rename swap,
+ * refusing outright the moment anything on the path
  * is not an ordinary file or directory.
  */
 

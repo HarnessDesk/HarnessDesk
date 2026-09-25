@@ -68,6 +68,7 @@ import { MessageQueue } from './MessageQueue'
 import { RemoveWorktree } from './RemoveWorktree'
 import { BringHome } from './BringHome'
 import { FolderGone } from './FolderGone'
+import { FrontDoor } from './FrontDoor'
 import { SetupDesk } from './SetupDesk'
 import { TurnTail } from './TurnTail'
 import { describeLimits } from '../lib/limits'
@@ -104,6 +105,7 @@ const ConversationEmpty = ({
   onSignIn: (runtime?: RuntimeId) => void
   onOpenRuntimes: () => void
 }) => {
+  const store = useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
   // This pane's agent's own health and account. The singular slots are the
@@ -117,6 +119,7 @@ const ConversationEmpty = ({
      draft's sentence in the wrong pane. */
   const session = useActiveSession()
   const folder = session?.cwd ? (session.cwd.split('/').filter(Boolean).pop() ?? null) : null
+  const [startingTeam, setStartingTeam] = useState(false)
 
   if (health && health.state === 'unavailable') {
     // Not just this agent's bad news: the whole desk, surveyed, with the one
@@ -192,6 +195,18 @@ const ConversationEmpty = ({
           ? ` Sessions you start in ${words.historySource} appear in the sidebar too.`
           : ''}
       </p>
+      {/* This pane already knows its folder — the front door reads the same
+          root. With none chosen yet there is no catalogue to read, so the
+          text above stays the whole of the pitch; opening a folder is what
+          the composer, ⌘O and the palette already offer. */}
+      {session?.cwd && (
+        <p className={`${EMPTY_BODY_CLASSES} m-0`}>
+          <Button type="button" variant="link" size="content" onClick={() => setStartingTeam(true)}>
+            Start with a team…
+          </Button>{' '}
+          to choose a shape this project ships instead.
+        </p>
+      )}
       {snapshot.runtimes.length === 1 && (
         /* The one-agent desk is the first-run desk. Said here rather than
            left for settings to reveal: the other agents on this machine can
@@ -202,6 +217,16 @@ const ConversationEmpty = ({
             Add another runtime…
           </Button>
         </p>
+      )}
+      {startingTeam && session?.cwd && (
+        <FrontDoor
+          context={{ kind: 'project', root: session.cwd }}
+          onClose={() => setStartingTeam(false)}
+          onStarted={(execution) => {
+            store.openGoal(execution.goal)
+            setStartingTeam(false)
+          }}
+        />
       )}
     </ConversationEmptyState>
   )

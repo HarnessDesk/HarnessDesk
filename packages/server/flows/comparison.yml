@@ -44,4 +44,4 @@ messaging: board-only
 # closed rounds in a row that brought no new evidence. Raise it for longer loops.
 budget: { rounds: 4, without-progress: 2 }
 wait: 240
-layout: {"race":"competitor"}
+layout: {"race":"competitor","frontDoor":{"order":3,"contexts":["project"]}}

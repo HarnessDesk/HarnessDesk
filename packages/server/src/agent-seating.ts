@@ -132,6 +132,8 @@ export interface SeatOffer {
 export interface CeilingNeed {
   readonly level: CeilingLevel
   readonly unheld: 'seat' | 'refuse'
+  /** A front-door start's own requirement, not this Mac's preference: said so, and fixed by choosing a seat that can hold. */
+  readonly required?: true
 }
 
 export interface PassedOver {
@@ -192,7 +194,7 @@ export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[], need
     return { kind: 'noEffort', effort: seat.effort }
   }
   if (need?.unheld === 'refuse' && !(offer.holds ?? []).includes(need.level)) {
-    return { kind: 'unheld', level: need.level, detail: null }
+    return { kind: 'unheld', level: need.level, detail: null, ...(need.required ? { required: true as const } : {}) }
   }
   return null
 }
@@ -254,7 +256,7 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
     case 'openedOtherwise':
       return `${runtime} runs it ${reason.differences.map(fragmentOf).join(', and ')}`
     case 'unheld':
-      return `${runtime} cannot hold ${reason.level}${reason.detail ? ` — ${quoted(reason.detail)}` : ''}, and this Mac refuses a seat whose ceiling is only asked`
+      return `${runtime} cannot hold ${reason.level}${reason.detail ? ` — ${quoted(reason.detail)}` : ''}, and ${reason.required ? 'a start from the front door needs every Seat to hold its ceiling' : 'this Mac refuses a seat whose ceiling is only asked'}`
   }
 }
 
@@ -286,7 +288,8 @@ export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
     case 'openedOtherwise':
       return { kind: 'seats' }
     case 'unheld':
-      return { kind: 'ceilings' }
+      // A front-door start's own requirement is met by a seat that can hold, never by loosening this Mac's setting.
+      return reason.required ? { kind: 'seats' } : { kind: 'ceilings' }
   }
 }
 
