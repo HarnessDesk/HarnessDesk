@@ -330,8 +330,18 @@ describe('ChartTip', () => {
     expect(owned?.dataset['placement']).toBe('owner')
     expect(owned?.getAttribute('style')).toBeNull()
     expect(owned?.className).not.toContain('bottom-full')
+    expect(plotted?.tagName).toBe('DIV')
     /* The plate is the same either way. */
     expect(owned?.className).toContain('bg-(--hd-popover)')
     expect(owned?.className).toContain('shadow-(--hd-shadow)')
+  })
+})
+
+describe('ChartTip inside a control', () => {
+  it('is a span, so a button around it holds only phrasing content', () => {
+    mount(<button type="button"><ChartTip as="span">First words</ChartTip></button>)
+    const tip = container.querySelector('[data-slot="chart-tip"]')
+    expect(tip?.tagName).toBe('SPAN')
+    expect(container.querySelector('button div')).toBeNull()
   })
 })

@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
-import { ChartKey, ChartKeys, CodeText, ProgressStack, SeriesDot, Separator, Text, type Tint, type Tone } from '../design'
+import { ChartKey, ChartKeys, CodeText, ProgressStack, publicationVerb, SeriesDot, Separator, Text, type Tint, type Tone } from '../design'
 import { toolWords } from '../lib/tool-names'
 import { useActiveSession } from '../state/context'
 import type { ReportFoot } from './Details'
@@ -63,6 +63,8 @@ const KIND_LABEL: Record<string, string> = {
   review: 'Review',
   image: 'Image',
   error: 'Error',
+  subagent: 'Sub-agent',
+  publication: 'Publication',
 }
 
 /*
@@ -94,10 +96,20 @@ const labelOf = (item: AgentItem): string => {
       return item.query
     case 'notice':
       return oneLine(item.text)
+    case 'subagent': {
+      // What it was asked, or who took it — never the wire's action word.
+      const who = item.members.find((member) => member.nickname)?.nickname
+      return oneLine(item.prompt ?? '') || (who ? `Handed to ${who}` : 'Handed work to a sub-agent')
+    }
+    case 'publication': {
+      const { reference } = item
+      const title = reference.title ? ` · ${oneLine(reference.title)}` : ''
+      return `${publicationVerb(reference)} #${reference.number}${title}`
+    }
     case 'userMessage':
       return oneLine(item.content.find((part) => part.type === 'text')?.text ?? '') || 'Message'
     default:
-      return KIND_LABEL[item.type] ?? item.type
+      return KIND_LABEL[item.type] ?? 'Step'
   }
 }
 
@@ -119,9 +131,11 @@ const ROLE: Record<string, string> = {
   review: 'System',
   image: 'Media',
   error: 'Error',
+  subagent: 'Sub-agent',
+  publication: 'Post',
 }
 
-const roleOf = (item: AgentItem): string => ROLE[item.type] ?? item.type
+const roleOf = (item: AgentItem): string => ROLE[item.type] ?? 'Step'
 
 /** A turn's state in words, not in the wire's spelling. */
 const TURN_STATE: Record<string, string> = { inProgress: 'running', interrupted: 'stopped', failed: 'failed' }
@@ -224,7 +238,7 @@ export const Trajectory = ({
                 {...colourOfKind(segment.kind)}
                 label={
                   <>
-                    {KIND_LABEL[segment.kind] ?? segment.kind}
+                    {KIND_LABEL[segment.kind] ?? 'Other'}
                     <Text role="meta" numeric>{formatMs(segment.ms)}</Text>
                   </>
                 }

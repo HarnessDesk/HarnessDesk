@@ -155,7 +155,7 @@ export const ConversationMap = ({
                 stroke for the prompt, a quiet one for the answer. */}
             <Tick emphasis={mark.kind === 'prompt' ? 'strong' : 'quiet'} className={styles.dash} />
             {near > SNAP / RADIUS && (
-              <ChartTip className={styles.preview}>{mark.preview}</ChartTip>
+              <ChartTip as="span" className={styles.preview}>{mark.preview}</ChartTip>
             )}
           </Button>
         )

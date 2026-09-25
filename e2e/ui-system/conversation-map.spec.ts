@@ -144,6 +144,11 @@ for (const width of [640, 760, 1440]) {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await expect.poll(async () => (await read()).ticks[0]?.width).toBeGreaterThan(12)
 
+    // The words it offers sit inside the mark's button, so they are phrasing
+    // content: a span, never a div.
+    await expect(rail.locator('[data-slot="chart-tip"]')).toHaveCount(1)
+    expect(await rail.locator('button div').count()).toBe(0)
+
     const pushed = await read()
     const peak = pushed.ticks[0]
     if (!peak) throw new Error('no dash under the pointer')
