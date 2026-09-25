@@ -142,6 +142,14 @@ describe('table', () => {
     mount([{ type: 'table', columns, rows: [{ name: 'alpha', count: '1', secret: 'leaked' }] }])
     expect(text()).not.toContain('leaked')
   })
+
+  it('sets a column the plugin aligns to the end as figures, in the cell as well as its head', () => {
+    mount([{ type: 'table', columns, rows: [{ name: 'alpha', count: '12' }] }])
+    const [name, count] = [...container.querySelectorAll('td')]
+    expect(name?.getAttribute('data-align')).toBe('start')
+    expect(count?.getAttribute('data-align')).toBe('end')
+    expect(count?.className).toContain('tabular-nums')
+  })
 })
 
 describe('tree', () => {
@@ -240,9 +248,33 @@ describe('code', () => {
     mount([{ type: 'code', text: 'x', editable: true }])
     expect(text()).not.toContain('Unsaved')
   })
+
+  it('stands its loading text in the code block form, inside a window bounded by its lines', () => {
+    mount([{ type: 'code', text: 'const a = 1', maxLines: 4 }])
+    const fallback = container.querySelector('pre[data-slot="code-text"]')
+    expect(fallback?.hasAttribute('data-block')).toBe(true)
+    const viewport = container.querySelector<HTMLElement>('[data-slot="card-viewport"]')
+    expect(viewport?.getAttribute('data-size')).toBe('lines')
+    // Four lines at the editor's size and leading, never unbounded.
+    expect(Number.parseFloat(viewport?.style.maxHeight ?? '')).toBeGreaterThan(0)
+  })
 })
 
 describe('the panel as a whole', () => {
+  it('marks a finished list item done, and only that one', () => {
+    mount([{ type: 'list', items: [{ label: 'Read it', done: true }, { label: 'Fix it', done: false }, { label: 'Note' }] }])
+    const labels = [...container.querySelectorAll('li')].map((item) => item.querySelector('[data-slot="text"][data-role="navigation"]:not([aria-hidden])'))
+    expect(labels.map((label) => label?.hasAttribute('data-done'))).toEqual([true, false, false])
+    expect(labels[0]?.className).toContain('line-through')
+  })
+
+  it('puts a list mark in its label\'s type, one line tall, so it centres on the first line', () => {
+    mount([{ type: 'list', items: [{ label: 'A label long enough to wrap', done: false }] }])
+    const mark = container.querySelector('li [aria-hidden="true"]')
+    expect(mark?.getAttribute('data-role')).toBe('navigation')
+    expect(mark?.textContent).toBe('\u200b')
+  })
+
   it('ignores a block type this build does not know', () => {
     mount([{ type: 'nonsense' } as unknown as UiBlock, { type: 'markdown', text: 'still here' }])
     expect(text()).toContain('still here')
@@ -293,5 +325,13 @@ describe('the section around a panel', () => {
     mount(blocks)
     expect(text()).toContain('the body')
     expect(container.querySelector('section button')).toBeNull()
+  })
+
+  it('caps its height at the column\'s allotment through the panel section', () => {
+    mount(blocks, 'Reading history')
+    const section = container.querySelector<HTMLElement>('[data-slot="section"]')
+    expect(section?.getAttribute('data-variant')).toBe('panel')
+    expect(section?.className).toContain('max-h-(--panel-max,none)')
+    expect(section?.style.maxHeight).toBe('')
   })
 })

@@ -2,7 +2,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Keycap, SearchMatch, Text } from './Settings'
+import { CodeText, Keycap, SearchMatch, Text } from './Settings'
+import styles from './Settings.module.css'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -70,4 +71,25 @@ it('owns the keycap and matched-text roles used by search surfaces', () => {
 
   expect(container.querySelector('kbd[data-slot="keycap"]')?.textContent).toBe('esc')
   expect(container.querySelector('mark[data-slot="search-match"]')?.textContent).toBe('sett')
+})
+
+it('strikes a finished item through and steps it back, and leaves the rest alone', () => {
+  act(() => root.render(<><Text role="navigation" done>Read it</Text><Text role="navigation">Fix it</Text></>))
+  const [done, open] = [...container.querySelectorAll<HTMLElement>('[data-slot="text"]')]
+  expect(done?.hasAttribute('data-done')).toBe(true)
+  expect(done?.className).toContain('line-through')
+  expect(done?.className).toContain('opacity-60')
+  expect(open?.hasAttribute('data-done')).toBe(false)
+  expect(open?.className).not.toContain('line-through')
+})
+
+it('sets code as a block only when asked', () => {
+  act(() => root.render(<><CodeText as="pre" block>a = 1</CodeText><CodeText>inline</CodeText></>))
+  const [block, inline] = [...container.querySelectorAll<HTMLElement>('[data-slot="code-text"]')]
+  expect(block?.tagName).toBe('PRE')
+  expect(block?.hasAttribute('data-block')).toBe(true)
+  expect(inline?.hasAttribute('data-block')).toBe(false)
+  expect(styles.monoBlock).toBeTruthy()
+  expect(block?.classList.contains(styles.monoBlock!)).toBe(true)
+  expect(inline?.classList.contains(styles.monoBlock!)).toBe(false)
 })
