@@ -1,10 +1,18 @@
-import type { AgentEntry, FlowPolicyRole } from '@harnessdesk/protocol'
+import type { AgentEntry, FlowPolicyRole, FlowSeat, RuntimeInfo } from '@harnessdesk/protocol'
 
-import { Card, Checkbox, Field, FormStack, Input, NativeSelect, Row, Rows, SectionHead, Textarea } from '../design'
-import { agentName } from '../lib/agents'
+import {
+  BoardMenuButton, Button, Card, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+  DropdownMenuTrigger, Field, FormStack, Input, NativeSelect, Note, Row, Rows, SectionHead, Textarea,
+} from '../design'
+import { agentName, ceilingWords } from '../lib/agents'
 import {
   CEILINGS, defaultRole, exitLines, parseExitLines, parseWordLines, ROLE_KIND_WORDS, ROLE_KINDS, wordLines,
 } from '../lib/shapes'
+import { MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
+
+/** A seat's own presentation name — never a raw runtime id in the row a person reads. Mirrors `AgentFields`'s `seatRuntimeName`. */
+const seatRuntimeName = (seat: FlowSeat, runtimes: readonly RuntimeInfo[]): string =>
+  runtimes.find((one) => one.id === seat.runtime)?.presentation.name ?? seat.runtime
 
 /**
  * One step, edited by its own kind's controls — Agent, Check or Person, named
@@ -22,10 +30,11 @@ import {
 export interface ShapeStepProps {
   readonly role: FlowPolicyRole
   readonly agents: readonly AgentEntry[]
+  readonly runtimes: readonly RuntimeInfo[]
   readonly onChange: (role: FlowPolicyRole) => void
 }
 
-export const ShapeStep = ({ role, agents, onChange }: ShapeStepProps) => {
+export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) => {
   const setId = (id: string): void => onChange({ ...role, id })
   const setKind = (kind: FlowPolicyRole['kind']): void => {
     if (kind === role.kind) return
@@ -87,18 +96,71 @@ export const ShapeStep = ({ role, agents, onChange }: ShapeStepProps) => {
                   />
                 )}
               </Field>
-              <Field label="Seat override" hint="Names a runtime only, so the shape stays portable — an exact model stays on a machine's own seating.">
-                {(control) => (
-                  <Input
-                    {...control}
-                    value={role.seats[0]?.runtime ?? ''}
-                    onChange={(event) => {
-                      const runtime = event.target.value.trim()
-                      onChange({ ...role, seats: runtime ? [{ runtime }] : [] })
-                    }}
-                  />
-                )}
-              </Field>
+              <section aria-label={`Seat override for ${role.id}`}>
+                <SectionHead
+                  name="Seat override"
+                  action={
+                    <DropdownMenu>
+                      <DropdownMenuTrigger render={<Button size="sm" variant="outline" aria-label="Add a seat"><PlusIcon size={14} />Add a seat</Button>} />
+                      <DropdownMenuContent align="end">
+                        {runtimes.map((one) => (
+                          <DropdownMenuItem key={one.id} onClick={() => onChange({ ...role, seats: [...role.seats, { runtime: one.id }] })}>
+                            {one.presentation.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  }
+                />
+                <Note>Names a runtime only, so the shape stays portable — an exact model stays on a machine's own seating.</Note>
+                <Rows>
+                  {role.seats.length === 0 && <Row title="No seat override — this project's own Agent seating applies" />}
+                  {role.seats.map((seat, index) => (
+                    <Row
+                      key={`${seat.runtime}-${index}`}
+                      title={seatRuntimeName(seat, runtimes)}
+                      desc={[seat.model, seat.effort, seat.thinking ? 'thinking' : null].filter(Boolean).join(' · ') || undefined}
+                      control={(
+                        <DropdownMenu>
+                          <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${seatRuntimeName(seat, runtimes)} seat actions`} />} />
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              disabled={index === 0}
+                              onClick={() => {
+                                const next = [...role.seats]
+                                ;[next[index - 1], next[index]] = [next[index]!, next[index - 1]!]
+                                onChange({ ...role, seats: next })
+                              }}
+                            >
+                              <MoveUpIcon size={14} />
+                              Move up
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={index === role.seats.length - 1}
+                              onClick={() => {
+                                const next = [...role.seats]
+                                ;[next[index], next[index + 1]] = [next[index + 1]!, next[index]!]
+                                onChange({ ...role, seats: next })
+                              }}
+                            >
+                              <MoveDownIcon size={14} />
+                              Move down
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => onChange({ ...role, seats: role.seats.filter((_, one) => one !== index) })}
+                            >
+                              <TrashIcon size={14} />
+                              Remove seat
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    />
+                  ))}
+                </Rows>
+              </section>
               <Row
                 title="Isolated"
                 desc="Each seat works in a worktree of its own."
@@ -107,7 +169,7 @@ export const ShapeStep = ({ role, agents, onChange }: ShapeStepProps) => {
               <Field label="Grant">
                 {(control) => (
                   <NativeSelect {...control} value={role.grant} onChange={(event) => onChange({ ...role, grant: event.target.value as typeof role.grant })}>
-                    {CEILINGS.map((level) => <option key={level} value={level}>{level}</option>)}
+                    {CEILINGS.map((level) => <option key={level} value={level}>{ceilingWords(level)}</option>)}
                   </NativeSelect>
                 )}
               </Field>

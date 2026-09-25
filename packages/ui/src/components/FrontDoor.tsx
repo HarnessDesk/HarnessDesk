@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentEntry, FlowEntry, FlowExecution, StartContext } from '@harnessdesk/protocol'
 
 import { ActionError, Banner, Button, Dialog, Field, FormStack, Input, Note, Row, RowButton, Rows } from '../design'
+import { shortSha } from '../lib/evidence'
+import { boundInputIds } from '../lib/shapes'
 import { useSnapshot, useStore } from '../state/context'
 import { FlowPreviewReport } from './FlowStart'
 import { ShapeEditor } from './ShapeEditor'
@@ -132,6 +134,14 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
     async (entry: FlowEntry): Promise<void> => {
       sequence.current += 1
       const mine = sequence.current
+      // Retires the shape just left behind before its own file is even
+      // asked for: `openFrontDoor` bumps `previewFrontDoor`'s generation and
+      // clears `frontDoor.preview` synchronously, so the token and dry run
+      // Start still reads cannot be the one just left behind while this
+      // shape's `flow/source` is still in flight — the gap a plain
+      // `previewFrontDoor` call (which only clears on its own call) leaves
+      // open until this shape's request is actually sent.
+      store.openFrontDoor(context, goal)
       setChosen({ id: entry.id, origin: entry.origin, name: entry.name })
       setSource('')
       setVars({})
@@ -184,6 +194,8 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   const flow = preview?.flow ?? null
   const compiled = flow?.compiled.document ?? null
   const inputs = compiled?.format === 'agents' ? compiled.flow.inputs : []
+  /** Which of `inputs` the shape's own layout fills from the resolved target — head, base, a pull request — rather than from a person typing. */
+  const bound = compiled?.format === 'agents' ? boundInputIds(compiled.flow) : new Set<string>()
   const errors = (flow?.problems ?? []).filter((one) => one.level === 'error')
   const warnings = (flow?.problems ?? []).filter((one) => one.level === 'warning')
   const startable = flow !== null && flow.token !== null && compiled?.format === 'agents' && errors.length === 0
@@ -210,7 +222,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   }
 
   if (ownShape) {
-    return <ShapeEditor root={root} context={context} onClose={() => setOwnShape(false)} onStarted={onStarted} />
+    return <ShapeEditor root={root} context={context} goal={goal} onClose={() => setOwnShape(false)} onStarted={onStarted} />
   }
 
   return (
@@ -224,11 +236,11 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
             <Button variant="default" disabled={!startable || !sentenceValid || starting} onClick={() => void start()}>
               {starting ? 'Starting…' : 'Start'}
             </Button>
-            <Button variant="secondary" disabled={starting} onClick={() => setEveryTime(true)}>
-              Every time…
-            </Button>
             <Button variant="secondary" disabled={starting} onClick={() => setChosen(null)}>
               Choose a different shape
+            </Button>
+            <Button variant="secondary" disabled={starting} onClick={() => setEveryTime(true)}>
+              Every time…
             </Button>
           </>
         ) : (
@@ -241,14 +253,15 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       )}
       {entries !== null && entries.length === 0 && (
         <Note>
-          No shapes here yet. A shape is a flow file in <code>.harnessdesk/flows</code>, versioned with the
-          code it governs.
+          No shapes here yet. A shape is a flow file{' '}
+          <span title=".harnessdesk/flows">kept with the project</span>, versioned with the code it governs.
         </Note>
       )}
       {entries !== null && entries.length > 0 && eligible.length === 0 && (
         <Note>
           None of this project’s shapes start from {context.kind === 'project' ? 'a plain project' : 'this'}. Choose
-          a start one of them names, or edit a shape’s <code>layout.frontDoor.contexts</code>.
+          a start one of them names, or edit a shape’s{' '}
+          <span title="layout.frontDoor.contexts">own list of starts it accepts</span>.
         </Note>
       )}
 
@@ -295,7 +308,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
 
             {problem && <ActionError>That shape could not be checked. {problem}</ActionError>}
 
-            {inputs.map((input) => (
+            {inputs.filter((input) => !bound.has(input.id)).map((input) => (
               <Field key={input.id} label={input.label}>
                 {(control) => (
                   <Input {...control} value={vars[input.id] ?? ''} onChange={(event) => setVar(input.id, event.target.value)} />
@@ -304,9 +317,20 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
             ))}
           </FormStack>
 
+          {inputs.filter((input) => bound.has(input.id)).length > 0 && (
+            <Rows>
+              {inputs.filter((input) => bound.has(input.id)).map((input) => (
+                // A fact the chosen start already filled in — never a field
+                // that looks editable only to refuse the edit typing into it
+                // would send.
+                <Row key={input.id} title={input.label} desc={vars[input.id] || '—'} />
+              ))}
+            </Rows>
+          )}
+
           {preview && (
             <Row
-              title={preview.target.label}
+              title={preview.target.head ? `${preview.target.label} at ${shortSha(preview.target.head)}` : preview.target.label}
               wrapDesc
               desc={[
                 preview.target.dirty ? 'Not committed — a working-tree snapshot, never a committed head.' : null,

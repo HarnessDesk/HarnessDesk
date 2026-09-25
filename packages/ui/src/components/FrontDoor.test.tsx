@@ -226,6 +226,153 @@ it('an asked candidate stays visible with its reason and fix; Start is disabled 
   expect(button('Start').hasAttribute('disabled')).toBe(true)
 })
 
+it('choosing a different shape clears the old dry run and its token immediately, before the new shape’s own file or preview arrives', async () => {
+  const previewA = previewOf(emptyFlow('token-a'))
+  const store = new AppStore('ws://localhost:0/')
+  let resolveSourceB!: (value: string) => void
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review-a', 'Review A'), ENTRY('review-b', 'Review B')],
+    'agent/list': () => [],
+    'flow/source': (params) => {
+      const { id } = params as { id: string }
+      if (id === 'review-a') return 'version: 2\nname: A\n'
+      return new Promise<string>((resolve) => { resolveSourceB = resolve })
+    },
+    'authoring/start/preview': () => previewA,
+  })
+
+  render(store)
+  await settle()
+  act(() => rowFor('Review A').click())
+  await settle()
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+
+  act(() => button('Choose a different shape').click())
+  await settle()
+  act(() => rowFor('Review B').click())
+
+  // Review B's own `flow/source` has not answered yet — Review A's token
+  // must already be gone, not merely stale until B's own preview replaces it.
+  expect(store.getSnapshot().frontDoor?.preview).toBeNull()
+
+  resolveSourceB('version: 2\nname: B\n')
+  await settle()
+})
+
+it('"Choose a different shape" reads before "Every time…" in the footer', async () => {
+  const preview = previewOf(emptyFlow('strict-token'))
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')],
+    'agent/list': () => [],
+    'flow/source': () => 'version: 2\nname: Review\n',
+    'authoring/start/preview': () => preview,
+  })
+
+  render(store)
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+
+  const labels = [...document.body.querySelectorAll('button')].map((one) => one.textContent?.trim())
+  const chooseIndex = labels.indexOf('Choose a different shape')
+  const everyTimeIndex = labels.indexOf('Every time…')
+  expect(chooseIndex).toBeGreaterThan(-1)
+  expect(everyTimeIndex).toBeGreaterThan(-1)
+  expect(chooseIndex).toBeLessThan(everyTimeIndex)
+})
+
+it('names no internal path or layout key in its copy', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [],
+    'agent/list': () => [],
+  })
+
+  render(store)
+  await settle()
+
+  expect(document.body.textContent).not.toContain('.harnessdesk/flows')
+  expect(document.body.textContent).not.toContain('layout.frontDoor.contexts')
+})
+
+it('passes a reused empty Goal through to "Your own shape", its dry run and Start', async () => {
+  const goal = { id: 'goal-1', revision: 4 }
+  const echoedGoal = { id: 'goal-1', revision: 5 }
+  const preview = previewOf(emptyFlow('shape-token'), { goal: echoedGoal })
+  const store = new AppStore('ws://localhost:0/')
+  const spy = requestSpy(store, {
+    'flow/catalog': () => [],
+    'agent/list': () => [],
+    'authoring/shape/render': (params) => {
+      const { policy } = params as { policy: unknown }
+      return { source: JSON.stringify(policy), issues: [] }
+    },
+    'authoring/start/preview': () => preview,
+    'flow/start-goal': () => EXECUTION,
+  })
+
+  const onStarted = vi.fn()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <FrontDoor context={{ kind: 'project', root: '/repo' }} goal={goal} onClose={() => {}} onStarted={onStarted} />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+  act(() => rowFor('Your own shape').click())
+  await settle()
+
+  const previewCalls = spy.mock.calls.filter((call) => call[0] === 'authoring/start/preview')
+  expect(previewCalls.length).toBeGreaterThan(0)
+  expect((previewCalls[0]![1] as { goal?: unknown }).goal).toEqual(goal)
+
+  act(() => button('Start').click())
+  await settle()
+  const started = spy.mock.calls.find((call) => call[0] === 'flow/start-goal')![1] as { goal?: unknown }
+  // Start redeems the goal the preview itself echoed back — at the revision
+  // the server actually saw it at, never the possibly-stale prop.
+  expect(started.goal).toEqual(echoedGoal)
+})
+
+it('an input bound from the start target renders read-only, as a fact, never an editable field that refuses its own edit', async () => {
+  const boundPolicy = {
+    version: 2 as const, name: 'Review', inputs: [{ id: 'branch', label: 'Branch' }],
+    roles: [{ id: 'reviewer', kind: 'person' as const, outcomes: ['done'] }], rules: [],
+    seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only' as const, wait: 240,
+    layout: { frontDoor: { bindings: [{ input: 'branch', value: 'branch' as const }] } },
+  }
+  const flow: FlowPreview = {
+    token: 'tok', compiled: { document: { format: 'agents', flow: boundPolicy }, bindings: [], problems: [] },
+    seats: [], commands: [], guards: [], messaging: 'board-only', problems: [],
+  }
+  const preview = previewOf(flow, {
+    vars: { branch: 'feature' },
+    target: { label: 'branch feature', base: null, head: 'a1b2c3d4e5f6', dirty: false, independence: 'unknown' },
+  })
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')],
+    'agent/list': () => [],
+    'flow/source': () => 'version: 2\nname: Review\n',
+    'authoring/start/preview': () => preview,
+  })
+
+  render(store, { kind: 'branch', root: '/repo', branch: 'feature' })
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+
+  // A bound input is shown as a fact, never as a field a person can type
+  // into only to have the edit refused.
+  expect([...document.body.querySelectorAll('input')].some((one) => one.value === 'feature')).toBe(false)
+  expect(document.body.textContent).toContain('feature')
+  // The reviewed revision itself is shown, short — the same fact `Goal.at`
+  // and `FlowExecution.target` otherwise carry with nowhere to read them.
+  expect(document.body.textContent).toContain('branch feature at a1b2c3d')
+})
+
 it('source or input changes disable Start immediately, before the fresh dry run answers', async () => {
   const held = previewOf({ ...emptyFlow('held-token') })
   const store = new AppStore('ws://localhost:0/')

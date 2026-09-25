@@ -13,9 +13,12 @@ import {
 } from '@harnessdesk/protocol'
 
 import { agentName, ceilingMeaning, ceilingWords, wordList } from '../lib/agents'
-import { Banner, Button, CodeText, Dialog, Field, Input, NativeSelect, Note, Row, RowChoice, Rows, SectionHead, Textarea } from '../design'
+import {
+  Banner, BoardMenuButton, Button, CodeText, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+  DropdownMenuTrigger, Field, Input, Note, Row, RowChoice, Rows, SectionHead, Textarea,
+} from '../design'
 import { useSnapshot, useStore } from '../state/context'
-import { CrossIcon, MoveDownIcon, MoveUpIcon, PlusIcon } from './Icons'
+import { MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
 import { DiffView } from './Diff'
 
 /**
@@ -361,8 +364,6 @@ export const PreferFieldDialog = ({
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [reloading, setReloading] = useState(false)
-  const [adding, setAdding] = useState(false)
-  const [addRuntime, setAddRuntime] = useState(snapshot.runtimes[0]?.id ?? '')
   const sequence = useRef(0)
   const applying = useRef(false)
 
@@ -426,10 +427,10 @@ export const PreferFieldDialog = ({
     setSeats(next)
   }
   const removeAt = (index: number): void => setSeats(seats.filter((_, one) => one !== index))
-  const addSeat = (): void => {
-    if (!addRuntime || seats.length >= SEAT_PREFERENCE_LIMIT) return
-    setSeats([...seats, { runtime: addRuntime }])
-    setAdding(false)
+  /** Names a runtime only — matching decision 15's project-portability rule, above. Chosen directly from the menu; no separate confirming step. */
+  const addSeat = (runtime: string): void => {
+    if (seats.length >= SEAT_PREFERENCE_LIMIT) return
+    setSeats([...seats, { runtime }])
   }
 
   const edit = preview?.edits[0] ?? null
@@ -458,45 +459,51 @@ export const PreferFieldDialog = ({
             key={`${seat.runtime}-${index}`}
             title={seatRuntimeName(seat, snapshot.runtimes)}
             desc={[seat.model, seat.effort, seat.thinking ? 'thinking' : null].filter(Boolean).join(' · ') || undefined}
-            control={
-              <span className="flex gap-1">
-                <Button size="sm" variant="outline" disabled={busy || index === 0} aria-label={`Move ${seatRuntimeName(seat, snapshot.runtimes)} up`} onClick={() => move(index, -1)}>
-                  <MoveUpIcon size={14} />
-                </Button>
-                <Button size="sm" variant="outline" disabled={busy || index === seats.length - 1} aria-label={`Move ${seatRuntimeName(seat, snapshot.runtimes)} down`} onClick={() => move(index, 1)}>
-                  <MoveDownIcon size={14} />
-                </Button>
-                <Button size="sm" variant="outline" disabled={busy} aria-label={`Remove ${seatRuntimeName(seat, snapshot.runtimes)}`} onClick={() => removeAt(index)}>
-                  <CrossIcon size={14} />
-                </Button>
-              </span>
-            }
+            control={(
+              <DropdownMenu>
+                <DropdownMenuTrigger disabled={busy} render={<BoardMenuButton aria-label={`${seatRuntimeName(seat, snapshot.runtimes)} seat actions`} disabled={busy} />} />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem disabled={index === 0} onClick={() => move(index, -1)}>
+                    <MoveUpIcon size={14} />
+                    Move up
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={index === seats.length - 1} onClick={() => move(index, 1)}>
+                    <MoveDownIcon size={14} />
+                    Move down
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onClick={() => removeAt(index)}>
+                    <TrashIcon size={14} />
+                    Remove seat
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           />
         ))}
       </Rows>
-      {adding ? (
-        <Field label="Runtime">
-          {(control) => (
-            <span className="flex items-center gap-2">
-              <NativeSelect {...control} value={addRuntime} disabled={busy} onChange={(event) => setAddRuntime(event.target.value)}>
-                {snapshot.runtimes.map((one) => (
-                  <option key={one.id} value={one.id}>{one.presentation.name}</option>
-                ))}
-              </NativeSelect>
-              <Button size="sm" variant="default" disabled={busy || !addRuntime} onClick={addSeat}>Add</Button>
-              <Button size="sm" variant="secondary" disabled={busy} onClick={() => setAdding(false)}>Cancel</Button>
-            </span>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          disabled={busy || seats.length >= SEAT_PREFERENCE_LIMIT}
+          render={(
+            <Button size="sm" variant="outline" disabled={busy || seats.length >= SEAT_PREFERENCE_LIMIT}>
+              <PlusIcon size={14} />
+              Add a seat
+            </Button>
           )}
-        </Field>
-      ) : (
-        <Button size="sm" variant="outline" disabled={busy || seats.length >= SEAT_PREFERENCE_LIMIT} onClick={() => setAdding(true)}>
-          <PlusIcon size={14} />
-          Add a seat
-        </Button>
-      )}
+        />
+        <DropdownMenuContent align="start">
+          {snapshot.runtimes.map((one) => (
+            <DropdownMenuItem key={one.id} onClick={() => addSeat(one.id)}>
+              {one.presentation.name}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <Note>
         Adding here names a runtime only, so this list stays portable. An exact model, effort or thinking mode is
-        chosen on this Mac&rsquo;s own seating, above, or by editing the file directly.
+        chosen on this Mac&rsquo;s own seating (the *On this Mac* section of this page), or by editing the file
+        directly.
       </Note>
       {problem && <Banner tone="danger" title="This could not be saved">{problem}</Banner>}
       {issue && (

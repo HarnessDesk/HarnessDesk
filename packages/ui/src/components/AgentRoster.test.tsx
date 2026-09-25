@@ -232,7 +232,7 @@ it('flags an Agent still on permission: or on no ceiling, and draws the seat’s
       said('tidy', 'Tidy', 'user', 'ceiling'),
     ],
   })
-  expect(sectionText('In storefront')).toContain('Storefront reviewer does the work. Written with permission:, so it reads as edit.')
+  expect(sectionText('In storefront')).toContain('Storefront reviewer does the work. Written with permission, so it reads as edit.')
   expect(sectionText('Yours')).toContain('Scout does the work. No ceiling written, so it runs as read.')
   expect(sectionText('Yours')).toContain('Tidy does the work.')
   expect(sectionText('Yours')).not.toContain('Tidy does the work. Written')

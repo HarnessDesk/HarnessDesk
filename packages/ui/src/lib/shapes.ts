@@ -177,3 +177,31 @@ export const withGraphPositions = (policy: FlowPolicy, positions: Readonly<Recor
 
 /** Stable, deterministic rows — the view default used until a person actually moves a node; never written on its own. */
 export const defaultGraphPosition = (index: number): GraphPoint => ({ x: 40, y: 40 + index * 96 })
+
+// -------------------------------------------------------------- front door
+
+/**
+ * Which of a shape's inputs `layout.frontDoor.bindings` fills from the start
+ * context's own facts (a branch, a base, a head, a pull request), read
+ * defensively for display — exactly the `readGraphPositions` idiom: an
+ * unrecognized shape, a prototype key, or a binding naming an input this
+ * policy does not have is dropped rather than trusted. This never decides
+ * what the host actually binds; it only tells a screen which of the inputs it
+ * is about to render came from the context rather than from a person, so it
+ * can show that one as the fact it is instead of a field that looks editable
+ * and refuses the edit.
+ */
+export const boundInputIds = (policy: FlowPolicy): ReadonlySet<string> => {
+  const layout = asRecord(policy.layout)
+  const frontDoor = layout ? asRecord(layout['frontDoor']) : null
+  const raw = frontDoor ? frontDoor['bindings'] : null
+  if (!Array.isArray(raw)) return new Set()
+  const ids = new Set(policy.inputs.map((input) => input.id))
+  const bound = new Set<string>()
+  for (const entry of raw.slice(0, SHAPE_LAYOUT_LIMIT)) {
+    const record = asRecord(entry)
+    const id = record?.['input']
+    if (typeof id === 'string' && !PROTOTYPE_KEYS.has(id) && ids.has(id)) bound.add(id)
+  }
+  return bound
+}

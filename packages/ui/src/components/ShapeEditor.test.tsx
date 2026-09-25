@@ -283,6 +283,60 @@ it('the footer has exactly one primary action; the rest are secondary, an overfl
   expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Every time…')).toBe(false)
 })
 
+it('a typed input survives a dry run and reaches Start, never reset to its default', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const spy = fakeHost(store)
+  render(store)
+  await settle()
+
+  // The blank draft's own seed input, "Task", is here from the first dry run.
+  const label = [...document.body.querySelectorAll('label')].find((one) => one.textContent === 'Task')!
+  const field = document.getElementById(label.getAttribute('for')!) as HTMLInputElement
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    setter.call(field, 'typed value')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+
+  // The field itself was not reset by the dry run its own edit triggered.
+  expect(field.value).toBe('typed value')
+
+  // The dry run this typing triggered carried the typed value, never `{}`.
+  const previews = spy.mock.calls.filter((call) => call[0] === 'authoring/start/preview')
+  const lastPreview = previews.at(-1)![1] as { vars: Record<string, string> }
+  expect(lastPreview.vars.task).toBe('typed value')
+
+  act(() => button('Start').click())
+  await settle()
+  const started = spy.mock.calls.find((call) => call[0] === 'flow/start-goal')![1] as { vars?: Record<string, string> }
+  expect(started.vars?.task).toBe('typed value')
+})
+
+it('choosing a different step never wipes a typed input that step did not touch', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+
+  const label = [...document.body.querySelectorAll('label')].find((one) => one.textContent === 'Task')!
+  const field = document.getElementById(label.getAttribute('for')!) as HTMLInputElement
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    setter.call(field, 'kept')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+
+  // Adding a step re-renders and re-previews the whole policy — the typed
+  // value must still read back from the same field afterwards.
+  act(() => button('Agent').click())
+  await settle()
+
+  const fieldAgain = document.getElementById(label.getAttribute('for')!) as HTMLInputElement
+  expect(fieldAgain.value).toBe('kept')
+})
+
 it('removing a step uses the destructive tone, and only there', async () => {
   const store = new AppStore('ws://localhost:0/')
   fakeHost(store)

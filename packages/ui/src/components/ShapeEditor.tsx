@@ -8,7 +8,7 @@ import {
   ActionError, Banner, BoardMenuButton, Button, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
   Field, Input, Note, NoteList, Row, Rows, SectionHead, Tabs, TabsList, TabsTrigger, Textarea,
 } from '../design'
-import { useStore } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
 import { defaultRole, defaultRule, emptyShapePolicy, renameRoleReferences, roleRemovable, uniqueId, withGraphPositions } from '../lib/shapes'
 import { PlusIcon, MoveDownIcon, MoveUpIcon, TrashIcon } from './Icons'
 import { FlowPreviewReport } from './FlowStart'
@@ -36,14 +36,17 @@ import { TriggerCreate } from './TriggerCreate'
 export interface ShapeEditorProps {
   readonly root: string
   readonly context: StartContext
+  /** The empty Goal this editor's own dry run and Start reuse, at the revision it was seen at — the same front-door reuse a catalogued shape already gets. */
+  readonly goal?: { readonly id: string; readonly revision: number }
   readonly document?: AuthoringDocument
   readonly initialSource?: string
   readonly onClose: () => void
   readonly onStarted: (execution: FlowExecution) => void
 }
 
-export const ShapeEditor = ({ root, context, document, initialSource, onClose, onStarted }: ShapeEditorProps) => {
+export const ShapeEditor = ({ root, context, goal, document, initialSource, onClose, onStarted }: ShapeEditorProps) => {
   const store = useStore()
+  const snapshot = useSnapshot()
   const [tab, setTab] = useState<'steps' | 'graph' | 'source'>('steps')
   const [selectedRole, setSelectedRole] = useState<string | null>(null)
   const [source, setSource] = useState<string>(document?.source ?? initialSource ?? '')
@@ -52,7 +55,20 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
   const [stale, setStale] = useState(false)
   const [formIssues, setFormIssues] = useState<readonly AuthoringIssue[]>([])
   const [roster, setRoster] = useState<ReadonlyMap<string, AgentEntry>>(new Map())
-  const [vars, setVars] = useState<Readonly<Record<string, string>>>({})
+  const [vars, setVarsState] = useState<Readonly<Record<string, string>>>({})
+  /**
+   * The vars a person actually typed, read by every dry run and by Start —
+   * never `preview.vars`, which only ever echoes what the *last* request
+   * sent and goes stale the moment someone types again before that request
+   * returns. A ref, not just the state above, because `runDryRun` is called
+   * from effects and callbacks whose own closures would otherwise see the
+   * value they captured rather than the one on screen right now.
+   */
+  const varsRef = useRef<Readonly<Record<string, string>>>({})
+  const setVars = (next: Readonly<Record<string, string>>): void => {
+    varsRef.current = next
+    setVarsState(next)
+  }
   const [sentence, setSentence] = useState('')
   const sentenceTouched = useRef(false)
   const [preview, setPreview] = useState<FrontDoorPreview | null>(null)
@@ -79,14 +95,26 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
       const mine = ++sequence.current
       setProblem(null)
       try {
-        const dry = await store.previewFrontDoor({ context, source: text, vars: {} })
+        const dry = await store.previewFrontDoor({ context, source: text, vars: varsRef.current, ...(goal ? { goal } : {}) })
         if (mine !== sequence.current) return
         const parsedDocument = dry.flow.compiled.document
         if (parsedDocument.format === 'agents') {
           setPolicy(parsedDocument.flow)
           setStale(false)
-          const defaults = Object.fromEntries(parsedDocument.flow.inputs.map((input) => [input.id, input.default ?? '']))
-          setVars(defaults)
+          // Fill a default only for an input with no value yet — an input
+          // freshly added by a step or rule edit. A value already there,
+          // typed or defaulted earlier, is never overwritten: that is what
+          // reset every keystroke back to the input's own default the moment
+          // the dry run it triggered came back.
+          let changed = false
+          const next = { ...varsRef.current }
+          for (const input of parsedDocument.flow.inputs) {
+            if (!(input.id in next)) {
+              next[input.id] = input.default ?? ''
+              changed = true
+            }
+          }
+          if (changed) setVars(next)
         } else {
           setStale(true)
         }
@@ -98,7 +126,7 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
         setProblem(error instanceof Error ? error.message : 'That shape could not be checked.')
       }
     },
-    [context, store],
+    [context, goal, store],
   )
 
   // Initial source: a chosen file's own bytes, an explicit starting text, or
@@ -216,7 +244,7 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
   }
 
   const setVar = (varId: string, value: string): void => {
-    const next = { ...vars, [varId]: value }
+    const next = { ...varsRef.current, [varId]: value }
     setVars(next)
     void runDryRun(source)
   }
@@ -234,7 +262,12 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
     setStartProblem(null)
     try {
       const execution = await store.startFlowGoal({
-        root, source, token: preview.flow.token, sentence: sentence.trim(), vars: preview.vars,
+        root,
+        source,
+        token: preview.flow.token,
+        sentence: sentence.trim(),
+        vars: varsRef.current,
+        ...(preview.goal ? { goal: preview.goal } : {}),
       })
       onStarted(execution)
     } catch (error) {
@@ -345,6 +378,7 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
                       <ShapeStep
                         role={role}
                         agents={[...roster.values()]}
+                        runtimes={snapshot.runtimes}
                         onChange={(next) => updateRole(index, next)}
                       />
                     </div>

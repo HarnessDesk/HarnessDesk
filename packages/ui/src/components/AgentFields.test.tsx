@@ -106,6 +106,17 @@ const dialogButton = (label: string): HTMLButtonElement => {
   if (!found) throw new Error(`no dialog button “${label}”`)
   return found
 }
+/** A row's overflow menu item — Base UI's `Menu.Item` renders a `<div role="menuitem">`, never a `<button>`. */
+const menuItem = (label: string): HTMLElement => {
+  const found = [...document.body.querySelectorAll('[role="menuitem"]')].find((one) => one.textContent?.trim() === label)
+  if (!found) throw new Error(`no menu item “${label}”`)
+  return found as HTMLElement
+}
+const byAriaLabel = (label: string): HTMLElement => {
+  const found = [...document.body.querySelectorAll('[aria-label]')].find((one) => one.getAttribute('aria-label') === label)
+  if (!found) throw new Error(`no element with aria-label “${label}”`)
+  return found as HTMLElement
+}
 
 const type = async (control: HTMLInputElement | HTMLTextAreaElement, value: string): Promise<void> => {
   const proto = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
@@ -345,9 +356,11 @@ it('prefer edits as the ordered list it is: adding a seat previews it, and Save 
   await settle()
 
   expect(document.body.textContent).toContain('It prefers no seat yet')
+  // "Add a seat" opens a menu of runtimes; choosing one adds it directly —
+  // no separate inline form with its own Add and Cancel.
   act(() => dialogButton('Add a seat').click())
   await settle()
-  act(() => dialogButton('Add').click())
+  act(() => menuItem('Codex').click())
   await settle()
 
   expect(previewAgentEdit).toHaveBeenLastCalledWith(AGENT_TARGET, 'digest-1', { key: 'prefer', value: [{ runtime: 'codex' }] })
@@ -380,4 +393,62 @@ it('prefer keeps an existing seat’s own model exactly as the file has it, unti
   expect(document.body.textContent).toContain('Claude Code')
   expect(document.body.textContent).toContain('opus')
   expect(document.body.textContent).toContain('high')
+})
+
+it('a seat’s Move up, Move down and × live behind its own … menu, never as bare per-row buttons', async () => {
+  const store = preferStoreFor()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PreferFieldDialog
+          entry={ENTRY}
+          target={AGENT_TARGET}
+          digest="digest-1"
+          initial={[{ runtime: 'codex' }, { runtime: 'claude-code' }]}
+          onOpenFile={() => {}}
+          onClose={() => {}}
+          onSaved={() => {}}
+        />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+
+  // No standing icon-only buttons for these actions — they open a menu first.
+  expect([...document.body.querySelectorAll('button')].some((one) => one.getAttribute('aria-label')?.startsWith('Move '))).toBe(false)
+  expect([...document.body.querySelectorAll('button')].some((one) => one.getAttribute('aria-label')?.startsWith('Remove '))).toBe(false)
+
+  act(() => byAriaLabel('Codex seat actions').click())
+  await settle()
+  expect(menuItem('Move down')).toBeTruthy()
+  act(() => menuItem('Move down').click())
+  await settle()
+  expect(document.body.textContent?.indexOf('Claude Code')).toBeLessThan(document.body.textContent?.indexOf('Codex') ?? -1)
+})
+
+it('no second default button sits beside Save, and the seating copy names no location that does not exist here', async () => {
+  const store = preferStoreFor()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PreferFieldDialog
+          entry={ENTRY}
+          target={AGENT_TARGET}
+          digest="digest-1"
+          initial={[]}
+          onOpenFile={() => {}}
+          onClose={() => {}}
+          onSaved={() => {}}
+        />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+
+  const primaries = document.body.querySelectorAll('[data-slot="button"][data-variant="default"]')
+  expect(primaries).toHaveLength(1)
+  expect(primaries[0]?.textContent?.trim()).toBe('Save')
+  // No inline add form with its own Cancel sits beside "Add a seat" any more — only the footer's.
+  expect([...document.body.querySelectorAll('button')].filter((one) => one.textContent?.trim() === 'Cancel')).toHaveLength(1)
+  expect(document.body.textContent).not.toContain('above')
 })
