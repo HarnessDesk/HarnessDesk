@@ -1911,6 +1911,55 @@ it('an approval arriving mid-sentence keeps the draft, swallows the keystroke in
   expect(document.activeElement).toBe(back)
 })
 
+/**
+ * Inside the card too, a field's keys are the field's. No card draws one
+ * today, and that is exactly why this is pinned: the first question with a
+ * free-text answer would otherwise turn a typed "1" into a command approved.
+ */
+it.each(['input', 'textarea', 'contenteditable'])('a key typed in a %s inside the docked card never answers it', async (kind) => {
+  const { store, respondToApproval } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+  const card = container.querySelector<HTMLElement>('[data-slot="approval-card"]')!
+  const field = kind === 'contenteditable' ? document.createElement('div') : document.createElement(kind)
+  if (kind === 'contenteditable') field.setAttribute('contenteditable', 'true')
+  card.append(field)
+  act(() => field.focus())
+  for (const key of ['1', '2', 'Escape']) press(field, key)
+  expect(respondToApproval).not.toHaveBeenCalled()
+  // The control: the same key on the card itself answers.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)) })
+  press(card, '1')
+  expect(respondToApproval).toHaveBeenCalledOnce()
+})
+
+/**
+ * The card hands focus back to the composer only if the person left it where
+ * the card put it. Moving on — to another field, another pane — is a choice,
+ * and the answer vanishing must not undo it.
+ */
+it('gives focus back to the composer only if the person has not moved it since', async () => {
+  const { store, raise } = triggerRig([])
+  await render(store)
+  await act(async () => {})
+
+  const box = container.querySelector<HTMLTextAreaElement>('textarea')!
+  act(() => box.focus())
+  raise(PENDING)
+  await act(async () => {})
+  expect(document.activeElement, 'the card took it from the composer').toBe(
+    container.querySelector('[data-slot="approval-card"]'),
+  )
+
+  const input = elsewhere()
+  const allow = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="approval-choices"] button')].find((one) => one.textContent?.startsWith('Yes1'))!
+  act(() => allow.click())
+  await act(async () => {})
+  expect(container.querySelector('[data-slot="approval-card"]')).toBeNull()
+  expect(document.activeElement, 'where the person put it, not the composer').toBe(input)
+  input.remove()
+})
+
 it('an approval arriving while the person works elsewhere takes no focus, and gives none back to the composer', async () => {
   const { store, raise } = triggerRig([])
   await render(store)

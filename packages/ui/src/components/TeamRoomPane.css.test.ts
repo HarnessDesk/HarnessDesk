@@ -136,3 +136,31 @@ describe('appearance ownership', () => {
     expect(block).toMatch(/\.railEdge\s*\{\s*display:\s*none;?\s*\}/)
   })
 })
+
+describe('the narrow rail and the narrow header', () => {
+  /** The declarations of the rule for `selector` inside the container query that opens with `query`. */
+  const inQuery = (query: string, selector: string): string => {
+    const open = css.indexOf(query)
+    expect(open, `${query} is gone from this stylesheet`).toBeGreaterThan(-1)
+    const block = css.slice(open, css.indexOf('\n}\n', open))
+    const at = block.indexOf(`${selector} {`)
+    expect(at, `${selector} is not inside ${query}`).toBeGreaterThan(-1)
+    return block.slice(at, block.indexOf('}', at)).replace(/\/\*[\s\S]*?\*\//g, '')
+  }
+
+  it('drops a roster row to its avatar below a 7rem rail, the name and job staying on its card', () => {
+    expect(inQuery('@container hd-room-rail (max-width: 7rem)', '.memberRow [data-slot="list-row-content"]')).toMatch(/display:\s*none/)
+  })
+
+  it('never breaks a member’s name or job mid-word, whatever the shared row allows', () => {
+    expect(body('.memberRow [data-slot="list-row-subtitle"]')).toMatch(/overflow-wrap:\s*normal/)
+  })
+
+  it('folds messaging and Wrap into the More menu below a 22rem header', () => {
+    expect(inQuery('@container hd-header (max-width: 22rem)', '.barWrapFull')).toMatch(/display:\s*none/)
+    expect(inQuery('@container hd-header (max-width: 22rem)', '.barVerbsCompact')).toMatch(/display:\s*inline-flex/)
+    // And outside it the full verbs stand and the menu does not.
+    expect(body('.barWrapFull')).toMatch(/display:\s*inline-flex/)
+    expect(body('.barVerbsCompact')).toMatch(/display:\s*none/)
+  })
+})
