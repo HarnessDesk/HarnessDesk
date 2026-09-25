@@ -2072,6 +2072,46 @@ it('disables the bar\'s Wrap for a Goal that is wrapped, wrapping, or has a prob
   expect(wrapButton().disabled).toBe(true)
 })
 
+/**
+ * A validator frame at 760px (a docked room rail, not the window's own
+ * width) showed the bar's own `overflow: hidden` clipping the whole verbs
+ * group off entirely rather than folding it — actions, unlike the muted
+ * facts beside them, that must stay reachable at any width. A first pass
+ * folded only Wrap, and a re-shot frame at the same width still showed
+ * nothing: the messaging toggle beside it was exactly as fixed-width, so the
+ * row still overflowed by its own icon button's worth. Both the full row and
+ * a two-item ⋯ menu exist in the DOM at once, and `hd-header` (a real
+ * `@container` query, not asserted here) decides which is visible; this pins
+ * that the menu calls the same presses, so it cannot drift from the buttons
+ * it stands in for.
+ */
+it('keeps messaging and Wrap reachable through one ⋯ menu when the bar is too narrow for their own buttons, calling the same presses', async () => {
+  const { store } = rig(undefined, undefined, {}, GOAL)
+  await render(store)
+
+  const bar = container.querySelector('header')!
+  const fullWrap = [...bar.querySelectorAll('button')].find((one) => one.textContent === 'Wrap')
+  expect(fullWrap).not.toBeUndefined()
+  const fullMessaging = bar.querySelector('[aria-label="Hold messages at the board"]')
+  expect(fullMessaging).not.toBeNull()
+
+  const more = [...bar.querySelectorAll('[title="More"]')][0] as HTMLElement | undefined
+  expect(more, 'a compact ⋯ trigger stands beside the full buttons').not.toBeUndefined()
+  act(() => more!.click())
+
+  const wrapItem = [...document.body.querySelectorAll('[role="menuitem"], button')].find((one) => one.textContent === 'Wrap…')
+  expect(wrapItem, 'the menu offers the same Wrap action').not.toBeUndefined()
+  const messagingItem = [...document.body.querySelectorAll('[role="menuitem"], button')].find(
+    (one) => one.textContent === 'Hold messages at the board',
+  )
+  expect(messagingItem, 'the menu offers the same messaging toggle').not.toBeUndefined()
+
+  act(() => (wrapItem as HTMLElement).click())
+  // GoalWrap only mounts once wrapping is asked for — the same effect the
+  // full button's own onClick has.
+  expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+})
+
 it('draws the chat with no header of its own', async () => {
   const { store } = rig()
   await render(store)

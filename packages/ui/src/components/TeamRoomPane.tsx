@@ -41,6 +41,7 @@ import {
   CrossIcon,
   IssueIcon,
   MessageOffIcon,
+  MoreIcon,
   PlanIcon,
   PlusIcon,
   PullRequestIcon,
@@ -80,7 +81,10 @@ import {
   KeyValueRow,
   ListRow,
   ListRows,
+  Menu,
+  MenuItem,
   Note,
+  Popover,
   PopoverGroupLabel,
   ProgressRing,
   Spinner,
@@ -220,6 +224,8 @@ export const TeamRoomPane = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room)
+  /** Shared by the bar's full Wrap button and its narrow ⋯ fallback. */
+  const wrapDisabled = goal ? goalActions(goal.goal).disabled || goal.problem !== null : true
   /**
    * The run this Goal's own front door names — its origin when a flow opened
    * it, or its reservation while one holds a reused empty Goal, whose origin
@@ -553,6 +559,13 @@ export const TeamRoomPane = ({
   /* Read here rather than in the chat, because the switch is on the room's own
      row now and the chat is only one of the three things the room can show. */
   const messaging = team?.messaging ?? true
+  /* Shared by the bar's full button and its narrow ⋯ fallback, so the two can
+     never call the toggle two different ways. */
+  const toggleMessaging = (): Promise<void> =>
+    store
+      .teamMessaging(room, !messaging)
+      .then(() => setBarTrouble(null))
+      .catch(() => setBarTrouble('The host did not take the change; the switch is as it was.'))
   /* Messages the board is holding: delivered nowhere until a person releases
      them, and the one thing in the channel that is waiting on the reader. */
   const held = entries.filter(
@@ -984,34 +997,36 @@ export const TeamRoomPane = ({
               needs the feature's name to read, with the sentence itself one
               hover away. Warning ink when messages are held, because a board
               nobody can talk on is a state worth noticing rather than a
-              setting to find out about later. */}
-          <Button
-            variant={messaging ? 'ghost' : 'warning'}
-            size="icon-sm"
-            /* A stable label naming what the button governs, not the verb it
-               currently offers: a label that swaps between "Hold messages"
-               and "Let members message" announces two different controls to
-               a screen reader tracking focus by name, and neither swap said
-               whether the toggle was on or off. `aria-pressed` says that now,
-               and the title (sighted, on hover) keeps the fuller sentence. */
-            aria-label="Hold messages at the board"
-            aria-pressed={!messaging}
-            title={
-              messaging
-                ? 'Members can message each other. Press to hold messages at the board — claims and signals continue.'
-                : 'Messages wait for the board. Press to let members message each other again.'
-            }
-            onClick={() =>
-              void store
-                .teamMessaging(room, !messaging)
-                .then(() => setBarTrouble(null))
-                .catch(() =>
-                  setBarTrouble('The host did not take the change; the switch is as it was.'),
-                )
-            }
-          >
-            {messaging ? <CommentIcon size={14} /> : <MessageOffIcon size={14} />}
-          </Button>
+              setting to find out about later.
+
+              Both this and Wrap are actions, not facts — the bar's own
+              `overflow: hidden` must never be what decides whether they can be
+              reached. A docked room rail can be narrower than the icon tile
+              and the title alone, so `.barWrapFull`/`.barVerbsCompact` (this
+              bar's own nested `hd-header` container) swap the full row for one
+              ⋯ trigger that opens both, rather than letting either clip. */}
+          <span className={styles.barWrapFull}>
+            <Button
+              variant={messaging ? 'ghost' : 'warning'}
+              size="icon-sm"
+              /* A stable label naming what the button governs, not the verb it
+                 currently offers: a label that swaps between "Hold messages"
+                 and "Let members message" announces two different controls to
+                 a screen reader tracking focus by name, and neither swap said
+                 whether the toggle was on or off. `aria-pressed` says that now,
+                 and the title (sighted, on hover) keeps the fuller sentence. */
+              aria-label="Hold messages at the board"
+              aria-pressed={!messaging}
+              title={
+                messaging
+                  ? 'Members can message each other. Press to hold messages at the board — claims and signals continue.'
+                  : 'Messages wait for the board. Press to let members message each other again.'
+              }
+              onClick={() => void toggleMessaging()}
+            >
+              {messaging ? <CommentIcon size={14} /> : <MessageOffIcon size={14} />}
+            </Button>
+          </span>
           {/* The panel's verbs — fill the window, close, move — behind the
               divider that separates what the tool can do from what can be
               done to its panel. Nothing outside the panel system (the preview
@@ -1022,14 +1037,42 @@ export const TeamRoomPane = ({
               Shown for a Goal a trigger opened exactly as for one a person
               started — `goalActions` disables it on its own terms (waiting
               on a dependency, already wrapped), never on who opened it. */}
-          {goal ? (() => {
-            const action = goalActions(goal.goal)
-            return (
-              <Button size="sm" disabled={action.disabled || goal.problem !== null} onClick={() => setWrapping(true)}>
+          {goal && (
+            <span className={styles.barWrapFull}>
+              <Button size="sm" disabled={wrapDisabled} onClick={() => setWrapping(true)}>
                 Wrap
               </Button>
-            )
-          })() : null}
+            </span>
+          )}
+          {/* The narrow fallback: one ⋯ trigger standing in for both of the
+              above, never for `PanelActions` — a panel's own move/fill/close
+              is that component's one shared surface, kept out of this bar's
+              private overflow rather than duplicated into it. */}
+          <span className={styles.barVerbsCompact}>
+            <Popover label={<MoreIcon size={14} />} title="More" align="right">
+              {(close) => (
+                <Menu close={close}>
+                  <MenuItem
+                    label={messaging ? 'Hold messages at the board' : 'Let members message each other'}
+                    onSelect={() => {
+                      void toggleMessaging()
+                      close()
+                    }}
+                  />
+                  {goal && (
+                    <MenuItem
+                      label="Wrap…"
+                      disabled={wrapDisabled}
+                      onSelect={() => {
+                        setWrapping(true)
+                        close()
+                      }}
+                    />
+                  )}
+                </Menu>
+              )}
+            </Popover>
+          </span>
         </div>
       </header>
       {goal ? <GoalHeader view={goal} /> : null}

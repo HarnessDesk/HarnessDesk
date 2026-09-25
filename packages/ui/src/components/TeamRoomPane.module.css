@@ -100,6 +100,29 @@
   flex: none;
 }
 
+/* Messaging and Wrap are actions, not facts — the bar's own `overflow:
+   hidden` may not clip either, only swap both for the one ⋯ menu that
+   presses the same things. A docked room rail, not the window's own width,
+   is what forces this: the `hd-header` container is this bar's own, nested
+   inside the room's. `PanelActions` is deliberately not folded in here — its
+   move/fill/close is that component's own shared surface. */
+.barWrapFull {
+  display: inline-flex;
+}
+
+.barVerbsCompact {
+  display: none;
+}
+
+@container hd-header (max-width: 22rem) {
+  .barWrapFull {
+    display: none;
+  }
+  .barVerbsCompact {
+    display: inline-flex;
+  }
+}
+
 .barTrouble {
   flex: none;
   margin: 0;
