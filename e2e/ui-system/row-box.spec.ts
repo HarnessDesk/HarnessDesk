@@ -50,6 +50,7 @@ const mount = async (page: Page, width: number) => {
             h(Row, { 'data-testid': 'rowfx-sentence', title: 'Round one', control: h(RowValue, null, ${JSON.stringify(SENTENCE)}) }),
             h(RowButton, { 'data-testid': 'rowfx-sentence-button', title: 'Round two', control: h(RowValue, null, ${JSON.stringify(SENTENCE)}), onClick: () => {} }),
             h(Row, { 'data-testid': 'rowfx-short', title: 'Round three', control: h(RowValue, null, 'Twice') }),
+            h(RowButton, { 'data-testid': 'rowfx-medium', title: 'Checkout hardening', desc: 'Goal', control: h(RowValue, null, '$12.34 · 3 seats'), onClick: () => {} }),
           ),
         ));
       `,
@@ -92,6 +93,18 @@ test('a row button and a row choice draw the same box as the plain row beside th
   expect(lefts[1]).toBe(lefts[0])
 })
 
+/**
+ * Where a row button's chevron sits: on its control's line, and how far its
+ * right edge is from the row's content edge (the padding's inner side).
+ */
+const chevronOf = (page: Page, id: string) => page.evaluate(id => {
+  const row = document.querySelector(`[data-testid="rowfx-${id}"]`) as HTMLElement
+  const c = row.querySelector('[class*="rowCtl"]')!.getBoundingClientRect()
+  const v = row.querySelector('[class*="rowChev"]')!.getBoundingClientRect()
+  const inner = row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight)
+  return { sameLine: v.top < c.bottom && v.bottom > c.top, end: Math.round(inner - v.right) }
+}, id)
+
 test('a sentence in a narrow row wraps under a title that keeps its words', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 700 })
   await mount(page, 400)
@@ -115,13 +128,9 @@ test('a sentence in a narrow row wraps under a title that keeps its words', asyn
     expect(reading.overflow, `${reading.id}: the row overflows`).toBeLessThanOrEqual(0)
   }
   // A row button's chevron stays on the control's line, at the row's end.
-  const chevron = await page.evaluate(() => {
-    const row = document.querySelector('[data-testid="rowfx-sentence-button"]') as HTMLElement
-    const c = row.querySelector('[class*="rowCtl"]')!.getBoundingClientRect()
-    const v = row.querySelector('[class*="rowChev"]')!.getBoundingClientRect()
-    return { sameLine: v.top < c.bottom && v.bottom > c.top, end: Math.round(row.getBoundingClientRect().right - v.right) }
-  })
+  const chevron = await chevronOf(page, 'sentence-button')
   expect(chevron.sameLine).toBe(true)
+  expect(Math.abs(chevron.end), 'the chevron left the row end').toBeLessThanOrEqual(1)
   await page.getByRole('region', { name: 'Row fixture' }).screenshot({ path: test.info().outputPath('narrow-rows.png') })
   // The sentence drops under its title; a word stays on the title's line.
   expect(readings.find(r => r.id === 'sentence')?.controlBelow).toBe(true)
@@ -142,4 +151,29 @@ test('at a normal width a short control keeps its place beside the title', async
   // The control still ends at the row's inset, not wherever the words stop.
   expect(same.row - same.control).toBeGreaterThan(0)
   expect(same.row - same.control).toBeLessThan(40)
+})
+
+/*
+ * A control of a few words — a cost, a count — meets the title's floor at some
+ * width in every card. Across that band the control and the chevron wrap as
+ * one: both stay on one line, and the chevron stays at the row's end, whether
+ * they sit beside the title or under it.
+ */
+test('a medium control and its chevron wrap together and keep the row end', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 700 })
+  await mount(page, 380)
+  const frame = page.getByRole('region', { name: 'Row fixture' })
+  const faults: string[] = []
+  for (let width = 300; width <= 380; width += 10) {
+    await frame.evaluate((node, width) => { (node as HTMLElement).style.width = `${width}px` }, width)
+    const chevron = await chevronOf(page, 'medium')
+    const titleLines = await page.evaluate(() => {
+      const title = document.querySelector('[data-testid="rowfx-medium"] [class*="rowTitle"]') as HTMLElement
+      return Math.round(title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight))
+    })
+    if (!chevron.sameLine) faults.push(`${width}px: the chevron left its control's line`)
+    if (Math.abs(chevron.end) > 1) faults.push(`${width}px: the chevron sits ${chevron.end}px from the row end`)
+    if (titleLines !== 1) faults.push(`${width}px: the title broke over ${titleLines} lines`)
+  }
+  expect(faults.join('\n') || 'the chevron holds the row end').toBe('the chevron holds the row end')
 })

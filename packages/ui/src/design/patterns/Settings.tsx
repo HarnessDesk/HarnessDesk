@@ -917,10 +917,17 @@ export const RowButton = ({
       <span className={styles.rowTitle}>{title}</span>
       {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
     </span>
-    {control ? <span className={styles.rowCtl}>{control}</span> : null}
-    {chevron ? (
-      <span className={styles.rowChev}>
-        <ChevronIcon size={15} />
+    {/* The control and the chevron are one trailing item, so a row too narrow
+        for them beside the title wraps them together and they keep the row's
+        end on either line. */}
+    {control || chevron ? (
+      <span className={styles.rowEnd}>
+        {control ? <span className={styles.rowCtl}>{control}</span> : null}
+        {chevron ? (
+          <span className={styles.rowChev}>
+            <ChevronIcon size={15} />
+          </span>
+        ) : null}
       </span>
     ) : null}
   </Button>

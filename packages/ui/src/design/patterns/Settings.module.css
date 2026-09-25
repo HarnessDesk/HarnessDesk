@@ -873,11 +873,18 @@
   gap: 8px;
 }
 
-/* A row button's chevron goes where its control goes, so a wrapped control
-   leaves it room on its line: the chevron is an icon, never wider than the
-   small icon target. */
-.rowCtl:has(+ .rowChev) {
-  max-width: calc(100% - var(--hd-space-6) - var(--hd-icon-target-sm));
+/* A row button's trailing item: its control and its chevron, which wrap as
+   one and stay at the row's end whether they sit beside the title or under
+   it. The gap between them is the row's own, so a row that fits is drawn
+   exactly as when they were two items of the row. */
+.rowEnd {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-6);
 }
 
 /* A row that answers with a word instead of a control, because there is
