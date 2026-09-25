@@ -1715,13 +1715,16 @@ export class Flows implements TeamFlows {
    * has no seat to wake, so without `#runChecks` a run interrupted during a
    * check round stayed deadlocked on its open card forever (#437).
    */
-  async resume(): Promise<void> {
-    for (const run of [...this.#runs.values()]) {
-      if (run.state !== 'running') continue
-      await this.#armFor(run.id)
-      await this.#runChecks(run.id)
+  async resume(which: 'all' | 'person' | 'triggered' = 'all'): Promise<void> {
+    // Runs of the first engine are never a trigger's: they go with the person's.
+    if (which !== 'triggered') {
+      for (const run of [...this.#runs.values()]) {
+        if (run.state !== 'running') continue
+        await this.#armFor(run.id)
+        await this.#runChecks(run.id)
+      }
     }
-    await this.#executions?.resume()
+    await this.#executions?.resume(which)
   }
 
   #save(id: string): FlowRun {

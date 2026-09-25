@@ -200,6 +200,12 @@ try {
     name, user: USER, vouched: VOUCHED,
     roots: REPOS.map(repo => join(WORK, repo.dir)),
     nativeCodex: process.env['HD_SHOTS_NATIVE_CODEX'] === '1',
+    // The one guest address this take can vouch for: `browserServer` is
+    // declared below and only ever set while the `browser` scene's own
+    // static server is up, so every other scene asks with no origin at all —
+    // which is right, because no other scene opens a guest pane a real
+    // address could belong to (#928 review, P2).
+    rigOrigin: browserServer?.url ?? null,
   })
 
   /** Hide this machine's home, the one substitution a frame is allowed. */
@@ -212,6 +218,16 @@ try {
     // temporary root — is what the drivers give a home's worth of meaning, so
     // that is what is hidden, leaving `work/<repo>` standing underneath it.
     await cdp.eval(TILDIFY(dirname(WORK)))
+    // The desk's own home (`HARNESSDESK_HOME`, this rig's `HOME`) is a
+    // different folder from the "person" one above, and an Agent file the app
+    // reads from directly under it — not under `person/work` — never sat in
+    // either substitution above, so its full path (an OS temp path, on this
+    // machine) stood in a title on hover (#928 review). A real desk reads
+    // this path as `~/.harnessdesk/…`, so that is what it is mapped to here,
+    // after the more specific `WORK` substitution, so a repository under
+    // `HOME/person/work` still reads `~/work/<repo>` rather than
+    // `~/.harnessdesk/person/work/<repo>`.
+    await cdp.eval(TILDIFY(HOME, '~/.harnessdesk'))
     await sleep(150)
   }
 
@@ -794,14 +810,32 @@ rules:
     flow: { expect: 'Checkout hardening', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
-      if (!(await click('New'))) throw new Error('no New button in the title bar')
+      // Scoped to the sidebar's own action row: a Goal staged by an earlier
+      // scene (`board`, `room`) leaves its "New job" button standing in the
+      // sidebar's Goal group for as long as this desk runs, and `click`
+      // prefers the *shortest* matching text — "New job" is shorter than
+      // "New session" — so an unscoped search silently opened the board's own
+      // composer instead of the session/Goal chooser this scene means to
+      // drive. Scoping to the one row that actually holds the sidebar's own
+      // trigger is what makes this scene independent of whatever an earlier
+      // scene left behind (#928 review).
+      if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
+        throw new Error('no New session button in the sidebar')
+      }
       await sleep(700)
       await pressKey('Tab')
       await pressKey('Enter')
       await waitForSnapshot(() => cdp.eval(`document.querySelector('input[aria-label="What finishes this?"]') !== null`), Boolean)
       if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no Goal sentence field')
       if (!(await click('Create Goal'))) throw new Error('no Create Goal button')
-      await sleep(2500)
+      // A fixed sleep here is a bet on how long creating and loading the Goal
+      // takes, and a bet that lost silently left the frame short of what its
+      // own filename claims — `shoot()`'s own text check would then be the
+      // first thing to notice, several steps after the actual wait ran out.
+      // Waiting for the sentence itself is the fixed stage: it holds exactly
+      // as long as the Goal actually takes to finish loading, on this machine,
+      // on this run (#928 review).
+      await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Checkout hardening')`), Boolean)
       await sleep(700)
     } },
 
@@ -875,6 +909,15 @@ rules:
         throw new Error(`the inline browser did not load its local fixture (title ${q(title)})`)
       }
     }, finish: async () => {
+      // Left docked, this pane's webview stays mounted and visible for every
+      // scene that follows in the same process — and once the server below
+      // closes, its address can never be vouched for again, so a later scene
+      // (settings-agents, say) would find a guest on screen it has no way to
+      // accept and no way it staged itself (#928 review, follow-up). Closing
+      // the pane is what a person leaving this scene actually does, and it is
+      // what makes any scene order safe rather than only "browser last".
+      await cdp.eval(`${STORE}.closeBrowser(); true`).catch(() => {})
+      await sleep(300)
       await browserServer?.close()
       browserServer = null
     } },
@@ -1746,7 +1789,12 @@ rules:
     /** The new-session dialog: Agents first, and the one that cannot be seated greyed with why. */
     'new-session-agents': { leaveOverlay: true, expect: 'Windsurf is signed out', run: async () => {
       await openStorefront()
-      if (!(await click('New'))) throw new Error('no New button in the title bar')
+      // See the `flow` scene's own comment: scoped to the sidebar's action
+      // row so a Goal an earlier scene staged, and its shorter-text "New job"
+      // button, cannot win the match instead (#928 review).
+      if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
+        throw new Error('no New session button in the sidebar')
+      }
       await sleep(1200)
       if (!(await cdp.eval(`document.body.innerText.includes('As an Agent')`))) throw new Error('the dialog lists no Agents')
     } },

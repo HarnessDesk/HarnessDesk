@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -51,6 +51,50 @@ test('answers 404 for a file that does not exist, rather than throwing', async t
 
   const response = await fetch(`${server.url}/nothing-here.html`)
   assert.equal(response.status, 404)
+})
+
+test('refuses a file that is itself a symlink, even though it resolves inside the root (#928)', async t => {
+  const outside = mkdtempSync(join(tmpdir(), 'hd-static-server-link-target-'))
+  t.after(() => rmSync(outside, { recursive: true, force: true }))
+  writeFileSync(join(outside, 'secret.txt'), 'must not be servable')
+
+  const root = mkdtempSync(join(tmpdir(), 'hd-static-server-link-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  writeFileSync(join(root, 'index.html'), 'ok')
+  symlinkSync(join(outside, 'secret.txt'), join(root, 'index.js'))
+
+  const server = await startStaticServer(root)
+  t.after(() => server.close())
+
+  // The link's own target resolves inside neither `root` nor anywhere the
+  // prefix check would catch, since the check only ever sees the lexical
+  // path — `root/index.js` — never where the link actually leads.
+  const response = await fetch(`${server.url}/index.js`)
+  assert.notEqual(response.status, 200, 'a symlinked file must not be served')
+  const body = await response.text()
+  assert.doesNotMatch(body, /must not be servable/)
+  // An ordinary file right beside the link is unaffected.
+  const ok = await fetch(`${server.url}/index.html`)
+  assert.equal(ok.status, 200)
+})
+
+test('refuses a file reached through a symlinked directory inside the root (#928)', async t => {
+  const outside = mkdtempSync(join(tmpdir(), 'hd-static-server-dir-target-'))
+  t.after(() => rmSync(outside, { recursive: true, force: true }))
+  writeFileSync(join(outside, 'secret.txt'), 'must not be servable')
+
+  const root = mkdtempSync(join(tmpdir(), 'hd-static-server-dirlink-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  writeFileSync(join(root, 'index.html'), 'ok')
+  symlinkSync(outside, join(root, 'linked'))
+
+  const server = await startStaticServer(root)
+  t.after(() => server.close())
+
+  const response = await fetch(`${server.url}/linked/secret.txt`)
+  assert.notEqual(response.status, 200, 'a file reached through a symlinked directory must not be served')
+  const body = await response.text()
+  assert.doesNotMatch(body, /must not be servable/)
 })
 
 test('close() actually stops the server from accepting new connections', async t => {
