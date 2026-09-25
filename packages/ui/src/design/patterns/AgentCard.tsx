@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { AlertIcon, InfoIcon, ShieldOffIcon } from '../../components/Icons'
+import { PopoverGroupLabel } from './Popover'
 import { Segmented } from './Settings'
 import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
@@ -208,9 +209,9 @@ const Band = ({ label, children }: { label?: string; children: ReactNode }) => (
      gap or an `<hr>` would have broken the test without breaking the rule. */
   <div data-slot="agent-card-band" className="border-t border-(--hd-border-strong) px-3 py-2.5">
     {label && (
-      <p className="mb-1 font-(family-name:--hd-font-code) text-xs font-medium tracking-widest text-(--hd-muted-foreground) uppercase">
-        {label}
-      </p>
+      <div className="mb-1">
+        <PopoverGroupLabel inset={false}>{label}</PopoverGroupLabel>
+      </div>
     )}
     {children}
   </div>
