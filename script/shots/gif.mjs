@@ -137,6 +137,12 @@ try {
   // not `WORK` itself, is what gets hidden, leaving `work/<repo>` standing
   // and a recorded frame reading `~/work/storefront` (`shoot.mjs` mirrors this).
   await cdp.eval(TILDIFY(dirname(WORK)))
+  // The desk's own home, `HOME`, is a separate folder from `WORK`'s parent —
+  // an Agent file read from directly under it never sat in either
+  // substitution above, so it is mapped to `~/.harnessdesk`, the way a real
+  // desk shows it, after the more specific `WORK` substitution runs
+  // (`shoot.mjs` mirrors this; #928 review).
+  await cdp.eval(TILDIFY(HOME, '~/.harnessdesk'))
 
   const frames = []
   const collected = []
