@@ -845,6 +845,9 @@ export const TeamRoomPane = ({
           .includes(needle),
       )
     : roster
+  /* Whether the board caution belongs to the group rather than to each row:
+     every row shown would say it, so it is said once above them. */
+  const idleShared = shown.length > 1 && shown.every((member) => member.idleOnBoard)
 
   /* The cap is measured, not assumed: the room gives width up to the rail, the
      right dock and the window, so what fits is a fact about this pane right
@@ -1259,10 +1262,15 @@ export const TeamRoomPane = ({
               <EmptyState variant="inline" title={`No agent here matches “${filter.trim()}”.`} />
             )}
             {railTrouble && <Note tone="bad" className={styles.railEmpty}>{railTrouble}</Note>}
+            {/* A doubt every row shares is the group's, said once. Four rows
+                each reading "has not used the board" explained nothing a
+                single line above them does not, and cost a line of height on
+                every one of them. */}
+            {idleShared && <Note ink="muted" className={styles.railEmpty}>None of these agents has used the board yet.</Note>}
             {shown.map((member) => (
               <MemberRow
                 key={member.key}
-                member={member}
+                member={idleShared ? { ...member, idleOnBoard: false } : member}
                 onRemove={() => leave(member.key)}
                 onInbound={(mode) => setInbound(member.key, mode)}
                 selected={columns.includes(member.key)}

@@ -1329,6 +1329,17 @@ it('says when a member has not used the board, once there is something to take',
   expect(row('Codex').textContent).not.toContain('has not used the board')
 })
 
+it('says the board caution once, for the group, when every agent shown would carry it', async () => {
+  // One open card and nobody on it: both members are equally idle on the board.
+  const open = state.intents.filter((one) => one.state === 'open')
+  const { store } = rig([{ ...CODEX, usedBoard: false }, { ...CLAUDE, usedBoard: false }], undefined, { intents: open })
+  await render(store)
+
+  expect(container.textContent).toContain('None of these agents has used the board yet.')
+  expect(row('Opus').textContent).not.toContain('has not used the board')
+  expect(row('Codex').textContent).not.toContain('has not used the board')
+})
+
 it('shows the claimed task rather than “has not used the board” when a member holds a claim (#375)', async () => {
   // A member that has not used the board this run (e.g. after restart), but holds a claimed intent on the board
   const onClaim: TeamPeerInfo = { ...CODEX, usedBoard: false }
