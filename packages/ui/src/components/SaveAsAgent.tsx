@@ -50,15 +50,19 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
     }
   }
 
+  const nameNeeded = name.trim() === ''
+
   return (
     <Dialog
       title="Save as an Agent"
       icon={<BriefIcon size={15} />}
       size="md"
+      tall
       onClose={onClose}
+      footerAside={nameNeeded ? 'Name it first.' : undefined}
       footer={
         <>
-          <Button variant="default" disabled={busy || name.trim() === ''} onClick={() => void save()}>
+          <Button variant="default" disabled={busy || nameNeeded} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save and open the brief'}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
@@ -85,39 +89,43 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
             <Input {...control} value={description} maxLength={120} onChange={(event) => setDescription(event.target.value)} />
           )}
         </Field>
-        <SectionHead name="The most it may do" />
-        <Rows role="radiogroup" aria-label="The most it may do">
-              {CEILING_LEVELS.map((one) => (
+        <section aria-label="The most it may do">
+          <SectionHead name="The most it may do" />
+          <Rows role="radiogroup" aria-label="The most it may do">
+            {CEILING_LEVELS.map((one) => (
+              <RowChoice
+                key={one}
+                title={ceilingWords(one)}
+                desc={<span className="whitespace-normal">{ceilingMeaning(one)}</span>}
+                selected={ceiling === one}
+                onClick={() => setCeiling(one)}
+              />
+            ))}
+          </Rows>
+        </section>
+        <section aria-label="Where it is kept">
+          <SectionHead name="Where it is kept" />
+          <Rows role="radiogroup" aria-label="Where it is kept">
+            {snapshot.workspace && (
+              <RowChoice
+                title={`For ${project ?? 'this project'}`}
+                desc={
+                  <span className="whitespace-normal">
+                    {`Committed with the code, naming ${runtime} alone; this Mac keeps ${words} in seating.json.`}
+                  </span>
+                }
+                selected={to === 'project'}
+                onClick={() => setTo('project')}
+              />
+            )}
             <RowChoice
-              key={one}
-              title={ceilingWords(one)}
-              desc={<span className="whitespace-normal">{ceilingMeaning(one)}</span>}
-                  selected={ceiling === one}
-                  onClick={() => setCeiling(one)}
+              title="For you"
+              desc={<span className="whitespace-normal">{`In ${yours}, on this Mac only.`}</span>}
+              selected={to === 'user'}
+              onClick={() => setTo('user')}
             />
-          ))}
-        </Rows>
-        <SectionHead name="Where it is kept" />
-        <Rows role="radiogroup" aria-label="Where it is kept">
-          {snapshot.workspace && (
-            <RowChoice
-              title={`For ${project ?? 'this project'}`}
-              desc={
-                <span className="whitespace-normal">
-                  {`Committed with the code, naming ${runtime} alone; this Mac keeps ${words} in seating.json.`}
-                </span>
-              }
-              selected={to === 'project'}
-              onClick={() => setTo('project')}
-            />
-          )}
-          <RowChoice
-            title="For you"
-            desc={<span className="whitespace-normal">{`In ${yours}, on this Mac only.`}</span>}
-            selected={to === 'user'}
-            onClick={() => setTo('user')}
-          />
-        </Rows>
+          </Rows>
+        </section>
         {problem && <Note tone="bad">{problem}</Note>}
       </FormStack>
     </Dialog>
