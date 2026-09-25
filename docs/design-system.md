@@ -560,6 +560,14 @@ having written the judgement down.
 
 **Why** — A form is scanned by its labels. When every label is the same distance from its control and every field the same distance from the next, the eye stops measuring and reads; the "toy dialog" was one where each of those distances was a different accident.
 
+### `Row · RowInput · Switch`
+
+**Use** — Settings pages never show a Save button; values apply as you change them. A switch applies as it is flipped; a typed value is a `RowInput` in the row's control slot — as wide as the value it holds — and applies on Enter or when the field is left. A value the host refuses stays in its field, marked, with a `Note` under the card saying why.
+
+**Not** — A page `Field` stretched across the column with a Save button under it, or any button in a `FormStack` stretched to the column: the stack lets a button keep its own width.
+
+**Why** — Settings › Workspaces once held two 715px number inputs and a 715px black Save bar under three switches that applied instantly — the heaviest object on any Settings page, for a five-digit port, and a page with two rules for when a change takes effect.
+
 ### `--hd-surface-*`
 
 **Use** — A dialog, a command palette, a sheet — something that takes the window.
@@ -1597,6 +1605,26 @@ caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
 A row's answer in words. A wrapped text answer takes its line under the
 title; a `numeric` one — money, a count — is compact: it keeps the row's
 end on tabular figures, where a column of them lines up by place.
+
+### `RowInput`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A value typed into a settings row — a port, a count, a daily cap — as
+compact as the switch beside it, and applied the way the switch is.
+
+Settings pages never show a Save button: a switch applies as it is flipped,
+and this applies when the typing is done — on Enter, or when focus leaves
+the field. Escape puts back what is stored (and only then lets Escape close
+the window around it). Nothing is sent while the text still reads as
+stored, so tabbing through the page writes nothing.
+
+The row owns the name (`aria-label` repeats the row's title for a reader),
+the field owns only the value, at the width of the value it holds: a
+five-digit port in a 715px field said the field was the subject of the page.
+A value the caller refuses stays in the field, marked `invalid`, with the
+caller's `Note` saying why, so the person can mend what they typed rather
+than type it again.
 
 ### `CodeText`
 

@@ -526,7 +526,16 @@
 .formStack {
   display: flex;
   flex-direction: column;
+  align-items: flex-start; /* desk: stretch → flex-start, a button in a form keeps its own width */
   gap: var(--hd-space-3);
+}
+
+/* What a form is made of — fields, cards of rows, notes, banners — still
+   takes the column. A button does not: a 715px black Save bar was the
+   heaviest object on its page. `:where` keeps this a default any
+   child's own alignment outranks. */
+.formStack > :where(:not([data-slot='button'])) {
+  align-self: stretch;
 }
 
 /* A form's field: the name over the control, one line under it. */

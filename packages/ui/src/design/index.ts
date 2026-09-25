@@ -79,6 +79,7 @@ export {
   LibraryReachMark,
   DetailMark,
   PageDescription,
+  RowInput,
   RowMark,
   RowValue,
   SectionToggle,
