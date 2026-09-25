@@ -1264,21 +1264,31 @@ export const SectionToggle = ({ children, className }: { children: ReactNode; cl
   <span className={cx(styles.sectionToggle, className)}>{children}</span>
 )
 
+/**
+ * Code and output in the code face.
+ *
+ * `block` is a file's text set as a block — laid out line for line, at the
+ * code step and its leading, inset from the box it fills — for text that
+ * stands in a card where an editor or a patch would otherwise be.
+ */
 export const CodeText = ({
   as = 'span',
   size = 'default',
+  block = false,
   className,
   children,
   ...props
 }: HTMLAttributes<HTMLElement> & {
   as?: 'span' | 'code' | 'pre'
   size?: 'default' | 'inherit'
+  block?: boolean
   children: ReactNode
 }) => createElement(as, {
   ...props,
   'data-slot': 'code-text',
   'data-size': size,
-  className: cx(styles.mono, size === 'inherit' && styles.monoInherit, className),
+  ...(block ? { 'data-block': '' } : {}),
+  className: cx(styles.mono, size === 'inherit' && styles.monoInherit, block && styles.monoBlock, className),
 }, children)
 
 /** Initials inside a row's neutral mark. They identify the thing without becoming its name. */

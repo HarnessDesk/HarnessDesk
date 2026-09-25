@@ -47,6 +47,10 @@
   align-items: flex-start;
 }
 
+/* One of the label's lines tall (the Text role and its strut give it the
+   height), with the mark centred in it: on the first line of the label, not
+   above it — it sat about 4px high before, against a label that also padded
+   itself 2px down. */
 .listBullet {
   flex: none;
   display: inline-flex;
@@ -74,13 +78,6 @@
   flex: none;
 }
 
-/* The code as text while the editor loads: the code face at its own step,
-   laid out as the editor lays it, one line per line. */
-.codeFallback {
-  margin: 0;
-  overflow-x: auto;
-  white-space: pre;
-}
 
 .document {
   display: flex;
@@ -101,7 +98,10 @@
 }
 
 /* An open section's text sits under its heading's words, clear of the
-   chevron, with a step before the next heading. */
+   chevron, with a step before the next heading. Placed by margins because the
+   system has no part for a disclosure's body — the turn's step groups draw
+   theirs in their own sheet too — and a part with this one consumer would be
+   this rule moved, not composed. */
 .documentBody {
   margin: 0 0 var(--hd-space-2) var(--hd-space-5);
 }
@@ -138,9 +138,19 @@
   width: 14px;
 }
 
+/* The label and its hint. The gap is the hint's floor of air (the row's 4px
+   and the 8px the hint used to pad itself with), so it stands only when a
+   hint does, and a label with none runs to the row's end. */
+.treeText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-3);
+}
+
 .treeLabel {
   min-width: 0;
-  margin-right: var(--hd-space-2); /* the hint's floor of air, kept when a long label pushes it to the edge */
 }
 
 .treeHint {

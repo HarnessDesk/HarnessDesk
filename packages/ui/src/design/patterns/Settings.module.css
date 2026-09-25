@@ -1068,6 +1068,16 @@
   font-size: inherit;
 }
 
+.monoBlock {
+  display: block;
+  margin: 0;
+  padding: var(--hd-space-2);
+  overflow-x: auto;
+  white-space: pre;
+  font-size: var(--hd-code-text);
+  line-height: var(--hd-code-line);
+}
+
 .monogram {
   font-size: var(--hd-text-xs);
   font-weight: var(--hd-weight-semibold);

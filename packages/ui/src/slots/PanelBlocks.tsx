@@ -97,7 +97,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
       <CardViewport size="lines" maxHeight={Math.round(maxLines * appearance.fontSize * appearance.lineHeight)}>
         {/* The text itself while the editor's chunk is in flight, so the
             panel shows the code rather than a blank. */}
-        <Suspense fallback={<CodeText as="pre" className={styles.codeFallback}>{text}</CodeText>}>
+        <Suspense fallback={<CodeText as="pre" block>{text}</CodeText>}>
           <CodeEditor
             value={text}
             path={block.path ?? null}
@@ -164,6 +164,14 @@ const DocumentSection = ({
 
 // --------------------------------------------------------------------- tree
 
+/** A node's label, and its hint at the row's end with a gap before it only when there is one. */
+const TreeText = ({ node }: { node: UiTreeNode }) => (
+  <span className={styles.treeText}>
+    <Text role="navigation" truncate className={styles.treeLabel}>{node.label}</Text>
+    {node.hint && <Text role="meta" className={styles.treeHint}>{node.hint}</Text>}
+  </span>
+)
+
 const TreeNode = ({ node }: { node: UiTreeNode }) => {
   const run = useRunner()
   const children = node.children ?? []
@@ -194,14 +202,10 @@ const TreeNode = ({ node }: { node: UiTreeNode }) => {
         )}
         {actionable ? (
           <Button type="button" variant="row" size="row" className={styles.treeRow} onClick={() => run(node.action)}>
-            <Text role="navigation" truncate className={styles.treeLabel}>{node.label}</Text>
-            {node.hint && <Text role="meta" className={styles.treeHint}>{node.hint}</Text>}
+            <TreeText node={node} />
           </Button>
         ) : (
-          <>
-            <Text role="navigation" truncate className={styles.treeLabel}>{node.label}</Text>
-            {node.hint && <Text role="meta" className={styles.treeHint}>{node.hint}</Text>}
-          </>
+          <TreeText node={node} />
         )}
       </div>
       {hasChildren && open && (
@@ -239,7 +243,11 @@ export const Block = ({ block }: { block: UiBlock }) => {
         <ul className={styles.list}>
           {block.items.map((item, index) => (
             <li key={index} className={styles.listItem}>
-              <Text role="meta" aria-hidden="true" className={styles.listBullet}>
+              {/* In the label's own type, so the box is one of its lines tall
+                  (the zero-width space is that line's strut) and the mark is
+                  centred on the label's first line, however many it wraps to. */}
+              <Text role="navigation" ink="muted" aria-hidden="true" className={styles.listBullet}>
+                {'\u200b'}
                 {item.done === true ? (
                   <TodoDoneIcon size={12} />
                 ) : item.done === false ? (
