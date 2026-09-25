@@ -1,70 +1,30 @@
-.overview {
-  flex: none;
+/* The trajectory ledger is the inspector's anatomy: group lines, rows, a
+   composition bar and its key. What is left here is where those parts sit. */
+
+/* The key hangs under the bar, inset to the same edge as the group line.
+   Scoped under the overview so it outranks the key strip's own top margin:
+   the bar already leaves the gap above it. */
+.overview > .keys {
+  margin: 0 var(--hd-space-2) var(--hd-space-2-5);
 }
 
-/* Appearance (font-size, color) for .overviewLabel composed via Tailwind. */
-
-/* A proportional bar: each segment's width is its share of the turn's time. */
-.bar {
-  display: flex;
-  overflow: hidden;
+/* The ledger starts below a rule, as the list does under the panel's bar. */
+.rule {
+  margin-bottom: var(--hd-space-1);
 }
 
-.segment {
-  min-width: 2px;
-}
-
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-}
-
-.legendItem {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
-}
-
-.swatch {
-  width: 8px;
-}
-
-.list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/* Appearance (font-size, color, background) for .turnLabel composed via Tailwind. */
-
-.row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.rowDot {
-  flex: none;
-  width: 7px;
-  align-self: center;
-}
-
-.rowLabel {
-  flex: 1;
+/* The words cut with an ellipsis at whatever width the panel has. */
+.label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Appearance (font-family, font-size) for .rowMono composed via Tailwind. */
-
-/* Appearance (font-size, color, font-variant-numeric) for .rowTime composed
-   via Tailwind. */
-
-/* Role tag, so a glance says who produced each entry. */
+/* Role tag, so a glance says who produced each entry. Right-aligned in a
+   column of its own, so the marks beside it line up down the turn. */
 .role {
+  display: inline-block;
   flex: none;
   width: 62px;
   text-align: right;

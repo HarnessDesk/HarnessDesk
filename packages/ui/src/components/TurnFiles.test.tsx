@@ -144,8 +144,14 @@ it('shows three file rows and expands the rest from an N more row', async () => 
   await rig([], changes)
 
   const fileRows = () => [...container.querySelectorAll<HTMLButtonElement>('button[title^="Open src/file-"]')]
-  expect(container.textContent).toContain('Edited 5 files +5 −5')
+  expect(container.textContent).toContain('Edited 5 files')
+  // The counts are the app's one reading of additions and removals, and the
+  // card is the system's plate card rather than a drawing of its own.
+  const head = container.querySelector('[data-slot="card"] [data-slot="change-stats"]')
+  expect(head?.textContent).toBe('+5−5')
+  expect(container.querySelector('[data-slot="card"]')?.getAttribute('data-variant')).toBe('plate')
   expect(fileRows()).toHaveLength(3)
+  expect(fileRows()[0]?.querySelector('[data-slot="change-stats"]')?.textContent).toBe('+1−1')
   expect(button('2 more')).toBeDefined()
 
   act(() => button('2 more')?.click())
