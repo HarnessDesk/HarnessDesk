@@ -939,6 +939,36 @@ export const Text = ({
     children,
   )
 
+/**
+ * The mark at the head of a line of text — a bullet, a task's check.
+ *
+ * It is set in the text's own role and is one of that text's lines tall (a
+ * zero-width space is the line's strut), with the mark centred in it; the
+ * row lays the two out on their first baseline, so the mark sits on the
+ * middle of the label's first line however many lines the label wraps to and
+ * whatever box the label is drawn in. `role` is the label's.
+ */
+export const TextMark = ({
+  role = 'navigation',
+  className,
+  children,
+}: {
+  role?: TextRole
+  className?: string
+  children: ReactNode
+}) => (
+  <Text
+    role={role}
+    ink="muted"
+    aria-hidden="true"
+    data-mark=""
+    className={cx('inline-flex w-3 shrink-0 items-center justify-center', className)}
+  >
+    {'\u200b'}
+    {children}
+  </Text>
+)
+
 /** The label line above navigation rows, including the controls that act on that list. */
 export const NavigationGroupHeader = ({
   label,

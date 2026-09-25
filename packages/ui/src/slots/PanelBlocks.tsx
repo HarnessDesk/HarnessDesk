@@ -18,6 +18,7 @@ import {
   TableHeader,
   TableRow,
   Text,
+  TextMark,
 } from '../design'
 import { Suspense, lazy, useMemo, useState, type ReactNode } from 'react'
 
@@ -243,11 +244,7 @@ export const Block = ({ block }: { block: UiBlock }) => {
         <ul className={styles.list}>
           {block.items.map((item, index) => (
             <li key={index} className={styles.listItem}>
-              {/* In the label's own type, so the box is one of its lines tall
-                  (the zero-width space is that line's strut) and the mark is
-                  centred on the label's first line, however many it wraps to. */}
-              <Text role="navigation" ink="muted" aria-hidden="true" className={styles.listBullet}>
-                {'\u200b'}
+              <TextMark>
                 {item.done === true ? (
                   <TodoDoneIcon size={12} />
                 ) : item.done === false ? (
@@ -255,7 +252,7 @@ export const Block = ({ block }: { block: UiBlock }) => {
                 ) : (
                   <BulletIcon size={16} />
                 )}
-              </Text>
+              </TextMark>
               <Text role="navigation" done={item.done === true} className={styles.listLabel}>
                 {item.label}
                 {item.hint && <Text role="meta" className="ml-1.5">{item.hint}</Text>}

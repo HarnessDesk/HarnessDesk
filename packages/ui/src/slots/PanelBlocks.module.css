@@ -44,19 +44,7 @@
 .listItem {
   display: flex;
   gap: var(--hd-space-2);
-  align-items: flex-start;
-}
-
-/* One of the label's lines tall (the Text role and its strut give it the
-   height), with the mark centred in it: on the first line of the label, not
-   above it — it sat about 4px high before, against a label that also padded
-   itself 2px down. */
-.listBullet {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
+  align-items: first baseline; /* desk: flex-start → first baseline, the TextMark sits on the label's first line, not 4px above it */
 }
 
 .listLabel {

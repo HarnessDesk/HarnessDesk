@@ -1,4 +1,4 @@
-import { Button, Text, Textarea } from '../design'
+import { Button, Text, TextMark, Textarea } from '../design'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
@@ -70,9 +70,7 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
   }
 
   const bullet = (
-    <Text role="meta" aria-hidden="true" className={styles.bullet}>
-      {todo.done ? <TodoDoneIcon size={12} /> : <TodoPendingIcon size={12} />}
-    </Text>
+    <TextMark role="value">{todo.done ? <TodoDoneIcon size={12} /> : <TodoPendingIcon size={12} />}</TextMark>
   )
 
   if (draft !== null) {
@@ -112,7 +110,6 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
       <Button
         type="button"
         variant="row" size="row" className={styles.label}
-        {...(todo.done ? { 'data-done': '' } : {})}
         title={
           todo.edited
             ? `You reworded this. The agent wrote “${todo.source}”, and is told your wording with your next message.`
@@ -120,7 +117,7 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
         }
         onClick={open}
       >
-        <Text role="value">{todo.label}</Text>
+        <Text role="value" done={todo.done}>{todo.label}</Text>
         {todo.active && <Text role="meta" className={styles.hint}>in progress</Text>}
         {/* The panel is a read of the conversation, so where it is showing
             something the conversation does not say, it says so. */}

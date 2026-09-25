@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { CodeText, Keycap, SearchMatch, Text } from './Settings'
+import { CodeText, Keycap, SearchMatch, Text, TextMark } from './Settings'
 import styles from './Settings.module.css'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -111,4 +111,15 @@ it('gives a code block a muted plate and folded lines only when asked, and never
   expect(getComputedStyle(plate!).borderRadius).not.toBe(getComputedStyle(bare!).borderRadius)
   expect(getComputedStyle(plate!).whiteSpace).toBe('pre-wrap')
   expect(getComputedStyle(bare!).whiteSpace).toBe('pre')
+})
+
+it('sets a line mark in its label\'s role, one of that label\'s lines tall, the mark centred in it', () => {
+  act(() => root.render(<><TextMark><svg /></TextMark><TextMark role="value"><svg /></TextMark></>))
+  const [nav, value] = [...container.querySelectorAll<HTMLElement>('[data-mark]')]
+  expect(nav?.dataset['role']).toBe('navigation')
+  expect(value?.dataset['role']).toBe('value')
+  // The strut is what makes the box a line tall; the centring puts the mark on it.
+  expect(nav?.firstChild?.textContent).toBe('\u200b')
+  expect(nav?.className).toContain('items-center')
+  expect(nav?.getAttribute('aria-hidden')).toBe('true')
 })

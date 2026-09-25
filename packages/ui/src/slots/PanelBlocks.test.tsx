@@ -270,7 +270,7 @@ describe('the panel as a whole', () => {
 
   it('puts a list mark in its label\'s type, one line tall, so it centres on the first line', () => {
     mount([{ type: 'list', items: [{ label: 'A label long enough to wrap', done: false }] }])
-    const mark = container.querySelector('li [aria-hidden="true"]')
+    const mark = container.querySelector('li [data-mark]')
     expect(mark?.getAttribute('data-role')).toBe('navigation')
     expect(mark?.textContent).toBe('\u200b')
   })
