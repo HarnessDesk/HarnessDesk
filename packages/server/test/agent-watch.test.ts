@@ -1376,21 +1376,31 @@ test('(P3) the top-level link rescan runs once per settled burst, not once per f
 /*
  * G4 — the tests that count `agent/changed` point their host's built-in root
  * at a copy, so an edit to `packages/server/agents` cannot land in a count.
- * This one does not: it is the app's own setup, and proves the real folder the
- * Agents ship in is watched. Only the folder's own times are touched — nothing
- * in it changes, and nothing that lists it sees a difference — and they are
- * put back.
+ * This one still proves the app's own setup — that a host started with no
+ * explicit `builtinAgents` option watches wherever `builtinAgentRoot()`
+ * resolves — but it never touches the real folder to do it:
+ * `HARNESSDESK_BUILTIN_AGENTS_DIR` points that resolution at a private copy
+ * for the life of the test, restored (or removed) once it ends, so a run of
+ * this file never races another copy of itself, or a person editing
+ * `packages/server/agents`, over the same real directory's mtime.
  */
 
 test('(G4) through the host: the Agents that ship with the app are watched where they ship', async (t) => {
+  const copy = await shippedAgentsCopy()
+  const had = process.env['HARNESSDESK_BUILTIN_AGENTS_DIR']
+  process.env['HARNESSDESK_BUILTIN_AGENTS_DIR'] = copy
+  t.after(() => {
+    if (had === undefined) delete process.env['HARNESSDESK_BUILTIN_AGENTS_DIR']
+    else process.env['HARNESSDESK_BUILTIN_AGENTS_DIR'] = had
+  })
   // No `agents` in this state directory, so a notice for this machine's roster can only be the built-in one's.
   const harness = await start()
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
   const shipped = builtinAgentRoot()
+  assert.equal(shipped, copy, 'a host with no builtinAgents option resolves the same builtinAgentRoot() a test can redirect')
   const was = await stat(shipped)
-  t.after(() => utimes(shipped, was.atime, was.mtime))
   const namedNull = () =>
     client.notifications.some((one) => 'method' in one && one.method === 'agent/changed' && one.params.project === null)
   let n = 0
@@ -1406,13 +1416,24 @@ test('(G4) through the host: the Agents that ship with the app are watched where
 
 test('(G4) through the host: a host pointed at a copy of the shipped Agents watches the copy, and not the real folder', async (t) => {
   const copy = await shippedAgentsCopy()
+  // A second, private copy stands in for "the real folder" on the negative
+  // half of this test — proving an explicit `builtinAgents` option wins over
+  // whatever `builtinAgentRoot()` would otherwise resolve to, without this
+  // test ever touching the checkout's actual `agents/` to prove it.
+  const decoy = await shippedAgentsCopy()
+  const had = process.env['HARNESSDESK_BUILTIN_AGENTS_DIR']
+  process.env['HARNESSDESK_BUILTIN_AGENTS_DIR'] = decoy
+  t.after(() => {
+    if (had === undefined) delete process.env['HARNESSDESK_BUILTIN_AGENTS_DIR']
+    else process.env['HARNESSDESK_BUILTIN_AGENTS_DIR'] = had
+  })
   const harness = await start({ builtinAgents: copy })
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
   const shipped = builtinAgentRoot()
+  assert.equal(shipped, decoy, 'builtinAgentRoot() resolves to the decoy standing in for the real folder this test never touches')
   const was = await stat(shipped)
-  t.after(() => utimes(shipped, was.atime, was.mtime))
   const agentChanged = () => client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed')
   // Listed from the copy, as the app lists it from the real one.
   const listed = (await client.call('agent/list', {})) as { readonly id: string; readonly origin: string; readonly path: string }[]
@@ -1430,7 +1451,7 @@ test('(G4) through the host: a host pointed at a copy of the shipped Agents watc
   )
   await settled()
   client.notifications.length = 0
-  // …and the real folder, touched the same way, is not.
+  // …and what builtinAgentRoot() resolves to when no option overrides it — standing in for the real folder — touched the same way, is not.
   const at = new Date(was.mtimeMs + 60_000)
   await utimes(shipped, at, at)
   await pause(600)

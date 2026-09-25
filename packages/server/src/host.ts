@@ -317,9 +317,16 @@ const SEND_ACCEPT_DEADLINE_MS = 30_000
  * this whole package and unpacks every `node_modules` entry (`asarUnpack`);
  * `files` lists it too, so the manifest says what the package holds. A
  * directory that is not there is still an empty tier rather than a failure.
+ *
+ * `HARNESSDESK_BUILTIN_AGENTS_DIR`, when set, replaces the computed path
+ * outright. The app never sets it; it exists so a test that proves the host
+ * watches wherever this function points — with no explicit `builtinAgents`
+ * option to override that resolution — can prove it against a folder of its
+ * own, never the checkout's real `agents/`, which someone may be editing
+ * while the suite runs.
  */
 export const builtinAgentRoot = (): string =>
-  packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
+  process.env['HARNESSDESK_BUILTIN_AGENTS_DIR'] || packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
 
 /** Editable starter flows ship beside Agent starters and are never renderer-selected paths. */
 export const builtinFlowRoot = (): string =>
