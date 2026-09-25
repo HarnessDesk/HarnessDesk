@@ -84,21 +84,85 @@ it('a stale revision or a rejected save retains the last known values and report
   expect(pauseSwitch().getAttribute('aria-checked')).toBe('false')
 })
 
-it('an invalid cap is refused before it is ever sent, and zero is explicitly no new paid work', async () => {
+const enter = (input: HTMLInputElement): void => {
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+}
+
+it('the cap applies as it is changed, like every Settings value: no Save button', async () => {
+  vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+  const setTriggerPreferences = vi.fn(async () => triggerPreferences({ dailyUsd: 35 }))
+  mount({ setTriggerPreferences: setTriggerPreferences as never })
+  await act(async () => {})
+  expect([...container.querySelectorAll('button')].some((one) => one.textContent === 'Save')).toBe(false)
+  const input = container.querySelector<HTMLInputElement>('input[type="number"]')!
+  // It sits in the card, as a row, named by its row.
+  expect(input.closest('[data-slot="form-field"]')).toBeNull()
+  expect(input.getAttribute('aria-label')).toBe('Stop for the day after, in US dollars')
+  await act(async () => type(input, '35'))
+  await act(async () => input.dispatchEvent(new FocusEvent('focusout', { bubbles: true })))
+  expect(setTriggerPreferences).toHaveBeenCalledWith(1, false, 35)
+  expect(input.value).toBe('35')
+  vi.restoreAllMocks()
+})
+
+it('an invalid cap is refused before it is ever sent, read with its field, and zero is explicitly no new paid work', async () => {
   const setTriggerPreferences = vi.fn(async () => triggerPreferences({ dailyUsd: 0 }))
   mount({ setTriggerPreferences: setTriggerPreferences as never })
   await act(async () => {})
   const input = container.querySelector<HTMLInputElement>('input[type="number"]')!
   await act(async () => type(input, '-5'))
-  const save = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Save')!
-  await act(async () => save.click())
+  await act(async () => enter(input))
   expect(setTriggerPreferences).not.toHaveBeenCalled()
-  expect(container.textContent).toContain('zero or more')
+  expect(input.getAttribute('aria-invalid')).toBe('true')
+  expect(document.getElementById(input.getAttribute('aria-describedby') ?? '')?.textContent).toContain('zero or more')
+
+  // Escape puts the stored cap back and lets the refusal go with it.
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  expect(input.value).toBe('20')
+  expect(input.getAttribute('aria-invalid')).toBeNull()
+  expect(container.textContent).not.toContain('zero or more')
 
   await act(async () => type(input, '0'))
-  await act(async () => save.click())
+  await act(async () => enter(input))
   expect(setTriggerPreferences).toHaveBeenCalledWith(1, false, 0)
   expect(container.textContent).toContain('No new paid work: the daily cap is zero.')
+})
+
+it('an empty cap is refused, not read as zero', async () => {
+  const setTriggerPreferences = vi.fn(async () => triggerPreferences())
+  mount({ setTriggerPreferences: setTriggerPreferences as never })
+  await act(async () => {})
+  const input = container.querySelector<HTMLInputElement>('input[type="number"]')!
+  await act(async () => type(input, ''))
+  await act(async () => enter(input))
+  expect(setTriggerPreferences).not.toHaveBeenCalled()
+  expect(input.getAttribute('aria-invalid')).toBe('true')
+})
+
+it('stays live while a cap is saved: the field keeps its focus, and a Pause pressed meanwhile is sent after', async () => {
+  let answer!: (value: TriggerPreferences) => void
+  const setTriggerPreferences = vi.fn()
+    .mockImplementationOnce(() => new Promise<TriggerPreferences>((resolve) => { answer = resolve }))
+    .mockImplementationOnce(async () => triggerPreferences({ revision: 3, dailyUsd: 35, paused: true }))
+  mount({ setTriggerPreferences: setTriggerPreferences as never })
+  await act(async () => {})
+  const input = container.querySelector<HTMLInputElement>('input[type="number"]')!
+  act(() => input.focus())
+  await act(async () => type(input, '35'))
+  await act(async () => enter(input))
+  expect(setTriggerPreferences).toHaveBeenCalledTimes(1)
+  // Saving: read-only and marked busy, never disabled — the focus stays put.
+  expect(input.disabled).toBe(false)
+  expect(input.readOnly).toBe(true)
+  expect(input.getAttribute('aria-busy')).toBe('true')
+  expect(document.activeElement).toBe(input)
+  // Pause, pressed while the cap is out: waits, then goes on the new revision.
+  act(() => pauseSwitch().click())
+  expect(setTriggerPreferences).toHaveBeenCalledTimes(1)
+  await act(async () => { answer(triggerPreferences({ revision: 2, dailyUsd: 35 })) })
+  await act(async () => {})
+  expect(setTriggerPreferences).toHaveBeenLastCalledWith(2, true, 35)
+  expect(pauseSwitch().getAttribute('aria-checked')).toBe('true')
 })
 
 it('an unknown charged amount is said as unknown, never a silent zero', async () => {

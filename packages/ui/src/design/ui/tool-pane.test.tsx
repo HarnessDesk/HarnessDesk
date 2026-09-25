@@ -140,3 +140,12 @@ it('stands a bar of the tool’s own controls on the find bar’s rung as a floo
     expect(bar).toContain('bg-(--hd-card)')
   }
 })
+
+it('draws a document tab’s part in a reorder with the sortable part’s own mark', async () => {
+  const { sortableItemClass } = await import('./sortable-list')
+  const { ToolPaneDocumentTab } = await import('./tool-pane')
+  const host = document.createElement('div')
+  host.innerHTML = renderToStaticMarkup(<ToolPaneDocumentTab data-drop="before">Docs</ToolPaneDocumentTab>)
+  const classes = host.firstElementChild?.className.split(' ') ?? []
+  for (const token of sortableItemClass('horizontal').split(' ')) expect(classes).toContain(token)
+})

@@ -164,14 +164,34 @@ describe('MessageQueue', () => {
     expect(rows()[0]?.textContent).toContain('1 image · 1 file')
   })
 
-  it('asks the host to reorder, and cannot move the ends off the list', () => {
+  it('reorders from the keyboard with ⌥↑ and ⌥↓, asking the host, with no move buttons', () => {
     mount(waiting('first', 'second'))
-    expect(button('Move up', 0).disabled).toBe(true)
-    expect(button('Move down', 1).disabled).toBe(true)
-    click(button('Move down', 0))
+    expect(container.querySelector('[aria-label="Move up"], [aria-label="Move down"]')).toBeNull()
+    const press = (target: Element, key: string): void => {
+      act(() => {
+        target.dispatchEvent(new KeyboardEvent('keydown', { key, altKey: true, bubbles: true, cancelable: true }))
+      })
+    }
+    press(button('Remove', 0), 'ArrowDown')
     expect(calls.moveQueued).toHaveBeenCalledWith('q0', 1, KEY)
-    click(button('Move up', 1))
+    press(button('Move “second”'), 'ArrowUp')
     expect(calls.moveQueued).toHaveBeenCalledWith('q1', 0, KEY)
+    // The ends stay put: nothing is asked of the host.
+    calls.moveQueued.mockReset()
+    press(button('Move “first”'), 'ArrowUp')
+    expect(calls.moveQueued).not.toHaveBeenCalled()
+  })
+
+  it('announces a move once the host has answered with the new order', () => {
+    mount(waiting('first', 'second'))
+    act(() => {
+      button('Move “second”').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true }))
+    })
+    const said = (): string => container.querySelector('[role="status"]')?.textContent ?? ''
+    expect(said()).toBe('')
+    const answered = waiting('second', 'first')
+    mount({ ...answered, messages: [answered.messages[0]!, answered.messages[1]!].map((message, index) => ({ ...message, id: index === 0 ? 'q1' : 'q0' })) })
+    expect(said()).toBe('Moved “second” to position 1 of 2')
   })
 
   it('drops one message, and throws the whole queue away', () => {
@@ -262,6 +282,7 @@ describe('MessageQueue', () => {
       messages: [{ id: 'q0', queuedAt: 0, state: 'sending', input: [{ type: 'text', text: 'going' }] }],
     })
     expect(container.querySelector('[aria-label="Remove"]')).toBeNull()
+    expect((container.querySelector('[data-slot="sortable-handle"]') as HTMLButtonElement).disabled).toBe(true)
   })
 })
 
@@ -269,12 +290,12 @@ describe('MessageQueue', () => {
  * Dragging a message to a new place in the line.
  *
  * The order belongs to the host, so a drop must be the same request the
- * arrows make. If these ever reordered locally, two windows on one
+ * keys make. If these ever reordered locally, two windows on one
  * conversation would disagree about what runs next.
  */
 describe('dragging a queued message', () => {
   const grip = (index: number): HTMLElement => {
-    const found = rows()[index]?.querySelector('[data-slot="message-queue-grip"]')
+    const found = rows()[index]?.querySelector('[data-slot="sortable-handle"]')
     if (!found) throw new Error(`no grip on row ${index}`)
     return found as HTMLElement
   }
@@ -282,9 +303,11 @@ describe('dragging a queued message', () => {
   const transfer = (): DataTransfer =>
     ({ effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: () => '' }) as unknown as DataTransfer
 
-  const dragEvent = (type: string, dataTransfer: DataTransfer): Event => {
+  /** A drag event over a row's upper or lower half (jsdom's rows have no size, so the sign says which). */
+  const dragEvent = (type: string, dataTransfer: DataTransfer, half: 'upper' | 'lower' = 'lower'): Event => {
     const event = new Event(type, { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+    const at = half === 'upper' ? -1 : 1
+    Object.defineProperties(event, { dataTransfer: { value: dataTransfer }, clientX: { value: at }, clientY: { value: at } })
     return event
   }
 
@@ -296,8 +319,8 @@ describe('dragging a queued message', () => {
       rows()[2]?.dispatchEvent(dragEvent('dragstart', data))
     })
     act(() => {
-      rows()[0]?.dispatchEvent(dragEvent('dragover', data))
-      rows()[0]?.dispatchEvent(dragEvent('drop', data))
+      rows()[0]?.dispatchEvent(dragEvent('dragover', data, 'upper'))
+      rows()[0]?.dispatchEvent(dragEvent('drop', data, 'upper'))
     })
     expect(calls.moveQueued).toHaveBeenCalledWith('q2', 0, KEY)
     // The rows are still in the order the host last gave.
@@ -333,14 +356,14 @@ describe('dragging a queued message', () => {
     act(() => {
       grip(2).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
       rows()[2]?.dispatchEvent(dragEvent('dragstart', data))
-      rows()[0]?.dispatchEvent(dragEvent('dragover', data))
-      rows()[0]?.dispatchEvent(dragEvent('drop', data))
+      rows()[0]?.dispatchEvent(dragEvent('dragover', data, 'upper'))
+      rows()[0]?.dispatchEvent(dragEvent('drop', data, 'upper'))
     })
     expect(calls.moveQueued).toHaveBeenCalledWith('q2', 0, KEY)
   })
 
   /**
-   * Downward, which the arrows never exercise: they move by one, so a drop
+   * Downward, which the keys never exercise: they move by one, so a drop
    * several places away is the first caller ever to ask the host for an
    * arbitrary index. This pins the request, not the host's reading of it.
    */

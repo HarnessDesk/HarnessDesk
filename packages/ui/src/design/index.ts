@@ -79,6 +79,7 @@ export {
   LibraryReachMark,
   DetailMark,
   PageDescription,
+  RowInput,
   RowMark,
   RowValue,
   SectionToggle,
@@ -182,11 +183,9 @@ export {
 export {
   MessageQueueActions,
   MessageQueueFrame,
-  MessageQueueGrip,
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,
-  MessageQueueTiming,
 } from './patterns/MessageQueue'
 export * from './ui'
 export {

@@ -549,7 +549,16 @@
 .formStack {
   display: flex;
   flex-direction: column;
+  align-items: flex-start; /* desk: stretch → flex-start, a button in a form keeps its own width */
   gap: var(--hd-space-3);
+}
+
+/* What a form is made of — fields, cards of rows, notes, banners — still
+   takes the column. A button does not: a 715px black Save bar was the
+   heaviest object on its page. `:where` keeps this a default any
+   child's own alignment outranks. */
+.formStack > :where(:not([data-slot='button'])) {
+  align-self: stretch;
 }
 
 /* A form's field: the name over the control, one line under it. */
@@ -920,6 +929,30 @@
   min-width: 0;
   border-bottom: none;
   padding-inline-end: var(--hd-space-6); /* desk: var(--hd-card-padding) → var(--hd-space-6), the gap a row keeps between its control and its chevron */
+}
+
+/* Under the pointer the pair reads as one row: the hover ground is the
+   pair's, edge to edge, so it takes the card's corners at both ends. Lit
+   alone, the opener's ground stopped square a fold's width before the card's
+   edge while its other end kept the card's round corner. The fold keeps its
+   own hover on top of the row's, a step deeper, so the second target still
+   shows where it is. */
+.rowFolding:hover {
+  background: var(--hd-hover); /* desk: none → --hd-hover, the pair is one row under the pointer */
+}
+
+.rowFolding > .rowButton:hover {
+  background: transparent; /* desk: --hd-hover → transparent, the pair draws the row's hover */
+}
+
+/* Each target's focus ring is drawn inside its own box: outside it, the
+   card's clipped edge and the fold beside the opener cut the ring to a line.
+   Rounded while it shows, so the opener's square corner does not meet the
+   card's round one. */
+.rowFolding > .rowButton:focus-visible,
+.rowFolding .rowFold:focus-visible {
+  outline-offset: calc(-1 * var(--hd-ring-width)); /* desk: --hd-ring-offset → minus the ring width, the ring inside the target */
+  border-radius: var(--hd-radius-md); /* desk: 0 → --hd-radius-md, a round ring inside a round card */
 }
 
 .rowFoldEnd {
