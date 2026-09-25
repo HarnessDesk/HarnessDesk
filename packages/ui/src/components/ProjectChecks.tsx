@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { ProjectChecks as Checks } from '@harnessdesk/protocol'
 
-import { Chip, CodeText, Note, Row, Rows, RowValue, SectionHead } from '../design'
+import { Chip, CodeText, Note, Row, Rows, RowValue, Section } from '../design'
 import { shortSha } from '../lib/evidence'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
@@ -33,12 +33,11 @@ export const ProjectChecks = ({ root }: { readonly root: string }) => {
   if (!read || read.root !== root) return null
   if ('problem' in read) {
     return (
-      <section aria-label="Checks">
-        <SectionHead name="Checks" />
+      <Section title="Checks">
         <Rows>
           <Row title="Its checks could not be read" desc={read.problem} />
         </Rows>
-      </section>
+      </Section>
     )
   }
   return read.checks.exists ? <ProjectChecksView checks={read.checks} /> : null
@@ -54,11 +53,10 @@ const seenWords = (seen: 'yes' | 'no' | 'changed'): string =>
 export const ProjectChecksView = ({ checks }: { readonly checks: Checks }) => {
   const snapshot = useSnapshot()
   return (
-    <section aria-label="Checks">
-      <SectionHead name="Checks" />
-      <Note>
-        {`Read from ${shortPath(checks.file, snapshot.home)}${checks.at ? `, as committed at ${shortSha(checks.at)}` : ''}. A card runs one only once this Mac has approved its command, and asks again whenever the file changes.`}
-      </Note>
+    <Section
+      title="Checks"
+      description={`Read from ${shortPath(checks.file, snapshot.home)}${checks.at ? `, as committed at ${shortSha(checks.at)}` : ''}. A card runs one only once this Mac has approved its command, and asks again whenever the file changes.`}
+    >
       {checks.uncommitted && (
         <Note tone="warn">
           Your working copy of this file is not what is committed. A check runs only as it is committed, so commit the
@@ -84,6 +82,6 @@ export const ProjectChecksView = ({ checks }: { readonly checks: Checks }) => {
           />
         ))}
       </Rows>
-    </section>
+    </Section>
   )
 }

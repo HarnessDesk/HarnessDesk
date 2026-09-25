@@ -31,7 +31,8 @@ const mount = async (page: Page, width: number) => {
       response,
       body: `${source}
         import rowReact from ${JSON.stringify(reactUrl)};
-        import { Rows, Row, RowButton, RowChoice, RowValue } from '/src/design/patterns/Settings.tsx';
+        import { Chip, Rows, Row, RowButton, RowChoice, RowValue } from '/src/design/patterns/Settings.tsx';
+        import { Button } from '/src/design/ui/button.tsx';
         const h = rowReact.createElement;
         const frame = document.createElement('section');
         frame.setAttribute('aria-label', 'Row fixture');
@@ -51,6 +52,10 @@ const mount = async (page: Page, width: number) => {
             h(RowButton, { 'data-testid': 'rowfx-sentence-button', title: 'Round two', control: h(RowValue, null, ${JSON.stringify(SENTENCE)}), onClick: () => {} }),
             h(Row, { 'data-testid': 'rowfx-short', title: 'Round three', control: h(RowValue, null, 'Twice') }),
             h(RowButton, { 'data-testid': 'rowfx-medium', title: 'Checkout hardening', desc: 'Goal', control: h(RowValue, null, '$12.34 · 3 seats'), onClick: () => {} }),
+            h(Row, { 'data-testid': 'rowfx-money', title: 'Recorded usage this week', control: h(RowValue, { numeric: true }, '$1,234.56') }),
+            h(RowButton, { 'data-testid': 'rowfx-money-button', title: 'Recorded usage this week', control: h(RowValue, { numeric: true }, '$1,234.56'), onClick: () => {} }),
+            h(Row, { 'data-testid': 'rowfx-wrapped', title: 'Checkout hardening review', control: [h(Button, { key: 'a', size: 'sm', variant: 'outline' }, 'Open file'), h(Button, { key: 'b', size: 'sm', variant: 'outline' }, 'Reveal'), h(Button, { key: 'c', size: 'sm', variant: 'outline' }, 'Customize…')] }),
+            h(RowButton, { 'data-testid': 'rowfx-wrapped-button', title: 'Checkout hardening review', control: [h(Chip, { key: 'a', state: 'ready', label: 'Ready' }), h(Chip, { key: 'b', tone: 'neutral' }, 'Team'), h(Chip, { key: 'c', tone: 'neutral' }, '3 seats')], onClick: () => {} }),
           ),
         ));
       `,
@@ -136,6 +141,95 @@ test('a sentence in a narrow row wraps under a title that keeps its words', asyn
   expect(readings.find(r => r.id === 'sentence')?.controlBelow).toBe(true)
   expect(readings.find(r => r.id === 'sentence-button')?.controlBelow).toBe(true)
   expect(readings.find(r => r.id === 'short')?.controlBelow).toBe(false)
+})
+
+/**
+ * Where a wrapped control lands depends on what it is, read from the control
+ * itself. A compact control — here three buttons — keeps the row's end, in a
+ * plain row and a row button alike: a row button's control travels with its
+ * chevron, which cannot leave the end, and the card's trailing edge is the
+ * one column every control is found in (#901's review).
+ */
+test('a wrapped compact control keeps the row end in a plain row and in a row button alike', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 700 })
+  await mount(page, 400)
+  const ends = await page.evaluate(() => ['wrapped', 'wrapped-button'].map(id => {
+    const row = document.querySelector(`[data-testid="rowfx-${id}"]`) as HTMLElement
+    const title = row.querySelector('[class*="rowTitle"]')!.getBoundingClientRect()
+    // The trailing item: a plain row's control, or a row button's control-and-chevron.
+    const trailing = (row.querySelector('[class*="rowEnd"]') ?? row.querySelector('[class*="rowCtl"]'))!.getBoundingClientRect()
+    const inner = row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight)
+    return {
+      id,
+      below: trailing.top >= title.bottom - 1,
+      end: Math.round(inner - trailing.right),
+      indent: Math.round(trailing.left - title.left),
+    }
+  }))
+  for (const reading of ends) {
+    expect(reading.below, `${reading.id}: the control did not wrap`).toBe(true)
+    expect(Math.abs(reading.end), `${reading.id}: the control left the row end`).toBeLessThanOrEqual(1)
+    expect(reading.indent, `${reading.id}: the control started under the title`).toBeGreaterThan(8)
+  }
+  await page.getByRole('region', { name: 'Row fixture' }).screenshot({ path: test.info().outputPath('wrapped-controls.png') })
+})
+
+/**
+ * A text answer that wraps takes its whole line and starts where the title
+ * starts — at 400px, where the sentence fills the line anyway, and at 700px,
+ * where it is narrower than the row. Pushed to the end there, it began about
+ * 70px in and lined up with nothing (#911's review). A row button's chevron
+ * still ends the row, on the answer's line.
+ */
+for (const width of [400, 700]) {
+  test(`a wrapped sentence starts under its title at ${width}px, in a plain row and a row button`, async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 700 })
+    await mount(page, width)
+    const readings = await page.evaluate(() => ['sentence', 'sentence-button'].map(id => {
+      const row = document.querySelector(`[data-testid="rowfx-${id}"]`) as HTMLElement
+      const title = row.querySelector('[class*="rowTitle"]')!.getBoundingClientRect()
+      const words = row.querySelector('[class*="rowFixed"]')!.getBoundingClientRect()
+      const inner = row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight)
+      return {
+        id,
+        below: words.top >= title.bottom - 1,
+        start: Math.round(words.left - title.left),
+        inside: words.right <= inner + 1,
+        narrower: Math.round(inner - words.right) > 8,
+      }
+    }))
+    for (const reading of readings) {
+      expect(reading.below, `${reading.id}: the sentence did not wrap`).toBe(true)
+      expect(reading.start, `${reading.id}: the sentence did not start under the title`).toBe(0)
+      expect(reading.inside, `${reading.id}: the sentence left the row`).toBe(true)
+    }
+    // At 700px the sentence is narrower than its line: the case end-alignment hid.
+    if (width === 700) expect(readings[0]!.narrower).toBe(true)
+    const chevron = await chevronOf(page, 'sentence-button')
+    expect(chevron.sameLine).toBe(true)
+    expect(Math.abs(chevron.end)).toBeLessThanOrEqual(1)
+    await page.getByRole('region', { name: 'Row fixture' }).screenshot({ path: test.info().outputPath(`wrapped-sentence-${width}.png`) })
+  })
+}
+
+/* A numeric answer is compact: money wraps under its title and keeps the row's
+   end on tabular figures, where a column of amounts lines up by place. */
+test('a wrapped numeric value keeps the row end at 260px', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 700 })
+  await mount(page, 260)
+  const readings = await page.evaluate(() => ['money', 'money-button'].map(id => {
+    const row = document.querySelector(`[data-testid="rowfx-${id}"]`) as HTMLElement
+    const title = row.querySelector('[class*="rowTitle"]')!.getBoundingClientRect()
+    const value = row.querySelector('[class*="rowFixed"]')!.getBoundingClientRect()
+    const trailing = (row.querySelector('[class*="rowEnd"]') ?? row.querySelector('[class*="rowCtl"]'))!.getBoundingClientRect()
+    const inner = row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight)
+    return { id, below: value.top >= title.bottom - 1, end: Math.round(inner - trailing.right), indent: Math.round(value.left - title.left) }
+  }))
+  for (const reading of readings) {
+    expect(reading.below, `${reading.id}: the value did not wrap`).toBe(true)
+    expect(Math.abs(reading.end), `${reading.id}: the value left the row end`).toBeLessThanOrEqual(1)
+    expect(reading.indent, `${reading.id}: the value started under the title`).toBeGreaterThan(40)
+  }
 })
 
 test('at a normal width a short control keeps its place beside the title', async ({ page }) => {

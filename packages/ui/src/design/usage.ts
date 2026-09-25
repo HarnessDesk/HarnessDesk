@@ -270,6 +270,70 @@ export const ELEMENTS: readonly UsageRule[] = [
       'The card keeps its shape whether it holds nothing or twelve things, so the page does not jump when the first one arrives.',
   },
   {
+    family: 'title',
+    variant: 'one step',
+    when: 'Every page head, a list page\'s `PageHead` and a drilled-into `DetailHead` alike: the page-title step, 20px semibold — the wordmark\'s own type.',
+    never: 'A second size for a detail page. What tells a detail page apart is its mark and its owner chip, never a bigger or lighter name.',
+    because:
+      'At 24px regular a drilled-into page read lighter and less finished than the list it came from, and the sidebar\'s wordmark beside it. The owner settled it in #832: page titles match the wordmark.',
+  },
+  {
+    family: 'label',
+    variant: 'GroupLabel',
+    when: 'The word over any group — a card of rows, a rail\'s list, a section of a page: 13px, the secondary ink, sentence case. `SectionHead`, `Section`, `NavigationGroupHeader` and the catalogue rail all draw it.',
+    never: 'Capitals. No label outside a `Keycap` is set in uppercase, tracked or not; the design audit counts every one (`uppercaseLabel`) and its ceiling may only fall.',
+    because:
+      'The app had three group-label styles and a column of six 12px tracked capitals read as shouted — the one group that needed finding stopped standing out. A key is the exception because it is a physical thing with printing on it.',
+  },
+  {
+    family: 'section',
+    variant: 'page',
+    when: 'Any part of a page: `<Section title description action>` around its card. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children\'s own margins.',
+    never: 'A `SectionHead`, a free `Note` and a `Rows` stacked by hand, or a screen margin between sections. The label then belongs to neither card and every page spaces itself.',
+    because:
+      'On the Agent page the label "Ceiling" sat 18px under the card above it and 20px over its own, so it named neither. A section that owns its spacing cannot drift that way, and a page composing sections writes no margin at all.',
+  },
+  {
+    family: 'section',
+    variant: 'description',
+    when: 'One muted sentence under the label saying what the section is, when the label alone cannot.',
+    never: 'A paragraph of how it works. Two or three lines under every label is a page that explains itself before it shows anything; the explanation belongs on the row it explains, or nowhere.',
+    because:
+      'Project, Permissions and Triggers each opened every section with a 2–3 line paragraph under the page\'s own blurb. The one warning that mattered read like the four around it.',
+  },
+  {
+    family: 'key-value',
+    variant: 'summary',
+    when: 'Several facts about one object on a page — a file, a ceiling, what it loads — as `SummaryList` inside one `Section`: a key, a value, an optional note under it and an optional small action at the row\'s end.',
+    never: 'A stack of one-row cards, each under its own label. Five facts about one Agent are one card of five rows.',
+    because:
+      'Eight label-plus-one-row-card sections made the Agent page a column of floating grey words. One card of facts is read top to bottom like an inspector, with the actions in one column at the end.',
+  },
+  {
+    family: 'row',
+    variant: 'wrapped control',
+    when: 'A control too wide to share a narrow row with its title drops under it. A compact control — a switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the row\'s end; a text answer (`RowValue`) takes its whole line and starts where the title starts. The row reads which from the control, so no caller says.',
+    never: 'A sentence pushed to the row\'s end on its own line: narrower than the row, it starts at whatever indent its length leaves and lines up with nothing.',
+    because:
+      'A row button\'s control travels with a chevron that cannot leave the end, and a card\'s trailing edge is the column every control is found in. Words are read from the left, so words that have their own line start at the left.',
+  },
+  {
+    family: 'section',
+    variant: 'sub-head',
+    when: 'Groups inside one section — one runtime\'s approvals among twelve, one layer of flows: a `SectionHead` among a `Section`\'s children, 24px above it and 8px over its card, and an h3 under the section\'s h2.',
+    never: 'A top-level section per group. Twelve 32px steps under one heading read as twelve sections and hide the one that heads them.',
+    because:
+      'The step between a section (32px) and a label-to-card (8px) is what says "part of the section above".',
+  },
+  {
+    family: 'title',
+    variant: 'outline',
+    when: 'A page\'s or a detail page\'s title is its h1; every section label on it, `Section` or `SectionHead`, is an h2. A detail head\'s owner is text that gives way at its end, or a mark (a chip) that stays whole while the name wraps.',
+    never: 'A title in a div, or a chip owner that ellipsises: a status read "Nee…" beside a long Goal.',
+    because:
+      'Heading navigation is how a screen reader skims a page, and a page whose labels are spans cannot be skimmed.',
+  },
+  {
     family: 'key-value',
     variant: 'default',
     when: 'Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.',
@@ -338,7 +402,7 @@ export const SLOTS: readonly {
   },
   {
     slot: 'sectionAction',
-    what: 'the `action` of a `SectionHead`',
+    what: 'the `action` of a `SectionHead` or a titled `Section`',
     allow: ['outline', 'destructive', 'danger'],
     size: 'sm',
     why: 'One rung down, because a section heading is one rank down and its action should not outweigh the page\'s. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first\'s meaning with it.',

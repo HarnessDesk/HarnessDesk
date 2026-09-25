@@ -89,6 +89,13 @@ const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) 
   )
 }
 
+/** The key column's look, one spelling for every shape of the list. */
+const KEY_CLASS = 'text-start text-(--hd-muted-foreground)'
+
+/** A value as the list draws it: a path gives up its middle, anything else is itself. */
+const valueOf = (children: React.ReactNode, kind: 'text' | 'path'): React.ReactNode =>
+  kind === 'path' && typeof children === 'string' ? <MiddleTruncate>{children}</MiddleTruncate> : children
+
 /**
  * Facts about one thing, in the shape a reader scans them.
  *
@@ -170,7 +177,7 @@ const KeyValueRow = ({
   >
     <dt
       className={cn(
-        'text-start text-(--hd-muted-foreground)',
+        KEY_CLASS,
         variant === 'default' && 'min-w-20',
         variant === 'panel' && 'text-xs',
         emphasis && 'font-medium text-(--hd-foreground)',
@@ -186,9 +193,117 @@ const KeyValueRow = ({
         emphasis && 'font-semibold',
       )}
     >
-      {kind === 'path' && typeof children === 'string' ? <MiddleTruncate>{children}</MiddleTruncate> : children}
+      {valueOf(children, kind)}
     </dd>
   </div>
 )
 
-export { KeyValue, KeyValueRow, MiddleTruncate }
+/**
+ * Several facts about one thing, in one card.
+ *
+ * The third shape of the same list. `KeyValue` is the bare inspector (a
+ * dialog's facts, a panel's), and `SummaryList` is that inspector drawn as a
+ * settings card — the `Rows` ground, edge, corner and hairline, read from the
+ * same `--hd-card-*` tokens — for a page that has five facts about one object
+ * and used to spend five labelled one-row cards on them.
+ *
+ * Each `SummaryItem` is a row of three columns shared by the whole card: the
+ * key, muted, in a column as wide as the widest key; the value, left-aligned
+ * and wrapping as a sentence (`kind="path"` gives up the middle, `numeric`
+ * right-aligns tabular figures — the `KeyValueRow` rules, unchanged); and an
+ * optional trailing `action`, a small button or a ⋯ menu, at the row's end.
+ * A `note` is one line of explanation under the value, in the secondary ink,
+ * and wraps rather than ellipsises: it is a sentence.
+ *
+ * When any row has an action, every row stands as tall as one, and the text
+ * sits on the action's centre line — so a card of facts keeps one row height
+ * whether or not a given fact can be acted on.
+ *
+ * Narrow (under 28rem of card), the key rises onto its own line above the
+ * value, and the action keeps the row's end beside the value, as a wrapped
+ * `Row` control does.
+ */
+const SummaryList = ({ className, children, ...props }: React.ComponentProps<'dl'>) => (
+  <div data-slot="summary-list" className={cn('@container/summary min-w-0', className)}>
+    <dl
+      data-slot="summary-card"
+      className={cn(
+        'group/summary m-0 grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] overflow-hidden',
+        'text-(length:--hd-text-sm) leading-(--hd-line-sm)',
+        'rounded-[var(--hd-card-radius,var(--hd-radius-lg))] border-(length:--hd-border-width) border-[color:var(--hd-card-border,var(--hd-border))] bg-[var(--hd-card-fill,var(--hd-card))]',
+        '@max-md/summary:grid-cols-[minmax(0,1fr)_auto]',
+      )}
+      {...props}
+    >
+      {children}
+    </dl>
+  </div>
+)
+
+/* The text's padding when the card holds an action: half of what a small
+   button stands above a line of text, so the line sits on the button's centre. */
+const ON_ACTION_LINE =
+  'group-has-[[data-slot=summary-action]]/summary:py-[calc((var(--hd-btn-h-sm)_-_var(--hd-line-sm))_/_2)]'
+
+const SummaryItem = ({
+  className,
+  label,
+  children,
+  note,
+  action,
+  numeric = false,
+  kind = 'text',
+  ...props
+}: Omit<React.ComponentProps<'div'>, 'children'> & {
+  label: React.ReactNode
+  children: React.ReactNode
+  /** One sentence under the value: what it means, or why it is so. */
+  note?: React.ReactNode
+  /** A small button or a ⋯ menu that acts on this one fact. */
+  action?: React.ReactNode
+  /** A count, a total, money: right-aligned on tabular figures. */
+  numeric?: boolean
+  /** `path` gives up the middle of a string value rather than its end. */
+  kind?: 'text' | 'path'
+}) => (
+  <div
+    data-slot="summary-item"
+    {...(numeric ? { 'data-numeric': '' } : {})}
+    {...(kind === 'path' ? { 'data-kind': 'path' } : {})}
+    className={cn(
+      'col-span-full grid grid-cols-subgrid gap-x-(--hd-space-6) gap-y-(--hd-space-0-5) px-(--hd-card-padding) py-(--hd-space-3)',
+      'border-b-(length:--hd-border-width) border-[color:var(--hd-card-divider,var(--hd-border))] last:border-b-0',
+      className,
+    )}
+    {...props}
+  >
+    <dt className={cn(KEY_CLASS, 'min-w-20 @max-md/summary:col-span-full @max-md/summary:pb-0!', ON_ACTION_LINE)}>{label}</dt>
+    <dd className="col-span-2 m-0 grid min-w-0 grid-cols-subgrid">
+      <div
+        data-slot="summary-value"
+        className={cn(
+          'min-w-0 break-words text-(--hd-foreground)',
+          numeric ? 'text-right tabular-nums' : 'text-left',
+          /* With no action of its own, the value takes the action's column
+             too, so a figure lines up with the ends of the actions above it. */
+          action == null && 'col-span-2',
+          ON_ACTION_LINE,
+        )}
+      >
+        {valueOf(children, kind)}
+        {note != null && (
+          <p data-slot="summary-note" className="m-0 mt-(--hd-space-0-5) text-left text-(--hd-secondary-foreground)">
+            {note}
+          </p>
+        )}
+      </div>
+      {action != null && (
+        <div data-slot="summary-action" className="col-start-2 flex min-w-0 items-start justify-end gap-(--hd-space-2)">
+          {action}
+        </div>
+      )}
+    </dd>
+  </div>
+)
+
+export { KeyValue, KeyValueRow, MiddleTruncate, SummaryItem, SummaryList }
