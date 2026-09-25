@@ -1160,6 +1160,150 @@ test('an arbitrary property the stylesheet rule treats as unclassified is a stri
   )
 })
 
+/**
+ * Round 3 review: the closed shape list was too narrow and dropped 15 real
+ * shapes the pre-round-2 walker still caught — none used in a counted file
+ * today, but exactly the blind spot this PR exists to close. Each fixture
+ * below was confirmed failing (finding nothing, or one token short) against
+ * `fb5fa67e`, the head that introduced the closed list, before this file's
+ * `classSiteTokens` grew the case that fixes it.
+ */
+const helperSource = (expr) => `export const Example = () => <div className={${expr}} />\n`
+
+test('?? and || read both sides; + reads both sides of a concatenation', () => {
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("cls ?? 'text-xs'")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("cls || 'text-xs'")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("'text-xs ' + extra")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('as, as const, satisfies and ! all recurse into their expression', () => {
+  const withConst = (expr) => `const cls = 'text-xs'\nexport const Example = () => <div className={${expr}} />\n`
+  for (const expr of ["('text-xs' as string)", "('text-xs' as const)", "('text-xs' satisfies string)", 'cls!']) {
+    assert.deepEqual(
+      screenUtilityAppearanceOf(screenTsx('Example.tsx'), expr.startsWith("'") ? helperSource(expr) : withConst(expr)),
+      [`${label('Example.tsx')}text-xs (font-size)`],
+      expr,
+    )
+  }
+  // `<T>x` is the same shape (recurse into `.expression`) but has no legal
+  // spelling in a `.tsx` file — `<` opens a JSX element there — so it cannot
+  // be fixture-tested on this parser; `screenUtilityDeclarationOf`'s dispatch
+  // still names `ts.isTypeAssertionExpression` alongside the others.
+})
+
+test('an object literal yields its string-literal keys: clsx({ \'text-xs\': c })', () => {
+  const source = "import { cn } from '../lib/utils'\nexport const Example = () => <div className={cn({ 'text-xs': c })} />\n"
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), source), [`${label('Example.tsx')}text-xs (font-size)`])
+})
+
+test('a spread inside an array joined with .join(\' \') reads every element', () => {
+  const source = [
+    "const B = ['bg-(--hd-card)']",
+    "const SHIMMER = [...B, 'text-xs'].join(' ')",
+    'export const Example = () => <span className={SHIMMER} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}bg-(--hd-card) (background)`, `${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('an element access (TONE[t]) and optional chaining (o?.a) recurse into the object, not the key', () => {
+  const mapSource = [
+    "const TONE = { a: 'text-xs', b: 'rounded-full' }",
+    'export const Example = () => <div className={TONE[t]} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), mapSource),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+  const optionalSource = [
+    "const o = { a: 'text-xs' }",
+    'export const Example = () => <div className={o?.a} />',
+  ].join('\n')
+  assert.deepEqual(screenUtilityAppearanceOf(screenTsx('Example.tsx'), optionalSource), [`${label('Example.tsx')}text-xs (font-size)`])
+})
+
+test('a call this does not specifically recognize still reads its arguments and (for a method call) its object', () => {
+  assert.deepEqual(
+    screenUtilityAppearanceOf(
+      screenTsx('Example.tsx'),
+      "import { twMerge } from 'tailwind-merge'\nexport const Example = () => <div className={twMerge('text-xs', 'rounded-full')} />\n",
+    ),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("buttonVariants({ variant: 'a' }) + ' text-xs'")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("buttonVariants({ className: 'text-xs' })")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  const filterJoinSource = [
+    "const PARTS = ['text-xs', false]",
+    "const SHIMMER = PARTS.filter(Boolean).join(' ')",
+    'export const Example = () => <span className={SHIMMER} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), filterJoinSource),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), helperSource("String('text-xs')")),
+    [`${label('Example.tsx')}text-xs (font-size)`],
+  )
+})
+
+test('a call resolving to a local function const is walked through its return expressions only', () => {
+  const source = [
+    "const classFor = (k) => { if (k === 'a') return 'text-xs'; return 'rounded-full' }",
+    'export const Example = () => <div className={classFor(k)} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}rounded-full (border-radius)`],
+  )
+})
+
+test('a reassigned let with += gathers that literal alongside the initializer', () => {
+  const source = [
+    "let c = 'text-xs'",
+    "c += ' bg-(--hd-card)'",
+    'export const Example = () => <div className={c} />',
+  ].join('\n')
+  assert.deepEqual(
+    screenUtilityAppearanceOf(screenTsx('Example.tsx'), source),
+    [`${label('Example.tsx')}text-xs (font-size)`, `${label('Example.tsx')}bg-(--hd-card) (background)`],
+  )
+})
+
+test('style={s ?? {...}} reads both sides, and an imported style={S} is read at its definition', (t) => {
+  assert.deepEqual(
+    screenInlineStyleAppearanceOf(screenTsx('Example.tsx'), 'export const Example = () => <div style={s ?? { color: "red" }} />\n'),
+    ['style color'],
+  )
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-style-import-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const definingFile = path.join(components, 'StyleBase.tsx')
+  const consumingFile = path.join(components, 'StyleUser.tsx')
+  fs.writeFileSync(definingFile, "export const S = { color: 'red' }\n")
+  fs.writeFileSync(consumingFile, "import { S } from './StyleBase'\nexport const Example = () => <div style={S} />\n")
+  assert.deepEqual(screenInlineStyleAppearanceOf(consumingFile, fs.readFileSync(consumingFile, 'utf8')), ['style color'])
+})
+
 test('a className written as an object key is a class site, the same as a JSX attribute', () => {
   // BrowserPane.tsx: createElement('webview', { className: `...` }).
   const source = [

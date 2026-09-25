@@ -2245,6 +2245,12 @@ const directDeclarationIn = (scope, name) => {
  * declaration's own position (`pos`), not by name, so `countedDefs` can
  * dedupe by the declaration rather than by a name two scopes both use.
  */
+/** `=` and `+=` both introduce literal content worth gathering — `c += '
+ * bg-(--x)'` after `let c = 'text-xs'` adds a second piece to the same
+ * declaration, not a replacement of the first, so both are kept rather than
+ * only the initializer or only the latest assignment. */
+const REASSIGNMENT_OPERATORS = new Set([ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken])
+
 const nearestDeclaration = (refNode, name) => {
   for (const scope of enclosingScopes(refNode)) {
     const declaration = directDeclarationIn(scope, name)
@@ -2256,7 +2262,7 @@ const nearestDeclaration = (refNode, name) => {
     const visit = (node) => {
       if (node !== scope && ts.isFunctionLike(node)) return
       if (
-        ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        ts.isBinaryExpression(node) && REASSIGNMENT_OPERATORS.has(node.operatorToken.kind)
         && ts.isIdentifier(node.left) && node.left.text === name
       ) {
         assignments.push(node.right)
@@ -2396,18 +2402,28 @@ const resolveClassConst = (identifierNode, file, ast) => {
  * such as a class list built once and assigned to a variable.
  *
  * The shapes this recurses into are named, not inferred by walking whatever
- * a node happens to hold: a template's head and each span, a ternary's two
- * branches, a `cond && '…'` guard's right side, an array's elements,
- * `X.join(...)`'s `X`, a class-combiner call's arguments, and a name's
- * resolved declaration(s) — nothing else.
- * `const active = x === 'underline'` referenced at a class site counts
- * nothing: a comparison is not one of the shapes above, so resolving `active`
- * finds it and stops, rather than a blind walk finding the string on the
- * comparison's other side. A property access reads only its object side
- * (`styles.fileRow`'s `styles`, itself rarely resolvable) and never its `.name`
- * as though it were a bare reference — `fileRow` is a property here, not a
- * variable — except when the object is a namespace import, where `.name` is
- * exactly the exported name being asked for.
+ * a node happens to hold — round 3 review found the closed list too narrow,
+ * dropping 15 real shapes the previous, more permissive walker still caught,
+ * so the list below is deliberately generous: a template's head and each
+ * span, a type wrapper's expression (`as`, `as const`, `satisfies`, `!`,
+ * `<T>x`), a spread's or an element access's expression (`[...B]`, `TONE[t]`,
+ * `o?.a` — the object side only, same as a plain property access), a
+ * ternary's two branches, `cond && '…'`'s right side, `a || b`'s and `a ?? b`'s
+ * both sides, `a + b`'s both sides, an array's elements, an object literal's
+ * string-literal keys and every value (`clsx({ 'text-xs': c })`), `X.join(…)`'s
+ * `X`, a class-combiner call's arguments, a call resolving to a local
+ * function's return expressions only (never its whole body), any other
+ * call's arguments and (for a method call) the object it is called on, and a
+ * name's resolved declaration(s). A comparison (`=== !== == != < > <= >= in
+ * instanceof`) and a function body not reached through the call case above
+ * are the two shapes this still refuses: `const active = x === 'underline'`
+ * referenced at a class site counts nothing, and a bare reference to a
+ * function that is never called does not have its body opened. A property
+ * access reads only its object side (`styles.fileRow`'s `styles`, itself
+ * rarely resolvable) and never its `.name` as though it were a bare
+ * reference — `fileRow` is a property here, not a variable — except when the
+ * object is a namespace import, where `.name` is exactly the exported name
+ * being asked for.
  *
  * A name is counted once, at its declaration, however many times or files
  * use it: `countedDefs` is a set of `file::pos` already resolved — the
@@ -2433,6 +2449,34 @@ const resolveClassConst = (identifierNode, file, ast) => {
  * `const rowClass = cn('rounded-full')` used as `className={rowClass}`
  * counts `rounded-full` once, not twice.
  */
+/** A function's return values only — the expression body of an arrow
+ * function with no block, or every `return`'s expression inside one,
+ * without crossing into a nested function's own returns. */
+const returnExpressionsOf = (fn) => {
+  if (!fn.body) return []
+  if (!ts.isBlock(fn.body)) return [fn.body]
+  const expressions = []
+  const visit = (node) => {
+    if (node !== fn.body && ts.isFunctionLike(node)) return
+    if (ts.isReturnStatement(node) && node.expression) expressions.push(node.expression)
+    ts.forEachChild(node, visit)
+  }
+  visit(fn.body)
+  return expressions
+}
+
+/** `=== !== == != < > <= >= in instanceof` — a comparison's operands are
+ * never a class list (`x === 'underline'` must count nothing), so these are
+ * excluded explicitly rather than left to fall through to the fallback by
+ * accident. */
+const COMPARISON_OPERATORS = new Set([
+  ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.LessThanToken, ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.LessThanEqualsToken, ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.InKeyword, ts.SyntaxKind.InstanceOfKeyword,
+])
+
 const classSiteTokens = (node, file, ast, countedDefs, out, visitedCalls) => {
   if (
     ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
@@ -2449,7 +2493,17 @@ const classSiteTokens = (node, file, ast, countedDefs, out, visitedCalls) => {
     }
     return
   }
-  if (ts.isParenthesizedExpression(node)) {
+  // A type wrapper (`as`, `as const`, `satisfies`, `!`, `<T>x`), a spread
+  // (`[...B]`), and an element access (`TONE[t]`, `o?.a`) all name their one
+  // interesting child the same way: `.expression`. An element access's index
+  // is not walked, the same reason a property access's `.name` is not below
+  // — `t` in `TONE[t]` selects which of `TONE`'s values applies, it is not
+  // itself one.
+  if (
+    ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
+    || ts.isNonNullExpression(node) || ts.isTypeAssertionExpression(node)
+    || ts.isSpreadElement(node) || ts.isElementAccessExpression(node)
+  ) {
     classSiteTokens(node.expression, file, ast, countedDefs, out, visitedCalls)
     return
   }
@@ -2458,16 +2512,47 @@ const classSiteTokens = (node, file, ast, countedDefs, out, visitedCalls) => {
     classSiteTokens(node.whenFalse, file, ast, countedDefs, out, visitedCalls)
     return
   }
-  // `done && 'text-(--hd-secondary-foreground)'`, a `cn()` argument's other
-  // common conditional shape — a ternary missing its "else". `&&` only:
-  // `x === 'underline'` is a comparison, not one of the shapes named above,
-  // and correctly yields nothing by matching no case here at all.
-  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
-    classSiteTokens(node.right, file, ast, countedDefs, out, visitedCalls)
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind
+    // `done && 'text-(--hd-secondary-foreground)'` — a ternary missing its
+    // "else" — reads only the guarded side; `||`, `??` and `+` read both,
+    // since either side (or both, concatenated) can be the live value.
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+      classSiteTokens(node.right, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.PlusToken) {
+      classSiteTokens(node.left, file, ast, countedDefs, out, visitedCalls)
+      classSiteTokens(node.right, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    // A comparison, or any other operator (bitwise, arithmetic besides `+`)
+    // — none of these build a class list, comparison or not.
     return
   }
   if (ts.isArrayLiteralExpression(node)) {
     for (const element of node.elements) classSiteTokens(element, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // `clsx({ 'text-xs': c })`: a string-literal key is itself a class,
+  // whichever value decides whether it applies; every value is still walked,
+  // since a nested `clsx`/ternary/etc. inside one is legible the same way.
+  // An identifier key (`{ active: true }`) is not a string literal and is
+  // not yielded — most single-word identifiers are not meant as a class.
+  if (ts.isObjectLiteralExpression(node)) {
+    for (const property of node.properties) {
+      if (ts.isPropertyAssignment(property)) {
+        if (ts.isStringLiteral(property.name)) classSiteTokens(property.name, file, ast, countedDefs, out, visitedCalls)
+        else if (ts.isComputedPropertyName(property.name) && ts.isStringLiteral(property.name.expression)) {
+          classSiteTokens(property.name.expression, file, ast, countedDefs, out, visitedCalls)
+        }
+        classSiteTokens(property.initializer, file, ast, countedDefs, out, visitedCalls)
+      } else if (ts.isShorthandPropertyAssignment(property)) {
+        classSiteTokens(property.name, file, ast, countedDefs, out, visitedCalls)
+      } else if (ts.isSpreadAssignment(property)) {
+        classSiteTokens(property.expression, file, ast, countedDefs, out, visitedCalls)
+      }
+    }
     return
   }
   if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'join') {
@@ -2477,6 +2562,32 @@ const classSiteTokens = (node, file, ast, countedDefs, out, visitedCalls) => {
   if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
     if (visitedCalls.has(node)) return
     visitedCalls.add(node)
+    for (const argument of node.arguments) classSiteTokens(argument, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // A call to a local helper (`classFor(k)`) — its return expressions only,
+  // never the rest of its body, and counted once at the function's own
+  // declaration the same way a name is.
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && !CLASS_COMBINERS.has(node.expression.text)) {
+    const local = nearestDeclaration(node.expression, node.expression.text)
+    const fn = local?.nodes.find((value) => ts.isArrowFunction(value) || ts.isFunctionExpression(value))
+    if (fn) {
+      const key = `${file}::${local.pos}`
+      if (!countedDefs.has(key)) {
+        countedDefs.add(key)
+        for (const expression of returnExpressionsOf(fn)) classSiteTokens(expression, file, ast, countedDefs, out, visitedCalls)
+      }
+      return
+    }
+  }
+  // Any other call — `twMerge(...)`, `buttonVariants({ className })`,
+  // `String(x)`, `.filter(Boolean)` on the way to a `.join` this already
+  // understands — is opaque itself, but its arguments and (for a method
+  // call) the object it is called on are still read.
+  if (ts.isCallExpression(node)) {
+    if (ts.isPropertyAccessExpression(node.expression)) {
+      classSiteTokens(node.expression.expression, file, ast, countedDefs, out, visitedCalls)
+    }
     for (const argument of node.arguments) classSiteTokens(argument, file, ast, countedDefs, out, visitedCalls)
     return
   }
@@ -2508,9 +2619,13 @@ const classSiteTokens = (node, file, ast, countedDefs, out, visitedCalls) => {
     for (const value of resolved.nodes) classSiteTokens(value, resolved.file, resolved.ast, countedDefs, out, visitedCalls)
     return
   }
-  // Anything else — a comparison, an arrow function, a call this does not
-  // recognize — is not one of the shapes a class site is built from, and is
-  // not walked looking for one.
+  // Fallback: walk the children generically, the way the pre-round-3 walker
+  // always did, with one exception — a function-like node reached this way
+  // (a bare reference to a function that is never called, say) is not
+  // entered. The one other exception, a comparison, is already handled
+  // above and never reaches here.
+  if (ts.isFunctionLike(node)) return
+  ts.forEachChild(node, (child) => classSiteTokens(child, file, ast, countedDefs, out, visitedCalls))
 }
 
 /** Every class site's entries, `{ text, file }`, across a whole screen file. */
@@ -2669,14 +2784,15 @@ const styleObjectFindings = (object) => {
  * Appearance a screen draws with an inline `style` object instead of
  * composing it — the third spelling of the same boundary. A literal
  * `style={{ … }}` is legible this way, including through a `satisfies
- * CSSProperties` assertion, a `c ? {…} : {…}` conditional (both branches
- * read) and a `c && {…}` guard (its right side read the same way a
- * conditional's branch is); and so is `style={CONST}`, a same-file object
- * `const` resolved the nearest-scope way `classSiteTokens` resolves one. A
- * dynamic reference this cannot resolve — a prop, a parameter, anything not
- * a `const` in scope — is not counted, the same way a dynamic `className`
- * reference is not (`classNameIsStatic` in `ui-architecture.mjs` draws the
- * identical line for the same reason).
+ * CSSProperties` assertion, a `c ? {…} : {…}` conditional and a `s ?? {…}`
+ * fallback (both sides of either read) and a `c && {…}` guard (its right
+ * side read the same way a conditional's branch is); and so is `style={S}`,
+ * an object `const` resolved the same way a class site's name is — the
+ * nearest enclosing scope, or one or more hops through an import to the file
+ * that declares it. A dynamic reference this cannot resolve — a prop, a
+ * parameter, anything not a `const` reachable that way — is not counted,
+ * the same way a dynamic `className` reference is not (`classNameIsStatic`
+ * in `ui-architecture.mjs` draws the identical line for the same reason).
  */
 export const screenInlineStyleAppearanceOf = (file, source, ast) => {
   if (!isScreenTsx(file)) return []
@@ -2691,9 +2807,14 @@ export const screenInlineStyleAppearanceOf = (file, source, ast) => {
       stylesIn(resolved.right)
       return
     }
+    if (ts.isBinaryExpression(resolved) && resolved.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+      stylesIn(resolved.left)
+      stylesIn(resolved.right)
+      return
+    }
     if (ts.isIdentifier(resolved)) {
-      const local = nearestDeclaration(resolved, resolved.text)
-      if (local) for (const value of local.nodes) stylesIn(value)
+      const declaration = resolveClassConst(resolved, file, tree)
+      if (declaration) for (const value of declaration.nodes) stylesIn(value)
     }
   }
   const visit = (node) => {
