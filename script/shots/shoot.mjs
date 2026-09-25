@@ -1909,8 +1909,8 @@ rules:
       await sleep(1400)
     } },
 
-    /** The new-session dialog: Agents first, and the one that cannot be seated greyed with why. */
-    'new-session-agents': { leaveOverlay: true, expect: 'Windsurf is signed out', run: async () => {
+    /** The new-session dialog: four kinds, and the Agents under Session's "Run as". */
+    'new-session-agents': { leaveOverlay: true, expect: 'Run as', run: async () => {
       await openStorefront()
       // See the `flow` scene's own comment: scoped to the sidebar's action
       // row so a Goal an earlier scene staged, and its shorter-text "New job"
@@ -1919,7 +1919,7 @@ rules:
         throw new Error('no New session button in the sidebar')
       }
       await sleep(1200)
-      if (!(await cdp.eval(`document.body.innerText.includes('As an Agent')`))) throw new Error('the dialog lists no Agents')
+      if (!(await cdp.eval(`[...document.querySelectorAll('select option')].some((one) => one.textContent === 'Plain session')`))) throw new Error('the dialog offers no Run as')
     } },
 
     /** Command palette, through the sidebar's magnifier: an Agent to start as. */
