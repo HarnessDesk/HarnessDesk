@@ -104,7 +104,7 @@ import {
   Text,
   WireText,
 } from '../design'
-import { Dialog, ConfirmDialog } from '../design'
+import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
 import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
 import { ProfileFace } from './ProfileFace'
@@ -693,7 +693,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
         {rules === null ? (
           <Row title="Loading…" />
         ) : rules.length === 0 ? (
-          <Row title="No rules yet" desc="Every request reaches you." />
+          <EmptyState variant="row" title="No rules yet" description="Every request reaches you." />
         ) : (
           rules.map((rule) => (
             <Row
@@ -838,7 +838,7 @@ const PresetsRows = () => {
       <Note>A preset is a session’s model, effort and permissions saved under a name, for the composer to apply in one click.</Note>
       <Rows>
         {presets.length === 0 && (
-          <Row title="No presets yet" desc="Set a session up the way you like, then save it here." />
+          <EmptyState variant="row" title="No presets yet" description="Set a session up the way you like, then save it here." />
         )}
         {presets.map((preset) => (
           <Row
@@ -963,13 +963,14 @@ const ModelsSection = () => {
 
       <Rows>
         {total === 0 && (
-          <Row
+          <EmptyState
+            variant="row"
             title="No models yet"
-            desc={`${runtime.presentation.name} has not reported any. Refresh once it is signed in.`}
+            description={`${runtime.presentation.name} has not reported any. Refresh once it is signed in.`}
           />
         )}
         {total > 0 && listed.length === 0 && (
-          <Row title="No matches" desc={`Nothing ${runtime.presentation.name} offers matches “${query.trim()}”.`} />
+          <EmptyState variant="row" title="No matches" description={`Nothing ${runtime.presentation.name} offers matches “${query.trim()}”.`} />
         )}
         {listed.map((model) => (
           <Row

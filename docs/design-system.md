@@ -594,6 +594,30 @@ having written the judgement down.
 
 **Why** — Every chip costs the row some of its name. One that repeats the title or the control is paid for twice and says nothing.
 
+### `panel`
+
+**Use** — Nothing yet on a page, a pane or a dialog body that exists to hold it: centred icon, title, sentence and the ways to fill it. `tight` inside a card.
+
+**Not** — With its own ink action when the header above already has the primary. The empty state's action is then secondary — two ink buttons is two primaries, which is none.
+
+**Why** — The empty Goal board once had "New job" in its header and "Add the first job" under it, both black.
+
+### `inline`
+
+**Use** — Nothing in a list, a column or a pane that already says what it is: one muted line, no icon, no heading.
+
+**Not** — Under a node of a navigation tree. An empty node has no children and at most a count; only a whole list with nothing in it at all may carry one inline line.
+
+**Why** — A sentence under every empty Goal in the sidebar made the tree twice as tall and said the same thing four times.
+
+### `row`
+
+**Use** — Nothing in a `Rows` card: a row with the Row's own padding and hairline, its title a step quieter so it is never read as an item.
+
+**Not** — A hand-drawn `Row` titled "No … yet", or a bold title in a card of its own. Both were how the app came to have five empty layouts.
+
+**Why** — The card keeps its shape whether it holds nothing or twelve things, so the page does not jump when the first one arrives.
+
 ### The slots a gate holds
 
 `pnpm design:audit` fails on a variant that cannot appear in one of these, on one

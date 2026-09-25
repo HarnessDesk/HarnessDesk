@@ -39,7 +39,7 @@ import { anyBroken, inForce } from '../lib/agents'
 import { AccountHoverCard } from './AgentCards'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
-import { Clipped } from '../design'
+import { Clipped, EmptyState } from '../design'
 import type { Section } from './Settings'
 import { bindingLane, describeReport, isBlocked } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
@@ -262,15 +262,17 @@ export const Sidebar = ({
 
       <div className={`${styles.list} px-(--rail) pt-(--hd-space-0-5) pb-(--hd-space-3)`} ref={listRef} onScroll={onScroll}>
         {snapshot.history.length === 0 && !snapshot.historyLoading && (
-          <p className="hd-empty-line">
-            {ready
+          <EmptyState
+            variant="inline"
+            className="hd-empty-line"
+            title={ready
               ? `No sessions yet. Start one to see it here${
                   runtime.presentation.historySource
                     ? ` — sessions you run in ${runtime.presentation.historySource} show up too`
                     : ''
                 }.`
               : 'Connect a runtime to see your sessions.'}
-          </p>
+          />
         )}
         <SessionTree now={now} />
       </div>

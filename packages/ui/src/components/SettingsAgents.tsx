@@ -78,7 +78,7 @@ import {
   Text,
 } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
-import { Dialog, ConfirmDialog } from '../design'
+import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import styles from './SettingsAgents.module.css'
 
 /**
@@ -247,7 +247,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
         </Rows>
       ) : (
         <Rows>
-          <Row title="Nothing to read yet" desc={`${name} has not written any usage down on this Mac.`} />
+          <EmptyState variant="row" title="Nothing to read yet" description={`${name} has not written any usage down on this Mac.`} />
         </Rows>
       )}
     </>

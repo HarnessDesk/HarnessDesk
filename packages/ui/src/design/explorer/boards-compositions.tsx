@@ -155,7 +155,7 @@ import {
   WorkbenchRail,
   WorkbenchScrim,
 } from '../patterns/DockPanel'
-import { CodeText, Text } from '../patterns/Settings'
+import { CodeText, Rows, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
@@ -835,11 +835,35 @@ const EmptyBoard = () => (
           <EmptyState tight icon={<SearchIcon />} title="No sessions match" description="Try a shorter query." />
         </SectionBody>
       </Section>
+      <div className="flex flex-col gap-1">
+        <Text role="meta">inline — inside a list, a column or a pane</Text>
+        <div className="flex min-h-24 flex-col rounded-(--hd-radius-lg) bg-(--hd-muted) p-3">
+          <EmptyState variant="inline" className="mt-auto" title="Nothing here" />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Text role="meta">row — one row of a Rows card</Text>
+        <Rows>
+          <EmptyState variant="row" title="No presets yet" description="Set a session up the way you like, then save it here." />
+        </Rows>
+        <Rows>
+          <EmptyState
+            variant="row"
+            icon={<SearchIcon size={15} />}
+            title="Nothing here matches “retry”"
+            description="Search covers the name, the opening message and the folder."
+          />
+        </Rows>
+      </div>
     </div>
     <Rule>
       An empty state is a menu, not an apology: it takes the space the missing content would have
       occupied and spends it saying what could fill it. On a <code>ChoiceRow</code> the second line
       is always earned — the reader is choosing between options whose names cannot tell them apart.
+      Three shapes, one per place: <code>panel</code> owns a page or pane, <code>inline</code> is one
+      muted line in a list or column, <code>row</code> is a quiet row in a card. A navigation tree
+      never carries one under a node, and when the header already holds the primary action the empty
+      state&apos;s own action is secondary.
     </Rule>
   </>
 )

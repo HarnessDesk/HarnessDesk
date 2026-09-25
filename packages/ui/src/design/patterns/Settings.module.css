@@ -1162,3 +1162,19 @@
   width: 16px;
   color: var(--hd-accent);
 }
+
+/* An empty row is a sentence about the card, not one more item in it: its
+   title steps down a weight and an ink, and its note one more, so it never
+   reads as a row you could open. The padding and hairline stay the Row's. */
+.row[data-slot='empty-state'] .rowTitle {
+  font-weight: var(--hd-weight-normal);
+  color: var(--hd-secondary-foreground);
+}
+
+.row[data-slot='empty-state'] .rowDesc {
+  color: var(--hd-muted-foreground);
+}
+
+.row[data-slot='empty-state'] .rowMark {
+  color: var(--hd-muted-foreground);
+}
