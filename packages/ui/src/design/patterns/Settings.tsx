@@ -1,5 +1,5 @@
 import { Button } from '../ui/button'
-import { Children, createContext, createElement, isValidElement, useContext, useId, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
+import { Children, createContext, createElement, isValidElement, useContext, useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 
 import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
 
@@ -1337,6 +1337,88 @@ export const PageDescription = ({ children }: { children: ReactNode }) => (
 export const RowValue = ({ children, className, numeric = false }: { children: ReactNode; className?: string; numeric?: boolean }) => (
   <span className={cx(styles.rowFixed, numeric && 'tabular-nums', className)} {...(numeric ? { 'data-numeric': '' } : {})}>{children}</span>
 )
+
+/**
+ * A value typed into a settings row — a port, a count, a daily cap — as
+ * compact as the switch beside it, and applied the way the switch is.
+ *
+ * Settings pages never show a Save button: a switch applies as it is flipped,
+ * and this applies when the typing is done — on Enter, or when focus leaves
+ * the field for somewhere else in the window. Escape puts back what is stored
+ * (and only then lets Escape close the window around it), and says so with
+ * `onRestore`. Nothing is sent while the text still reads as stored, so
+ * tabbing through the page writes nothing.
+ *
+ * Leaving the window is not finishing: Cmd-Tab away mid-number blurs the
+ * field, and applying "1" of "10" there would be a guess. So a blur while the
+ * document has lost focus keeps the draft, and the next real blur or Enter
+ * applies it. A field that goes away mid-edit (the page closing) drops its
+ * draft rather than applying it on the way out: an unmount cannot show a
+ * refusal, and a write the person cannot see fail is worse than one they did
+ * not finish.
+ *
+ * The row owns the name (`aria-label` repeats the row's title for a reader),
+ * the field owns only the value, at the width of the value it holds: a
+ * five-digit port in a 715px field said the field was the subject of the page.
+ * A value the caller refuses stays in the field, marked `invalid`, with the
+ * caller's `Note` saying why, so the person can mend what they typed rather
+ * than type it again.
+ */
+export const RowInput = ({
+  value,
+  onCommit,
+  invalid = false,
+  width = 'number',
+  onRestore,
+  className,
+  ...props
+}: Omit<ComponentProps<typeof Input>, 'value' | 'defaultValue' | 'onChange' | 'onBlur' | 'onKeyDown' | 'aria-invalid'> & {
+  /** What is stored now. The field shows it again whenever it changes. */
+  value: string
+  /** The finished edit. Called only when it differs from `value`. */
+  onCommit: (next: string) => void
+  /** The caller refused the last commit; its `Note` says why (link it with `aria-describedby`). */
+  invalid?: boolean
+  /** Escape put the stored value back: the caller's refusal no longer applies. */
+  onRestore?: () => void
+  /** `number` for a port, a count or an amount; `text` for a short word. */
+  width?: 'number' | 'text'
+  'aria-label': string
+}) => {
+  const [draft, setDraft] = useState(value)
+  // What is stored moved (a commit landed, or another window wrote it): the
+  // field follows it rather than holding an edit of a value that is gone.
+  useEffect(() => setDraft(value), [value])
+  const commit = (): void => {
+    if (draft !== value) onCommit(draft)
+  }
+  return (
+    <Input
+      {...props}
+      data-slot="row-input"
+      value={draft}
+      {...(invalid ? { 'aria-invalid': true } : {})}
+      className={cx(width === 'number' ? 'w-24' : 'w-48', className)}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        // The window lost focus, not the field: keep the draft for later.
+        if (!document.hasFocus()) return
+        commit()
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          commit()
+        } else if (event.key === 'Escape' && (draft !== value || invalid)) {
+          event.preventDefault()
+          event.stopPropagation()
+          setDraft(value)
+          onRestore?.()
+        }
+      }}
+    />
+  )
+}
 
 export const RowMark = ({ children, className }: { children: ReactNode; className?: string }) => (
   <span className={cx(styles.rowMark, className)}>{children}</span>

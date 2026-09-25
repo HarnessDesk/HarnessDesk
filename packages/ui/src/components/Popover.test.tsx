@@ -2,7 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { Popover, dismissOverlays } from '../design'
+import { Popover, buttonVariants, dismissOverlays } from '../design'
 
 /**
  * The popover's contract, exercised through the DOM. Chiefly: a menu is not a
@@ -55,6 +55,34 @@ const click = (el: Element): void => {
 }
 
 describe('Popover', () => {
+  it('draws a trigger dressed as a button the way the button draws: its classes merged, so an outline keeps its edge', () => {
+    act(() => {
+      root.render(
+        <Popover label="Filter" title="Filter the list" triggerVariant={{ variant: 'outline' }}>
+          {() => null}
+        </Popover>,
+      )
+    })
+    const classes = trigger().className.split(/\s+/)
+    // The base's transparent border lost to the variant's colour, as in `Button`.
+    expect(classes).toContain('border-(--hd-btn-border)')
+    expect(classes).not.toContain('border-transparent')
+  })
+
+  it('passes a trigger class of its own through untouched, and hands the trigger to a caller that asks', () => {
+    let node: HTMLButtonElement | null = null
+    const own = buttonVariants({ variant: 'navigation', size: 'navigation' })
+    act(() => {
+      root.render(
+        <Popover label="Seat" title="Seat" triggerClassName={own} triggerRef={(one) => { node = one }}>
+          {() => null}
+        </Popover>,
+      )
+    })
+    expect(trigger().className).toBe(own)
+    expect(node).toBe(trigger())
+  })
+
   it('announces the popup role it opens and names that popup from the trigger', () => {
     render()
     click(trigger())

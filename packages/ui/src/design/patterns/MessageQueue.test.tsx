@@ -2,14 +2,13 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
+import { SortableHandle } from '../ui/sortable-list'
 import {
   MessageQueueActions,
   MessageQueueFrame,
-  MessageQueueGrip,
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,
-  MessageQueueTiming,
 } from './MessageQueue'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -32,10 +31,9 @@ it('owns the queued-message frame, rows and state marks', () => {
   act(() => root.render(
     <MessageQueueFrame paused>
       <MessageQueueHeader>Two messages waiting</MessageQueueHeader>
-      <MessageQueueList>
-        <MessageQueueRow sending dragging drop>
-          <MessageQueueGrip>grip</MessageQueueGrip>
-          <MessageQueueTiming tone="next">next</MessageQueueTiming>
+      <MessageQueueList announcement="Moved it to position 1 of 1">
+        <MessageQueueRow sending data-dragging="" data-drop="before">
+          <SortableHandle aria-label="Move it" />
           <MessageQueueActions><button>Remove</button></MessageQueueActions>
         </MessageQueueRow>
       </MessageQueueList>
@@ -43,14 +41,17 @@ it('owns the queued-message frame, rows and state marks', () => {
   ))
 
   expect(container.querySelector('[data-slot="message-queue"]')?.hasAttribute('data-paused')).toBe(true)
+  // Its head is a toolbar, and its list an ordered list of sortable rows.
   expect(container.querySelector('[data-slot="message-queue-header"]')?.textContent).toBe('Two messages waiting')
+  expect(container.querySelector('[data-slot="message-queue-header"]')?.className).toContain('flex-nowrap')
+  // The rows are the sortable list's: the queue draws only its inset and hover.
   expect(container.querySelector('[data-slot="message-queue-list"]')?.tagName).toBe('OL')
-  const row = container.querySelector('[data-slot="message-queue-row"]')
+  expect(container.querySelector('[data-slot="sortable-announcer"]')?.textContent).toBe('Moved it to position 1 of 1')
+  const row = container.querySelector('[data-slot="sortable-row"]')
   expect(row?.tagName).toBe('LI')
   expect(row?.hasAttribute('data-sending')).toBe(true)
   expect(row?.hasAttribute('data-dragging')).toBe(true)
   expect(row?.hasAttribute('data-drop')).toBe(true)
-  expect(container.querySelector('[data-slot="message-queue-grip"]')).not.toBeNull()
-  expect(container.querySelector('[data-slot="message-queue-timing"]')?.getAttribute('data-tone')).toBe('next')
+  expect(container.querySelector('[data-slot="sortable-handle"]')?.tagName).toBe('BUTTON')
   expect(container.querySelector('[data-slot="message-queue-actions"] button')?.textContent).toBe('Remove')
 })

@@ -21,7 +21,7 @@
  *   table. They answer "what is a button here", and a screen that needed a
  *   different one would be wrong.
  *
- *   COMPOSITIONS are ours: Bar, Stat, Section, ListRow, Board, EmptyState, Field,
+ *   COMPOSITIONS are ours: Bar, Stat, Section, ListRow, the sortable item, Board, EmptyState, Field,
  *   Delta, IconTile, AvatarStack, KeyValue and SummaryList, GroupLabel,
  *   Progress, Stepper, Sparkline, and the chart kit. They answer the question one step up — "what does a figure
  *   on a dashboard look like", "what does a titled region of a page look
@@ -120,6 +120,7 @@ export * from './scroll-area'
 export * from './section'
 export * from './select'
 export * from './separator'
+export * from './sortable-list'
 export * from './spark'
 export * from './stat'
 export * from './stepper'

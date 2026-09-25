@@ -182,6 +182,22 @@ export const ELEMENTS: readonly UsageRule[] = [
       'A form is scanned by its labels. When every label is the same distance from its control and every field the same distance from the next, the eye stops measuring and reads; the "toy dialog" was one where each of those distances was a different accident.',
   },
   {
+    family: 'form',
+    variant: 'Row · RowInput · Switch',
+    when: 'Settings pages never show a Save button; values apply as you change them. A switch applies as it is flipped; a typed value is a `RowInput` in the row\'s control slot — as wide as the value it holds — and applies on Enter or when the field is left. A value the host refuses stays in its field, marked, with a `Note` under the card saying why.',
+    never: 'A page `Field` stretched across the column with a Save button under it, or any button in a `FormStack` stretched to the column: the stack lets a button keep its own width.',
+    because:
+      'Settings › Workspaces once held two 715px number inputs and a 715px black Save bar under three switches that applied instantly — the heaviest object on any Settings page, for a five-digit port, and a page with two rules for when a change takes effect.',
+  },
+  {
+    family: 'order',
+    variant: 'useSortable · sortableItemClass · SortableHandle',
+    when: 'Items whose order the person sets — a queue, seats, tabs. Order is shown by position; an item moves by a drag from the handle that appears on hover (a tab is its own handle), by ⌥↑/⌥↓ from anywhere in it but a text field, or by Space on its handle to pick it up and the arrows to carry it; the line shows where it will land, and every move is announced once the owner of the order has answered. Removal is the row\'s own `⋯` menu or hover ×. Every item draws its move with `sortableItemClass`.',
+    never: '"Move up" / "Move down" buttons on each row — three controls a row to say what its place already says — or a list that reorders itself before the owner of the order has answered.',
+    because:
+      'Reordering is silent by nature and the order often belongs to the host: one part that asks, waits for the answer, then says where the row went keeps the keyboard, the drag and a reader on the same list.',
+  },
+  {
     family: 'surface',
     variant: '--hd-surface-*',
     when: 'A dialog, a command palette, a sheet — something that takes the window.',

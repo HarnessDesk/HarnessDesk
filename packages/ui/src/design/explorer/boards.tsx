@@ -2,7 +2,7 @@ import { useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, GripIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -73,11 +73,9 @@ import {
   Monogram,
   MessageQueueActions,
   MessageQueueFrame,
-  MessageQueueGrip,
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,
-  MessageQueueTiming,
   NavigationGroupHeader,
   Note,
   NoteList,
@@ -97,6 +95,8 @@ import {
   ToggleGroup,
   ToggleGroupItem,
   stateTone,
+  SortableHandle,
+  useSortable,
 } from '..'
 import styles from './explorer.module.css'
 
@@ -656,6 +656,36 @@ const BannerBoard = () => (
   </>
 )
 
+/**
+ * The queue's rows are a sortable list: drag from the handle, or ⌥↑/⌥↓ from
+ * a row, and the move is announced. This owner answers at once; the app's
+ * queue answers when the host does.
+ */
+const QueueRows = () => {
+  const [ids, setIds] = useState(['Run the focused tests again', 'Then write the release note', 'Open a pull request'])
+  const sortable = useSortable({
+    ids,
+    name: (id) => `“${id}”`,
+    onMove: (id, to) => setIds((was) => {
+      const rest = was.filter((one) => one !== id)
+      return [...rest.slice(0, to), id, ...rest.slice(to)]
+    }),
+  })
+  return (
+    <MessageQueueList announcement={sortable.announcement} aria-label="Waiting messages" data-catalog-case="sortable-list">
+      {ids.map((id, index) => (
+        <MessageQueueRow key={id} {...sortable.row(id, index)}>
+          <SortableHandle {...sortable.handle(id)} />
+          <Text role="meta">{index + 1}</Text>
+          <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
+          {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
+          <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
+        </MessageQueueRow>
+      ))}
+    </MessageQueueList>
+  )
+}
+
 const QueueBoard = () => (
   <>
     <div className={styles.stack}>
@@ -665,15 +695,7 @@ const QueueBoard = () => (
           <Text role="meta" ink="primary" className="flex-1">The turn did not finish. Two messages waiting.</Text>
           <Button variant="quiet" size="sm">Send now</Button>
         </MessageQueueHeader>
-        <MessageQueueList>
-          <MessageQueueRow>
-            <MessageQueueGrip><GripIcon size={12} /></MessageQueueGrip>
-            <Text role="meta">1</Text>
-            <Text role="navigation" className="min-w-0 flex-1 truncate">Run the focused tests again</Text>
-            <MessageQueueTiming tone="next">next</MessageQueueTiming>
-            <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
-          </MessageQueueRow>
-        </MessageQueueList>
+        <QueueRows />
       </MessageQueueFrame>
       <PopoverSurface limit="trigger">
         <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
