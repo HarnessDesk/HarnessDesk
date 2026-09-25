@@ -176,8 +176,6 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-control-h` | `<cycle>` |
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
-| `--hd-history-action-h` | `34px` |
-| `--hd-history-filter-min-h` | `36px` |
 | `--hd-history-detail-min-h` | `160px` |
 | `--hd-field-h` | `30px` |
 | `--hd-control-h-lg` | `<cycle>` |
@@ -850,7 +848,8 @@ footer in the app; every other answer is quiet, and its number still works.
 
 A board event — claimed, completed, released. The spine the messages hang
 off: one line, quiet, never a slab, because thirty of them is a normal
-afternoon and they are read as a sequence rather than one at a time.
+afternoon and they are read as a sequence rather than one at a time. The
+transcript's light register, like a step inside a turn's work.
 
 ### `ChannelNotice`
 
@@ -858,7 +857,7 @@ afternoon and they are read as a sequence rather than one at a time.
 
 A row about a member rather than from one: its turn ended without an answer.
 
-Shaped like a signal — the same rail, the same aside voice — because it is
+Shaped like a signal — the same spine, the same aside voice — because it is
 the room narrating rather than somebody speaking. It carries a chip, though,
 because the difference between "still reading" and "ran out of its window
 forty minutes ago" is the whole reason the row exists, and a grey sentence
@@ -1010,6 +1009,9 @@ rows carry a second line and take a wider gutter and longer steps.
 
 `corner` puts the head below the band the native window buttons sit in,
 for a rail that owns the window's top-left corner with no bar of its own.
+`ruled` is for a head that sits directly under a bar's rule — a pane's
+own rail, under the pane's header — and opens with the same short step it
+closes with, so its first row's ground never meets the line.
 
 ### `WorkbenchScrim`
 
@@ -1281,6 +1283,15 @@ The text on it is the forge's own. The card shows the pull request's title
 and the opening of its description exactly as GitHub holds them, which is
 how the signature at the end of a short description appears here — as part
 of the text, not as a claim the desk makes about it.
+
+### `Dot`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A state as a light. `presence` is a member's light on the corner of its
+tile — place the dot inside the tile's own positioned wrapper — ringed in
+the `ground` the tile stands on, so it reads as cut out of the tile rather
+than stuck on it.
 
 ### `Spinner`
 
@@ -1637,8 +1648,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 656 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
-| `singleAreaPrimitive` | 50 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
+| `screenAppearance` | 410 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
+| `singleAreaPrimitive` | 46 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
