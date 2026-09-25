@@ -31,19 +31,43 @@ export type ToolResultReading =
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** One block of a content array, in the shape a top-level text/image result already draws. */
-const blockOf = (value: unknown): ToolResultBlock | null => {
+/**
+ * The mark the ACP adapter leaves where it lifted an image's bytes out of a
+ * raw result (`withoutImageBytes`): the picture is already drawn as its own
+ * image part beside this copy, so the block says nothing more here.
+ */
+const LIFTED = '(shown below)'
+
+/** A base64 image as the data URL a result image draws. */
+const dataUrl = (mimeType: unknown, data: unknown): string | null =>
+  typeof mimeType === 'string' && typeof data === 'string' && data !== LIFTED ? `data:${mimeType};base64,${data}` : null
+
+/**
+ * One block of a content array, in the shape a top-level text/image result
+ * already draws; `'drawn'` for an image the adapter already drew beside it.
+ * An image arrives three ways: by URL, as MCP's `{data, mimeType}`, or as the
+ * model API's `{source: {type: "base64", media_type, data}}`.
+ */
+const blockOf = (value: unknown): ToolResultBlock | 'drawn' | null => {
   if (!isRecord(value)) return null
   if (value['type'] === 'text' && typeof value['text'] === 'string') {
     return { type: 'text', text: value['text'] }
   }
-  if (value['type'] === 'image' && typeof value['url'] === 'string') {
+  if (value['type'] !== 'image') return null
+  if (value['data'] === LIFTED) return 'drawn'
+  if (typeof value['url'] === 'string') {
     const mimeType = value['mimeType']
     return typeof mimeType === 'string'
       ? { type: 'image', url: value['url'], mimeType }
       : { type: 'image', url: value['url'] }
   }
-  return null
+  const source = value['source']
+  const fromMcp = dataUrl(value['mimeType'], value['data'])
+  const fromSource = isRecord(source) && source['type'] === 'base64' ? dataUrl(source['media_type'], source['data']) : null
+  const url = fromMcp ?? fromSource
+  if (url === null) return null
+  const mimeType = (fromMcp ? value['mimeType'] : isRecord(source) ? source['media_type'] : undefined) as string
+  return { type: 'image', url, mimeType }
 }
 
 /**
@@ -62,7 +86,8 @@ const blocksOf = (value: unknown): readonly ToolResultBlock[] | null => {
       : null
   if (!array || array.length === 0) return null
   const blocks = array.map(blockOf)
-  return blocks.every((block): block is ToolResultBlock => block !== null) ? blocks : null
+  if (!blocks.every((block) => block !== null)) return null
+  return blocks.filter((block): block is ToolResultBlock => block !== 'drawn')
 }
 
 /**

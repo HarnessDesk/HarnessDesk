@@ -1,4 +1,5 @@
 import {
+  Fragment,
   createContext,
   useContext,
   useLayoutEffect,
@@ -979,7 +980,7 @@ const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
     // an MCP content array rather than the plain value the call produced.
     // Unwrapped, its blocks draw exactly as a top-level result would; still
     // wrapped, a person sees the array's own `"type": "text"` punctuation.
-    return <>{reading.blocks.map((block, index) => resultPartView(block, `${key}-${index}`))}</>
+    return <Fragment key={key}>{reading.blocks.map((block, index) => resultPartView(block, `${key}-${index}`))}</Fragment>
   }
   if (reading.kind === 'command') {
     // A command's own record (Antigravity's shell tool, among others) draws

@@ -23,6 +23,29 @@ describe('readToolResult', () => {
     })
   })
 
+  it('skips an image the adapter already drew beside the result, keeping the rest', () => {
+    expect(readToolResult([{ type: 'image', data: '(shown below)' }])).toEqual({ kind: 'blocks', blocks: [] })
+    expect(readToolResult([{ type: 'text', text: 'Saved.' }, { type: 'image', data: '(shown below)' }])).toEqual({
+      kind: 'blocks',
+      blocks: [{ type: 'text', text: 'Saved.' }],
+    })
+  })
+
+  it('reads a base64 image in either the MCP or the model API shape as a data URL', () => {
+    expect(readToolResult([{ type: 'image', data: 'AAAA', mimeType: 'image/png' }])).toEqual({
+      kind: 'blocks',
+      blocks: [{ type: 'image', url: 'data:image/png;base64,AAAA', mimeType: 'image/png' }],
+    })
+    expect(readToolResult([{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'BBBB' } }])).toEqual({
+      kind: 'blocks',
+      blocks: [{ type: 'image', url: 'data:image/jpeg;base64,BBBB', mimeType: 'image/jpeg' }],
+    })
+  })
+
+  it('falls back to json for an image block with nothing to draw', () => {
+    expect(readToolResult([{ type: 'image' }])).toEqual({ kind: 'json' })
+  })
+
   it('reads a mixed text-and-image content array', () => {
     const reading = readToolResult([
       { type: 'text', text: 'here is a screenshot' },
