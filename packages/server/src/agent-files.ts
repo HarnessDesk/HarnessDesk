@@ -1,10 +1,9 @@
-import { randomUUID } from 'node:crypto'
 import { constants, type Stats } from 'node:fs'
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
-import { digestOf, isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
+import { isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
 import type { CeilingLevel, FlowSeat } from '@harnessdesk/protocol'
 
 import {
@@ -943,61 +942,3 @@ export const projectAgentFolder = async (project: string, id: string): Promise<s
 export const userAgentFolder = async (root: string, id: string): Promise<string> =>
   agentFolderAt(await realpath(root), [id])
 
-/** Read an update target directly, with no top-level link following. */
-const rewriteSource = async (path: string): Promise<string> => {
-  let handle
-  try {
-    handle = await openNoFollow(path, constants.O_RDONLY | constants.O_NONBLOCK)
-  } catch (error) {
-    if (errnoOf(error) === 'ELOOP') throw new Error(`${path} was replaced before it could be read, so nothing was written.`)
-    throw error
-  }
-  try {
-    const info = await handle.stat()
-    if (!info.isFile()) throw new Error(`${path} is not a regular Agent file.`)
-    const bytes = await readAtMost(handle, AGENT_FILE_LIMIT)
-    if (bytes === null) throw new Error(`${path} is too large to update: an Agent file is read whole or not at all.`)
-    return bytes.toString('utf8')
-  } finally {
-    await handle.close()
-  }
-}
-
-/** Atomically rewrite one digest-bound Agent file without following a link. */
-export const rewriteAgentFile = async (
-  folder: string,
-  digest: string,
-  change: (source: string) => string,
-): Promise<void> => {
-  const path = join(folder, 'AGENT.md')
-  const folderBefore = await lstat(folder)
-  const source = await rewriteSource(path)
-  if (digestOf(source) !== digest) {
-    throw new Error(`${path} has changed since the update was shown to you. Open Update… again to see what it would change now.`)
-  }
-  const next = change(source)
-  const fileBefore = await lstat(path)
-  const temporary = join(folder, `.AGENT.md.${randomUUID().slice(0, 8)}.tmp`)
-  let temporaryHandle
-  try {
-    temporaryHandle = await openNoFollow(
-      temporary,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
-      fileBefore.mode & 0o777,
-    )
-    await temporaryHandle.writeFile(next, 'utf8')
-  } finally {
-    await temporaryHandle?.close()
-  }
-  try {
-    const folderNow = await lstat(folder)
-    const fileNow = await lstat(path)
-    if (!sameIdentity(identityOf(folderBefore), folderNow) || !sameIdentity(identityOf(fileBefore), fileNow)) {
-      throw new Error(`${path} was replaced while it was being updated, so nothing was written.`)
-    }
-    await rename(temporary, path)
-  } catch (error) {
-    await unlink(temporary).catch(() => undefined)
-    throw error
-  }
-}

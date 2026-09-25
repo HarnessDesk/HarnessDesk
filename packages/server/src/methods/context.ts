@@ -64,6 +64,7 @@ import type { Logger } from '../log.js'
 import type { SessionNames } from '../names.js'
 import type { SeatedAs, SessionRecord, SessionRegistry } from '../registry.js'
 import type { StateStore } from '../state.js'
+import type { AuthoringPlane } from '../authoring/plane.js'
 import type { FlowPreviews } from '../flow-preview.js'
 import type { FlowUpdates } from '../flow-update.js'
 import type { Flows } from '../flows.js'
@@ -114,6 +115,19 @@ export interface HostContext {
   readonly flowPreviews: FlowPreviews
   /** Previewed, journaled conversion of a legacy flow to the Agent format, or a customization into the project. */
   readonly flowUpdates: FlowUpdates
+  /**
+   * Authoring saves: an Agent, a flow or a project's triggers, previewed
+   * whole and written in one journaled transaction on the queue flow updates
+   * share. Narrowed to the verbs the wire has.
+   */
+  readonly authoring: Pick<
+    AuthoringPlane,
+    'read' | 'patch' | 'preview' | 'apply' | 'pending' | 'resume' | 'discard' | 'renderShape' | 'triggerDraft' | 'renderTriggers' | 'rewriteAgent'
+  >
+  /** A front-door start's dry run: its context resolved on the host, its token strict and bound to that target. */
+  readonly frontDoor: {
+    preview(input: import('@harnessdesk/protocol').FrontDoorPreviewInput): Promise<import('@harnessdesk/protocol').FrontDoorPreview>
+  }
   readonly goals: GoalPlane
   readonly lanes: import('../goals/lanes.js').LaneAllocator
   readonly laneSettings: {

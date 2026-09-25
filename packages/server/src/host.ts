@@ -94,7 +94,9 @@ import { FlowCatalog } from './flow-catalog.js'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
-import { FlowUpdates } from './flow-update.js'
+import { FlowUpdates, TreeQueue } from './flow-update.js'
+import { AuthoringPlane } from './authoring/plane.js'
+import { factsKey, hostContextPort, previewStart, resolveContext, type ContextPort } from './authoring/start.js'
 import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
 import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
@@ -126,7 +128,7 @@ import { ProvenancePlane } from './provenance/plane.js'
 import { AttachmentsPlane, receiptFrom, type AttachmentSubject as PlaneAttachmentSubject, type ReopenedSeat } from './attachments/plane.js'
 import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
 import { resolveAttachmentDeclarations } from './attachments/catalog.js'
-import type { GhInCheckout } from './evidence/forge.js'
+import { ghInCheckout, type GhInCheckout } from './evidence/forge.js'
 import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
 import { SEEN_FILE } from './evidence/seen.js'
@@ -157,7 +159,7 @@ import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './te
 import { TranscriptStore } from './transcripts.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
-import { NO_WAITS, type HostWaits } from './intake/waits.js'
+import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
 import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
@@ -572,6 +574,11 @@ export class Host {
   readonly #flows: Flows
   readonly #flowPreviews: FlowPreviews
   readonly #flowUpdates: FlowUpdates
+  /** The one queue of configuration writes per tree: flow updates and authoring saves take it alike. */
+  readonly #configQueue = new TreeQueue()
+  readonly #authoring: AuthoringPlane
+  /** Git and the forge as a front-door start reads them: argument vectors, bounded, in a confined project. */
+  readonly #frontDoorContext: ContextPort
   /**
    * The Agent roster: this machine's under the state directory, the built-in
    * ones beside this package, and a project's own under whichever open folder a
@@ -739,7 +746,8 @@ export class Host {
       available: availablePorts,
       create: async (id, goal) => {
         const document = this.#goalStore.read(goal)
-        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}` })
+        // A Goal pinned to a commit cuts every lane from that commit, never from whatever the project has checked out.
+        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}`, ...(document.goal.at ? { base: document.goal.at } : {}) })
         if (!checkout.branch) throw new Error('The lane checkout has no branch. Its reservation was kept.')
         return { cwd: checkout.path, branch: checkout.branch }
       },
@@ -1069,9 +1077,17 @@ export class Host {
       },
       release: (goal, seat) => this.#goals.release(goal, seat as SeatId),
       canDispatch: (goal) => this.#goals.canDispatch(goal),
-      createGoal: async (input) => (await this.#goals.create(input)).goal,
+      createGoal: async (input) => {
+        const { at, ...goal } = input
+        return (await this.#goals.create(goal, at ? { at } : {})).goal
+      },
+      // A front-door run's empty Goal, reserved in the Goal queue against the revision its preview saw.
+      reserveGoal: async (input) => { await this.#goals.reserveEmptyFlowGoal(input) },
+      // Let go of again by the run that holds it, when that run ended before its first round.
+      releaseGoal: (input) => this.#goals.releaseFlowReservation(input),
+      // A Goal this run made, or an existing one reserved for it: how an interrupted start is found rather than repeated.
       goalsOf: (run) => this.#goalStore.list()
-        .filter((document) => document.goal.origin.kind === 'flow' && document.goal.origin.run === run)
+        .filter((document) => (document.goal.origin.kind === 'flow' && document.goal.origin.run === run) || document.flowReservation?.run === run)
         .map((document) => document.goal.id),
       seatOf: (id) => this.#evidence.seats.byId(id as SeatId),
       seatsOn: (goal) => this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored),
@@ -1202,6 +1218,12 @@ export class Host {
      * findings ledger, and the MCP gateway's admission reads the blind-round
      * embargo as a snapshot (`embargoOf`), taking no queue.
      *
+     * Configuration writes take one more leaf: the tree queue (`TreeQueue`,
+     * one per canonical project or the desk's own folder), shared by flow
+     * updates and authoring saves. A save holds it across its journal and
+     * its confined writes and asks for nothing else; nothing that holds a
+     * run, Team, Goal or Intake queue ever waits on it.
+     *
      * A run seating a card holds run → Goal; a wrap preview holds Goal and
      * reads runs only as snapshots: no cycle. `findings-publication.test.ts`
      * and `goal-wrap.test.ts` hold both sides at once.
@@ -1221,6 +1243,7 @@ export class Host {
         subjects: (goal, round) => this.#flows.subjectsOf(goal, round),
         recordClose: (run, round, next) => this.#flows.recordRoundClose(run, round, next),
         blindRounds: (goal) => this.#flows.blindRounds(goal),
+        embargoedRounds: (goal) => this.#flows.embargoedRounds(goal),
         facts: async (goal) => {
           const state = this.#goalState(goal)
           return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
@@ -1323,6 +1346,11 @@ export class Host {
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
       storedRun: async (run) => this.#flows.storedRun(run),
+      // A front-door token's target, read again from git and the forge at Start: never the facts the preview saw.
+      resolveTarget: async (context) => {
+        await this.#confineRoom(context.root)
+        return factsKey(await resolveContext(this.#frontDoorContext, context))
+      },
       now: () => Date.now(),
     })
     // The catalogue a trigger's closure resolves its flow through: the same layers and rules as a person's.
@@ -1338,6 +1366,26 @@ export class Host {
         builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
         confine: (root) => this.#confineRoom(root),
       }),
+      queue: this.#configQueue,
+    })
+    // The same `gh` the evidence plane reads pull requests with, so a rig's fake forge answers both.
+    const gh = options.evidence?.gh ?? ghInCheckout
+    this.#frontDoorContext = hostContextPort((args, cwd) => gh(args, cwd))
+    /* This person's Agents and flows are `agents/` and `flows/` in the state
+       folder — the same roots the roster and the catalogue above read — so a
+       save lands exactly where the next listing looks. */
+    this.#authoring = new AuthoringPlane({
+      home: this.#state.directory,
+      journal: join(this.#state.directory, 'authoring'),
+      builtinAgents: options.builtinAgents ?? builtinAgentRoot(),
+      builtinFlows: options.builtinFlows ?? builtinFlowRoot(),
+      confine: (root) => this.#confineRoom(root),
+      agents: (root) => this.#agents.list(root),
+      queue: this.#configQueue,
+      // A save is told to every window directly; nothing waits for a file watch to notice it.
+      changed: (change) => {
+        if (change.agents) this.#push({ method: 'agent/changed', params: { project: change.scope === 'project' ? change.root : null } })
+      },
     })
     const goalPort = {
       seats: {
@@ -1451,6 +1499,7 @@ export class Host {
           role: null,
           ...(input.grant === undefined ? {} : { grant: input.grant }),
           ...(policy.unattended ? { unattended: true } : {}),
+          ...(policy.requireHeld ? { requireHeld: true as const } : {}),
         })).record
       },
       openLegacySeat: async (input, goal) => {
@@ -2040,6 +2089,8 @@ export class Host {
     this.#attachmentAbort.abort()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
+    // No save preview survives the host: an apply from here on refuses, and one in flight finishes on its queue.
+    this.#authoring.close()
     /* Triggers stop first: no new admission, no poll, no budget sweep and no
        meter read from here on; what is in flight is abandoned with its cursor
        kept, and awaited below before the runs and the Goals are flushed. */
@@ -2775,7 +2826,7 @@ export class Host {
       return NO_WAITS
     }
     const actor = (one: TeamActor | null | undefined): string =>
-      !one ? 'someone' : one.kind === 'user' ? 'you' : one.title || this.#conversationName(one.runtime, one.sessionId)
+      actorWords(one, (runtime, sessionId) => this.#conversationName(runtime, sessionId))
     const messages = board.channel.flatMap((entry) => entry.kind === 'message' && entry.state === 'held'
       ? [{ id: entry.id, from: actor(entry.from), to: entry.to ? (entry.to.nickname ?? entry.to.title) : 'everyone', reason: entry.reason ?? null }]
       : [])
@@ -2835,6 +2886,23 @@ export class Host {
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
       flowUpdates: this.#flowUpdates,
+      authoring: this.#authoring,
+      frontDoor: {
+        preview: (input) => previewStart({
+          confine: (root) => this.#confineRoom(root),
+          context: this.#frontDoorContext,
+          previews: this.#flowPreviews,
+          goal: (id) => this.#goals.view(id),
+          canDispatch: (id) => this.#goals.canDispatch(id),
+          reserved: (id) => {
+            try {
+              return this.#goalStore.read(id).flowReservation !== undefined
+            } catch {
+              return true
+            }
+          },
+        }, input),
+      },
       goals: this.#goals,
       lanes: this.#lanes,
       laneSettings: {

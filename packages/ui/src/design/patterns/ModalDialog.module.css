@@ -49,6 +49,32 @@
   min-width: 0;
 }
 
+/* A head with lines under its name holds to their top: the mark and the way
+   out stay level with the name, not with the middle of a paragraph. */
+.header[data-lines] {
+  align-items: flex-start;
+}
+
+.heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
+.titleLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.titleText {
+  min-width: 0;
+}
+
 /* Under the header, above the body, and outside the scroll — so a breadcrumb
    still says where you are after you have scrolled the list below it. */
 .subhead {
@@ -82,9 +108,10 @@
 
 /* The body's stack spaces its paragraphs, so a screen never reaches for a
    `.blurb` class to say "the sentence under the title" — that is just the
-   body. A flush body is a list, and a paragraph in one keeps its own step. */
-.body > p {
-  margin: 0; /* desk: 0 0 12 → 0, the body's stack spaces its paragraphs */
+   body. A flush body is a list, and a paragraph in one keeps its own step;
+   so is a reading body, which is a document and not a stack. */
+.body[data-layout='form'] > p {
+  margin: 0; /* desk: .body > p → .body[data-layout='form'] > p, only a form body's stack spaces its paragraphs */
 }
 
 .flush > p {

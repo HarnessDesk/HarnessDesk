@@ -1,5 +1,6 @@
 import {
   effortWord,
+  isCeilingLevel,
   type AgentEntry,
   type AgentOrigin,
   type CeilingLevel,
@@ -237,8 +238,20 @@ export const reasonWords = (reason: SeatReason, runtime: string, modelLabel?: Mo
       return `${runtime} could not open a conversation: ${reason.detail}`
     case 'openedOtherwise':
       return `${runtime} opened it ${reason.differences.map((one) => differenceWords(one, modelLabel)).join(', and ')}`
-    case 'unheld':
-      return `${runtime} cannot hold ${LEVEL_WORD[reason.level].toLowerCase()}${reason.detail ? `: ${reason.detail}` : ''}, and this Mac refuses a seat whose ceiling is only asked`
+    case 'unheld': {
+      // `isCeilingLevel` first: a level this file does not recognize is
+      // shown as written rather than thrown on indexing `LEVEL_WORD`.
+      const level = isCeilingLevel(reason.level) ? LEVEL_WORD[reason.level].toLowerCase() : reason.level
+      const detail = reason.detail ? `: ${reason.detail}` : ''
+      // `required` is a front-door start's own need — every Seat holds its
+      // ceiling, whatever this Mac's setting says. The runtime is running;
+      // it simply does not hold this level, or read back holding a different
+      // one — never "this Mac refuses…", the setting's own words, which is
+      // not what is happening here.
+      return reason.required
+        ? `${runtime} cannot hold ${level}${detail}, and a start from here needs every Seat to hold its ceiling`
+        : `${runtime} cannot hold ${level}${detail}, and this Mac refuses a seat whose ceiling is only asked`
+    }
   }
 }
 
@@ -327,6 +340,12 @@ const asReason = (value: unknown): SeatReason | null => {
       return typeof (raw as { effort?: unknown }).effort === 'string' ? (raw as SeatReason) : null
     case 'openedOtherwise':
       return Array.isArray((raw as { differences?: unknown }).differences) ? (raw as SeatReason) : null
+    case 'unheld': {
+      const detail = (raw as { detail?: unknown }).detail
+      return typeof (raw as { level?: unknown }).level === 'string' && (detail === null || typeof detail === 'string')
+        ? (raw as SeatReason)
+        : null
+    }
     default:
       return null
   }

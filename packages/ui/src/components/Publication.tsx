@@ -1,9 +1,13 @@
+import { useState } from 'react'
+
 import type { PublicationItem } from '@harnessdesk/protocol'
 
 import { openExternal } from '../lib/desktop'
+import { useStore } from '../state/context'
 import { AgentHoverCard } from './AgentCards'
 import { GitHubMark } from './BrandIcons'
 import { Button, CodeText, KindGlyph, PublicationCard, StatePill, Text, publicationVerb } from '../design'
+import { FrontDoor } from './FrontDoor'
 import styles from './Publication.module.css'
 
 /**
@@ -15,10 +19,21 @@ import styles from './Publication.module.css'
  * chip is the object: hovering opens the card with the forge's own text on
  * it, pressing opens the page. The signature is not repeated here; it is in
  * the description, and the card shows the description.
+ *
+ * A pull-request reference is also a host-known start: `root` (this row's
+ * project) plus the forge's own number is enough for the front door to
+ * resolve the exact PR, no checkout and no retyping. An ordinary adjacent
+ * button, not a second interactive thing inside the chip's own link — a
+ * review or comment reference is a record of what already happened, not a
+ * fresh start, so only `pullRequest` offers it, and only once this row knows
+ * which project it belongs to.
  */
-export const Publication = ({ item }: { item: PublicationItem }) => {
+export const Publication = ({ item, root }: { item: PublicationItem; root?: string }) => {
+  const store = useStore()
+  const [reviewing, setReviewing] = useState(false)
   const { reference } = item
   const address = `${reference.repo} #${reference.number}`
+  const canReview = root !== undefined && reference.kind === 'pullRequest'
   return (
     <div className={styles.publication} data-kind={reference.kind} role="status">
       <Text role="meta" className={styles.publicationIcon}>
@@ -46,6 +61,26 @@ export const Publication = ({ item }: { item: PublicationItem }) => {
         </Button>
       </AgentHoverCard>
       <StatePill state={reference.state} />
+      {canReview && (
+        <Button
+          variant="quiet"
+          size="chip"
+          title="Choose a shape and start a team reviewing this pull request."
+          onClick={() => setReviewing(true)}
+        >
+          Review…
+        </Button>
+      )}
+      {reviewing && root !== undefined && (
+        <FrontDoor
+          context={{ kind: 'pull-request', root, number: reference.number }}
+          onClose={() => setReviewing(false)}
+          onStarted={(execution) => {
+            store.openGoal(execution.goal)
+            setReviewing(false)
+          }}
+        />
+      )}
     </div>
   )
 }

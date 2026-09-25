@@ -1,4 +1,5 @@
 import {
+  AGAIN_TITLE,
   DEFAULT_FLOW_BUDGET,
   DEFAULT_TRIGGER_BUDGET,
   TRIGGER_DEFAULTS,
@@ -18,6 +19,8 @@ import {
   type TriggerProblem,
   type TriggerSource,
 } from '@harnessdesk/protocol'
+
+export { AGAIN_TITLE }
 
 import { parseYaml, YamlError } from '../yaml.js'
 import { SCHEDULE_MINUTES_MAX } from './keys.js'
@@ -54,9 +57,6 @@ export const TRIGGER_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const ENTRY_KEYS = new Set(['id', 'on', 'events', 'label', 'from', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'every'])
 const BUDGET_KEYS = new Set(['usd', 'rounds', 'hours', 'without-progress'])
 const AGAIN_KEYS = new Set(['role'])
-
-/** The title a later round is opened under: fixed, so no event text becomes a card title. */
-export const AGAIN_TITLE = 'Continue this work'
 
 /** The bound that must hold before the shared reader sees the text. Throws a sentence. */
 export function checkTriggerText(source: string): void {

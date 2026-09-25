@@ -146,7 +146,7 @@ it('only a stopped project adds capture text, including its folded canonical ali
   expect(container.textContent).not.toContain('Capture stopped')
 })
 
-it('a trigger Goal’s room shows its origin; a plain project’s row and its own sessions gain no Intake decoration', async () => {
+it('a trigger Goal’s room is named by its Goal, with no origin line of its own, and no row asks Intake for one', async () => {
   const room = {
     id: 'room-1', name: 'Fix the retry bug', updatedAt: 2, members: [], root: REPO,
     intents: [], channel: [], messaging: true,
@@ -185,9 +185,9 @@ it('a trigger Goal’s room shows its origin; a plain project’s row and its ow
       </StoreProvider>,
     )
   })
-  expect(triggerGoal).toHaveBeenCalledWith('room-1')
-  expect(container.textContent).toContain('from PR #12')
-  // The plain repo row (not the room) carries no origin text of its own.
-  const projectHeads = [...container.querySelectorAll<HTMLElement>('[draggable="true"]')]
-  for (const head of projectHeads) expect(head.textContent).not.toContain('from PR #12')
+  // Where the Goal came from is its room's own header chip; the sidebar
+  // names the Goal and never asks.
+  expect(triggerGoal).not.toHaveBeenCalled()
+  expect(container.textContent).toContain('Fix the retry bug')
+  expect(container.textContent).not.toContain('from PR #12')
 })

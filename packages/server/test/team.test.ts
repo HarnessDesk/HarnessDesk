@@ -3743,7 +3743,7 @@ test('a card addressed to a role is refused to everybody else, and taken by the 
   await twoAgents(port, team, room)
   team.setRole(room, 'codex', 'c1', 'fixer')
   team.setRole(room, 'claude', 'k1', 'reviewer')
-  team.addIntentForFlow(room, { title: 'Fix the refill bug', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'Fix the refill bug', role: 'fixer' }, { kind: 'user' })
 
   // The reviewer cannot have it, and is told why and by whom.
   const refused = await team.claim(1, claude)
@@ -3803,7 +3803,7 @@ test('an outcome is recorded on the card, and a flow may refuse one its role nev
     standDown: () => null,
   })
   team.setRole(room, 'codex', 'c1', 'reviewer')
-  team.addIntentForFlow(room, { title: 'Review it', role: 'reviewer' })
+  team.addIntentForFlow(room, { title: 'Review it', role: 'reviewer' }, { kind: 'user' })
   await team.claim(1, codex)
 
   const refused = await team.complete(1, { outcome: 'nope' }, codex)
@@ -3828,7 +3828,7 @@ test('await_work returns the moment a card this member can take appears', async 
   const fixer = team.awaitWork(codex, { blockMs: 30_000, cycle: 0 })
   const reviewer = team.awaitWork(claude, { blockMs: 30_000, cycle: 0 })
   // A card for the fixer wakes the fixer and nobody else.
-  team.addIntentForFlow(room, { title: 'Fix it', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'Fix it', role: 'fixer' }, { kind: 'user' })
   assert.match(await fixer, /^work: #1 Fix it\./)
   assert.match(await fixer, /cycle: 1/)
 
@@ -3850,9 +3850,9 @@ test('await_work answers a card the caller already holds, ahead of any open one'
   const { team, port, room } = await rig(t)
   await twoAgents(port, team, room)
   team.setRole(room, 'codex', 'c1', 'fixer')
-  team.addIntentForFlow(room, { title: 'First card', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'First card', role: 'fixer' }, { kind: 'user' })
   await team.claim(1, codex)
-  team.addIntentForFlow(room, { title: 'Second card', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'Second card', role: 'fixer' }, { kind: 'user' })
 
   const answer = await team.awaitWork(codex, { blockMs: 1000, cycle: 2 })
   assert.match(answer, /^work: #1 First card\./)
@@ -3882,12 +3882,12 @@ test('hasWorkFor and awaitWork never disagree about whether a seat has work', as
   await assertLockstep('claude', 'k1', claude)
 
   // 2. Card for reviewer: reviewer has work, fixer does not
-  team.addIntentForFlow(room, { title: 'Review changes', role: 'reviewer' })
+  team.addIntentForFlow(room, { title: 'Review changes', role: 'reviewer' }, { kind: 'user' })
   await assertLockstep('codex', 'c1', codex)
   await assertLockstep('claude', 'k1', claude)
 
   // 3. Card for fixer: both have work
-  team.addIntentForFlow(room, { title: 'Fix bug', role: 'fixer' })
+  team.addIntentForFlow(room, { title: 'Fix bug', role: 'fixer' }, { kind: 'user' })
   await assertLockstep('codex', 'c1', codex)
   await assertLockstep('claude', 'k1', claude)
 

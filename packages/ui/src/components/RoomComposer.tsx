@@ -70,6 +70,12 @@ export interface RoomMember {
 export interface RoomComposerHandle {
   /** Adds a member to the audience, as picking them from `@` would. */
   readonly address: (key: SessionKey) => void
+  /**
+   * Puts the caret in the text well — what the composer returning after an
+   * approval is answered, or "tell it what to do instead" from a denial,
+   * both mean in practice: the words go here next.
+   */
+  readonly focus: () => void
 }
 
 /**
@@ -303,7 +309,7 @@ export const RoomComposer = ({
 
   /* Published after `address` is defined, so the handle is the same act the
      menu performs rather than a second implementation of it. */
-  useImperativeHandle(ref, () => ({ address }), [address])
+  useImperativeHandle(ref, () => ({ address, focus: () => textarea.current?.focus() }), [address])
 
   const change = (value: string): void => {
     const closed = gap.current === null ? value : closeMentionGap(gap.current, value)

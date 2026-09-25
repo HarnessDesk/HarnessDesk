@@ -73,7 +73,28 @@ Object.assign(store as unknown as Record<string, unknown>, {
 // a person can actually operate rather than a frozen screenshot.
 let goalIntakeScene: GoalIntakeScene = 'pull-request'
 /** Read by `triggerGoal` below; set from the "goal intake scene" Dial. */
-const setPreviewGoalIntakeScene = (scene: GoalIntakeScene): void => { goalIntakeScene = scene }
+const setPreviewGoalIntakeScene = (scene: GoalIntakeScene): void => {
+  goalIntakeScene = scene
+  /* The one scene that is not the trigger's own status: a member of the room
+     asking before it runs a command, which the room draws in its composer's
+     slot. The rest clear it, so no scene inherits another's question. */
+  previewMutable.patch({
+    approvals: scene === 'approval'
+      ? [{
+          key: sessionKey(runtimeId('codex'), 'c1'),
+          approval: {
+            id: 'preview-approval', type: 'command', kind: 'shell', command: 'pnpm test', cwd: PREVIEW_TRIGGER_GOAL.goal.cwd,
+            reason: 'Runs the project’s tests before the review is written.',
+            options: [
+              { id: 'yes', label: 'Allow', intent: 'approve' },
+              { id: 'always', label: 'Allow for this session', intent: 'approveAlways' },
+              { id: 'no', label: 'Deny', intent: 'deny' },
+            ],
+          },
+        }] as never
+      : [],
+  })
+}
 
 let previewTriggers = triggerProjectView()
 Object.assign(store as unknown as Record<string, unknown>, {
@@ -93,7 +114,10 @@ Object.assign(store as unknown as Record<string, unknown>, {
     previewTriggers = { ...previewTriggers, triggers: previewTriggers.triggers.map((one) => (one.id === id ? next : one)) }
     return next
   },
-  triggerGoal: async (goal: string) => (goal === PREVIEW_TRIGGER_GOAL.goal.id ? sceneGoalStatus(goalIntakeScene) : null),
+  // Answered for the Goal asked about: the room reads a status only when it
+  // names the Goal it is showing, and the fixture's own id is a different one.
+  triggerGoal: async (goal: string) => (goal === PREVIEW_TRIGGER_GOAL.goal.id ? { ...sceneGoalStatus(goalIntakeScene), goal } : null),
+  respondToApproval: async () => { previewMutable.patch({ approvals: [] }) },
   triggerHistory: async () => triggerHistoryPage({
     items: [
       triggerFiring(),

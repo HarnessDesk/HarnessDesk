@@ -69,7 +69,7 @@ type Tint = (typeof TINTS)[number] | 'blue'
 
 /** One sender, stable across their messages — the conversation, not the agent. */
 const senderKey = (actor: TeamActor): string =>
-  actor.kind === 'user' ? 'user' : `${actor.runtime}\u0000${actor.sessionId}`
+  actor.kind === 'user' ? 'user' : actor.kind === 'trigger' ? `trigger\u0000${actor.trigger}` : `${actor.runtime}\u0000${actor.sessionId}`
 
 /** A run of messages from one sender is one person talking. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -435,6 +435,10 @@ export const ChannelStream = ({
  */
 const actorName = (actor: TeamActor, snapshot: AppSnapshot): string => {
   if (actor.kind === 'user') return 'You'
+  /* Admission opened this while nobody was at the keyboard: the card is the
+     trigger's, never "You" — the misattribution a Goal a trigger opened used
+     to show in its own chat (#898). */
+  if (actor.kind === 'trigger') return `The trigger ${actor.trigger}`
   const agent =
     snapshot.runtimes.find((entry) => entry.id === actor.runtime)?.presentation.name ??
     actor.runtime
@@ -457,7 +461,7 @@ const actorName = (actor: TeamActor, snapshot: AppSnapshot): string => {
  * of its own when the answer is none.
  */
 const brandOf = (actor: TeamActor, snapshot: AppSnapshot): Brand | null => {
-  if (actor.kind === 'user') return null
+  if (actor.kind !== 'agent') return null
   const runtime = snapshot.runtimes.find((entry) => entry.id === actor.runtime)
   return runtime ? brandForRuntime(runtime) : null
 }

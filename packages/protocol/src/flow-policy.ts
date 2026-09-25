@@ -1,4 +1,5 @@
 import type { AgentDefinition, AgentEntry, SeatPlan } from './agent.js'
+import type { StartContext } from './authoring.js'
 import type { CeilingLevel } from './evidence.js'
 import type { FindingRunState } from './findings.js'
 import type { Flow, FlowCheck, FlowInput, FlowProblem, FlowRun, FlowSeat, FlowThen } from './flow.js'
@@ -13,6 +14,13 @@ export interface FlowAgentRole {
   readonly isolate: boolean
   readonly grant: CeilingLevel
   readonly independentOf: readonly string[]
+  /**
+   * Whether this role's siblings in one round are blind to each other's
+   * packages and findings until it closes. Absent means true, and the file
+   * says `blind: false` to let them see; publication waits for the round to
+   * close either way. Only an Agent role says it.
+   */
+  readonly blind?: boolean
 }
 
 export type FlowPolicyRole = FlowAgentRole
@@ -157,6 +165,34 @@ export interface FlowExecution {
   readonly findings?: FindingRunState
   /** Set only on a run a trigger started. */
   readonly intake?: FlowIntake
+  /**
+   * Set on a run started from a front-door preview: every Seat it ever opens,
+   * later and recovered rounds included, must hold its ceiling before it is
+   * given work. Frozen at the start; a record that should carry it and does
+   * not stops the run rather than seating under a weaker policy.
+   */
+  readonly requireHeld?: true
+  /**
+   * Set on a run started from a front-door preview of a branch, a pull
+   * request, a diff or a working tree: what it works on, as the host
+   * resolved it when the preview was taken and the token bound it.
+   */
+  readonly target?: FlowStartTarget
+}
+
+/**
+ * What a front-door run works on, resolved on the host and never taken from
+ * a request. `head` is the commit every Seat of the run works at — each in
+ * its own checkout of it — and null for a working tree, whose uncommitted
+ * snapshot is only ever read in the project's own checkout.
+ */
+export interface FlowStartTarget {
+  readonly kind: 'branch' | 'pull-request' | 'diff' | 'working-diff'
+  readonly label: string
+  readonly base: string | null
+  readonly head: string | null
+  readonly pr: number | null
+  readonly dirty: boolean
 }
 
 // ---------------------------------------------------------------- review
@@ -195,6 +231,17 @@ export interface FlowEntry {
   readonly format: 'legacy' | 'agents' | null
   readonly problem: string | null
   readonly shadows: readonly { readonly origin: FlowOrigin; readonly path: string }[]
+  /**
+   * What this entry's own `layout.frontDoor` says, read once when the
+   * catalogue is listed rather than by a second bulk call: `order` positions
+   * it among the others, `contexts` names which starts it accepts. Absent or
+   * `null` for a legacy-format, broken, or unlisted-layout flow — every
+   * caller must read a missing value the same way it reads `null`. A present
+   * `contexts` that omits a start means this shape refuses it; a `null` or
+   * missing `contexts` means every start is accepted — absence is never a
+   * refusal.
+   */
+  readonly frontDoor?: { readonly order: number | null; readonly contexts: readonly StartContext['kind'][] | null } | null
 }
 
 // ----------------------------------------------------------------- update
@@ -260,6 +307,8 @@ export interface FlowStartRequest {
   readonly token: string
   readonly sentence: string
   readonly vars?: Readonly<Record<string, string>>
+  /** The empty Goal a front-door start reuses, at the revision its preview saw; it must match the preview's own. */
+  readonly goal?: { readonly id: string; readonly revision: number }
 }
 
 /** Bounded, host-derived context a check command reads from `HARNESSDESK_FLOW_CONTEXT`. */

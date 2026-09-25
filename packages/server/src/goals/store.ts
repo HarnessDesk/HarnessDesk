@@ -31,6 +31,12 @@ export interface GoalDocument {
   readonly memory?: GoalMemoryIndex
   readonly receipt: GoalReceipt | null
   readonly operation: GoalOperation | null
+  /**
+   * The front-door run this existing empty Goal was reserved for, written in
+   * the same save that advanced its revision. Absent on every other Goal.
+   * It stays after an uncertain start: that run's recovery finds it here.
+   */
+  readonly flowReservation?: { readonly run: string; readonly operation: string }
 }
 
 /** A restored Goal is inert history: its bytes survive, its executable journal does not. */
@@ -167,11 +173,15 @@ export function documentOf(value: unknown): GoalDocument {
     !object(goal.origin) || !['person', 'legacy', 'flow', 'trigger'].includes(String(goal.origin.kind)) ||
     !(goal.receipt === null || typeof goal.receipt === 'string') ||
     !(goal.findingPublication === undefined || typeof goal.findingPublication === 'boolean') ||
+    !(goal.at === undefined || (typeof goal.at === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(goal.at))) ||
     'members' in goal || 'members' in board || 'roles' in board || 'plans' in board ||
     !Number.isSafeInteger(board.nextIntent) || Number(board.nextIntent) < 1 ||
     typeof board.messaging !== 'boolean' || !Array.isArray(board.intents) || !Array.isArray(board.channel) ||
     !Array.isArray(value.citations) || !value.citations.every(citationOf) ||
     (value.memory !== undefined && !memoryIndexOf(value.memory)) ||
+    (value.flowReservation !== undefined && (!object(value.flowReservation) ||
+      typeof value.flowReservation.run !== 'string' || !value.flowReservation.run ||
+      typeof value.flowReservation.operation !== 'string' || !value.flowReservation.operation)) ||
     !('receipt' in value) || !('operation' in value)
   ) return bad()
   for (const card of board.intents) {

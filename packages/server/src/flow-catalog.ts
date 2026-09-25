@@ -1,5 +1,6 @@
 import type { FlowEntry, FlowOrigin, FlowProblem, FlowUpdateResult } from '@harnessdesk/protocol'
 
+import { readShapeLayout } from './authoring/model.js'
 import { ConfinedTree } from './confined-tree.js'
 import { errnoOf, NOTHING_HERE } from './errno.js'
 import { parseFlowPolicy } from './flow-policy.js'
@@ -133,6 +134,7 @@ export class FlowCatalog {
       let name = idOf(winner!.name)
       let description: string | null = null
       let source: string | null = null
+      let frontDoor: FlowEntry['frontDoor'] = null
       if (!problem && winner!.tree) {
         try {
           source = await readFlow(winner!.tree, winner!.rel)
@@ -141,13 +143,19 @@ export class FlowCatalog {
           format = parsed.document?.format ?? null
           name = parsed.document?.flow.name ?? name
           description = parsed.document?.flow.description ?? null
+          // Read once, here, rather than by a second bulk call: this parse
+          // already exists to learn the entry's own name and description.
+          if (parsed.document?.format === 'agents') {
+            const front = readShapeLayout(parsed.document.flow).layout.frontDoor
+            if (front) frontDoor = { order: front.order ?? null, contexts: front.contexts ?? null }
+          }
         } catch (error) {
           problem = messageOf(error)
           source = null
         }
       }
       result.push({
-        entry: { id: winner!.id, origin: winner!.origin, path: winner!.path, name, description, format, problem,
+        entry: { id: winner!.id, origin: winner!.origin, path: winner!.path, name, description, format, problem, frontDoor,
           shadows: shadows.map((shadow) => ({ origin: shadow.origin, path: shadow.path })) },
         source,
       })

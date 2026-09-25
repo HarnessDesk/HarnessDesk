@@ -91,9 +91,11 @@ it('says, per runtime and per level, whether it holds the ceiling or is only ask
     'read:held', 'edit:held', 'publish:asked', 'merge:asked',
     'read:asked', 'edit:asked', 'publish:asked', 'merge:asked',
   ])
+  // Neutral throughout: `asked` is the ordinary state for a ceiling with no
+  // runtime control that holds it, not a warning (#898).
   expect(chips().map((chip) => chip.firstElementChild?.getAttribute('data-tone'))).toEqual([
-    'neutral', 'neutral', 'warning', 'warning',
-    'warning', 'warning', 'warning', 'warning',
+    'neutral', 'neutral', 'neutral', 'neutral',
+    'neutral', 'neutral', 'neutral', 'neutral',
   ])
   expect(chips()[0]?.title).toContain('Read-only sandbox')
   expect(document.body.textContent).toContain('Alpha')

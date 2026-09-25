@@ -31,8 +31,8 @@ interface Rig {
   restart(): Promise<void>
 }
 
-const publicationRig = async (t: { after(fn: () => Promise<void>): void }, options: { bind?: boolean } = {}): Promise<Rig> => {
-  const f = await findingsRig(t)
+const publicationRig = async (t: { after(fn: () => Promise<void>): void }, options: { bind?: boolean; sighted?: boolean } = {}): Promise<Rig> => {
+  const f = await findingsRig(t, options.sighted ? { sighted: true } : {})
   const forge = new FakeFindingForge(SHA1)
   const goal = { open: true, preference: undefined as boolean | undefined }
   const make = (): Publications => new Publications({
@@ -694,4 +694,27 @@ test('a person’s posting actions are confined to the run’s own Goal, and ref
   const after = await f.plane.publish({ goal: f.goal, run: f.run, action: { kind: 'post-again', key: view.items[0]!.key } })
   assert.equal(forge.sends.length, sends, 'read back and recorded, never sent again')
   assert.equal(after.items.some((item) => item.key === view.items[0]!.key), false)
+})
+
+// Added in phase 10 (Task 3): a sighted round (`blind: false`) keeps the same closed-round publication barrier.
+test('a sighted round publishes nothing before it closes, then releases once', async (t) => {
+  const r = await publicationRig(t, { sighted: true })
+  const { f, forge } = r
+  const { first, second } = await review(r)
+  assert.ok(second)
+  // The sibling may read the first finisher's finding…
+  const [, two] = f.cards('reviewer')
+  const seen = await f.plane.readForSeat({ intent: two!.id }, f.scope('seat-3'))
+  assert.ok(seen.some((one) => one.id === first.id), 'a sighted sibling reads the finished reviewer’s finding')
+  // …and still nothing is decided, staged or sent while the round is open.
+  assert.equal(f.rig.flows.roundClosed(f.run, r.round), false)
+  assert.equal(await r.pub.prepare(f.run, r.round), null)
+  await r.pub.close(f.run, r.round)
+  await r.pub.idle()
+  assert.deepEqual(forge.calls, [])
+  assert.deepEqual(r.entries(), [])
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  assert.deepEqual(r.entries().map((entry) => entry.state), ['posted', 'posted', 'posted', 'posted'])
+  assert.equal(forge.sends.length, 4, 'both findings and both reviews, once each')
 })

@@ -12,9 +12,23 @@ import {
 
 import { ceilingMeaning, ceilingWords } from './agents'
 
-/** The tone a seat's ceiling is drawn in. */
-export const ceilingTone = (ceiling: SeatCeiling): 'warning' | 'neutral' =>
-  ceiling.hold === 'asked' ? 'warning' : 'neutral'
+/**
+ * The tone a seat's ceiling chip is drawn in — neutral, always, and a
+ * constant rather than a function of the ceiling because nothing about a
+ * ceiling ever changes it.
+ *
+ * `hold` alone answered this once: `asked` drew the warning tone, `held` the
+ * neutral one. But most runtimes have no control that holds a ceiling at
+ * all, so nearly every built-in Agent's roster row and every plain seat's
+ * chip read `asked` and drew amber — amber as the ordinary state, which is
+ * amber meaning nothing, on every screen the chip appears on. There is no
+ * second field to ask instead: `held`/`asked` is a fact about the runtime's
+ * own machinery, not a verdict on how risky this particular seat is, and the
+ * chip's own words ("Held", "Asked, not held…") plus its hover explanation
+ * already say which is which, in the sentence rather than the colour. See
+ * `docs/decisions.md` for the reversal this recorded.
+ */
+export const ceilingTone = (): 'neutral' => 'neutral'
 
 /** What a seat's ceiling means and how it holds, for the chip's hover. */
 export const ceilingTitle = (ceiling: SeatCeiling, note?: string | null): string =>
@@ -68,7 +82,7 @@ export const runtimeHolds = (runtime: RuntimeInfo): readonly RuntimeHold[] =>
 /** Why an Agent's row needs the migration action, or null for the current key. */
 export const flagWords = (definition: AgentDefinition): string | null =>
   definition.ceilingFrom === 'permission'
-    ? `Written with permission:, so it reads as ${ceilingWords(definition.ceiling).toLowerCase()}.`
+    ? `Written with permission, so it reads as ${ceilingWords(definition.ceiling).toLowerCase()}.`
     : definition.ceilingFrom === 'none'
       ? 'No ceiling written, so it runs as read.'
       : null

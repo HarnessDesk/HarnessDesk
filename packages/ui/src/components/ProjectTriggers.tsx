@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import type { TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
+import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
 
-import { Button, Chip, Note, Row, RowButton, Rows, SectionHead, Switch } from '../design'
+import { Button, Chip, Dialog, Field, NativeSelect, Note, Row, RowButton, Rows, SectionHead, Switch } from '../design'
 import { triggerProblemPlace, triggerSentence, triggerSkipWords } from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { TriggerArm } from './TriggerArm'
+import { TriggerCreate } from './TriggerCreate'
 
 export interface ProjectTriggersProps {
   readonly root: string
@@ -45,6 +46,10 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set())
   const [rowProblem, setRowProblem] = useState<{ readonly id: string; readonly message: string } | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const [choosingFlow, setChoosingFlow] = useState(false)
+  const [flows, setFlows] = useState<readonly FlowEntry[] | null>(null)
+  const [chosenFlow, setChosenFlow] = useState<string>('')
+  const [creating, setCreating] = useState<{ readonly flow: string } | null>(null)
 
   const load = useCallback((): void => {
     store.projectTriggers(root).then(
@@ -103,6 +108,19 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
     }
   }
 
+  const openChooser = (): void => {
+    setChoosingFlow(true)
+    if (flows === null) {
+      void store.flowCatalog(root).then(
+        (list) => {
+          setFlows(list)
+          if (!chosenFlow && list[0]) setChosenFlow(list[0].id)
+        },
+        () => setFlows([]),
+      )
+    }
+  }
+
   if (!read || read.root !== root) return null
 
   if ('problem' in read) {
@@ -121,20 +139,42 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
   if (!view.exists) {
     return (
       <section aria-label="Triggers">
-        <SectionHead name="Triggers" />
+        <SectionHead name="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>} />
         <Rows>
           <Row
             title="No triggers"
             desc={`Declare one in ${shortPath(view.path, snapshot.home)} to let this project open bounded work on its own.`}
           />
         </Rows>
+        <FlowChooser
+          open={choosingFlow}
+          flows={flows}
+          chosen={chosenFlow}
+          onChoose={setChosenFlow}
+          onClose={() => setChoosingFlow(false)}
+          onContinue={() => {
+            setChoosingFlow(false)
+            setCreating({ flow: chosenFlow })
+          }}
+        />
+        {creating && (
+          <TriggerCreate
+            root={root}
+            opens={{ flow: creating.flow }}
+            onClose={() => setCreating(null)}
+            onSaved={() => {
+              setCreating(null)
+              load()
+            }}
+          />
+        )}
       </section>
     )
   }
 
   return (
     <section aria-label="Triggers">
-      <SectionHead name="Triggers" />
+      <SectionHead name="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>} />
       <Note>
         {`Read from ${shortPath(view.path, snapshot.home)}, as committed. Nothing here runs until you arm it on this machine.`}
       </Note>
@@ -193,7 +233,68 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
           }}
         />
       )}
+      <FlowChooser
+        open={choosingFlow}
+        flows={flows}
+        chosen={chosenFlow}
+        onChoose={setChosenFlow}
+        onClose={() => setChoosingFlow(false)}
+        onContinue={() => {
+          setChoosingFlow(false)
+          setCreating({ flow: chosenFlow })
+        }}
+      />
+      {creating && (
+        <TriggerCreate
+          root={root}
+          opens={{ flow: creating.flow }}
+          onClose={() => setCreating(null)}
+          onSaved={() => {
+            // Save writes the working tree only; a fresh read shows the new
+            // trigger and, per decision, the Intake refusal until it is
+            // committed — the existing Commit/Arm path handles that.
+            setCreating(null)
+            load()
+          }}
+        />
+      )}
     </section>
+  )
+}
+
+/** Which shape a new trigger opens — the same catalogue the front door lists, never a hardcoded set. */
+const FlowChooser = ({
+  open, flows, chosen, onChoose, onClose, onContinue,
+}: {
+  readonly open: boolean
+  readonly flows: readonly FlowEntry[] | null
+  readonly chosen: string
+  readonly onChoose: (id: string) => void
+  readonly onClose: () => void
+  readonly onContinue: () => void
+}) => {
+  if (!open) return null
+  return (
+    <Dialog
+      title="Every time — choose a shape"
+      onClose={onClose}
+      footer={(
+        <>
+          <Button variant="default" disabled={!chosen} onClick={onContinue}>Continue</Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        </>
+      )}
+    >
+      <Field label="Shape">
+        {(control) => (
+          <NativeSelect {...control} value={chosen} disabled={flows === null} onChange={(event) => onChoose(event.target.value)}>
+            {flows === null && <option value="">Reading…</option>}
+            {flows?.length === 0 && <option value="">No shapes here yet</option>}
+            {flows?.map((entry) => <option key={`${entry.origin}-${entry.id}`} value={entry.id}>{entry.name}</option>)}
+          </NativeSelect>
+        )}
+      </Field>
+    </Dialog>
   )
 }
 

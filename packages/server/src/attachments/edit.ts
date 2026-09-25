@@ -13,8 +13,8 @@
  *
  * This is a pure function: no disk, no clock, no network. The caller reads
  * the current file, calls this, and — if it does not want to keep the
- * result — writes it back through `rewriteAgentFile`, whose own digest
- * check is what makes "stale preview never overwrites a newer edit" true
+ * result — writes it back through `AuthoringPlane.rewriteAgent`, the one
+ * writer of Agent files, under the caller's own digest check, which is what makes "stale preview never overwrites a newer edit" true
  * without this file needing to know anything about time.
  */
 

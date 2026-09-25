@@ -595,15 +595,17 @@ const playTurn = (openingAlreadySent = false) => {
     completedAtMs: nowMs(),
   })
 
+  // The thread's own folder, as the real app-server reports it — never a
+  // stand-in path, which a screenshot of the approval would print verbatim.
   const command = {
     type: 'commandExecution',
     id: 'call-c1',
     command: 'ls -la',
-    cwd: '/w',
+    cwd: settingsState.cwd,
     processId: null,
     source: 'agent',
     status: 'inProgress',
-    commandActions: [{ type: 'listFiles', command: 'ls -la', path: '/w' }],
+    commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
     aggregatedOutput: null,
     exitCode: null,
     durationMs: null,
@@ -623,8 +625,8 @@ const playTurn = (openingAlreadySent = false) => {
       startedAtMs: nowMs(),
       reason: 'Needs to read the working directory',
       command: 'ls -la',
-      cwd: '/w',
-      commandActions: [{ type: 'listFiles', command: 'ls -la', path: '/w' }],
+      cwd: settingsState.cwd,
+      commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
       availableDecisions: ['accept', 'acceptForSession', 'decline'],
     },
   })
@@ -891,11 +893,11 @@ const finishTurn = () => {
       type: 'commandExecution',
       id: 'call-c1',
       command: 'ls -la',
-      cwd: '/w',
+      cwd: settingsState.cwd,
       processId: null,
       source: 'agent',
       status: 'completed',
-      commandActions: [{ type: 'listFiles', command: 'ls -la', path: '/w' }],
+      commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
       aggregatedOutput: 'README.md\n',
       exitCode: 0,
       durationMs: 12,

@@ -572,6 +572,10 @@ export class Flows implements TeamFlows {
   }
 
   /** The open blind review rounds on a Goal, for the board's reads and the channel's refusals. */
+  embargoedRounds(room: string): ReturnType<FlowExecutions['embargoedRounds']> {
+    return this.#executions?.embargoedRounds(room) ?? []
+  }
+
   blindRounds(room: string): ReturnType<FlowExecutions['blindRounds']> {
     return this.#executions?.blindRounds(room) ?? []
   }
@@ -1467,7 +1471,7 @@ export class Flows implements TeamFlows {
         ...(then.files && then.files.length > 0 ? { files: then.files } : {}),
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
         role: role.id,
-      })
+      }, { kind: 'user' })
       intents.push(card.id)
     }
     const round: FlowRound = {

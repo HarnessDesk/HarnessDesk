@@ -89,11 +89,12 @@ export {
   WireText,
 } from './patterns/Settings'
 export { Button, buttonVariants } from './ui/button'
+export { DisclosureChevron } from './ui/disclosure-chevron'
 export { Input } from './ui/input'
 export { Textarea } from './ui/textarea'
 export { Switch } from './ui/switch'
 export { NativeSelect } from './ui/native-select'
-export { Dialog } from './patterns/ModalDialog'
+export { Dialog, DialogBody, DialogHead, DialogSubhead } from './patterns/ModalDialog'
 export { ChoiceList, Fieldset } from './patterns/DialogForm'
 export {
   Dialog as DialogRoot,
@@ -127,7 +128,13 @@ export * from './patterns/InspectorPanel'
 export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
-export { TurnWorkHeader, TurnWorkHeaderLabel } from './patterns/TurnWork'
+export {
+  TurnItem,
+  TurnWorkHeader,
+  TurnWorkHeaderLabel,
+  TurnWorkLive,
+  type TurnWorkState,
+} from './patterns/TurnWork'
 export {
   GitHistoryActionBar,
   GitHistoryFilters,

@@ -177,6 +177,32 @@ const button = (text: string): HTMLButtonElement => {
   return found
 }
 
+/**
+ * A card a trigger's own run opens is the trigger's doing, unattended — the
+ * chat used to read "You added #1" for it, the misattribution this whole fix
+ * started from. `actorName`'s trigger branch had no test of its own.
+ */
+it('names the trigger, not the person at the keyboard, for a card its own run opened', async () => {
+  const { store } = rig({
+    channel: [
+      {
+        id: 'trigger-added',
+        at: 6,
+        kind: 'signal',
+        by: { kind: 'trigger', trigger: 'triage-issue' } as never,
+        signal: 'added',
+        intent: 3,
+        title: 'Do this work',
+        detail: null,
+      },
+    ],
+  })
+  await render(store)
+
+  expect(container.textContent).toContain('The trigger triage-issue added #3 — Do this work')
+  expect(container.textContent).not.toContain('You added')
+})
+
 it('a held message is one press from delivered', async () => {
   const { store } = rig()
   await render(store)

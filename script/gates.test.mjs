@@ -18,6 +18,7 @@ import {
   screenAreaOf,
   singleScreenAreaOf,
   screenInlineStyleAppearanceOf,
+  patternSourceAppearanceOf,
   screenPropertySideOf,
   screenUnclassifiedOf,
   screenUnmappedUtilityOf,
@@ -105,6 +106,50 @@ test('single-screen pattern accounting follows a pattern consumer into its scree
   const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
   const importers = new Map([[approval, [room, builtins]]])
   assert.equal(singleScreenAreaOf([approval], importers), null)
+})
+
+test('the pane registry mounts a screen without making its patterns shared', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  // Every pane is registered there; a pattern only GitPane uses is still Git's.
+  assert.equal(singleScreenAreaOf([gitPane], new Map([[gitPane, [builtins]]])), 'git')
+})
+
+/*
+ * A pattern one screen family consumes is that screen's code wherever it
+ * lives, so its appearance counts on the same ledger whichever spelling it
+ * takes. The stylesheet half was always counted; these hold the other two —
+ * a Tailwind utility in the pattern's own className and a key in its inline
+ * style — by the same classification a screen's are (#912 review: four
+ * single-consumer TurnWork parts moved screen appearance into design/ and the
+ * number fell without anything converging).
+ */
+const patternTsx = (name) => path.join(repoRoot, 'packages/ui/src/design/patterns', name)
+
+test('a single-consumer pattern counts the utilities its own className draws', () => {
+  const source = `export const Part = () => <span className="text-(--hd-muted-foreground) tabular-nums flex gap-2" />\n`
+  assert.deepEqual(patternSourceAppearanceOf(patternTsx('Part.tsx'), source), [
+    'design/patterns/Part.tsx: text-(--hd-muted-foreground) (color)',
+    'design/patterns/Part.tsx: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+test('a single-consumer pattern counts appearance in its inline style, and not its layout or custom properties', () => {
+  const source = `export const Part = () => <span style={{ color: 'red', width: 4, '--near': 1 }} />\n`
+  assert.deepEqual(patternSourceAppearanceOf(patternTsx('Part.tsx'), source), ['design/patterns/Part.tsx: style color'])
+})
+
+test('a pattern reached through cn() and a class constant is read the way a screen is', () => {
+  const source = [
+    "import { cn } from '@/lib/utils'",
+    "const INK = 'text-(--hd-warning-ink)'",
+    'export const Part = ({ on }) => <span className={cn(\'shrink-0\', on && INK, \'px-2\')} />',
+    '',
+  ].join('\n')
+  assert.deepEqual(patternSourceAppearanceOf(patternTsx('Part.tsx'), source), [
+    'design/patterns/Part.tsx: text-(--hd-warning-ink) (color)',
+    'design/patterns/Part.tsx: px-2 (padding-inline)',
+  ])
 })
 
 test('single-screen patterns leave semantic appearance to system primitives', () => {

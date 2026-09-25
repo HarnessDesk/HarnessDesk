@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { FlowCatalog } from '../src/flow-catalog.js'
-import { FlowUpdates, applyMigration, type MigrationPort } from '../src/flow-update.js'
+import { FlowUpdates, TreeQueue, applyMigration, type MigrationPort } from '../src/flow-update.js'
 import { parseAgentDefinition } from '../src/agent-def.js'
 import { parseFlowPolicy } from '../src/flow-policy.js'
 import { tempDir } from './scratch.js'
@@ -372,4 +372,41 @@ test('a role whose order is only blank space is given the same brief', async () 
   const preview = await updates.preview(project, 'review')
   const agent = preview.edits.find((edit) => edit.path.endsWith('/AGENT.md'))!
   assert.equal(parseAgentDefinition(agent.after ?? '', 'review-writer').agent?.brief.trim(), 'You are the writer. The cards say the rest.')
+})
+
+// Added in phase 10 (Task 2): the conversion now writes through the exported confined adapter and the shared tree queue.
+test('conversion keeps its old transaction semantics', async () => {
+  const { project, path, state, catalogue } = await setup()
+  const entered: string[] = []
+  let queuedSignal!: () => void
+  const queued = new Promise<void>((resolve) => { queuedSignal = resolve })
+  class Watched extends TreeQueue {
+    override run<T>(key: string, fn: () => Promise<T>, waiting?: (key: string) => void): Promise<T> {
+      entered.push(key)
+      if (entered.length === 2) queuedSignal()
+      return super.run(key, fn, waiting)
+    }
+  }
+  const queue = new Watched()
+  const updates = new FlowUpdates({ stateDir: state, catalogue, queue })
+  const preview = await updates.preview(project, 'review')
+  const unshared = await new FlowUpdates({ stateDir: join(state, 'other'), catalogue }).preview(project, 'review')
+  // The whole diff is the same one the unshared updater shows.
+  assert.deepEqual(preview.edits, unshared.edits)
+  // Another configuration write holds this project's queue: the conversion waits for it, and writes nothing meanwhile.
+  let release!: () => void
+  const holding = queue.run(await realpath(project), () => new Promise<void>((resolve) => { release = resolve }))
+  const applying = updates.apply(project, preview.token)
+  await queued
+  assert.equal(await readFile(path, 'utf8'), legacy)
+  await assert.rejects(readdir(join(project, '.harnessdesk', 'agents')), { code: 'ENOENT' })
+  release()
+  await holding
+  const applied = await applying
+  assert.deepEqual(applied, { state: 'applied', written: ['.harnessdesk/agents/review-writer/AGENT.md'], message: 'The flow update was applied.' })
+  assert.equal(await readFile(path, 'utf8'), preview.edits.at(-1)!.after)
+  assert.equal(await readFile(join(project, '.harnessdesk', 'agents', 'review-writer', 'AGENT.md'), 'utf8'), preview.edits[0]!.after)
+  assert.deepEqual(entered, [await realpath(project), await realpath(project)])
+  // Replaying the spent token refuses, and the recorded update does not run again.
+  assert.equal((await updates.apply(project, preview.token)).state, 'refused')
 })

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SessionSummary, WorkspaceEntry } from '@harnessdesk/protocol'
 
-import { groupByProject, isWorktreeSession, projectRootOf, repoKey } from './projects'
+import { folderShown, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey } from './projects'
 
 const session = (
   id: string,
@@ -223,6 +223,106 @@ describe('projectRootOf', () => {
     expect(projectRootOf(open)).toBe(sub)
     expect(
       groupByProject([session('a', sub, null, 1, { root: '/w/main', worktree: false })], [], open)[0]?.root,
-    ).toBe(projectRootOf(open))
+    ).toBe(projectGroupRootOf(open))
+  })
+
+  /**
+   * A review of #905 caught `ownPathOf`'s canonical form leaking into
+   * `projectRootOf` — the same value `NewSessionChoice.tsx` and `App.tsx`
+   * read as the folder to create a Goal, a flow or a race in. A subfolder
+   * opened through a link is not textually inside the canonical checkout
+   * (the link changes the prefix, not just the tail), so `ownPathOf` read it
+   * as "must be the link's own top" and returned the repository's own root —
+   * discarding the subfolder entirely. Work started there would land in a
+   * different folder than the one that was actually open. `projectRootOf`
+   * must never make that substitution: it is always the opened path, exactly
+   * as opened, whatever grouping decides to call it.
+   */
+  it('keeps the opened path for creation, for a subfolder opened through a link', () => {
+    const real = '/private/var/folders/x/work/widgets'
+    const link = '/var/folders/x/work/widgets'
+    const openedSub = `${link}/packages/ui`
+    const open = workspace(openedSub, { root: real, worktree: false })
+    expect(projectRootOf(open)).toBe(openedSub)
+  })
+
+  it('keeps the opened path for creation, for a link into a monorepo package', () => {
+    const real = '/private/var/folders/x/monorepo'
+    const link = '/var/folders/x/monorepo'
+    const openedPackage = `${link}/packages/api`
+    const open = workspace(openedPackage, { root: real, worktree: false })
+    expect(projectRootOf(open)).toBe(openedPackage)
+  })
+
+  it('still leaves a genuine subfolder alone when the workspace also carries a checkoutRoot', () => {
+    const sub = '/w/main/packages/ui'
+    const open: WorkspaceEntry = { ...workspace(sub, { root: '/w/main', worktree: false }), checkoutRoot: '/w/main' }
+    expect(projectRootOf(open)).toBe(sub)
+  })
+})
+
+describe('projectGroupRootOf', () => {
+  it('names the project a worktree is a checkout of, same as projectRootOf', () => {
+    expect(projectGroupRootOf(workspace('/w/tree', { root: '/w/main', worktree: true }))).toBe('/w/main')
+    expect(projectGroupRootOf(null)).toBeNull()
+  })
+
+  /**
+   * The host keeps a workspace at the spelling it was opened at
+   * (`describeWorkspace` never `realpath`s it, on purpose — a session with no
+   * git repository is matched against the open list by that same raw
+   * spelling). But its own sessions are grouped by `repo.root`, which git
+   * resolves through a link — macOS keeps its temporary folders behind
+   * `/var` → `/private/var` — so a project opened at its own top through such
+   * a link used to be homed at the raw, un-resolved spelling while its
+   * sessions grouped under the resolved one: the same folder, filed under two
+   * keys, showed up twice in the sidebar (#898).
+   */
+  it('is not fooled by a link: opened at its own top through one, it still homes at the canonical root', () => {
+    const real = '/private/var/folders/x/work/widgets'
+    const link = '/var/folders/x/work/widgets'
+    const open = workspace(link, { root: real, worktree: false })
+    expect(projectGroupRootOf(open)).toBe(real)
+    // Unlike `projectGroupRootOf`, `projectRootOf` never corrects the
+    // spelling — that value is what creation reads, and canonicalising it
+    // is the mistake #905's review caught.
+    expect(projectRootOf(open)).toBe(link)
+    const groups = groupByProject([session('a', real, null, 1, { root: real, worktree: false })], [], open)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(real)
+    expect(groups[0]?.root).toBe(projectGroupRootOf(open))
+  })
+
+  it('leaves an open subfolder where grouping homes it, same as projectRootOf', () => {
+    const sub = '/w/main/packages/ui'
+    const open = workspace(sub, { root: '/w/main', worktree: false })
+    expect(projectGroupRootOf(open)).toBe(sub)
+  })
+})
+
+describe('migratedRoots', () => {
+  it('rewrites a pin or a fold saved under the raw spelling a link introduced', () => {
+    const real = '/private/var/folders/x/work/widgets'
+    const link = '/var/folders/x/work/widgets'
+    const open = workspace(link, { root: real, worktree: false })
+    expect(migratedRoots([link, '/other/project'], open)).toEqual([real, '/other/project'])
+  })
+
+  it('leaves everything alone with no open workspace, or one that names no link', () => {
+    expect(migratedRoots(['/a', '/b'], null)).toEqual(['/a', '/b'])
+    const plain = workspace('/w/main', { root: '/w/main', worktree: false })
+    expect(migratedRoots(['/a', '/w/main'], plain)).toEqual(['/a', '/w/main'])
+  })
+})
+
+describe('folderShown', () => {
+  it('names the project by its short name, and a folder inside it by the way down', () => {
+    expect(folderShown('/home/dev/work/widgets', '/home/dev', '/home/dev/work/widgets')).toBe('widgets')
+    expect(folderShown('/home/dev/work/widgets/packages/ui', '/home/dev', '/home/dev/work/widgets')).toBe('widgets/packages/ui')
+  })
+
+  it('shortens anything outside the project against home, and leaves the rest as it is', () => {
+    expect(folderShown('/home/dev/elsewhere', '/home/dev', '/home/dev/work/widgets')).toBe('~/elsewhere')
+    expect(folderShown('/srv/build', '/home/dev', null)).toBe('/srv/build')
   })
 })
