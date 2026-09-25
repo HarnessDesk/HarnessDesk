@@ -411,12 +411,23 @@ interface Seat {
   readonly name: string
   readonly sub: string
   readonly state: Readiness
+  /**
+   * Whether the agent has answered who is signed in. Until it has, an empty
+   * account list is not an answer, and `signin` is only readiness's guess.
+   */
+  readonly known: boolean
   /** What is left of the tightest window, or null when nothing is metered. */
   readonly figure: string | null
   readonly tone: 'good' | 'warn' | 'bad'
   readonly current: boolean
   readonly report: UsageReport | null
   readonly preference: AccountPrefs | undefined
+}
+
+/** The part of an account's address after the @, or null for one without. */
+const domainOf = (account: Account | null): string | null => {
+  const email = account?.email ?? (account?.label.includes('@') ? account.label : null)
+  return email ? email.slice(email.indexOf('@') + 1) || null : null
 }
 
 const readinessTone = (state: Readiness): Tone | undefined => ({
@@ -479,6 +490,7 @@ export const AccountFooter = ({
           name: info.presentation.name,
           sub: READINESS_LABEL[state],
           state,
+          known: status !== null,
           figure: usage[0]
             ? (() => {
                 const lane = describeReport(usage[0] as UsageReport, { now: Date.now(), maxLanes: 1 }).hero
@@ -507,6 +519,7 @@ export const AccountFooter = ({
         name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
         sub: accountIdentity(account) || info.presentation.name,
         state,
+        known: true,
         figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
         tone: view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const)),
         current,
@@ -532,12 +545,23 @@ export const AccountFooter = ({
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
   // listed whatever its state: it is the chair you are in.
-  const chairs = seats.filter((seat) => seat.current || seat.state !== 'signin')
-  // One address signed in to two agents is two chairs with one name. Only
-  // there does a row say whose chair it is; the mark says it everywhere else.
-  const shared = new Set(
-    chairs.map((seat) => seat.name).filter((name, index, names) => names.indexOf(name) !== index),
-  )
+  // An agent that has not answered yet is not known to be waiting, so it
+  // stays until it says so — or every agent would drop out while accounts load.
+  const chairs = seats.filter((seat) => seat.current || seat.state !== 'signin' || !seat.known)
+  // Two chairs with one name — one address on two agents, or two addresses
+  // with one local part on one agent. Only there does a row carry a second
+  // word, and it is the word that differs: the agent where the agents
+  // differ, else the address's domain, else the whole identity. The mark
+  // says whose chair it is everywhere else.
+  const tagOf = (seat: Seat): string | null => {
+    const twins = chairs.filter((other) => other !== seat && other.name === seat.name)
+    if (twins.length === 0) return null
+    const agent = brandOf(seat.info.presentation.name)
+    if (twins.every((other) => brandOf(other.info.presentation.name) !== agent)) return agent
+    const domain = domainOf(seat.account)
+    if (domain && twins.every((other) => domainOf(other.account) !== domain)) return domain
+    return seat.sub
+  }
 
   const signOut = async (close: () => void): Promise<void> => {
     if (!snapshot.activeRuntime) return
@@ -648,11 +672,6 @@ export const AccountFooter = ({
               <MenuItem
                 key={seat.key}
                 layout="account"
-                /* One line a seat. The name is the account's own — yours, or
-                   the address it was signed in with — so the identity under
-                   it only said it again; it is here, and whole on the mark's
-                   card. */
-                title={seat.sub}
                 current={seat.current}
                 expanded={seat.current && chairs.length > 1 ? accountsOpen : undefined}
                 keepOpen={seat.current && chairs.length > 1}
@@ -682,7 +701,7 @@ export const AccountFooter = ({
                   className={styles.seatTrigger}
                   /* The same verbs as the badge's card on the row below: two
                      cards for one account that offered different things were
-                     the whole of the complaint. The menu's Dashboard row opens
+                     the whole of the complaint. The sidebar's Dashboard opens
                      the dashboard on everything; this opens it on this seat. */
                   onOpenUsage={onOpenUsage}
                 >
@@ -697,15 +716,18 @@ export const AccountFooter = ({
                     <RuntimeMark runtime={seat.info} size={13} />
                   </AccountMark>
                 </AccountHoverCard>
-                <span className={styles.seatText}>
-                  <Text role="navigation" fade className={styles.seatName}>
-                    {seat.name}
-                    {shared.has(seat.name) && (
-                      <Text role="meta" className={styles.seatAgent}>
-                        {brandOf(seat.info.presentation.name)}
-                      </Text>
-                    )}
-                  </Text>
+                {/* One line a seat. The name is the account's own — yours, or
+                    the address it was signed in with — so the identity under
+                    it only said it again. It is the name's tooltip (not the
+                    row's, which would sit over the mark's card) and whole on
+                    the card. The name gives way before the tag: the tag is
+                    the word that tells two rows apart. */}
+                <span className={styles.seatText} title={seat.sub}>
+                  <Text role="navigation" truncate className={styles.seatName}>{seat.name}</Text>
+                  {(() => {
+                    const tag = tagOf(seat)
+                    return tag ? <Text role="meta" truncate className={styles.seatTag}>{tag}</Text> : null
+                  })()}
                 </span>
                 {/* What is left, where it is measured; otherwise the one word
                     that is wrong. A ready seat with nothing metered says
@@ -714,7 +736,7 @@ export const AccountFooter = ({
                   <Text role="muted" tone={usageReadingTone(seat.tone)} numeric className={styles.seatFigure}>
                     {seat.figure}
                   </Text>
-                ) : seat.state !== 'ready' && seat.state !== 'available' ? (
+                ) : seat.state !== 'ready' && seat.state !== 'available' && (seat.known || seat.state !== 'signin') ? (
                   <Text role="meta" tone={readinessTone(seat.state)} className={styles.seatFigure}>
                     {READINESS_LABEL[seat.state]}
                   </Text>
@@ -782,9 +804,9 @@ export const AccountFooter = ({
                     </div>
                   ))}
                 </div>
-                {/* No link to the dashboard here: Dashboard is the row below,
-                    and a second door to it, indented under the fold, was one
-                    row and one ragged edge for nothing. */}
+                {/* No link to the dashboard here: Dashboard is in the
+                    sidebar's nav, and a second door to it, indented under
+                    the fold, was one row and one ragged edge for nothing. */}
               </div>
             )}
             <MenuItem

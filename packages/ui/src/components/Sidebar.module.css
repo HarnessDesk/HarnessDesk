@@ -341,13 +341,25 @@
   gap: var(--hd-space-1-5);
 }
 
-.seatText,
 .youText {
   flex-direction: column;
 }
 
-.seatAgent {
-  margin-left: var(--hd-space-1-5);
+/* A seat is one line: the name, and — only where two share it — the tag
+   that tells them apart. The tag keeps its width up to half the line; the
+   name gives way first. */
+.seatText {
+  align-items: baseline;
+  gap: var(--hd-space-1-5);
+}
+
+.seatName {
+  flex: 0 1 auto;
+}
+
+.seatTag {
+  flex: none;
+  max-width: 50%;
 }
 
 .accountLabel,

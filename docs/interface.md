@@ -256,14 +256,18 @@ the mark for its name card — which account, on what plan, how much is left.
 The menu behind the row opens on you, and pressing that row opens your
 profile. Then comes switching: **Run new sessions as** lists every account of
 every agent, one line each — its name, and the same figure the header strip
-shows — and ticks the default. The address and plan behind a name are on its
-tooltip and its card; the agent's name joins the line only when two accounts
-share one. An agent waiting for a sign-in is not listed (choosing it would
-start nothing) unless it is the default; it waits behind **Add an account**,
-whose chooser is where signing in happens. **Usage remaining** appears only
-where something is metered — its windows and when each resets, nothing else —
-and then come Settings and signing out of the default agent. Dashboard is not
-in this menu; it is in the sidebar's nav, a row above.
+shows — and the default is the filled row. The address and plan behind a name
+are on the name's tooltip and on the mark's card. Where two accounts share a
+name, a second word on the line tells them apart: the agent, when the agents
+differ, or else the address's domain. An agent that has answered that nobody
+is signed in is not listed (choosing it would start nothing) unless it is the
+default; it waits behind **Add an account**, whose chooser is where signing
+in happens. The menu-bar item still lists it, because there the row is itself
+the way to sign in. **Usage remaining** appears only where something is
+metered — its windows and when each resets, nothing else — and then come
+Settings and signing out of the default agent. Dashboard is not in this menu:
+it is in the sidebar's nav, on everything, and the Usage verb on an account's
+card opens it on that one agent.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every

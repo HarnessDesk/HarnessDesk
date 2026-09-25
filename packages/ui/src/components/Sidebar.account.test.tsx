@@ -123,6 +123,12 @@ const row = (): HTMLButtonElement => {
   return found
 }
 
+/** A seat's identity lives on its name's tooltip, not in its text. */
+const identityOf = (item: Element): string | null | undefined => item.querySelector('[title]')?.getAttribute('title')
+
+const seatNamed = (identity: string): Element | undefined =>
+  [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')].find((item) => identityOf(item) === identity)
+
 const click = (element: Element): void => {
   act(() => {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -143,19 +149,19 @@ it('is the desk, wearing the default agent — not the account, and not the conv
   expect(seat.querySelector('[role="img"]')?.getAttribute('data-state')).toBe('ready')
 })
 
-it('ticks the default in the menu, chooses on a seat’s press, and signs out of the default agent', () => {
+it('marks the default in the menu, chooses on a seat’s press, and signs out of the default agent', () => {
   const { selectRuntime } = mount()
   click(row())
-  const ticked = document.querySelector('[role="menuitem"][data-current]')
-  expect(ticked?.textContent).toContain('Shane-Claude')
+  const chosen = document.querySelector('[role="menuitem"][data-current]')
+  expect(chosen?.textContent).toContain('Shane-Claude')
   // Sign-out is the default agent's, not the focused conversation's.
   expect(document.body.textContent).toContain('Sign out of Claude')
   expect(document.body.textContent).not.toContain('Sign out of Codex')
-  if (!ticked) throw new Error('no current seat')
-  click(ticked)
+  if (!chosen) throw new Error('no current seat')
+  click(chosen)
 
   const codexSeat = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
-    item.getAttribute('title')?.includes('shane'),
+    identityOf(item)?.includes('shane'),
   )
   if (!codexSeat) throw new Error('no Codex seat in the menu')
   click(codexSeat)
@@ -176,14 +182,13 @@ it('keeps the menu on the current account until the picker is opened', () => {
 
   const menu = document.querySelector('[role="menu"]')
   expect(menu?.textContent).toContain('Shane-Claude')
-  expect(menu?.textContent).not.toContain('shane@example.com')
+  expect(seatNamed('shane@example.com')).toBeUndefined()
 
   const current = menu?.querySelector('[data-current]')
   if (!current) throw new Error('no current account')
   click(current)
 
-  const listed = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')]
-  expect(listed.some((item) => item.getAttribute('title') === 'shane@example.com')).toBe(true)
+  expect(seatNamed('shane@example.com')).toBeDefined()
   expect(selectRuntime).not.toHaveBeenCalled()
 })
 
@@ -271,8 +276,9 @@ it('resets expanded account and usage state when the trigger closes and reopens 
 
   click(row())
   const reopened = document.querySelector('[role="menu"]')
-  expect(reopened?.textContent).not.toContain('shane@example.com')
-  expect(reopened?.querySelector('[data-current]')).not.toBeNull()
+  // The picker is folded again: the current seat says so, and no other seat is drawn.
+  expect(reopened?.querySelector('[data-current]')?.getAttribute('aria-expanded')).toBe('false')
+  expect(seatNamed('shane@example.com')).toBeUndefined()
   const reopenedUsage = [...(reopened?.querySelectorAll('[role="menuitem"]') ?? [])].find((item) =>
     item.textContent?.includes('Usage remaining'),
   )
@@ -309,8 +315,8 @@ it.each([
   const reopenCollapsed = () => {
     click(row())
     const reopened = document.querySelector('[role="menu"]')
-    expect(reopened?.textContent).not.toContain('shane@example.com')
-    expect(reopened?.querySelector('[data-current]')).not.toBeNull()
+    expect(reopened?.querySelector('[data-current]')?.getAttribute('aria-expanded')).toBe('false')
+    expect(seatNamed('shane@example.com')).toBeUndefined()
     const usage = [...(reopened?.querySelectorAll('[role="menuitem"]') ?? [])].find((item) =>
       item.textContent?.includes('Usage remaining'),
     )
@@ -415,7 +421,7 @@ it('an agent that keeps its own credential wears no ring and is not dimmed for i
   const item = [...document.querySelectorAll('[role="menuitem"]')].find((el) => /^Cline/.test(el.textContent?.trim() ?? ''))
   // Ready says nothing on the row; the tooltip still answers.
   expect(item?.textContent).not.toContain('Ready')
-  expect(item?.getAttribute('title')).toBe('Ready')
+  expect(item && identityOf(item)).toBe('Ready')
   const disc = item?.querySelector('[data-slot="hover-card-trigger"] > span')
   expect(disc?.hasAttribute('data-off')).toBe(false)
   expect(disc?.hasAttribute('data-tint')).toBe(false)
@@ -512,9 +518,7 @@ it('a seat inside the menu offers Usage too, on the same account as the badge be
   const current = document.querySelector('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
   click(current)
-  const codexSeat = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
-    item.getAttribute('title') === 'shane@example.com',
-  )
+  const codexSeat = seatNamed('shane@example.com')
   const trigger = codexSeat?.querySelector('[data-slot="hover-card-trigger"]')
   if (!trigger) throw new Error('no card trigger on the menu seat')
   act(() => {
@@ -607,7 +611,9 @@ it('gives every seat one line, and keeps the identity for the tooltip', () => {
   click(current)
   const seats = [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')]
   expect(seats.map((seat) => seat.textContent?.trim())).toEqual(['shane', 'Shane-Claude'])
-  expect(seats.map((seat) => seat.getAttribute('title'))).toEqual(['shane@example.com', 'olivia@acme.dev'])
+  expect(seats.map(identityOf)).toEqual(['shane@example.com', 'olivia@acme.dev'])
+  // On the name, not the row: the row's tooltip would sit over the mark's card.
+  expect(seats.every((seat) => !seat.hasAttribute('title'))).toBe(true)
 })
 
 it('leaves an agent waiting for a sign-in to Add an account…, unless it is the default', () => {
@@ -622,6 +628,8 @@ it('leaves an agent waiting for a sign-in to Add an account…, unless it is the
   if (!current) throw new Error('no current seat')
   click(current)
   const menu = document.querySelector('[role="menu"]')
+  // The picker is open — the other signed-in agent is there — and Gemini is not.
+  expect(seatNamed('shane@example.com')).toBeDefined()
   expect(menu?.textContent).not.toContain('Gemini CLI')
   expect(menu?.textContent).toContain('Add an account…')
 
@@ -668,4 +676,47 @@ it('marks the default by its filled row, not a tick, so every figure ends at the
   for (const seat of document.querySelectorAll('[role="menuitem"][data-layout="account"]')) {
     expect(seat.querySelector('.lucide-check')).toBeNull()
   }
+})
+
+it('tells two addresses with one local part on one agent apart by their domains', () => {
+  const second = runtime(runtimeId('codex-2'), 'OpenAI Codex', 'codex')
+  mount({
+    runtimes: [codex, second, claude],
+    accountsByRuntime: {
+      [CODEX]: signedIn('jane@example.com'),
+      [second.id]: signedIn('jane@acme.dev'),
+      [CLAUDE]: signedIn('olivia@acme.dev'),
+    },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [second.id]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
+  })
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  click(current)
+  const seats = [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')]
+  expect(seats.map((seat) => seat.textContent?.trim())).toEqual(['janeexample.com', 'janeacme.dev', 'Shane-Claude'])
+})
+
+it('says what is wrong with a seat that has no figure, in the figure’s place', () => {
+  mount({ healthByRuntime: { [CODEX]: { state: 'unavailable', reason: 'crashed', message: 'exited' }, [CLAUDE]: { state: 'ready' } } })
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  click(current)
+  expect(seatNamed('shane@example.com')?.textContent).toContain('Unavailable')
+})
+
+it('keeps an agent that has not answered yet, without calling it signed out', () => {
+  mount({
+    accountsByRuntime: { [CLAUDE]: signedIn('olivia@acme.dev') },
+  })
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  click(current)
+  const codexSeat = [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')].find((item) =>
+    item.textContent?.includes('OpenAI Codex'),
+  )
+  expect(codexSeat).toBeDefined()
+  expect(codexSeat?.textContent).not.toContain('Needs sign-in')
 })
