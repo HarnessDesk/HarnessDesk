@@ -167,14 +167,8 @@ const ReachMark = ({
   else if (state === 'reaches') mark = <Dot state="ready" />
   else if (state === 'unscanned') mark = <TodoPendingIcon size={10} />
   else if (state === 'stale') mark = <Dot />
-  else if (state === 'off') {
-    mark = (
-      <span className="relative inline-flex size-3 items-center justify-center">
-        <Dot />
-        <span className="absolute h-px w-3 bg-current" />
-      </span>
-    )
-  } else mark = '—'
+  else if (state === 'off') mark = <Dot struck />
+  else mark = '—'
   const warning = state === 'hollow' || state === 'rejected' || state === 'differs' || state === 'unscanned'
   return (
     <Text
