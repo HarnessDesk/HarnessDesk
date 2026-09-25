@@ -47,6 +47,7 @@
 --hd-card-padding = 16px
 --hd-card-raised = rgb(255, 255, 255)
 --hd-chip-fill = rgb(245, 245, 245)
+--hd-chip-fill-hover = color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))
 --hd-chip-h = 22px
 --hd-chip-radius = 9999px
 --hd-code-active-line = rgba(0, 0, 0, 0.035)
@@ -500,6 +501,7 @@
 --hd-card-padding = 16px
 --hd-card-raised = rgb(41, 41, 41)
 --hd-chip-fill = rgb(49, 49, 49)
+--hd-chip-fill-hover = color-mix(in srgb, rgb(49, 49, 49) 86%, rgb(231, 231, 231))
 --hd-chip-h = 22px
 --hd-chip-radius = 9999px
 --hd-code-active-line = rgba(255, 255, 255, 0.045)
@@ -957,6 +959,7 @@
 --hd-card-radius = 14px
 --hd-card-raised = rgb(255, 255, 255)
 --hd-chip-fill = rgb(245, 245, 245)
+--hd-chip-fill-hover = color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))
 --hd-chip-h = 22px
 --hd-chip-radius = 9999px
 --hd-code-active-line = rgba(0, 0, 0, 0.035)
@@ -1422,6 +1425,7 @@
 --hd-card-radius = 14px
 --hd-card-raised = rgb(41, 41, 41)
 --hd-chip-fill = rgb(49, 49, 49)
+--hd-chip-fill-hover = color-mix(in srgb, rgb(49, 49, 49) 86%, rgb(231, 231, 231))
 --hd-chip-h = 22px
 --hd-chip-radius = 9999px
 --hd-code-active-line = rgba(255, 255, 255, 0.045)

@@ -194,8 +194,9 @@ const PanelFilter = ({
  * inspectors and in the Library's counts alike.
  *
  * It is a control, not a status, and each state says so. At rest it is a pill
- * on the chip ground; under the pointer the ground steps up to the pressed-row
- * fill and the words to full ink, as every other thing you can press does;
+ * on the chip ground; under the pointer the ground takes a step toward the
+ * ink (`--hd-chip-fill-hover`, a longer step in the dark theme, where a short
+ * one reads as none) and the words go to full ink;
  * focused from the keyboard it takes the app's one focus ring; pressed, it is
  * lit in the accent — `pressed` (or the older `data-on`) sets that, and says
  * it to assistive technology as `aria-pressed`.
@@ -226,7 +227,7 @@ const PanelPill = ({
       size: 'chip',
       type: props.type ?? 'button',
       className: cn(
-        'bg-(--hd-chip-fill) text-(--hd-secondary-foreground) hover:bg-(--hd-active) hover:text-(--hd-foreground)',
+        'bg-(--hd-chip-fill) text-(--hd-secondary-foreground) hover:bg-(--hd-chip-fill-hover) hover:text-(--hd-foreground)',
         selected && 'bg-(--hd-accent-dim) text-(--hd-accent) hover:bg-(--hd-accent-dim) hover:text-(--hd-accent)',
         props.className,
       ),
