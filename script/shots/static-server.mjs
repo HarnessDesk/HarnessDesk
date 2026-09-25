@@ -16,7 +16,7 @@
  * loopback only, and a port nothing else on the machine is holding.
  */
 import { createServer } from 'node:http'
-import { readFile } from 'node:fs/promises'
+import { lstat, readFile } from 'node:fs/promises'
 import { extname, join, sep } from 'node:path'
 
 const TYPES = {
@@ -31,10 +31,41 @@ const TYPES = {
 }
 
 /**
+ * Whether any component from `root` down to `path`, `path` itself included, is
+ * a symlink.
+ *
+ * The prefix check below refuses a request that would *lexically* resolve
+ * outside `root`, but a symlink inside `root` sidesteps that check entirely —
+ * `root/link` starts with `root` no matter where `link` points, so a folder or
+ * a file swapped for one would still be served, following it wherever it
+ * leads (#928). Checked component by component rather than with a single
+ * `realpath`, so the refusal names the one link actually in the way rather
+ * than only noticing the destination differs.
+ */
+const hasSymlinkComponent = async (root, path) => {
+  const relative = path.slice(root.length).split(sep).filter(Boolean)
+  let at = root
+  for (const segment of relative) {
+    at = join(at, segment)
+    let info
+    try {
+      info = await lstat(at)
+    } catch {
+      return false // a missing component is a 404, not a link to refuse
+    }
+    if (info.isSymbolicLink()) return true
+  }
+  return false
+}
+
+/**
  * Serves only files inside `root`. `request.url` is resolved against `root`
  * and refused the moment it would resolve outside it — a `..` segment or an
  * absolute-looking path included — so the one folder this rig hands out is
- * the only one a page loaded from it can ever ask for.
+ * the only one a page loaded from it can ever ask for. A symlink anywhere
+ * between `root` and the requested file is refused the same way, so nothing
+ * this server hands a guest page ever came from outside the folder it was
+ * given (#928).
  */
 export const startStaticServer = (root) =>
   new Promise((resolve, reject) => {
@@ -45,6 +76,10 @@ export const startStaticServer = (root) =>
           const relative = decodeURIComponent(url.pathname).replace(/^\/+/, '')
           const path = join(root, relative)
           if (path !== root && !path.startsWith(root + sep)) {
+            response.writeHead(403).end()
+            return
+          }
+          if (await hasSymlinkComponent(root, path)) {
             response.writeHead(403).end()
             return
           }

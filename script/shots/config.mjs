@@ -1,5 +1,5 @@
-import { existsSync, lstatSync, mkdirSync, realpathSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -57,12 +57,79 @@ const canonical = (path) => {
 }
 
 /**
+ * Refuses a resolved path that *is* this machine's real home or its real desk
+ * home (`~/.harnessdesk`) — checked by equality, after every symlink in
+ * either side has been followed, so a rig home that merely points at one
+ * through a link, or that was reused as one outright, is caught the same way.
+ *
+ * `seed.mjs`'s own guard asks a narrower question: whether *this rig* marked
+ * the folder, or found it empty. That guard would happily mark and then later
+ * clear a folder that happens to be empty on its first seed — which a real
+ * desk's home always is, before its first launch — and only bites once that
+ * folder is reused for real, on the very next reseed (#910). Checked here
+ * instead, against what the folder resolves to rather than what it is marked
+ * as, so the marker cannot make the question moot.
+ */
+const refuseRealDeskHome = (path) => {
+  const home = realpathSync(homedir())
+  if (path === home) {
+    throw new Error(
+      `${path} is this machine's real home ($HOME). This rig will not read, write or delete there — ` +
+        'point HD_SHOTS_HOME at an empty folder, or leave it unset for the default (a folder under the OS temp directory).',
+    )
+  }
+  const deskHome = (() => {
+    const asGiven = join(home, '.harnessdesk')
+    try {
+      return realpathSync(asGiven)
+    } catch {
+      return asGiven
+    }
+  })()
+  if (path === deskHome) {
+    throw new Error(
+      `${path} is this machine's real desk home (~/.harnessdesk). This rig will not read, write or delete there — ` +
+        'point HD_SHOTS_HOME at an empty folder, or leave it unset for the default (a folder under the OS temp directory).',
+    )
+  }
+}
+
+/**
+ * Refuses a resolved home this process does not own.
+ *
+ * `/tmp` (and the OS temp directory generally) is shared on a multi-user
+ * machine, so the rig's own default path is a name any account on the box
+ * could have created first — and once it exists, `canonical()`'s `mkdirSync`
+ * is a harmless no-op on a folder somebody else made, which would otherwise
+ * let this rig reuse and later clear a home it does not own (#928). Skipped
+ * where there is no POSIX owner to ask, rather than guessing.
+ */
+const refuseUnownedHome = (path) => {
+  if (typeof process.getuid !== 'function') return
+  const owner = statSync(path).uid
+  const me = process.getuid()
+  if (owner !== me) {
+    throw new Error(
+      `${path} is owned by another account on this machine (uid ${owner}, not this process's ${me}). ` +
+        'This rig will not reuse or clear a home it does not own — point HD_SHOTS_HOME at a folder of your own.',
+    )
+  }
+}
+
+const canonicalHome = (path) => {
+  const home = canonical(path)
+  refuseRealDeskHome(home)
+  refuseUnownedHome(home)
+  return home
+}
+
+/**
  * Off the real machine's home entirely — a fixed folder under the OS temp
  * directory, not `~/.harnessdesk-shots`. The staged desk, the fake Codex home
  * and every repository this rig builds live under here, so nothing it writes
  * or photographs can carry this machine's actual home path.
  */
-export const HOME = canonical(process.env['HD_SHOTS_HOME'] ?? join(tmpdir(), 'harnessdesk-shots'))
+export const HOME = canonicalHome(process.env['HD_SHOTS_HOME'] ?? join(tmpdir(), 'harnessdesk-shots'))
 
 /**
  * A "person" folder inside the staged home, one level above where the

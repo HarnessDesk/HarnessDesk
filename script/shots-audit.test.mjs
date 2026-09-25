@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -10,12 +11,15 @@ import {
   SEEN,
   TILDIFY,
   accountReasons,
+  guestReasons,
   reasonsFor,
   refuseUnpublishable,
   refuseUnvouchedAccounts,
   textReasons,
 } from './shots/audit.mjs'
 import { CAST, CONVERSATIONS, OLIVIA, REPOS, SHANE } from './shots/cast.mjs'
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
  * The screenshot rig's audit, tested — because it passed a real account.
@@ -146,6 +150,38 @@ test('an unshortened OS temp path is refused, whether or not it carries a userna
   }
 })
 
+test('the OS temp path check also derives its roots from this machine\'s own os.tmpdir(), not only the fixed four (#928)', () => {
+  // A `TMPDIR` this machine actually honours, in a shape none of the fixed
+  // four roots would ever match — proving the check is not limited to what
+  // earlier machines happened to look like.
+  const custom = '/opt/hd-shots-custom-tmp'
+  const out = execFileSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      "import { textReasons } from './script/shots/audit.mjs'; " +
+        `process.stdout.write(JSON.stringify(textReasons({ text: 'Opened ${custom}/harnessdesk-shots/person/work/storefront', documentTitle: '', attributes: [] }, {})))`,
+    ],
+    { cwd: REPO_ROOT, env: { ...process.env, TMPDIR: custom }, stdio: 'pipe', encoding: 'utf8' },
+  )
+  const refused = JSON.parse(out)
+  assert.equal(refused.length, 1)
+  assert.match(refused[0], /OS temp path/)
+  // The fixed roots still apply in the same process — deriving from
+  // `os.tmpdir()` adds to the list rather than replacing it.
+  const stillFixed = execFileSync(
+    process.execPath,
+    [
+      '--input-type=module', '-e',
+      "import { textReasons } from './script/shots/audit.mjs'; " +
+        "process.stdout.write(JSON.stringify(textReasons({ text: 'Opened /tmp/harnessdesk-shots/person/work/storefront', documentTitle: '', attributes: [] }, {})))",
+    ],
+    { cwd: REPO_ROOT, env: { ...process.env, TMPDIR: custom }, stdio: 'pipe', encoding: 'utf8' },
+  )
+  assert.match(JSON.parse(stillFixed)[0], /OS temp path/)
+})
+
 test('history outside the staged repositories is refused even when its row is not visible', () => {
   const history = [{ runtime: 'shots-opencode', id: 'unvouched', cwd: '/home/someone/private-repo' }]
   const refused = reasonsFor({ ...frame('Storefront'), history }, { roots: ['/tmp/rig/work/storefront'] })
@@ -245,6 +281,8 @@ test('the collector reads titles and alts, not only the body text (#296)', () =>
     querySelectorAll: (selector) => {
       asked.push(selector)
       if (selector === 'input:not([type=hidden]), textarea') return []
+      if (selector === 'select') return []
+      if (selector === 'webview, iframe') return []
       return [
         { tagName: 'SPAN', className: 'path', getAttribute: (name) => (name === 'title' ? '~/work/storefront' : null) },
         { tagName: 'IMG', className: '', getAttribute: (name) => (name === 'alt' ? 'Codex' : null) },
@@ -252,13 +290,130 @@ test('the collector reads titles and alts, not only the body text (#296)', () =>
     },
   }
   const seen = new Function('document', `return ${COLLECT}`)(document)
-  assert.deepEqual(asked, ['[title], [alt]', 'input:not([type=hidden]), textarea'], 'both attributes are asked for in one pass, then the fields')
+  assert.deepEqual(
+    asked,
+    ['[title], [alt], [placeholder], [aria-label]', 'input:not([type=hidden]), textarea', 'select', 'webview, iframe'],
+    'the four attributes are asked for in one pass, then fields, then selects, then guest panes',
+  )
   assert.equal(seen.text, 'the body')
   assert.equal(seen.documentTitle, 'HarnessDesk')
   assert.deepEqual(seen.attributes, [
     ['title', '~/work/storefront', 'span', 'path'],
     ['alt', 'Codex', 'img', ''],
   ])
+  assert.deepEqual(seen.guests, [])
+})
+
+test('the collector reads placeholder and aria-label, which surface a real path exactly like a title does (#922)', () => {
+  const leaking = {
+    tagName: 'INPUT',
+    className: 'search',
+    getAttribute: (name) => ({ placeholder: '/home/jroe/private-repo' }[name] ?? null), // hd-secrets-ok
+  }
+  const clean = {
+    tagName: 'BUTTON',
+    className: 'toggle',
+    getAttribute: (name) => ({ 'aria-label': 'Toggle the sidebar' }[name] ?? null),
+  }
+  const document = {
+    title: 'HarnessDesk',
+    body: { innerText: '' },
+    querySelectorAll: (selector) => (selector === '[title], [alt], [placeholder], [aria-label]' ? [leaking, clean] : []),
+  }
+  const seen = new Function('document', `return ${COLLECT}`)(document)
+  assert.deepEqual(seen.attributes, [
+    ['placeholder', '/home/jroe/private-repo', 'input', 'search'], // hd-secrets-ok
+    ['aria-label', 'Toggle the sidebar', 'button', 'toggle'],
+  ])
+  const reasons = textReasons(seen, { user: USER })
+  assert.equal(reasons.length, 1, 'the clean aria-label must not be refused')
+  assert.ok(reasons[0].startsWith('a placeholder attribute on input.search'))
+})
+
+test('a select\'s chosen option is read directly, not trusted to reach innerText (#922)', () => {
+  const clean = { tagName: 'SELECT', className: 'runtime', selectedOptions: [{ text: 'Codex' }] }
+  const leaking = { tagName: 'SELECT', className: 'workspace', selectedOptions: [{ text: '/home/jroe/private-repo' }] } // hd-secrets-ok
+  const empty = { tagName: 'SELECT', className: 'empty', selectedOptions: [] }
+  const document = {
+    title: 'HarnessDesk',
+    body: { innerText: '' },
+    querySelectorAll: (selector) => (selector === 'select' ? [clean, leaking, empty] : []),
+  }
+  const seen = new Function('document', `return ${COLLECT}`)(document)
+  assert.deepEqual(seen.attributes, [
+    ['selected option', 'Codex', 'select', 'runtime'],
+    ['selected option', '/home/jroe/private-repo', 'select', 'workspace'], // hd-secrets-ok
+  ])
+  const reasons = textReasons(seen, { user: USER })
+  assert.equal(reasons.length, 1)
+  assert.ok(reasons[0].startsWith('a selected option on select.workspace'), 'a selected option is not phrased as an attribute')
+  assert.doesNotMatch(reasons[0], /select\.runtime/, 'the clean select is not refused')
+})
+
+test('a visible guest pane showing a page this rig did not serve is collected by its address (#922)', () => {
+  const webview = {
+    tagName: 'WEBVIEW',
+    getBoundingClientRect: () => ({ width: 800, height: 600 }),
+    getURL: () => 'file:///Users/jroe/work/private-repo/index.html', // hd-secrets-ok
+  }
+  const hiddenIframe = {
+    tagName: 'IFRAME',
+    getBoundingClientRect: () => ({ width: 0, height: 0 }),
+    src: 'https://example.com/leaked',
+  }
+  const rigIframe = {
+    tagName: 'IFRAME',
+    getBoundingClientRect: () => ({ width: 400, height: 300 }),
+    src: 'http://127.0.0.1:54213/preview-frame?ticket=demo',
+  }
+  const document = {
+    title: 'HarnessDesk',
+    body: { innerText: '' },
+    querySelectorAll: (selector) => (selector === 'webview, iframe' ? [webview, hiddenIframe, rigIframe] : []),
+  }
+  const seen = new Function('document', `return ${COLLECT}`)(document)
+  assert.deepEqual(seen.guests, [
+    { tag: 'webview', src: 'file:///Users/jroe/work/private-repo/index.html' }, // hd-secrets-ok
+    { tag: 'iframe', src: 'http://127.0.0.1:54213/preview-frame?ticket=demo' },
+  ], 'the hidden iframe is not even collected')
+  const reasons = guestReasons(seen.guests)
+  assert.equal(reasons.length, 1)
+  assert.match(reasons[0], /webview pane is showing a page this rig did not serve/)
+})
+
+test('guestReasons refuses anything not served from the rig\'s own loopback origin, and passes what is (#922)', () => {
+  assert.deepEqual(guestReasons([]), [])
+  assert.deepEqual(guestReasons([{ tag: 'iframe', src: '' }]), [], 'not yet navigated')
+  assert.deepEqual(guestReasons([{ tag: 'webview', src: 'about:blank' }]), [])
+  assert.deepEqual(guestReasons([{ tag: 'iframe', src: 'http://127.0.0.1:9/preview-frame?ticket=x' }]), [])
+  for (const src of [
+    'file:///Users/jroe/work/browse/index.html', // hd-secrets-ok
+    'https://example.com/',
+    'http://192.168.1.5:8080/',
+    'http://127.0.0.1/no-port',
+  ]) {
+    const reasons = guestReasons([{ tag: 'webview', src }])
+    assert.equal(reasons.length, 1, src)
+    assert.doesNotMatch(reasons[0], /example\.com|Users|192\.168/, 'the address itself is not quoted back')
+  }
+})
+
+test('TILDIFY shortens placeholder and aria-label along with title (#922)', () => {
+  const home = '/home/someone'
+  const written = {}
+  const element = {
+    getAttribute: (name) => ({ placeholder: `${home}/work/storefront`, 'aria-label': `${home}/work` }[name] ?? null),
+    setAttribute: (name, value) => {
+      written[name] = value
+    },
+  }
+  const document = {
+    body: {},
+    createTreeWalker: () => ({ nextNode: () => null }),
+    querySelectorAll: (selector) => (selector === '[title], [placeholder], [aria-label]' ? [element] : []),
+  }
+  new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4 })
+  assert.deepEqual(written, { placeholder: '~/work/storefront', 'aria-label': '~/work' })
 })
 
 test('the collector reads what a field holds, which is neither text nor an attribute', () => {
@@ -452,7 +607,7 @@ test('the substitution both drivers run covers attributes, not only text (#296)'
   new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4 })
   assert.equal(text[0].nodeValue, 'Opened ~/work/storefront')
   assert.equal(text[1].nodeValue, 'nothing to change')
-  assert.deepEqual(asked, ['[title]', 'input:not([type=hidden]), textarea'])
+  assert.deepEqual(asked, ['[title], [placeholder], [aria-label]', 'input:not([type=hidden]), textarea'])
   assert.equal(titled.value, '~/work/storefront', 'the tooltip the recording used to leave standing')
   assert.equal(field.value, 'file://~/work/browse/index.html', 'the address bar, which is a field and not text')
 })

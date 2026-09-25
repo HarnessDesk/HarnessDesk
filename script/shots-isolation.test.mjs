@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -73,6 +73,22 @@ test('the native editor scene seeds the fake filesystem and requires rendered fi
   assert.match(editor, /waitForSnapshot\(/, 'the tab label does not prove that the file loaded')
   assert.match(editor, /\.cm-content/)
   assert.match(editor, /JSON\.stringify\(JSON\.parse\(text\)\)/, 'the editor must contain the actual seeded JSON')
+})
+
+test('the flow and new-session-agents scenes find the sidebar\'s own trigger, not a shorter-text button a staged Goal leaves behind (#928 review)', () => {
+  // Reproduced on the real rig: `board` or `room` stages a Goal, whose
+  // sidebar group keeps its own "New job" button standing for as long as the
+  // desk runs — shorter than "New session", so `click`'s own "smallest match
+  // wins" rule silently opened the board's composer instead of the session/
+  // Goal chooser, and the flow scene's readiness wait for the Goal dialog
+  // then timed out. Scoping the search to the sidebar's action row is what
+  // makes each scene independent of a Goal an earlier one left behind.
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const flow = shoot.slice(shoot.indexOf("flow: { expect: 'Checkout hardening'"), shoot.indexOf("'flow-board': {"))
+  assert.match(flow, /click\('New session', '\[aria-label="Workspace actions"\]'\)/)
+  assert.match(flow, /waitForSnapshot\(\(\) => cdp\.eval\(`document\.body\.innerText\.includes\('Checkout hardening'\)`\), Boolean\)/, 'the Goal must be waited for, not merely slept past')
+  const newSessionAgents = shoot.slice(shoot.indexOf("'new-session-agents': {"), shoot.indexOf("'palette-agents': {"))
+  assert.match(newSessionAgents, /click\('New session', '\[aria-label="Workspace actions"\]'\)/)
 })
 
 test('every seeded camera agent stays on its scripted process even with real CLIs installed', async t => {
@@ -472,6 +488,124 @@ test('a residue path swapped for a symlink between two takes refuses the reseed,
   assert.equal(readFileSync(join(home, 'agents.json'), 'utf8'), before)
 })
 
+test('a rig home pointed straight at this machine\'s real $HOME is refused, whether or not it carries the marker (#910)', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-real-home-'))
+  try {
+    // A folder that is empty — exactly the shape a real, never-yet-used $HOME
+    // is not, but the shape the guard this replaces would have happily
+    // marked as this rig's own on a first seed (#910's own reproduction).
+    let failure = null
+    try {
+      execFileSync(
+        process.execPath,
+        ['--input-type=module', '-e', "import './script/shots/config.mjs'"],
+        {
+          cwd: root,
+          env: { ...process.env, HOME: directory, HD_SHOTS_HOME: directory, HD_SHOTS_WORK: join(directory, 'work') },
+          stdio: 'pipe',
+        },
+      )
+    } catch (error) {
+      failure = error
+    }
+    assert.ok(failure, 'a rig home equal to $HOME must be refused')
+    assert.notEqual(failure.status, 0)
+    assert.match(String(failure.stderr), /real home/)
+    assert.match(String(failure.stderr), /\$HOME/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('a rig home pointed at this machine\'s real desk home is refused even though a marker from an earlier, empty seed says it is this rig\'s own (#910)', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-real-desk-home-'))
+  try {
+    const deskHome = join(directory, '.harnessdesk')
+    mkdirSync(deskHome, { recursive: true })
+    // The exact reproduction #910 describes: this folder was empty on its
+    // first seed, so the guard that only asks "did this rig mark it" let that
+    // seed through and wrote the marker here — and only on the *next* reseed,
+    // once this folder is a real desk's actual home, does that marker matter.
+    writeFileSync(join(deskHome, '.rig-home.json'), `${JSON.stringify({ version: 1, rig: 'harnessdesk-shots' })}\n`)
+    writeFileSync(join(deskHome, 'credentials.json'), '{"real":true}\n')
+
+    let failure = null
+    try {
+      execFileSync(
+        process.execPath,
+        ['--input-type=module', '-e', "import './script/shots/config.mjs'"],
+        {
+          cwd: root,
+          env: { ...process.env, HOME: directory, HD_SHOTS_HOME: deskHome, HD_SHOTS_WORK: join(directory, 'work') },
+          stdio: 'pipe',
+        },
+      )
+    } catch (error) {
+      failure = error
+    }
+    assert.ok(failure, 'a rig home resolving to the real desk home must be refused, marker or no marker')
+    assert.notEqual(failure.status, 0)
+    assert.match(String(failure.stderr), /desk home/)
+    assert.match(String(failure.stderr), /~\/\.harnessdesk/)
+    // Nothing was read, cleared or overwritten — the refusal happens on
+    // import, before `seed.mjs`'s own guard or `RESIDUE` sweep ever runs.
+    assert.equal(readFileSync(join(deskHome, 'credentials.json'), 'utf8'), '{"real":true}\n')
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('an ordinary rig home under the OS temp directory is unaffected by the real-home/real-desk-home guard (#910)', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-real-home-control-'))
+  try {
+    const home = join(directory, 'not-a-real-home')
+    const out = execFileSync(
+      process.execPath,
+      ['--input-type=module', '-e', "import { HOME } from './script/shots/config.mjs'; process.stdout.write(HOME)"],
+      { cwd: root, env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: join(directory, 'work') }, stdio: 'pipe', encoding: 'utf8' },
+    )
+    assert.equal(out, realpathSync(home))
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('a rig home this account does not own is refused before it is reused or cleared (#928)', (t) => {
+  // The OS temp directory itself — never a subfolder this rig would create —
+  // is a stable, always-present folder this process never seeds into: the
+  // guard has to refuse it on import, before `mkdirSync` (a no-op on a folder
+  // that already exists) or any later deletion could touch it. On an ordinary
+  // developer machine or an unprivileged CI runner it is owned by root while
+  // the test runs as somebody else; where that happens not to be true —
+  // this test itself running as root — there is no mismatch to observe.
+  if (typeof process.getuid !== 'function') {
+    t.skip('no POSIX uid on this platform')
+    return
+  }
+  const systemTemp = realpathSync(tmpdir())
+  if (statSync(systemTemp).uid === process.getuid()) {
+    t.skip(`${systemTemp} is owned by this account; the mismatch this guard refuses cannot be produced here`)
+    return
+  }
+  let failure = null
+  try {
+    execFileSync(
+      process.execPath,
+      ['--input-type=module', '-e', "import './script/shots/config.mjs'"],
+      {
+        cwd: root,
+        env: { ...process.env, HD_SHOTS_HOME: systemTemp, HD_SHOTS_WORK: join(systemTemp, 'hd-shots-unowned-work') },
+        stdio: 'pipe',
+      },
+    )
+  } catch (error) {
+    failure = error
+  }
+  assert.ok(failure, 'a home not owned by this account must be refused')
+  assert.notEqual(failure.status, 0)
+  assert.match(String(failure.stderr), /owned by another account/)
+})
+
 test('the default rig home and its work folder live under the OS temp directory, never this machine\'s real home', () => {
   // Spawned rather than imported directly: `config.mjs` resolves its defaults
   // at import time, and this repository's own test run always has
@@ -495,6 +629,23 @@ test('the default rig home and its work folder live under the OS temp directory,
   // `~/work/storefront` (`config.mjs`'s own doc comment).
   assert.ok(WORK.startsWith(`${HOME}/`), `WORK (${WORK}) is not nested inside HOME (${HOME})`)
   assert.equal(dirname(WORK), join(HOME, 'person'))
+})
+
+test('the capture drivers also map the desk\'s own home to ~/.harnessdesk, after the more specific work-folder substitution (#928 review)', () => {
+  // An Agent file the app reads from directly under `HOME` — not under
+  // `HOME/person/work` — never sat in either the real-home or the
+  // work-folder substitution, so its full path (an OS temp path on this
+  // machine) stood in a title on hover: `settings-agents` and `agent-page`
+  // failed their own audit for exactly this reason.
+  for (const file of ['script/shots/shoot.mjs', 'script/shots/gif.mjs']) {
+    const source = readFileSync(join(root, file), 'utf8')
+    assert.match(source, /TILDIFY\(HOME, '~\/\.harnessdesk'\)/, `${file} does not map its desk home to ~/.harnessdesk`)
+    assert.ok(
+      source.indexOf('TILDIFY(dirname(WORK))') < source.indexOf("TILDIFY(HOME, '~/.harnessdesk')"),
+      `${file} must shorten WORK's parent before mapping the broader desk home, or a repository path would ` +
+        'read ~/.harnessdesk/person/work/… instead of ~/work/…',
+    )
+  }
 })
 
 test('the capture drivers shorten the work folder\'s parent, never `WORK` itself, so a frame still reads ~/work/…', () => {

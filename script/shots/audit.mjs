@@ -40,7 +40,8 @@
  * desk — `dev@example.com`, the demo persona, twelve fictional agents — still
  * passes.
  */
-import { homedir } from 'node:os'
+import { realpathSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { isAbsolute, resolve, sep } from 'node:path'
 
 import { offendersIn } from '../check-secrets.mjs'
@@ -123,23 +124,36 @@ const prefixPattern = (home) => `${NOT_BEFORE_A_PATH}${escapeForRegExp(home)}${N
  * which is the actual fix for that; the anchor below is what stops the same
  * class of mistake happening again from any other unresolved candidate,
  * without needing to know about more than the one home every driver passes.
+ *
+ * A second argument, `replacement`, exists for one caller: a desk's home
+ * (`HARNESSDESK_HOME`) is not the machine's real home, so a path under it
+ * reads correctly as `~/.harnessdesk/…` rather than as a bare `~` with the
+ * `.harnessdesk` segment missing (#928 review). Every other caller keeps the
+ * default.
  */
-export const TILDIFY = (home) => {
+export const TILDIFY = (home, replacement = '~') => {
   const pattern = home ? prefixPattern(home) : null
   return `(() => {
     const pattern = ${JSON.stringify(pattern)}
+    const replacement = ${JSON.stringify(replacement)}
     const regex = pattern ? new RegExp(pattern, 'g') : null
-    const shorten = (value) => (typeof value === 'string' && regex ? value.replace(regex, '~') : value)
+    const shorten = (value) => (typeof value === 'string' && regex ? value.replace(regex, replacement) : value)
     const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
     let node
     while ((node = walk.nextNode())) {
       const shortened = shorten(node.nodeValue)
       if (shortened !== node.nodeValue) node.nodeValue = shortened
     }
-    for (const element of document.querySelectorAll('[title]')) {
-      const title = element.getAttribute('title')
-      const shortened = shorten(title)
-      if (shortened !== title) element.setAttribute('title', shortened)
+    // \`placeholder\` is drawn on screen exactly like a title is on hover, and
+    // \`aria-label\` costs nothing to walk even though it is never drawn — both
+    // gaps a real path could sit in unshortened (#922).
+    for (const element of document.querySelectorAll('[title], [placeholder], [aria-label]')) {
+      for (const name of ['title', 'placeholder', 'aria-label']) {
+        const value = element.getAttribute(name)
+        if (value === null) continue
+        const shortened = shorten(value)
+        if (shortened !== value) element.setAttribute(name, shortened)
+      }
     }
     // A field's contents live in its \`value\` property, which neither the text
     // walk nor any attribute reaches — the browser pane's address bar is one.
@@ -155,14 +169,15 @@ export const TILDIFY = (home) => {
  * Every string the window is showing, collected in the renderer.
  *
  * Evaluated over there and handed back as data, so the deciding happens in
- * Node where it can be tested. `innerText` is what a reader sees; the two
- * attributes are what a reader sees on hover, or would see if an image failed
- * to load, and neither has ever been looked at.
+ * Node where it can be tested. `innerText` is what a reader sees; `title` and
+ * `alt` are what a reader sees on hover, or would see if an image failed to
+ * load; `placeholder` is drawn on screen precisely like a title is, and
+ * `aria-label` is read on the same pass because it costs nothing (#922).
  */
 export const COLLECT = `(() => {
   const attributes = []
-  for (const element of document.querySelectorAll('[title], [alt]')) {
-    for (const name of ['title', 'alt']) {
+  for (const element of document.querySelectorAll('[title], [alt], [placeholder], [aria-label]')) {
+    for (const name of ['title', 'alt', 'placeholder', 'aria-label']) {
       const value = element.getAttribute(name)
       if (value) attributes.push([
         name,
@@ -182,10 +197,37 @@ export const COLLECT = `(() => {
       typeof field.className === 'string' ? field.className : '',
     ])
   }
+  // A closed native \`<select>\` may or may not put its chosen option's text
+  // into \`innerText\`, depending on how the engine renders it — so it is read
+  // directly rather than trusted to show up there (#922).
+  for (const select of document.querySelectorAll('select')) {
+    const chosen = select.selectedOptions && select.selectedOptions[0] ? select.selectedOptions[0].text : ''
+    if (chosen) attributes.push([
+      'selected option',
+      chosen,
+      'select',
+      typeof select.className === 'string' ? select.className : '',
+    ])
+  }
+  // A guest document — the browser pane's \`<webview>\`, or a preview pane's
+  // \`<iframe>\` — is a separate document \`innerText\` never reaches, and
+  // \`Page.captureScreenshot\` still captures its pixels. Rather than read its
+  // text (which needs a second, guest-side CDP target), every visible guest's
+  // own address is reported, so a page this rig did not serve can be refused
+  // outright (#922).
+  const guests = []
+  for (const node of document.querySelectorAll('webview, iframe')) {
+    const rect = node.getBoundingClientRect()
+    if (!(rect.width > 0 && rect.height > 0)) continue
+    const tag = node.tagName?.toLowerCase?.() ?? 'unknown'
+    const src = tag === 'webview' ? (node.getURL ? node.getURL() : '') : (node.src ?? '')
+    guests.push({ tag, src: src ?? '' })
+  }
   return {
     text: document.body.innerText ?? '',
     documentTitle: document.title ?? '',
     attributes,
+    guests,
   }
 })()`
 
@@ -230,8 +272,26 @@ const askTheGate = (where, value) =>
  * filesystem path in it at all). This is the backstop for everywhere else —
  * refusing the shape of the path rather than any one instance of it, the same
  * way the username check does not need to know what this machine is called.
+ *
+ * The four fixed roots are every shape a screenshot has actually carried; this
+ * machine's own `os.tmpdir()` is added on top (as given, and resolved through
+ * any symlink — macOS's `/tmp` is one), so a Linux box or a `TMPDIR` override
+ * this list has never seen is caught by what it actually is rather than only
+ * by what earlier machines happened to be (#928).
  */
-const OS_TEMP_PATH = /\/private\/var\/folders\/|\/var\/folders\/|\/private\/tmp\/|\/tmp\//
+const withTrailingSlash = (path) => (path.endsWith('/') || path.endsWith('\\') ? path : `${path}/`)
+const OS_TEMP_ROOTS = [
+  '/private/var/folders/', '/var/folders/', '/private/tmp/', '/tmp/',
+  withTrailingSlash(tmpdir()),
+  ...(() => {
+    try {
+      return [withTrailingSlash(realpathSync(tmpdir()))]
+    } catch {
+      return []
+    }
+  })(),
+]
+const OS_TEMP_PATH = new RegExp([...new Set(OS_TEMP_ROOTS)].map(escapeForRegExp).join('|'))
 
 /**
  * Reasons the rendered text is not publishable.
@@ -242,15 +302,19 @@ const OS_TEMP_PATH = /\/private\/var\/folders\/|\/var\/folders\/|\/private\/tmp\
  * from being the leak it just prevented.
  */
 export const textReasons = ({ text, documentTitle, attributes }, { user } = {}) => {
+  const suffix = (tag, className) =>
+    tag ? ` on ${tag}${className ? `.${String(className).trim().replace(/\s+/g, '.')}` : ''}` : ''
   const places = [
     ['frame', text],
     ['the window title', documentTitle ?? ''],
     // The article is picked rather than fixed: these names are read by whoever
     // is holding up a take, and "a alt attribute" reads as a broken message
-    // about a broken frame.
+    // about a broken frame. A select's chosen option is not an attribute at
+    // all, so it earns its own phrasing rather than a misleading one (#922).
     ...(attributes ?? []).map(([name, value, tag, className]) => [
-      `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} attribute` +
-        (tag ? ` on ${tag}${className ? `.${String(className).trim().replace(/\s+/g, '.')}` : ''}` : ''),
+      name === 'selected option'
+        ? `a selected option${suffix(tag, className)}`
+        : `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} attribute${suffix(tag, className)}`,
       value,
     ]),
   ]
@@ -314,11 +378,34 @@ export const historyReasons = (history = [], { roots = [], nativeCodex = false }
   })
 }
 
+/**
+ * A guest document's own address — the rig's loopback origin, or `about:blank`
+ * — is the only thing that need not be refused.
+ *
+ * `COLLECT` cannot read a guest's own text without a second, guest-side CDP
+ * target (a `<webview>`'s `webContents`, or an `<iframe>`'s content document,
+ * neither reachable from the host page's own evaluation context). Auditing the
+ * address instead is the fallback #922 names: a page this rig did not serve —
+ * a `file://` URL, this machine's real filesystem, or an arbitrary remote
+ * site — is refused outright rather than trusted to carry nothing worth
+ * hiding. `static-server.mjs` is what makes every rig-served guest answer
+ * `http://127.0.0.1:<port>/…`, on whichever port it happened to bind — the
+ * one thing every legitimate guest has in common and nothing else can forge
+ * from outside this machine.
+ */
+const RIG_SERVED = /^https?:\/\/127\.0\.0\.1:\d+\//
+export const guestReasons = (guests = []) =>
+  (guests ?? []).flatMap(({ tag, src }) => {
+    if (!src || src === 'about:blank' || RIG_SERVED.test(src)) return []
+    return [`a visible ${tag ?? 'guest'} pane is showing a page this rig did not serve`]
+  })
+
 /** Everything wrong with this frame, in the order a person would look at it. */
 export const reasonsFor = (seen, options = {}) => [
   ...textReasons(seen, options),
   ...accountReasons(seen.accounts ?? {}, options),
   ...historyReasons(seen.history ?? [], options),
+  ...guestReasons(seen.guests ?? []),
 ]
 
 /**
