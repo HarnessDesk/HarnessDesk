@@ -65,22 +65,32 @@ export const USER = homedir().split('/').filter(Boolean).pop() ?? ''
 const escapeForRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
- * A path starts here: at the very beginning of the string, or just past
- * whitespace, a quote or an opening bracket — never in the middle of a longer
- * run of characters. Captured, so the substitution can put it back: it is
- * context before the path, not part of it.
+ * A path starts here, and a path ends there — read off what a bare name is
+ * made of, not off a fixed list of what may sit next to one.
+ *
+ * The first attempt (#904) listed the characters allowed before a path
+ * (whitespace, a quote, an opening bracket) and after one (a slash, the end
+ * of the string). Real frames carry a home in shapes that list never
+ * anticipated: a `file://` URL, where the boundary is the third slash; a
+ * `cwd=` prefix; a second `PATH`-style entry after `:`; a name followed by a
+ * sentence's closing period or a bare space (#909 review, P2-1). Every one of
+ * those was shortened by the plain `split(home).join('~')` this replaced, so
+ * the narrower rule was a real regression, not only an incomplete one — a
+ * frame that used to publish clean now failed on a raw path.
+ *
+ * So the rule is inverted: a path starts wherever the character before it
+ * could *not* be part of a bare name (`(?<![A-Za-z0-9._~-])`), and it ends
+ * wherever the character after it could not continue one, including a
+ * dotted continuation like an extension (`(?![A-Za-z0-9_~-]|\.[A-Za-z0-9])`).
+ * That is also what keeps a shorter candidate out of the middle of a longer
+ * one — `/var` is never read out of `/private/var`, and `home` is never read
+ * out of `homework`, because in both the character right before the match
+ * would have to be a letter, which the rule refuses.
  */
-const PATH_START = '(^|[\\s"\'`([{])'
-/** And a candidate only counts where it actually ends a path component: a
- *  slash that continues it, or the end of the string. */
-const PATH_CONTINUES = '(?=[/\\\\]|$)'
+const NOT_BEFORE_A_PATH = '(?<![A-Za-z0-9._~-])'
+const NOT_CONTINUING_A_NAME = '(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9])'
 
-/**
- * One pattern for every candidate worth trying, longest first, so a shorter
- * one that happens to also match cannot pre-empt a more specific one.
- */
-const prefixPattern = (homes) =>
-  `${PATH_START}(?:${[...new Set(homes.filter(Boolean))].sort((a, b) => b.length - a.length).map(escapeForRegExp).join('|')})${PATH_CONTINUES}`
+const prefixPattern = (home) => `${NOT_BEFORE_A_PATH}${escapeForRegExp(home)}${NOT_CONTINUING_A_NAME}`
 
 /**
  * Write this machine's home as `~`, the way the app writes it elsewhere.
@@ -103,26 +113,23 @@ const prefixPattern = (homes) =>
  * a recording — the recording being the take that cannot be audited frame by
  * frame. One copy, and the drift cannot come back.
  *
- * **It only redacts a whole path prefix, and it tries more than one
- * candidate.** macOS resolves `/var` and `/tmp` to `/private/var` and
- * `/private/tmp`, so a rig home built from the as-given, pre-resolution path
- * never carries the leading `/private` the window actually shows. A plain
- * `split(home).join('~')` found the as-given string in the *middle* of the
- * resolved one and replaced only that, leaving `/private~/storefront`
- * standing — a corrupted path published in its place (#904). `home` may
- * therefore be one string or several: every one worth trying, longest first,
- * each anchored so it only ever matches a whole path component. The same
- * anchor is what stops a shorter candidate from truncating an unrelated,
- * longer name that merely starts with the same characters.
+ * **It only redacts a whole path prefix.** macOS resolves `/var` and `/tmp`
+ * to `/private/var` and `/private/tmp`, so a rig home built from the
+ * as-given, pre-resolution path never carried the leading `/private` the
+ * window actually showed. A plain `split(home).join('~')` found the as-given
+ * string in the *middle* of the resolved one and replaced only that, leaving
+ * `/private~/storefront` standing — a corrupted path published in its place
+ * (#904). `config.mjs` now resolves `HOME`/`WORK` before anything reads them,
+ * which is the actual fix for that; the anchor below is what stops the same
+ * class of mistake happening again from any other unresolved candidate,
+ * without needing to know about more than the one home every driver passes.
  */
 export const TILDIFY = (home) => {
-  const homes = Array.isArray(home) ? home : [home]
-  const pattern = homes.some(Boolean) ? prefixPattern(homes) : null
+  const pattern = home ? prefixPattern(home) : null
   return `(() => {
     const pattern = ${JSON.stringify(pattern)}
     const regex = pattern ? new RegExp(pattern, 'g') : null
-    const shorten = (value) =>
-      typeof value === 'string' && regex ? value.replace(regex, (match, lead) => \`\${lead}~\`) : value
+    const shorten = (value) => (typeof value === 'string' && regex ? value.replace(regex, '~') : value)
     const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
     let node
     while ((node = walk.nextNode())) {

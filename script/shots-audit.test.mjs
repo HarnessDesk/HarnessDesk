@@ -405,44 +405,82 @@ test('the substitution both drivers run covers attributes, not only text (#296)'
   assert.equal(titled.value, '~/work/storefront', 'the tooltip the recording used to leave standing')
 })
 
-test('tildify redacts a whole path prefix only, and covers a symlink-resolved home as well as the as-given one (#904)', () => {
-  /* macOS resolves `/var` (and `/tmp`) to `/private/var` (`/private/tmp`), so
-     a rig home built from the as-given, pre-resolution path never carries the
-     leading "/private" the window actually shows. The old substitution was a
-     plain `split(home).join('~')`: it found the as-given string in the
-     *middle* of the resolved one and replaced only that, leaving
-     "/private~/storefront" standing — a corrupted path, not a shortened one.
-     `TILDIFY` now takes every candidate worth trying (the resolved form and
-     the as-given one), longest first, and only redacts one where a path
-     actually starts — never mid-string, which is also what stops a shorter
-     candidate from truncating an unrelated, longer name that merely begins
-     with the same characters. */
-  const asGiven = '/var/folders/xx/home' // hd-secrets-ok
-  const resolved = '/private/var/folders/xx/home' // hd-secrets-ok
-  const text = [
-    { nodeValue: `Opened ${resolved}/storefront` },
-    // Same prefix, but continuing into a longer, different directory name —
-    // must be left whole rather than truncated at "home".
-    { nodeValue: `Opened ${asGiven}work/elsewhere` },
-    { nodeValue: 'nothing to change' },
+test('tildify redacts a home prefix wherever a path actually starts, and never mid-word (#904, #909)', () => {
+  /* Round one of this fix (#904) tried several candidate homes to cover a
+     symlink-resolved one as well as the as-given one — but `config.mjs` now
+     resolves `HOME`/`WORK` at the source, so the real fix for that is there,
+     not here (#909 review, P3-2), and a single candidate is what every
+     driver actually passes. What still belongs here is the boundary itself:
+     the old rule only recognised whitespace, a quote or an opening bracket as
+     "before a path", and only a slash or the end of the string as "after
+     one" — so it missed a home inside a `file://` URL (the browser scene's
+     own tab title), a `cwd=` prefix, a second PATH-style entry after `:`, and
+     a home followed by a space or closing punctuation. On main, the plain
+     `split(home).join('~')` this replaced shortened every one of those; this
+     rule has to as well, or the audit covers less than it used to and a
+     frame that used to publish clean now fails on the raw path — better than
+     a leak, but a real regression the review caught (#909 P2-1).
+
+     The one thing it still must reject is a match *inside* a longer path
+     segment — `/var` inside `/private/var`, or `jane` inside `janeway` or
+     `jane.txt` — which is why the boundary is "not a character that could
+     continue a bare name" rather than a fixed list of what may precede or
+     follow it. */
+  const home = '/Users/jane' // hd-secrets-ok
+  const cases = [
+    ['Opened /Users/jane/work/storefront', 'Opened ~/work/storefront'], // hd-secrets-ok
+    // The browser scene's own tab title: `${name}\n${url}` with a file:// URL
+    // (packages/ui/src/components/BrowserPane.tsx). The third slash is a
+    // boundary of its own, not a path character.
+    ['file:///Users/jane/work/browser-fixture.html', 'file://~/work/browser-fixture.html'], // hd-secrets-ok
+    ['cwd=/Users/jane/work', 'cwd=~/work'], // hd-secrets-ok
+    // A second PATH-style entry: the character before it is the separator, not a boundary character on any fixed list.
+    ['/Users/jane/bin:/Users/jane/.local/bin', '~/bin:~/.local/bin'], // hd-secrets-ok
+    ['Opened /Users/jane in Finder', 'Opened ~ in Finder'], // hd-secrets-ok
+    ['Home: /Users/jane.', 'Home: ~.'], // hd-secrets-ok
+    ['(/Users/jane)', '(~)'], // hd-secrets-ok
+    ["'/Users/jane'", "'~'"], // hd-secrets-ok
+    // Must not fire inside a longer, unrelated name that merely starts the same way.
+    ['/Users/janeway/work', '/Users/janeway/work'], // hd-secrets-ok
+    ['/Users/jane.txt', '/Users/jane.txt'], // hd-secrets-ok
+    // A work folder with nothing to do with home must survive untouched.
+    ['/tmp/rig/work/storefront and /Users/jane/work/storefront', '/tmp/rig/work/storefront and ~/work/storefront'], // hd-secrets-ok
+    ['nothing to change', 'nothing to change'],
   ]
-  const titled = {
-    value: `${resolved}/storefront`,
-    getAttribute: (name) => (name === 'title' ? titled.value : null),
-    setAttribute: (name, value) => {
-      titled.value = value
-    },
-  }
+  const text = cases.map(([input]) => ({ nodeValue: input }))
   let next = 0
   const document = {
     body: {},
     createTreeWalker: () => ({ nextNode: () => text[next++] ?? null }),
-    querySelectorAll: () => [titled],
+    querySelectorAll: () => [],
   }
-  new Function('document', 'NodeFilter', `return ${TILDIFY([asGiven, resolved])}`)(document, { SHOW_TEXT: 4 })
-  assert.equal(text[0].nodeValue, 'Opened ~/storefront')
-  assert.doesNotMatch(text[0].nodeValue, /private~/, 'a resolved prefix must not leave "/private" stranded')
-  assert.equal(text[1].nodeValue, `Opened ${asGiven}work/elsewhere`, 'a same-prefix longer name must survive untouched')
-  assert.equal(text[2].nodeValue, 'nothing to change')
-  assert.equal(titled.value, '~/storefront')
+  new Function('document', 'NodeFilter', `return ${TILDIFY(home)}`)(document, { SHOW_TEXT: 4 })
+  for (const [index, [input, expected]] of cases.entries()) {
+    assert.equal(text[index].nodeValue, expected, input)
+  }
+})
+
+test('tildify still refuses a shorter candidate matching inside a longer, resolved prefix (#904)', () => {
+  /* The original bug: macOS resolves `/var` to `/private/var`, and an
+     as-given, pre-resolution home matched itself out of the middle of the
+     resolved path, leaving "/private~/storefront" standing. `config.mjs` now
+     resolves `HOME`/`WORK` before anything reads them, so this is defence in
+     depth for whatever still calls `TILDIFY` with an unresolved value. */
+  const asGiven = '/var/folders/xx/home' // hd-secrets-ok
+  const original = `Opened /private${asGiven}/storefront`
+  const node = { nodeValue: original }
+  let served = false
+  const document = {
+    body: {},
+    createTreeWalker: () => ({
+      nextNode: () => {
+        if (served) return null
+        served = true
+        return node
+      },
+    }),
+    querySelectorAll: () => [],
+  }
+  new Function('document', 'NodeFilter', `return ${TILDIFY(asGiven)}`)(document, { SHOW_TEXT: 4 })
+  assert.equal(node.nodeValue, original, 'the as-given candidate must not fire in the middle of the resolved path')
 })

@@ -11,10 +11,7 @@ import { parseSeating } from '../packages/server/dist/src/agent-seating-file.js'
 import { Agents } from '../packages/server/dist/src/agents.js'
 import { InstallService } from '../packages/server/dist/src/installs/service.js'
 import { readChecks } from '../packages/server/dist/src/evidence/checks-file.js'
-import { Assignments } from '../packages/server/dist/src/goals/assignments.js'
 import { GoalStore } from '../packages/server/dist/src/goals/store.js'
-import { EvidenceStore } from '../packages/server/dist/src/evidence/store.js'
-import { SeatBook } from '../packages/server/dist/src/evidence/seats.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
 import { USAGE, LEDGER } from './shots/usage.mjs'
@@ -228,6 +225,11 @@ test('each provenance take removes residue and seeds only synthetic local facts'
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   const home = join(directory, 'home')
   const work = join(directory, 'work')
+  // A first take marks this custom home as the rig's own; only then does
+  // leaving residue behind, and reseeding over it, mean anything.
+  execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+    env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' }, stdio: 'pipe',
+  })
   for (const path of ['evidence', 'provenance']) {
     mkdirSync(join(home, path), { recursive: true })
     writeFileSync(join(home, path, 'previous-take'), 'must not survive')
@@ -272,7 +274,7 @@ test('the Intake acceptance rig owns a disposable home and never runs the live g
   assert.match(live, /process\.exit\(1\)/)
 })
 
-test('reseeding clears a leftover Goal, and does not leave the Seat it held open for the next room to collide with', async t => {
+test('reseeding clears a leftover Goal document, closing the leftover sidebar row it caused', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'hd-shots-goal-leak-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   const home = join(directory, 'home')
@@ -285,14 +287,17 @@ test('reseeding clears a leftover Goal, and does not leave the Seat it held open
   seed()
   const storefront = join(work, 'storefront')
 
-  // What one un-reseeded take of the room (or board, or flow-board) scene
-  // leaves behind: a Goal document on disk, and — because nothing in that
-  // scene ever releases it — a still-open Seat bound to the session id the
-  // fake agent's own per-process counter hands out first (`s-1`) on every
-  // fresh launch. The next take's first session on that runtime gets that
-  // same id back, which is exactly what made `--scene room` fail outright
-  // with "This conversation already holds a Seat." rather than merely
-  // leaving a stray sidebar row.
+  // What one un-reseeded take of the room, board or flow-board scene leaves
+  // behind: a Goal document on disk (`goals/store.ts` writes one file per
+  // Goal, plus an `index.json`). Left there, `GoalPlane` re-installs it as a
+  // Team projection on every boot (`host.ts`'s `for (const view of await
+  // this.#goals.list())`), which is the permanent, agent-less sidebar row —
+  // "Working"/"Needs you" with "No agents in here yet". That is the one claim
+  // this test makes. A Seat is a separate concern kept under `evidence/`,
+  // which this PR does not touch and which was already reset every take
+  // before it; a Goal document carries no Seat of its own (the schema
+  // forbids a `members` field), so it is deliberately left out here rather
+  // than implied as part of what this fix addresses (#909 review, P3-1).
   const goals = new GoalStore(home)
   mkdirSync(join(home, 'goals'), { recursive: true })
   const now = Date.now()
@@ -306,44 +311,44 @@ test('reseeding clears a leftover Goal, and does not leave the Seat it held open
     board: { nextIntent: 1, messaging: true, intents: [], channel: [] },
     citations: [], receipt: null, operation: null,
   }, null)
-  const evidence = new EvidenceStore(join(home, 'evidence'))
-  const seats = new SeatBook(evidence)
-  await seats.opened({
-    agent: null, briefDigest: null, seat: { runtime: 'codex' }, seatLabel: 'Seat 1',
-    passedOver: [], standing: { kind: 'permission', permission: 'read' }, ceiling: null,
-    cwd: storefront, session: { runtime: 'codex', sessionId: 's-1' }, board: 'stale-room', role: null,
-  })
-
-  // A fresh room's own assignment, checked against that stale Seat exactly as
-  // `team/add` + `assignGoal` would: this is the same collision Assignments
-  // reports as "already holds a Seat", read here without needing Electron.
-  const assignInto = async (book) => {
-    const assignments = new Assignments({
-      goal: () => ({ id: 'fresh-room', state: 'open', root: storefront }),
-      seats: () => book.all(),
-      known: async () => ({ project: storefront, busy: false }),
-      claimable: () => true,
-      commit: async (goal, card, session) => ({ id: 'seat-x', session, board: goal, closed: null, restored: undefined }),
-    })
-    return assignments.assign('fresh-room', 1, { runtime: 'codex', sessionId: 's-1' })
-  }
-
-  const staleSeats = new SeatBook(new EvidenceStore(join(home, 'evidence')))
-  await staleSeats.load()
-  await assert.rejects(
-    () => assignInto(staleSeats),
-    /already holds a Seat/,
-    'the scenario is not actually reproducing the reported collision',
-  )
+  assert.ok(existsSync(join(home, 'goals', 'stale-room.json')), 'the fixture did not actually stage a Goal document')
 
   // The next take reseeds, exactly as seed.mjs's own doc comment says to do
   // before every one.
   seed()
 
   assert.equal(existsSync(join(home, 'goals')), false, 'a leftover Goal survived reseeding')
+})
 
-  const freshSeats = new SeatBook(new EvidenceStore(join(home, 'evidence')))
-  await freshSeats.load()
-  assert.deepEqual(freshSeats.of('codex', 's-1'), [], 'a stale Seat still blocks the session id the next take will reuse')
-  await assignInto(freshSeats)
+test('seed.mjs refuses to clear a folder it has not marked as its own, and marks a fresh one for next time', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-guard-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'not-a-rig-home')
+  const work = join(directory, 'work')
+  mkdirSync(home, { recursive: true })
+  // Content that looks like it belongs to a real desk this rig must never
+  // touch — an `HD_SHOTS_HOME` pointed at a real `~/.harnessdesk`, or at
+  // `$HOME` itself, would otherwise have its credentials and Goals deleted by
+  // the very list this PR widened (#909 review, P3-3).
+  writeFileSync(join(home, 'credentials.json'), '{"real":true}\n')
+  mkdirSync(join(home, 'goals'), { recursive: true })
+  writeFileSync(join(home, 'goals', 'a-real-goal.json'), '{}\n')
+
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+
+  seed()
+  // Refused: nothing this rig did not put there is deleted.
+  assert.equal(readFileSync(join(home, 'credentials.json'), 'utf8'), '{"real":true}\n')
+  assert.equal(readFileSync(join(home, 'goals', 'a-real-goal.json'), 'utf8'), '{}\n')
+  // But this run marked the folder, so a deliberate, repeated use of the same
+  // custom HD_SHOTS_HOME is not refused forever.
+  assert.ok(existsSync(join(home, '.rig-home.json')), 'a fresh folder was not marked for next time')
+
+  seed()
+  // Trusted the second time, exactly like the default home always was.
+  assert.equal(existsSync(join(home, 'goals', 'a-real-goal.json')), false)
 })

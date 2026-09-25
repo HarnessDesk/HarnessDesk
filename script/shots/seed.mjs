@@ -65,17 +65,24 @@ const say = (line) => process.stdout.write(`  ${line}\n`)
  *
  * `goals/` is the one that bites hardest. Every Goal — the room the board and
  * room scenes build, and the one the flow and flow-board scenes create fresh
- * — lives there as its own document, with the Seats assigned to it inside.
- * Left unswept, a Goal from take one is still on disk for take two: its
- * sentence is a leftover row in the sidebar forever ("Working"/"Needs you"
- * with nothing behind it, because the room and its agents are gone), and its
- * still-open Seat is still bound to whatever session id the fixture handed
- * out — which the fake agents mint as `s-1`, `s-2`, … from zero on every
- * fresh launch, so the *next* take's first session collides with it. That is
- * exactly `assignGoal`'s "This conversation already holds a Seat. Release it
- * before assigning it elsewhere.", which is why `--scene room` failed outright
- * rather than merely leaving a stray row. The memory citation archive lives
- * under `goals/memory-archive`, so clearing the one directory clears both.
+ * — lives there as its own document. Left unswept, a Goal from take one is
+ * still on disk for take two, and `GoalPlane` re-installs it as a Team
+ * projection on every boot: its sentence is a permanent, agent-less row in
+ * the sidebar — "Working"/"Needs you" with "No agents in here yet", because
+ * the room and its agents are gone but the Goal document is not. The memory
+ * citation archive lives under `goals/memory-archive`, so clearing the one
+ * directory clears both.
+ *
+ * A Goal document carries no Seat of its own — the schema forbids a
+ * `members` field — so this is not what made `--scene room` refuse "This
+ * conversation already holds a Seat." A Seat is `evidence/`'s to keep, and
+ * `evidence/` was already cleared here before this fix. That refusal comes
+ * from running takes without a reseed between them: a Seat this desk opened
+ * stays open — by design, the same way it would across a real restart —
+ * until something closes it, so a `shoot.mjs` invocation that follows another
+ * one on the same un-reseeded home can still find its first session already
+ * seated. Reseeding before every take, which this file's own header has
+ * always said to do, already prevents that; nothing here changes it.
  *
  * The rest of this list is every other place a later phase taught the host to
  * write beside `goals/`: the Flows engine's own run records (`flows/`,
@@ -85,12 +92,16 @@ const say = (line) => process.stdout.write(`  ${line}\n`)
  * (`intake.json` and the `triggers-*` files), the session archive and its
  * names (`archive.json`, `names.json`), stored credentials nothing here
  * should ever populate (`credentials.json`), the worktree-lane allocator
- * (`lanes/`, `worktrees/`), and the desk's own write lease, which a killed
- * take can leave mid-recovery (`desk-writer.lock`, `desk-writer-recovery`).
+ * (`lanes/`, `worktrees/`), the library's own writes (`library/`), and the
+ * desk's own write lease, which a killed take can leave mid-recovery
+ * (`desk-writer.lock`, `desk-writer-recovery`).
  *
- * The Chromium profile under `electron/` is left alone — it is a browser
- * profile, not app state, and rebuilding it costs seconds of cold start for
- * nothing.
+ * `browser-profile/` is cleared too — it is the in-app browser tool's own
+ * webview partition, and no scene relies on anything a previous take left in
+ * it (the browser scene always opens its own fresh local fixture). The
+ * Chromium profile under `electron/` is left alone, because that one *is*
+ * relied on: it is the Electron shell's own profile, not app state, and
+ * rebuilding it costs seconds of cold start for nothing.
  */
 const RESIDUE = [
   'team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json',
@@ -101,14 +112,41 @@ const RESIDUE = [
   'intake.json', 'triggers-machine.json', 'triggers-key.bin', 'triggers-preferences.json',
   'triggers-desk-posts.json', 'triggers-cursors.json', 'archive.json', 'names.json',
   'credentials.json', 'lanes', 'worktrees', 'desk-writer.lock', 'desk-writer-recovery',
+  'browser-profile', 'library',
 ]
-for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
 
-if (process.argv.includes('--clean')) {
-  rmSync(HOME, { recursive: true, force: true })
-  for (const repo of REPOS) rmSync(join(WORK, repo.dir), { recursive: true, force: true })
-  say(`cleaned ${HOME} and ${REPOS.length} repositories`)
+/**
+ * A folder this rig has actually staged before, or the one it stages by
+ * default. Neither `RESIDUE` nor `--clean` may touch anything else.
+ *
+ * Widening `RESIDUE` — and `--clean` has always removed the whole folder —
+ * raises what a mistaken `HD_SHOTS_HOME` costs: pointed at a real desk's
+ * `~/.harnessdesk`, or at `$HOME` itself, either one would now delete real
+ * credentials, real Goals and real git worktrees rather than a rig's own
+ * (#909 review, P3-3). The default path is trusted outright, the same way it
+ * always implicitly was. Anything else has to prove it is this rig's own
+ * folder, which it does by carrying the marker the previous seed wrote —
+ * written again below regardless, so a deliberately repeated custom
+ * `HD_SHOTS_HOME` is trusted from its second run on, exactly like the
+ * default always was.
+ */
+const MARKER = join(HOME, '.rig-home.json')
+const usingDefaultHome = !process.env['HD_SHOTS_HOME']
+const rigOwnsHome = usingDefaultHome || existsSync(MARKER)
+
+if (rigOwnsHome) {
+  for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
+  if (process.argv.includes('--clean')) {
+    rmSync(HOME, { recursive: true, force: true })
+    for (const repo of REPOS) rmSync(join(WORK, repo.dir), { recursive: true, force: true })
+    say(`cleaned ${HOME} and ${REPOS.length} repositories`)
+  }
+} else {
+  say(`HD_SHOTS_HOME points at a folder this rig has not marked as its own (${HOME}); skipping residue cleanup rather than guessing what is safe to delete. Run seed.mjs again to use it as the rig's home from here on.`)
 }
+
+mkdirSync(HOME, { recursive: true })
+writeFileSync(MARKER, `${JSON.stringify({ version: 1, rig: 'harnessdesk-shots' })}\n`)
 
 mkdirSync(join(HOME, 'stores'), { recursive: true })
 mkdirSync(SHOT_ENV.CODEX_HOME, { recursive: true })
