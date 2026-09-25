@@ -100,6 +100,7 @@ const Harness = (props: Partial<Props>) => {
         <ConfirmDialog
           title="Delete conversation"
           confirmLabel="Delete"
+          tone="destructive"
           onConfirm={() => {}}
           onCancel={() => setShown(false)}
           {...props}
@@ -149,7 +150,7 @@ const pressTab = async (): Promise<void> => {
 
 it.each([
   // RemoveWorktree, the removals in Settings, signing out: the red verb and "Keep".
-  { shape: 'a destructive confirm', props: {}, proceed: 'Delete', stay: 'Keep' },
+  { shape: 'a destructive confirm', props: { tone: 'destructive' }, proceed: 'Delete', stay: 'Keep' },
   // OptionConfirm: the ordinary tone, with a better verb for staying put.
   {
     shape: 'a default-tone confirm with its own verb for staying',
@@ -165,6 +166,24 @@ it.each([
   expect(keep.parentElement).toBe(footer)
 
   expect(paintedLeftToRight(footer)).toEqual([keep, go])
+})
+
+/*
+ * The destructive look is the one cue that means "this destroys something",
+ * so it is chosen, never inherited (#900). Approving an Agent's attachments
+ * and arming a trigger both arrived with a trash can and a red verb because
+ * they said no tone at all.
+ */
+it('asks in the ordinary tone unless the caller says it destroys something', () => {
+  const consent = open({ title: 'Arm this trigger', confirmLabel: 'Arm' })
+  expect(consent.querySelector('[data-slot="alert-dialog-header"]')?.hasAttribute('data-tone')).toBe(false)
+  expect(button(consent, 'Arm').getAttribute('data-variant')).toBe('default')
+  act(() => root.unmount())
+  root = createRoot(container)
+
+  const removal = open({ tone: 'destructive' })
+  expect(removal.querySelector('[data-slot="alert-dialog-header"]')?.getAttribute('data-tone')).toBe('destructive')
+  expect(button(removal, 'Delete').getAttribute('data-variant')).toBe('destructive')
 })
 
 it('proceeds from the right-hand button and keeps from the left-hand one', () => {

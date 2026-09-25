@@ -329,6 +329,25 @@ const classNameIsStatic = (attribute, cssBindings) => {
   return ts.isJsxExpression(attribute.initializer) && (!attribute.initializer.expression || known(attribute.initializer.expression))
 }
 
+/*
+ * `size="pattern"` is a Button with no box of its own: a design-system
+ * pattern (Settings' RowButton, RowChoice) draws the box from its own sheet.
+ * Outside the design system it would be an unstyled button with the canonical
+ * name on it, so only `packages/ui/src/design/` may say it.
+ */
+const isDesignSource = (file) => file.startsWith('packages/ui/src/design/')
+const PATTERN_SIZE_DETAIL = 'size="pattern" leaves the box to a design-system pattern; a screen composes that pattern or picks a Button size'
+const namesPatternSize = (node) => {
+  let found = false
+  const visit = (child) => {
+    if (found) return
+    if ((ts.isStringLiteral(child) || ts.isNoSubstitutionTemplateLiteral(child)) && child.text === 'pattern') found = true
+    else ts.forEachChild(child, visit)
+  }
+  visit(node)
+  return found
+}
+
 export const scanUiArchitecture = (files) => {
   const findings = []
   const cssByPath = new Map(files.filter((file) => file.path.endsWith('.css')).map((file) => [file.path, file.source]))
@@ -386,6 +405,9 @@ export const scanUiArchitecture = (files) => {
       const reportedControlOverrides = new Set()
       const visit = (node) => {
         if (ts.isCallExpression(node)) {
+          if (!isDesignSource(file.path) && node.expression.getText(ast) === 'buttonVariants' && node.arguments.some(namesPatternSize)) {
+            findings.push({ path: file.path, rule: 'screen-pattern-button', detail: PATTERN_SIZE_DETAIL })
+          }
           const tag = node.arguments[0]
           if (isCreateElement(node.expression) && tag && ts.isStringLiteral(tag) && ['button', 'input', 'textarea', 'select'].includes(tag.text)) {
             findings.push({ path: file.path, rule: 'screen-generic-control', detail: `createElement('${tag.text}') bypasses the canonical design contract` })
@@ -405,6 +427,9 @@ export const scanUiArchitecture = (files) => {
             }
             if (isNullJsxAttribute(variant) || isNullJsxAttribute(size)) {
               findings.push({ path: file.path, rule: 'nullable-button-contract', detail: 'Button variants and sizes must be named canonical contracts' })
+            }
+            if (!isDesignSource(file.path) && size?.initializer && namesPatternSize(size.initializer)) {
+              findings.push({ path: file.path, rule: 'screen-pattern-button', detail: PATTERN_SIZE_DETAIL })
             }
           }
           if (CANONICAL_CONTROLS.has(tag) && !file.path.startsWith('packages/ui/src/design/')) {
