@@ -889,6 +889,13 @@ const DialogBoard = () => {
         <code>Cancel</code>. Someone reading quickly sees two verbs and picks one;{' '}
         <code>Cancel</code> beside <code>Delete</code> reads as two ways to stop.
       </p>
+      <p className={styles.rule}>
+        A footer has one filled button: the act, in ink — or filled red (<code>danger</code>) when it
+        destroys — and a quiet way out. A disabled act keeps its own hue, dimmed, so it still reads as
+        the act. A form dialog&rsquo;s body keeps one rhythm: a label 6px over its control, the next
+        field 16px down, a legend on its group the way a label sits on its field, and a choice list
+        that explains only the answer that holds.
+      </p>
     </>
   )
 }

@@ -335,6 +335,14 @@
     "pad": "0 12 0 12",
     "radius": 8
   },
+  "button/button/variant/danger": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 8
+  },
   "button/button/variant/default": {
     "h": 30,
     "text": 13,

@@ -42,8 +42,8 @@ furniture is smaller than a row's own title.
 
 | token | value | what it carries | rules |
 | --- | --- | --- | --- |
-| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, the smallest button label | 217 |
-| `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, hints and notes | 215 |
+| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, the smallest button label, the hint under a form field | 217 |
+| `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, a form field's label, notes | 215 |
 | `--hd-text` | 14px | what is read: the transcript, the composer, inputs | 82 |
 | `--hd-text-lg` | 16px | a dialog's title | 16 |
 | `--hd-heading` | 20px | a section's own name, a page's title, the wordmark | 13 |
@@ -231,20 +231,55 @@ do not remain as a second public vocabulary:
 
 | variant | where |
 | --- | --- |
-| `secondary` | the ordinary action (grey frame) |
+| `secondary` | the ordinary action (grey frame); drawn quiet in a dialog footer |
 | `default` | the one action a group exists for — at most one per group (ink fill) |
 | `outline` | bordered action on a transparent ground |
 | `ghost` | no frame until hover, for an action that repeats down a list |
-| `destructive` | does the irreversible thing, red on the label only |
+| `quiet` | the way out of a question — Keep, Cancel, Close — beside a filled act |
+| `destructive` | a remove action on a page or in a row, red on the label only |
+| `danger` | the act of a destructive confirm, filled red |
 
-Two rules keep `destructive` meaning something:
+Two rules keep red meaning something:
 
 1. A button that only opens a confirmation is ordinary — the red belongs on the
    step that cannot be taken back.
-2. Red is never a fill: a column of filled red buttons is a column nobody reads,
-   the same way a column of bold is a column of shouting. It is soft danger ink
-   on a transparent ground that fills on hover (`--hd-btn-danger-ink`,
-   `--hd-btn-danger-hover`).
+2. Red is a fill in exactly one place: the act of a destructive confirm
+   (`danger`, which `ConfirmDialog tone="destructive"` draws). By then the
+   question has been asked, and the red is what you came to do. Everywhere
+   else it is soft danger ink on a transparent ground that fills on hover
+   (`destructive`), because a column of filled red buttons is a column nobody
+   reads.
+
+**A dialog footer has one filled button.** The confirm is `default`, or
+`danger` when it destroys; Cancel and Close are `secondary`, which the footer
+draws quiet (no fill, secondary ink), or `quiet` itself. Write the proceeding
+action first: the footer is `row-reverse`, so it paints rightmost and is the
+first a Tab reaches. A disabled confirm stays the confirm — its own fill
+softened toward the ground and its label faded into it
+(`--hd-btn-primary-disabled-*`) — rather than half opacity, which on the grey
+footer drew a mid-grey slab that read as a second, secondary button. The
+design audit counts filled buttons in every `Dialog` footer.
+
+### Dialog forms
+
+A dialog that asks for more than one thing is a form, and its body is already
+one (`design/patterns/DialogForm.tsx`): children 16px apart, a `Field`'s label
+6px over its control and its hint 6px under it at 12px, a `Fieldset` legend
+6px over its group. The Settings parts read the dialog around them, so a
+screen composes them without saying a number: `SectionHead` draws a legend,
+`FormStack`, `Note` and `Rows` drop their page spacing, and a `Rows` radio
+group of `RowChoice` draws as a `ChoiceList` — 30px rows, a radio on the
+title's line, and only the chosen answer's description on screen.
+
+Which control a choice takes: `Segmented` or a `NativeSelect` for two to four
+short answers; `ChoiceList` when answers need a line; checkboxes for several
+members at once — never switches, which act the moment they flip. A field
+that may be left empty says `optional` at its label's end rather than in the
+label.
+
+A dialog, a confirm, a menu or a popover that holds focus never wears the
+focus ring round itself; the controls inside keep theirs. A dialog focuses its
+first field when it has one, and otherwise its own surface.
 
 `Segmented` is not a button. It is a piece of a segmented control — a choice
 between two or three words, one of which is on — and using it for actions is
@@ -571,6 +606,7 @@ changes.
 | All density, spacing, typography, radius, focus, and semantic colours | `packages/ui/src/design/foundation/tokens.css` |
 | Generic dialog mechanics and focus/portal behaviour | `packages/ui/src/design/ui/dialog.tsx` |
 | Modal, confirmation, approval and lightbox policy | `packages/ui/src/design/patterns/ModalDialog.tsx`, `ConfirmDialog.tsx`, `ApprovalDialog.tsx` and `Lightbox.tsx` |
+| A dialog's form rhythm, legend and choice list | `packages/ui/src/design/patterns/DialogForm.tsx` and its CSS module |
 | Disabled or refused actions and their focusable explanation | `packages/ui/src/design/patterns/RefusedAction.tsx` |
 | Menus and popovers | `packages/ui/src/design/patterns/Menu.tsx` and `Popover.tsx`, over `design/ui` |
 | CodeMirror and xterm theme integration | `packages/ui/src/design/adapters/` |
