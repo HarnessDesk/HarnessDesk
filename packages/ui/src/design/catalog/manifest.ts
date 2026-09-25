@@ -147,7 +147,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   delta: ['default'],
   dialog: ['default'],
   'dropdown-menu': ['default'],
-  'empty-state': ['default'],
+  'empty-state': ['panel', 'inline', 'row'],
   field: ['default'],
   'hover-card': ['default'],
   'icon-tile': ['default'],

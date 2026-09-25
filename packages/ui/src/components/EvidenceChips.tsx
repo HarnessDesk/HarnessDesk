@@ -19,6 +19,7 @@ import {
   byWords,
   cardChips,
   checkWords,
+  chipWords,
   chipOf,
   revisionOfFact,
   shortSha,
@@ -28,11 +29,15 @@ import {
 } from '../lib/evidence'
 import { ReviewIcon } from './Icons'
 
+/* A stale chip shows its fact and names its distance in the title, so the
+   fact stays whole on a narrow card and the distance is one hover away (and
+   in the dialog's "Now" row). */
 const FactChipView = ({ chip, className }: { readonly chip: FactChip; readonly className?: string }) => (
   <Chip
     tone={chip.outcome === null ? 'neutral' : stateTone(chip.outcome).tone}
     stale={chip.stale}
     unknown={chip.unknown}
+    {...(chip.since ? { title: chipWords(chip) } : {})}
     {...(className ? { className } : {})}
   >
     {chip.label}
@@ -43,29 +48,33 @@ export const EvidenceChips = ({
   id,
   title,
   card,
+  finished = false,
 }: {
   readonly id: number
   readonly title: string
   readonly card: CardEvidence | undefined
+  /**
+   * Whether the card says its work is done — the caller has the card's state
+   * (on the board, an intent in `done`). Not given, it is not: a zero diff
+   * alone then draws nothing, since nothing is known yet.
+   */
+  readonly finished?: boolean
 }) => {
   const [open, setOpen] = useState(false)
-  const chips = cardChips(card)
+  const chips = cardChips(card, finished)
   if (chips.length === 0) return null
   return (
     <>
       <Button
         variant="ghost"
         size="inline"
+        data-board-row=""
         className="flex min-w-0 max-w-full basis-full shrink flex-wrap items-center justify-start gap-1 whitespace-normal"
         aria-label={`What the desk observed on #${id}: ${chips.map(spokenChip).join(', ')}`}
         onClick={() => setOpen(true)}
       >
         {chips.map((one) => (
-          <FactChipView
-            key={one.key}
-            chip={one}
-            className="h-auto! min-h-(--hd-chip-h) max-w-full! py-1! leading-(--hd-line-sm)! whitespace-normal! [&_[data-slot=chip-words]]:break-words!"
-          />
+          <FactChipView key={one.key} chip={one} />
         ))}
       </Button>
       {open && <ObservedDialog id={id} title={title} card={card} onClose={() => setOpen(false)} />}
@@ -123,7 +132,7 @@ const Fact = ({ view }: { readonly view: EvidenceView }) => {
   const at = revisionOfFact(fact)
   const branch = view.record.checkout?.branch ?? null
   return (
-    <section aria-label={chip.label} className="flex flex-col gap-2">
+    <section aria-label={chipWords(chip)} className="flex flex-col gap-2">
       <FactChipView chip={chip} className="self-start" />
       <KeyValue>
         <KeyValueRow label="Observed">{new Date(view.record.observedAt).toLocaleString()}</KeyValueRow>

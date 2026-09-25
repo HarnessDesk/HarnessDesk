@@ -28,7 +28,7 @@ import {
   Text,
   Textarea,
 } from '../design'
-import { Checkbox, ToggleGroup, ToggleGroupItem } from '../design'
+import { Checkbox, EmptyState, ToggleGroup, ToggleGroupItem } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { shortPath } from '../lib/paths'
 import { DiffView } from './Diff'
@@ -271,7 +271,7 @@ export const PlanDialog = ({
       ) : !plan ? (
         <Text as="p" role="muted" className={styles.loading}>Working out exactly what would change…</Text>
       ) : plan.ops.length === 0 ? (
-        <Text as="p" role="muted" className={styles.loading}>Nothing to do.</Text>
+        <EmptyState variant="inline" className={styles.loading} title="Nothing to do." />
       ) : (
         <LibraryOperationList>
           {plan.ops.map((op, index) => {

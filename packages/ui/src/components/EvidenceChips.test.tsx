@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { cardEvidence, checkView, ciView, prView } from '../preview/evidence-fixture'
+import { cardEvidence, checkView, ciView, factView, prView } from '../preview/evidence-fixture'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { EvidenceChips, ObservedDialog } from './EvidenceChips'
@@ -24,9 +24,12 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/* One snapshot object: a store that answers every read with a new one never
+   settles, now that the chips read the board they belong to. */
+const SNAPSHOT = { ...emptySnapshot(), status: 'open' } as AppSnapshot
 const store = {
   subscribe: () => () => {},
-  getSnapshot: () => ({ ...emptySnapshot(), status: 'open' }) as AppSnapshot,
+  getSnapshot: () => SNAPSHOT,
 } as unknown as AppStore
 
 const mount = async (node: React.ReactNode): Promise<void> => {
@@ -101,11 +104,28 @@ it("each chip's tone is the one the state map gives its outcome, and stale and u
   expect(chips).toEqual([
     ['e2e running', 'info', false, false],
     ['verify ✓ @a1b2c3d', 'success', false, false],
-    ['lint ✓ @a1b2c3d — 2 commits since', 'neutral', true, false],
+    ['lint ✓ @a1b2c3d', 'neutral', true, false],
     ['CI cancelled', 'neutral', false, false],
     ['PR #12 merged', 'neutral', false, true],
   ])
+  // The distance a stale fact is behind rides in its title, not on the chip.
+  const stale = container.querySelector<HTMLElement>('[data-stale]')
+  expect(stale?.getAttribute('title')).toBe('lint ✓ @a1b2c3d — 2 commits since')
   expect(container.querySelector('button')?.getAttribute('aria-label')).toBe(
     'What the desk observed on #1: e2e running, verify ✓ @a1b2c3d, lint ✓ @a1b2c3d — 2 commits since (stale), CI cancelled, PR #12 merged (unknown)',
   )
+})
+
+it('draws a zero diff alone only when the caller says the card is finished', async () => {
+  const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
+  await mount(
+    <>
+      <div data-card="1"><EvidenceChips id={1} title="Finished" card={cardEvidence(1, [none])} finished /></div>
+      <div data-card="2"><EvidenceChips id={2} title="Working" card={cardEvidence(2, [none])} finished={false} /></div>
+      <div data-card="3"><EvidenceChips id={3} title="Unsaid" card={cardEvidence(3, [none])} /></div>
+    </>,
+  )
+  expect(container.querySelector('[data-card="1"]')?.textContent).toBe('no changes')
+  expect(container.querySelector('[data-card="2"]')?.innerHTML).toBe('')
+  expect(container.querySelector('[data-card="3"]')?.innerHTML).toBe('')
 })

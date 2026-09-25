@@ -95,14 +95,25 @@ export type FactOutcome =
 
 export interface FactChip {
   readonly key: string
+  /** The fact itself — what a card shows, whole. */
   readonly label: string
+  /**
+   * How far the fact is behind, for a stale one: "2 commits since". Said
+   * aloud and in the chip's title, not drawn on it — the stale glyph already
+   * says it is behind, and on a 185px card the distance is what cut the fact
+   * itself down to "verify ✓ @a1b…".
+   */
+  readonly since: string | null
   readonly outcome: FactOutcome | null
   readonly stale: boolean
   readonly unknown: boolean
 }
 
+/** The fact and how far behind it is, as one line: a chip's title. */
+export const chipWords = (chip: FactChip): string => (chip.since ? `${chip.label} — ${chip.since}` : chip.label)
+
 export const spokenChip = (chip: FactChip): string =>
-  `${chip.label}${chip.stale ? ' (stale)' : ''}${chip.unknown ? ' (unknown)' : ''}`
+  `${chipWords(chip)}${chip.stale ? ' (stale)' : ''}${chip.unknown ? ' (unknown)' : ''}`
 
 const checkLabel = (fact: CheckFact): string => {
   const at = `@${shortSha(fact.at)}`
@@ -117,15 +128,21 @@ const checkOutcome = (fact: CheckFact): FactOutcome | null =>
 const ciLabel = (verdict: CiVerdict): string =>
   verdict === 'passed' ? 'CI ✓' : verdict === 'failed' ? 'CI ✗' : `CI ${verdict}`
 
+type DiffFact = Extract<Evidence, { kind: 'diff' }>
+
+const isEmptyDiff = (fact: DiffFact): boolean => fact.files === 0 && fact.added === 0 && fact.removed === 0
+
+const isEmptyDiffView = (view: EvidenceView): boolean => view.record.fact.kind === 'diff' && isEmptyDiff(view.record.fact)
+
 export const chipOf = (view: EvidenceView): FactChip => {
   const fact = view.record.fact
   const since = sinceWords(view.freshness)
-  const said = (base: string): string => (since ? `${base} — ${since}` : base)
   const stale = isStale(view.freshness)
   const unknown = view.freshness.state === 'unknown'
   const chip = (key: string, label: string, outcome: FactOutcome | null): FactChip => ({
     key,
-    label: said(label),
+    label,
+    since,
     outcome,
     stale,
     unknown,
@@ -140,7 +157,7 @@ export const chipOf = (view: EvidenceView): FactChip => {
     case 'pr':
       return chip('pr', `PR #${fact.number} ${fact.state}`, fact.state)
     case 'diff':
-      return chip('diff', `+${fact.added} −${fact.removed} in ${plural(fact.files, 'file')}`, null)
+      return chip('diff', isEmptyDiff(fact) ? 'no changes' : `+${fact.added} −${fact.removed} in ${plural(fact.files, 'file')}`, null)
     case 'review':
       return chip(`review:${fact.by}`, `review: ${fact.verdict}`, null)
     case 'finding':
@@ -149,6 +166,7 @@ export const chipOf = (view: EvidenceView): FactChip => {
       return {
         key: 'spend',
         label: `$${fact.usd.toFixed(2)} in ${plural(fact.turns, 'turn')}`,
+        since: null,
         outcome: null,
         stale: false,
         unknown: false,
@@ -156,19 +174,34 @@ export const chipOf = (view: EvidenceView): FactChip => {
   }
 }
 
-export const cardChips = (card: CardEvidence | undefined): readonly FactChip[] => {
+/**
+ * A card's chips. `finished` is whether the card says its work is done — on
+ * the board, an intent in the `done` state, which is what lands a card in
+ * Needs you, In review or Ready rather than To do or Working.
+ */
+export const cardChips = (card: CardEvidence | undefined, finished = false): readonly FactChip[] => {
   if (!card) return []
   const running = new Set(card.running.map((one) => one.name))
-  return [
+  const chips = [
     ...card.running.map((one): FactChip => ({
       key: `check:${one.name}`,
       label: `${one.name} running`,
+      since: null,
       outcome: 'running',
       stale: false,
       unknown: false,
     })),
     ...card.facts
       .filter((view) => !(view.record.fact.kind === 'check' && running.has(view.record.fact.name)))
-      .map(chipOf),
+      .map((view) => ({ view, chip: chipOf(view) })),
   ]
+  /* A diff that changed nothing is a count of zero: beside other facts it
+     says nothing and draws no chip (the dialog still lists it). Alone on a
+     card that says it is finished, it is the finding — work that claims to
+     be done changed nothing — so it stays, one quiet neutral chip. On a card
+     still being worked, or not yet claimed, nothing is known yet: the same
+     "no changes" on every working card is noise, so it draws nothing. */
+  const said = chips.filter((one) => !('view' in one) || !isEmptyDiffView(one.view))
+  const kept = said.length > 0 || !finished ? said : chips.slice(0, 1)
+  return kept.map((one) => ('chip' in one ? one.chip : one))
 }
