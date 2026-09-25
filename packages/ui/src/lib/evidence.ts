@@ -95,14 +95,25 @@ export type FactOutcome =
 
 export interface FactChip {
   readonly key: string
+  /** The fact itself — what a card shows, whole. */
   readonly label: string
+  /**
+   * How far the fact is behind, for a stale one: "2 commits since". Said
+   * aloud and in the chip's title, not drawn on it — the stale glyph already
+   * says it is behind, and on a 185px card the distance is what cut the fact
+   * itself down to "verify ✓ @a1b…".
+   */
+  readonly since: string | null
   readonly outcome: FactOutcome | null
   readonly stale: boolean
   readonly unknown: boolean
 }
 
+/** The fact and how far behind it is, as one line: a chip's title. */
+export const chipWords = (chip: FactChip): string => (chip.since ? `${chip.label} — ${chip.since}` : chip.label)
+
 export const spokenChip = (chip: FactChip): string =>
-  `${chip.label}${chip.stale ? ' (stale)' : ''}${chip.unknown ? ' (unknown)' : ''}`
+  `${chipWords(chip)}${chip.stale ? ' (stale)' : ''}${chip.unknown ? ' (unknown)' : ''}`
 
 const checkLabel = (fact: CheckFact): string => {
   const at = `@${shortSha(fact.at)}`
@@ -120,12 +131,12 @@ const ciLabel = (verdict: CiVerdict): string =>
 export const chipOf = (view: EvidenceView): FactChip => {
   const fact = view.record.fact
   const since = sinceWords(view.freshness)
-  const said = (base: string): string => (since ? `${base} — ${since}` : base)
   const stale = isStale(view.freshness)
   const unknown = view.freshness.state === 'unknown'
   const chip = (key: string, label: string, outcome: FactOutcome | null): FactChip => ({
     key,
-    label: said(label),
+    label,
+    since,
     outcome,
     stale,
     unknown,
@@ -149,6 +160,7 @@ export const chipOf = (view: EvidenceView): FactChip => {
       return {
         key: 'spend',
         label: `$${fact.usd.toFixed(2)} in ${plural(fact.turns, 'turn')}`,
+        since: null,
         outcome: null,
         stale: false,
         unknown: false,
@@ -163,6 +175,7 @@ export const cardChips = (card: CardEvidence | undefined): readonly FactChip[] =
     ...card.running.map((one): FactChip => ({
       key: `check:${one.name}`,
       label: `${one.name} running`,
+      since: null,
       outcome: 'running',
       stale: false,
       unknown: false,

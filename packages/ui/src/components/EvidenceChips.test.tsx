@@ -101,10 +101,13 @@ it("each chip's tone is the one the state map gives its outcome, and stale and u
   expect(chips).toEqual([
     ['e2e running', 'info', false, false],
     ['verify ✓ @a1b2c3d', 'success', false, false],
-    ['lint ✓ @a1b2c3d — 2 commits since', 'neutral', true, false],
+    ['lint ✓ @a1b2c3d', 'neutral', true, false],
     ['CI cancelled', 'neutral', false, false],
     ['PR #12 merged', 'neutral', false, true],
   ])
+  // The distance a stale fact is behind rides in its title, not on the chip.
+  const stale = container.querySelector<HTMLElement>('[data-stale]')
+  expect(stale?.getAttribute('title')).toBe('lint ✓ @a1b2c3d — 2 commits since')
   expect(container.querySelector('button')?.getAttribute('aria-label')).toBe(
     'What the desk observed on #1: e2e running, verify ✓ @a1b2c3d, lint ✓ @a1b2c3d — 2 commits since (stale), CI cancelled, PR #12 merged (unknown)',
   )

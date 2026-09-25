@@ -346,7 +346,11 @@ type BoardCardProps = Omit<React.ComponentProps<'div'>, 'title'> & {
    * "blocked" and not why.
    */
   note?: React.ReactNode
-  /** The foot's left end: a timestamp, a dependency count, anything small. */
+  /**
+   * The foot's left end: a timestamp, a dependency count, anything small. An
+   * item in it that needs the card's width marks itself `data-board-row` and
+   * gets a line of its own above the rest (see the foot below).
+   */
   meta?: React.ReactNode
   actions?: React.ReactNode
 }
@@ -471,7 +475,19 @@ const BoardCard = ({
         </div>
       )}
       {hasFoot && (
-        <div className="flex items-center gap-3 border-t border-(--hd-border) pt-2 text-xs text-(--hd-muted-foreground)">
+        /* A meta item that needs the card's whole width — a row of evidence
+           chips, whose facts are sentences — marks itself `data-board-row`.
+           The foot then flattens the group holding it into its own items and
+           wraps: the row takes a line of its own at the full width, and the
+           small facts and the ⋯ share the last line, the ⋯ at its end as on
+           every other card. Without the mark the foot is one line, as it
+           always was. */
+        <div
+          className={cn(
+            'flex items-center gap-3 border-t border-(--hd-border) pt-2 text-xs text-(--hd-muted-foreground)',
+            '[&:has(>*>[data-board-row])]:flex-wrap [&:has(>*>[data-board-row])]:gap-y-1.5 [&>:has(>[data-board-row])]:contents',
+          )}
+        >
           {meta}
           {attachments != null && (
             <span className="inline-flex items-center gap-1 [&_svg]:size-3.5" title="Attachments">
@@ -485,8 +501,11 @@ const BoardCard = ({
               <span className="tabular-nums">{comments}</span>
             </span>
           )}
-          <span className="flex-1" />
-          {actions}
+          {/* Pushed to the end by a margin rather than a spacer: an empty
+              spacer is one more flex item, and the gap on each side of it
+              took 12px from the meta beside it — the width a card's evidence
+              chips need to show their fact whole. */}
+          {actions != null && <span className="ms-auto flex shrink-0 items-center gap-3">{actions}</span>}
         </div>
       )}
     </article>

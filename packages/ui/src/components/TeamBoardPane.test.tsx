@@ -820,7 +820,9 @@ it('a stale chip says how far behind it is', async () => {
     observed(['verify'], [cardEvidence(1, [checkView({ freshness: { state: 'behind', commits: 2 } })])]),
   )
   await render(store)
-  expect(chipsOf(1)?.textContent).toBe('verify ✓ @a1b2c3d — 2 commits since (stale)')
+  // The card shows the fact whole; the distance is said aloud and in the chip's title.
+  expect(chipsOf(1)?.textContent).toBe('verify ✓ @a1b2c3d (stale)')
+  expect(chipsOf(1)?.querySelector('[data-stale]')?.getAttribute('title')).toBe('verify ✓ @a1b2c3d — 2 commits since')
   expect(chipsOf(1)?.getAttribute('aria-label')).toBe(
     'What the desk observed on #1: verify ✓ @a1b2c3d — 2 commits since (stale)',
   )
