@@ -296,6 +296,62 @@ Pricing resolves user overlay (`~/.harnessdesk/pricing.json`) → models.dev
 bundled: a wrong price is worse than no price, so an unknown model stays
 unpriced rather than inventing a rate.
 
+## The five shapes
+
+Every figure on this screen is one of five things, and the rule is that they
+never mix: nothing here adds a percentage to a dollar, or a token to a
+request. `packages/protocol/src/usage.ts` is where each shape lives, typed so
+a card can be built without naming the vendor behind it.
+
+- **Capacity** — how much of a window is left. The one comparable scale is
+  `UsageLane.usedPercent`; a lane may *also* carry the vendor's own unit
+  (`unit`, `used`, `limit` — `'percent' | 'requests' | 'credits' | 'acu' |
+  'usd'`) and which side of the plan it is on (`layer: 'plan' | 'overage'`),
+  but the percentage is what makes two agents' lanes comparable at all, and
+  it stays even where a source also gives its own unit.
+- **Money, Paid** — cash that actually left an account: a vendor-metered
+  spend, or `billing.fee` (the plan's own recurring charge) and
+  `billing.overage.spent` (metered spend past the included allowance).
+- **Money, Value** — tokens priced at public API rates, a *list-price
+  equivalent* and never an invoice — the whole of "What honest costs money to
+  say" above.
+- **Turns** — a plain count, for a plan that bills by request rather than by
+  token or a rolling percentage (Cursor's request-based tiers):
+  `UsageReport.turns`, `{ count, unitsPerTurn, since }`. `unitsPerTurn` is
+  null where the source does not say what a turn is worth against its own
+  unit, and `since` bounds what the count covers — never assumed to be the
+  plan's whole lifetime.
+- **Tokens** — the ledger's own count, split into what a model is actually
+  billed for: `LedgerRow`/`LedgerDay`'s `input`, `output`, `cacheRead`,
+  `cacheWrite`, `reasoning` and `requests`, and `LedgerReport.totals` for the
+  same six across the whole window. `tokens` (and `totalTokens`) is
+  `input + output + cacheRead + cacheWrite` — reasoning is already inside
+  `output` for every scanner in `ledger/scan.ts`, so it is never added a
+  second time, only kept so a caller can say "of which N reasoning" without
+  a second total that could disagree with the first. Every scanner also
+  normalises `input` to exclude the cache before it is stored, so a
+  cache-hit rate is always `cacheRead / (input + cacheRead)` — the share of
+  the *input* side that came from cache — never `cacheRead / tokens`, which
+  would dilute it with output that was never a candidate for the cache at
+  all.
+
+`UsageReport.billing.kinds` names which of these a plan actually has —
+`'windows' | 'allowance' | 'balance' | 'metered' | 'free'` — as a set, because
+a plan can be more than one shape at once (a Claude Code plan is `windows` for
+its lanes and also `balance` the moment it carries prepaid credit). It is
+typed and documented in this PR; filling it in per reader, and reading
+`earliestDay` into the heatmap, are the next PR's work — see the field
+comments in `usage.ts` for exactly what each one may never be collapsed with.
+
+`SpendCoverage.earliestDay` is the other new field here, and it is not one of
+the five shapes — it is what makes **Tokens** honest on a calendar. It is the
+earliest day the ledger has *any* row for, unwindowed, so the heatmap can tell
+a day before the scan started (drawn as "no record yet") from a day the scan
+covered where nothing was actually spent (a real zero). `daysCovered` answers
+"how much of the window I asked for came back"; `earliestDay` answers "how far
+back does this agent's history go at all," and the two are read for different
+questions.
+
 ## The screen
 
 One full-window surface called **Dashboard** — the name the sidebar row, ⌘K,
