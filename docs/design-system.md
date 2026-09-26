@@ -1387,6 +1387,41 @@ A result that takes a moment: one toast that says it is under way and then
 turns into how it ended, rather than a spinner somewhere and a second toast
 later. The promise's own value can name the ending.
 
+### `PaneColumn`
+
+`packages/ui/src/design/patterns/PaneColumn.tsx`
+
+`data-slot`/`data-inset` are for a test or a screen's own CSS to read, the
+ same convention the rest of `design/patterns` stamps.
+
+### `paneColumnInsetClassName`
+
+`packages/ui/src/design/patterns/PaneColumn.tsx`
+
+The one inset `PaneColumn` itself cannot carry: the sidebar's row hands its
+inline padding to `SessionHoverCard`'s own `className`, which is the hover
+trigger's own surface — wrapping it in another element would move the
+trigger's edge rather than merely its padding. A class name composed here,
+the same way `Chip`'s tone reads from `softTone({ tone })`, so the rail's
+own inset stays this file's the day it changes rather than a literal a
+screen repeats.
+
+### `useComposerHeightVar`
+
+`packages/ui/src/design/patterns/PaneColumn.tsx`
+
+The transcript's composer floats over its own scrolling column, so the
+column's bottom inset has to know how tall the composer currently is —
+a value only the browser can measure, not a screen can guess.
+
+Owned here rather than in the screen: `root` is the ancestor both the
+measured dock and the column needing its height sit under (`--composer-h`
+is a CSS custom property, visible to descendants of whichever element
+carries it, not to a sibling), and `dock` is the element to measure —
+typically the strip holding the bars and the composer together. A screen
+wires the two refs to its own markup; the observing and the `setProperty`
+call are this hook's alone.
+
 ### `useDismissOverlays`
 
 `packages/ui/src/design/patterns/Popover.tsx`
@@ -1487,6 +1522,12 @@ something is broken or will be lost. A default or normal state is
 `neutral` or has no chip at all, and a stop the person asked for is
 neutral. Colour on every row is noise that hides the one row that needs
 someone. See `design/usage.ts`, family `tone`.
+
+**`dotTone`.** A chip's dot ordinarily borrows the pill's own ink, so the
+two never disagree about what they report. The one exception is a live
+indicator sitting on a pill that must stay calm while the mark itself
+keeps moving — a running turn, say — and `dotTone` is that dot's own
+colour, apart from `tone`.
 
 ### `Search`
 
@@ -1772,7 +1813,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 25 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
+| `screenAppearance` | 12 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
 | `singleAreaPrimitive` | 46 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |

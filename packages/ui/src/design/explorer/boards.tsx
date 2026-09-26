@@ -84,6 +84,7 @@ import {
   NavigationGroupHeader,
   Note,
   NoteList,
+  PaneColumn,
   PopoverSurface,
   RefusedAction,
   SectionHead,
@@ -170,6 +171,17 @@ const MESSAGE_CATALOG_ALIGN = ['start', 'end'] as const
 const MESSAGE_CATALOG_VARIANTS = ['start', 'end'] as const
 const MESSAGE_CATALOG_SIZES = ['default'] as const
 const MESSAGE_CATALOG_STATES = ['default'] as const
+/** The transcript's own vertical rhythm — the one named `rhythm` value. */
+const MESSAGE_CATALOG_RHYTHM = ['transcript'] as const
+/** `PaneColumn`'s own shapes: the transcript's scroll box and its bars strip,
+ *  the room's stream, the sidebar's rail, and the jobs strip nested in the
+ *  transcript's bars. */
+const PANECOLUMN_CATALOG_INSET = ['transcript', 'bars', 'stream', 'rail', 'jobs'] as const
+/** `PaneColumn` has no variant, size or state of its own — `inset` carries
+ *  the whole contract — so these three match the manifest's own `['default']`. */
+const PANECOLUMN_CATALOG_VARIANTS = ['default'] as const
+const PANECOLUMN_CATALOG_SIZES = ['default'] as const
+const PANECOLUMN_CATALOG_STATES = ['default'] as const
 
 const ButtonBoard = () => (
   <>
@@ -244,6 +256,14 @@ const StateBoard = () => (
         <Chip tone="warning">Warning</Chip>
         <Chip tone="danger">Danger</Chip>
         <Chip tone="info">Info</Chip>
+      </Case>
+      <Case label="chip with its own dot tone">
+        {/* The conversation header's status pill: neutral while running, and
+            the one moving mark — the dot alone — brand and pulsing, so the
+            pill does not shout through most of a turn. */}
+        <Chip tone="neutral" dotTone="brand" dotPulse>Running</Chip>
+        <Chip tone="warning" dotTone="warning">Waiting on you</Chip>
+        <Chip tone="danger" dotTone="danger">Failed</Chip>
       </Case>
       <Case label="outline tag">
         <Chip tone="neutral" size="sm" variant="outline" emphasis>Loaded first</Chip>
@@ -1151,6 +1171,20 @@ const MessageBoard = () => (
           </Message>
         </Case>
       ))}
+      {MESSAGE_CATALOG_RHYTHM.map((rhythm) => (
+        <Case key={rhythm} label={`message rhythm: ${rhythm}`}>
+          <Message align="end" rhythm={rhythm} data-catalog-rhythm={rhythm}>
+            <Bubble variant="secondary">
+              <BubbleContent>Sent, spaced at the transcript's own rhythm.</BubbleContent>
+            </Bubble>
+          </Message>
+          <Message align="start" rhythm={rhythm} data-catalog-rhythm={rhythm}>
+            <Bubble variant="ghost">
+              <BubbleContent>Answered, at its own six px each way.</BubbleContent>
+            </Bubble>
+          </Message>
+        </Case>
+      ))}
     </div>
     <Case label="a sent message — end-aligned, sized to its own words">
       <div className="w-full" data-testid="message-user-short">
@@ -1204,6 +1238,32 @@ const MessageBoard = () => (
       thirds of the column; <code>ghost</code> is everyone else&rsquo;s, unframed and the full
       row, because rendered prose is a document rather than a chip. The room&rsquo;s
       own channel line (the Channel board) stands on the same two parts.
+    </p>
+    <div
+      className={styles.matrix}
+      data-catalog-variants={PANECOLUMN_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={PANECOLUMN_CATALOG_SIZES.join(' ')}
+      data-catalog-states={PANECOLUMN_CATALOG_STATES.join(' ')}
+    >
+      {PANECOLUMN_CATALOG_INSET.map((inset) => (
+        <Case key={inset} label={`pane column: ${inset}`}>
+          <PaneColumn
+            inset={inset}
+            data-catalog-inset={inset}
+            className="w-56 rounded-(--hd-radius-md) border border-(--hd-border) bg-(--hd-card)"
+          >
+            <div className="h-10 rounded-(--hd-radius-sm) bg-(--hd-muted)" />
+          </PaneColumn>
+        </Case>
+      ))}
+    </div>
+    <p className={styles.rule}>
+      <code>PaneColumn</code> is the inline-and-bottom inset a scrolling pane's own
+      column keeps, lined up with its own scrollbar gutter: the transcript's scroll box
+      (<code>transcript</code>, which also clears its floating composer), the strip of
+      bars above it (<code>bars</code>), the room's stream (<code>stream</code>), the
+      sidebar's rail row (<code>rail</code>), and the jobs strip nested inside the
+      transcript's own bars (<code>jobs</code>).
     </p>
   </div>
 )
