@@ -154,12 +154,6 @@ const click = async (node: Element | null | undefined, what: string): Promise<vo
   })
 }
 
-const openBlock = async (): Promise<void> => {
-  const toggle = [...container.querySelectorAll('button')].find((node) =>
-    node.getAttribute('aria-label')?.startsWith('Show the accounts under'),
-  )
-  if (toggle) await click(toggle, 'the block toggle')
-}
 
 const back = async (): Promise<void> => {
   await click(
@@ -170,7 +164,6 @@ const back = async (): Promise<void> => {
 
 /** The chip as the list header draws it, and as the agent's own page draws it. */
 const listAndAgentPage = async (): Promise<string[]> => {
-  await openBlock()
   const header = chip()
   await click(agentName(), 'the agent name')
   const agentPage = chip()
@@ -181,7 +174,8 @@ const listAndAgentPage = async (): Promise<string[]> => {
 /** The same, plus the chip on the account's own page. */
 const everySurface = async (): Promise<string[]> => {
   const [header, agentPage] = await listAndAgentPage()
-  await openBlock()
+  // The account is on the agent's own page, one line in.
+  await click(agentName(), 'the agent name')
   await click(
     [...container.querySelectorAll('button')].find((node) =>
       node.textContent?.includes('olivia@acme.dev'),
@@ -226,21 +220,12 @@ it('a healthy signed-in default is ready on all three', async () => {
   expect(states[0]).toBe('ready')
 })
 
-it('folds an agent with the system disclosure mark, as its own target beside the name', async () => {
+it('lists an agent as one line that opens its page, with nothing to fold', async () => {
   await mount({ accountsByRuntime: { [CLAUDE]: signedIn } } as unknown as Partial<AppSnapshot>)
-  const fold = (): Element | undefined =>
-    [...container.querySelectorAll('button')].find((node) =>
-      /^(Show|Hide) the accounts under/.test(node.getAttribute('aria-label') ?? ''),
-    )
-  const mark = (): Element | null | undefined => fold()?.querySelector('[data-slot="disclosure-chevron"]')
-  // The name opens the agent; the fold is a sibling target, never inside it.
-  expect(fold()?.contains(agentName() ?? null)).toBe(false)
-  expect(agentName()?.contains(fold() ?? null)).toBe(false)
-  expect(fold()?.getAttribute('aria-expanded')).toBe('false')
-  expect(mark()?.hasAttribute('data-open')).toBe(false)
-  expect(container.textContent).not.toContain('olivia@acme.dev')
-  await openBlock()
-  expect(fold()?.getAttribute('aria-expanded')).toBe('true')
-  expect(mark()?.hasAttribute('data-open')).toBe(true)
-  expect(container.textContent).toContain('olivia@acme.dev')
+  // The accounts are not a fold under the line any more: the line says who
+  // it is signed in as, and its page holds the rest.
+  expect(container.querySelector('button[aria-expanded]')).toBeNull()
+  expect(agentName()?.textContent).toContain('olivia@acme.dev')
+  await click(agentName(), 'the agent name')
+  expect([...container.querySelectorAll('[data-slot="section-name"]')].map((node) => node.textContent)).toContain('Accounts')
 })
