@@ -14,7 +14,11 @@ test('real sidebar footer fills its column and its menu is painted and clickable
     }, width)
     const gap = await trigger.evaluate(node => {
       const footer = node.parentElement!.parentElement!
-      const box = footer.getBoundingClientRect(), row = node.getBoundingClientRect()
+      // The row is the seat and the inbox bell beside it: the seat opens the
+      // row, the bell closes it, and together they fill the column.
+      const end = footer.lastElementChild!.getBoundingClientRect()
+      const box = footer.getBoundingClientRect(), seat = node.getBoundingClientRect()
+      const row = { left: seat.left, right: end.right }
       // The column states one inset for every row it holds; the footer row is
       // one of them, so read the number rather than repeating it here — a
       // literal would have to be edited every time the column is re-spaced,
