@@ -73,7 +73,12 @@ export const stackDaily = (ledger: LedgerReport | null, now: number): StackedSer
     .sort((a, b) => b[1] - a[1])
     .map(([runtime]) => runtime)
 
-  const earliest = ledger.coverage?.earliestDay ?? null
+  // `undefined` means an old report with no coverage field at all — nothing
+  // is known to be unknown, so an old report hatches nothing. `null` means a
+  // report that knows it has no history yet, and every day without a bucket
+  // is unknown. A finite day is the first one on record, and only the days
+  // before it (that carry no spend) are unknown.
+  const earliest = ledger.coverage?.earliestDay
 
   const start = midnight(now)
   const days: StackedDay[] = []
@@ -86,7 +91,7 @@ export const stackDaily = (ledger: LedgerReport | null, now: number): StackedSer
     const dayTotal = parts.reduce((sum, part) => sum + part, 0)
     if (dayTotal > peak) peak = dayTotal
     total += dayTotal
-    const unknown = earliest === null || day < earliest
+    const unknown = !bucket && earliest !== undefined && (earliest === null || day < earliest)
     days.push({ day, total: dayTotal, tokens: tokensByDay.get(day) ?? 0, parts, unknown })
   }
   return { days, keys, peak, total }
@@ -202,7 +207,7 @@ export const previousPeriod = (
   const end = Math.max(0, wide.days.length - range)
   const start = Math.max(0, end - range)
   const daily = wide.days.slice(start, end)
-  const complete = daily.length === range
+  const complete = daily.length === range && daily.every((day) => !day.unknown)
   const total = sum(daily.map((day) => day.total))
   const change = !complete || total === 0 ? null : ((currentTotal - total) / total) * 100
   return { total, daily, complete, change }
@@ -226,7 +231,7 @@ export const previousByRuntime = (
   const end = Math.max(0, wide.days.length - range)
   const start = Math.max(0, end - range)
   const slice = wide.days.slice(start, end)
-  const complete = slice.length === range
+  const complete = slice.length === range && slice.every((day) => !day.unknown)
   const totals = new Map<RuntimeId, number>()
   wide.keys.forEach((key, index) => {
     totals.set(
@@ -258,9 +263,9 @@ export const alignGhost = (
   Array.from({ length: currentLength }, (_, index) => {
     const fromEnd = currentLength - index
     const previousIndex = previousDaily.length - fromEnd
-    return previousIndex >= 0 && previousIndex < previousDaily.length
-      ? (previousDaily[previousIndex]?.total ?? null)
-      : null
+    if (previousIndex < 0 || previousIndex >= previousDaily.length) return null
+    const previousDay = previousDaily[previousIndex]
+    return previousDay && !previousDay.unknown ? previousDay.total : null
   })
 
 /**
@@ -278,8 +283,8 @@ export const niceCeiling = (peak: number): number => {
   const exponent = Math.floor(Math.log10(peak))
   const magnitude = 10 ** exponent
   const fraction = peak / magnitude
-  const step = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10
-  return step * magnitude
+  const step = fraction < 1 ? 1 : fraction < 2 ? 2 : fraction < 5 ? 5 : 10
+  return Math.max(step * magnitude, 0.02)
 }
 
 export const axisTicks = (peak: number): readonly [number, number, number] => {
