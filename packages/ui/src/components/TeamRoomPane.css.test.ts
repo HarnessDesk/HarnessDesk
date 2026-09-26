@@ -191,16 +191,20 @@ describe('the narrow rail and the narrow header', () => {
  * it and "Chat" was cut through its top half, both unclickable until the
  * banner was dismissed.
  *
- * The fix belongs to the notice system, not the rail: `data-notice-yield`
- * (declared once, in `app.css`, beside `.hd-floatingNotices` itself) reads
- * `--hd-notice-inset` and resets it for what it contains. The room's own
- * `.split` opts in, so the rail, the reading side and Board's own header row
- * all move together — not just the rail, which used to leave the reading
- * side's own top edge, and Board's header with it, exactly where it was.
+ * The fix belongs to the notice system, not the rail, and no longer to the
+ * room either: `data-notice-yield` (declared once, in `app.css`, beside
+ * `.hd-floatingNotices` itself) reads `--hd-notice-inset` and resets it for
+ * what it contains. `Panes.tsx` now composes it once for whatever a pane
+ * mounts, so the room's own `.split` no longer carries a copy — one here
+ * would only ever read an already-zeroed inset, since the pane host's
+ * wrapper sits above it and has spent the variable already.
  */
 describe('the room under a standing notice', () => {
-  it('opts the whole split into the notice system’s own contract, not just the rail', () => {
-    expect(source).toContain('<div className={styles.split} data-notice-yield>')
+  it('carries no `data-notice-yield` of its own — the pane host composes it for every screen now', () => {
+    // The name still appears in prose, explaining why it moved; only the
+    // JSX attribute itself — the thing that would double the margin — is
+    // gone.
+    expect(source).not.toMatch(/<[a-zA-Z][^>]*\bdata-notice-yield\b/)
   })
 
   it('does not keep its own copy of the inset — that is the notice system’s job now', () => {

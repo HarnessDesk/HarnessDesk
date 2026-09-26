@@ -16,9 +16,10 @@
  *  - "slow"           → answers only after 10s (interrupt target)
  *  - anything else    → two message chunks and end_turn
  */
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+const REFUSES_AT_START = process.env.FAKE_ACP_REFUSE_TOOLS_WHILE ? existsSync(process.env.FAKE_ACP_REFUSE_TOOLS_WHILE) : false
 
 /**
  * With FAKE_ACP_STORE set, completed conversations persist to that file and
@@ -60,6 +61,15 @@ const recordOpen = (method, sessionId, cwd, meta) => {
   }
 }
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
+// FAKE_ACP_GROUPED_MODELS offers the model control the way DeepSeek Harness's
+// own ACP server does: choices grouped by provider, each value an opaque
+// JSON-encoded [provider, model] pair rather than a readable id.
+const GROUPED_MODELS = process.env.FAKE_ACP_GROUPED_MODELS === '1'
+// FAKE_ACP_RESUME_ONLY plays DeepSeek Harness's own server: it keeps a store
+// and offers `session/resume`, which restores a conversation without replaying
+// it, and has no `session/load` at all.
+const RESUME_ONLY = process.env.FAKE_ACP_RESUME_ONLY === '1'
+const groupedValue = (model) => JSON.stringify(['house', model])
 const readStore = () => {
   if (!STORE) return {}
   try { return JSON.parse(readFileSync(STORE, 'utf8')) } catch { return {} }
@@ -114,6 +124,21 @@ const newSession = (id0, cwd) => {
 }
 
 const configOptionsOf = (state) => [
+  ...(GROUPED_MODELS ? [{
+    id: 'model',
+    name: 'Model',
+    category: 'model',
+    type: 'select',
+    currentValue: groupedValue(state.modelId),
+    options: [{
+      group: 'house',
+      name: 'House models',
+      options: [
+        { value: groupedValue('small'), name: 'Small' },
+        { value: groupedValue('large'), name: 'Large', description: 'The big one.' },
+      ],
+    }],
+  }] : []),
   ...(CONFIG_MODEL_ONLY ? [{
     id: 'model',
     name: 'Model',
@@ -399,6 +424,30 @@ const runPrompt = async (id, params) => {
       rawOutput: { ok: true },
     })
     say('handled null content update.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  // The way DeepSeek Harness's own server reports a call: no rawOutput at
+  // all, the output as a text `content` block on the completing update.
+  if (text.includes('output as content')) {
+    update(state.id, {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'tc-content',
+      title: 'bash',
+      kind: 'other',
+      status: 'in_progress',
+      rawInput: { command: 'ls -a', description: 'List all entries' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-content',
+      status: 'completed',
+      content: [
+        { type: 'content', content: { type: 'text', text: '.\n..\nREADME.md\n' } },
+        { type: 'content', content: { type: 'text', text: 'second block' } },
+      ],
+    })
+    say('listed.')
     return reply(id, { stopReason: 'end_turn' })
   }
 
@@ -764,7 +813,7 @@ const handlers = {
       // reconnect; FAKE_ACP_AGENT_VERSION overrides it.
       agentInfo: { name: 'fake-acp-agent', version: process.env.FAKE_ACP_AGENT_VERSION ?? String(process.pid) },
       agentCapabilities: {
-        loadSession: Boolean(STORE),
+        loadSession: Boolean(STORE) && !RESUME_ONLY,
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.
         promptCapabilities: { image: process.env.FAKE_ACP_NO_IMAGES !== '1' },
         ...(STORE && !NO_LIST ? { sessionCapabilities: { list: {}, resume: {} } } : {}),
@@ -874,6 +923,13 @@ const handlers = {
     // FAKE_ACP_REFUSE_TOOLS makes this agent behave like DeepSeek Harness,
     // OpenClaw, or cursor-agent: it will not be handed an MCP tool server on
     // the session request, and says so in the words the caller learns from.
+    // FAKE_ACP_REFUSE_TOOLS_WHILE names a file: this process refuses while
+    // it exists, read at start, so a test can upgrade the agent between two
+    // processes of one runtime by deleting it.
+    if (process.env.FAKE_ACP_REFUSE_TOOLS_WHILE && REFUSES_AT_START && (params?.mcpServers?.length ?? 0) > 0) {
+      fail(id, 'Invalid params: mcpServers is not supported')
+      return
+    }
     if (process.env.FAKE_ACP_REFUSE_TOOLS && (params?.mcpServers?.length ?? 0) > 0) {
       if (process.env.FAKE_ACP_REFUSE_TOOLS === 'openclaw') {
         fail(id, 'Internal error', {
@@ -898,7 +954,7 @@ const handlers = {
     }
     reply(id, {
       sessionId: state.id,
-      ...(CONFIG_MODEL_ONLY ? {} : { models: {
+      ...(CONFIG_MODEL_ONLY || GROUPED_MODELS ? {} : { models: {
         currentModelId: state.modelId,
         availableModels: [
           { modelId: 'small', name: 'Small' },
@@ -964,6 +1020,14 @@ const handlers = {
     if (params.configId === 'auto_approve' && params.type !== 'boolean') {
       return fail(id, 'auto_approve must use the ACP boolean option type')
     }
+    if (GROUPED_MODELS && params.configId === 'model') {
+      const model = ['small', 'large'].find((one) => groupedValue(one) === params.value)
+      if (!model) return fail(id, `no model ${params.value}`)
+      state.modelId = model
+      reply(id, { configOptions: configOptionsOf(state) })
+      update(state.id, { sessionUpdate: 'config_option_update', configOptions: configOptionsOf(state) })
+      return
+    }
     if (CONFIG_MODEL_ONLY && params.configId === 'model') {
       if (!['small', 'large'].includes(params.value)) return fail(id, `no model ${params.value}`)
       state.modelId = params.value
@@ -1019,7 +1083,22 @@ const handlers = {
           : null
     reply(id, { sessions: rows.slice(from, from + LIST_PAGE), ...(next !== null ? { nextCursor: next } : {}) })
   },
+  'session/resume': (id, params) => {
+    if (!RESUME_ONLY) return send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } })
+    recordOpen('session/resume', params.sessionId, params.cwd, params?._meta)
+    const entry = readStore()[params.sessionId]
+    if (!entry) return fail(id, `no stored session ${params.sessionId}`)
+    const state = newSession(entry.sessionId, entry.cwd)
+    if (process.env.FAKE_ACP_DUMP_SERVERS) {
+      try {
+        writeFileSync(process.env.FAKE_ACP_DUMP_SERVERS, JSON.stringify(params?.mcpServers ?? []))
+      } catch {}
+    }
+    // No replay: resume restores the context and says nothing about it.
+    reply(id, { configOptions: configOptionsOf(state) })
+  },
   'session/load': (id, params) => {
+    if (RESUME_ONLY) return send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found', data: { method: 'session/load' } } })
     recordOpen('session/load', params.sessionId, params.cwd, params?._meta)
     const store = readStore()
     const entry = store[params.sessionId]
@@ -1051,7 +1130,7 @@ const handlers = {
     }
     reply(id, {
       sessionId: state.id,
-      ...(CONFIG_MODEL_ONLY ? {} : { models: {
+      ...(CONFIG_MODEL_ONLY || GROUPED_MODELS ? {} : { models: {
         currentModelId: state.modelId,
         availableModels: [
           { modelId: 'small', name: 'Small' },

@@ -39,6 +39,8 @@ if (!SOCKET) {
  * it. Optional: an old adapter sets nothing, and the call is simply unscoped.
  */
 const CALLER = process.env['HD_TOOLS_CALLER']
+/** The agent whose environment this bridge was spawned from — said only when no conversation gave it a token. */
+const AGENT = process.env['HD_TOOLS_AGENT']
 
 // ------------------------------------------------------------ gateway client
 
@@ -170,7 +172,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
           let instructions = ''
           try {
             instructions = (
-              await call<{ instructions?: unknown }>('server/info', CALLER ? { caller: CALLER } : {})
+              await call<{ instructions?: unknown }>('server/info', CALLER ? { caller: CALLER } : AGENT ? { agent: AGENT } : {})
             ).instructions as string
           } catch {
             // An older host without the verb: the tools still work, unbriefed.

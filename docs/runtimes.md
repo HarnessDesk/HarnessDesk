@@ -214,10 +214,9 @@ Measured across runtime CLIs, installer packages, and help outputs on
 | Cursor | `cursor-acp` bridge | — | `~/.local/bin/cursor-agent`; `cursor-agent update` | `~/.cursor` | `cursor-agent login` (with `NO_OPEN_BROWSER=1`) |
 | Codex | `codex app-server` | 0.145.0 | brew `codex`, npm `@openai/codex`, `~/.local/bin/codex` | `~/.codex` (`CODEX_HOME`) | Browser sign-in, device code, or `codex login --with-api-key` |
 
-*(Note: DeepSeek Harness connects over ACP via `@harnessdesk/dsh-acp` using
-its own machine-specific configuration; it is added via the custom command
-form rather than an automatic template. See
-`docs/decisions.md#deepseek-harness-joins-over-acp-and-its-plugins-stay-in-its-own-profile`.)*
+*(Note: DeepSeek Harness is a template on its own ACP server, `dsh --profile
+acp`, and reads its key from `~/.dsh/.credentials.yaml`. See
+`docs/decisions.md#deepseek-runs-on-dshs-own-acp-server-and-its-tools-arrive-with-the-session`.)*
 
 ### Traps and boundaries
 
