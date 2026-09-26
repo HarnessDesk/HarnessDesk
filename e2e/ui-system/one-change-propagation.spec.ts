@@ -156,7 +156,8 @@ test('dialog and menu keyboard contracts enter, dismiss, and return focus safely
 
 test('dark, narrow, and reduced-motion rendering stays usable', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 })
-  await page.getByRole('button', { name: 'dark', exact: true }).click()
+  // The theme switch is a Segmented control now, like the other knobs — its options are radios.
+  await page.getByRole('radio', { name: 'dark', exact: true }).click()
   await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
   await page.getByRole('button', { name: 'Open menu' }).click()
   await expect(page.locator('[data-slot="popover-popup"]')).toBeVisible()

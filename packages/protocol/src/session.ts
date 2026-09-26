@@ -432,6 +432,13 @@ export interface Session {
   readonly goal?: SessionGoal | null
   readonly turns: readonly Turn[]
   readonly itemsLoaded: boolean
+  /**
+   * The turns begin at a reopen that brought no history back — an agent that
+   * resumes a conversation without replaying it. The read is silent about
+   * every turn before its first one, not saying there were none, so the
+   * turns the desk already holds from before are kept ahead of it.
+   */
+  readonly partialHistory?: boolean
   /** Set when this session was forked from another. */
   readonly forkedFrom?: SessionId | null
   readonly archived?: boolean

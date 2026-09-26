@@ -33,7 +33,7 @@ stops naming a test that exists.
 | | `hooks` — configured hooks are visible | ● | ○ | ○ | ○ |
 | **Account** | `account` — something to sign in to | ● | ● | ● | ● |
 | | `metered` — reports quota or balance | ● | ○ | ○ | ○ |
-| **Not yet declared** | receives HarnessDesk's plugin tools ³ | ● | ● | ● | ○ |
+| **Not yet declared** | receives HarnessDesk's plugin tools ³ | ● | ● | ● | ● |
 
 ¹ `skills` is answered per session for ACP agents — the agent's commands
 arrive when a session opens, so it reads false until one has. Claude Code
@@ -50,13 +50,12 @@ tools (the browser, iOS Simulator, Android, checkpoint and todo plugins among
 them; installed plugins add their own on top). Codex takes them as dynamic
 tools; Claude Code takes the server; Cursor takes them through a generated
 plugin directory passed as `--plugin-dir` (its own `~/.cursor/mcp.json` is
-never touched). DeepSeek Harness refuses a non-empty `mcpServers` outright —
-so its capability honestly reads `false` — but the tools reach it anyway
-through its own composition: a `dsh-mcp-client` entry in the profile spawns
-the same bridge, which finds the gateway through the `HD_TOOLS_SOCKET` the
-host sets in every ACP agent's environment. The adapter cannot see inside the
-profile, so the cell stays empty while the tools arrive. See
-[browser-control.md](browser-control.md) for the entry to add.
+never touched). DeepSeek Harness takes the server per session on its own ACP
+server, `dsh --profile acp` (since DSH 0.1.2-alpha.1), the way Claude Code
+does. A `dsh-mcp-client` entry for HarnessDesk left in a DSH composition from
+the older setup is no longer needed and should be removed. (This cell was
+re-measured on DSH `0.1.7-rc.2` on 2026-09-25: a DeepSeek seat finished a
+flow card through the per-session server, attributed to its own session.)
 
 Codex is the fullest column because it is the one HarnessDesk speaks to
 natively; everything else reaches it through ACP, which carries less. That is

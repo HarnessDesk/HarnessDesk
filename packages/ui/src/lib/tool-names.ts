@@ -124,7 +124,24 @@ export const toolSentences = (
   return out
 }
 
+/**
+ * A tool whose whole job is to set the conversation's plan.
+ *
+ * Every agent has one and none agree on its name: Claude Code's TodoWrite,
+ * Codex's `update_plan`, Cursor's CreatePlan, DeepSeek Harness's `todo_write`
+ * — which is also the name HarnessDesk's own todo plugin registers, so a
+ * lookup by name alone described DeepSeek's call with the plugin's sentence.
+ * Matched on the bare name, never on a phrase an adapter already wrote.
+ */
+const PLAN_TOOLS = /^(todowrite|todo_write|update_plan|plan|task_list|create_plan)\b/i
+
+export const isPlanTool = (tool: string): boolean => {
+  const bare = unbacktick(bareToolName(tool))
+  return !isPhrase(bare) && PLAN_TOOLS.test(bare)
+}
+
 export type ToolSentenceDetail =
+  | { readonly kind: 'plan' }
   | { readonly kind: 'read'; readonly target: string }
   | { readonly kind: 'search'; readonly pattern: string; readonly folder?: string }
   | { readonly kind: 'edit'; readonly target: string }
@@ -144,6 +161,8 @@ export type ToolSentenceDetail =
  */
 const detailedSentence = (tool: string, detail: ToolSentenceDetail): string => {
   switch (detail.kind) {
+    case 'plan':
+      return 'Updated the plan'
     case 'read':
       return `Read ${detail.target}`
     case 'search':

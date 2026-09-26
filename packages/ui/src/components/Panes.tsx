@@ -122,7 +122,22 @@ const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string | null })
               </DockPanelActions>
             </DockPanelBar>
           )}
-          <ViewHost view={pane.view} />
+          {/*
+            * `data-notice-yield`: the notice system's own contract (`app.css`,
+            * beside `.hd-floatingNotices`) for whatever a pane shows, composed
+            * once here so every screen gets it and none has to opt in for
+            * itself. A strip stays where it is — it already reserves the
+            * window-button room `--titlebar-inset` names, and a bar the
+            * floating stack already clears needs no second margin — so only
+            * what is mounted below moves: the whole of it, a screen owning its
+            * own header included, since a pane host that peeled the two apart
+            * would have to know a screen's own insides to do it. Scoped to the
+            * pane actually riding the stack (`data-notice-host`, above); a
+            * pane that never shows one costs nothing.
+            */}
+          <div className={styles.screen} {...(pane.id === primary ? { 'data-notice-yield': '' } : {})}>
+            <ViewHost view={pane.view} />
+          </div>
         </PaneSurface>
       </MountProvider>
     </PaneProvider>
