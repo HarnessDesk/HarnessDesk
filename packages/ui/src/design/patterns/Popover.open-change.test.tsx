@@ -2,6 +2,7 @@ import { act, StrictMode, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { dismissOverlays } from '../../lib/overlays'
 import { Popover } from './Popover'
 
 /**
@@ -73,4 +74,20 @@ it('tells its caller it opened and closed, once each, and never while rendering'
   expect(container.querySelector('[data-times]')?.textContent).toBe('2')
   const duringRender = errors.mock.calls.filter((call) => String(call[0]).includes('while rendering a different component'))
   expect(duringRender).toEqual([])
+})
+
+it('tells its caller again when it opens after something else dismissed it', () => {
+  const heard = vi.fn()
+  act(() => root.render(<StrictMode><Caller heard={heard} /></StrictMode>))
+  const trigger = container.querySelector('button')
+  if (!trigger) throw new Error('no trigger')
+
+  click(trigger)
+  // A dialog opening, the floating sidebar going away: the menu is dismissed
+  // without its own trigger or Escape.
+  act(() => dismissOverlays())
+  expect(document.body.textContent).not.toContain('Inside')
+  click(trigger)
+
+  expect(heard.mock.calls).toEqual([[true], [false], [true]])
 })

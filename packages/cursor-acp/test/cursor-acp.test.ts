@@ -1352,13 +1352,14 @@ test('a Stop while a turn waits for a start seat ends it, and nothing is spawned
     await pause(300)
     assert.equal(spawnsIn(log).length, 1, 'the second is waiting behind the first')
     await second.interrupt()
+    // "At once" means before the only seat comes free. The first turn holds it
+    // until the hold file below is written — after this completion — or until
+    // the fake's own 20 s cap. So the bound here only has to sit below that
+    // cap: a Stop that waited for the seat completes after it, and fails here.
+    // A tight wall-clock bound only measured the machine's load (#972).
     const stopped = completedTurn(
-      await tape.until((event) => event.type === 'turn/completed' && String(event.sessionId) === String(second.id)),
+      await tape.until((event) => event.type === 'turn/completed' && String(event.sessionId) === String(second.id), 15_000),
     )
-    // "At once" is proved by the order, not by a clock: the only seat is held
-    // until the hold file below is written, and that happens after this
-    // completion — so a Stop that waited for a seat would never complete here.
-    // A wall-clock bound only measured the machine's load (#972).
     assert.equal(stopped.status, 'interrupted')
     // The first finishes and hands its seat on — to nobody, because the
     // second turn is over. Nothing is spawned for it.

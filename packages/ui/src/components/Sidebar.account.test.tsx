@@ -908,12 +908,16 @@ it('calls an account-less row under a heading what it is, not the heading or the
 })
 
 it('keeps a signed-out default listed under its heading when the picker is open, drawn as what it is', () => {
-  // A second account of the default agent, answered and signed out, is the default.
+  // A second account of the default agent, answered and signed out, is the default;
+  // a third, signed out too, is not — and so waits behind Add an account.
   const { second, snapshot } = twoCodex()
+  const third = slotOf(codex, 'codex-3')
   mount({
     ...snapshot,
+    runtimes: [...(snapshot.runtimes ?? []), third],
     activeRuntime: second.id,
-    accountsByRuntime: { ...snapshot.accountsByRuntime, [second.id]: signedOut },
+    accountsByRuntime: { ...snapshot.accountsByRuntime, [second.id]: signedOut, [third.id]: signedOut },
+    healthByRuntime: { ...snapshot.healthByRuntime, [third.id]: { state: 'ready' } },
   })
   click(row())
   const folded = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')
@@ -921,7 +925,7 @@ it('keeps a signed-out default listed under its heading when the picker is open,
   click(folded)
   const group = groupNamed('OpenAI Codex')
   const rows = [...(group?.querySelectorAll('[role="menuitem"]') ?? [])]
-  // Listed, though its agent's other signed-out seats would not be: it is the chair you are in.
+  // Listed, though its signed-out sibling is not: it is the chair you are in.
   expect(rows.map((one) => one.textContent?.trim())).toEqual(['jane', 'No accountNeeds sign-in'])
   const current = rows.find((one) => one.hasAttribute('data-current'))
   expect(current).toBe(folded)
