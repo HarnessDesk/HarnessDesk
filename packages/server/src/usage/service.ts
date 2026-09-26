@@ -6,6 +6,7 @@ import type {
   RuntimeId,
   SpendSummary,
   UnverifiedUsage,
+  UsageBilling,
   UsageLane,
   UsageReport,
 } from '@harnessdesk/protocol'
@@ -194,6 +195,7 @@ export class UsageService {
     let staleAfterMs = DEFAULT_STALE_AFTER_MS
     let error: UsageReport['error'] = null
     let unverified: UnverifiedUsage | null = null
+    let billing: UsageBilling | undefined
     // Another sign-in's source failing, kept apart from the agent's own error.
     let unverifiedFailure: string | null = null
 
@@ -209,6 +211,7 @@ export class UsageService {
             credits = { remaining: limits.balance ?? null, unit: 'credits', unlimited: limits.unlimited === true }
           }
           if (limits.source) source = limits.source
+          if (limits.billing) billing = limits.billing
         }
       } catch (cause) {
         error = { message: cause instanceof Error ? cause.message : String(cause) }
@@ -256,6 +259,7 @@ export class UsageService {
       account = reading.account
       credits = reading.credits
       reached = reading.reached
+      billing = reading.billing
     }
 
     await take(meter)
@@ -311,6 +315,7 @@ export class UsageService {
       staleAfterMs,
       error,
       ...(unverified ? { unverified } : {}),
+      ...(billing ? { billing } : {}),
     }
     this.#cache.set(id, report)
     if (!this.#disposed) this.#options.onReport(report)

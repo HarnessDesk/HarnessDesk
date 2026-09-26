@@ -159,6 +159,8 @@ export class CopilotMeter implements UsageMeter {
       lanes,
       credits: null,
       reached: spent?.id ?? null,
+      // An included allowance that resets on a clock, never a rolling window.
+      billing: { kinds: ['allowance'] },
       fetchedAt: this.#now(),
       staleAfterMs: STALE_AFTER_MS,
     }

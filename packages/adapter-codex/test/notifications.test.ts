@@ -109,6 +109,11 @@ test('rate limits are lifted to a runtime-level event', () => {
   assert.equal(event?.type, 'limits/updated')
   assert.equal(event?.type === 'limits/updated' && event.limits.hasCredits, false)
   assert.equal(event?.type === 'limits/updated' && event.limits.planType, 'team')
+  assert.deepEqual(
+    event?.type === 'limits/updated' ? event.limits.billing : undefined,
+    { kinds: ['windows'] },
+    'no credits on this account: windows alone',
+  )
 })
 
 test('a balance that is there is read, a zero included, and one that is not is none (#184)', () => {
@@ -146,6 +151,25 @@ test('a balance that is there is read, a zero included, and one that is not is n
   // Round 1 of #207: none at the boundary, for every reader, not only describeLimits.
   assert.equal(balance('plenty'), null, 'what is not a number is none')
   assert.equal(balance('1e500'), null, 'nor is a number too large to be finite')
+})
+
+test('a plan that carries credits is billed windows and a balance, both', () => {
+  const event = mapNotification(
+    n('account/rateLimits/updated', {
+      rateLimits: {
+        limitId: 'premium',
+        limitName: null,
+        primary: null,
+        secondary: null,
+        credits: { hasCredits: true, unlimited: false, balance: '5' },
+        planType: 'plus',
+        rateLimitReachedType: null,
+      },
+    }),
+  )[0]
+  assert.deepEqual(event?.type === 'limits/updated' ? event.limits.billing : undefined, {
+    kinds: ['windows', 'balance'],
+  })
 })
 
 test('unmodelled notifications produce nothing rather than noise', () => {

@@ -133,6 +133,8 @@ export class AmpMeter implements UsageMeter {
       lanes: [],
       credits,
       reached: balance.remaining <= 0 ? 'credits' : null,
+      // A prepaid balance, never a rolling window or an included allowance.
+      billing: { kinds: ['balance'] },
       fetchedAt: this.#now(),
       staleAfterMs: STALE_AFTER_MS,
     }
