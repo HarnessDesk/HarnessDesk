@@ -11,11 +11,18 @@ import type { EvidenceStore } from './store.js'
  * `diffOf`), its pull request, and the checks the forge ran on that pull
  * request's head.
  *
- * Looked at when a card is finished, while its holder's checkout is still
- * known, and when a board is opened, at most once every few minutes a card, so
- * a pull request merged or a CI run finished since is seen. A fact is recorded
- * only when it differs from the card's latest of its kind: the store keeps
- * what changed, not every look.
+ * Looked at when a card is finished, released or abandoned, while its
+ * holder's checkout is still known, and when a board is opened, at most once
+ * every few minutes a card, so a pull request merged or a CI run finished
+ * since is seen. A fact is recorded only when it differs from the card's
+ * latest of its kind: the store keeps what changed, not every look.
+ *
+ * A card's diff is the one fact whose bound is not always HEAD: a card still
+ * held is measured all the way there, but a card that has stopped is measured
+ * only to `Look.until`, where its own checkout stood the moment it stopped —
+ * so a later look, on a checkout the next card goes on to share, still finds
+ * the pull request and its checks moving, and the stopped card's own diff
+ * standing exactly where it left it.
  */
 
 /** How long a card's branch is left before a board opened again looks at it again. */
@@ -40,6 +47,17 @@ export interface Look {
    * its claim recorded it; absent when the claim recorded nothing (`diffOf`).
    */
   readonly upstream?: Sha | null
+  /**
+   * The commit the card's own checkout stood at the moment it stopped being
+   * held — finished, released or abandoned — so its diff is bounded to
+   * `since..until` rather than to HEAD as the checkout stands now (`diffOf`).
+   * Absent, or null, while the card is still held: then its diff is measured
+   * all the way to HEAD, because the card's own work is still landing there.
+   * Where a stopped card's own `until` comes from on a later look is the
+   * board's to say (`plane.ts`): this desk only ever bounds a diff to what it
+   * is given.
+   */
+  readonly until?: Sha | null
 }
 
 export class Observer {
@@ -89,7 +107,10 @@ export class Observer {
     if (!revision) return false
 
     const facts: Evidence[] = []
-    const diff = await diffOf(look.cwd, look.since ?? null, look.upstream !== undefined ? { upstream: look.upstream } : {})
+    const diff = await diffOf(look.cwd, look.since ?? null, {
+      ...(look.upstream !== undefined ? { upstream: look.upstream } : {}),
+      ...(look.until !== undefined ? { until: look.until } : {}),
+    })
     if (diff) facts.push({ kind: 'diff', ...diff })
     const forge = await readPullRequest(look.cwd, this.#gh)
     if (forge.kind === 'unreachable') {

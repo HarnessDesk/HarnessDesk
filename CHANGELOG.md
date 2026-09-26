@@ -7,6 +7,22 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A finished card's diff no longer keeps changing after it's done.** On a
+  shared, non-isolated checkout, `Observer.observe` re-diffed a card from
+  where its own work began all the way to the checkout's HEAD *as it stands
+  now* — so once a later card, taking its own turn on the same branch,
+  committed, every earlier card that had already finished picked up that
+  commit too. In UC5's "Pair build", four prose-only cards that never wrote
+  anything all showed the contract card's own file changes once it landed.
+  The host now records where a card's own checkout stood the moment it
+  stopped being held — finished, released or abandoned — and a stopped
+  card's diff is bounded to that point, never to today's HEAD; a card still
+  claimed is unaffected and keeps measuring to HEAD as before, and an
+  isolated lane, where each card already has its own checkout, was never
+  affected either way. A card that had already finished before this change
+  keeps whatever it last showed, rather than being recomputed against a
+  branch that has since moved on. (#1035)
+
 - **A mixed race no longer stalls before the judge, and a race started from
   the generic Flow-start seeds two competitors, like `/race` always has.**
   In `comparison` (race and judge), the one rule that opened the judge round

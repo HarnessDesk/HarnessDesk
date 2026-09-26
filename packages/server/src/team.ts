@@ -1423,6 +1423,11 @@ export class Team {
     } else if (action === 'release') {
       this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'released', intent, 'released by you')
+      // Where its checkout stood the moment it let go, while that is still known — never re-read once the card moves on.
+      this.#afterSaved(this.#commit(board), () => {
+        this.#port.settled?.(board.id, { ...intent, state: 'open' })
+      })
+      return
     } else if (action === 'abandon') {
       /* The block goes with the work, as it does on release and reopen below.
          Left standing, a card read done — or abandoned — and blocked at once,
@@ -1442,6 +1447,7 @@ export class Team {
           blockedReason: null,
           blockedBy: null,
         })
+        this.#port.settled?.(board.id, { ...intent, state: 'abandoned' })
       })
       return
     } else if (action === 'done') {
@@ -2628,11 +2634,15 @@ export class Team {
         blockedBy: 'hand',
       })
       this.#signal(board, this.#actorOf(board, caller), 'blocked', intent, reason)
+      this.#commit(board)
     } else {
       this.#patchIntent(board, intentId, { state: 'open', claim: null, blockedBy: null })
       this.#signal(board, this.#actorOf(board, caller), 'released', intent, reason)
+      // Where its checkout stood the moment it let go, while that is still known — never re-read once the card moves on.
+      this.#afterSaved(this.#commit(board), () => {
+        this.#port.settled?.(board.id, { ...intent, state: 'open' })
+      })
     }
-    this.#commit(board)
     this.#port.audit({
       runtime: caller.runtime,
       sessionId: caller.sessionId,

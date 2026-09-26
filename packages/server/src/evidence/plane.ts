@@ -377,12 +377,15 @@ export class EvidencePlane {
   }
 
   /**
-   * A card was finished. While its holder is still on it, the desk looks at
-   * the branch it was finished on, and tells every window when that recorded
-   * something. Never awaited by the board.
+   * A card stopped being held — finished, released or abandoned — by
+   * whichever verb the board just ran. While its holder's checkout is still
+   * known, the desk looks at the branch once more, unbounded: that look's own
+   * `to` becomes the card's `until`, the bound every later look is held to
+   * once the card is no longer live (`#lookAround`). Tells every window when
+   * that recorded something. Never awaited by the board.
    */
   settled(room: string, intent: Intent): void {
-    if (intent.state !== 'done' || !intent.claim) return
+    if (!intent.claim) return
     const cwd = this.#port.cwdOf(intent.claim.runtime, intent.claim.sessionId)
     const board = this.#port.board(room)
     if (!cwd || !board) return
@@ -425,7 +428,9 @@ export class EvidencePlane {
    * On a board read, the cards due another look — each at most once every few
    * minutes — are looked at in the background, one at a time: a claimed card in
    * its holder's checkout, a settled one where its latest fact was observed.
-   * A card with neither is not looked at, since there is nowhere to look.
+   * A card with neither is not looked at, since there is nowhere to look. A
+   * settled card's diff is bounded to where it stopped (`until`, below); a
+   * claimed one is measured all the way to its checkout's HEAD.
    */
   #lookAround(room: string, board: TeamState, project: string, records: readonly EvidenceRecord[]): void {
     const looks: Look[] = []
@@ -447,8 +452,31 @@ export class EvidencePlane {
       const began = seat ?? (last?.seat ?? null)
       const since = cardStart(holder ? intent.claim?.head : null, lastDiff?.fact.kind === 'diff' ? lastDiff.fact.from : null,
         began ? this.seats.byId(began)?.checkout.head : null)
+      /*
+       * A card no longer held has stopped, and a stopped card's diff is
+       * bounded to where its own checkout stood at that moment — `until` —
+       * never to HEAD as the checkout stands now: HEAD keeps moving as a
+       * later card commits on a checkout this one shared, and a finished
+       * card's own diff must not. `until` is the last diff this desk ever
+       * recorded for the card, on its own `to`: the one `settled` took,
+       * unbounded, the moment the card actually stopped, or — for a card
+       * that stopped before `until` existed, or was only ever looked at
+       * while still held — whatever its latest diff happened to be. Recorded
+       * once, from here on every later look reproduces that same range, so
+       * nothing is ever appended for it again: recomputing a stopped card's
+       * diff against today's HEAD was the bug, not looking at its branch
+       * again — its pull request and checks still move on every look. A card
+       * still held (`holder` set) gets no bound, and is measured to HEAD,
+       * because its own work is still landing there. Uncommitted work a card
+       * leaves behind at the moment it stops is not part of any diff fact,
+       * exactly as it never was: `diffOf` reads committed history only. If a
+       * later card, sharing this checkout, commits it, the commit lands
+       * after `until` and inside that later card's own `since..until` — it
+       * is credited there, to whichever window the desk can actually bound.
+       */
+      const until = holder ? null : (lastDiff?.fact.kind === 'diff' ? lastDiff.fact.to : null)
       const upstream = intent.claim?.upstream
-      looks.push({ room, card: intent.id, project, cwd, seat, since, ...(upstream !== undefined ? { upstream } : {}) })
+      looks.push({ room, card: intent.id, project, cwd, seat, since, ...(until !== null ? { until } : {}), ...(upstream !== undefined ? { upstream } : {}) })
     }
     if (looks.length === 0) return
     void (async () => {

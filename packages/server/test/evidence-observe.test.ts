@@ -3,10 +3,10 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { runtimeId, type BoardEvidence, type GoalView, type Session, type TeamState } from '@harnessdesk/protocol'
+import { runtimeId, type BoardEvidence, type GoalView, type Intent, type Session, type TeamState } from '@harnessdesk/protocol'
 
 import { readPullRequest, type GhInCheckout } from '../src/evidence/forge.js'
-import { Observer } from '../src/evidence/observe.js'
+import { Observer, OBSERVE_EVERY_MS } from '../src/evidence/observe.js'
 import { EvidencePlane } from '../src/evidence/plane.js'
 import { canonical } from '../src/evidence/revision.js'
 import { EvidenceStore } from '../src/evidence/store.js'
@@ -198,4 +198,201 @@ test('through the host: a card its holder finishes leaves the diff it was finish
     false,
     'the holder said the tests pass; the desk observed no check, so there is none',
   )
+})
+
+/*
+ * Issue #1035: on a shared, non-isolated checkout, `Observer.observe` used to
+ * re-diff a finished card from its own `since` to the checkout's HEAD *as it
+ * stands now* — so a later card's commits, on the same branch, showed up on
+ * an earlier, already-finished card's diff too. A card that has stopped being
+ * held is now bounded to `until`, where its own checkout stood the moment it
+ * stopped, exactly as `EvidencePlane#lookAround` derives it from that card's
+ * own last diff (`plane.ts`).
+ */
+
+const diffsOf = async (store: EvidenceStore, project: string, card: number) =>
+  (await store.read(project, 'evidence')).lines.flatMap((line) =>
+    line.type === 'evidence' && line.record.card?.id === card && line.record.fact.kind === 'diff' ? [line.record.fact] : [],
+  )
+
+test('a card that finished with no commits keeps an empty diff after a later card commits on the same shared checkout', async () => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const store = new EvidenceStore(tempDir('hd-observe-store-'))
+  const { gh } = forge({ exitCode: 1, stderr: 'no pull requests found for branch "main"' })
+  const observer = new Observer({ store, gh, log: () => {} })
+
+  const since = await repo.git('rev-parse', 'HEAD')
+  // Card 1 finishes right away, having made no commits: the desk looks once,
+  // unbounded — HEAD has not moved from `since` yet.
+  await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since })
+  assert.deepEqual(await diffsOf(store, project, 1), [{ kind: 'diff', files: 0, added: 0, removed: 0, from: since, to: since }])
+
+  // Card 2 now commits on the very same checkout.
+  await writeFile(join(repo.dir, 'work.txt'), 'x\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'card 2 work')
+
+  // The board reopens and looks at card 1 again — no longer held, bounded to
+  // `until`, its own last diff's `to`.
+  const [stopped] = await diffsOf(store, project, 1)
+  assert.ok(stopped)
+  const changed = await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since: stopped.from, until: stopped.to })
+  assert.equal(changed, false, 'bounded to where it stopped, so nothing changed')
+  assert.deepEqual(await diffsOf(store, project, 1), [{ kind: 'diff', files: 0, added: 0, removed: 0, from: since, to: since }])
+})
+
+test('each of two cards finishing in turn on one shared checkout keeps only its own commit', async () => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const store = new EvidenceStore(tempDir('hd-observe-store-'))
+  const { gh } = forge({ exitCode: 1, stderr: 'no pull requests found for branch "main"' })
+  const observer = new Observer({ store, gh, log: () => {} })
+
+  const base = await repo.git('rev-parse', 'HEAD')
+  await writeFile(join(repo.dir, 'a.txt'), 'a\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'card 1 work')
+  const afterCard1 = await repo.git('rev-parse', 'HEAD')
+  await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since: base })
+
+  await writeFile(join(repo.dir, 'b.txt'), 'b\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'card 2 work')
+  const afterCard2 = await repo.git('rev-parse', 'HEAD')
+  await observer.observe({ room: 'room-1', card: 2, project, cwd: repo.dir, seat: null, since: afterCard1 })
+
+  // The board reopens: card 1 is looked at again, bounded to where it stopped.
+  const [diff1] = await diffsOf(store, project, 1)
+  assert.ok(diff1)
+  await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since: diff1.from, until: diff1.to })
+
+  assert.deepEqual(await diffsOf(store, project, 1), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: base, to: afterCard1 }])
+  assert.deepEqual(await diffsOf(store, project, 2), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: afterCard1, to: afterCard2 }])
+})
+
+test('a card still held keeps diffing all the way to HEAD as its checkout moves', async () => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const store = new EvidenceStore(tempDir('hd-observe-store-'))
+  const { gh } = forge({ exitCode: 1, stderr: 'no pull requests found for branch "main"' })
+  const observer = new Observer({ store, gh, log: () => {} })
+
+  const since = await repo.git('rev-parse', 'HEAD')
+  await writeFile(join(repo.dir, 'a.txt'), 'a\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'first commit')
+  const head1 = await repo.git('rev-parse', 'HEAD')
+  // Still held: no `until` is given.
+  await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since })
+  assert.deepEqual((await diffsOf(store, project, 1)).at(-1), { kind: 'diff', files: 1, added: 1, removed: 0, from: since, to: head1 })
+
+  await writeFile(join(repo.dir, 'b.txt'), 'b\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'second commit')
+  const head2 = await repo.git('rev-parse', 'HEAD')
+  await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since })
+  assert.deepEqual(
+    (await diffsOf(store, project, 1)).at(-1),
+    { kind: 'diff', files: 2, added: 2, removed: 0, from: since, to: head2 },
+    'a live card keeps tracking its checkout all the way to HEAD',
+  )
+})
+
+test('an old finished card with no recorded stop is not re-diffed against later commits, though its pull request is still checked', async () => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const state = tempDir('hd-observe-state-')
+  let now = 1_000_000
+  let calls = 0
+  const gh: GhInCheckout = async () => {
+    calls += 1
+    return { stdout: '', stderr: 'no pull requests found', exitCode: 1 }
+  }
+  const plane = new EvidencePlane(
+    { dir: join(state, 'evidence'), seenFile: join(state, 'commands-seen.json'), gh, now: () => now },
+    {
+      board: (room) =>
+        room === 'room-1' ? ({ id: 'room-1', root: repo.dir, intents: [{ id: 1, state: 'done', claim: null }] } as unknown as TeamState) : null,
+      cwdOf: () => repo.dir,
+      push: () => {},
+      log: () => {},
+    },
+  )
+
+  const since1 = await repo.git('rev-parse', 'HEAD')
+  await writeFile(join(repo.dir, 'card1.txt'), 'x\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'card 1 work')
+  // Card 1 finishes: what the desk honestly recorded the moment it stopped.
+  await plane.observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since: since1 })
+
+  // A later card commits on the same checkout, and — before this fix shipped
+  // — a board reopened and re-diffed card 1 all the way to HEAD as it stood
+  // then, recording the later card's file as card 1's own.
+  await writeFile(join(repo.dir, 'later.txt'), 'x\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'a later card, before this fix shipped')
+  await plane.observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since: since1 })
+  const contaminated = (await diffsOf(plane.store, project, 1)).at(-1)
+  assert.ok(contaminated)
+  assert.equal(contaminated.files, 2, 'already wrong, from before this fix: it counted the later card’s file too')
+
+  // The fix is live now. Yet another card commits, and the board opens again.
+  await writeFile(join(repo.dir, 'even-later.txt'), 'x\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'a later card, after this fix shipped')
+  now += OBSERVE_EVERY_MS + 1
+  const before = calls
+  await plane.board('room-1')
+  await until(() => (calls > before ? true : null), 'the re-look after the clock moved')
+
+  assert.deepEqual(
+    (await diffsOf(plane.store, project, 1)).at(-1),
+    contaminated,
+    'the stale diff is kept exactly as it stood — recomputing it against today’s HEAD was the bug',
+  )
+  await plane.close()
+})
+
+test('isolated lanes keep working unchanged: two cards in their own checkouts each settle with their own diff', async (t) => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const laneB = tempDir('hd-observe-lane-b-')
+  await repo.git('worktree', 'add', '-q', '-b', 'lane-b', laneB)
+  t.after(() => repo.git('worktree', 'remove', '-f', laneB).catch(() => undefined))
+  const gitAt = async (dir: string, ...args: string[]): Promise<string> =>
+    (await repo.git('-C', dir, ...args)) // git -C repo.dir -C laneB ...: the last -C wins, so this runs in `dir`.
+  const state = tempDir('hd-observe-state-')
+  const { gh } = forge({ exitCode: 1, stderr: 'no pull requests found' })
+  const cwdBySession: Record<string, string> = { 's-a': repo.dir, 's-b': laneB }
+  const plane = new EvidencePlane(
+    { dir: join(state, 'evidence'), seenFile: join(state, 'commands-seen.json'), gh },
+    {
+      board: (room) => (room === 'room-1' ? ({ id: 'room-1', root: repo.dir, intents: [] } as unknown as TeamState) : null),
+      cwdOf: (_runtime, sessionId) => cwdBySession[sessionId] ?? null,
+      push: () => {},
+      log: () => {},
+    },
+  )
+
+  const sinceA = await repo.git('rev-parse', 'HEAD')
+  await writeFile(join(repo.dir, 'a.txt'), 'a\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'card A work')
+  const afterA = await repo.git('rev-parse', 'HEAD')
+  plane.settled('room-1', { id: 1, state: 'done', claim: { runtime: 'fake', sessionId: 's-a', at: 1, head: sinceA } } as unknown as Intent)
+
+  const sinceB = await gitAt(laneB, 'rev-parse', 'HEAD')
+  await writeFile(join(laneB, 'b.txt'), 'b\n')
+  await gitAt(laneB, 'add', '.')
+  await gitAt(laneB, 'commit', '-q', '-m', 'card B work')
+  const afterB = await gitAt(laneB, 'rev-parse', 'HEAD')
+  plane.settled('room-1', { id: 2, state: 'done', claim: { runtime: 'fake', sessionId: 's-b', at: 2, head: sinceB } } as unknown as Intent)
+
+  await plane.settledFor('room-1')
+
+  assert.deepEqual(await diffsOf(plane.store, project, 1), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: sinceA, to: afterA }])
+  assert.deepEqual(await diffsOf(plane.store, project, 2), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: sinceB, to: afterB }])
+  await plane.close()
 })
