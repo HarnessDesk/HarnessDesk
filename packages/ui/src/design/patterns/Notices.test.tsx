@@ -3,12 +3,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const { toast } = vi.hoisted(() => {
-  const toast = Object.assign(vi.fn(), { error: vi.fn(), warning: vi.fn() })
+  const toast = Object.assign(vi.fn(), { error: vi.fn(), warning: vi.fn(), promise: vi.fn() })
   return { toast }
 })
 vi.mock('../ui/toast', () => ({ toast }))
 
-import { ComposerNotice, InboxButton, InboxList, NoticeCard, NoticeStrip, showToast, type NoticeMessage } from './Notices'
+import { ComposerNotice, InboxButton, InboxList, NoticeCard, NoticeStrip, showProgress, showToast, type NoticeMessage } from './Notices'
 
 let host: HTMLDivElement
 let root: Root
@@ -93,4 +93,16 @@ it('a toast takes the same message, by tone', () => {
   expect(toast.error).toHaveBeenCalledWith('Could not save', { description: 'The disk is full.' })
   showToast({ title: 'Backup saved', action: { label: 'Show', onSelect: () => {} } })
   expect(toast).toHaveBeenCalledWith('Backup saved', expect.objectContaining({ action: expect.objectContaining({ label: 'Show' }) }))
+})
+
+it('a message from an Agent leads with its face instead of the tone dot', async () => {
+  await act(() => root.render(<ComposerNotice message={{ id: 'agent', title: 'Opus wants a decision.', mark: <span data-testid="face">O</span> }} />))
+  expect(host.querySelector('[data-testid="face"]')).toBeTruthy()
+  expect(host.querySelector('[data-tone][aria-hidden]')).toBeNull()
+})
+
+it('work that takes a moment is one toast that turns into how it ended', () => {
+  const work = Promise.resolve(4)
+  showProgress(work, { working: 'Importing skills…', done: (count) => `Imported ${count} skills.`, failed: 'Could not import.' })
+  expect(toast.promise).toHaveBeenCalledWith(work, expect.objectContaining({ loading: 'Importing skills…', error: 'Could not import.' }))
 })

@@ -76,6 +76,8 @@ export interface NoticePolicy {
    * letting the list grow for the life of a machine.
    */
   readonly seen: readonly string[]
+  /** Where a kind is shown, when a person has moved it from its default. */
+  readonly surfaces: Readonly<Record<string, NoticeSurface>>
 }
 
 const SEEN_LIMIT = 40
@@ -87,7 +89,7 @@ const SEEN_LIMIT = 40
  */
 export const MUTE_AFTER = 2
 
-export const emptyNoticePolicy = (): NoticePolicy => ({ muted: [], records: {}, seen: [] })
+export const emptyNoticePolicy = (): NoticePolicy => ({ muted: [], records: {}, seen: [], surfaces: {} })
 
 const strings = (raw: unknown): readonly string[] =>
   Array.isArray(raw) ? raw.filter((entry): entry is string => typeof entry === 'string') : []
@@ -106,10 +108,22 @@ export const readNoticePolicy = (raw: unknown): NoticePolicy => {
       records[kind] = { count, at: typeof record.at === 'number' ? record.at : 0 }
     }
   }
+  const surfaces: Record<string, NoticeSurface> = {}
+  if (typeof source.surfaces === 'object' && source.surfaces !== null && !Array.isArray(source.surfaces)) {
+    for (const [kind, value] of Object.entries(source.surfaces as Record<string, unknown>)) {
+      const entry = noticeKind(kind)
+      // Only a surface this kind may take survives a read: a stored choice
+      // the list has since narrowed falls back to the default, not to nowhere.
+      if (entry && typeof value === 'string' && (entry.surfaces as readonly string[]).includes(value)) {
+        surfaces[kind] = value as NoticeSurface
+      }
+    }
+  }
   return {
     muted: strings(source.muted),
     records,
     seen: strings(source.seen).slice(-SEEN_LIMIT),
+    surfaces,
   }
 }
 
@@ -186,6 +200,74 @@ export interface NoticeKind {
   readonly title: string
   /** What is lost by silencing it — never a restatement of the title. */
   readonly detail: string
+  /** What the message is for, which is how the Notifications page groups it. */
+  readonly use: NoticeUse
+  /** Where it may be shown, the first being where it goes unless moved. */
+  readonly surfaces: readonly [NoticeSurface, ...NoticeSurface[]]
+}
+
+/**
+ * The surfaces a kind can be placed on — the design system's own names
+ * (`design/patterns/Notices.tsx`). A toast is not among them: it is for the
+ * result of something just done, which no setting moves.
+ */
+export type NoticeSurface = 'card' | 'composer' | 'strip' | 'inbox'
+
+/**
+ * Why a message exists, which decides where it can sensibly go.
+ *
+ *   blocks       something that stops a turn from starting: it belongs on the
+ *                composer of the conversation it blocks, or at most the strip.
+ *   convenient   something to do when there is a moment: the sidebar's card,
+ *                the strip, or kept in the inbox.
+ */
+export type NoticeUse = 'blocks' | 'convenient'
+
+export const NOTICE_USES: readonly { readonly use: NoticeUse; readonly title: string; readonly detail: string }[] = [
+  {
+    use: 'blocks',
+    title: 'When something stops a turn',
+    detail: 'Shown on the composer of the conversation it would stop, so nothing else is covered.',
+  },
+  {
+    use: 'convenient',
+    title: 'When there is something to do later',
+    detail: 'Updates and offers wait at the foot of the sidebar, one at a time, or in the inbox.',
+  },
+]
+
+/** The words each surface goes by on the Notifications page. */
+export const SURFACE_LABEL: Readonly<Record<NoticeSurface, string>> = {
+  card: 'Sidebar card',
+  composer: 'Above the composer',
+  strip: 'Strip above the pane',
+  inbox: 'Inbox only',
+}
+
+/** Where a kind is shown now — or null when it has been turned off. */
+export const surfaceFor = (policy: NoticePolicy, kind: string): NoticeSurface | null => {
+  const entry = noticeKind(kind)
+  if (!entry) return null
+  if (policy.muted.includes(kind)) return null
+  return policy.surfaces[kind] ?? entry.surfaces[0]
+}
+
+/**
+ * Moves a kind to a surface, or turns it off (`null`). Moving it also turns it
+ * back on: choosing a place for a message is asking to see it there.
+ */
+export const withSurface = (policy: NoticePolicy, kind: string, surface: NoticeSurface | null): NoticePolicy => {
+  const entry = noticeKind(kind)
+  if (!entry) return policy
+  if (surface === null) return withMuted(policy, kind, true)
+  if (!entry.surfaces.includes(surface)) return policy
+  const { [kind]: _previous, ...rest } = policy.surfaces
+  return {
+    ...withMuted(policy, kind, false),
+    // The default is not stored, so a later change of default reaches
+    // everybody who never moved the kind themselves.
+    surfaces: surface === entry.surfaces[0] ? rest : { ...rest, [kind]: surface },
+  }
 }
 
 export const NOTICE_KINDS: readonly NoticeKind[] = [
@@ -194,36 +276,48 @@ export const NOTICE_KINDS: readonly NoticeKind[] = [
     lifetime: 'occurrence',
     title: 'On course to run out',
     detail: 'An agent is spending faster than its plan will last until the next reset.',
+    use: 'blocks',
+    surfaces: ['composer', 'strip', 'inbox'],
   },
   {
     kind: 'usage:spent',
     lifetime: 'occurrence',
     title: 'Out of quota',
     detail: 'An agent has nothing left until its window resets. Silencing this does not hide the agent.',
+    use: 'blocks',
+    surfaces: ['composer', 'strip', 'inbox'],
   },
   {
     kind: 'usage:limits',
     lifetime: 'occurrence',
     title: 'Rate limit reached',
     detail: 'An agent reports a limit of its own.',
+    use: 'blocks',
+    surfaces: ['composer', 'strip', 'inbox'],
   },
   {
     kind: 'agent:signin',
     lifetime: 'occurrence',
     title: 'Agent not signed in',
     detail: 'An agent has no account connected, so its sessions cannot start. The Runtimes page says the same.',
+    use: 'blocks',
+    surfaces: ['composer', 'strip', 'inbox'],
   },
   {
     kind: 'agent:health',
     lifetime: 'occurrence',
     title: 'Agent unavailable',
     detail: 'An agent cannot start, with what to do about it.',
+    use: 'blocks',
+    surfaces: ['composer', 'strip', 'inbox'],
   },
   {
     kind: 'import:offer',
     lifetime: 'once',
     title: 'Import from your other agents',
     detail: 'The offer to bring over skills and servers another agent already has. The Library can import them at any time.',
+    use: 'convenient',
+    surfaces: ['card', 'strip', 'inbox'],
   },
 ]
 

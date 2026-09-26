@@ -56,6 +56,7 @@ import type { FindingsListState } from '../lib/findings'
 import type { Carry } from '../lib/handoff'
 
 import { emptyNoticePolicy, type NoticePolicy } from '../lib/notice-policy'
+import type { InboxEntry } from '../lib/inbox'
 
 import type { PlanEdit } from '../lib/plan-edits'
 
@@ -665,6 +666,11 @@ export interface AppSnapshot {
    */
   readonly noticePolicy: NoticePolicy
   /**
+   * Messages kept until they are cleared (`lib/inbox.ts`), newest first — the
+   * list behind the bell. Host preferences, for the reason `noticePolicy` is.
+   */
+  readonly inbox: readonly InboxEntry[]
+  /**
    * The macOS notification switches — a master and one per kind, all
    * defaulting on. Host state for the same reason `noticePolicy` is, plus
    * one more: the desktop shell reads the same preference when it decides
@@ -842,6 +848,7 @@ const EMPTY: AppSnapshot = {
   editorPlane: [],
   usageOff: [],
   noticePolicy: emptyNoticePolicy(),
+  inbox: [],
   systemNotifications: {},
   preferencesLoaded: false,
   // Cookies kept and links staying in the pane are what a person expects of

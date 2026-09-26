@@ -1327,6 +1327,14 @@ the caller's; this is the list and its two verbs.
 A result, said as a toast: the same message shape, through the registry's
 Sonner so every toast in the app looks the same.
 
+### `showProgress`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+A result that takes a moment: one toast that says it is under way and then
+turns into how it ended, rather than a spinner somewhere and a second toast
+later. The promise's own value can name the ending.
+
 ### `useDismissOverlays`
 
 `packages/ui/src/design/patterns/Popover.tsx`

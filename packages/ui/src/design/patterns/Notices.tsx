@@ -2,7 +2,9 @@ import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 
 import { ArrowLeftIcon, BellIcon, ChevronIcon, CrossIcon } from '../../components/Icons'
 import type { BannerTone } from '../primitives/Banner'
+import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
+import { revealMotion } from '../ui/motion'
 import { toast } from '../ui/toast'
 import styles from './Notices.module.css'
 
@@ -47,12 +49,21 @@ export type NoticeMessage = {
   readonly at?: number
   /** Only the inbox keeps read state. */
   readonly read?: boolean
+  /**
+   * Who is speaking, when it is not the desk itself: an Agent's face in place
+   * of the tone dot, so a message an Agent sent reads as that Agent's.
+   */
+  readonly mark?: ReactNode
 }
 
 /** The dot every surface leads with: the message's tone, at a glance. */
 const ToneDot = ({ tone = 'neutral' }: { tone?: NoticeTone }) => (
   <span className={styles.dot} data-tone={tone} aria-hidden />
 )
+
+/** What a message leads with: its sender's face when it has one, else its tone. */
+const Lead = ({ message }: { message: NoticeMessage }) =>
+  message.mark ? <span className={styles.mark}>{message.mark}</span> : <ToneDot tone={message.tone} />
 
 const Dismiss = ({ onDismiss, label = 'Dismiss' }: { onDismiss: () => void; label?: string }) => (
   <Button variant="ghost" size="icon-xs" type="button" className={styles.dismiss} aria-label={label} onClick={onDismiss}>
@@ -115,6 +126,7 @@ export const NoticeCard = ({
   return (
     <section className={styles.card} data-slot="notice-card" data-tone={message.tone ?? 'neutral'} role="status" aria-label="Messages">
       <div className={styles.cardHead}>
+        {message.mark ? <span className={styles.mark}>{message.mark}</span> : null}
         <Pager at={pager.at} count={messages.length} onPrevious={pager.previous} onNext={pager.next} />
         <span className={styles.fill} />
         <Dismiss onDismiss={() => onDismiss(message.id)} />
@@ -143,7 +155,7 @@ export const NoticeCard = ({
  */
 export const ComposerNotice = ({ message, onDismiss }: { message: NoticeMessage; onDismiss?: () => void }) => (
   <div className={styles.composer} data-slot="composer-notice" data-tone={message.tone ?? 'neutral'} role="status">
-    <ToneDot tone={message.tone} />
+    <Lead message={message} />
     <span className={styles.line}>
       <span className={styles.lineTitle}>{message.title}</span>
       {message.body ? <span className={styles.lineBody}> {message.body}</span> : null}
@@ -166,7 +178,7 @@ export const NoticeStrip = ({
   if (!message) return null
   return (
     <div className={styles.strip} data-slot="notice-strip" data-tone={message.tone ?? 'neutral'} role="status">
-      <ToneDot tone={message.tone} />
+      <Lead message={message} />
       <span className={styles.line}>
         <span className={styles.lineTitle}>{message.title}</span>
         {message.body ? <span className={styles.lineBody}> {message.body}</span> : null}
@@ -237,8 +249,8 @@ export const InboxList = ({
       <>
         <ul className={styles.inboxItems}>
           {messages.map((message) => (
-            <li key={message.id} className={styles.inboxItem} {...(message.read ? {} : { 'data-unread': '' })}>
-              <ToneDot tone={message.tone} />
+            <li key={message.id} className={cn(styles.inboxItem, revealMotion)} {...(message.read ? {} : { 'data-unread': '' })}>
+              <Lead message={message} />
               <div className={styles.inboxText}>
                 <span className={styles.inboxTitle}>{message.title}</span>
                 {message.body ? <span className={styles.inboxBody}>{message.body}</span> : null}
@@ -283,4 +295,16 @@ export const showToast = (message: Omit<NoticeMessage, 'id'> & { id?: string }):
   if (message.tone === 'danger') toast.error(message.title, options)
   else if (message.tone === 'warning') toast.warning(message.title, options)
   else toast(message.title, options)
+}
+
+/**
+ * A result that takes a moment: one toast that says it is under way and then
+ * turns into how it ended, rather than a spinner somewhere and a second toast
+ * later. The promise's own value can name the ending.
+ */
+export const showProgress = <T,>(
+  work: Promise<T>,
+  words: { readonly working: string; readonly done: string | ((value: T) => string); readonly failed: string | ((error: unknown) => string) },
+): void => {
+  toast.promise(work, { loading: words.working, success: words.done, error: words.failed })
 }

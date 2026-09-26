@@ -31,6 +31,12 @@
   background: var(--hd-danger);
 }
 
+.mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
 .dismiss {
   flex: none;
   color: var(--hd-muted-foreground);

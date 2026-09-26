@@ -136,12 +136,15 @@ import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
+import { kept as keptInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
 import {
   afterDismiss,
-  readNoticePolicy,
-  withMuted,
   type NoticeIdentity,
   type NoticePolicy,
+  type NoticeSurface,
+  readNoticePolicy,
+  withMuted,
+  withSurface,
 } from '../lib/notice-policy'
 
 import {
@@ -5575,6 +5578,7 @@ export class AppStore {
         ? rawOff.filter((entry): entry is RuntimeId => typeof entry === 'string')
         : []
       const noticePolicy = readNoticePolicy(preferences['noticePolicy'])
+      const inbox = readInbox(preferences['inbox'])
       const editorPrefs = readEditorPrefs(preferences['editorPrefs'])
       const rawBrowser = preferences['browserPrefs'] as Partial<AppSnapshot['browserPrefs']> | undefined
       const browserPrefs: AppSnapshot['browserPrefs'] = {
@@ -5598,6 +5602,7 @@ export class AppStore {
         browserPrefs,
         usageOff,
         noticePolicy,
+        inbox,
         systemNotifications: readSystemNotifications(preferences['systemNotifications']),
         preferencesLoaded: true,
         ...(preferences['theme'] === 'light' ||
@@ -6089,6 +6094,37 @@ export class AppStore {
   /** Silences, or restores, one kind of message. The settings page and the × share this. */
   setNoticeMuted(kind: string, muted: boolean): void {
     this.#setNoticePolicy(withMuted(this.#snapshot.noticePolicy, kind, muted))
+  }
+
+  /**
+   * Where one kind of message is shown, or `null` to stop showing it. The
+   * Notifications page's one control per kind; moving a kind turns it back on.
+   */
+  setNoticeSurface(kind: string, surface: NoticeSurface | null): void {
+    this.#setNoticePolicy(withSurface(this.#snapshot.noticePolicy, kind, surface))
+  }
+
+  /**
+   * Keeps a message in the inbox. Whoever raises a message worth reading later
+   * sends it here — a kind moved to "Inbox only", a Goal that finished while
+   * nobody was watching. The same id replaces its earlier copy, unread again.
+   */
+  keep(entry: Omit<InboxEntry, 'read'>): void {
+    this.#setInbox(keptInInbox(this.#snapshot.inbox, entry))
+  }
+
+  /** Marks one kept message read, or every one (`null`). */
+  markInboxRead(id: string | null): void {
+    this.#setInbox(markedRead(this.#snapshot.inbox, id))
+  }
+
+  clearInbox(): void {
+    this.#setInbox([])
+  }
+
+  #setInbox(inbox: readonly InboxEntry[]): void {
+    this.#patch({ inbox })
+    void this.#writePreference({ inbox }, 'The inbox')
   }
 
   /** One macOS notification switch — `enabled` is the master, the rest are kinds. */

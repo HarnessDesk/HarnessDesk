@@ -102,6 +102,7 @@ export {
   InboxList,
   NoticeCard,
   NoticeStrip,
+  showProgress,
   showToast,
   type NoticeAct,
   type NoticeMessage,
