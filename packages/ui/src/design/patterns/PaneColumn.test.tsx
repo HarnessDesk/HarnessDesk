@@ -36,13 +36,6 @@ it('gives each inset its own inline gutter, and no vertical padding by default',
   expect(column.style.padding).toBe('0 var(--hd-rail-inset)')
 })
 
-it('keeps the rail gutter for rail-tight, at the one-row control’s own vertical breath', () => {
-  act(() => root.render(<PaneColumn inset="rail-tight">rename</PaneColumn>))
-  const column = container.firstElementChild as HTMLElement
-  expect(column.dataset['inset']).toBe('rail-tight')
-  expect(column.style.padding).toBe('var(--hd-space-1) var(--hd-rail-inset)')
-})
-
 it('adds the scrollbar gutter back for the bars strip, which is not itself a scroll box', () => {
   act(() => root.render(<PaneColumn inset="bars">bars</PaneColumn>))
   const column = container.firstElementChild as HTMLElement

@@ -147,7 +147,7 @@ const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'fl
 const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'table-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
-const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare'] as const
+const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare', 'row'] as const
 const INPUT_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
 const NATIVE_SELECT_CATALOG_VARIANTS = ['default', 'filled'] as const
 const NATIVE_SELECT_CATALOG_SIZES = ['default', 'compact'] as const
@@ -177,9 +177,8 @@ const MESSAGE_CATALOG_STATES = ['default'] as const
 const MESSAGE_CATALOG_RHYTHM = ['transcript'] as const
 /** `PaneColumn`'s own shapes: the reading column both the transcript's scroll
  *  box and the room's stream share, the bars strip above the transcript's
- *  composer, the sidebar's rail, its one-row `rail-tight` (the inline rename
- *  box), and the jobs strip nested in the bars. */
-const PANECOLUMN_CATALOG_INSET = ['reading', 'bars', 'rail', 'rail-tight', 'jobs'] as const
+ *  composer, the sidebar's rail, and the jobs strip nested in the bars. */
+const PANECOLUMN_CATALOG_INSET = ['reading', 'bars', 'rail', 'jobs'] as const
 /** `PaneColumn` has no variant, size or state of its own — `inset` carries
  *  the whole contract — so these three match the manifest's own `['default']`. */
 const PANECOLUMN_CATALOG_VARIANTS = ['default'] as const
@@ -1375,7 +1374,7 @@ const MessageBoard = () => (
           <PaneColumnDemo
             inset={inset}
             data-catalog-inset={inset}
-            rows={inset === 'rail' || inset === 'rail-tight' ? railRows : messageRows}
+            rows={inset === 'rail' ? railRows : messageRows}
           />
         </Case>
       ))}

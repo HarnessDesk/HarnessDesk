@@ -321,7 +321,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
 Object.assign(SIZES, {
   button: ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'table-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
   card: ['default', 'compact'],
-  input: ['default', 'compact', 'bare'],
+  input: ['default', 'compact', 'bare', 'row'],
   attachment: ['sm', 'default', 'lg'],
   'icon-tile': ['xs', 'sm', 'default', 'lg'],
   'disclosure-chevron': ['xs', 'sm', 'default', 'lg'],

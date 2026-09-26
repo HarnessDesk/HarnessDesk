@@ -34,6 +34,9 @@ const inputVariants = cva(
         default: 'h-(--hd-field-h)',
         compact: 'h-6 px-1.5 data-[icon=leading]:pl-6',
         bare: 'h-7 px-0',
+        // An input standing in for a list row (an inline rename): exactly the
+        // row's own height, so the row does not jump when editing starts.
+        row: 'h-(--hd-nav-h) px-1.5',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

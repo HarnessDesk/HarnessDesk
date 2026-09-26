@@ -213,13 +213,11 @@ const SessionRow = ({
   return (
     <div className={styles.rowWrap} {...(menu.at ? { 'data-menu-open': '' } : {})} onContextMenu={menu.open}>
       {renaming ? (
-        // A one-row rename box only this tree draws; no shared inline-rename
-        // part exists yet, and one for a single caller would be premature.
-        // Both its insets are the column's own named shape now: the rail's
-        // side padding, and `rail-tight`'s one-row top-and-bottom.
-        <PaneColumn inset="rail-tight">
+        // The rename box stands in for the row itself: the rail's own inset, and
+        // an input exactly the row's height.
+        <PaneColumn inset="rail">
           <Input
-            variant="quiet" controlSize="compact" className={styles.renameInput}
+            variant="quiet" controlSize="row" className={styles.renameInput}
             value={draft}
             autoFocus
             onChange={(event) => setDraft(event.target.value)}

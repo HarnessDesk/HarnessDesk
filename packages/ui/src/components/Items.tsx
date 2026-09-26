@@ -307,7 +307,7 @@ const Row = ({
         <ListRowDetail
           inset="title"
           within={register === 'light' ? 'row' : 'card'}
-          className={bareBody ? undefined : 'grid gap-(--hd-space-2) pt-(--hd-space-2) pb-(--hd-space-3)'}
+          holds={bareBody ? 'plate' : 'text'}
         >
           {children}
         </ListRowDetail>
