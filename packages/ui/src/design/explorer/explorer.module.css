@@ -34,22 +34,23 @@
 
 /* The catalogue's own rail groups wear the app's one group label
    (`GroupLabel`); only their place in the rail is said here. */
+/* Left edge matches the nav item under it — `Button` size `navigation`'s own
+   inset, `--hd-nav-inset`, is `--hd-space-2` under Desk — rather than the
+   rail's own comfortable spacing, so a group's label sits directly over its
+   items instead of a couple of px left of them. */
 .section {
-  padding: var(--hd-space-3) var(--hd-space-2-5) var(--hd-space-1);
+  padding: var(--hd-space-3) var(--hd-space-2) var(--hd-space-1); /* desk: --hd-space-2-5 → --hd-space-2, lines the label up with Button size=navigation's own inset */
 }
 
-/* The nav item, drawn the way the app's sidebar draws one.
-
-   `min-height`, not `height`: a board whose name needs two lines used to
-   overflow its row and eat the gap under it, which is a silent way for this
-   page to look broken as the system grows. */
+/* The nav item, drawn as the app's own navigation row (`Button` variant
+   `navigation`, size `navigation`) — the floor, corner, gap and inset the
+   sidebar itself stands on, with `data-selected` for the current one. Only
+   what the row size does not already do is said here: the row wraps to a
+   second line rather than the row's own single-line box, so a board whose
+   name needs two lines does not overflow its row and eat the gap under it. */
 .navControl {
   width: 100%;
-  height: auto;
-  min-height: var(--hd-row-h);
-  justify-content: flex-start;
   white-space: normal;
-  text-align: left;
 }
 
 .navSearch {
@@ -86,11 +87,21 @@
 }
 
 /* The bar shares the titlebar band with the traffic lights on the other side
-   of the divider, so it starts below them and drags the window like one. */
+   of the divider, so it starts below them and drags the window like one.
+
+   `flex-wrap`: the knobs used to be one `nowrap` row, which is why the page
+   opened 342px wider than the window and scrolled sideways on every view —
+   Foundation alone has six settings. Wrapping onto a second (or third) line
+   inside this header, which sits above the scrolling body and so reads as
+   sticky without asking for the property, is what keeps the row of controls
+   readable instead of shrinking it to illegibility or letting it run off the
+   edge. */
 .bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--hd-space-2);
+  row-gap: var(--hd-space-1-5);
   padding: var(--hd-space-2-5) var(--hd-space-6);
   padding-top: calc(var(--hd-titlebar-height) - var(--hd-space-3));
   border-bottom: var(--hd-border-width) solid var(--hd-border);
@@ -99,12 +110,9 @@
 
 /* Every control in it stays clickable; only the gaps drag. */
 .bar button,
-.bar .switch {
+.bar .switch,
+.bar .dial {
   -webkit-app-region: no-drag;
-}
-
-.barSpacer {
-  flex: 1;
 }
 
 .switch {
@@ -114,6 +122,15 @@
   padding: var(--hd-space-0-5);
   border-radius: var(--hd-radius-sm);
   background: var(--hd-muted);
+}
+
+/* A dial that composes the canonical `Segmented` control already draws its
+   own track, so it only needs the label beside it — a second muted pill
+   around a control that is already one would double the frame. */
+.dial {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
 }
 
 .switchLabel {
@@ -194,6 +211,41 @@
   font-size: var(--hd-text-xs);
 }
 
+/* --- the specimen frame ----------------------------------------------------
+   A board's example, on its own ground rather than loose on the page: a
+   caption naming what it is, then the example inside a bordered plate with
+   its own padding. */
+.specimen {
+  margin: 0 0 var(--hd-space-5);
+}
+
+.specimenCaption {
+  margin-bottom: var(--hd-space-2);
+  font-family: var(--hd-font-code);
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+.specimenNote {
+  margin-left: var(--hd-space-2);
+  color: var(--hd-tertiary-foreground);
+}
+
+/* Fits its content by default: a narrow settings mock reads at the width a
+   settings page actually gives it, rather than stretching across whatever is
+   left of the page and leaving the difference blank inside its own frame.
+   `data-wide` opts out for the boards that are demonstrating a row's own
+   spacing rather than a fixed-width screen. */
+.specimenCanvas {
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--hd-space-5);
+}
+
+.specimenCanvas[data-wide] {
+  width: 100%;
+}
+
 /* --- the token board ----------------------------------------------------- */
 
 .tokens {
@@ -216,12 +268,55 @@
   background: var(--hd-hover);
 }
 
+/* A colour token: the fill, on a hairline it always has — `--hd-border`
+   alone reads as almost no edge at all against a white or near-white fill,
+   which is exactly the swatch that most needs one. `border-strong` is what
+   the border scale calls the step meant to be seen. */
 .swatch {
   flex-shrink: 0;
   width: var(--hd-space-5);
   height: var(--hd-space-5);
-  border: var(--hd-border-width) solid var(--hd-border);
+  border: var(--hd-border-width) solid var(--hd-border-strong); /* desk: --hd-border → --hd-border-strong, a white fill drew no visible edge */
   border-radius: var(--hd-radius-sm);
+}
+
+/* A space token: a track the same width for every row, so the bar's length
+   says the value and the name after it still starts at one x. Drawn inline
+   before, the bar's own width pushed the name sideways by the amount it was
+   demonstrating. */
+.spaceTrack {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  width: 72px;
+}
+
+.spaceBar {
+  height: var(--hd-space-3);
+  max-width: 100%;
+  background: var(--hd-primary);
+  border-radius: var(--hd-radius-sm);
+}
+
+/* A radius token: the value it names, drawn on a small tile rather than
+   asserted in text alone. */
+.radiusSample {
+  flex-shrink: 0;
+  width: var(--hd-space-5);
+  height: var(--hd-space-5);
+  border: var(--hd-border-width) solid var(--hd-border-strong);
+  background: var(--hd-muted);
+}
+
+/* A shadow token: cast on its own small card, since a shadow drawn on the
+   page's own ground can vanish into whatever is already under it. */
+.shadowSample {
+  flex-shrink: 0;
+  width: var(--hd-space-6);
+  height: var(--hd-space-5);
+  margin: 0 var(--hd-space-1);
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-card);
 }
 
 .tokenName {
@@ -234,13 +329,6 @@
 .tokenValue {
   flex-shrink: 0;
   color: var(--hd-muted-foreground);
-}
-
-/* A step of the space scale, drawn at its own size. */
-.spaceBar {
-  height: var(--hd-space-5);
-  background: var(--hd-primary);
-  border-radius: var(--hd-radius-sm);
 }
 
 /* The channel board: the room's reading column, so the message rows are

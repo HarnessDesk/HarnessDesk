@@ -165,6 +165,36 @@ export const TOKEN_GROUPS: {
   },
 ]
 
+/**
+ * How to draw one token, decided from its own name and value rather than
+ * trusted to its group.
+ *
+ * A group's `kind` says what most of its tokens are, and it used to be taken
+ * as gospel for every name the group's regex happened to match — which is how
+ * `--hd-card-padding` and `--hd-card-radius` ended up in "Surface" (matched on
+ * the `card` prefix) and drawn as colour swatches, one of them a 16px padding
+ * value with a coloured square that meant nothing. `shadow` and `radius` are
+ * pulled out by name first because both live inside colour-shaped groups
+ * (`Button colour`, `Surface`) the same way; `color` is trusted only once the
+ * value itself reads as one, so a stray non-colour caught by a group's regex
+ * falls through to a plain value instead of a lying swatch.
+ */
+export type TokenVisual = 'color' | 'space' | 'radius' | 'shadow' | 'size'
+
+const COLOR_VALUE = /^(#|rgb|hsl|color-mix)/i
+
+export const tokenVisual = (
+  name: string,
+  groupKind: 'color' | 'space' | 'plain',
+  value: string,
+): TokenVisual => {
+  if (/shadow/.test(name)) return 'shadow'
+  if (/radius/.test(name)) return 'radius'
+  if (groupKind === 'space') return 'space'
+  if (groupKind === 'color' && (COLOR_VALUE.test(value) || value === 'transparent')) return 'color'
+  return 'size'
+}
+
 /** The names the token file declares, in source order. */
 const declaredNames = (): string[] => {
   const names: string[] = []
