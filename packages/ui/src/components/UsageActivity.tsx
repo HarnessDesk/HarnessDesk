@@ -177,7 +177,9 @@ export const UsageActivity = ({
     view === 'year'
       ? WEEKDAY_NAMES.map((name, weekday) => ({
           key: name,
-          header: weekday % 2 === 0 ? <Text role="meta">{name.slice(0, 3)}</Text> : undefined,
+          // Mon, Wed, Fri only — a label on every row crowds a 53-column grid,
+          // and Sun would make four unevenly-spaced labels rather than three.
+          header: [0, 2, 4].includes(weekday) ? <Text role="meta">{name.slice(0, 3)}</Text> : undefined,
           cells: year.weeks.map((week) => {
             const cell = week[weekday]
             return cell ? toGridCell(cell) : null
