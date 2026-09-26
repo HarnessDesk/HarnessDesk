@@ -92,6 +92,28 @@ describe('SegmentMeter', () => {
     mount(<SegmentMeter percent={8} tone="danger" label="Weekly" segments={10} />)
     expect(meter().children[0]?.className).toContain('bg-(--hd-danger)')
   })
+
+  it('draws a distribution — one continuous bar split by share — when given parts', () => {
+    mount(
+      <SegmentMeter
+        label="Where it went"
+        parts={[
+          { key: 'a', tint: 'blue', value: 30 },
+          { key: 'b', tint: 'teal', value: 70 },
+        ]}
+      />,
+    )
+    const bar = meter()
+    expect(bar.getAttribute('role')).toBe('img')
+    expect(bar.children).toHaveLength(2)
+    expect((bar.children[0] as HTMLElement).style.width).toBe('30%')
+    expect((bar.children[1] as HTMLElement).style.width).toBe('70%')
+  })
+
+  it('draws nothing filled for a distribution with no total', () => {
+    mount(<SegmentMeter label="Where it went" parts={[{ key: 'a', tint: 'blue', value: 0 }]} />)
+    expect(meter().children).toHaveLength(0)
+  })
 })
 
 describe('DayColumns', () => {
@@ -219,6 +241,83 @@ describe('DayColumns', () => {
     )
     expect(stacks[0]).toBe('0%')
     expect(stacks[1]).toBe('100%')
+  })
+
+  it('draws a day before coverage hatched, and its tip says so rather than $0', () => {
+    mount(
+      <DayColumns
+        buckets={[{ label: 'Mon', total: 0, parts: [0, 0], unknown: true }, ...BUCKETS.slice(1)]}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+      />,
+    )
+    press('Home')
+    expect(tip()?.textContent).toContain('No record yet')
+    expect(tip()?.textContent).not.toContain('$0.00')
+    const column = plot().children[0] as HTMLElement
+    expect((column.firstElementChild as HTMLElement).style.background).toContain('--hd-chart-heat-not-scanned')
+  })
+
+  it('marks today with a dashed outline in bars mode', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        today={2}
+      />,
+    )
+    const column = plot().children[2] as HTMLElement
+    expect((column.firstElementChild as HTMLElement).className).toContain('outline-dashed')
+  })
+
+  it('draws a dashed ghost line for the previous period and reads it in the tip', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        ghost={[5, 40, 8]}
+      />,
+    )
+    press('ArrowRight')
+    press('ArrowRight')
+    expect(tip()?.textContent).toContain('Previous')
+    expect(tip()?.textContent).toContain('$40.00')
+    const ghostPath = container.querySelector('svg path[stroke-dasharray]')
+    expect(ghostPath).not.toBeNull()
+  })
+
+  it('draws an area line rather than columns in line mode', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        mode="line"
+      />,
+    )
+    expect(container.querySelector('svg path[stroke="var(--hd-accent)"]')).not.toBeNull()
+    // No stacked bar column in line mode.
+    expect(container.querySelector('.flex-col-reverse')).toBeNull()
+  })
+
+  it('draws a y-axis of three round ticks when given one', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(0)}`}
+        label="Spend per day"
+        axisTicks={[0, 25, 50]}
+      />,
+    )
+    const gutter = container.querySelector('[aria-hidden].flex.flex-col') as HTMLElement
+    expect(gutter?.textContent).toBe('$50$25$0')
   })
 })
 

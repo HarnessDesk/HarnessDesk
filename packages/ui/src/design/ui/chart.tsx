@@ -315,19 +315,55 @@ const meterFill: Record<Tone, string> = {
  */
 const SegmentMeter = ({
   className,
-  percent,
+  percent = null,
   tone = 'neutral',
   segments = 40,
+  parts,
   label,
   ...props
 }: Omit<React.ComponentProps<'div'>, 'children'> & {
-  /** What is left, 0..100. Null when the source reported no figure. */
-  percent: number | null
+  /** What is left, 0..100. Null when the source reported no figure. Ignored when `parts` is given. */
+  percent?: number | null
   tone?: Tone
   segments?: number
+  /**
+   * A **distribution** rather than a budget — one continuous bar split by
+   * share and coloured per entry, for "which slice is biggest" rather than
+   * "how much of a whole is left". Given this, the bar draws one filled span
+   * per entry sized to `value`'s share of the total, ignores
+   * `percent`/`tone`/`segments` entirely, and stops rounding up a live
+   * remainder — a distribution has nothing to protect from reading empty.
+   */
+  parts?: readonly { key: string; tint: Tint; value: number }[]
   /** What this meter measures, for the accessibility tree. */
   label: string
 }) => {
+  if (parts) {
+    const total = parts.reduce((sum, part) => sum + Math.max(0, part.value), 0)
+    return (
+      <div
+        data-slot="segment-meter"
+        data-variant="distribution"
+        role="img"
+        aria-label={label}
+        className={cn('flex h-2.5 w-full overflow-hidden rounded-full bg-(--hd-border)', className)}
+        {...props}
+      >
+        {total > 0 &&
+          parts.map((part) => {
+            const share = Math.max(0, part.value) / total
+            if (share <= 0) return null
+            return (
+              <span
+                key={part.key}
+                className={cn('h-full', dotTint({ tint: part.tint }))}
+                style={{ width: `${share * 100}%` }}
+              />
+            )
+          })}
+      </div>
+    )
+  }
   const known = percent !== null && Number.isFinite(percent)
   const left = known ? Math.min(100, Math.max(0, percent)) : 0
   // Rounded up, so any live remainder lights at least one segment: a meter
@@ -549,6 +585,14 @@ export interface DayBucket {
   readonly total: number
   /** One value per entry of `series`, in the same order. */
   readonly parts: readonly number[]
+  /**
+   * No record for this day at all — before the ledger's own coverage, or a
+   * ledger with no history yet. Drawn hatched in both modes, never as an
+   * empty, priced day: the old chart drew a day nobody had scanned exactly
+   * like a day that was scanned and spent nothing, and a fortnight before an
+   * agent was ever added read as a fortnight of quiet work.
+   */
+  readonly unknown?: boolean
 }
 
 /**
@@ -577,6 +621,11 @@ const DayColumns = ({
   height = 96,
   label,
   emptyLabel = 'Nothing spent',
+  mode = 'bars',
+  ghost,
+  today,
+  axisTicks,
+  previousLabel = 'Previous',
   ...props
 }: Omit<React.ComponentProps<'div'>, 'children'> & {
   buckets: readonly DayBucket[]
@@ -586,11 +635,71 @@ const DayColumns = ({
   height?: number
   label: string
   emptyLabel?: string
+  /** Stacked columns split by series, or one area line for the whole period. */
+  mode?: 'bars' | 'line'
+  /**
+   * The previous period's total, index-aligned to `buckets` — see
+   * `lib/ledger.ts`'s `alignGhost`. Drawn as a dashed line in either mode,
+   * never as a second solid series: it is a comparison, not a competing
+   * reading of the same day.
+   */
+  ghost?: readonly (number | null)[]
+  /**
+   * Index of today's bucket. A dashed outline on the bar in `'bars'` mode; an
+   * emphasised dot on the line in `'line'` mode.
+   */
+  today?: number
+  /**
+   * Three round numbers — `[0, mid, max]`, from `lib/ledger.ts`'s
+   * `axisTicks` — drawn down the left as a y-axis. Omitted draws no axis and
+   * scales every bar to the tallest bucket instead, which is what this mark
+   * did before either mode had one.
+   */
+  axisTicks?: readonly [number, number, number]
+  /** What the ghost line's tip row is called. */
+  previousLabel?: string
 }) => {
   const [active, setActive] = useState<number | null>(null)
+  const gradientId = useId()
   const peak = buckets.reduce((high, bucket) => Math.max(high, bucket.total), 0)
+  const ceiling = axisTicks ? axisTicks[2] : peak
   const shown = active !== null && active >= 0 && active < buckets.length ? buckets[active] : null
   const at = buckets.length > 1 && active !== null ? (active + 0.5) / buckets.length : 0.5
+  const previousShown = active !== null ? (ghost?.[active] ?? null) : null
+
+  // Line geometry — a run of contiguous known indices at a time, so an
+  // "unknown" island breaks the path rather than being bridged by a straight
+  // line that would say there was a reading in between.
+  const count = buckets.length
+  const plotX = (index: number): number => (count > 1 ? ((index + 0.5) / count) * 100 : 50)
+  const plotY = (value: number): number =>
+    ceiling > 0 ? 100 - Math.min(100, Math.max(0, (value / ceiling) * 100)) : 100
+  const runsWhere = (known: (index: number) => boolean): number[][] => {
+    const runs: number[][] = []
+    let run: number[] = []
+    for (let index = 0; index < count; index += 1) {
+      if (known(index)) run.push(index)
+      else if (run.length > 0) {
+        runs.push(run)
+        run = []
+      }
+    }
+    if (run.length > 0) runs.push(run)
+    return runs
+  }
+  const lineOf = (indices: readonly number[], valueAt: (index: number) => number): string =>
+    indices
+      .map((index, position) => `${position === 0 ? 'M' : 'L'}${plotX(index).toFixed(2)},${plotY(valueAt(index)).toFixed(2)}`)
+      .join('')
+  const areaOf = (indices: readonly number[], valueAt: (index: number) => number): string => {
+    if (indices.length === 0) return ''
+    const first = indices[0] as number
+    const last = indices[indices.length - 1] as number
+    return `M${plotX(first).toFixed(2)},100${lineOf(indices, valueAt).slice(1)}L${plotX(last).toFixed(2)},100Z`
+  }
+  const valueRuns = mode === 'line' ? runsWhere((index) => !buckets[index]?.unknown) : []
+  const ghostRuns = ghost ? runsWhere((index) => !buckets[index]?.unknown && ghost[index] != null) : []
+  const todayKnown = today !== undefined && today >= 0 && today < count && !buckets[today]?.unknown
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (buckets.length === 0) return
@@ -625,7 +734,9 @@ const DayColumns = ({
       {shown && (
         <ChartTip at={at}>
           <div className="mb-1 font-medium">{shown.label}</div>
-          {shown.total <= 0 ? (
+          {shown.unknown ? (
+            <div className="text-(--hd-muted-foreground)">No record yet</div>
+          ) : shown.total <= 0 ? (
             <div className="text-(--hd-muted-foreground)">{emptyLabel}</div>
           ) : (
             <>
@@ -650,71 +761,179 @@ const DayColumns = ({
               )}
             </>
           )}
+          {/* The comparison the header figure already claims, repeated here so
+              a reader who stopped to look at one day gets the same "against
+              what" the total above the chart does. */}
+          {previousShown != null && (
+            <ChartTipRow
+              divider
+              label={previousLabel}
+              value={format(previousShown)}
+              className="text-(--hd-muted-foreground)"
+            />
+          )}
         </ChartTip>
       )}
 
-      <div
-        role="group"
-        aria-label={label}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-        onBlur={() => setActive(null)}
-        onPointerLeave={() => setActive(null)}
-        className="border-(--hd-border) flex items-end gap-px border-b"
-        style={{ height }}
-      >
-        {buckets.map((bucket, index) => {
-          /* The segments are shares of what is actually drawn, not of the
-             bucket's arithmetic total. Only positive parts get a segment, so
-             dividing by `total` is right until a row arrives negative — a
-             credit, a correction — and then the drawn parts do not sum to
-             their own column and one of them gets a negative height. Deriving
-             the denominator from the same parts that are drawn makes the
-             column self-consistent whatever the ledger says. */
-          const drawn = series.map((_, part) => Math.max(0, bucket.parts[part] ?? 0))
-          const drawnTotal = drawn.reduce((sum, part) => sum + part, 0)
-          return (
-            <div
-              key={index}
-              aria-hidden
-              onPointerEnter={() => setActive(index)}
-              data-active={index === active ? '' : undefined}
-              className="group/col flex h-full min-w-0 flex-1 cursor-default flex-col justify-end"
-            >
+      <div className="flex items-stretch gap-2">
+        {axisTicks && (
+          <div
+            aria-hidden
+            className="flex shrink-0 flex-col justify-between pb-px text-right text-xs text-(--hd-muted-foreground) tabular-nums"
+            style={{ height }}
+          >
+            <span>{format(axisTicks[2])}</span>
+            <span>{format(axisTicks[1])}</span>
+            <span>{format(axisTicks[0])}</span>
+          </div>
+        )}
+
+        <div
+          role="group"
+          aria-label={label}
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          onBlur={() => setActive(null)}
+          onPointerLeave={() => setActive(null)}
+          className="border-(--hd-border) relative flex min-w-0 flex-1 items-end gap-px border-b"
+          style={{ height }}
+        >
+          {buckets.map((bucket, index) => {
+            /* The segments are shares of what is actually drawn, not of the
+               bucket's arithmetic total. Only positive parts get a segment, so
+               dividing by `total` is right until a row arrives negative — a
+               credit, a correction — and then the drawn parts do not sum to
+               their own column and one of them gets a negative height. Deriving
+               the denominator from the same parts that are drawn makes the
+               column self-consistent whatever the ledger says. */
+            const drawn = series.map((_, part) => Math.max(0, bucket.parts[part] ?? 0))
+            const drawnTotal = drawn.reduce((sum, part) => sum + part, 0)
+            const isToday = index === today
+            return (
               <div
-                className={cn(
-                  'flex w-full flex-col-reverse overflow-hidden rounded-t-(--hd-radius-2xs) transition-opacity',
-                  active !== null && index !== active && 'opacity-45',
-                )}
-                style={{
-                  height: peak > 0 ? `${Math.max(0, Math.min(100, (drawnTotal / peak) * 100))}%` : '0%',
-                }}
+                key={index}
+                aria-hidden
+                onPointerEnter={() => setActive(index)}
+                data-active={index === active ? '' : undefined}
+                className="group/col flex h-full min-w-0 flex-1 cursor-default flex-col justify-end"
               >
-                {series.map((entry, part) => {
-                  const value = drawn[part] ?? 0
-                  if (value <= 0 || drawnTotal <= 0) return null
-                  return (
-                    <span
-                      key={entry.key}
-                      className={cn('w-full shrink-0', dotTint({ tint: entry.tint }))}
-                      style={{ height: `${(value / drawnTotal) * 100}%` }}
-                    />
+                {bucket.unknown ? (
+                  /* "No record yet", never an empty $0 gap — the same hatch
+                     the calendar heatmap draws for a day before its own
+                     coverage, so the two charts agree on what "unknown"
+                     looks like. Full height: the point is that there is
+                     nothing to scale, not a reading of zero. */
+                  <span
+                    className={cn(
+                      'h-full w-full rounded-t-(--hd-radius-2xs) opacity-70',
+                      isToday && 'outline outline-dashed outline-1 -outline-offset-1 outline-(--hd-muted-foreground)',
+                    )}
+                    style={{ background: 'var(--hd-chart-heat-not-scanned)' }}
+                  />
+                ) : (
+                  mode === 'bars' && (
+                    <div
+                      className={cn(
+                        'flex w-full flex-col-reverse overflow-hidden rounded-t-(--hd-radius-2xs) transition-opacity',
+                        active !== null && index !== active && 'opacity-45',
+                        isToday && 'outline outline-dashed outline-1 -outline-offset-1 outline-(--hd-foreground)',
+                      )}
+                      style={{
+                        height: ceiling > 0 ? `${Math.max(0, Math.min(100, (drawnTotal / ceiling) * 100))}%` : '0%',
+                      }}
+                    >
+                      {series.map((entry, part) => {
+                        const value = drawn[part] ?? 0
+                        if (value <= 0 || drawnTotal <= 0) return null
+                        return (
+                          <span
+                            key={entry.key}
+                            className={cn('w-full shrink-0', dotTint({ tint: entry.tint }))}
+                            style={{ height: `${(value / drawnTotal) * 100}%` }}
+                          />
+                        )
+                      })}
+                    </div>
                   )
-                })}
+                )}
               </div>
-            </div>
-          )
-        })}
+            )
+          })}
+
+          {/* The line, its ghost, and today's endpoint — one overlay so
+              neither has to fight the bar columns for a coordinate system.
+              `pointer-events-none` keeps the columns underneath the ones
+              that answer hover and the keyboard cursor. */}
+          {(mode === 'line' || ghost) && (
+            <svg
+              aria-hidden
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              className="pointer-events-none absolute inset-0 size-full overflow-visible"
+            >
+              {mode === 'line' &&
+                valueRuns.map((run, runIndex) => (
+                  <g key={runIndex}>
+                    <defs>
+                      <linearGradient id={`${gradientId}-${runIndex}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--hd-accent)" stopOpacity="0.28" />
+                        <stop offset="100%" stopColor="var(--hd-accent)" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <path
+                      d={areaOf(run, (i) => buckets[i]?.total ?? 0)}
+                      fill={`url(#${gradientId}-${runIndex})`}
+                    />
+                    <path
+                      d={lineOf(run, (i) => buckets[i]?.total ?? 0)}
+                      fill="none"
+                      stroke="var(--hd-accent)"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </g>
+                ))}
+              {ghost &&
+                ghostRuns.map((run, runIndex) => (
+                  <path
+                    key={`ghost-${runIndex}`}
+                    d={lineOf(run, (i) => ghost[i] ?? 0)}
+                    fill="none"
+                    stroke="var(--hd-muted-foreground)"
+                    strokeWidth="1.25"
+                    strokeDasharray="3 3"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+              {mode === 'line' && todayKnown && (
+                <circle
+                  cx={plotX(today as number)}
+                  cy={plotY(buckets[today as number]?.total ?? 0)}
+                  r="2.25"
+                  fill="var(--hd-accent)"
+                  stroke="var(--hd-card)"
+                  strokeWidth="1.25"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+            </svg>
+          )}
+        </div>
       </div>
 
       <span aria-live="polite" className="sr-only">
         {shown
-          ? `${shown.label}: ${shown.total > 0 ? format(shown.total) : emptyLabel}`
+          ? `${shown.label}: ${shown.unknown ? 'No record yet' : shown.total > 0 ? format(shown.total) : emptyLabel}`
           : ''}
       </span>
       <ul className="sr-only">
         {buckets.map((bucket, index) => (
-          <li key={index}>{`${bucket.label}: ${bucket.total > 0 ? format(bucket.total) : emptyLabel}`}</li>
+          <li key={index}>
+            {`${bucket.label}: ${bucket.unknown ? 'No record yet' : bucket.total > 0 ? format(bucket.total) : emptyLabel}`}
+          </li>
         ))}
       </ul>
     </div>
