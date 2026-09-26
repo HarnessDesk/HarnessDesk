@@ -1792,6 +1792,15 @@ export class AcpRuntime implements AgentRuntime {
     return this.#titles.get(id) ?? null
   }
 
+  /**
+   * Learns a title the agent announced live, through `session_info_update`
+   * rather than a `session/list` row — the same table `titleOf` reads, kept
+   * current between listings so a `summary()` taken right after reflects it.
+   */
+  noteTitle(id: SessionId, title: string): void {
+    this.#titles.set(id, title)
+  }
+
   /** The ask each session opened with, as of the last listing. */
   previewOf(id: SessionId): string | null {
     return this.#previews.get(id) ?? null
@@ -3764,15 +3773,42 @@ class AcpSession implements AgentSession {
       }
       case 'plan': {
         if (!turn) return
-        this.#emit({
-          type: 'turn/plan',
-          sessionId: this.id,
-          turnId: turn.id,
-          steps: update.entries.map((entry) => ({
+        // Schema-light, so an entry is trusted only once it looks like one:
+        // words to show and a status this client knows how to draw. Anything
+        // else is an agent's own bookkeeping, not a step for a person to read.
+        const steps = update.entries
+          .filter(
+            (entry) =>
+              typeof entry.content === 'string' &&
+              entry.content.trim() !== '' &&
+              (entry.status === 'pending' || entry.status === 'in_progress' || entry.status === 'completed'),
+          )
+          .map((entry) => ({
             step: entry.content,
             status: entry.status === 'in_progress' ? ('inProgress' as const) : entry.status,
-          })),
-        })
+            // The agent's own word for how urgent this step is, kept as it
+            // was said — "high", "P0", whatever its own vocabulary is — never
+            // guessed at when it left the field out.
+            ...(typeof entry.priority === 'string' && entry.priority.trim() !== ''
+              ? { priority: entry.priority.trim() }
+              : {}),
+          }))
+        this.#emit({ type: 'turn/plan', sessionId: this.id, turnId: turn.id, steps })
+        return
+      }
+      case 'session_info_update': {
+        // The empty and whitespace-only title an agent might send between
+        // naming turns is not a name to show — `titleOf` already treats
+        // "nothing said yet" as no title, and a live update should not read
+        // as the agent clearing a name it never gave.
+        const title = update.title?.trim() ?? ''
+        if (title === '') return
+        this.#host.noteTitle(this.id, title)
+        // Whether this actually reaches a person's screen — never displacing
+        // a name they gave the conversation themselves — is the host's call,
+        // the same place `session/setTitle` keeps that rule for ACP (`#named`
+        // in `packages/server/src/host.ts`).
+        this.#emit({ type: 'session/title', sessionId: this.id, title })
         return
       }
       case 'current_model_update': {
