@@ -86,10 +86,28 @@ const ChartHead = ({ className, ...props }: React.ComponentProps<'div'>) => (
   />
 )
 
-const ChartTitle = ({ className, ...props }: React.ComponentProps<'h3'>) => (
+const ChartTitle = ({
+  className,
+  figure,
+  ...props
+}: React.ComponentProps<'h3'> & {
+  /**
+   * The title *is* the figure being charted — a window's total, read at the
+   * same step as the period tiles beside it — rather than a caption above
+   * one. Same role as `Text`'s `metric` (`design/patterns/Settings.tsx`),
+   * composed here so a screen never spells the scale out in a raw utility
+   * of its own (`AGENTS.md` rule 10).
+   */
+  figure?: boolean
+}) => (
   <h3
     data-slot="chart-title"
-    className={cn('text-sm leading-(--hd-line-sm) font-medium', className)}
+    className={cn(
+      figure
+        ? 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums'
+        : 'text-sm leading-(--hd-line-sm) font-medium',
+      className,
+    )}
     {...props}
   />
 )
@@ -687,10 +705,19 @@ const DayColumns = ({
     if (run.length > 0) runs.push(run)
     return runs
   }
-  const lineOf = (indices: readonly number[], valueAt: (index: number) => number): string =>
-    indices
+  const lineOf = (indices: readonly number[], valueAt: (index: number) => number): string => {
+    if (indices.length === 1) {
+      const index = indices[0] as number
+      const point = `${plotX(index).toFixed(2)},${plotY(valueAt(index)).toFixed(2)}`
+      // A single known day has no neighbour to draw a line to. `M` alone has
+      // no length and paints nothing, so this closes the segment on itself —
+      // the same zero-length, round-capped trick that draws today's dot.
+      return `M${point}L${point}`
+    }
+    return indices
       .map((index, position) => `${position === 0 ? 'M' : 'L'}${plotX(index).toFixed(2)},${plotY(valueAt(index)).toFixed(2)}`)
       .join('')
+  }
   const areaOf = (indices: readonly number[], valueAt: (index: number) => number): string => {
     if (indices.length === 0) return ''
     const first = indices[0] as number
@@ -733,60 +760,30 @@ const DayColumns = ({
 
   return (
     <div data-slot="day-columns" className={cn('relative', className)} {...props}>
-      {shown && (
-        <ChartTip at={at}>
-          <div className="mb-1 font-medium">{shown.label}</div>
-          {shown.unknown ? (
-            <div className="text-(--hd-muted-foreground)">No record yet</div>
-          ) : shown.total <= 0 ? (
-            <div className="text-(--hd-muted-foreground)">{emptyLabel}</div>
-          ) : (
-            <>
-              {series.map((entry, index) => {
-                const value = shown.parts[index] ?? 0
-                if (value <= 0) return null
-                return (
-                  <ChartTipRow
-                    key={entry.key}
-                    tint={entry.tint}
-                    label={entry.label}
-                    value={format(value)}
-                  />
-                )
-              })}
-              {series.length > 1 && (
-                <ChartTipRow
-                  divider
-                  label="Total"
-                  value={format(shown.total)}
-                />
-              )}
-            </>
-          )}
-          {/* The comparison the header figure already claims, repeated here so
-              a reader who stopped to look at one day gets the same "against
-              what" the total above the chart does. */}
-          {previousShown != null && (
-            <ChartTipRow
-              divider
-              label={previousLabel}
-              value={format(previousShown)}
-              className="text-(--hd-muted-foreground)"
-            />
-          )}
-        </ChartTip>
-      )}
-
       <div className="flex items-stretch gap-2">
         {axisTicks && (
           <div
             aria-hidden
-            className="flex shrink-0 flex-col justify-between pb-px text-right text-xs text-(--hd-muted-foreground) tabular-nums"
+            className="relative shrink-0 text-right text-xs text-(--hd-muted-foreground) tabular-nums"
             style={{ height }}
           >
-            <span>{format(axisTicks[2])}</span>
-            <span>{format(axisTicks[1])}</span>
-            <span>{format(axisTicks[0])}</span>
+            {/* A label is positioned by its own value below, so it carries no
+                width of its own any more — this invisible copy, still in
+                normal flow, is what reserves the gutter's width instead. */}
+            <div aria-hidden className="invisible flex flex-col pb-px">
+              <span>{format(axisTicks[2])}</span>
+              <span>{format(axisTicks[1])}</span>
+              <span>{format(axisTicks[0])}</span>
+            </div>
+            {axisTicks.map((value, index) => (
+              <span
+                key={index}
+                className="absolute inset-x-0 -translate-y-1/2"
+                style={{ top: `${plotY(value)}%` }}
+              >
+                {format(value)}
+              </span>
+            ))}
           </div>
         )}
 
@@ -910,18 +907,118 @@ const DayColumns = ({
                     vectorEffect="non-scaling-stroke"
                   />
                 ))}
+              {/* The keyboard and hover cursor draws no mark of its own in
+                  line mode — the bar columns underneath dim everywhere but
+                  the active one, but a line has no columns to dim. Without
+                  this neither a pointer nor a keyboard reader can tell which
+                  day the tip beside it is for. */}
+              {mode === 'line' && active !== null && (
+                <>
+                  <line
+                    x1={plotX(active)}
+                    x2={plotX(active)}
+                    y1={0}
+                    y2={100}
+                    stroke="var(--hd-border)"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  {!buckets[active]?.unknown && (
+                    <path
+                      d={`M${plotX(active).toFixed(2)},${plotY(buckets[active]?.total ?? 0).toFixed(2)}L${plotX(active).toFixed(2)},${plotY(buckets[active]?.total ?? 0).toFixed(2)}`}
+                      stroke="var(--hd-accent)"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  )}
+                  {ghost && ghost[active] != null && (
+                    <path
+                      d={`M${plotX(active).toFixed(2)},${plotY(ghost[active] as number).toFixed(2)}L${plotX(active).toFixed(2)},${plotY(ghost[active] as number).toFixed(2)}`}
+                      stroke="var(--hd-muted-foreground)"
+                      strokeWidth="3.5"
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  )}
+                </>
+              )}
+              {/* Today's own emphasised mark. A `<circle>` under
+                  `preserveAspectRatio="none"` is stretched by whatever the x
+                  and y axes are scaled by relative to each other — `r` has no
+                  `vectorEffect` to protect it the way a stroke does — so this
+                  is drawn as a zero-length, round-capped path instead, which
+                  `vectorEffect="non-scaling-stroke"` keeps a true circle at a
+                  fixed screen size whatever the plot's aspect ratio. Two
+                  passes stand in for the fill-plus-ring the circle drew: a
+                  wider card-coloured pass behind, a narrower accent one on
+                  top. */}
               {mode === 'line' && todayKnown && (
-                <circle
-                  cx={plotX(today as number)}
-                  cy={plotY(buckets[today as number]?.total ?? 0)}
-                  r="2.25"
-                  fill="var(--hd-accent)"
-                  stroke="var(--hd-card)"
-                  strokeWidth="1.25"
-                  vectorEffect="non-scaling-stroke"
-                />
+                <>
+                  <path
+                    d={`M${plotX(today as number).toFixed(2)},${plotY(buckets[today as number]?.total ?? 0).toFixed(2)}L${plotX(today as number).toFixed(2)},${plotY(buckets[today as number]?.total ?? 0).toFixed(2)}`}
+                    stroke="var(--hd-card)"
+                    strokeWidth="6.5"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  <path
+                    d={`M${plotX(today as number).toFixed(2)},${plotY(buckets[today as number]?.total ?? 0).toFixed(2)}L${plotX(today as number).toFixed(2)},${plotY(buckets[today as number]?.total ?? 0).toFixed(2)}`}
+                    stroke="var(--hd-accent)"
+                    strokeWidth="4.5"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </>
               )}
             </svg>
+          )}
+
+          {/* Rendered inside the plot's own relative box — not the outer one,
+              which also spans the y-axis gutter — so `at`, a fraction across
+              the plot alone, lands the tip over its own column rather than
+              shifted left by the gutter's width. */}
+          {shown && (
+            <ChartTip at={at}>
+              <div className="mb-1 font-medium">{shown.label}</div>
+              {shown.unknown ? (
+                <div className="text-(--hd-muted-foreground)">No record yet</div>
+              ) : shown.total <= 0 ? (
+                <div className="text-(--hd-muted-foreground)">{emptyLabel}</div>
+              ) : (
+                <>
+                  {series.map((entry, index) => {
+                    const value = shown.parts[index] ?? 0
+                    if (value <= 0) return null
+                    return (
+                      <ChartTipRow
+                        key={entry.key}
+                        tint={entry.tint}
+                        label={entry.label}
+                        value={format(value)}
+                      />
+                    )
+                  })}
+                  {series.length > 1 && (
+                    <ChartTipRow
+                      divider
+                      label="Total"
+                      value={format(shown.total)}
+                    />
+                  )}
+                </>
+              )}
+              {/* The comparison the header figure already claims, repeated here so
+                  a reader who stopped to look at one day gets the same "against
+                  what" the total above the chart does. */}
+              {previousShown != null && (
+                <ChartTipRow
+                  divider
+                  label={previousLabel}
+                  value={format(previousShown)}
+                  className="text-(--hd-muted-foreground)"
+                />
+              )}
+            </ChartTip>
           )}
         </div>
       </div>
