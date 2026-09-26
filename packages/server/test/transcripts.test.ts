@@ -107,6 +107,38 @@ test('enrich sees a turn recorded moments ago, before its scheduled write has la
   })
 })
 
+/**
+ * `recover` and `readInsight` read the stored file the same raw way `enrich`
+ * used to: a session closed (`#letGo`) or a runtime restart (`detachAll`)
+ * reaches them (host.ts's `#scopedRead` and `#read`'s fallback) the instant
+ * after a turn's write was only scheduled, same as `enrich`'s own case above.
+ */
+test('recover sees a turn recorded moments ago, before its scheduled write has landed', async () => {
+  await withStore(async (store) => {
+    const full = session([turn('t1', [item('u', 'userMessage'), item('a', 'assistantMessage')])])
+    store.record(full, { now: true })
+    // No `store.flush()`: the write behind this turn is only scheduled.
+    const recovered = await store.recover(full.runtime, full.id)
+    assert.notEqual(recovered, null, 'a session recorded moments ago must be recoverable before its write lands')
+    assert.equal(recovered?.turns.length, 1)
+    assert.equal(
+      recovered?.turns[0]?.items.some((entry) => entry.type === 'assistantMessage'),
+      true,
+    )
+  })
+})
+
+test('readInsight sees insight recorded moments ago, before its scheduled write has landed', async () => {
+  await withStore(async (store) => {
+    const full = session([turn('t1', [item('u', 'userMessage')])])
+    store.record(full, { now: true, insight: [insight('t1')] })
+    // No `store.flush()`: the write behind this turn is only scheduled.
+    const read = await store.readInsight(full.runtime, full.id)
+    assert.notEqual(read, null, 'insight recorded moments ago must be readable before its write lands')
+    assert.equal(read?.length, 1)
+  })
+})
+
 test('flush keeps pending Insight context during shutdown', async () => {
   await withStore(async (store, dir) => {
     store.record(session([turn('t1', [item('u', 'userMessage')])]), {
