@@ -55,6 +55,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
+  'heat-grid': 'packages/ui/src/components/UsageActivity.tsx',
   alert: 'packages/ui/src/components/WorktreeAlerts.tsx',
   badge: 'packages/ui/src/components/GitPane.tsx',
   board: 'packages/ui/src/components/TeamBoardPane.tsx',
@@ -93,6 +94,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'heat-grid': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   /* Shown on the compositions board, beside the panes it resizes. Its example
      used to be `showcase/PanelPlayground.tsx`, where coloured rectangles stood
      in for every feature — so the handle was documented against a drawing of
@@ -129,7 +131,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices',
-  'HeatGrid',
+  'heat-grid',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -215,7 +217,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   ConversationEmptyState: ['default'],
   TurnWork: ['default'],
   Notices: ['default'],
-  HeatGrid: ['default'],
+  'heat-grid': ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -296,6 +298,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   ConversationEmptyState: ['empty'],
   TurnWork: ['default', 'expanded'],
   Notices: ['default', 'populated', 'empty', 'warning', 'error', 'open', 'closed'],
+  'heat-grid': ['default', 'empty', 'populated'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -338,7 +341,6 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
   Notices: 'packages/ui/src/components/Notices.tsx',
-  HeatGrid: 'packages/ui/src/components/UsageActivity.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -364,7 +366,6 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
-  HeatGrid: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -466,6 +467,7 @@ export const CANONICAL_UI_MODULES = [
   ['toggle-group', 'control', 'Segmented and multi-toggle behavior'],
   ['tool-pane', 'tool-pane', 'Shared tool-pane chrome'],
   ['tone', 'foundation', 'Typed semantic tone mapping'],
+  ['heat-grid', 'chart', 'Calendar heatmap: quartile levels, a keyboard-walked cursor, its own tooltip'],
   ['tooltip', 'adopted', 'Accessible hover and focus help'],
 ] as const satisfies readonly ModuleSeed[]
 
@@ -492,7 +494,6 @@ export const CANONICAL_PATTERN_MODULES = [
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
-  ['HeatGrid', 'chart', 'Calendar heatmap: quartile levels, a keyboard-walked cursor, its own tooltip'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

@@ -593,18 +593,23 @@ the six.
 
 **Three kinds of nothing, because a blank cell answers a different question
 each time.** A **zero** is a scanned day the ledger genuinely has nothing
-for — a weekend, a day off — and draws as an empty cell, level 0. **Not
-scanned** is a day before the ledger holds any row at all, which is not
+for — a weekend, a day off — and draws as an empty cell, level 0. **No
+record yet** is a day before the ledger holds any row at all, which is not
 "nothing happened" but "this screen cannot say" — the fixed ledger shape
 (`LedgerDay`) carries no per-day scanned flag, so it is derived the same way
 the money band's own coverage line is: the earliest day with any row at all
 is treated as where scanning starts, and everything before it is hatched
-rather than left blank. And with **Cost** selected, a day whose tokens were
-spent but whose cost reads as nothing is marked the same hatched way rather
-than as `$0` — real usage the ledger cannot price is not a free day, and
-`LedgerDay` has no per-day price flag to say otherwise, so `tokens > 0` with
-`cost <= 0` on an otherwise-scanned day is read as unpriced rather than
-free.
+rather than left blank. The label says "no record yet" rather than "not
+scanned" for exactly that reason — the host has no scan-horizon field of its
+own yet (`coverage.earliestDay` is a data-side follow-up), so this screen is
+honest about a guess rather than claiming a fact it cannot back. And with
+**Cost** selected, a day whose tokens were spent but whose cost reads as
+nothing is marked the same hatched way rather than as `$0` — real usage the
+ledger cannot price is not a free day, and `LedgerDay` has no per-day price
+flag to say otherwise, so `tokens > 0` with `cost <= 0` on an
+otherwise-scanned day is read as unpriced rather than free. The same honesty
+applies to the facts card and the tooltip footer: a scope nothing in it can
+be priced reads "unpriced", never `$0`.
 
 **The ramp is the desk's own accent, not green.** A calendar heatmap reads a
 quantity — *how much*, not *pass or fail* — and green is this app's own
@@ -615,7 +620,7 @@ warning, neither of which this band is claiming. Five tokens,
 `--hd-chart-heat-not-scanned` for the hatch — `design/foundation/tokens.css`,
 never a literal in the component.
 
-**The grid itself is `design/patterns/HeatGrid.tsx`.** One tab stop, and arrow
+**The grid itself is `design/ui/heat-grid.tsx`.** One tab stop, and arrow
 keys walk a cursor over the two axes: `ArrowLeft`/`ArrowRight` move a column
 and `ArrowUp`/`ArrowDown` move a row, whatever a row and a column mean to the
 caller — a week and a weekday in Year, a day and an agent in By agent.

@@ -62,6 +62,19 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-accent-foreground` | `rgb(255, 255, 255)` |
 | `--hd-accent-hover` | `rgb(38, 70, 214)` |
 | `--hd-accent-dim` | `rgba(52, 88, 240, 0.12)` |
+
+### The heatmap
+
+"When it ran"'s calendar grid — `design/ui/heat-grid.tsx` — reads a quantity, not a state, so it takes the brand rather than a judgement: the palette's identity hues are spoken for (which agent) and the state colours would make a busy day look like a warning. Five steps, level 0 through 4, each a deeper wash of the same accent so the ramp still reads as "more of this" against either theme's own card. The empty step is a muted fill, not the card itself: `--hd-card` is what `ChartCard` is drawn on, so a scanned zero in that colour was invisible — indistinguishable from a slot with no cell at all, which undid the whole point of drawing three kinds of nothing differently (review #990, item 1). The ramp mixes up from that same step, so 1 through 3 are still read against the fill a zero actually uses, not the card underneath it.
+
+| token | value |
+| --- | --- |
+| `--hd-chart-heat-0` | `rgb(245, 245, 245)` |
+| `--hd-chart-heat-1` | `color-mix(in srgb, rgb(52, 88, 240) 22%, rgb(245, 245, 245))` |
+| `--hd-chart-heat-2` | `color-mix(in srgb, rgb(52, 88, 240) 46%, rgb(245, 245, 245))` |
+| `--hd-chart-heat-3` | `color-mix(in srgb, rgb(52, 88, 240) 70%, rgb(245, 245, 245))` |
+| `--hd-chart-heat-4` | `rgb(52, 88, 240)` |
+| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(107, 107, 107) 45%, rgb(255, 255, 255)) 2px 3px )` |
 | `--hd-danger` | `rgb(228, 68, 62)` |
 | `--hd-danger-dim` | `rgba(228, 68, 62, 0.12)` |
 | `--hd-success` | `rgb(65, 189, 111)` |

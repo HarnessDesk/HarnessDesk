@@ -1,10 +1,10 @@
 import { Fragment, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
-import { ChartHint, ChartTip, ChartTipRow, ChartTitle } from '../ui/chart'
-import type { Tint } from '../ui/tone'
-import { Text } from './Settings'
-import styles from './HeatGrid.module.css'
+import { ChartHint, ChartTip, ChartTipRow, ChartTitle } from './chart'
+import type { Tint } from './tone'
+import { Text } from '../patterns/Settings'
+import styles from './heat-grid.module.css'
 
 /**
  * A calendar heatmap: rows and columns of level-0..4 cells, one tab stop,
@@ -106,10 +106,22 @@ export const HeatGrid = ({
   const headerCol = hasHeaders ? 1 : 0
   const labelRow = columnLabels ? 1 : 0
 
-  const clamp = (at: Cursor): Cursor => ({
-    row: Math.min(rows.length - 1, Math.max(0, at.row)),
-    col: Math.min(columns - 1, Math.max(0, at.col)),
-  })
+  // The last non-null cell in a row, so the cursor cannot land on a future
+  // slot after today — the year grid pads its last week out to a full
+  // rectangle with `null`s for days that have not happened yet, and arrow
+  // keys used to walk straight onto them, emptying the live region (review
+  // #990, item 14).
+  const lastRealCol = (row: HeatGridRow | undefined): number => {
+    if (!row) return 0
+    for (let index = row.cells.length - 1; index >= 0; index -= 1) if (row.cells[index]) return index
+    return 0
+  }
+
+  const clamp = (at: Cursor): Cursor => {
+    const row = Math.min(rows.length - 1, Math.max(0, at.row))
+    const maxCol = Math.min(columns - 1, lastRealCol(rows[row]))
+    return { row, col: Math.min(maxCol, Math.max(0, at.col)) }
+  }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (rows.length === 0 || columns === 0) return
@@ -170,6 +182,7 @@ export const HeatGrid = ({
           tabIndex={0}
           onKeyDown={onKeyDown}
           onBlur={() => setActive(null)}
+          onPointerLeave={() => setActive(null)}
           className={styles.grid}
           style={{
             gridTemplateColumns: `${hasHeaders ? 'auto ' : ''}repeat(${columns}, minmax(${minCellPx}px, 1fr))`,
@@ -252,7 +265,7 @@ export const HeatGrid = ({
 export const HeatLegend = ({
   className,
   levelTitle,
-  notScannedLabel = 'Not scanned',
+  notScannedLabel = 'No record yet',
   leastLabel = 'Less',
   mostLabel = 'More',
 }: {

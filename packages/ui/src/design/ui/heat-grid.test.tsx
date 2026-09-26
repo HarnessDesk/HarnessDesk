@@ -2,7 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { HeatGrid, type HeatGridCell, type HeatGridRow } from './HeatGrid'
+import { HeatGrid, HeatLegend, type HeatGridCell, type HeatGridRow } from './heat-grid'
 
 /**
  * The behaviour a screenshot cannot check: the grid is one tab stop, arrow
@@ -111,5 +111,48 @@ describe('HeatGrid keyboard navigation', () => {
     expect(tip()?.textContent).toContain('tip for day 11')
     press('ArrowUp') // (0,1)
     expect(tip()?.textContent).toContain('tip for day 1')
+  })
+
+  it('never lands the cursor on a null slot after the last real cell in a row (#990 item 14)', () => {
+    // The year grid pads its last week to a full rectangle with nulls for
+    // days that have not happened yet — the row's own last two slots here
+    // stand in for that tail.
+    const rows: readonly HeatGridRow[] = [{ key: 'row', cells: [cell(0), cell(1), null, null] }]
+    mount(<HeatGrid label="Test grid" rows={rows} columns={4} />)
+    for (let index = 0; index < 4; index += 1) press('ArrowRight')
+    const active = container.querySelector('[data-active]') as HTMLElement
+    expect(active).not.toBeNull()
+    const cells = [...container.querySelectorAll('[data-level], [data-state]')]
+    // Clamped to the last real cell (index 1), never advancing onto a null.
+    expect(cells.indexOf(active)).toBe(1)
+  })
+
+  it('hides the tooltip once the pointer leaves the grid (#990 item 13)', () => {
+    mount(<HeatGrid label="Test grid" rows={longRow(5)} columns={5} />)
+    const target = grid().querySelector('[data-level]') as HTMLElement
+    act(() => {
+      target.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    })
+    expect(tip()).not.toBeNull()
+    act(() => {
+      grid().dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' }))
+    })
+    expect(tip()).toBeNull()
+  })
+})
+
+describe('HeatLegend', () => {
+  it('renders five level swatches and one not-scanned swatch, all wired to a fill (#990 item 2)', () => {
+    mount(<HeatLegend levelTitle={(level) => `Level ${level}`} />)
+    const levelSwatches = [...container.querySelectorAll('[data-level]')]
+    const notScannedSwatches = [...container.querySelectorAll('[data-state="not-scanned"]')]
+    expect(levelSwatches.map((element) => element.getAttribute('data-level'))).toEqual(['0', '1', '2', '3', '4'])
+    expect(notScannedSwatches).toHaveLength(1)
+    // The contrast the fill actually has is measured in tokens.contrast.test.ts;
+    // this only guards that all six swatches stay wired to the shared class
+    // that carries the fill, rather than one quietly losing it.
+    for (const element of [...levelSwatches, ...notScannedSwatches]) {
+      expect(element.className.length).toBeGreaterThan(0)
+    }
   })
 })
