@@ -370,12 +370,23 @@ ground reads thin.
 | token | light | dark | what it carries |
 | --- | --- | --- | --- |
 | `--hdp-alias-label-primary` | `rgb(25, 27, 30)` | `rgb(229, 231, 234)` | anything a person reads: titles, rows, prose, values |
-| `--hdp-alias-label-secondary` | `rgb(97, 99, 103)` | `rgb(206, 208, 211)` | structure and explanation: section headings, hints, blurbs, icons beside a label |
-| `--hdp-alias-label-tertiary` | `rgb(112, 117, 125)` | `rgb(186, 190, 197)` | facts at the edge of a row: counts, times, keyboard hints |
+| `--hdp-alias-label-secondary` | `rgb(71, 71, 71)` | `rgb(208, 208, 208)` | structure and explanation: section headings, hints, blurbs, icons beside a label |
+| `--hdp-alias-label-tertiary` | `rgb(107, 107, 107)` | `rgb(177, 177, 177)` | facts at the edge of a row: counts, times, keyboard hints |
 
 In components, reach for the semantic tokens `--hd-foreground`,
 `--hd-secondary-foreground`, and `--hd-muted-foreground` (`tokens.css`), which
 resolve to these three palette aliases.
+
+Three levels have to read as three, not two. Measured in light mode,
+secondary at grey-700 (`rgb(100, 100, 100)`, 5.9:1 on white) sat 1.1:1 from
+tertiary's `rgb(107, 107, 107)` — a gap no eye resolves, so the app read as
+two greys doing the work of three. Secondary moved to the ramp's existing
+grey-750 step (`rgb(71, 71, 71)`, 9.3:1 on white, 1.7:1 from tertiary) rather
+than a new literal; tertiary stays put; dark's `rgb(208, 208, 208)` /
+`rgb(177, 177, 177)` pair already separated (1.4:1) and clears AA (≥ 6:1 on
+every ground the app puts it on) and was left alone. Editorial's and
+shadcn's own label aliases were checked the same way and already separate
+cleanly, so neither palette changed.
 
 Three rules, learned the hard way:
 
