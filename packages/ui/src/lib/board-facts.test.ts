@@ -159,8 +159,22 @@ describe('a card a Goal’s run addressed to the person', () => {
     const card = intent({ id: 2, state: 'open', role: 'close' })
     expect(flowStepOf(card, undefined, [execution([2])])).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false })
     expect(flowStepOf(card, undefined, [execution([5])])).toBeNull()
-    expect(flowStepOf(card, undefined, [execution([2], 'settled')])).toBeNull()
     expect(flowStepOf(card, undefined, [])).toBeNull()
+  })
+
+  /*
+   * A round's own card keeps its role forever, whatever the run that opened
+   * it is doing now. A flow settling — the ordinary way one ends — must not
+   * erase which of its cards was the person's own decision: the moment it
+   * settles is the moment its last card, the person's own answer, would
+   * otherwise fall back to being read as an unchecked diff and land back in
+   * Needs you for good (#1022).
+   */
+  it('keeps a card’s role once the run that opened it has settled or stopped', () => {
+    const card = intent({ id: 2, state: 'done', outcome: 'closed', role: 'close' })
+    expect(flowStepOf(card, undefined, [execution([2], 'settled')])).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false })
+    expect(flowStepOf(card, undefined, [execution([2], 'stopped')])).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false })
+    expect(place({ intent: card, forPerson: true })).toEqual({ column: 'ready', why: null })
   })
 
   /*

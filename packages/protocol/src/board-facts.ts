@@ -50,11 +50,20 @@ export interface FlowStep {
 }
 
 /**
- * The step a live flow addressed this card to — an old-format run on a room,
- * or a run on a Goal — only when one of that run's own rounds opened it. A
- * person's step is answered with its declared words; a card no live run
- * opened is none. The board and the Goal's own activity both read this, so
- * a card that needs its person is drawn and counted the same way.
+ * The step a flow addressed this card to — an old-format run on a room, or a
+ * run on a Goal — only when one of that run's own rounds opened it. A
+ * person's step is answered with its declared words; a card no run opened is
+ * none. The board and the Goal's own activity both read this, so a card that
+ * needs its person is drawn and counted the same way.
+ *
+ * A round's card keeps its role for as long as the Goal does, whatever the
+ * run that opened it is doing now: `running`, `stalled`, `settled` or
+ * `stopped` are all read the same way here. A flow settling is the ordinary
+ * way one ends, and settling must not erase which of its cards was the
+ * person's own decision — otherwise the very card that just finished it
+ * falls back to being read as an unchecked diff (`placeCard`'s `settled`
+ * evidence path, which has no fact for "a person answered this") and lands
+ * back in Needs you for good (#1022).
  */
 export const flowStepOf = (
   intent: Intent,
@@ -65,7 +74,6 @@ export const flowStepOf = (
   if (legacy) return { kind: legacy.kind, outcomes: legacy.outcomes, stopped: run?.state === 'stalled' }
   if (!intent.role) return null
   for (const execution of executions) {
-    if (execution.state !== 'running' && execution.state !== 'stalled') continue
     if (execution.document.format !== 'agents') continue
     if (!execution.rounds.some((round) => round.role === intent.role && round.cards.includes(intent.id))) continue
     const role = execution.document.flow.roles.find((one) => one.id === intent.role)
