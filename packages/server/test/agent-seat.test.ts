@@ -994,7 +994,7 @@ test('a seat that comes back on another effort is closed, and with no other cand
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  claude=opus-5/high — claude runs it at medium effort, not high',
+          '  claude=opus-5/high — claude does not offer High effort.',
       )
       return true
     },
@@ -1120,7 +1120,7 @@ test('a runtime that outright refuses an asked-for effort is never quietly passe
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  cursor=gpt-5/xhigh — cursor does not offer Extra high effort' +
+          '  cursor=gpt-5/xhigh — cursor does not offer Extra high effort.' +
           ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
       )
       return true
@@ -1131,21 +1131,21 @@ test('a runtime that outright refuses an asked-for effort is never quietly passe
   untouched(seen)
 })
 
-test('an unknown option — not the value — that a runtime refuses outright is fatal the same way, and the sentence never leaks the wire option id', async () => {
+test('a refused value — not an unknown option — that a runtime refuses outright is fatal the same way, and the sentence never leaks the wire value or option id', async () => {
   const seen = await rig(
     'cursor=gpt-5/xhigh, claude=opus-5/high',
     { cursor: { models: ['gpt-5'] }, claude: { models: ['opus-5'] } },
     {
       openThrows: (seat) =>
         seat.runtime === 'cursor'
-          ? new OptionRefusedError('Cursor has no session option named "effort".', 'effort', 'xhigh', true)
+          ? new OptionRefusedError('"xhigh" is not one of the values Cursor offers for effort.', 'effort', 'xhigh', false)
           : null,
     },
   )
   await assert.rejects(
     () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
     (error: Error) => {
-      assert.doesNotMatch(error.message, /session option named/)
+      assert.doesNotMatch(error.message, /not one of the values/)
       return true
     },
   )
@@ -1183,6 +1183,34 @@ test('an Agent\'s prefer list naming an effort its model does not offer is refus
     },
   )
   untouched(seen)
+})
+
+test('a generic ACP agent\'s probe-model levels, copied onto a model that never declared its own, never refuse that model\'s real effort (#1013 finding 1, regression)', async () => {
+  // `small` is the model a generic ACP agent's probe happened to be on: its
+  // levels are its own. `large` never declared any of its own, so the
+  // adapter fell back to the probe's session-wide option and marked the
+  // result `reasoningLevelsShared` — real levels, but only known to be true
+  // of `small`, not of `large`. Before this fix, that shared reading was
+  // trusted as `large`'s own catalogue entry, so a seat asking `large` for
+  // `xhigh` — a level `large` genuinely offers, just not one the probe's
+  // fallback ever named — was refused before anything opened.
+  const seen = await rig('claude=large/xhigh', {
+    claude: {
+      catalogue: [
+        { id: 'small', displayName: 'Small', reasoningLevels: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }], supportsImages: false, isDefault: true },
+        {
+          id: 'large',
+          displayName: 'Large',
+          reasoningLevels: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }],
+          reasoningLevelsShared: true,
+          supportsImages: false,
+        },
+      ],
+    },
+  })
+  const session = await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'large', cwd: '/tmp/x' }])
+  assert.equal(session.settings?.agent, 'reviewer')
 })
 
 test('a brief that could not be handed over closes the conversation, is refused with its own code, and nothing is recorded', async () => {
@@ -1924,14 +1952,20 @@ test('the wire refuses a grant that is no permission, and more seats than an Age
  * fact found after opening must not end a seating that the same fact, found
  * before, would only have moved past. One seat at a time: whatever was opened
  * and not kept is closed, and let go, before the next is opened.
+ *
+ * Effort is the one exception, below (#1013): a runtime that
+ * silently drops it at open is held to the same rule as one that refuses it
+ * outright, so that difference alone stops the seating rather than moving
+ * past it.
  */
 
-test('a seat that runs another effort than asked is closed, and the next candidate the Agent named is seated', async () => {
+test('a seat that runs without the thinking asked for is closed, and the next candidate the Agent named is seated', async () => {
   const seen = await rig(
-    'claude=opus-5/high, claude=sonnet-5/high',
+    'claude=opus-5/high+thinking, claude=sonnet-5/high+thinking',
     { claude: { models: ['opus-5', 'sonnet-5'] } },
     {
-      comesBackAs: (seat) => (seat.model === 'opus-5' ? { effort: 'medium' } : {}),
+      comesBackAs: (seat) =>
+        seat.model === 'opus-5' ? { thinking: false, thinkingFixed: 'Opus 5 has no thinking mode here.' } : {},
       // The candidate passed over once open was discarded, and its runtime
       // could not delete it — so it carries what was left of it too.
       leaves: () => ({ kind: 'kept', archived: 'here' }),
@@ -1954,11 +1988,14 @@ test('a seat that runs another effort than asked is closed, and the next candida
       seatLabel: 'claude',
       passedOver: [
         {
-          seat: { runtime: 'claude', model: 'opus-5', effort: 'high' },
-          label: 'claude · opus-5 · High',
+          seat: { runtime: 'claude', model: 'opus-5', effort: 'high', thinking: true },
+          label: 'claude · opus-5 · High · thinking',
           runtimeName: 'claude',
           state: 'passed',
-          reason: { kind: 'openedOtherwise', differences: [{ field: 'effort', asked: 'high', running: 'medium' }] },
+          reason: {
+            kind: 'openedOtherwise',
+            differences: [{ field: 'thinking', asked: true, running: false, fixed: 'Opus 5 has no thinking mode here' }],
+          },
           left: { kind: 'kept', archived: 'here' },
           fix: { kind: 'seats' },
         },
@@ -1971,13 +2008,45 @@ test('a seat that runs another effort than asked is closed, and the next candida
   assert.equal(seen.alive(), 1, 'the seat kept is the only one left')
 })
 
+test('a seat that runs another effort than asked is closed, and no later candidate is tried: an effort is fixed on this seat, never routed around (#1013)', async () => {
+  // `small` is greyed on effort — a Cursor family with one level — so the
+  // pick is dropped quietly at open, the same as a runtime that refuses it
+  // outright, and read back as "medium" rather than the "high" asked for.
+  // A fallback candidate exists and would happily open; it must never be
+  // reached, because the fix here is the seat's own effort, not the runtime.
+  const seen = await rig(
+    'claude=opus-5/high, claude=sonnet-5/high',
+    { claude: { models: ['opus-5', 'sonnet-5'] } },
+    { comesBackAs: (seat) => (seat.model === 'opus-5' ? { effort: 'medium' } : {}) },
+  )
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n' +
+          '  claude=opus-5/high — claude does not offer High effort.' +
+          ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
+      )
+      return true
+    },
+  )
+  // The fallback was never tried: sonnet-5's seat is not among what opened.
+  assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
+  assert.deepEqual(seen.retired, ['claude s1'], 'the one that opened was still closed')
+  assert.deepEqual(seen.recorded, [])
+})
+
 test('when every candidate fails, before opening or after, the refusal names each with its own reason and nothing is left open', async () => {
   const seen = await rig(
     'cursor=gemini-3.8-flash/high, claude=opus-5/high, codex=gpt-5.3/xhigh, claude=opus-5/high+thinking, claude=sonnet-5/high',
     { claude: { models: ['opus-5', 'sonnet-5'] }, codex: { models: ['gpt-5.3'], signedOut: true } },
     {
+      // The second candidate's mismatch is on the model, not the effort — an
+      // effort-only difference is fatal (#1013), and this test is about
+      // every *other* kind of reason still being tried in turn.
       comesBackAs: (seat) =>
-        seat.thinking ? { thinking: false, thinkingFixed: 'Opus 5 has no thinking mode here.' } : { effort: 'medium' },
+        seat.thinking ? { thinking: false, thinkingFixed: 'Opus 5 has no thinking mode here.' } : { model: 'sonnet-5' },
       openFails: (seat) => (seat.model === 'sonnet-5' ? 'The agent is not running.' : null),
     },
   )
@@ -1989,7 +2058,7 @@ test('when every candidate fails, before opening or after, the refusal names eac
         [
           'No seat could be opened for this Agent:',
           '  cursor=gemini-3.8-flash/high — cursor is not installed',
-          '  claude=opus-5/high — claude runs it at medium effort, not high',
+          '  claude=opus-5/high — claude runs it on model sonnet-5, not opus-5',
           '  codex=gpt-5.3/xhigh — codex is signed out',
           '  claude=opus-5/high+thinking — claude runs it without thinking, which was asked for (Opus 5 has no thinking mode here)',
           '  claude=sonnet-5/high — claude could not open a conversation: The agent is not running.',
@@ -2008,7 +2077,10 @@ test('when every candidate fails, before opening or after, the refusal names eac
 
 test('through the host: one seat at a time — each that fails is closed and let go before the next is opened', async (t) => {
   const { harness, seats, client, work } = await desk(t)
-  const source = await writeReviewer(harness.stateDir, 'seatfake=big/high, seatfake=small/high, seatfake=big/low')
+  // The middle candidate's mismatch is on effort and thinking together, not
+  // effort alone: an effort-only difference is fatal (#1013), and this test
+  // needs all three candidates tried in turn.
+  const source = await writeReviewer(harness.stateDir, 'seatfake=big/high, seatfake=small/high+thinking, seatfake=big/low')
   const held = (one: SeatSession) => harness.host.registry.get(runtimeId('seatfake'), one.id)?.live ?? null
   const overlaps: string[] = []
   seats.beforeCreate = () => {
@@ -2044,7 +2116,10 @@ test('through the host: one seat at a time — each that fails is closed and let
 
 test('through the host: when every candidate fails the refusal names each, and no conversation is left open', async (t) => {
   const { harness, seats, client, work } = await desk(t)
-  await writeReviewer(harness.stateDir, 'devin=m1, seatfake=small/high, seatfake=small/medium+thinking')
+  // The effort-only mismatch (`small/high`) is last: since #1013 it
+  // is fatal, so a candidate after it would never be tried — this test is
+  // about every *other* kind of reason still being tried in turn first.
+  await writeReviewer(harness.stateDir, 'devin=m1, seatfake=small/medium+thinking, seatfake=small/high')
 
   await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
     assert.equal(
@@ -2054,8 +2129,8 @@ test('through the host: when every candidate fails the refusal names each, and n
         // `devin` is a real, known runtime (`known-agents.ts`) nobody added to
         // this real host — unlike a made-up id, which would read differently.
         '  devin=m1 — devin is not installed',
-        '  seatfake=small/high — seatfake runs it at medium effort, not high',
         '  seatfake=small/medium+thinking — seatfake runs it without thinking, which was asked for (Small has no thinking mode)',
+        '  seatfake=small/high — Seat Fake does not offer High effort.',
       ].join('\n'),
     )
     return true
@@ -2291,25 +2366,36 @@ for (const [order, how] of [
     await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
       assert.equal(
         error.message,
-        'No seat could be opened for this Agent:\n' + '  codex=gpt-5.5/high — codex runs it at low effort, not high',
+        'No seat could be opened for this Agent:\n' + '  codex=gpt-5.5/high — Codex does not offer High effort.',
       )
       return true
     })
   })
 
-  test(`over Codex: the next candidate, running what it asked for, is the one seated — ${how}`, async (t) => {
+  test(`over Codex: a fallback candidate is never tried when Codex settles the effort elsewhere — ${how} (#1013)`, async (t) => {
+    // Settling an effort somewhere other than what was asked is exactly the
+    // greyed-control case finding 3 covers, even though nothing here refused
+    // outright: the fix is this seat's own effort, so the fallback naming a
+    // different effort on the same model is never reached.
     const { harness, client, work } = await codexDesk(t, {
       FAKE_CODEX_EFFORT_SETTLES: 'high:low',
       FAKE_CODEX_SETTINGS_ORDER: order,
     })
     await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high, codex=gpt-5.5/low')
 
-    const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
-    // The fake numbers its threads: the first went to the candidate passed over.
-    assert.equal(String(session.id), 'thread-e2e-2')
-    assert.equal(session.settings?.agent, 'reviewer')
-    assert.equal(session.options?.find((option) => option.id === 'effort')?.currentValue, 'low')
-    assert.equal(harness.host.registry.get(runtimeId('codex'), sessionId('thread-e2e'))?.live ?? null, null, 'the first is let go')
+    await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n' +
+          '  codex=gpt-5.5/high — Codex does not offer High effort.' +
+          ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
+      )
+      return true
+    })
+    // The fallback (`codex=gpt-5.5/low`) never opened: the fake would have
+    // minted a second thread for it, and none exists.
+    assert.equal(harness.host.registry.get(runtimeId('codex'), sessionId('thread-e2e'))?.live ?? null, null, 'the one that opened was let go')
+    assert.equal(harness.host.registry.get(runtimeId('codex'), sessionId('thread-e2e-2')), undefined, 'no second candidate was ever opened')
   })
 }
 
@@ -2519,9 +2605,17 @@ test('a runtime whose usage is switched off is not passed over as spent from an 
  */
 
 test('a seat passed over once open is discarded, not merely closed; one whose brief may have arrived is only closed', async () => {
-  const passed = await rig('claude=opus-5/high, claude=sonnet-5/high', { claude: { models: ['opus-5', 'sonnet-5'] } }, {
-    comesBackAs: (seat) => (seat.model === 'opus-5' ? { effort: 'medium' } : {}),
-  })
+  // A thinking-only mismatch, not an effort-only one: an effort-only
+  // difference is fatal since #1013, and this test needs a passed-over seat
+  // that lets the seating move on to the next candidate.
+  const passed = await rig(
+    'claude=opus-5/high+thinking, claude=sonnet-5/high+thinking',
+    { claude: { models: ['opus-5', 'sonnet-5'] } },
+    {
+      comesBackAs: (seat) =>
+        seat.model === 'opus-5' ? { thinking: false, thinkingFixed: 'Opus 5 has no thinking mode here.' } : {},
+    },
+  )
   await agentMethods['agent/seat'](passed.ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.deepEqual(passed.discarded, ['claude s1'])
 
@@ -2579,7 +2673,7 @@ for (const [left, words] of [
         assert.equal(
           error.message,
           'No seat could be opened for this Agent:\n' +
-            `  claude=opus-5/high — claude runs it at medium effort, not high (${words})`,
+            `  claude=opus-5/high — claude does not offer High effort. (${words})`,
         )
         return true
       },
@@ -2589,7 +2683,10 @@ for (const [left, words] of [
 
 test('through the host: a seat passed over is deleted where its runtime keeps it, forgotten by the desk, and dropped from every window', async (t) => {
   const { harness, seats, client, work } = await desk(t)
-  await writeReviewer(harness.stateDir, 'seatfake=small/high, seatfake=big/high')
+  // Two differences, not one (effort and thinking): an effort-only mismatch
+  // is fatal since #1013, and this test needs the seating to move on to the
+  // next candidate.
+  await writeReviewer(harness.stateDir, 'seatfake=small/high+thinking, seatfake=big/high')
 
   const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
   const [passed, kept] = seats.opened
@@ -2625,7 +2722,7 @@ test('through the host: a runtime that cannot delete keeps what it keeps, archiv
     assert.equal(
       error.message,
       'No seat could be opened for this Agent:\n' +
-        "  keeper=small/high — keeper runs it at medium effort, not high (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is archived here)",
+        "  keeper=small/high — Seat Fake does not offer High effort. (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is archived here)",
     )
     return true
   })
@@ -2660,12 +2757,18 @@ const heldAtNaming = async (t: TestContext) => {
   return { ...rigged, seating, candidate, naming }
 }
 
-/** The refusal of a seating whose one candidate, `seatfake=small/high`, was left as it is for `words`. */
-const refusedLeaving = (words: string) => (error: Error) => {
+/**
+ * The refusal of a seating whose one candidate, `seatfake=small/high`, was
+ * left as it is for `words`. `runtimeName` is "Seat Fake" — the runtime's own
+ * presentation name — unless the runtime is gone by the time this is said, in
+ * which case nothing on the desk can answer with a name and the raw id
+ * ("seatfake") is what is left to say it with.
+ */
+const refusedLeaving = (words: string, runtimeName = 'Seat Fake') => (error: Error) => {
   assert.equal(
     error.message,
     'No seat could be opened for this Agent:\n' +
-      `  seatfake=small/high — seatfake runs it at medium effort, not high (${words})`,
+      `  seatfake=small/high — ${runtimeName} does not offer High effort. (${words})`,
   )
   return true
 }
@@ -2824,7 +2927,7 @@ test('through the host: once the candidate is being deleted, a window that asks 
   await assert.rejects(seating, (error: Error) => {
     assert.equal(
       error.message,
-      'No seat could be opened for this Agent:\n  seatfake=small/high — seatfake runs it at medium effort, not high',
+      'No seat could be opened for this Agent:\n  seatfake=small/high — Seat Fake does not offer High effort.',
     )
     return true
   })
@@ -2903,7 +3006,7 @@ for (const [archiveHistory, where] of [
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          `  refuser=small/high — refuser runs it at medium effort, not high (the conversation it opened could not be deleted: “The thread is locked by another writer”; ${where})`,
+          `  refuser=small/high — Seat Fake does not offer High effort. (the conversation it opened could not be deleted: “The thread is locked by another writer”; ${where})`,
       )
       return true
     })
@@ -2931,7 +3034,7 @@ test("through the host: a runtime that cannot delete but keeps an archive has it
     assert.equal(
       error.message,
       'No seat could be opened for this Agent:\n' +
-        "  keeper=small/high — keeper runs it at medium effort, not high (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is in keeper's own archive)",
+        "  keeper=small/high — Seat Fake does not offer High effort. (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is in keeper's own archive)",
     )
     return true
   })
@@ -2955,7 +3058,7 @@ test('through the host: when archiving fails as well, the line says so rather th
     assert.equal(
       error.message,
       'No seat could be opened for this Agent:\n' +
-        "  keeper=small/high — keeper runs it at medium effort, not high (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; archiving it failed, so it may still be listed)",
+        "  keeper=small/high — Seat Fake does not offer High effort. (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; archiving it failed, so it may still be listed)",
     )
     return true
   })
@@ -3057,6 +3160,7 @@ test('through the host: a runtime gone before its seat could be deleted is said 
     seating,
     refusedLeaving(
       'seatfake was gone before it could be asked to delete the conversation it opened, which may stay in its history',
+      'seatfake',
     ),
   )
   assert.deepEqual(seats.deleted, [], 'nothing could be asked of it')
@@ -3068,7 +3172,10 @@ test('through the host: a runtime gone before its seat could be deleted is said 
 
 test('through the host: a name file that will not write neither keeps a passed-over seat on screen nor ends the seating', async (t) => {
   const { harness, seats, client, work, heard } = await desk(t)
-  await writeReviewer(harness.stateDir, 'seatfake=small/high, seatfake=big/high')
+  // Two differences, not one (effort and thinking): an effort-only mismatch
+  // is fatal since #1013, and this test needs the seating to move on to the
+  // next candidate, as it does for every other kind of mismatch.
+  await writeReviewer(harness.stateDir, 'seatfake=small/high+thinking, seatfake=big/high')
   const names = join(harness.stateDir, 'names.json')
   const closing = gate()
   seats.stops.close = closing
@@ -3344,7 +3451,7 @@ test('a refusal carries every candidate as a surface shows it, beside the senten
         error.wireData?.candidates.map((one) => [one.label, one.reason?.kind, one.fix?.kind, one.left?.kind ?? null]),
         [
           ['Cursor · gemini-3.8-flash · High', 'signedOut', 'signIn', null],
-          ['Claude · opus-5 · High', 'openedOtherwise', 'seats', 'kept'],
+          ['Claude · opus-5 · High', 'noEffort', 'seats', 'kept'],
         ],
       )
       return true

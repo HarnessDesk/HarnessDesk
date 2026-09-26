@@ -18,13 +18,17 @@ move is real work and is not news to a person weighing an upgrade.
   refuses it by name, in the runtime's own labels, with the levels it does
   offer. A model whose catalogue names no levels at all is left alone rather
   than guessed at, since some agents report every model's levels as whatever
-  the current session happens to be running; so is `default`, which asks for
-  whatever a model already runs at rather than one of its named levels. Where
-  a runtime cannot say in advance and only its own refusal at seat-open time
-  reveals the mismatch, that refusal — told apart from an unrelated failure by
-  a typed error the runtime itself throws, never by matching its wording — no
-  longer falls back to the next candidate in silence: the round stops there,
-  naming the refused preference and saying the rest were never tried.
+  the current session happens to be running; so is a model whose reported
+  levels are only that same session-wide reading, copied onto every model in
+  the catalogue rather than declared for this one — a generic agent's own
+  levels are trusted, but a probe's are not vouched for on a model it was
+  never actually running; so is `default`, which asks for whatever a model
+  already runs at rather than one of its named levels. Where a runtime cannot
+  say in advance and only opening the Seat reveals the mismatch — an outright
+  refusal, or an effort quietly dropped and read back as something else, the
+  way a control with nothing to choose is — that no longer falls back to the
+  next candidate in silence: the round stops there, naming the refused
+  preference and saying the rest were never tried.
 
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per

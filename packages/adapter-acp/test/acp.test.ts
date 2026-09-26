@@ -8,6 +8,7 @@ import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
 import {
   isFolderGone,
   isSessionGone,
+  OptionRefusedError,
   sessionId,
   type AgentEvent,
   type AgentRuntime,
@@ -674,8 +675,18 @@ test('ACP modes and config options land on the capability surface unchanged', as
         event.type === 'session/options' &&
         event.options.some((option) => option.id === 'voice' && option.currentValue === 'pirate'),
     )
-    // A refused value fails in the agent's own words, with nothing applied.
-    await assert.rejects(session.setOption('voice', 'operatic'), /not one of the values/)
+    // A refused value fails in the agent's own words, with nothing applied —
+    // and as the typed `OptionRefusedError` a caller tells apart from a wire
+    // failure by (#1013 finding 5): the real adapter throwing it for real,
+    // not only a fake `ctx.seats.open` a seating test injects it into.
+    await assert.rejects(session.setOption('voice', 'operatic'), (error: unknown) => {
+      assert.ok(error instanceof OptionRefusedError, 'a typed OptionRefusedError, not a plain Error')
+      assert.match(error.message, /not one of the values/)
+      assert.equal(error.optionId, 'voice')
+      assert.equal(error.value, 'operatic')
+      assert.equal(error.unknownOption, false, 'the option exists — only the value was refused')
+      return true
+    })
     // The changed voice is visible in behaviour, not only in state.
     await session.send([{ type: 'text', text: 'ahoy' }])
     const completed = await tape.until((event) => event.type === 'turn/completed')
@@ -1472,16 +1483,21 @@ test('the catalogue is the agent\'s models, each with the levels it declared', a
     assert.equal(large?.description, 'Slower, wiser.')
     // `small` says nothing of its own, so the session's thought-level option
     // answers for it — without the choice that only means "leave it alone".
+    // Marked shared (#1013): a caller must not refuse an effort against this
+    // list, since it is only known to be true of whatever model the probe
+    // itself was actually on, not necessarily `small`.
     assert.deepEqual(small?.reasoningLevels, [
       { id: 'brief', label: 'Brief' },
       { id: 'long', label: 'Long' },
     ])
-    // `large` names its own, and they win.
+    assert.equal(small?.reasoningLevelsShared, true)
+    // `large` names its own, and they win — never marked shared.
     assert.deepEqual(large?.reasoningLevels, [
       { id: 'brief', label: 'Brief' },
       { id: 'long', label: 'Long' },
       { id: 'eternal', label: 'Eternal' },
     ])
+    assert.equal(large?.reasoningLevelsShared, undefined)
     // A draft pick moves the probe's model; the agent's default does not move.
     await runtime.defaultSessionOptions('/tmp/acp-catalog', { model: 'large' })
     const after = await runtime.listModels()

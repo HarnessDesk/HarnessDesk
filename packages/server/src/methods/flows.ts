@@ -175,15 +175,16 @@ export const flowMethods = {
  * answer, so nothing here has to open a conversation to know a level does
  * not exist (`unavailableSeats` below). What genuinely cannot be known before
  * a session exists is left alone rather than guessed at: **a model whose own
- * entry names no levels at all** — an empty list is not "this model has
- * none," since a generic ACP agent may report every model's levels as
- * whatever the *current* session's model happens to declare, which says
- * nothing true about a model nothing has yet selected. `#1013`'s seat-open
- * refusal is the backstop for exactly that case, so a mismatch this dry run
- * could not see is still never seated silently. `default` is never refused
- * either: it asks for whatever a model already runs at, and both Cursor and
- * ACP drop it from a model's own levels precisely because it is not one of
- * them.
+ * entry names no levels at all**, or whose levels are only a session-wide
+ * fallback (`reasoningLevelsShared`) — an empty list is not "this model has
+ * none," and a shared list is not "this model's own," since a generic ACP
+ * agent may report every model's levels as whatever the *current* session's
+ * model happens to declare, which says nothing true about a model nothing
+ * has yet selected. `#1013`'s seat-open refusal is the backstop for exactly
+ * that case, so a mismatch this dry run could not see is still never seated
+ * silently. `default` is never refused either: it asks for whatever a model
+ * already runs at, and both Cursor and ACP drop it from a model's own levels
+ * precisely because it is not one of them.
  */
 const checkEffort = (
   problems: FlowProblem[],
@@ -192,7 +193,7 @@ const checkEffort = (
   model: ModelInfo,
   effort: string | null | undefined,
 ): void => {
-  if (!effort || effort === 'default' || model.reasoningLevels.length === 0) return
+  if (!effort || effort === 'default' || model.reasoningLevels.length === 0 || model.reasoningLevelsShared) return
   if (model.reasoningLevels.some((level) => level.id === effort)) return
   // The level asked for is not one of this model's own, so it has no label
   // of the model's giving — said as written, the way a person typed it.
@@ -246,6 +247,10 @@ const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProbl
         })
         continue
       }
+      // A seat naming neither a model nor an effort has nothing here to check
+      // — asking anyway would read the catalogue for nothing, and on ACP that
+      // opens the probe session a dry run must never open (#1013).
+      if (!seat.model && !seat.effort) continue
       const models = await runtime.listModels().catch(() => [])
       if (models.length === 0) continue
       if (!seat.model) {

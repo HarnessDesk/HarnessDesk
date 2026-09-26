@@ -977,6 +977,16 @@ const refusedEffort = (seat: FlowSeat, error: unknown): boolean =>
   Boolean(seat.effort) && error instanceof OptionRefusedError && error.optionId === 'effort'
 
 /**
+ * The sentence for a seat this desk will not try to fix by trying another
+ * runtime: the runtime's own label for the level asked, never the wire id,
+ * with the full stop a caller that appends more prose after it (`seatAgent`'s
+ * "N more candidates were not tried…") depends on to read as two sentences,
+ * not a run-on one.
+ */
+const noEffortWhy = (words: SeatWords, seat: FlowSeat): string =>
+  `${words.runtime(seat.runtime)} does not offer ${words.effort(seat.runtime, seat.model, seat.effort!)} effort.`
+
+/**
  * Opens one candidate and holds it to what it asked for: the open seat, or the
  * candidate passed over with why — and then nothing the seating opened is left
  * open, unless somebody took it up meanwhile.
@@ -995,7 +1005,12 @@ const refusedEffort = (seat: FlowSeat, error: unknown): boolean =>
  * recorded as `noEffort`, not `couldNotOpen` — the fix is the seat's own
  * effort, never the runtime — worded in the runtime's own label for the level
  * asked, never the wire option id, and marked `fatal`: the caller's loop
- * stops on this candidate rather than trying the next one.
+ * stops on this candidate rather than trying the next one. So is an effort
+ * that was not refused outright but simply dropped at open — a greyed control
+ * a family with one level declares, the way `session/new` drops a pick that
+ * has no place — and only found once the read-back differs from what was
+ * asked: when effort is the *only* difference, it is exactly as much the
+ * seat's own instruction to fix as a runtime that says no outright.
  */
 const openAsAsked = async (
   ctx: HostContext,
@@ -1013,8 +1028,7 @@ const openAsAsked = async (
     opened = await ctx.seats.open(seat, where)
   } catch (error) {
     if (refusedEffort(seat, error)) {
-      const why = `${words.runtime(seat.runtime)} does not offer ${words.effort(seat.runtime, seat.model, seat.effort!)} effort`
-      return { seat, why, reason: { kind: 'noEffort', effort: seat.effort! }, fatal: true as const }
+      return { seat, why: noEffortWhy(words, seat), reason: { kind: 'noEffort', effort: seat.effort! }, fatal: true as const }
     }
     const left = leftOnFailure(error)
     return { ...passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) }), ...(left ? { left } : {}) }
@@ -1022,6 +1036,15 @@ const openAsAsked = async (
   const found = differencesOf(seat, opened.running)
   if (found.length === 0) return opened
   const left = await ctx.seats.discard(opened.runtime, opened.sessionId)
+  // A pick this model had no place for is dropped quietly at open — the way a
+  // greyed control is — rather than refused; read back, it looks exactly like
+  // any other openedOtherwise difference. When effort is the *only* one, it
+  // is held to the same rule as a runtime that refuses it outright
+  // (`refusedEffort` above): an asked-for effort is the seat's own
+  // instruction to fix, never a reason to quietly try a different runtime.
+  if (found.length === 1 && found[0]!.field === 'effort' && seat.effort) {
+    return { seat, why: noEffortWhy(words, seat), reason: { kind: 'noEffort', effort: seat.effort }, fatal: true as const, left }
+  }
   return { ...passedFor(seat, { kind: 'openedOtherwise', differences: found }), left }
 }
 
@@ -1235,8 +1258,21 @@ export const offerOf = async (
       // `models` — never a session's answer, and never guessed at when the
       // catalogue itself could not be read (`catalogue` is null, and this
       // stays undefined; `reasonAgainst` then has no model to look one up by
-      // and falls back to the flat `efforts`, which is also null here).
-      ...(catalogue ? { modelEfforts: new Map(catalogue.map((one) => [one.id, one.reasoningLevels.map((level) => level.id)])) } : {}),
+      // and falls back to the flat `efforts`, which is also null here). A
+      // model whose levels are only a session-wide fallback — never its own
+      // declaration (`reasoningLevelsShared`) — is left out of this map
+      // entirely, so `reasonAgainst` finds no entry for it and falls back to
+      // `efforts` (null) rather than refusing against a reading that may say
+      // nothing true about this particular model (#1013).
+      ...(catalogue
+        ? {
+            modelEfforts: new Map(
+              catalogue
+                .filter((one) => !one.reasoningLevelsShared)
+                .map((one) => [one.id, one.reasoningLevels.map((level) => level.id)]),
+            ),
+          }
+        : {}),
       signedIn,
       spent: report ? isBlocked(report) : false,
       spentModels: report ? spentScopesOf(report) : [],
