@@ -637,7 +637,7 @@ export const AccountFooter = ({
             size="sm"
             {...(here.account
               ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) }
-              : here.state === 'signin'
+              : here.state === 'signin' && here.known
                 ? { 'data-off': '' }
                 : {})}
           >

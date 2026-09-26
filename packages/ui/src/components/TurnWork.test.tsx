@@ -163,3 +163,100 @@ it('says a running turn is running in its ink, its live line, and its fold', () 
   expect(label()?.className).not.toContain('text-(')
   expect(container.querySelector('[data-slot="turn-work-live"]')).toBeNull()
 })
+
+it("draws a turn's own ACP plan as a checklist, priority chip included", () => {
+  const turn = {
+    id: turnId('turn-plan'),
+    items: [{ id: 'msg-1', type: 'assistantMessage', text: 'On it.' }],
+    status: 'completed',
+    plan: [
+      { step: 'ship the fix', status: 'inProgress', priority: 'high' },
+      { step: 'write the tests', status: 'pending' },
+    ],
+  } as unknown as Turn
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <TurnWork turn={turn} work={turn.items} root="/work" />
+      </StoreProvider>,
+    )
+  })
+
+  // A plan the turn carries is worth opening for by itself, without a click.
+  const fold = container.querySelector<HTMLButtonElement>('[data-testid="turn-work"] > button')
+  expect(fold?.getAttribute('aria-expanded')).toBe('true')
+  expect(container.textContent).toContain('ship the fix')
+  expect(container.textContent).toContain('write the tests')
+  expect(container.textContent).toContain('high')
+})
+
+it('shows the plan once when a turn carries both its own ACP plan and a matching plan tool call', () => {
+  const planCall = {
+    id: 'call-1',
+    type: 'toolCall',
+    tool: 'TodoWrite',
+    source: { kind: 'builtin' },
+    status: 'completed',
+    args: { todos: [{ content: 'ship the fix', status: 'in_progress' }, { content: 'write the tests', status: 'pending' }] },
+  } as unknown as AgentItem
+  const turn = {
+    id: turnId('turn-both'),
+    items: [planCall],
+    status: 'completed',
+    plan: [
+      { step: 'ship the fix', status: 'inProgress' },
+      { step: 'write the tests', status: 'pending' },
+    ],
+  } as unknown as Turn
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <TurnWork turn={turn} work={[planCall]} root="/work" />
+      </StoreProvider>,
+    )
+  })
+
+  const fold = container.querySelector<HTMLButtonElement>('[data-testid="turn-work"] > button')
+  // The tool call's own sentence ("Updated the plan") already makes this
+  // turn informative, so it may already be open; only click to open it.
+  if (fold?.getAttribute('aria-expanded') === 'false') act(() => fold.click())
+  // The step row itself folds independently of the turn — opened the same
+  // way the first test in this file opens a failed step.
+  const step = [...container.querySelectorAll<HTMLButtonElement>('button')].find((entry) =>
+    entry.getAttribute('aria-expanded') === 'false',
+  )
+  if (step) act(() => step.click())
+
+  // One list, not two: the tool call's own describes the plan already, so
+  // `turn.plan` does not draw a second copy beside it.
+  expect(container.querySelectorAll('ul').length).toBe(1)
+  expect(container.textContent?.match(/ship the fix/g)?.length).toBe(1)
+})
+
+it('shows the plan even in a turn with nothing else — an agent may send only that', () => {
+  const turn = {
+    id: turnId('turn-plan-only'),
+    items: [],
+    status: 'completed',
+    plan: [{ step: 'listen', status: 'completed' }],
+  } as unknown as Turn
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <TurnWork turn={turn} work={[]} root="/work" />
+      </StoreProvider>,
+    )
+  })
+
+  expect(container.querySelector('[data-testid="turn-work"]')).not.toBeNull()
+  expect(container.textContent).toContain('listen')
+})

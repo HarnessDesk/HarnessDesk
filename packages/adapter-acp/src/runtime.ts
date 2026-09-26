@@ -1007,8 +1007,13 @@ export class AcpRuntime implements AgentRuntime {
       // the build that gave it: an agent upgraded since and restarted without
       // the app kept getting none, and every board call its seats made
       // arrived with no caller token and was refused as unattributed. A build
-      // that already said no is not asked again on every restart.
-      if (this.#toolServerRefused && this.#initialized.agentInfo?.version !== this.#refusedBy) {
+      // that already said no is not asked again on every restart — except an
+      // agent that reports no version at all, which this launch's `undefined`
+      // can never be told apart from the refusing one's own `undefined` by
+      // comparison alone. Read that as "might have changed" rather than "the
+      // same build again": it is asked once more on this fresh launch, rather
+      // than never again until the app itself restarts.
+      if (this.#toolServerRefused && (this.#initialized.agentInfo?.version === undefined || this.#initialized.agentInfo?.version !== this.#refusedBy)) {
         this.#toolServerRefused = false
       }
       const declared = (this.#initialized._meta as { harnessdesk?: Record<string, unknown> } | undefined)
@@ -1785,6 +1790,15 @@ export class AcpRuntime implements AgentRuntime {
   /** The agent's own name for a session, as of the last listing. */
   titleOf(id: SessionId): string | null {
     return this.#titles.get(id) ?? null
+  }
+
+  /**
+   * Learns a title the agent announced live, through `session_info_update`
+   * rather than a `session/list` row — the same table `titleOf` reads, kept
+   * current between listings so a `summary()` taken right after reflects it.
+   */
+  noteTitle(id: SessionId, title: string): void {
+    this.#titles.set(id, title)
   }
 
   /** The ask each session opened with, as of the last listing. */
@@ -3699,15 +3713,24 @@ class AcpSession implements AgentSession {
             : (turn.items[index] as Extract<AgentItem, { type: 'toolCall' }>)
         const status =
           update.status === 'completed' ? 'completed' : update.status === 'failed' ? 'failed' : 'inProgress'
-        // A picture in the tool's content — a screenshot, a Read of a PNG —
-        // becomes an image part the transcript can draw. The raw copy keeps
-        // everything else but not the same megabytes twice.
-        const images = imagesInToolContent(update.content)
         // An agent that reports output only as text blocks in `content` —
         // DeepSeek Harness's own server sends no rawOutput at all — has that
-        // text kept as the result. Where rawOutput exists it stays the
-        // record, and the same output is not stored twice.
-        const texts = update.rawOutput === undefined ? textsInToolContent(update.content) : []
+        // text kept as the result, and a picture among those blocks — a
+        // screenshot, a Read of a PNG — becomes an image part the transcript
+        // can draw, the raw copy keeping everything else but not the same
+        // megabytes twice. Where rawOutput exists on the *same* update it
+        // stays the record and neither is read from `content` again — but a
+        // *later* update carrying only text, only images, or both, with no
+        // rawOutput of its own, must not replace a structured result an
+        // earlier update on the same call already recorded (#961 review):
+        // once `previous.result` holds a `json` part, an update after it with
+        // nothing of its own to add to that record is read as nothing new
+        // about the result, never as a reason to overwrite the structured one
+        // with a plainer echo of it — for an image exactly as for text.
+        const previousHasJson = previous.result?.some((part) => part.type === 'json') ?? false
+        const carriesNothingNew = update.rawOutput === undefined && previousHasJson
+        const texts = carriesNothingNew ? [] : textsInToolContent(update.content)
+        const images = carriesNothingNew ? [] : imagesInToolContent(update.content)
         const next: AgentItem = {
           ...previous,
           status,
@@ -3750,15 +3773,42 @@ class AcpSession implements AgentSession {
       }
       case 'plan': {
         if (!turn) return
-        this.#emit({
-          type: 'turn/plan',
-          sessionId: this.id,
-          turnId: turn.id,
-          steps: update.entries.map((entry) => ({
+        // Schema-light, so an entry is trusted only once it looks like one:
+        // words to show and a status this client knows how to draw. Anything
+        // else is an agent's own bookkeeping, not a step for a person to read.
+        const steps = update.entries
+          .filter(
+            (entry) =>
+              typeof entry.content === 'string' &&
+              entry.content.trim() !== '' &&
+              (entry.status === 'pending' || entry.status === 'in_progress' || entry.status === 'completed'),
+          )
+          .map((entry) => ({
             step: entry.content,
             status: entry.status === 'in_progress' ? ('inProgress' as const) : entry.status,
-          })),
-        })
+            // The agent's own word for how urgent this step is, kept as it
+            // was said — "high", "P0", whatever its own vocabulary is — never
+            // guessed at when it left the field out.
+            ...(typeof entry.priority === 'string' && entry.priority.trim() !== ''
+              ? { priority: entry.priority.trim() }
+              : {}),
+          }))
+        this.#emit({ type: 'turn/plan', sessionId: this.id, turnId: turn.id, steps })
+        return
+      }
+      case 'session_info_update': {
+        // The empty and whitespace-only title an agent might send between
+        // naming turns is not a name to show — `titleOf` already treats
+        // "nothing said yet" as no title, and a live update should not read
+        // as the agent clearing a name it never gave.
+        const title = update.title?.trim() ?? ''
+        if (title === '') return
+        this.#host.noteTitle(this.id, title)
+        // Whether this actually reaches a person's screen — never displacing
+        // a name they gave the conversation themselves — is the host's call,
+        // the same place `session/setTitle` keeps that rule for ACP (`#named`
+        // in `packages/server/src/host.ts`).
+        this.#emit({ type: 'session/title', sessionId: this.id, title })
         return
       }
       case 'current_model_update': {
