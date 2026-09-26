@@ -728,14 +728,12 @@ state turn cost honestly.
   `outputExact: false`. The turn tail displays delegations for that turn, while
   cumulative session totals are recorded in session usage (see
   [context-usage.md](context-usage.md#what-a-session-delegated)).
-- **Current bridge status**: Cursor's bridge and `@harnessdesk/dsh-acp` do not
-  implement the delegation extension yet. DSH 0.1.2 spawns children with
-  chosen provider, model, effort, and output caps. `@harnessdesk/dsh-acp` 0.5.3
-  carries messages: child reports over `send_message` and settlement notices
-  arrive on the parent transcript as notices with senders named. Real Codex or
-  Claude Code children spawned by DSH execute under DSH's native login and
-  approval policies, outside HarnessDesk's approval surface and audit log; the
-  desk-level answer to multiple vendors collaborating is a Room.
+- **Current bridge status**: Cursor's bridge and DSH's own ACP server
+  (`dsh --profile acp`) do not implement the delegation extension yet. DSH 0.1.2
+  spawns children with chosen provider, model, effort, and output caps. Real
+  Codex or Claude Code children spawned by DSH execute under DSH's native login
+  and approval policies, outside HarnessDesk's approval surface and audit log;
+  the desk-level answer to multiple vendors collaborating is a Room.
 
 ## 9. Intake: bounded work a project can open on its own
 
@@ -908,8 +906,8 @@ In the spirit of honest documentation:
 - **In-UI inbound controls and per-pair mute**: inbound delivery policies
   (`accept`, `hold`, `refuse`) are configured globally in plugin settings;
   per-conversation toggles and per-pair mute are not yet exposed on room cards.
-- **Delegation accounting across all bridges**: Cursor's bridge and
-  `@harnessdesk/dsh-acp` do not yet implement the delegation extension, so
-  delegated subagent token counts cannot be broken out on those runtimes.
+- **Delegation accounting across all bridges**: Cursor's bridge and DSH's own
+  ACP server do not yet implement the delegation extension, so delegated
+  subagent token counts cannot be broken out on those runtimes.
 
 ---
