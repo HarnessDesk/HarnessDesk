@@ -42,6 +42,8 @@ import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
+  PaneColumn,
+  type PaneColumnInset,
 } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon } from './Icons'
@@ -383,6 +385,7 @@ export const AgentHoverCard = ({
   align,
   className,
   as: Trigger = 'span',
+  inset,
   openOnFocus = true,
   disabled = false,
 }: {
@@ -404,6 +407,13 @@ export const AgentHoverCard = ({
    * a block, such as a whole row of a rail.
    */
   readonly as?: 'span' | 'div'
+  /**
+   * The trigger composes `PaneColumn` for this inset instead of drawing its
+   * own padding — the same element, so the hover target's own edge does not
+   * move; only how it pads its content does. `SessionTree`'s row is the one
+   * caller today (`inset="rail"`).
+   */
+  readonly inset?: PaneColumnInset
   /**
    * Whether a keyboard's focus arriving inside the trigger opens the card.
    * False for a trigger that holds controls of its own, where
@@ -604,6 +614,51 @@ export const AgentHoverCard = ({
 
   if (disabled) return <>{children}</>
 
+  /* Shared between the two trigger elements below — a plain tag, or
+     `PaneColumn` where `inset` composes its own padding onto it. Typed
+     against `HTMLElement` so the one ref callback fits either. */
+  const triggerProps = {
+    ref: (node: HTMLElement | null) => {
+      if (!node) return
+      if (triggerRef.current && triggerRef.current !== node) setRedrawn((count) => count + 1)
+      triggerRef.current = node
+    },
+    className,
+    tabIndex: -1,
+    onPointerEnter: () => {
+      resting.current = true
+    },
+    onPointerOver: (event: ReactPointerEvent<HTMLElement>) => {
+      const control = (event.target as Element).closest('[data-no-card]')
+      const onControl = control !== null && event.currentTarget.contains(control)
+      if (onControl === quiet.current) return
+      quiet.current = onControl
+      window.clearTimeout(again.current)
+      if (onControl) setOpen(false)
+      else again.current = window.setTimeout(() => ask(), HOVER_CARD_OPEN_DELAY)
+    },
+    onPointerLeave: () => {
+      resting.current = false
+      pressed.current = false
+      quiet.current = false
+      window.clearTimeout(again.current)
+    },
+    onPointerDown: () => {
+      pressed.current = true
+      window.clearTimeout(again.current)
+      setOpen(false)
+    },
+    onFocus: () => {
+      // ask() refuses focus-driven opens unless this ref authorizes them.
+      if (!openOnFocus) return
+      focused.current = keyboard
+    },
+    onBlur: () => {
+      if (!openOnFocus) return
+      focused.current = false
+    },
+  } as const
+
   return (
     <HoverCard
       open={open}
@@ -617,47 +672,16 @@ export const AgentHoverCard = ({
       <HoverCardTrigger
         id={triggerId}
         render={
-          <Trigger
-            ref={(node: HTMLElement | null) => {
-              if (!node) return
-              if (triggerRef.current && triggerRef.current !== node) setRedrawn((count) => count + 1)
-              triggerRef.current = node
-            }}
-            className={className}
-            tabIndex={-1}
-            onPointerEnter={() => {
-              resting.current = true
-            }}
-            onPointerOver={(event: ReactPointerEvent<HTMLElement>) => {
-              const control = (event.target as Element).closest('[data-no-card]')
-              const onControl = control !== null && event.currentTarget.contains(control)
-              if (onControl === quiet.current) return
-              quiet.current = onControl
-              window.clearTimeout(again.current)
-              if (onControl) setOpen(false)
-              else again.current = window.setTimeout(() => ask(), HOVER_CARD_OPEN_DELAY)
-            }}
-            onPointerLeave={() => {
-              resting.current = false
-              pressed.current = false
-              quiet.current = false
-              window.clearTimeout(again.current)
-            }}
-            onPointerDown={() => {
-              pressed.current = true
-              window.clearTimeout(again.current)
-              setOpen(false)
-            }}
-            onFocus={() => {
-              // ask() refuses focus-driven opens unless this ref authorizes them.
-              if (!openOnFocus) return
-              focused.current = keyboard
-            }}
-            onBlur={() => {
-              if (!openOnFocus) return
-              focused.current = false
-            }}
-          />
+          /* `PaneColumn` composes onto the trigger itself where `inset` is
+             given, rather than wrapping it: the same element the pointer and
+             the keyboard already reach — shared handlers, only the element
+             (and how it pads its content) differs — so the hover target's
+             own edge never moves. */
+          inset ? (
+            <PaneColumn inset={inset} {...triggerProps} />
+          ) : (
+            <Trigger {...triggerProps} />
+          )
         }
       >
         {children}
@@ -1070,6 +1094,7 @@ export const SessionHoverCard = ({
   children,
   className,
   side,
+  inset,
 }: {
   /** Null where the surface knows of a conversation it has not loaded. */
   readonly session: SessionSummary | null
@@ -1077,6 +1102,8 @@ export const SessionHoverCard = ({
   readonly children: ReactNode
   readonly className?: string
   readonly side?: 'top' | 'right' | 'bottom' | 'left'
+  /** Forwarded to `AgentHoverCard` — the rail's own row asks for `"rail"`. */
+  readonly inset?: PaneColumnInset
 }) => (
   /* No card at all rather than one built out of guesses: a claim held by a
      conversation this renderer has never loaded has nothing to report, and an
@@ -1089,6 +1116,7 @@ export const SessionHoverCard = ({
     }
     className={className}
     {...(side ? { side } : {})}
+    {...(inset ? { inset } : {})}
   >
     {children}
   </AgentHoverCard>

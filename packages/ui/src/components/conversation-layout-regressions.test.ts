@@ -13,7 +13,13 @@ it('keeps transcript animations bound to shared global keyframes', () => {
   for (const name of ['hd-spin', 'hd-pulse', 'hd-blink']) expect(baseCss).toContain(`@keyframes ${name}`)
   expect(conversationCss).not.toMatch(/@keyframes\s+(spin|pulse)/)
   expect(itemsCss).not.toMatch(/@keyframes\s+(spin|blink)/)
-  expect(conversationTsx).toMatch(/animate-\[hd-pulse_/)
+  // The header's running dot converged onto Chip's own `dotTone`/`dotPulse`,
+  // which pulses through the shared `Dot`'s own local keyframe rather than
+  // this Tailwind utility — so `hd-pulse` now names no direct consumer
+  // either, kept in base.css as a general motion utility the same way
+  // `hd-blink` and `hd-spin` already are below.
+  expect(conversationTsx).not.toMatch(/animate-\[hd-pulse_/)
+  expect(conversationTsx).toMatch(/dotTone=\{STATUS_TONE\[status\]\}/)
   // The still-writing caret converged onto the same pulsing `Dot` a sign-in
   // row already wears, so `hd-blink` now names no direct consumer either —
   // kept in base.css as a general motion utility, as hd-spin is below.
