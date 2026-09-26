@@ -7,6 +7,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Wrapping a Goal right after stopping its run now waits for the stopped
+  Seat's answer to finish saving.** That answer is written to disk a beat
+  after the turn ends, and wrapping right away could catch it mid-write: the
+  receipt could then say a Seat that had answered "has no recorded answer",
+  or the wrap could refuse with "This Goal changed while you reviewed its
+  receipt. Review it again." A read now waits for that write first, so the
+  receipt always carries what the Seat actually said.
+
 - **A sign-in that wants a pasted code asks for it.** When an agent's browser
   sign-in cannot finish by itself, the page shows a code to paste back into
   the agent's sign-in command — which the desk runs in the background, so the
