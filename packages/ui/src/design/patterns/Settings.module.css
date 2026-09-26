@@ -809,6 +809,14 @@
   align-items: flex-end; /* desk: center → flex-end, the label sits on its card */
   gap: 10px;
   margin: var(--hd-space-5) 0 var(--hd-space-2); /* desk: 26/10 → 20/8, the section rhythm */
+  /* The head sits above the `.rows` card it names rather than inside it, so
+     without its own inset its text started at the page's own edge while the
+     card's rows started a border-width and a card-padding in. This puts the
+     label's first letter and the action's trailing edge on that same column
+     — a `Section`'s `SectionAction` already does this by living inside the
+     card's own padding; a `SectionHead` has to say it explicitly because it
+     draws outside the card. */
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
 }
 
 .sectionHead:first-child {

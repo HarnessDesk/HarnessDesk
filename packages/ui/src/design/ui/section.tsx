@@ -137,7 +137,16 @@ const Section = (props: SectionProps) => {
         className={cn(sectionVariants({ variant: 'page' }), className)}
         {...rest}
       >
-        <div data-slot="section-head" className="flex min-w-0 items-end gap-(--hd-space-3)">
+        <div
+          data-slot="section-head"
+          /* The head sits above the card it names rather than inside it, so
+             without an inset of its own its label started at the column's
+             edge while the card's border and `--hd-inset-card` put every row
+             a border-width and a card-padding in — a `SectionAction`'s own
+             `justify-self-end` line answers a different question (the card's
+             own header) and does not reach a page section's plain card. */
+          className="flex min-w-0 items-end gap-(--hd-space-3) px-[calc(var(--hd-border-width)+var(--hd-inset-card))]"
+        >
           <div className="flex min-w-0 flex-1 flex-col gap-(--hd-space-0-5)">
             <GroupLabel as="h2">{title}</GroupLabel>
             {description != null && (
