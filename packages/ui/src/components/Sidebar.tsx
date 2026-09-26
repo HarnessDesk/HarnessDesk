@@ -17,7 +17,7 @@ import {
   Dot,
   Menu,
   MenuItem,
-  MenuGroup,
+  MenuAccountGroup,
   MenuLabel,
   MenuNote,
   MenuSeparator,
@@ -555,9 +555,11 @@ export const AccountFooter = ({
   // mark. An agent with several is a heading wearing the mark once, and its
   // accounts under it as lines of their own — the agent is said by the
   // heading, so no row has to say it again.
-  const listed = accountsOpen ? chairs : here ? [here] : chairs
+  // Grouped from every chair, folded or not: the default's row keeps the
+  // same parent either way, so opening the picker does not remount the row
+  // a keyboard is on. Folded, a group shows only the default under its heading.
   const groups: Seat[][] = []
-  for (const seat of listed) {
+  for (const seat of chairs) {
     const group = groups.find((entry) => agentKey(entry[0]!.info) === agentKey(seat.info))
     if (group) group.push(seat)
     else groups.push([seat])
@@ -566,9 +568,12 @@ export const AccountFooter = ({
     groups.find((group) => group.includes(seat)) ?? [seat]
   // What a row is called. Under its agent's heading, an account that is
   // only called by the agent's name (a key, a gateway) says which one it is.
+  // An account with no one signed in has no name of its own, so under the
+  // heading it says that — never the heading's name again, and never the
+  // readiness word the figure slot is about to say.
   const labelOf = (seat: Seat): string =>
     groupOf(seat).length > 1 && seat.name === seat.info.presentation.name
-      ? (seat.info.slot?.gateway?.name ?? seat.sub)
+      ? (seat.info.slot?.gateway?.name ?? (seat.account ? seat.sub : seat.known ? 'No account' : 'Checking…'))
       : seat.name
   // Two rows with one name get the word that differs, and only they do.
   // Across agents that is the agent — two single rows are two agents. Under
@@ -579,7 +584,8 @@ export const AccountFooter = ({
     const label = labelOf(seat)
     if (group.length === 1) {
       const twins = groups.filter((other) => other.length === 1 && other[0] !== seat && labelOf(other[0]!) === label)
-      return twins.length > 0 ? brandOf(seat.info.presentation.name) : null
+      const agent = brandOf(seat.info.presentation.name)
+      return twins.length > 0 && agent !== label ? agent : null
     }
     const twins = group.filter((other) => other !== seat && labelOf(other) === label)
     if (twins.length === 0) return null
@@ -693,7 +699,9 @@ export const AccountFooter = ({
 
           <MenuSeparator />
           <MenuLabel size="compact">Run new sessions as</MenuLabel>
-            {groups.map((group) => {
+            {groups.map((all) => {
+              const group = accountsOpen || !here ? all : all.filter((seat) => seat.current)
+              if (group.length === 0) return null
               const renderSeat = (seat: Seat, child: boolean) => (
                 <MenuItem
                   key={seat.key}
@@ -774,10 +782,10 @@ export const AccountFooter = ({
                   ) : null}
                 </MenuItem>
               )
-              if (group.length === 1) return renderSeat(group[0]!, false)
+              if (all.length === 1) return renderSeat(group[0]!, false)
               const agent = group[0]!.info
               return (
-                <MenuGroup
+                <MenuAccountGroup
                   key={agentKey(agent)}
                   label={agent.presentation.name}
                   mark={
@@ -787,7 +795,7 @@ export const AccountFooter = ({
                   }
                 >
                   {group.map((seat) => renderSeat(seat, true))}
-                </MenuGroup>
+                </MenuAccountGroup>
               )
             })}
             <MenuItem

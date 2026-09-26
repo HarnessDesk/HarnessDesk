@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Menu, MenuGroup, MenuItem, MenuLabel } from './Menu'
+import { Menu, MenuAccountGroup, MenuItem, MenuLabel } from './Menu'
 import css from './Menu.module.css?raw'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -44,18 +44,20 @@ it('groups account rows under a heading that names them and is not a choice', ()
   act(() => {
     root.render(
       <Menu close={() => {}}>
-        <MenuGroup label="Agent" mark={<span data-mark />}>
+        <MenuAccountGroup label="Agent" mark={<span data-mark />}>
           <MenuItem layout="account" onSelect={() => {}}>One</MenuItem>
           <MenuItem layout="account" onSelect={() => {}}>Two</MenuItem>
-        </MenuGroup>
+        </MenuAccountGroup>
       </Menu>,
     )
   })
 
   const group = document.querySelector('[role="group"]')
-  expect(group?.getAttribute('aria-label')).toBe('Agent')
-  // The heading is hidden from the menu's items and from assistive tech; the group's name carries it.
+  // The heading is the group's name, wired by the vendored group label; the mark is not read.
+  const label = document.getElementById(group?.getAttribute('aria-labelledby') ?? '')
+  expect(label?.textContent).toBe('Agent')
+  expect(label?.querySelector('[aria-hidden="true"] [data-mark]')).not.toBeNull()
+  // The heading is no choice: only the rows are items.
   expect([...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map((row) => row.textContent)).toEqual(['One', 'Two'])
-  expect(group?.querySelector('[aria-hidden="true"] [data-mark]')).not.toBeNull()
   expect(css).toMatch(/\.group > \.row\[data-layout='account'\]\s*\{[^}]*margin-left:\s*var\(--hd-space-8\)/s)
 })

@@ -98,6 +98,11 @@
   margin: var(--hd-space-1-5) var(--hd-space-2);
 }
 
+.groupMark {
+  display: flex;
+  flex: none;
+}
+
 .groupLabel {
   min-width: 0;
 }

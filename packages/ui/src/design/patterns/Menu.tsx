@@ -213,21 +213,27 @@ export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode;
 )
 
 /**
- * Several accounts of one owner, under one heading. The heading wears the
- * owner's mark once and names it; it is not a choice, so it takes no hover
- * and no press, and assistive tech hears it as the group's name. The
- * `account` rows inside sit on the heading's name column and leave their own
- * mark out — the heading already said whose they are.
+ * Several accounts of one agent, under one heading. The heading wears the
+ * agent's mark once and names it; it is not a choice, so it takes no hover
+ * and no press, and it is the group's accessible name — `aria-labelledby`,
+ * the wiring the vendored group label would give. Plain elements rather than
+ * `DropdownMenuGroup`/`DropdownMenuLabel`: one screen composes this, and the
+ * audit's single-area primitive ceiling may only fall. The `account` rows
+ * inside sit on the heading's name column and leave their own mark out — the
+ * heading already said whose they are.
  */
-export const MenuGroup = ({ label, mark, children }: { label: string; mark: ReactNode; children: ReactNode }) => (
-  <div className={styles.group} role="group" aria-label={label}>
-    <div className={styles.groupHead} aria-hidden="true">
-      {mark}
-      <Text role="muted" truncate className={styles.groupLabel}>{label}</Text>
+export const MenuAccountGroup = ({ label, mark, children }: { label: string; mark: ReactNode; children: ReactNode }) => {
+  const id = useId()
+  return (
+    <div className={styles.group} role="group" aria-labelledby={id}>
+      <div className={styles.groupHead} id={id}>
+        <span aria-hidden="true" className={styles.groupMark}>{mark}</span>
+        <Text role="muted" truncate className={styles.groupLabel}>{label}</Text>
+      </div>
+      {children}
     </div>
-    {children}
-  </div>
-)
+  )
+}
 
 export const MenuSeparator = () => <div className={styles.separator} role="separator" />
 

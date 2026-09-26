@@ -135,6 +135,12 @@ const row = (): HTMLButtonElement => {
   return found
 }
 
+/** A group of one agent's accounts, found by the heading that names it. */
+const groupNamed = (name: string): Element | undefined =>
+  [...document.querySelectorAll('[role="group"]')].find(
+    (group) => document.getElementById(group.getAttribute('aria-labelledby') ?? '')?.textContent === name,
+  )
+
 /** A seat's identity lives on its name's tooltip, not in its text. */
 const identityOf = (item: Element): string | null | undefined => item.querySelector('[data-identity]')?.getAttribute('data-identity')
 
@@ -707,7 +713,7 @@ it('tells two addresses with one local part on one agent apart by their domains'
   click(current)
   const seats = [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')]
   // One heading for the agent, its two accounts under it, told apart by domain.
-  const group = document.querySelector('[role="group"][aria-label="OpenAI Codex"]')
+  const group = groupNamed('OpenAI Codex')
   expect(group).not.toBeNull()
   expect([...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())).toEqual([
     'janeexample.com',
@@ -781,7 +787,7 @@ it('calls an account known only by its agent’s name after its gateway, under t
     },
     healthByRuntime: { [CODEX]: { state: 'ready' }, [proxy.id]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
   })
-  const group = (openPicker(), document.querySelector('[role="group"][aria-label="OpenAI Codex"]'))
+  const group = (openPicker(), groupNamed('OpenAI Codex'))
   const names = [...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())
   expect(names).toEqual(['jane', 'Team proxy'])
 })
@@ -800,7 +806,7 @@ it('never tags a row with its own name again', () => {
     healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' }, [cursor.id]: { state: 'ready' }, [second.id]: { state: 'ready' } },
   })
   openPicker()
-  const group = document.querySelector('[role="group"][aria-label="Cursor"]')
+  const group = groupNamed('Cursor')
   const names = [...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())
   expect(names).toEqual(['Jane-Cursor', 'Jane-Cursor'])
 })
@@ -811,4 +817,93 @@ it('does not call an agent that has not answered signed out — not on its line,
   expect(codexSeat).toBeDefined()
   expect(codexSeat && identityOf(codexSeat)).toBe('OpenAI Codex')
   expect(codexSeat?.querySelector('[data-off]')).toBeNull()
+})
+
+const twoCodex = () => {
+  const second = slotOf(codex, 'codex-2')
+  return {
+    second,
+    snapshot: {
+      runtimes: [codex, second, claude],
+      activeRuntime: CODEX,
+      accountsByRuntime: {
+        [CODEX]: signedIn('jane@example.com'),
+        [second.id]: signedIn('jane@acme.dev'),
+        [CLAUDE]: signedIn('olivia@acme.dev'),
+      },
+      healthByRuntime: { [CODEX]: { state: 'ready' }, [second.id]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
+      accountPrefs: {},
+    } as Partial<AppSnapshot>,
+  }
+}
+
+it('keeps the default’s row — and the keyboard on it — when the picker opens and folds under a heading', () => {
+  mount(twoCodex().snapshot)
+  click(row())
+  // Folded, the default already sits under its agent's heading, alone.
+  const folded = groupNamed('OpenAI Codex')
+  expect(folded?.querySelectorAll('[role="menuitem"]').length).toBe(1)
+  const current = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  act(() => current.focus())
+  click(current)
+  expect(current.isConnected).toBe(true)
+  expect(document.activeElement).toBe(current)
+  expect(groupNamed('OpenAI Codex')?.querySelectorAll('[role="menuitem"]').length).toBe(2)
+  click(current)
+  expect(current.isConnected).toBe(true)
+  expect(document.activeElement).toBe(current)
+})
+
+it('arrows into a group, across it and out of it', () => {
+  mount(twoCodex().snapshot)
+  click(row())
+  const current = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  act(() => current.focus())
+  click(current)
+  const press = (key: string) =>
+    act(() => {
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    })
+  press('ArrowDown')
+  expect(document.activeElement?.textContent).toContain('acme.dev')
+  press('ArrowDown')
+  expect(document.activeElement?.textContent).toContain('olivia')
+  press('ArrowUp')
+  press('ArrowUp')
+  expect(document.activeElement).toBe(current)
+})
+
+it('calls an account-less row under a heading what it is, not the heading or the readiness word again', () => {
+  const { second, snapshot } = twoCodex()
+  mount({
+    ...snapshot,
+    activeRuntime: second.id,
+    accountsByRuntime: { ...snapshot.accountsByRuntime, [second.id]: signedOut },
+  })
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')
+  expect(current?.textContent).toBe('No accountNeeds sign-in')
+})
+
+it('never tags a single row with its own name', () => {
+  // An agent that keeps its own credential: listed with no account, named after itself.
+  const cursor = { ...runtime(runtimeId('cursor'), 'Cursor', 'cursor'), capabilities: { account: false } } as RuntimeInfo
+  mount({
+    runtimes: [codex, claude, cursor],
+    accountsByRuntime: {
+      [CODEX]: signedIn('shane@example.com'),
+      [CLAUDE]: signedIn('olivia@acme.dev'),
+      [cursor.id]: { accounts: [], signInMethods: [] },
+    },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' }, [cursor.id]: { state: 'ready' } },
+    accountPrefs: { [accountKey(CLAUDE, signedIn('olivia@acme.dev').accounts[0]!)]: { nickname: 'Cursor' } },
+  })
+  const seats = openPicker()
+  const cursorRow = seats.find((seat) => seat.querySelector('.brand-cursor'))
+  const claudeRow = seats.find((seat) => seat.querySelector('.brand-claude'))
+  // Two single rows named "Cursor": the Claude one says whose it is, the Cursor one does not say "Cursor" twice.
+  expect(claudeRow?.textContent?.trim()).toBe('CursorClaude')
+  expect(cursorRow?.textContent?.trim()).toBe('Cursor')
 })

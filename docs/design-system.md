@@ -1188,15 +1188,18 @@ and Shift+Tab goes back to the trigger, as Escape does. A panel of plain
 buttons in a menu keeps Tab for going from one to the next, and leaves by
 it after the last.
 
-### `MenuGroup`
+### `MenuAccountGroup`
 
 `packages/ui/src/design/patterns/Menu.tsx`
 
-Several accounts of one owner, under one heading. The heading wears the
-owner's mark once and names it; it is not a choice, so it takes no hover
-and no press, and assistive tech hears it as the group's name. The
-`account` rows inside sit on the heading's name column and leave their own
-mark out — the heading already said whose they are.
+Several accounts of one agent, under one heading. The heading wears the
+agent's mark once and names it; it is not a choice, so it takes no hover
+and no press, and it is the group's accessible name — `aria-labelledby`,
+the wiring the vendored group label would give. Plain elements rather than
+`DropdownMenuGroup`/`DropdownMenuLabel`: one screen composes this, and the
+audit's single-area primitive ceiling may only fall. The `account` rows
+inside sit on the heading's name column and leave their own mark out — the
+heading already said whose they are.
 
 ### `MenuToggle`
 

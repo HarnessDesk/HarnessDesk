@@ -258,20 +258,19 @@ profile. Then comes switching: **Run new sessions as** lists every account of
 every agent, one line each — its name, and the same figure the header strip
 shows — and the default is the filled row. The address and plan behind a name
 are on the name's tooltip and on the mark's card. An agent with more than one
-account is a heading — its mark and its name, not a choice — with its
-accounts under it, each one line on the heading's name column; an account
-known only by the agent's name is called by its gateway instead. Where two
-accounts share a name, a second word on the line tells them apart: the agent,
-between two agents' single rows, or the address's domain under one heading.
-An agent that has answered that nobody
-is signed in is not listed (choosing it would start nothing) unless it is the
-default; it waits behind **Add an account**, whose chooser is where signing
-in happens. The menu-bar item still lists it, because there the row is itself
-the way to sign in. **Usage remaining** appears only where something is
-metered — its windows and when each resets, nothing else — and then come
-Settings and signing out of the default agent. Dashboard is not in this menu:
-it is in the sidebar's nav, on everything, and the Usage verb on an account's
-card opens it on that one agent.
+account is a heading — its mark and its name, not a choice — with its accounts
+under it, each one line on the heading's name column; an account known only by
+the agent's name is called by its gateway instead. Where two accounts share a
+name, a second word on the line tells them apart: the agent, between two
+agents' single rows, or the address's domain under one heading. An agent that
+has answered that nobody is signed in is not listed (choosing it would start
+nothing) unless it is the default; it waits behind **Add an account**, whose
+chooser is where signing in happens. The menu-bar item still lists it, because
+there the row is itself the way to sign in. **Usage remaining** appears only
+where something is metered — its windows and when each resets, nothing else —
+and then come Settings and signing out of the default agent. Dashboard is not
+in this menu: it is in the sidebar's nav, on everything, and the Usage verb on
+an account's card opens it on that one agent.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every
