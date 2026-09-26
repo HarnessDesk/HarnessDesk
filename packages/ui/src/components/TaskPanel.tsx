@@ -103,13 +103,17 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
   return (
     <ChecklistItem state={state}>
       {/*
-       * `size="pattern"` rather than `size="row"`: a checklist step already
-       * gives its mark and its label the 8px gap the list is built on
-       * (`Checklist.module.css` `.item`'s own `gap`), and `row`'s box added
-       * its own inline padding on top of it — the label's first word started
-       * a row's worth of padding right of the mark instead of on its gap.
+       * `size="sm"` — a screen may only pick a canonical `Button` size,
+       * never `size="pattern"` (`script/ui-architecture.mjs`'s
+       * `screen-pattern-button` rule: that box is a pattern's to draw, not a
+       * screen's). Checklist.module.css, the pattern this row belongs to,
+       * is where the box is actually zeroed back out: a checklist step
+       * already gives its mark and its label the 8px gap the list is built
+       * on (`.item`'s own `gap`), and `sm`'s own padding added a second
+       * inset on top of it — the label's first word started a button's
+       * worth of padding right of the mark instead of on its gap.
        * `variant="row"` is kept for the hover and focus a reword control
-       * still needs; only its box is somebody else's to draw here.
+       * still needs; only its box is the pattern's to draw here.
        *
        * The priority chip and "edited" now render inside the button rather
        * than in `ChecklistItem`'s separate `after` slot: `after` is a
@@ -122,7 +126,7 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
       <Button
         type="button"
         variant="row"
-        size="pattern"
+        size="sm"
         data-state={state}
         className={styles.label}
         title={

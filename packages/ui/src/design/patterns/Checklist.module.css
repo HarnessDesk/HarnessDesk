@@ -66,6 +66,16 @@
  * either. */
 .body [data-slot='button'] {
   color: inherit;
+  /* A step's words, drawn as the box they replaced: `sm` is the canonical
+     size a screen may pick (`script/ui-architecture.mjs` refuses
+     `size="pattern"` outside `design/`), and its own height and padding are
+     this pattern's to zero back out — a checklist step already gives its
+     mark and its label the list's own 8px gap (`.item`'s `gap`), and `sm`'s
+     box added a second inset on top of it. */
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  font: inherit;
 }
 
 .item[data-state='done'] .body [data-slot='button'] {

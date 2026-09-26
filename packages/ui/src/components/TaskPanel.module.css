@@ -20,9 +20,9 @@
 .label {
   min-width: 0;
   flex: 1;
-  /* No margin of its own: `Button`'s `size="pattern"` (Checklist.tsx) already
-     draws no padding here, so there is nothing left to counteract the way
-     the negative margin above used to for the row-sized box this replaced. */
+  /* No margin of its own: Checklist.module.css zeroes the button's `sm`
+     padding back out, so there is nothing left to counteract the way the
+     negative margin above used to for the row-sized box this replaced. */
   text-align: left;
 }
 

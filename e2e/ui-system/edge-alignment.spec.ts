@@ -58,7 +58,7 @@ const mount = async (page: Page) => {
             // standing in for the label, its priority chip inside it.
             h(Checklist, null,
               h(ChecklistItem, { state: 'done' },
-                h(Button, { type: 'button', variant: 'row', size: 'pattern', 'data-state': 'done', 'data-testid': 'checklist-done-label' },
+                h(Button, { type: 'button', variant: 'row', size: 'sm', 'data-state': 'done', 'data-testid': 'checklist-done-label' },
                   'Ship the release notes',
                   h('span', { 'data-testid': 'checklist-done-chip' }, 'high'),
                 ),
