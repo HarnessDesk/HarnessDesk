@@ -6295,7 +6295,9 @@ export class AppStore {
       // A person asked again: the identical toast is replaced by a fresh one,
       // never swallowed by `notice`'s repeat window and never stacked.
       const others = this.#snapshot.notices.filter((entry) => entry.level !== level || entry.message !== message || entry.action)
-      if (others.length !== this.#snapshot.notices.length) this.#patch({ notices: others })
+      if (others.length !== this.#snapshot.notices.length) this.#patch({ notices: others })      // The repeat window is kept apart from the list now (`#lastToast`), so
+      // asking again has to clear it too, or the fresh toast is swallowed.
+      if (this.#lastToast?.level === level && this.#lastToast.message === message) this.#lastToast = null
     }
     this.notice(level, message)
   }
