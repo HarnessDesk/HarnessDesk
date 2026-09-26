@@ -71,6 +71,35 @@
   min-width: 0;
 }
 
+/* Tall enough to clear the composer dock (`Conversation.module.css`'s
+   `.dockArea` is pinned `bottom: 0` of the real screen mounted underneath,
+   not of this frame) — a shorter crop pulled the dock up over the header
+   itself rather than hiding it. The real screen still mounts in full; only
+   the frame around it is short, so a row of these reads as states of one
+   header rather than six repeats of the whole conversation. */
+.frame[data-height='header'] {
+  height: 220px;
+}
+
+.headerCases {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+  margin-top: var(--hd-space-4);
+}
+
+.headerCase {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+  min-width: 0;
+}
+
+.headerCaseLabel {
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
 @media (max-width: 900px) {
   .pair {
     grid-template-columns: minmax(0, 1fr);
