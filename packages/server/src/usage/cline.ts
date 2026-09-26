@@ -141,6 +141,8 @@ export class ClineMeter implements UsageMeter {
       lanes: [],
       credits: { remaining, unit: 'USD', unlimited: false },
       reached: remaining <= 0 ? 'credits' : null,
+      // A prepaid balance, never a rolling window or an included allowance.
+      billing: { kinds: ['balance'] },
       fetchedAt: this.#now(),
       staleAfterMs: STALE_AFTER_MS,
     }

@@ -71,6 +71,38 @@ export interface UsageLane {
   readonly layer?: 'plan' | 'overage'
 }
 
+/**
+ * The shape of a plan's billing, in words a card can build a layout from
+ * without naming the vendor. Shared between `UsageReport` (the meter/ledger
+ * path) and `RateLimits` (the live-runtime path, Codex's `getRateLimits`) so
+ * the two never grow two different answers to the same question.
+ *
+ * A plan can be more than one shape at once — Claude Code is `windows` for
+ * its lanes and also `balance` the moment it carries prepaid credit — so this
+ * is a set, not a single kind, and it is never collapsed with `lanes`,
+ * `credits`, `spend` or `turns`: each stays the one fact it already was, this
+ * only says which shapes are present.
+ *
+ * Filled in the reader only where its shape is already known cheaply — see
+ * `docs/usage-dashboard.md`, "The five shapes" — and left `undefined`
+ * everywhere else rather than guessed.
+ */
+export interface UsageBilling {
+  readonly kinds: readonly ('windows' | 'allowance' | 'balance' | 'metered' | 'free')[]
+  /**
+   * The vendor's own recurring charge for this plan — what the seat costs,
+   * not what was used. `source: 'vendor'` when the plan reports its own
+   * price, `'user'` when a person typed it in because the vendor does not
+   * say. Never inferred from `spend`, which is tokens at list price or a
+   * metered bill, not a subscription fee.
+   */
+  readonly fee?: { readonly amount: number; readonly currency: string; readonly period: 'month' | 'year'; readonly source: 'vendor' | 'user' } | null
+  /** A person's own spending cap for this plan, separate from any vendor-reported limit. */
+  readonly budget?: { readonly amount: number; readonly currency: string; readonly period: 'month' } | null
+  /** Metered spend on top of an allowance or window plan, when the vendor allows it and says how much. */
+  readonly overage?: { readonly enabled: boolean; readonly spent: number | null; readonly currency: string } | null
+}
+
 /** A prepaid balance. Separate from lanes: it does not refill on a clock. */
 export interface UsageCredits {
   readonly remaining: number | null
@@ -209,33 +241,8 @@ export interface UsageReport {
   readonly error: UsageError | null
   /** Figures for another sign-in, drawn beside this account and never read as it. */
   readonly unverified?: UnverifiedUsage | null
-  /**
-   * The shape of this plan's billing, in words a card can build a layout
-   * from without naming the vendor. A plan can be more than one shape at
-   * once — Claude Code is `windows` for its lanes and `balance` when it also
-   * carries prepaid credit — so this is a set, not a single kind, and it is
-   * never collapsed with `lanes`, `credits`, `spend` or `turns`: each stays
-   * the one fact it already was, this only says which shapes are present.
-   *
-   * Filled in the reader only where its shape is already known cheaply — see
-   * `docs/usage-dashboard.md`, "The five shapes" — and left `undefined`
-   * everywhere else rather than guessed.
-   */
-  readonly billing?: {
-    readonly kinds: readonly ('windows' | 'allowance' | 'balance' | 'metered' | 'free')[]
-    /**
-     * The vendor's own recurring charge for this plan — what the seat costs,
-     * not what was used. `source: 'vendor'` when the plan reports its own
-     * price, `'user'` when a person typed it in because the vendor does not
-     * say. Never inferred from `spend`, which is tokens at list price or a
-     * metered bill, not a subscription fee.
-     */
-    readonly fee?: { readonly amount: number; readonly currency: string; readonly period: 'month' | 'year'; readonly source: 'vendor' | 'user' } | null
-    /** A person's own spending cap for this plan, separate from any vendor-reported limit. */
-    readonly budget?: { readonly amount: number; readonly currency: string; readonly period: 'month' } | null
-    /** Metered spend on top of an allowance or window plan, when the vendor allows it and says how much. */
-    readonly overage?: { readonly enabled: boolean; readonly spent: number | null; readonly currency: string } | null
-  }
+  /** See `UsageBilling`, above `UsageCredits`. */
+  readonly billing?: UsageBilling
   /**
    * How many turns this account has run and at what rate, when a source
    * counts turns rather than tokens or a percentage (Cursor's request-based

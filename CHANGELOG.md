@@ -57,6 +57,15 @@ move is real work and is not news to a person weighing an upgrade.
   dials, a Dashboard pivot) is lifted on the card again, with a hairline
   shadow and primary ink, instead of blending into the track it sits on.
 
+- **A request-based Cursor plan shows its requests left, first.** An account
+  still on Cursor's older, request-quota tier is billed against its own
+  request counter whether or not the dashboard's summary resolves a percent —
+  that percent measures a different, dollar-denominated pool, so an account
+  can be out of requests while the summary still reads as mostly left. The
+  card now leads with the Requests lane whenever the counter names the
+  current cycle, with the summary's percent beside it as a comparable scale
+  and an on-demand budget of its own when the account has one turned on.
+
 - **A signed-out agent's mark looks empty.** The seat's badge and the menu's
   mark for an agent with no one signed in were meant to read as an empty seat
   and never did; they now draw a dashed ring with no plate and a quieter
