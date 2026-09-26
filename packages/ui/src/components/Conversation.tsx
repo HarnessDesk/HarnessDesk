@@ -652,7 +652,7 @@ export const Conversation = ({
             data-status={status}
             title={STATUS_LABEL[status]}
           >
-            <span className={`${styles.statusDot} h-[7px] rounded-full ${dotTone({ tone: STATUS_TONE[status] })} ${status === 'running' ? 'animate-[hd-pulse_1.2s_ease-in-out_infinite]' : ''}`} />
+            <span className={`${styles.statusDot} h-[7px] rounded-full ${dotTone({ tone: STATUS_TONE[status] })} ${status === 'running' ? 'animate-[hd-pulse_var(--hd-duration-pulse)_ease-in-out_infinite]' : ''}`} />
             {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
           </span>
         )}

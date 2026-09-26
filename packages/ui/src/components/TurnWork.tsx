@@ -2,6 +2,7 @@ import {
   DisclosureChevron,
   Separator,
   Text,
+  TurnWorkBody,
   TurnWorkHeader,
   TurnWorkHeaderLabel,
   TurnWorkLive,
@@ -11,8 +12,9 @@ import { useEffect, useState } from 'react'
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
 import { groupItems, isSilentReasoning } from '../lib/group-items'
+import { planOf, turnPlan } from '../lib/todos'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
-import { ItemView, StepNameScope } from './Items'
+import { ItemView, StepNameScope, TodoListView } from './Items'
 import { StepGroup } from './StepGroup'
 import styles from './TurnWork.module.css'
 
@@ -71,9 +73,31 @@ export const TurnWork = ({
   const now = useNow(running)
   const [choice, setChoice] = useState<boolean | null>(null)
   const line = describeTurnWork(turn, work, now)
-  const open = choice ?? (running || line.informative)
 
-  if (work.length === 0 && !running) return null
+  /*
+   * ACP's own `plan` update, preferred over a plan tool call's arguments —
+   * `lib/todos.ts`'s `turnPlan` is the same function the Tasks panel reads,
+   * so the two can never show a different plan for the same turn.
+   *
+   * Drawn here only when nothing else in this turn already draws it: an
+   * agent whose `TodoWrite` (or equivalent) call is *also* mirrored as an
+   * ACP plan update already gets that checklist from the described step
+   * below, and a second copy from `turn.plan` would say the same list twice.
+   *
+   * `planOf(item.args) !== null` is the one reading of "this call wrote to
+   * the plan" — the same one `Items.tsx`'s own sentence for a plan tool
+   * call uses — so the two can never disagree about a call that cleared the
+   * plan (`{todos: []}`) or wrote it under a key the other would have missed.
+   */
+  const plan = turnPlan(turn)
+  const planShownByAToolCall = work.some((item) => item.type === 'toolCall' && planOf(item.args) !== null)
+  const inlinePlan = plan && plan.length > 0 && !planShownByAToolCall ? plan : null
+  const open = choice ?? (running || line.informative || inlinePlan !== null)
+
+  // A turn with nothing else to show still has something to show when it is
+  // the plan itself — an ACP agent may send only that, with no tool call in
+  // the same turn to fold or describe.
+  if (work.length === 0 && !running && !inlinePlan) return null
 
   const activity = running ? liveActivity(work) : null
   // The live line already says "Thinking"; the quiet line under it would say
@@ -114,7 +138,8 @@ export const TurnWork = ({
         <Separator render={<span />} className={styles.rule} />
       </TurnWorkHeader>
       {open && (
-        <div className={styles.body} data-register="light">
+        <TurnWorkBody reveal={choice === true} className={styles.body} data-register="light">
+          {inlinePlan && <TodoListView todos={inlinePlan} />}
           <StepNameScope items={shown} root={root}>
             {groupItems(shown).map((node) =>
               node.kind === 'group' ? (
@@ -133,7 +158,7 @@ export const TurnWork = ({
                 a status rather than a record — faint, and moving. */}
             {running && activity && <TurnWorkLive>{activity}</TurnWorkLive>}
           </StepNameScope>
-        </div>
+        </TurnWorkBody>
       )}
       {!open && running && activity && <TurnWorkLive>{activity}</TurnWorkLive>}
     </section>

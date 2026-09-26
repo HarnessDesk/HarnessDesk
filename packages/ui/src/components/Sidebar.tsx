@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, BriefIcon, CheckIcon, ChevronIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BranchIcon, BriefIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -14,10 +14,10 @@ import {
   AccountMark,
   Bar,
   Button,
-  Chip,
   Dot,
   Menu,
   MenuItem,
+  MenuAccountGroup,
   MenuLabel,
   MenuNote,
   MenuSeparator,
@@ -30,7 +30,7 @@ import {
   buttonVariants,
   type Tone,
 } from '../design'
-import { accountKey, accountName, accountIdentity, tintOf, type AccountPrefs } from '../lib/accounts'
+import { accountKey, accountName, accountIdentity, agentKey, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName } from '../lib/projects'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
@@ -412,12 +412,23 @@ interface Seat {
   readonly name: string
   readonly sub: string
   readonly state: Readiness
+  /**
+   * Whether the agent has answered who is signed in. Until it has, an empty
+   * account list is not an answer, and `signin` is only readiness's guess.
+   */
+  readonly known: boolean
   /** What is left of the tightest window, or null when nothing is metered. */
   readonly figure: string | null
   readonly tone: 'good' | 'warn' | 'bad'
   readonly current: boolean
   readonly report: UsageReport | null
   readonly preference: AccountPrefs | undefined
+}
+
+/** The part of an account's address after the @, or null for one without. */
+const domainOf = (account: Account | null): string | null => {
+  const email = account?.email ?? (account?.label.includes('@') ? account.label : null)
+  return email ? email.slice(email.indexOf('@') + 1) || null : null
 }
 
 const readinessTone = (state: Readiness): Tone | undefined => ({
@@ -478,8 +489,11 @@ export const AccountFooter = ({
           info,
           account: null,
           name: info.presentation.name,
-          sub: READINESS_LABEL[state],
+          // Until the agent answers, readiness can only guess "Needs
+          // sign-in"; the tooltip names the agent instead of repeating it.
+          sub: status !== null ? READINESS_LABEL[state] : info.presentation.name,
           state,
+          known: status !== null,
           figure: usage[0]
             ? (() => {
                 const lane = describeReport(usage[0] as UsageReport, { now: Date.now(), maxLanes: 1 }).hero
@@ -508,6 +522,7 @@ export const AccountFooter = ({
         name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
         sub: accountIdentity(account) || info.presentation.name,
         state,
+        known: true,
         figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
         tone: view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const)),
         current,
@@ -529,6 +544,55 @@ export const AccountFooter = ({
     ? describeReport(here.report, { now: Date.now(), maxLanes: 8, preference: here.preference })
     : null
   const hasUsage = usageView !== null && usageView.all.length > 0
+  // The chairs you can sit in. An agent that is waiting for a sign-in is not
+  // one — choosing it would start nothing — so it waits behind "Add an
+  // account…", whose chooser is where signing in happens. The default stays
+  // listed whatever its state: it is the chair you are in.
+  // An agent that has not answered yet is not known to be waiting, so it
+  // stays until it says so — or every agent would drop out while accounts load.
+  const chairs = seats.filter((seat) => seat.current || seat.state !== 'signin' || !seat.known)
+  // The list, by agent. An agent with one account is one row wearing its
+  // mark. An agent with several is a heading wearing the mark once, and its
+  // accounts under it as lines of their own — the agent is said by the
+  // heading, so no row has to say it again.
+  // Grouped from every chair, folded or not: the default's row keeps the
+  // same parent either way, so opening the picker does not remount the row
+  // a keyboard is on. Folded, a group shows only the default under its heading.
+  const groups: Seat[][] = []
+  for (const seat of chairs) {
+    const group = groups.find((entry) => agentKey(entry[0]!.info) === agentKey(seat.info))
+    if (group) group.push(seat)
+    else groups.push([seat])
+  }
+  const groupOf = (seat: Seat): readonly Seat[] =>
+    groups.find((group) => group.includes(seat)) ?? [seat]
+  // What a row is called. Under its agent's heading, an account that is
+  // only called by the agent's name (a key, a gateway) says which one it is.
+  // An account with no one signed in has no name of its own, so under the
+  // heading it says that — never the heading's name again, and never the
+  // readiness word the figure slot is about to say.
+  const labelOf = (seat: Seat): string =>
+    groupOf(seat).length > 1 && seat.name === seat.info.presentation.name
+      ? (seat.info.slot?.gateway?.name ?? (seat.account ? seat.sub : seat.known ? 'No account' : 'Unknown account'))
+      : seat.name
+  // Two rows with one name get the word that differs, and only they do.
+  // Across agents that is the agent — two single rows are two agents. Under
+  // one heading it is the address's domain, else the whole identity; never
+  // a word that only says the name again.
+  const tagOf = (seat: Seat): string | null => {
+    const group = groupOf(seat)
+    const label = labelOf(seat)
+    if (group.length === 1) {
+      const twins = groups.filter((other) => other.length === 1 && other[0] !== seat && labelOf(other[0]!) === label)
+      const agent = brandOf(seat.info.presentation.name)
+      return twins.length > 0 && agent !== label ? agent : null
+    }
+    const twins = group.filter((other) => other !== seat && labelOf(other) === label)
+    if (twins.length === 0) return null
+    const domain = domainOf(seat.account)
+    if (domain && twins.every((other) => domainOf(other.account) !== domain)) return domain
+    return seat.sub && seat.sub !== label ? seat.sub : null
+  }
 
   const signOut = async (close: () => void): Promise<void> => {
     if (!snapshot.activeRuntime) return
@@ -567,7 +631,7 @@ export const AccountFooter = ({
             size="sm"
             {...(here.account
               ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) }
-              : here.state === 'signin'
+              : here.state === 'signin' && here.known
                 ? { 'data-off': '' }
                 : {})}
           >
@@ -629,77 +693,125 @@ export const AccountFooter = ({
             <span className={styles.youText}>
               <span className={styles.youName}>
                 <Text role="row"><Clipped className={styles.youLabel}>{yourName}</Clipped></Text>
-                <Chip tone="neutral" size="sm">Local</Chip>
               </span>
             </span>
           </MenuItem>
 
           <MenuSeparator />
           <MenuLabel size="compact">Run new sessions as</MenuLabel>
-            {(accountsOpen ? seats : here ? [here] : seats).map((seat) => (
-              <MenuItem
-                key={seat.key}
-                layout="account"
-                current={seat.current}
-                expanded={seat.current && seats.length > 1 ? accountsOpen : undefined}
-                keepOpen={seat.current && seats.length > 1}
-                onSelect={() => {
-                  if (seat.current && seats.length > 1) {
-                    setAccountsOpen((value) => !value)
-                    setUsageOpen(false)
-                    return
-                  }
-                  void store.selectRuntime(seat.info.id)
-                }}
-              >
-                {/* The seat's own mark is the trigger, and — like every other
-                    one — it is out of the tab order. An earlier version of
-                    this comment claimed the card opened on keyboard focus
-                    here; review checked, and it does not. It could not: the
-                    trigger is `tabIndex={-1}`, and its parent is a
-                    `role="menuitem"` that owns the arrow keys. Making the span
-                    focusable would put a second stop inside a menu item, which
-                    is worse than the card being pointer-only. The seat's own
-                    press still does the thing the card's verb does. */}
-                <AccountHoverCard
-                  info={seat.info}
-                  account={seat.account}
-                  side="right"
-                  align="start"
-                  className={styles.seatTrigger}
-                  /* The same verbs as the badge's card on the row below: two
-                     cards for one account that offered different things were
-                     the whole of the complaint. The menu's Dashboard row opens
-                     the dashboard on everything; this opens it on this seat. */
-                  onOpenUsage={onOpenUsage}
+            {groups.map((all) => {
+              const group = accountsOpen || !here ? all : all.filter((seat) => seat.current)
+              if (group.length === 0) return null
+              const renderSeat = (seat: Seat, child: boolean) => (
+                <MenuItem
+                  key={seat.key}
+                  layout="account"
+                  current={seat.current}
+                  expanded={seat.current && chairs.length > 1 ? accountsOpen : undefined}
+                  keepOpen={seat.current && chairs.length > 1}
+                  onSelect={() => {
+                    if (seat.current && chairs.length > 1) {
+                      setAccountsOpen((value) => !value)
+                      setUsageOpen(false)
+                      return
+                    }
+                    void store.selectRuntime(seat.info.id)
+                  }}
                 >
-                  <AccountMark
-                    size="sm"
-                    {...(seat.account
-                      ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
-                      : seat.state === 'signin'
-                        ? { 'data-off': '' }
-                        : {})}
-                  >
-                    <RuntimeMark runtime={seat.info} size={13} />
-                  </AccountMark>
-                </AccountHoverCard>
-                <span className={styles.seatText}>
-                  <Text role="navigation" fade className={styles.seatName}>{seat.name}</Text>
-                  <Text role="meta" truncate tone={readinessTone(seat.state)} className={styles.seatSub}>
-                    {seat.sub}
-                  </Text>
-                </span>
-                {seat.figure && (
-                  <Text role="muted" tone={usageReadingTone(seat.tone)} numeric className={styles.seatFigure}>
-                    {seat.figure}
-                  </Text>
-                )}
-                <Text role="meta" tone="brand" className={styles.seatTick}>
-                  {seat.current ? <CheckIcon size={14} /> : null}
-                </Text>
-              </MenuItem>
-            ))}
+                  {/* The seat's own mark is the trigger, and — like every other
+                      one — it is out of the tab order. An earlier version of
+                      this comment claimed the card opened on keyboard focus
+                      here; review checked, and it does not. It could not: the
+                      trigger is `tabIndex={-1}`, and its parent is a
+                      `role="menuitem"` that owns the arrow keys. Making the span
+                      focusable would put a second stop inside a menu item, which
+                      is worse than the card being pointer-only. The seat's own
+                      press still does the thing the card's verb does. */}
+                  {!child && (
+                    <AccountHoverCard
+                      info={seat.info}
+                      account={seat.account}
+                      side="right"
+                      align="start"
+                      className={styles.seatTrigger}
+                      /* The same verbs as the badge's card on the row below: two
+                         cards for one account that offered different things were
+                         the whole of the complaint. The sidebar's Dashboard opens
+                         the dashboard on everything; this opens it on this seat. */
+                      onOpenUsage={onOpenUsage}
+                    >
+                      <AccountMark
+                        size="sm"
+                        {...(seat.account
+                          ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
+                          : seat.state === 'signin' && seat.known
+                            ? { 'data-off': '' }
+                            : {})}
+                      >
+                        <RuntimeMark runtime={seat.info} size={13} />
+                      </AccountMark>
+                    </AccountHoverCard>
+                  )}
+                  {/* One line a seat. The name is the account's own — yours, or
+                      the address it was signed in with — so the identity under
+                      it only said it again. It is the name's tooltip (not the
+                      row's, which would sit over the mark's card) and whole on
+                      the card. The name gives way before the tag: the tag is
+                      the word that tells two rows apart. An account under its
+                      agent's heading wears no mark and no card — the heading
+                      carries the mark, and a card on the name would open at
+                      every rest on the list — only its colour, the ring it
+                      wears everywhere else, drawn small. */}
+                  {child && (
+                    <AccountMark
+                      size="dot"
+                      aria-hidden="true"
+                      {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}
+                    >
+                      {null}
+                    </AccountMark>
+                  )}
+                  <span className={styles.seatText} title={seat.sub} data-identity={seat.sub}>
+                    <Text role="navigation" truncate className={styles.seatName}>{labelOf(seat)}</Text>
+                    {(() => {
+                      const tag = tagOf(seat)
+                      return tag ? <Text role="meta" truncate className={styles.seatTag}>{tag}</Text> : null
+                    })()}
+                  </span>
+                  {/* What is left, where it is measured; otherwise the one word
+                      that is wrong. A ready seat with nothing metered says
+                      nothing. */}
+                  {seat.figure ? (
+                    <Text role="muted" tone={usageReadingTone(seat.tone)} numeric className={styles.seatFigure}>
+                      {seat.figure}
+                    </Text>
+                  ) : seat.state !== 'ready' && seat.state !== 'available' && (seat.known || seat.state !== 'signin') ? (
+                    <Text role="meta" tone={readinessTone(seat.state)} className={styles.seatFigure}>
+                      {READINESS_LABEL[seat.state]}
+                    </Text>
+                  ) : null}
+                </MenuItem>
+              )
+              if (all.length === 1) return renderSeat(group[0]!, false)
+              // Folded to the default alone, the group keeps its place (and
+              // the row its focus) but draws no heading: one row, its mark.
+              const folded = group.length < all.length
+              const agent = group[0]!.info
+              return (
+                <MenuAccountGroup
+                  key={agentKey(agent)}
+                  heading={!folded}
+                  label={agent.presentation.name}
+                  mark={
+                    <AccountMark size="sm">
+                      <RuntimeMark runtime={agent} size={13} />
+                    </AccountMark>
+                  }
+                >
+                  {group.map((seat) => renderSeat(seat, !folded))}
+                </MenuAccountGroup>
+              )
+            })}
             <MenuItem
               icon={<PlusIcon size={13} />}
               label="Add an account…"
@@ -715,14 +827,19 @@ export const AccountFooter = ({
             />
 
           <MenuSeparator />
+            {/* Only where something is metered: a row whose whole answer is
+                "—" took a line to say there was nothing to say. */}
+            {hasUsage && (
             <MenuItem
-              expanded={hasUsage ? usageOpen : false}
+              expanded={usageOpen}
               keepOpen
               onSelect={() => {
-                if (hasUsage) setUsageOpen((value) => !value)
+                setUsageOpen((value) => !value)
               }}
               /* The menu's own icon column and value slot, so the gauge and its
-                 words line up with Settings and Dashboard below. */
+                 words line up with Settings below. Dashboard is not in this
+                 menu: it is in the sidebar's own nav, always, with this gauge,
+                 and a second door here wore the same mark for another verb. */
               icon={<UsageIcon size={13} />}
               label="Usage remaining"
               value={
@@ -731,17 +848,16 @@ export const AccountFooter = ({
                 {/* The fold wears the figure's trouble, as the figure beside it does.
                     A fold has one trouble tone, so a spent window's red figure
                     folds under the warning mark. */}
-                {hasUsage && (
-                  <DisclosureChevron
-                    open={usageOpen}
-                    placement="trailing"
-                    tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
-                    className={styles.accountMenuCaret}
-                  />
-                )}
+                <DisclosureChevron
+                  open={usageOpen}
+                  placement="trailing"
+                  tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
+                  className={styles.accountMenuCaret}
+                />
               </Text>
               }
             />
+            )}
             {usageOpen && usageView && (
               <div className={styles.usageDetails} data-usage-details>
                 <div className={styles.usageLanes}>
@@ -757,13 +873,9 @@ export const AccountFooter = ({
                     </div>
                   ))}
                 </div>
-                <MenuItem
-                  label="Open usage dashboard"
-                  value={<ChevronIcon size={11} />}
-                  onSelect={() => {
-                    onOpenUsage(here?.info.id)
-                  }}
-                />
+                {/* No link to the dashboard here: Dashboard is in the
+                    sidebar's nav, and a second door to it, indented under
+                    the fold, was one row and one ragged edge for nothing. */}
               </div>
             )}
             <MenuItem
@@ -772,14 +884,6 @@ export const AccountFooter = ({
               shortcut="⌘,"
               onSelect={() => {
                 onOpenSettings()
-              }}
-            />
-            <MenuItem
-              icon={<UsageIcon size={13} />}
-              label="Dashboard"
-              shortcut="⌘U"
-              onSelect={() => {
-                onOpenUsage()
               }}
             />
             {signedIn && !confirmingSignOut && (

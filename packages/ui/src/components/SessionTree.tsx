@@ -185,6 +185,8 @@ const SessionRow = ({
   return (
     <div className={styles.rowWrap} {...(menu.at ? { 'data-menu-open': '' } : {})} onContextMenu={menu.open}>
       {renaming ? (
+        // A one-row rename box only this tree draws; no shared inline-rename
+        // part exists yet, and one for a single caller would be premature.
         <div style={{ padding: '4px 8px' }}>
           <Input
             variant="quiet" controlSize="compact" className={styles.renameInput}
@@ -231,6 +233,9 @@ const SessionRow = ({
                 That is the card's whole case here. */}
             <SessionHoverCard
               session={summary}
+              // The rail's own indent, only wanted here: the other consumer
+              // (`TeamBoardPane`) lays this card out with no inset at all,
+              // so the inset belongs to this row, not the shared card.
               className={`${styles.statusTarget} px-(--rail)`}
               actions={[
                 ...(snapshot.activeSessionKey === key

@@ -333,6 +333,10 @@ export const ChannelMessage = ({
         <div
           ref={bodyRef}
           data-slot="channel-body"
+          // Several screens (Items, FindingDetail, ProjectTriggers, the
+          // session tree) each clamp long content with their own "Show
+          // more", none sharing a part. Giving that role one owner is a
+          // wider decision than this message body alone.
           className={`break-words ${body ? '' : 'whitespace-pre-wrap'} ${
             expanded ? '' : 'max-h-48 overflow-hidden'
           }`}

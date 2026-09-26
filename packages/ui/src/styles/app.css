@@ -181,7 +181,7 @@ a:hover {
   background-clip: text;
   background-size: 250% 100%;
   -webkit-text-fill-color: transparent;
-  animation: hd-cadence 1s steps(48, end) infinite;
+  animation: hd-cadence var(--hd-duration-cadence) steps(48, end) infinite;
 }
 
 @keyframes hd-cadence {
@@ -239,6 +239,34 @@ a:hover {
     animation-iteration-count: 1 !important;
     transition-duration: 0s !important; /* desk: 0.01ms → 0s, no transition started (#785) */
   }
+}
+
+/*
+ * How words break onto lines, said once for the whole app.
+ *
+ * A title balances its lines, so a heading that must wrap splits into two
+ * halves rather than a full line over a stray word.
+ *
+ * Everything else read as a sentence — a paragraph, a list item, a page's
+ * blurb, a description, a message — is `pretty`: it keeps
+ * the full measure and only reflows the last lines to avoid leaving a word
+ * alone. `balance` was tried on these too and rejected on sight: it evened
+ * a confirm's body into short lines and left half the dialog empty. A
+ * confirm's body keeps the engine's own greedy breaks: its first lines run
+ * the dialog's full width, which read better there than a reflowed pair
+ * that saves one word from the last line.
+ *
+ * Both are `:where()`, so a component that decides its own wrapping (a code
+ * block, a truncated name) still wins without a fight. The bodies are named
+ * rather than matched by a `-body` suffix: `text-wrap` inherits, and a code
+ * block's or a table's body is not prose.
+ */
+:where(h1, h2, h3, [data-slot$='-title']) {
+  text-wrap: balance;
+}
+
+:where(p, li, dd, [data-slot$='-description'], [data-slot$='-blurb'], [data-slot='channel-body']) {
+  text-wrap: pretty;
 }
 
 /* The status strip sits above the frame and must not overlay it, so the shell

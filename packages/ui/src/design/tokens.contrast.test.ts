@@ -142,6 +142,22 @@ describe('the three text inks clear AA on every surface ground', () => {
   }
 })
 
+/* A tooltip is a dark card in both themes; its text read the inverted label,
+   which goes near-black in dark (1.3:1 on the card) until it was pinned to
+   the static white. */
+describe('a tooltip is readable in both themes', () => {
+  const resolved = faces()
+  for (const face of ['light', 'dark'] as const) {
+    it(`clears AA on its own card (${face})`, () => {
+      const ink = parse(faceOf(resolved, face).get('--hd-tooltip-foreground') ?? '') as Rgb
+      const card = parse(faceOf(resolved, face).get('--hd-tooltip-fill') ?? '') as Rgb
+      expect(ink, `${face}: --hd-tooltip-foreground missing`).not.toBeNull()
+      expect(card, `${face}: --hd-tooltip-fill missing`).not.toBeNull()
+      expect(contrast(over(ink, card), card)).toBeGreaterThanOrEqual(AA)
+    })
+  }
+})
+
 describe('tinted text is readable', () => {
   const resolved = faces()
 
@@ -678,4 +694,29 @@ describe("an accent's light face outranks a palette's on source order alone, so 
        a face, and so was a face reached by a combinator (review, round 1). */
     expect(declared).toEqual(real)
   })
+})
+
+describe('the accent reads as a word in both faces', () => {
+  const resolved = faces()
+  for (const face of ['light', 'dark'] as const) {
+    it(`as ink on every ground and on its own wash, and carries its own ink when filled (${face})`, () => {
+      const tokens = faceOf(resolved, face)
+      const accent = parse(tokens.get('--hd-accent') ?? '') as Rgb
+      expect(accent, `${face}: --hd-accent missing`).not.toBeNull()
+      const failures: string[] = []
+      for (const groundName of ['--hd-background', '--hd-card', '--hd-popover'] as const) {
+        const ground = parse(tokens.get(groundName) ?? '') as Rgb
+        const ratio = contrast(accent, ground)
+        if (ratio < AA) failures.push(`accent on ${groundName}: ${ratio.toFixed(2)}:1`)
+      }
+      const background = parse(tokens.get('--hd-background') ?? '') as Rgb
+      const wash = over(parse(tokens.get('--hd-accent-dim') ?? '') as Rgb, background)
+      const onWash = contrast(accent, wash)
+      if (onWash < AA) failures.push(`accent on its wash: ${onWash.toFixed(2)}:1`)
+      const foreground = parse(tokens.get('--hd-accent-foreground') ?? '') as Rgb
+      const filled = contrast(foreground, accent)
+      if (filled < AA) failures.push(`its ink on the accent: ${filled.toFixed(2)}:1`)
+      expect(failures, `${face}: the accent below ${AA}:1`).toEqual([])
+    })
+  }
 })
