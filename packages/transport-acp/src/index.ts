@@ -464,6 +464,19 @@ export type AcpSessionUpdate =
       }[]
     }
   | { readonly sessionUpdate: 'current_mode_update'; readonly currentModeId: string }
+  /**
+   * A title the agent has chosen for this conversation, learned as it goes
+   * rather than only when `session/list` is next read — DSH's own fork
+   * emits it, and the RFD (agentclientprotocol.com/rfds/session-info-update)
+   * lets any ACP agent. `sessionId` and `cwd` are deliberately not here:
+   * both are the session's fixed identity, not something an update changes.
+   */
+  | {
+      readonly sessionUpdate: 'session_info_update'
+      readonly title?: string | null
+      readonly updatedAt?: string | null
+      readonly _meta?: { readonly [key: string]: unknown } | null
+    }
   | { readonly sessionUpdate: 'current_model_update'; readonly currentModelId: string }
   | {
       readonly sessionUpdate: 'config_option_update'
