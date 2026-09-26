@@ -45,9 +45,13 @@ describe('the work header', () => {
         <TurnWorkHeaderLabel state="trouble">Worked for 3s</TurnWorkHeaderLabel>
       </>,
     ))
-    const [done, running, trouble] = slot('turn-work-header-label')
+    // The label composes the system's own `Text`, so its slot reads `text`
+    // like every other one; `data-state` is the header label's own mark.
+    const [done, running, trouble] = [...container.querySelectorAll<HTMLElement>('[data-state]')]
     for (const label of [done, running, trouble]) expect(label?.className).toContain('tabular-nums')
-    expect(done?.className).not.toContain('text-(')
+    // Done keeps the row's own ink, composed rather than left to inherit —
+    // the same colour (`--hd-foreground` is the app's own default ink).
+    expect(done?.className).toContain('text-(--hd-foreground)')
     expect(running?.className).toContain('text-(--hd-secondary-foreground)')
     expect(trouble?.className).toContain('text-(--hd-warning-ink)')
   })
@@ -74,7 +78,7 @@ it('keeps a ticking trail out of the live region, so only the words are announce
   // The line reads whole; the clock is beside the region, never in it.
   expect(line.textContent).toBe('Codex is working· 4.2s')
   expect(line.getAttribute('role')).toBeNull()
-  const trail = container.querySelector('[data-slot="turn-work-live-trail"]')
+  const trail = container.querySelector('[data-mark="turn-work-live-trail"]')
   expect(trail?.closest('[role="status"]')).toBeNull()
   expect(trail?.className).toContain('tabular-nums')
 })
