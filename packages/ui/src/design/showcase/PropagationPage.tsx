@@ -23,7 +23,7 @@ import {
 import styles from './propagation-page.module.css'
 
 /** Placeholder runtimes, just enough shape for `RuntimeMark` to draw a brand. */
-const CLAUDE_RUNTIME = { id: 'claude-code', presentation: { name: 'Claude Code', brand: 'claudecode' as const } }
+const CLAUDE_CODE_RUNTIME = { id: 'claude-code', presentation: { name: 'Claude Code', brand: 'claudecode' as const } }
 const CURSOR_RUNTIME = { id: 'cursor', presentation: { name: 'Cursor', brand: 'cursor' as const } }
 
 /**
@@ -82,29 +82,33 @@ export const PropagationPage = () => {
                   draws them. */}
               <MenuAccountGroup
                 label="Claude Code"
-                mark={<AccountMark size="sm"><RuntimeMark runtime={CLAUDE_RUNTIME} size={13} /></AccountMark>}
+                mark={<AccountMark size="sm"><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={13} /></AccountMark>}
               >
                 <MenuItem layout="account" onSelect={() => undefined}>
                   <AccountMark size="dot" aria-hidden="true" data-tint="blue">{null}</AccountMark>
-                  <Text role="navigation" truncate className="min-w-0 flex-1" title="dev@example.com">dev</Text>
-                  <Text role="muted" numeric>78%</Text>
+                  <Text role="navigation" truncate className="min-w-0 flex-1" title="dev@example.com · Max">dev</Text>
+                  <Text role="muted" numeric className="flex-none">78%</Text>
                 </MenuItem>
                 <MenuItem layout="account" onSelect={() => undefined}>
                   <AccountMark size="dot" aria-hidden="true" data-tint="violet">{null}</AccountMark>
-                  <Text role="navigation" truncate className="min-w-0 flex-1" title="alex@example.com">alex</Text>
-                  <Text role="muted" numeric>42%</Text>
+                  <Text role="navigation" truncate className="min-w-0 flex-1" title="alex@example.com · Pro">alex</Text>
+                  <Text role="muted" numeric className="flex-none">42%</Text>
                 </MenuItem>
               </MenuAccountGroup>
-              {/* One account of an agent, folded to no heading: no step-in,
-                  and the row wears its own mark rather than a dot. */}
+              {/* A second moment of the same menu, drawn beside the first:
+                  folded, the seat menu shows only the default, so a group
+                  without its heading is always the default agent's — its row
+                  current, a disclosure (not yet open) for the other accounts,
+                  wearing its own tinted mark with no step-in. */}
               <MenuAccountGroup
                 heading={false}
                 label="Cursor"
                 mark={<AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>}
               >
-                <MenuItem layout="account" onSelect={() => undefined}>
+                <MenuItem layout="account" current expanded={false} keepOpen onSelect={() => undefined}>
                   <AccountMark size="sm" data-tint="rose"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
-                  <Text role="navigation" truncate className="min-w-0 flex-1" title="jane@example.com">jane</Text>
+                  <Text role="navigation" truncate className="min-w-0 flex-1" title="jane@example.com · Pro">jane</Text>
+                  <Text role="muted" numeric className="flex-none">91%</Text>
                 </MenuItem>
               </MenuAccountGroup>
             </Menu>

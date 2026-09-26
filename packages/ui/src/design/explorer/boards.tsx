@@ -455,24 +455,26 @@ const RowBoard = () => {
           name="Account marks"
           description="An account's own colour, at every size, and the seat with no one in it."
         />
-        {/* sm, lg and the unnamed default, each tinted and untinted, beside
-            the dot a nested account row wears instead of its own mark. */}
+        {/* sm, the unnamed default and lg, each tinted and untinted, with the
+            glyph each is drawn with in the app (13 in the seat menu's sm, 14
+            in a default mark, 20 in lg), beside the dot a nested account row
+            wears instead of its own mark. */}
         <div className="flex flex-wrap items-center gap-3" data-catalog-case="account-mark-sizes">
-          <AccountMark size="sm" data-tint="blue"><RuntimeMark runtime={CURSOR_RUNTIME} size={12} /></AccountMark>
-          <AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={12} /></AccountMark>
-          <AccountMark data-tint="green"><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={15} /></AccountMark>
-          <AccountMark><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={15} /></AccountMark>
-          <AccountMark size="lg" data-tint="violet"><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={17} /></AccountMark>
-          <AccountMark size="lg"><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={17} /></AccountMark>
+          <AccountMark size="sm" data-tint="blue"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
+          <AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
+          <AccountMark data-tint="green"><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={14} /></AccountMark>
+          <AccountMark><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={14} /></AccountMark>
+          <AccountMark size="lg" data-tint="violet"><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={20} /></AccountMark>
+          <AccountMark size="lg"><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={20} /></AccountMark>
           <AccountMark size="dot" aria-hidden="true" data-tint="rose">{null}</AccountMark>
           <AccountMark size="dot" aria-hidden="true">{null}</AccountMark>
         </div>
         {/* The empty seat: an agent that has answered no one is signed in,
             beside a tinted mark and a plain one at the same size. */}
         <div className="flex items-center gap-3" data-catalog-case="account-mark-off">
-          <AccountMark size="sm" data-tint="blue"><RuntimeMark runtime={CURSOR_RUNTIME} size={12} /></AccountMark>
-          <AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={12} /></AccountMark>
-          <AccountMark size="sm" data-off=""><RuntimeMark runtime={CURSOR_RUNTIME} size={12} /></AccountMark>
+          <AccountMark size="sm" data-tint="blue"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
+          <AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
+          <AccountMark size="sm" data-off=""><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
         </div>
 
         <SectionHead name="When an agent asks to run something" />
