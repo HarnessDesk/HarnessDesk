@@ -2843,9 +2843,39 @@ test('a method name held in a variable is not a caller either', () => {
 test('the test glob is written one way everywhere it is run (#256)', () => {
   // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
   const repo = repoRoot
-  for (const file of ['package.json', 'script/verify.mjs', '.github/workflows/ci.yml', '.github/workflows/release.yml']) {
+  // package.json's own `test` script and the release workflow still run
+  // every compiled test through this one glob, unchanged.
+  for (const file of ['package.json', '.github/workflows/release.yml']) {
     const text = fs.readFileSync(path.join(repo, file), 'utf8')
     assert.ok(text.includes(TEST_GLOB), `${file} runs the tests by the glob prune-dist.mjs writes`)
+  }
+  // The gate and CI split the four flow-host-evidence end-to-end files into
+  // their own run, at a wider `--test-timeout` than the rest (round 2 of
+  // #972's review: Node 22 caps that flag per test file, cumulatively, and
+  // those four legitimately run longer than everything else combined) — an
+  // exclusion plus an explicit sub-glob whose union is `TEST_GLOB`, rather
+  // than the one unbroken string these two files used to hold it in. Held
+  // instead to the same directory shape prune-dist.mjs reads dist by, and to
+  // naming the files carved out of it, so a change to either drifting from
+  // the other still fails here rather than silently narrowing what runs.
+  const { top, dist, tests } = distSegments(TEST_GLOB)
+  const shape = `${top}/*/${dist}/${tests}`
+  // The one package these four files live under, literally — not `*` — so
+  // this is specific to the carved-out sub-glob and cannot be satisfied by
+  // the exclusion clause alone, which names the same files without that
+  // prefix (`! -name 'flow-host-evidence-*.test.js'`, no directory in it).
+  const carveOut = `${top}/server/${dist}/${tests}/flow-host-evidence-*.test.js`
+  for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
+    const text = fs.readFileSync(path.join(repo, file), 'utf8')
+    assert.ok(text.includes(shape), `${file} reads dist by the same directory shape prune-dist.mjs writes (${shape})`)
+    assert.ok(
+      text.includes(carveOut),
+      `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
+    )
+    assert.ok(
+      text.includes("! -name 'flow-host-evidence-*.test.js'") || text.includes('! -name "flow-host-evidence-*.test.js"'),
+      `${file} excludes those same files from the rest by name, so nothing here runs them twice`,
+    )
   }
 })
 

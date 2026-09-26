@@ -68,24 +68,48 @@ step('lockfile installs', () => run('pnpm', ['install', '--frozen-lockfile']), {
 
 step('build', () => run('pnpm', ['run', 'build']))
 step('node tests', () =>
-  run('node', [
-    '--test',
+  run('bash', [
+    '-c',
     // Same deadline CI uses: a hung test should say its name, not time out
-    // the run. This is a hard ceiling over the whole invocation, not a
-    // default a test's own longer `{ timeout }` option can widen — measured
-    // on Node 22, a file was cut here, silently, before a case's own longer
-    // timeout or its internal safety dump ever got the chance. So it has to
-    // sit at or above the longest per-test override in the suite, the
-    // end-to-end flow-host-evidence files' own 260s
-    // (`test/fixtures/flow-host-evidence.ts`'s `E2E`).
-    '--test-timeout=300000',
-    // The same glob CI runs, so a package that gains tests is covered here the
-    // day it does. A hand-kept list of packages once left one out. It matches
-    // what was built rather than what exists, which is why `build:node` ends
-    // by pruning dist of every output whose source is gone (script/prune-dist.mjs).
-    'packages/*/dist/test/**/*.test.js',
+    // the run. On Node 22 this flag caps each test *file*'s cumulative
+    // time, not a single test's own — measured directly (round 2 of #972's
+    // review: three files each holding two 1.5s tests, each with its own
+    // `{ timeout: 10000 }`, still failed as a whole file at the flag's
+    // value). A per-test option can only ever narrow that file-cumulative
+    // ceiling, never widen it. The four flow-host-evidence end-to-end files
+    // legitimately need more than this, so they run in their own invocation
+    // below instead of sharing this one; everything else fits inside it.
+    //
+    // The exclusion is a `find`, not a second glob, because node's own glob
+    // matching has no negation syntax. Still the same glob CI runs, minus
+    // the four files the next step covers, so a package that gains tests is
+    // covered here the day it does — a hand-kept list of packages once left
+    // one out. It matches what was built rather than what exists, which is
+    // why `build:node` ends by pruning dist of every output whose source is
+    // gone (script/prune-dist.mjs).
+    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -name 'flow-host-evidence-*.test.js')",
   ]),
   // What it reads is what the build writes: over the dist a failed build left, it ran and printed ok (#208).
+  { needs: 'build' },
+)
+step('flow-host-evidence tests', () =>
+  run('node', [
+    '--test',
+    // The worst of these four files, flow-host-evidence-review.test.ts, has
+    // 7 end-to-end cases and took 33s measured with nothing else running.
+    // Each case's own ceiling is 260s (`E2E`) behind an internal 200s safety
+    // dump (`SAFETY_MS`) that names exactly what did not move on the desk —
+    // both in `test/fixtures/flow-host-evidence.ts`. On Node 22 this flag
+    // caps the *file's* cumulative time (see the comment above), so it has
+    // to cover the worst realistic combination for that file: its own
+    // measured normal total, one case that is genuinely stuck reaching its
+    // full 260s outer bound, and headroom for several others running as
+    // slow as this suite has actually observed under load (92-100s each,
+    // #972) — all without the file being cut before its own diagnostic
+    // fires.
+    '--test-timeout=600000',
+    'packages/server/dist/test/flow-host-evidence-*.test.js',
+  ]),
   { needs: 'build' },
 )
 /* The gates' own parsers, and whatever else in `script/` has a test beside
