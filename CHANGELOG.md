@@ -18,10 +18,11 @@ move is real work and is not news to a person weighing an upgrade.
   strip stops naming it in its "needs sign-in" count, the Dashboard's "has
   nothing to report" card no longer appears for it, the seat menu's five
   hand-written checks for this collapse into the one state, Settings ›
-  Agents wears a neutral "Not answered yet" chip and no longer files the
-  agent under "Needs attention" for a question it has not asked yet, and the
-  whole-desk survey (the empty pane's "now what?") says so instead of a
-  tagline or a bare "Ready." (#986)
+  Agents wears a neutral "Not answered yet" chip under a heading of its own
+  — neither "Needs attention" nor a "Ready" it has not earned — the
+  Runtimes row in the Settings window's own nav no longer lights for it
+  either, and the whole-desk survey (the empty pane's "now what?") says so
+  instead of a tagline or a bare "Ready." (#986)
 
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per

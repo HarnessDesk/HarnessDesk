@@ -835,6 +835,33 @@ it('does not call an agent that has not answered signed out — not on its line,
   expect(codexSeat?.querySelector('[data-off]')).toBeNull()
 })
 
+it('names the agent, not "Unavailable", for one that has not answered and is also broken', () => {
+  // `state` is `broken` here, not `unknown` — health outranks the account
+  // check in readinessOf — so the identity has to read `answered`, not the
+  // state, or it would repeat the figure word the tooltip is meant to avoid.
+  mount({
+    accountsByRuntime: { [CLAUDE]: signedIn('olivia@acme.dev') },
+    healthByRuntime: { [CODEX]: { state: 'unavailable', reason: 'crashed', message: 'Exited.' }, [CLAUDE]: { state: 'ready' } },
+  })
+  const codexSeat = openPicker().find((item) => item.textContent?.includes('OpenAI Codex'))
+  expect(codexSeat).toBeDefined()
+  expect(codexSeat && identityOf(codexSeat)).toBe('OpenAI Codex')
+})
+
+it('names the agent, not "Ready", for one that has not answered and keeps its own credential', () => {
+  // `state` is `ready` here, not `unknown` — `capabilities.account === false`
+  // skips the account check in readinessOf entirely — so this is the same
+  // fact as the broken case above, from the opposite side.
+  mount({
+    runtimes: [codex, claude, keeper],
+    accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: signedIn('olivia@acme.dev') },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' }, [keeper.id]: { state: 'ready' } },
+  })
+  const clineSeat = openPicker().find((item) => item.textContent?.includes('Cline'))
+  expect(clineSeat).toBeDefined()
+  expect(clineSeat && identityOf(clineSeat)).toBe('Cline')
+})
+
 const twoCodex = () => {
   const second = slotOf(codex, 'codex-2')
   return {
