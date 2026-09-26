@@ -1,12 +1,13 @@
 import { useState } from 'react'
 
+import { RuntimeMark } from '../../components/BrandIcons'
 import { CodeEditor } from '../../components/CodeEditor'
 import { FolderIcon, SendIcon } from '../../components/Icons'
 import { terminalAppearance } from '../adapters/terminal'
 import { Dialog } from '../patterns/ModalDialog'
-import { Menu, MenuItem } from '../patterns/Menu'
+import { Menu, MenuAccountGroup, MenuItem, MenuSeparator } from '../patterns/Menu'
 import { Popover } from '../patterns/Popover'
-import { PageHead, Row, RowChoice, Rows } from '../patterns/Settings'
+import { AccountMark, PageHead, Row, RowChoice, Rows, Text } from '../patterns/Settings'
 import {
   Board,
   BoardCard,
@@ -20,6 +21,10 @@ import {
   Switch,
 } from '../ui'
 import styles from './propagation-page.module.css'
+
+/** Placeholder runtimes, just enough shape for `RuntimeMark` to draw a brand. */
+const CLAUDE_CODE_RUNTIME = { id: 'claude-code', presentation: { name: 'Claude Code', brand: 'claudecode' as const } }
+const CURSOR_RUNTIME = { id: 'cursor', presentation: { name: 'Cursor', brand: 'cursor' as const } }
 
 /**
  * A browser-test fixture made only from production implementations.
@@ -69,6 +74,43 @@ export const PropagationPage = () => {
             <Menu close={close}>
               <MenuItem label="Open workspace" onSelect={() => undefined} />
               <MenuItem label="Unavailable action" disabled="No repository is open" onSelect={() => undefined} />
+              <MenuSeparator />
+              {/* Several accounts of one agent, under its heading: each nested
+                  row wears the account's colour alone (`AccountMark
+                  size="dot"`), its name — the address before the @, whole on
+                  hover — and what is left of its usage, as the seat menu
+                  draws them. */}
+              <MenuAccountGroup
+                label="Claude Code"
+                mark={<AccountMark size="sm"><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={13} /></AccountMark>}
+              >
+                <MenuItem layout="account" onSelect={() => undefined}>
+                  <AccountMark size="dot" aria-hidden="true" data-tint="blue">{null}</AccountMark>
+                  <Text role="navigation" truncate className="min-w-0 flex-1" title="dev@example.com · Max">dev</Text>
+                  <Text role="muted" numeric className="flex-none">78%</Text>
+                </MenuItem>
+                <MenuItem layout="account" onSelect={() => undefined}>
+                  <AccountMark size="dot" aria-hidden="true" data-tint="violet">{null}</AccountMark>
+                  <Text role="navigation" truncate className="min-w-0 flex-1" title="alex@example.com · Pro">alex</Text>
+                  <Text role="muted" numeric className="flex-none">42%</Text>
+                </MenuItem>
+              </MenuAccountGroup>
+              {/* A second moment of the same menu, drawn beside the first:
+                  folded, the seat menu shows only the default, so a group
+                  without its heading is always the default agent's — its row
+                  current, a disclosure (not yet open) for the other accounts,
+                  wearing its own tinted mark with no step-in. */}
+              <MenuAccountGroup
+                heading={false}
+                label="Cursor"
+                mark={<AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>}
+              >
+                <MenuItem layout="account" current expanded={false} keepOpen onSelect={() => undefined}>
+                  <AccountMark size="sm" data-tint="rose"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
+                  <Text role="navigation" truncate className="min-w-0 flex-1" title="jane@example.com · Pro">jane</Text>
+                  <Text role="muted" numeric className="flex-none">91%</Text>
+                </MenuItem>
+              </MenuAccountGroup>
             </Menu>
           )}
         </Popover>
