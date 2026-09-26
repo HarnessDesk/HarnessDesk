@@ -112,7 +112,7 @@ it; `check-layering.mjs` only forbids it above.
 | --- | --- | --- | --- |
 | 1 | Runtime adapter queries | Codex, live, already wired | free |
 | 2 | A declared local file the agent already writes | Claude Code: `~/.claude.json → cachedUsageUtilization` — session, weekly, model-scoped lanes, plan, identity, `severity` | free, and watched on disk |
-| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance) | one request, cached |
+| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`, plus `api/auth/me` and the legacy `api/usage` on a request-based plan only), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance) | one request, cached (two more for a request-based Cursor plan) |
 | 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models), Amp (`amp usage` → the credit balance) | one process start and one request, at most once a minute (Amp: every five) |
 | 4 | The local ledger — the agent's own records | tokens and cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl`, Gemini CLI's `~/.gemini/tmp/*/chats/*.jsonl`, Qwen Code's `~/.qwen/projects/*/chats/*.jsonl` (list price); OpenCode's `opencode.db` and Cline's `sessions.db` (the cost the agent recorded) | one incremental scan |
 
@@ -259,21 +259,44 @@ a reset; and the Accounts rail shows the balance where a percentage would go.
 credential file, config or cache. It reads to answer one question and keeps
 its own copy of nothing but the ledger.
 
-**Cursor reports no tokens, and its request counter is dead.** Its live surface
-is `GET /api/usage-summary`, and that payload has no token or request counts in
-it at all. The old `GET /api/usage` still answers, with
-`{ numRequests, numRequestsTotal, numTokens, maxRequestUsage, maxTokenUsage }`
-— but on a current Pro account it reads `numTokens: 0`, `maxTokenUsage: null`,
-and `numRequests: 500` of `maxRequestUsage: 500`, pinned at the retired
-500-fast-request quota while the same account's live figure is 6% used. It is a
-vestigial field, so it is not drawn: a saturated dead counter on a card is the
-same class of mistake as the cents that say 99.95% when the dashboard says 6%.
-What Cursor *does* say it has spent is the on-demand budget, whose
-`used + remaining = limit` and which therefore can be believed on both halves;
-that is where the card's `$39.34 used · $10.66 left` comes from. The remaining
-POST dashboard endpoints (`get-filtered-usage-events`, `get-user-analytics`)
-answer *Invalid origin for state-changing request*, and defeating a vendor's
-CSRF guard to read a number is not a thing this desk does.
+**Cursor reports no tokens, and a leftover request counter is stale, not
+live.** Its live surface is `GET /api/usage-summary`, and that payload has no
+token or request counts in it at all. The old `GET /api/usage` still answers,
+with `{ numRequests, numRequestsTotal, numTokens, maxRequestUsage,
+maxTokenUsage, startOfMonth }`. On a dollar-cents account this counter is a
+holdover from before the account moved onto its current plan: its own
+`startOfMonth` names a cycle the summary's `billingCycleStart` has already
+moved past, so drawing it as current would say the account is out of requests
+when the dollar pool it is actually billed against says otherwise. It is
+trusted only when it names *this* cycle — see the next paragraph — and skipped
+otherwise. What Cursor *does* say a dollar-cents account has spent is the
+on-demand budget, whose `used + remaining = limit` and which therefore can be
+believed on both halves; that is where the card's `$39.34 used · $10.66 left`
+comes from. The remaining POST dashboard endpoints (`get-filtered-usage-events`,
+`get-user-analytics`) answer *Invalid origin for state-changing request*, and
+defeating a vendor's CSRF guard to read a number is not a thing this desk does.
+
+**A request counter can outlive its plan, and while it is current it is the
+primary figure.** An account still on Cursor's older, request-quota tier is
+billed against exactly this counter, whether or not `usage-summary` resolves a
+percent at all: that percent, when it exists, measures a different pool
+entirely — the dollar-denominated "included total usage" — so an account can
+be out of requests and still read as mostly left on the summary's own number.
+The legacy endpoint is therefore asked whenever the account is not unlimited,
+never only when the summary has nothing to say, and its counter is trusted
+only when `startOfMonth` names the current cycle: equal to the summary's
+`billingCycleStart`, or, lacking one, within the last 31 days. A counter
+naming an older cycle is the genuinely stale case from the paragraph above,
+and is skipped. When it is live, it becomes the primary `unit: 'requests'`
+lane — the card's headline and `reached` come from it alone — with the
+summary's plan percent riding after it only as the comparable scale. Its
+reset prefers the summary's own `billingCycleEnd`; lacking that, a calendar
+month is added to `startOfMonth` instead, never a fixed count of
+milliseconds, clamped to the target month's last day rather than rolled into
+the one after when the start day does not exist there (the 31st into
+September). On-demand spend, when this account has it, draws as its own
+`layer: 'overage'` lane beside the request quota rather than folding into
+`credits` — the two would say the same thing twice.
 
 ## What honest costs money to say
 
@@ -318,12 +341,15 @@ a card can be built without naming the vendor behind it.
 - **Money, Value** — tokens priced at public API rates, a *list-price
   equivalent* and never an invoice — the whole of "What honest costs money to
   say" above.
-- **Turns** — a plain count, for a plan that bills by request rather than by
-  token or a rolling percentage (Cursor's request-based tiers):
+- **Turns** — a plain count, for a plan that bills by request and gives no
+  ceiling to measure it against, so no percentage is possible at all:
   `UsageReport.turns`, `{ count, unitsPerTurn, since }`. `unitsPerTurn` is
   null where the source does not say what a turn is worth against its own
   unit, and `since` bounds what the count covers — never assumed to be the
-  plan's whole lifetime.
+  plan's whole lifetime. A request-based plan that *does* give a ceiling —
+  Cursor's legacy tier, `numRequests` of `maxRequestUsage` — is a **Capacity**
+  lane instead (`unit: 'requests'`), because a real percentage exists to show;
+  `turns` is for the plan that has no such ceiling to report.
 - **Tokens** — the ledger's own count, split into what a model is actually
   billed for: `LedgerRow`/`LedgerDay`'s `input`, `output`, `cacheRead`,
   `cacheWrite`, `reasoning` and `requests`, and `LedgerReport.totals` for the
@@ -343,11 +369,23 @@ a card can be built without naming the vendor behind it.
 
 `UsageReport.billing.kinds` names which of these a plan actually has —
 `'windows' | 'allowance' | 'balance' | 'metered' | 'free'` — as a set, because
-a plan can be more than one shape at once (a Claude Code plan is `windows` for
-its lanes and also `balance` the moment it carries prepaid credit). It is
-typed; no reader fills it yet — filling it in per reader, and reading
-`earliestDay` into the heatmap, are the next PR's work — see the field
-comments in `usage.ts` for exactly what each one may never be collapsed with.
+a plan can be more than one shape at once (a Codex plan is `windows` for its
+lanes and also `balance` the moment it carries prepaid credit). Every reader
+that can say cheaply now does: Codex and Claude Code are `windows`; Codex adds
+`balance` when its prepaid credit is actually on, and Claude Code adds
+`metered` when its extra usage is — spend against a monthly cap, the same
+shape as Cursor's on-demand, not a prepaid balance. Cursor is `allowance` —
+true of its dollar-cents plan and of its legacy request quota alike — plus
+`metered` when on-demand spend is enabled; Copilot is `allowance`; Amp and
+Cline, which report only a prepaid balance and no window at all, are
+`balance`; a Gemini Code Assist sign-in is `windows`. Antigravity's
+own quota is never in this shape at all — it arrives through `agy`, filed
+under `UnverifiedUsage` rather than `lanes` because the sign-in cannot be tied
+to the agent's own account (see `UnverifiedUsage`), so it has no `billing` to
+fill — and OpenCode's Go tier has no reader yet (`bootstrap.ts`'s
+`localUsageFor`). Reading `earliestDay` into the heatmap is still open — see
+the field comments in `usage.ts` for exactly what each kind may never be
+collapsed with.
 
 `SpendCoverage.earliestDay` is the other new field here, and it is not one of
 the five shapes — it is what makes **Tokens** honest on a calendar. It is the

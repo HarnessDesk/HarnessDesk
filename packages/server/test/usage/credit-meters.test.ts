@@ -63,6 +63,7 @@ test('Amp is asked sparingly, and its balance is the card', async () => {
   assert.deepEqual(reading?.credits, { remaining: 10, unit: 'USD', unlimited: false })
   assert.equal(reading?.account, 'dev@example.com')
   assert.equal(reading?.reached, null)
+  assert.deepEqual(reading?.billing, { kinds: ['balance'] })
   assert.deepEqual(calls, [['usage', '--no-color']])
   // Account lookups share Amp's 60-an-hour limit: turns finishing do not re-ask.
   now += 4 * 60_000
@@ -141,6 +142,7 @@ test('Cline’s balance is the billed account’s, in dollars, while the session
   assert.deepEqual(reading?.credits, { remaining: 12.345678, unit: 'USD', unlimited: false }, 'micro-dollars')
   assert.equal(reading?.account, 'dev@example.com')
   assert.equal(reading?.plan, null)
+  assert.deepEqual(reading?.billing, { kinds: ['balance'] })
   assert.deepEqual(api.calls, ['/api/v1/users/me Bearer workos:tok', '/api/v1/users/u1/balance Bearer workos:tok'])
 
   // Billed to an organization: its balance, and its name as the plan.

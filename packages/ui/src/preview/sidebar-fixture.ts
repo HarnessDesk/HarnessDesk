@@ -146,6 +146,37 @@ export const previewUsage: UsageReport[] = [
     fetchedAt: Date.now() - 90_000,
     staleAfterMs: 600_000,
     error: null,
+    billing: { kinds: ['allowance', 'metered'] },
+  },
+  {
+    // A second Cursor account, on the older request-based tier: `usage-summary`
+    // has no percent to give it at all, so its figure is the legacy requests
+    // lane instead — see `packages/server/src/usage/cursor.ts`.
+    runtime: CURSOR,
+    account: 'legacy-cursor@harnessdesk.app',
+    plan: 'Pro',
+    lanes: [
+      lane('requests', 'Requests', (313 / 500) * 100, 30 * 1_440, 0.4, {
+        unit: 'requests',
+        used: 313,
+        limit: 500,
+        layer: 'plan',
+      }),
+      lane('overage', 'On-demand usage', 25, 30 * 1_440, 0.4, {
+        unit: 'usd',
+        used: 5,
+        limit: 20,
+        layer: 'overage',
+      }),
+    ],
+    credits: null,
+    spend: null,
+    reached: null,
+    source: { kind: 'api', label: 'from cursor.com' },
+    fetchedAt: Date.now() - 90_000,
+    staleAfterMs: 600_000,
+    error: null,
+    billing: { kinds: ['allowance', 'metered'] },
   },
 ] as unknown as UsageReport[]
 

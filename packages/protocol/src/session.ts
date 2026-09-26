@@ -5,7 +5,7 @@ import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
 import type { AgentItem, UserContent } from './items.js'
 import type { ConfigOption, OptionValue } from './options.js'
-import type { UsageLane, UsageSource } from './usage.js'
+import type { UsageBilling, UsageLane, UsageSource } from './usage.js'
 
 /**
  * Session, turn, and settings — the container model around items.
@@ -373,6 +373,8 @@ export interface RateLimits {
   readonly source?: UsageSource
   /** Set when a limit has actually been hit, naming which one. */
   readonly reached?: string | null
+  /** See `UsageBilling`; carried through to `UsageReport.billing` by the usage service. */
+  readonly billing?: UsageBilling
 }
 
 /**
