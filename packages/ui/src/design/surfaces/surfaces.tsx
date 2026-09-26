@@ -62,22 +62,37 @@ const Frame = ({
 )
 
 /**
- * A store whose `s1` session carries a status or an approval the fixture's
- * own does not, built from a fresh default store rather than the shared one
- * `previewStore()` exports — so a failed case here cannot leave the module's
- * own `store` failed for every other board that imports it.
+ * A store whose `s1` session carries a status, a ceiling or an approval the
+ * fixture's own does not, built from a fresh default store rather than the
+ * shared one `previewStore()` exports — so a failed case here cannot leave
+ * the module's own `store` failed for every other board that imports it.
  */
-const conversationStatusStore = (over: { status?: unknown; approvals?: unknown }): AppStore => {
+const conversationStatusStore = (over: {
+  status?: unknown
+  approvals?: unknown
+  /** Strip the fixture's own ceiling — the plain path idle demonstrates. */
+  noCeiling?: boolean
+}): AppStore => {
   const base = previewStore().getSnapshot()
   const sessions = new Map(base.sessions)
   const session = sessions.get(PREVIEW_SESSION_KEY)
-  if (over.status !== undefined && session) sessions.set(PREVIEW_SESSION_KEY, { ...session, status: over.status } as never)
+  if (session) {
+    const settings = over.noCeiling
+      ? { ...(session as never as { settings: Record<string, unknown> }).settings, ceiling: undefined, ceilingNote: undefined }
+      : (session as never as { settings: unknown }).settings
+    sessions.set(PREVIEW_SESSION_KEY, {
+      ...session,
+      ...(over.status !== undefined ? { status: over.status } : {}),
+      settings,
+    } as never)
+  }
   return previewStore({
     sessions,
     ...(over.approvals !== undefined ? { approvals: over.approvals as never } : {}),
   } as never)
 }
 
+const IDLE_STORE = conversationStatusStore({ noCeiling: true })
 const RUNNING_STORE = conversationStatusStore({ status: { type: 'active' } })
 const FAILED_STORE = conversationStatusStore({ status: { type: 'error' } })
 const WAITING_STORE = conversationStatusStore({
@@ -96,11 +111,17 @@ const WAITING_STORE = conversationStatusStore({
 })
 
 /**
- * One header case: a caption naming what it proves, a frame cropped to the
- * bar's own height (or, for the phone case, the header's own width) so the
- * catalogue reads as a row of states rather than six repeats of the whole
- * transcript, and a `data-testid` a browser spec can reach directly rather
- * than searching the tab for the Nth header.
+ * One header case: a caption naming what it proves, a frame cropped to
+ * exactly the bar's own height — border included — so nothing from the
+ * transcript or the composer shows, and a `data-testid` a browser spec can
+ * reach directly rather than searching the tab for the Nth header.
+ *
+ * The crop alone is not enough: the composer dock is `position: absolute;
+ * bottom: 0` of the real screen mounted underneath, not of this frame, so a
+ * short frame pulls it up over the header rather than hiding it below the
+ * fold. `surfaces.module.css` hides it for this one data-height value only —
+ * the one place in this directory a screen's own part is suppressed, and
+ * only because the frame around it, not the screen, is what is short here.
  */
 const HeaderCase = ({
   id,
@@ -129,11 +150,12 @@ const HeaderCase = ({
  * it without one and you are looking at a branch the app never shows.
  *
  * Below the full conversation, the header alone, in the states the fixture
- * above cannot show at once: idle (with the ceiling chip its own settings
- * already carry), running with its brand dot, waiting for an approval,
- * failed, the ceiling chip named on its own, and the phone-width fold. Each
- * still mounts the real `Conversation` — only the frame around it is
- * shorter, or narrower, than the one above.
+ * above cannot show at once: idle on the plain path (no ceiling — a resting
+ * status says nothing its absence does not, and this is the one case that
+ * shows it), the ceiling chip named on its own, running with its brand dot,
+ * waiting for an approval, failed, and the phone-width fold. Each still
+ * mounts the real `Conversation` — only the frame around it is shorter, or
+ * narrower, than the one above.
  */
 export const ConversationSurface = () => (
   <>
@@ -157,7 +179,7 @@ export const ConversationSurface = () => (
     </Mount>
     <div className={styles.headerCases}>
       <HeaderCase id="conversation-header-idle" label="Idle">
-        <Mount>
+        <Mount with={IDLE_STORE}>
           <PaneProvider
             scope={{
               paneId: 'design-idle' as never,

@@ -500,6 +500,7 @@ export class Ledger {
         estimated: 0,
         daysCovered: this.#store.daysCovered(from, runtime),
         daysRequested: days,
+        earliestDay: this.#store.earliestDay(runtime),
       },
       daily: [...byDay.entries()]
         .sort(([a], [b]) => a - b)
@@ -518,6 +519,10 @@ export class Ledger {
     let priced = 0
     let unpriced = 0
     let vendor = 0
+    // The split behind `totalTokens`, summed alongside it — never a second
+    // pass over `rows`, and never a number that could disagree with the total
+    // it is part of.
+    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 0 }
     interface Group {
       label: string
       /** Distinct paths behind one basename, so a collision can be told apart. */
@@ -526,6 +531,12 @@ export class Ledger {
       cost: number
       tokens: number
       unpriced: boolean
+      input: number
+      output: number
+      cacheRead: number
+      cacheWrite: number
+      reasoning: number
+      requests: number
     }
     const groups = new Map<string, Group>()
     const daily = new Map<string, LedgerDay>()
@@ -537,6 +548,12 @@ export class Ledger {
       priced += cost.priced
       unpriced += cost.unpriced
       vendor += cost.vendor
+      totals.input += row.input
+      totals.output += row.output
+      totals.cacheRead += row.cacheRead
+      totals.cacheWrite += row.cacheWrite
+      totals.reasoning += row.reasoning
+      totals.requests += row.requests
 
       // A model or a project is one thing however many agents touched it —
       // "what did this project cost" is the question the pivot is named for,
@@ -555,20 +572,49 @@ export class Ledger {
         cost: 0,
         tokens: 0,
         unpriced: false,
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+        requests: 0,
       }
       group.cost += cost.cost
       group.tokens += cost.tokens
       group.unpriced = group.unpriced || cost.unpriced > 0
       group.runtimes.add(row.runtime)
+      group.input += row.input
+      group.output += row.output
+      group.cacheRead += row.cacheRead
+      group.cacheWrite += row.cacheWrite
+      group.reasoning += row.reasoning
+      group.requests += row.requests
       groups.set(key, group)
 
       const dayKey = `${row.day}:${row.runtime}`
-      const bucket = daily.get(dayKey) ?? { day: row.day, runtime: runtimeId(row.runtime), cost: 0, tokens: 0 }
+      const bucket = daily.get(dayKey) ?? {
+        day: row.day,
+        runtime: runtimeId(row.runtime),
+        cost: 0,
+        tokens: 0,
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+        requests: 0,
+      }
       daily.set(dayKey, {
         day: row.day,
         runtime: runtimeId(row.runtime),
         cost: bucket.cost + cost.cost,
         tokens: bucket.tokens + cost.tokens,
+        input: (bucket.input ?? 0) + row.input,
+        output: (bucket.output ?? 0) + row.output,
+        cacheRead: (bucket.cacheRead ?? 0) + row.cacheRead,
+        cacheWrite: (bucket.cacheWrite ?? 0) + row.cacheWrite,
+        reasoning: (bucket.reasoning ?? 0) + row.reasoning,
+        requests: (bucket.requests ?? 0) + row.requests,
       })
     }
 
@@ -596,6 +642,7 @@ export class Ledger {
       estimated: 0,
       daysCovered: this.#store.daysCovered(from, request.runtime),
       daysRequested: days,
+      earliestDay: this.#store.earliestDay(request.runtime),
     }
     const ordered: LedgerRow[] = [...groups.entries()]
       .map(([key, group]) => ({
@@ -612,6 +659,12 @@ export class Ledger {
         tokens: group.tokens,
         cost: anyPriced ? group.cost : null,
         hasUnpriced: group.unpriced,
+        input: group.input,
+        output: group.output,
+        cacheRead: group.cacheRead,
+        cacheWrite: group.cacheWrite,
+        reasoning: group.reasoning,
+        requests: group.requests,
       }))
       .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0) || (b.tokens ?? 0) - (a.tokens ?? 0))
 
@@ -629,6 +682,7 @@ export class Ledger {
       rows: ordered,
       daily: [...daily.values()].sort((a, b) => a.day - b.day),
       scannedAt: Number.isFinite(scannedAt) && scannedAt > 0 ? scannedAt : null,
+      totals,
     }
   }
 }

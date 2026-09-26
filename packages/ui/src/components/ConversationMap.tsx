@@ -210,6 +210,11 @@ export const ConversationMap = ({
       // than moving real focus, so a transcript of any length still costs the
       // rest of the page exactly one Tab.
       tabIndex={0}
+      /* The document's own ring would frame the whole rail — the pane's full
+         height, around a small centred cluster of dashes — since the rail
+         itself, not any one mark, is what actually holds focus. The active
+         mark draws its own ring instead (`Tick`'s `ring` prop, below). */
+      data-focus-ring="inline"
       aria-activedescendant={openIndex !== null ? `conversation-map-mark-${openIndex}` : undefined}
       onPointerMove={(event) => {
         const box = event.currentTarget.getBoundingClientRect()
@@ -257,11 +262,22 @@ export const ConversationMap = ({
           className={styles.mark}
           data-kind={mark.kind}
           data-current={openIndex === index ? '' : undefined}
+          /* Only this — never a pointer hover, which also lands on `openIndex`
+             — draws the focus ring: the rail's own outline is off, so the one
+             mark the keyboard is actually on is the only visible sign it has
+             focus at all. */
+          data-keyboard-current={keyboardIndex === index ? '' : undefined}
           style={{ '--near': nears[index] ?? 0 } as React.CSSProperties}
         >
           {/* What was asked stands out from what came back: a strong
-              stroke for the prompt, a quiet one for the answer. */}
-          <Tick emphasis={mark.kind === 'prompt' ? 'strong' : 'quiet'} className={styles.dash} />
+              stroke for the prompt, a quiet one for the answer. Only the
+              keyboard's own mark draws a ring — never a pointer hover, which
+              also reaches `data-current`/`openIndex`. */}
+          <Tick
+            emphasis={mark.kind === 'prompt' ? 'strong' : 'quiet'}
+            ring={keyboardIndex === index}
+            className={styles.dash}
+          />
         </div>
       ))}
       {/* One card for the whole rail, anchored to whichever mark is active —

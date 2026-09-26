@@ -233,4 +233,18 @@ export class LedgerStore {
     const row = (runtime ? statement.get(day, runtime) : statement.get(day)) as { n?: number } | undefined
     return row?.n ?? 0
   }
+
+  /**
+   * The earliest day this scope has any row for, unwindowed — a scan horizon,
+   * not a query result. `null` when nothing has been recorded for the scope
+   * at all, which a caller reads as "no record yet" rather than "zero spent".
+   */
+  earliestDay(runtime?: string): number | null {
+    const sql = runtime
+      ? 'SELECT MIN(day) AS day FROM usage WHERE runtime = ?'
+      : 'SELECT MIN(day) AS day FROM usage'
+    const statement = this.#db.prepare(sql)
+    const row = (runtime ? statement.get(runtime) : statement.get()) as { day?: number | null } | undefined
+    return typeof row?.day === 'number' ? row.day : null
+  }
 }

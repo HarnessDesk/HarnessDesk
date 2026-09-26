@@ -275,7 +275,7 @@ body {
   --hdp-alias-label-primary-dimmed: var(--hdp-static-grey-950);
   --hdp-alias-label-primary-inverted: var(--hdp-static-grey-00);
   --hdp-alias-label-primary: var(--hdp-static-grey-900); /* desk: measured against the Codex desktop app */
-  --hdp-alias-label-secondary: var(--hdp-static-grey-700);
+  --hdp-alias-label-secondary: var(--hdp-static-grey-750); /* desk: grey-700 measured 5.9:1, 1.1:1 from tertiary — nearly one grey; grey-750 clears them apart at 9.3:1 */
   --hdp-alias-label-tertiary: var(--hdp-static-grey-600);
   --hdp-alias-markdown-citation: var(--hdp-static-grey-100);
   --hdp-alias-markdown-code-block-banner: var(--hdp-static-grey-50);
