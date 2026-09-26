@@ -20,7 +20,6 @@ import {
   agentKey,
   accountKey,
   accountName,
-  connectionLabel,
   credentialHome,
   TINTS,
   tintOf,
@@ -53,7 +52,6 @@ import {
 import {
   AccountMark,
   BackLink,
-  Bar,
   Button,
   Card,
   CardViewport,
@@ -102,9 +100,6 @@ type View =
   | { readonly kind: 'add' }
   | { readonly kind: 'agent'; readonly runtime: RuntimeId }
   | { readonly kind: 'account'; readonly runtime: RuntimeId; readonly key: string }
-
-/** What the page is narrowed to, beside the search text. */
-type StatusFilter = 'all' | Readiness
 
 /** The agent list's slice of the snapshot — everything these helpers read. */
 type AgentsView = Pick<
@@ -194,20 +189,6 @@ export const agentMatches = (
   }
   return words.some((word) => (word ?? '').toLowerCase().includes(needle))
 }
-
-/** "2 accounts", or the honest sentence when there are none. */
-/**
- * How many accounts, or nothing at all.
- *
- * This slot used to answer for every agent — "No account needed", "Signs in
- * on its own" — and on a page of ten that is the same sentence ten times,
- * which is one sentence of information and ten rows of height. What varies
- * here is a count and a state, and the state has a chip of its own; an agent
- * with neither says nothing, which is what "nothing is wrong" should look
- * like. See docs/design.md.
- */
-const countLabel = (count: number): string | null =>
-  count === 0 ? null : count === 1 ? '1 account' : `${count} accounts`
 
 /**
  * An account's usage: whether it is blocked, the windows it draws on, and the
@@ -377,13 +358,122 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
 /* --- the list ------------------------------------------------------------ */
 
 /** What this agent's accounts look like as rows, plus how to add one. */
-const AgentBlock = ({
+/**
+ * One agent on the list, as one line: its mark, its name and build, who it is
+ * signed in as — the fact a person scans this list for — and at the end only
+ * what is not fine. A signed-out agent carries its Sign in there, because
+ * that is the one thing anyone opens it to do; the whole line opens its page.
+ *
+ * The account count and the sign-in method used to ride on every row: "1
+ * account" nine times is one fact said nine times, and a method is the
+ * agent's definition, which its page and Sign in show where it is chosen.
+ */
+const AgentRow = ({
   info,
   siblings,
   state,
-  open,
-  onToggle,
-  onOpenAgent,
+  query,
+  onOpen,
+  onSignIn,
+}: {
+  info: RuntimeInfo
+  siblings: readonly RuntimeInfo[]
+  /** Whether a turn sent to this agent would start — see `agentReadiness`. */
+  state: Readiness
+  /** The page's search, lowercased; its hit leads the account line. */
+  query: string
+  onOpen: () => void
+  onSignIn: (runtime: RuntimeId) => void
+}) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const status = snapshot.accountsByRuntime[info.id]
+  const build = describeVersion(info)?.replace(`${info.presentation.name} `, '') ?? null
+  const names = siblings.flatMap((entry) => [
+    // The whole address, not its local part: on a list of agents the address
+    // is what tells two of them apart, and a nickname you gave it wins. An
+    // agent that cannot say who it is signed in as says only that it is.
+    ...(snapshot.accountsByRuntime[entry.id]?.accounts ?? []).map((account) =>
+      snapshot.accountPrefs[accountKey(entry.id, account)]?.nickname?.trim() ||
+      (account.anonymous ? 'Signed in' : account.email ?? account.label),
+    ),
+    ...(entry.slot?.gateway ? [entry.slot.gateway.name] : []),
+  ])
+  // A search hit on a second account leads the line, so what was searched
+  // for is what is shown; and accounts that cannot say who they are count.
+  const hit = query ? names.findIndex((name) => name.toLowerCase().includes(query)) : -1
+  const ordered = hit > 0 ? [names[hit]!, ...names.filter((_, index) => index !== hit)] : names
+  const who =
+    ordered.length === 0
+      ? null
+      : ordered.length === 1
+        ? ordered[0]!
+        : ordered[0] === 'Signed in'
+          ? `${ordered.length} accounts`
+          : `${ordered[0]} and ${ordered.length - 1} more`
+  const canSignIn = info.capabilities.account && (status?.signInMethods ?? []).some((method) => method.flow !== 'external')
+  // A key has to be typed somewhere, so those methods hand off to the sign-in
+  // page instead of being started from a button with nowhere to type.
+  const needsField = (status?.signInMethods ?? []).every(
+    (method) => method.flow === 'apiKey' || method.flow === 'external',
+  )
+  const waiting = snapshot.logins[info.id]?.outcome.type === 'pending'
+  const signIn = state === 'signin' && canSignIn
+  return (
+    <RowButton
+      data-slot="agent-row"
+      onClick={onOpen}
+      mark={<RuntimeMark runtime={info} size={17} />}
+      title={
+        <span className={styles.headName} title={info.presentation.tagline}>
+          <Text role="subject">{info.presentation.name}</Text>
+          {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
+        </span>
+      }
+      {...(who ? { desc: who } : {})}
+      control={
+        /* The default's chip wears the agent's own state: a default that has
+           crashed is not a green one (#131) — and it still names the state
+           beside it, or an amber "Default" leaves why unsaid. A state chip
+           only where the state is not fine, and not beside a Sign in that
+           already says it. */
+        snapshot.activeRuntime === info.id || (state !== 'ready' && !signIn) ? (
+          <>
+            {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
+            {state !== 'ready' && !signIn && <Chip state={state} />}
+          </>
+        ) : undefined
+      }
+      {...(signIn
+        ? {
+            action: (
+              <Button
+                size="sm"
+                variant="default"
+                disabled={waiting}
+                onClick={() => (needsField ? onSignIn(info.id) : void store.signInAgent(info.id))}
+              >
+                <SignInIcon size={13} />
+                {waiting ? 'Waiting…' : 'Sign in'}
+              </Button>
+            ),
+          }
+        : {})}
+    />
+  )
+}
+
+/**
+ * The accounts an agent holds, on its own page: each one, the gateways that
+ * bill it elsewhere, the slots added and never signed into, and the ways to
+ * add another. This was a fold under every row of the list, which made the
+ * list a page of cards; the list now says who each agent is signed in as, in
+ * a line, and this is where they are managed.
+ */
+const AgentAccounts = ({
+  info,
+  siblings,
+  state,
   onOpenAccount,
   onSignIn,
 }: {
@@ -397,10 +487,6 @@ const AgentBlock = ({
   siblings: readonly RuntimeInfo[]
   /** Whether a turn sent to this agent would start — see `agentReadiness`. */
   state: Readiness
-  /** Whether the accounts under it are showing. */
-  open: boolean
-  onToggle: () => void
-  onOpenAgent: () => void
   onOpenAccount: (runtime: RuntimeId, key: string) => void
   onSignIn: (runtime: RuntimeId) => void
 }) => {
@@ -431,9 +517,6 @@ const AgentBlock = ({
     (method) => method.flow === 'apiKey' || method.flow === 'external',
   )
   const health = snapshot.healthByRuntime[info.id] ?? null
-  const build = describeVersion(info)?.replace(`${info.presentation.name} `, '') ?? null
-  const connection = connectionLabel(info, status?.signInMethods ?? [])
-  const count = countLabel(rows.length + gateways.length)
 
   /**
    * Making the account and signing into it, in that order.
@@ -470,52 +553,50 @@ const AgentBlock = ({
   }
 
   return (
-    <Rows className={styles.agent} {...(open ? { 'data-open': '' } : {})}>
-      {/* Two targets, not one: the agent's name opens what belongs to the
-          runtime — health, version, behaviour — and the fold at the row's end
-          only decides whether its accounts are on screen. Nesting them would
-          make one of the two unreachable, so the row draws them side by side.
-
-          The tagline rides on hover here. This card is about an agent you
-            already chose and installed; a definition of it cannot change what
-            you do on a page for managing its accounts, and the one line it had
-            was set to nowrap, so a longer one arrived cut. It still shows in
-            full where choosing is the actual task — the Add a runtime list
-            below, first run, and sign-in. */}
-        <RowButton
-          className={styles.headOpen}
-          onClick={onOpenAgent}
-          chevron={false}
-          mark={<RuntimeMark runtime={info} size={17} />}
-          title={
-            <span className={styles.headName} title={info.presentation.tagline}>
-              <Text role="subject">{info.presentation.name}</Text>
-              {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
-              {connection && <Chip tone="neutral" size="sm">{connection}</Chip>}
-            </span>
-          }
-          control={<span className={styles.headMeta}>
-            {/* Counts and state belong to the name's target; only the separate
-                caret expands the account list. A healthy agent needs no chip. */}
-            {/* The default's chip wears the agent's own state: a default that
-                has crashed is not a green one — nor is one that is signed out
-                or out of credit. `state` is `agentReadiness` over this agent's
-                accounts, which is what `defaultChipState` returns for the two
-                detail pages, so all three say the same thing (#131). */}
-            {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
-            {count !== null && <Text role="muted" ink="muted" className="whitespace-nowrap">{count}</Text>}
-            {state !== 'ready' && <Chip state={state} />}
-          </span>}
-          fold={{
-            open,
-            onToggle,
-            label: `${open ? 'Hide' : 'Show'} the accounts under ${info.presentation.name}`,
-          }}
-        />
-
-      {open && (
-      <>
-      <div className={styles.list}>
+    <>
+      {/* The ways to add another stand in the section's head, where a card's
+          own actions stand on a page, rather than in a bar under the list. */}
+      <SectionHead
+        name="Accounts"
+        action={
+          info.slot?.canAdd || (rows.length > 0 && info.capabilities.account && canSignIn) ? (
+            <>
+              {info.capabilities.account && canSignIn && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title={
+                    info.slot?.canAdd
+                      ? `${info.presentation.name} keeps one credential per home, so a new account gets a home of its own. Its sessions stay shared with this one.`
+                      : /* Said out loud rather than discovered: most CLIs keep one
+                           credential file, so a second sign-in replaces the first. */
+                        `${info.presentation.name} keeps one credential, so signing in again replaces this one.`
+                  }
+                  disabled={adding}
+                  onClick={() => void addAccount()}
+                >
+                  <PlusIcon size={13} />
+                  {adding ? 'Adding…' : 'Add account'}
+                </Button>
+              )}
+              {/* Offered even with no plan account signed in: paying your own way
+                  is a first-class way to run this agent, not a fallback. */}
+              {info.slot?.canAdd && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title={`Run ${info.presentation.name} against your own endpoint — an API key or a gateway — instead of the plan it signs into.`}
+                  onClick={() => setAddingGateway(true)}
+                >
+                  <PlusIcon size={13} />
+                  Add gateway account…
+                </Button>
+              )}
+            </>
+          ) : undefined
+        }
+      />
+      <Rows>
         {rows.map(({ entry, account }) => {
           const key = accountKey(entry.id, account)
           const own = snapshot.usage.filter((report) => report.runtime === entry.id)
@@ -628,8 +709,9 @@ const AgentBlock = ({
         {rows.length === 0 && gateways.length === 0 && health?.state === 'unavailable' ? (
           /* A dead agent's account is not the story. This row used to read
              "runs without an account" about an agent that could not start —
-             a true sentence about the wrong subject. */
-          <HealthBlock health={health} />
+             a true sentence about the wrong subject. The page's own "Why it
+             will not start" says why, above; here it is only named. */
+          <Row title="Unavailable" desc="Its accounts show once it starts." />
         ) : (
           rows.length === 0 &&
           gateways.length === 0 && (
@@ -679,48 +761,10 @@ const AgentBlock = ({
             />
           )
         )}
-      </div>
+      </Rows>
 
       {addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
-
-      {(info.slot?.canAdd || (rows.length > 0 && info.capabilities.account && canSignIn)) && (
-        <Bar rule="top">
-          {info.capabilities.account && canSignIn && (
-            <Button
-              size="sm"
-              variant="ghost"
-              title={
-                info.slot?.canAdd
-                  ? `${info.presentation.name} keeps one credential per home, so a new account gets a home of its own. Its sessions stay shared with this one.`
-                  : /* Said out loud rather than discovered: most CLIs keep one
-                       credential file, so a second sign-in replaces the first. */
-                    `${info.presentation.name} keeps one credential, so signing in again replaces this one.`
-              }
-              disabled={adding}
-              onClick={() => void addAccount()}
-            >
-              <PlusIcon size={13} />
-              {adding ? 'Adding…' : 'Add account'}
-            </Button>
-          )}
-          {/* Offered even with no plan account signed in: paying your own way
-              is a first-class way to run this agent, not a fallback. */}
-          {info.slot?.canAdd && (
-            <Button
-              size="sm"
-              variant="ghost"
-              title={`Run ${info.presentation.name} against your own endpoint — an API key or a gateway — instead of the plan it signs into.`}
-              onClick={() => setAddingGateway(true)}
-            >
-              <PlusIcon size={13} />
-              Add gateway account…
-            </Button>
-          )}
-        </Bar>
-      )}
-      </>
-      )}
-    </Rows>
+    </>
   )
 }
 
@@ -1207,7 +1251,8 @@ const AccountDetail = ({
 
   return (
     <>
-      <BackLink to="Runtimes" onClick={onBack} />
+      {/* Back to the agent it belongs to, which is where its accounts are listed. */}
+      <BackLink to={info.presentation.name} onClick={onBack} />
       <DetailHead
         mark={
           <AccountMark
@@ -1701,9 +1746,20 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
  * What belongs to the runtime rather than to any one account: whether it is
  * healthy, what version it is on, and the behaviour it lets HarnessDesk set.
  */
-const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }) => {
+const AgentDetail = ({
+  info,
+  onBack,
+  onOpenAccount,
+  onSignIn,
+}: {
+  info: RuntimeInfo
+  onBack: () => void
+  onOpenAccount: (runtime: RuntimeId, key: string) => void
+  onSignIn: (runtime: RuntimeId) => void
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const siblings = agentGroups(snapshot.runtimes).find((entry) => agentKey(entry.info) === agentKey(info))?.siblings ?? [info]
   const active = snapshot.activeRuntime === info.id
   const [health, setHealth] = useState<RuntimeHealth | null>(active ? snapshot.health : null)
   const [options, setOptions] = useState<readonly ConfigOption[]>([])
@@ -1768,6 +1824,18 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
           </Rows>
         </>
       )}
+
+      {/* The accounts belong to the agent, not to whichever of its runtimes
+          this page was opened on: a fix for a second account opens the page
+          on that account's runtime, and read from there the Default chip,
+          the unfinished slots and Add account all answered for the wrong one. */}
+      <AgentAccounts
+        info={siblings[0] ?? info}
+        siblings={siblings}
+        state={agentReadiness(siblings, snapshot)}
+        onOpenAccount={onOpenAccount}
+        onSignIn={onSignIn}
+      />
 
       {update && (
         <>
@@ -1853,17 +1921,6 @@ export const RuntimesSection = ({
   const snapshot = useSnapshot()
   const [view, setView] = useState<View>({ kind: 'list' })
   const [query, setQuery] = useState('')
-  const [status, setStatus] = useState<StatusFilter>('all')
-  /**
-   * Which blocks are open, where the user has said. Where they have not, a
-   * block opens only when it needs attention — broken, or waiting on a
-   * sign-in — so the page reads as a roster of one-line agents, which is the
-   * management view, not a wall of every account on the machine. (It used to
-   * open everything; user decision 2026-08-29.) Expand all and Collapse all
-   * write every agent's override at once, and filtering still forces every
-   * hit open, because a filtered list is a list you are searching.
-   */
-  const [opened, setOpened] = useState<ReadonlyMap<RuntimeId, boolean>>(() => new Map())
 
   useEffect(() => {
     void store.loadAccounts()
@@ -1879,30 +1936,26 @@ export const RuntimesSection = ({
   }, [focus, snapshot.runtimes])
 
   const back = (): void => setView({ kind: 'list' })
+  const openAccount = (runtime: RuntimeId, key: string): void => setView({ kind: 'account', runtime, key })
 
   const groups = useMemo(() => agentGroups(snapshot.runtimes), [snapshot.runtimes])
   const needle = query.trim().toLowerCase()
-  const filtering = needle !== '' || status !== 'all'
 
   const listed = useMemo(
     () =>
       groups
         .map((group) => ({ ...group, state: agentReadiness(group.siblings, snapshot) }))
-        .filter(
-          (group) =>
-            (status === 'all' || group.state === status) &&
-            agentMatches(group.siblings, snapshot, needle),
-        ),
-    [groups, snapshot, status, needle],
+        .filter((group) => agentMatches(group.siblings, snapshot, needle)),
+    [groups, snapshot, needle],
   )
-
-  /** Whether an unasked-about block arrives open: only when it has a story. */
-  const openByDefault = (state: Readiness): boolean => state === 'broken' || state === 'signin'
-  const isOpen = (id: RuntimeId, state: Readiness): boolean =>
-    filtering || (opened.get(id) ?? openByDefault(state))
-  const allOpen = listed.every(({ info, state }) => isOpen(info.id, state))
-  const setAll = (value: boolean): void =>
-    setOpened(new Map(listed.map(({ info }) => [info.id, value])))
+  /* Split by what each agent needs from you. The reason anyone opens this
+     page is usually one agent of many that will not take a turn, and sorting
+     by that answer makes it the first line rather than the search. The groups
+     are the status, so the page needs no status filter beside its search. */
+  const sections = [
+    { name: 'Needs attention', agents: listed.filter(({ state }) => state !== 'ready') },
+    { name: 'Ready', agents: listed.filter(({ state }) => state === 'ready') },
+  ].filter((section) => section.agents.length > 0)
 
   if (view.kind === 'add') {
     return <AddAgents onBack={back} onDone={back} />
@@ -1910,7 +1963,11 @@ export const RuntimesSection = ({
 
   if (view.kind === 'agent') {
     const info = snapshot.runtimes.find((entry) => entry.id === view.runtime)
-    if (info) return <AgentDetail key={info.id} info={info} onBack={back} />
+    if (info) {
+      return (
+        <AgentDetail key={info.id} info={info} onBack={back} onOpenAccount={openAccount} onSignIn={onSignIn} />
+      )
+    }
   }
 
   if (view.kind === 'account') {
@@ -1924,7 +1981,11 @@ export const RuntimesSection = ({
           key={view.key}
           info={info}
           account={account}
-          onBack={back}
+          onBack={() => {
+            // Back to the agent it belongs to — its page is where its accounts are.
+            const owner = groups.find((group) => group.siblings.some((entry) => entry.id === info.id))
+            setView({ kind: 'agent', runtime: owner?.info.id ?? info.id })
+          }}
           onSignIn={onSignIn}
         />
       )
@@ -1937,18 +1998,10 @@ export const RuntimesSection = ({
         title="Runtimes"
         blurb="What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as."
         actions={
-          <>
-            {/* Hidden while filtering, which force-opens every hit anyway. */}
-            {groups.length > 1 && !filtering && (
-              <Button variant="outline" onClick={() => setAll(!allOpen)}>
-                {allOpen ? 'Collapse all' : 'Expand all'}
-              </Button>
-            )}
-            <Button variant="default" onClick={() => setView({ kind: 'add' })}>
-              <PlusIcon size={14} />
-              Add a runtime
-            </Button>
-          </>
+          <Button variant="default" onClick={() => setView({ kind: 'add' })}>
+            <PlusIcon size={14} />
+            Add a runtime
+          </Button>
         }
       />
 
@@ -1962,17 +2015,6 @@ export const RuntimesSection = ({
             placeholder="Search runtimes or accounts"
             onChange={setQuery}
           />
-          <NativeSelect
-            aria-label="Filter by status"
-            value={status}
-            onChange={(event) => setStatus(event.target.value as StatusFilter)}
-          >
-            <option value="all">Any status</option>
-            <option value="ready">Ready</option>
-            <option value="signin">Needs sign-in</option>
-            <option value="limit">Limit reached</option>
-            <option value="broken">Unavailable</option>
-          </NativeSelect>
         </div>
       )}
 
@@ -1983,7 +2025,7 @@ export const RuntimesSection = ({
             desc={
               groups.length === 0
                 ? 'Add one to start a conversation on it.'
-                : 'Nothing matches that search and status.'
+                : 'Nothing matches that search.'
             }
             control={
               groups.length === 0 ? (
@@ -1994,34 +2036,38 @@ export const RuntimesSection = ({
               ) : (
                 <Button variant="secondary"
                   size="sm"
-                  onClick={() => {
-                    setQuery('')
-                    setStatus('all')
-                  }}
+                  onClick={() => setQuery('')}
                 >
-                  Clear filters
+                  Clear search
                 </Button>
               )
             }
           />
         </Rows>
       ) : (
-        listed.map(({ info, siblings, state }) => {
-          const open = isOpen(info.id, state)
-          return (
-            <AgentBlock
-              key={info.id}
-              info={info}
-              siblings={siblings}
-              state={state}
-              open={open}
-              onToggle={() => setOpened((current) => new Map(current).set(info.id, !open))}
-              onSignIn={onSignIn}
-              onOpenAgent={() => setView({ kind: 'agent', runtime: info.id })}
-              onOpenAccount={(runtime, key) => setView({ kind: 'account', runtime, key })}
+        sections.map((section) => (
+          /* No accessible name of its own: the head names the group, and a
+             label beside it was announced twice. */
+          <div key={section.name} data-group={section.name}>
+            <SectionHead
+              name={section.name}
+              action={<Text role="meta" numeric>{section.agents.length}</Text>}
             />
-          )
-        })
+            <Rows>
+              {section.agents.map(({ info, siblings, state }) => (
+                <AgentRow
+                  key={info.id}
+                  info={info}
+                  siblings={siblings}
+                  state={state}
+                  query={needle}
+                  onOpen={() => setView({ kind: 'agent', runtime: info.id })}
+                  onSignIn={onSignIn}
+                />
+              ))}
+            </Rows>
+          </div>
+        ))
       )}
     </>
   )

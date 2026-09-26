@@ -109,3 +109,20 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
       }
     : {},
 } as unknown as Partial<AppSnapshot>)
+
+/**
+ * The same roster for Settings › Runtimes, with one agent that did not start
+ * as well — so the page's "Needs attention" group holds every kind of
+ * attention at once: signed out, at a limit, and unavailable.
+ */
+export const runtimesSeed = (): Partial<AppSnapshot> => ({
+  ...signInSeed('refused'),
+  healthByRuntime: {
+    [runtimeId('opencode')]: {
+      state: 'unavailable',
+      reason: 'crashed',
+      message: 'OpenCode exited before it was ready.',
+      remediation: 'Check that `opencode` runs from a terminal.',
+    },
+  },
+} as unknown as Partial<AppSnapshot>)

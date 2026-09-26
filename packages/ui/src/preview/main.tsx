@@ -26,7 +26,8 @@ import { SaveAsAgentDialog } from '../components/SaveAsAgent'
 import { Settings, WorkspacesSection, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
-import { SIGN_IN_SCENES, SIGN_IN_SELECTED, signInSeed, type SignInScene } from './signin-fixture'
+import { RuntimesSection } from '../components/SettingsAgents'
+import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
@@ -253,6 +254,19 @@ const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => 
   return (
     <StoreProvider store={own}>
       <SignIn runtime={SIGN_IN_SELECTED[scene]} onClose={onClose} />
+    </StoreProvider>
+  )
+}
+
+/* The page itself, not a second Settings sheet: a page has one Settings
+   window, and the specs that find it by its name are right to expect one. */
+const RuntimesPreview = () => {
+  const own = useMemo(() => previewStore(runtimesSeed()), [])
+  return (
+    <StoreProvider store={own}>
+      <div className="mx-auto max-w-[760px] px-8 py-10">
+        <RuntimesSection onSignIn={() => {}} />
+      </div>
     </StoreProvider>
   )
 }
@@ -496,6 +510,12 @@ const Preview = () => {
           onChange={setSettingsSection}
         />
       </div>
+      {/* Settings › Runtimes on a roster that needs something: the page's own
+          frame, because the sheet above opens on the all-signed-in fixture,
+          which is the one roster this page never has to help with. */}
+      <Frame title="Runtimes — what needs you, then what is ready">
+        <RuntimesPreview />
+      </Frame>
       {/* The Agents window: the owner's left-menu decision, in its own
           top-level screen, never a Settings page — the same containment
           trick as Settings and Usage, both `AppWindow`s too. */}
