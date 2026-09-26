@@ -225,6 +225,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   TurnWork: ['default'],
   Notices: ['default'],
   'heat-grid': ['default'],
+  PaneColumn: ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -308,6 +309,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   TurnWork: ['default', 'expanded'],
   Notices: ['default', 'populated', 'empty', 'warning', 'error', 'open', 'closed'],
   'heat-grid': ['default', 'empty', 'populated'],
+  PaneColumn: ['default'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -350,6 +352,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
   Notices: 'packages/ui/src/components/Notices.tsx',
+  PaneColumn: 'packages/ui/src/components/Conversation.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -375,6 +378,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
+  PaneColumn: 'packages/ui/src/design/explorer/boards.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -505,6 +509,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
+  ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

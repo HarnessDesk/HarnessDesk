@@ -42,6 +42,38 @@ it('keeps the readiness form and its dot', () => {
   expect(chip.querySelector('[data-state="ready"]')).not.toBeNull()
 })
 
+it('gives its dot a tone apart from the pill, on purpose', () => {
+  const chip = draw(
+    <Chip tone="neutral" dotTone="brand" dotPulse>
+      Running
+    </Chip>,
+  )
+  // The pill stays neutral; only the dot inside it disagrees.
+  expect(chip.dataset['tone']).toBe('neutral')
+  const dot = chip.querySelector('[data-slot="dot"]')
+  if (!dot) throw new Error('no dot rendered')
+  expect(dot.getAttribute('data-tone')).toBe('brand')
+  expect(dot.hasAttribute('data-state')).toBe(false)
+  expect(dot.hasAttribute('data-pulse')).toBe(true)
+  // Its colour is a class (`dotTone`, design/ui/tone.ts) rather than a second
+  // tone-to-colour map in this sheet — only the `currentColor` rule steps
+  // aside for a toned dot, which this asserts by its absence from the class.
+  expect(dot.className).toContain('bg-(--hd-primary)')
+  expect(css).toMatch(/\.chip \.dot:not\(\[data-tone\]\)\s*\{[^}]*background:\s*currentColor/s)
+})
+
+it('draws no dot at all without dotTone or a readiness state', () => {
+  const chip = draw(<Chip tone="neutral">Idle</Chip>)
+  expect(chip.querySelector('[data-slot="dot"]')).toBeNull()
+})
+
+it('lets a readiness state win over dotTone, since the two never both apply', () => {
+  const chip = draw(<Chip state="ready" />)
+  const dot = chip.querySelector('[data-slot="dot"]')
+  expect(dot?.getAttribute('data-state')).toBe('ready')
+  expect(dot?.hasAttribute('data-tone')).toBe(false)
+})
+
 it('takes a tone without a readiness state or an automatic dot', () => {
   const chip = draw(<Chip tone="info">Running</Chip>)
   expect(chip.hasAttribute('data-state')).toBe(false)

@@ -10,7 +10,7 @@ import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
+import { dotTone as dotToneClass, inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import { GroupLabel } from '../ui/group-label'
 import { useInPageSection } from '../ui/section'
 import { ChoiceRow, choiceListClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
@@ -38,6 +38,7 @@ const cx = (...parts: readonly (string | false | undefined)[]): string =>
  */
 export const Dot = ({
   state,
+  tone,
   pulse = false,
   variant = 'default',
   ground = 'background',
@@ -47,6 +48,13 @@ export const Dot = ({
 }: HTMLAttributes<HTMLSpanElement> & {
   /** Absent: the neutral light — a state that is neither good nor bad news. */
   state?: Readiness
+  /**
+   * A judged tone in place of a readiness state — for a dot that must keep
+   * its own colour apart from whatever ground it sits on, such as a chip
+   * whose dot borrows the pill's ink everywhere else (`Chip`'s `dotTone`).
+   * Ignored when `state` is given.
+   */
+  tone?: Tone
   pulse?: boolean
   variant?: 'default' | 'navigation' | 'presence'
   /** The surface a presence light's tile stands on. */
@@ -57,9 +65,9 @@ export const Dot = ({
   const light = (
     <span
       {...props}
-      className={cx(styles.dot, className)}
+      className={cx(styles.dot, tone && dotToneClass({ tone }), className)}
       data-slot="dot"
-      {...(state ? { 'data-state': state } : {})}
+      {...(state ? { 'data-state': state } : tone ? { 'data-tone': tone } : {})}
       data-variant={variant}
       {...(variant === 'presence' ? { 'data-ground': ground } : {})}
       {...(pulse ? { 'data-pulse': '' } : {})}
@@ -124,6 +132,16 @@ type ChipBaseProps = {
   count?: number
   /** Draw a zero count anyway, for the rare set where zero is the finding. */
   showZero?: boolean
+  /**
+   * The chip's own dot, given a tone apart from the pill's — for a live
+   * indicator that must disagree with its ground on purpose (a running turn
+   * stays the one moving mark while the pill around it keeps a calmer
+   * reading). Absent, a chip's dot only ever appears for `state`, where it
+   * borrows the pill's own ink (`.chip .dot`, below).
+   */
+  dotTone?: Tone
+  /** The dot pulses — a state still in progress. Meaningless without `dotTone`. */
+  dotPulse?: boolean
 }
 
 export type ChipProps = ChipBaseProps & (
@@ -176,6 +194,12 @@ const chipIsCut = (words: Element): boolean =>
  * `neutral` or has no chip at all, and a stop the person asked for is
  * neutral. Colour on every row is noise that hides the one row that needs
  * someone. See `design/usage.ts`, family `tone`.
+ *
+ * **`dotTone`.** A chip's dot ordinarily borrows the pill's own ink, so the
+ * two never disagree about what they report. The one exception is a live
+ * indicator sitting on a pill that must stay calm while the mark itself
+ * keeps moving — a running turn, say — and `dotTone` is that dot's own
+ * colour, apart from `tone`.
  */
 export const Chip = (props: ChipProps) => {
   const {
@@ -189,6 +213,8 @@ export const Chip = (props: ChipProps) => {
     variant = 'default',
     count,
     showZero = false,
+    dotTone,
+    dotPulse = false,
   } = props
   if (count === 0 && !showZero) return null
   const state = props.state
@@ -236,7 +262,13 @@ export const Chip = (props: ChipProps) => {
     >
       {stale && <StaleIcon size={11} aria-hidden="true" className={styles.chipGlyph} />}
       {state && <Dot state={state} />}
-      <span className={styles.chipWords} data-slot="chip-words">{words}</span>
+      <span className={styles.chipWords} data-slot="chip-words">
+        {/* Inside `chipWords`, not beside it: a readiness dot sits in the
+            chip's own outer gap, but this one takes the words' own — the
+            gap the hand-drawn status dot always read at, next to its label. */}
+        {!state && dotTone && <Dot tone={dotTone} pulse={dotPulse} variant="navigation" />}
+        {words}
+      </span>
       {stale && <span className="sr-only"> (stale)</span>}
       {unknown && <span className="sr-only"> (unknown)</span>}
     </span>

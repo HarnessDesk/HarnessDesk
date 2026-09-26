@@ -492,11 +492,10 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
   const [preview, setPreview] = useState<number | null>(null)
 
   return (
-    /* No shared part owns a message row's own vertical rhythm — `TurnItem`
-       gives every transcript item the same 4px, and the user row's 12px
-       above / 4px below is this row's alone. Restored as the utility it was
-       rather than invented as a new one. */
-    <Message align="end" className="py-(--hd-space-3) pb-(--hd-space-1)">
+    /* `Message`'s own transcript rhythm: 12px above, 4px below — an explicit
+       option rather than something `align="end"` did silently, since the
+       room's `ChannelMessage` also aligns "start" and keeps a different look. */
+    <Message align="end" rhythm="transcript">
       {(injections.length > 0 || (item.context?.length ?? 0) > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
           {injections.map((injection, index) => (
@@ -672,10 +671,9 @@ const AssistantMessage = ({
   item: AssistantMessageItem
   streaming: boolean
 }) => (
-  /* No shared part owns a message row's own vertical rhythm (see the same
-     note on UserMessage above); this row's 6px above and below is restored
-     as the utility it was. */
-  <Message align="start" className="py-(--hd-space-1-5)">
+  /* Same rhythm option as `UserMessage` above: 6px each way, this row's own
+     value for the transcript's answer. */
+  <Message align="start" rhythm="transcript">
     <Bubble variant="ghost">
       <Text as="div" role="prose" {...(item.phase === 'commentary' ? { ink: 'secondary' as const } : {})}>
         <Markdown text={item.text} />

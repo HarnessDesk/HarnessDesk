@@ -415,6 +415,9 @@ body {
   --hd-bar-gap: var(--hd-space-1-5);
   /* Where a boxed control's edge sits. */
   --hd-bar-pad: var(--hd-space-2);
+  /* The sidebar's own row indent — `PaneColumn`'s `rail` inset, and what the
+     rail shares with the bar's own edge above. */
+  --hd-rail-inset: var(--hd-bar-pad);
   /* And where a label lands once a control has been composed: that inset, the
      control's own padding, and the hairline it reserves whether or not it
      paints one. A thing with no box of its own — a wordmark, a page title, a

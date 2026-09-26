@@ -173,6 +173,7 @@
 --hd-radius-sm = 6px
 --hd-radius-xl = 16px
 --hd-radius-xs = 4px
+--hd-rail-inset = 8px
 --hd-ring = rgb(52, 88, 240)
 --hd-ring-muted = rgb(52, 88, 240)
 --hd-ring-offset = 2px
@@ -639,6 +640,7 @@
 --hd-radius-sm = 6px
 --hd-radius-xl = 16px
 --hd-radius-xs = 4px
+--hd-rail-inset = 8px
 --hd-ring = rgb(112, 142, 250)
 --hd-ring-muted = rgb(112, 142, 250)
 --hd-ring-offset = 2px
@@ -1115,6 +1117,7 @@
 --hd-radius-sm = 6px
 --hd-radius-xl = 16px
 --hd-radius-xs = 4px
+--hd-rail-inset = 8px
 --hd-ring = rgb(52, 88, 240)
 --hd-ring-muted = color-mix(in srgb, rgb(52, 88, 240) 45%, transparent)
 --hd-ring-offset = 0px
@@ -1593,6 +1596,7 @@
 --hd-radius-sm = 6px
 --hd-radius-xl = 16px
 --hd-radius-xs = 4px
+--hd-rail-inset = 8px
 --hd-ring = rgb(112, 142, 250)
 --hd-ring-muted = color-mix(in srgb, rgb(112, 142, 250) 55%, transparent)
 --hd-ring-offset = 0px
