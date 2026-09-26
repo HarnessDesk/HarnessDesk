@@ -1344,15 +1344,22 @@ test('a Stop while a turn waits for a start seat ends it, and nothing is spawned
     const second = await runtime.createSession({ cwd: WORKDIR })
     await first.send([{ type: 'text', text: 'hold-start one' }])
     await second.send([{ type: 'text', text: 'never mind' }])
-    await pause(600)
+    // Waited for rather than slept on: under a loaded machine the first
+    // spawn can take longer than any fixed pause (#972). Once it is logged,
+    // a further moment with no second spawn is what "waiting" means.
+    const spawnedBy = Date.now() + 15_000
+    while (spawnsIn(log).length < 1 && Date.now() < spawnedBy) await pause(25)
+    await pause(300)
     assert.equal(spawnsIn(log).length, 1, 'the second is waiting behind the first')
-    const stoppedAt = Date.now()
     await second.interrupt()
     const stopped = completedTurn(
       await tape.until((event) => event.type === 'turn/completed' && String(event.sessionId) === String(second.id)),
     )
+    // "At once" is proved by the order, not by a clock: the only seat is held
+    // until the hold file below is written, and that happens after this
+    // completion — so a Stop that waited for a seat would never complete here.
+    // A wall-clock bound only measured the machine's load (#972).
     assert.equal(stopped.status, 'interrupted')
-    assert.ok(Date.now() - stoppedAt < 3000, 'the Stop was honoured at once, not when a seat came free')
     // The first finishes and hands its seat on — to nobody, because the
     // second turn is over. Nothing is spawned for it.
     writeFileSync(hold, 'go')

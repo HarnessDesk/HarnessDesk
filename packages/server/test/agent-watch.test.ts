@@ -60,6 +60,15 @@ const LONGEST_SETTLE_MS = 400
 const settled = () => pause(LONGEST_SETTLE_MS + 200)
 
 /**
+ * How long a watch gets to prove itself live before the test gives up. It is
+ * a ceiling, not a wait: `proveLive` returns the moment the watch reports.
+ * Five seconds was measured too short on a machine running several full
+ * verifies at once — FSEvents delivered late and a live watch read as a dead
+ * one (#972) — and a longer ceiling costs a passing run nothing.
+ */
+const PROVE_LIVE_MS = 20_000
+
+/**
  * Calls `touch` once, then polls for `isHeard` without touching again — a
  * burst does not need a second nudge to settle, only time — and only tries a
  * fresh `touch` once a full settle window has passed with nothing heard.
@@ -67,7 +76,7 @@ const settled = () => pause(LONGEST_SETTLE_MS + 200)
  * long "it is probably listening by now" should be — the guess is exactly
  * what let a dead watch and a live one both pass a later check in silence.
  */
-const proveLive = async (isHeard: () => boolean, touch: () => Promise<void>, what: string, ms = 5_000): Promise<void> => {
+const proveLive = async (isHeard: () => boolean, touch: () => Promise<void>, what: string, ms = PROVE_LIVE_MS): Promise<void> => {
   const end = Date.now() + ms
   for (;;) {
     await touch()
