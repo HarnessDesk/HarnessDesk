@@ -1,11 +1,20 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { RuntimeMark } from './BrandIcons'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { sessionKey, type SessionId } from '@harnessdesk/protocol'
 
-import { useRuntime, useRuntimeAccount, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
+import {
+  useIsFocusedPane,
+  usePane,
+  useRuntime,
+  useRuntimeAccount,
+  useRuntimeHealth,
+  useSessionKey,
+  useSnapshot,
+  useStore,
+} from '../state/context'
 import {
   ComposerNotice,
   NoticeCard,
@@ -19,7 +28,8 @@ import {
 import { describeLimits } from '../lib/limits'
 import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
-import { useShell } from '../panels/views'
+import { useShell, type ShellActions } from '../panels/views'
+import { focusedComposerVisible } from '../state/workbench'
 import { useImportOffer } from './ImportOffer'
 
 /**
@@ -36,7 +46,13 @@ export const Notices = () => {
     for (const notice of notices) {
       showToast(
         {
-          id: notice.id,
+          // A toast with an action is really about the thing it undoes — two
+          // archives in a row must leave two ways back — so it keeps a fresh
+          // id per occurrence. A plain toast's words are the whole story, so
+          // asking again for the identical words replaces the one already on
+          // screen instead of stacking a second beside it, which is what a
+          // deliberate retry of a failing action used to do.
+          id: notice.action ? notice.id : `${notice.level}:${notice.message}`,
           tone: TOAST_TONE[notice.level] ?? 'neutral',
           title: notice.message,
           ...(notice.action ? { action: { label: notice.action.label, onSelect: () => notice.action?.run() } } : {}),
@@ -46,6 +62,11 @@ export const Notices = () => {
       store.dismissNotice(notice.id)
     }
   }, [notices, store])
+
+  // Kept in the inbox from here, always mounted, rather than from wherever a
+  // composer happens to be: a board-only layout with no composer on screen
+  // at all must not be the reason a kind moved to "Inbox only" is never kept.
+  useKeepsStandingInInbox()
 
   return null
 }
@@ -96,6 +117,14 @@ interface Notice extends NoticeIdentity {
    * instruction went missing from the kept copy.
    */
   readonly inboxBody?: string
+  /**
+   * Somewhere a kept copy of this notice can send a person back to, resolved
+   * by `resolveOpen` when the inbox draws it — a sign-in target for an agent
+   * that is not signed in. Named the way `InboxEntry.open` already promises:
+   * a place the app knows how to go, not a callback that cannot survive a
+   * relaunch.
+   */
+  readonly inboxOpen?: string
 }
 
 /** The identity of a notice, without what it looks like. */
@@ -120,6 +149,8 @@ interface Standing {
   readonly identity: NoticeIdentity
   /** The plain-text form of `message.body`, for the inbox copy (see `Notice.inboxBody`). */
   readonly inboxBody?: string
+  /** See `Notice.inboxOpen`. */
+  readonly inboxOpen?: string
   readonly dismiss: () => void
   readonly mute?: () => void
 }
@@ -175,6 +206,9 @@ const useStanding = (): Standing | null => {
           'Sessions cannot start until an account is connected.'
         ),
         ...(!driveable && command ? { inboxBody: `Run ${command} in a terminal to connect an account.` } : {}),
+        // Kept in the inbox, this is somewhere to send a person back to sign
+        // in — the same runtime, whichever conversation reads the row.
+        ...(driveable ? { inboxOpen: `runtime:${runtime.id}:signin` } : {}),
       }
     }
     // What the agent this conversation talks to is up against, and somewhere
@@ -239,6 +273,7 @@ const useStanding = (): Standing | null => {
     },
     identity,
     ...(notice.inboxBody !== undefined ? { inboxBody: notice.inboxBody } : {}),
+    ...(notice.inboxOpen !== undefined ? { inboxOpen: notice.inboxOpen } : {}),
     dismiss: () => {
       if (notice.lifetime === 'session') setPutAway(notice.key)
       else store.dismissStanding(identity)
@@ -252,84 +287,6 @@ const placeOf = (policy: NoticePolicy, standing: Standing): NoticeSurface | null
   standing.identity.kind === 'link' ? 'strip' : surfaceFor(policy, standing.identity.kind)
 
 /**
- * Which outlets of one kind are on screen right now, so two things a global
- * condition would otherwise draw twice can agree on which one actually does.
- *
- * `ComposerNotices` mounts wherever a composer does — a conversation's own,
- * or a room's — and a mount is registered here the moment it exists, whether
- * or not it currently has anything to show: the strip's fallback (below)
- * cares that a composer surface *exists*, not that it is presently drawn.
- * `NoticeStripOutlet` mounts once per pane that needs a strip and once more
- * inside a room's composer, and a split can show both at once; only the
- * first one registered — the "leader" — actually renders the shared,
- * pane-independent messages (a standing condition, the import offer), so a
- * dropped link is said once, not once per outlet that happens to be mounted.
- *
- * Plain mutable state, read straight off at render time — not a
- * `useSyncExternalStore` the registry pushes updates through. A message here
- * is drawn or withheld beside a `useSnapshot()` read that already re-renders
- * on every relevant change (the standing condition, the notice policy, the
- * workbench layout), so this only ever has to be *correct by the next one of
- * those*, not independently reactive — a bar a coordination flag this rarely
- * wrong does not clear, and a store that pushed its own updates would add a
- * render of its own for every mount and unmount, which is exactly what once
- * pushed `NoticeStripOutlet` and `ComposerNotices` mounting together past the
- * ceiling `TeamRoomPane`'s "does not spin" test holds the app to.
- */
-const makeOutletRegistry = () => {
-  const ids: string[] = []
-  return {
-    mount: (id: string): void => {
-      if (!ids.includes(id)) ids.push(id)
-    },
-    unmount: (id: string): void => {
-      const at = ids.indexOf(id)
-      if (at !== -1) ids.splice(at, 1)
-    },
-    leader: (): string | null => ids[0] ?? null,
-    count: (): number => ids.length,
-  }
-}
-
-const composerOutlets = makeOutletRegistry()
-const stripOutlets = makeOutletRegistry()
-
-/**
- * Registers this component instance as one mount of the given outlet kind for
- * as long as it stays mounted.
- *
- * Registered from the render itself, guarded so one commit registers once,
- * rather than from an effect — the read this feeds (`leader`/`count`, below)
- * happens in that same render, so the registration has to already be in
- * place for it, not one render behind.
- */
-const useOutletRegistration = (registry: ReturnType<typeof makeOutletRegistry>): string => {
-  const id = useId()
-  const mounted = useRef(false)
-  if (!mounted.current) {
-    mounted.current = true
-    registry.mount(id)
-  }
-  useEffect(
-    () => () => {
-      registry.unmount(id)
-      mounted.current = false
-    },
-    [registry, id],
-  )
-  return id
-}
-
-/** Whether this mount is the one, among every outlet of this kind on screen, that should draw the shared messages. */
-const useIsLeaderOutlet = (registry: ReturnType<typeof makeOutletRegistry>): boolean => {
-  const id = useOutletRegistration(registry)
-  return registry.leader() === id
-}
-
-/** Whether a composer surface of either kind is mounted anywhere right now. */
-const useComposerMounted = (): boolean => composerOutlets.count() > 0
-
-/**
  * Keeps, once, a notice whose kind the person moved to "Inbox only". Keyed by
  * the notice's own key, so the same condition is one kept message however
  * often the window draws it, and it is not made unread again by redrawing.
@@ -338,14 +295,31 @@ const useComposerMounted = (): boolean => composerOutlets.count() > 0
  * from whether the inbox still holds the entry: the inbox is exactly the
  * thing a person can clear or read, and a policy read back from *that* would
  * put the message right back, unread, on the render after "Clear" — the same
- * standing condition being true is not news a second time. The key leaves
- * `kept` only when the occurrence itself does, which shows up as a new key.
+ * standing condition being true is not news a second time.
+ *
+ * `kept` does not empty itself on its own: `signin:<runtime>` and
+ * `health:<id>:<message>` are stable across occurrences — unlike a usage
+ * key, which carries its window — so nothing about a *second* sign-out would
+ * ever look like a new key. The second effect below clears the *previous*
+ * key the moment this one stops being it, which is what "the occurrence
+ * ended" looks like for a kind with no window of its own: signed back in,
+ * the failure cleared, or simply nothing to say any more. That is also why
+ * this runs once, from `Notices` (always mounted) and `SidebarNotices`, and
+ * not from `ComposerNotices`: a board-only layout with no composer on screen
+ * at all must not be the reason a message is never kept in the first place.
  *
  * `bodyText` carries the plain words for the inbox row when the message's own
  * body is markup (`NoticeMessage.body` is a `ReactNode`, and the inbox stores
- * a string) — see `Notice.inboxBody`.
+ * a string) — see `Notice.inboxBody`. `open` is somewhere the row can send a
+ * person back to — see `Notice.inboxOpen` and `resolveOpen`, below.
  */
-const useKeptOnce = (message: NoticeMessage | null, kind: string | null, place: NoticeSurface | null, bodyText?: string): void => {
+const useKeptOnce = (
+  message: NoticeMessage | null,
+  kind: string | null,
+  place: NoticeSurface | null,
+  bodyText?: string,
+  open?: string,
+): void => {
   const store = useStore()
   const policy = useSnapshot().noticePolicy
   const id = message?.id ?? null
@@ -355,35 +329,75 @@ const useKeptOnce = (message: NoticeMessage | null, kind: string | null, place: 
   const already = id !== null && wasKept(policy, id)
   useEffect(() => {
     if (place !== 'inbox' || id === null || title === null || already) return
-    store.keep({ id, ...(kind ? { kind } : {}), tone, title, ...(body ? { body } : {}), at: Date.now() })
+    store.keep({ id, ...(kind ? { kind } : {}), tone, title, ...(body ? { body } : {}), ...(open ? { open } : {}), at: Date.now() })
     store.markNoticeKept(id)
-  }, [place, id, title, body, tone, kind, already, store])
+  }, [place, id, title, body, tone, kind, open, already, store])
+
+  const previousId = useRef<string | null>(null)
+  useEffect(() => {
+    const before = previousId.current
+    if (before !== null && before !== id) store.clearNoticeKept(before)
+    previousId.current = id
+  }, [id, store])
 }
 
 /**
- * Above the composer: the standing condition, when the person's setting puts
- * it here, and any decision an Agent in this conversation is waiting on.
- * Mounted inside the composer's own frame, so nothing else is ever covered.
+ * Keeps the standing condition in the inbox when the person's setting is
+ * "Inbox only", from `Notices` — mounted once, always, at the app's root —
+ * rather than from wherever a composer happens to be. `ComposerNotices` only
+ * exists where a composer does, and a board-only layout with no composer on
+ * screen at all must not be the reason a message moved to the inbox is never
+ * kept there in the first place.
+ */
+const useKeepsStandingInInbox = (): void => {
+  const snapshot = useSnapshot()
+  const standing = useStanding()
+  const place = standing ? placeOf(snapshot.noticePolicy, standing) : null
+  useKeptOnce(standing?.message ?? null, standing?.identity.kind ?? null, place, standing?.inboxBody, standing?.inboxOpen)
+}
+
+/**
+ * Above the composer: the standing condition, when it belongs here and this
+ * is the composer focused right now, and any decision an Agent is asking of
+ * *this* composer's own audience. Mounted inside the composer's own frame,
+ * so nothing else is ever covered.
+ *
+ * "Focused right now" is `useIsFocusedPane` — `layout.focused` or the docked
+ * `workbench.focus`, whichever names the mount someone is actually working
+ * in — and it names exactly one mount in the whole window, ever. That is what
+ * keeps a standing condition, which is about the active agent as a whole and
+ * not any one conversation, from also turning up on a second composer beside
+ * this one in a split. A composer that is not focused draws nothing here for
+ * it, not even a fainter copy — see `NoticeStripOutlet` for what happens when
+ * the focused mount is not a composer at all, or is not visible.
+ *
+ * The audience for an Agent's own question is narrower still: a room's own
+ * seats for a room's composer (`pane.view.room`, read off the roster this
+ * project's board already keeps), a conversation's own session for a
+ * conversation's — never the window's `activeSessionKey`, which can name a
+ * *different* pane's conversation the moment two are open in a split.
  */
 export const ComposerNotices = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  // Registered on every mount, whether or not there is anything to show right
-  // now: the strip's fallback below asks whether a composer surface *exists*
-  // on screen, which is true the whole time a conversation's or a room's
-  // composer is, not only on the renders where it happens to hold a message.
-  useOutletRegistration(composerOutlets)
+  const pane = usePane()
+  const focused = useIsFocusedPane()
+  const sessionKeyOfPane = useSessionKey()
   const standing = useStanding()
   const place = standing ? placeOf(snapshot.noticePolicy, standing) : null
-  useKeptOnce(standing?.message ?? null, standing?.identity.kind ?? null, place, standing?.inboxBody)
-  const active = snapshot.activeSessionKey
-  const asking = snapshot.agentNotices.filter(
-    (notice) => active !== null && sessionKey(notice.from.runtime, notice.from.sessionId as SessionId) === active,
-  )
-  if ((place !== 'composer' || !standing) && asking.length === 0) return null
+  const showStanding = focused && place === 'composer' && standing !== null
+  const room = pane?.view.kind === 'room' ? pane.view.room : null
+  const members = room !== null ? (snapshot.teams.get(room)?.members ?? []) : null
+  const asking = snapshot.agentNotices.filter((notice) => {
+    const from = sessionKey(notice.from.runtime, notice.from.sessionId as SessionId)
+    return members !== null ? members.includes(from) : sessionKeyOfPane !== null && from === sessionKeyOfPane
+  })
+  if (!showStanding && asking.length === 0) return null
   return (
     <>
-      {place === 'composer' && standing ? <ComposerNotice message={standing.message} onDismiss={standing.dismiss} onMute={standing.mute} /> : null}
+      {showStanding && standing ? (
+        <ComposerNotice message={standing.message} onDismiss={standing.dismiss} onMute={standing.mute} />
+      ) : null}
       {asking.map((notice) => {
         const sender = snapshot.runtimes.find((info) => info.id === notice.from.runtime)
         return (
@@ -404,27 +418,31 @@ export const ComposerNotices = () => {
   )
 }
 
-/** The slim strip above the panes: a dropped link, and whatever the person moved here. */
-export const NoticeStripOutlet = () => {
+/**
+ * The slim strip above the panes: a dropped link, and whatever the person
+ * moved here — drawn only where `host` says the layout has chosen it.
+ *
+ * `host` is passed in by each caller from pure layout state (`mainNoticeHost`
+ * for a pane in the split tree, `noticeArea` directly for a docked panel), so
+ * "which outlet draws the shared messages" is decided the same way for every
+ * render rather than raced for at mount time — a caller that is not the
+ * layout's answer renders nothing here, ever, not even for one frame.
+ */
+export const NoticeStripOutlet = ({ host }: { readonly host: boolean }) => {
   const snapshot = useSnapshot()
   const standing = useStanding()
   const offer = useImportOffer()
-  // A split can mount this outlet more than once at a time — a room's
-  // composer draws its own beside a pane that needs one for lack of a header
-  // — and every mount would otherwise mirror the same global condition. Only
-  // the leader draws; the rest stay silent so the message is said once.
-  const isLeader = useIsLeaderOutlet(stripOutlets)
-  const composerMounted = useComposerMounted()
+  if (!host) return null
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
   if (standing) {
     const place = placeOf(snapshot.noticePolicy, standing)
-    // A kind that belongs on the composer still has to reach someone: when no
-    // composer of either kind is on screen to carry it — a board-only layout,
-    // a folder that is gone where the composer would be, a zoomed dock, the
-    // narrow window's overlay — the strip is the fallback rather than the
-    // message going unseen.
-    if (place === 'strip' || (place === 'composer' && !composerMounted)) {
+    // A kind that belongs on the composer still has to reach someone: when
+    // the focused mount is not a composer that is actually visible — a
+    // board-only layout, a folder that is gone where the composer would be,
+    // a zoomed dock, the narrow window's overlay — the strip this outlet
+    // hosts is the fallback rather than the message going unseen.
+    if (place === 'strip' || (place === 'composer' && !focusedComposerVisible(snapshot.workbench, snapshot.narrowWindow))) {
       messages.push(standing.message)
       dismissals.set(standing.message.id, standing.dismiss)
     }
@@ -433,7 +451,7 @@ export const NoticeStripOutlet = () => {
     messages.push(offer.message)
     dismissals.set(offer.message.id, offer.dismiss)
   }
-  if (!isLeader || messages.length === 0) return null
+  if (messages.length === 0) return null
   return (
     <NoticeStrip
       messages={messages}
@@ -449,7 +467,9 @@ export const SidebarNotices = () => {
   const snapshot = useSnapshot()
   const offer = useImportOffer()
   const offerPlace = surfaceFor(snapshot.noticePolicy, 'import:offer')
-  useKeptOnce(offer?.message ?? null, 'import:offer', offerPlace)
+  // The Library is where the offer sends a person back, whether they act on
+  // it now from the card or later from the kept copy in the inbox.
+  useKeptOnce(offer?.message ?? null, 'import:offer', offerPlace, undefined, 'settings:library')
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
   if (offer && offerPlace === 'card') {
@@ -475,11 +495,33 @@ export const SidebarNotices = () => {
  * The kept messages as the inbox draws them: the sender's name and mark on
  * the card, and "Start as a task" for a task one suggests.
  */
+/**
+ * What a kept notice's `open` means, in the words the shell already knows how
+ * to act on — `InboxEntry.open` promises "a place the app knows how to go (a
+ * settings page, a Goal)"; this is where that promise is kept for the two
+ * places `useKeptOnce` currently sends one: the Library, and an agent's own
+ * sign-in. A session is not spelled this way — `from` already resolves that,
+ * more specifically, below — so this is only ever consulted when `from` did
+ * not answer.
+ */
+const resolveOpen = (shell: ShellActions, open: string): (() => void) | null => {
+  if (open === 'settings:library') return () => shell.reviewImports()
+  const signin = /^runtime:(.+):signin$/.exec(open)
+  if (signin) return () => shell.signIn(signin[1] as RuntimeId)
+  return null
+}
+
 export const useInboxMessages = (): InboxMessage[] => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const shell = useShell()
   return snapshot.inbox.map((entry) => {
     const sender = entry.from ? snapshot.runtimes.find((info) => info.id === entry.from?.runtime) : undefined
+    const sessionGo =
+      sender && entry.from
+        ? () => void store.openSession(entry.from!.sessionId as SessionId, { runtime: sender.id })
+        : null
+    const go = sessionGo ?? (entry.open ? resolveOpen(shell, entry.open) : null)
     return {
       id: entry.id,
       tone: entry.tone,
@@ -489,9 +531,7 @@ export const useInboxMessages = (): InboxMessage[] => {
       read: entry.read,
       ...(entry.from ? { from: entry.from.name } : {}),
       ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
-      ...(sender && entry.from
-        ? { go: () => void store.openSession(entry.from!.sessionId as SessionId, { runtime: sender.id }) }
-        : {}),
+      ...(go ? { go } : {}),
       ...(entry.task ? { action: { label: 'Start as a task', onSelect: () => void store.startSuggestedTask(entry.id) } } : {}),
     }
   })

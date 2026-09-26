@@ -193,6 +193,17 @@ export const withKept = (policy: NoticePolicy, key: string): NoticePolicy =>
   policy.kept.includes(key) ? policy : { ...policy, kept: [...policy.kept, key].slice(-KEPT_LIMIT) }
 
 /**
+ * Forgets that a key was copied into the inbox — called the moment a
+ * standing notice moves on to a different key (or none), which for a kind
+ * whose key carries no window of its own (`signin:<runtime>`,
+ * `health:<id>:<message>`) is the only way "the occurrence ended" ever shows
+ * up. Without this, signing out a second time would find its own key still
+ * marked kept from the first, and never be copied into the inbox again.
+ */
+export const withoutKept = (policy: NoticePolicy, key: string): NoticePolicy =>
+  policy.kept.includes(key) ? { ...policy, kept: policy.kept.filter((entry) => entry !== key) } : policy
+
+/**
  * Whether this message's dismiss control should also offer to silence it.
  *
  * Only for conditions: an offer is already answered for good by its own

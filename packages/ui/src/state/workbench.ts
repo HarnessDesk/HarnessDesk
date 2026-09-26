@@ -14,6 +14,7 @@ import {
   show as showInPane,
   type InspectorKind,
   type Layout,
+  type LayoutNode,
   type PaneId,
   type PaneView,
   type TerminalView,
@@ -926,6 +927,46 @@ export const noticeArea = (workbench: Workbench, narrow: boolean): 'main' | 'rig
   if (zoom !== null && zoom.area !== 'main') return zoom.area === 'sidebar' ? null : zoom.area
   if (narrow && rightPanelDrawn(workbench)) return 'right'
   return 'main'
+}
+
+/** The split tree's own leaf, one level down at a time — the pane a fresh split's first half already is. */
+const firstPane = (node: LayoutNode): PaneId => (node.kind === 'pane' ? node.id : firstPane(node.first))
+
+/**
+ * Which pane, in the split tree, is `noticeArea`'s answer when that answer is
+ * `'main'` — the expanded pane if one has taken the split's room (the only
+ * pane then on screen), and otherwise the tree's own first leaf.
+ *
+ * `null` when `noticeArea` answers anything else: the strip then belongs to
+ * a dock (`right`/`bottom`), or to nobody (a zoomed sidebar), and no pane in
+ * the split tree is the one carrying it.
+ */
+export const mainNoticeHost = (workbench: Workbench, narrow: boolean): PaneId | null =>
+  noticeArea(workbench, narrow) === 'main' ? (workbench.main.expanded ?? firstPane(workbench.main.root)) : null
+
+/**
+ * Whether the pane or panel someone is focused on right now shows a composer
+ * — a conversation with a session, or a room — and is actually on screen,
+ * not merely mounted behind a zoom or the narrow window's main-area overlay.
+ *
+ * `focusedMount` names exactly one mount in the whole window, so "the
+ * composer that happens to be focused" is the one place a standing condition
+ * can go without a second copy of it turning up somewhere else. When that
+ * mount is not a composer, or is not visible, there is no composer to carry
+ * it, and `NoticeStripOutlet`'s fallback takes over instead.
+ */
+export const focusedComposerVisible = (workbench: Workbench, narrow: boolean): boolean => {
+  const id = focusedMount(workbench)
+  const area = areaOfMount(workbench, id)
+  if (!areaVisible(workbench, area)) return false
+  // A right panel drawn over the whole main area in a narrow window makes the
+  // conversation behind it unreachable — `inert` in `Workbench.tsx` — even
+  // though `areaVisible` still calls `main` on screen, since nothing there is
+  // zoomed. That is a second way to be covered `areaVisible` does not know.
+  if (area === 'main' && narrow && rightPanelDrawn(workbench)) return false
+  const view = area === 'main' ? findPane(workbench.main, id)?.view : mountedView(workbench, id)?.view
+  if (!view) return false
+  return view.kind === 'room' || (view.kind === 'conversation' && view.session !== null)
 }
 
 // ------------------------------------------------------------- invariants

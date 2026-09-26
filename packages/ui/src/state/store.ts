@@ -147,6 +147,7 @@ import {
   surfaceFor,
   withKept,
   withMuted,
+  withoutKept,
   withSurface,
 } from '../lib/notice-policy'
 
@@ -6176,6 +6177,16 @@ export class AppStore {
   }
 
   /**
+   * Forgets that a key was kept, once the standing notice under it has moved
+   * on to a different key or to none — see `withoutKept` for why a kind whose
+   * key never changes between occurrences needs this rather than relying on
+   * a fresh key to do it.
+   */
+  clearNoticeKept(key: string): void {
+    this.#setNoticePolicy(withoutKept(this.#snapshot.noticePolicy, key))
+  }
+
+  /**
    * Keeps a message in the inbox. Whoever raises a message worth reading later
    * sends it here — a kind moved to "Inbox only", a Goal that finished while
    * nobody was watching. The same id replaces its earlier copy, unread again.
@@ -6295,7 +6306,8 @@ export class AppStore {
       // A person asked again: the identical toast is replaced by a fresh one,
       // never swallowed by `notice`'s repeat window and never stacked.
       const others = this.#snapshot.notices.filter((entry) => entry.level !== level || entry.message !== message || entry.action)
-      if (others.length !== this.#snapshot.notices.length) this.#patch({ notices: others })      // The repeat window is kept apart from the list now (`#lastToast`), so
+      if (others.length !== this.#snapshot.notices.length) this.#patch({ notices: others })
+      // The repeat window is kept apart from the list now (`#lastToast`), so
       // asking again has to clear it too, or the fresh toast is swallowed.
       if (this.#lastToast?.level === level && this.#lastToast.message === message) this.#lastToast = null
     }
@@ -6325,7 +6337,11 @@ export class AppStore {
     if (!action && last && last.level === level && last.message === message && now - last.at < 5000) {
       return
     }
-    this.#lastToast = { level, message, at: now }
+    // Only a plain toast sets the record the check above reads: an action
+    // toast is already exempt from being suppressed by it, and letting one
+    // set the record anyway would make a *later* plain toast with the same
+    // words look like a repeat of an action toast it has nothing to do with.
+    if (!action) this.#lastToast = { level, message, at: now }
     const notice: Notice = {
       id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
       level,

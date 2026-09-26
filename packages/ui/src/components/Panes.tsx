@@ -15,7 +15,7 @@ import { PanelActions } from '../panels/PanelActions'
 import { ViewHost, useViewTitle, views } from '../panels/views'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import { sessionOf, type LayoutNode, type Pane as PaneNode, type Split } from '../state/layout'
-import { noticeArea } from '../state/workbench'
+import { mainNoticeHost } from '../state/workbench'
 import styles from './Panes.module.css'
 
 /**
@@ -37,10 +37,12 @@ import styles from './Panes.module.css'
 
 export const Panes = () => {
   const snapshot = useSnapshot()
-  const host =
-    noticeArea(snapshot.workbench, snapshot.narrowWindow) === 'main'
-      ? (snapshot.layout.expanded ?? primaryPaneId(snapshot.layout.root))
-      : null
+  // The pane the strip above the panes rides (`NoticeStripOutlet`), while the
+  // main area hosts it — `null` whenever it does not, because a dock or
+  // nobody is hosting it instead. `mainNoticeHost` is pure layout state, so
+  // this is the one place a pane is chosen, never a mount racing another for
+  // the title.
+  const host = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow)
   return (
     <div className={styles.root}>
       <Node node={snapshot.layout.root} primary={host} />
@@ -54,19 +56,6 @@ export const Panes = () => {
  */
 const needsStrip = (view: PaneNode['view']): boolean =>
   view.kind !== 'conversation' && views.get(view.kind)?.ownsChrome !== true
-
-/**
- * The pane the strip above the panes rides (`NoticeStripOutlet`, below) while
- * the main area hosts it (`noticeArea`): the expanded pane when one has taken
- * the split's room — the only pane then on screen — and otherwise the split
- * tree's own first leaf, one level down at a time. Never whichever pane
- * happens to have focus, which a click into a docked browser pane would
- * otherwise hand the marker to, moving the overlap it exists to prevent onto
- * the conversation instead of removing it. The same leaf a fresh split's own
- * first half already is, so opening a second pane beside the primary one
- * never moves the marker at all.
- */
-const primaryPaneId = (node: LayoutNode): string => (node.kind === 'pane' ? node.id : primaryPaneId(node.first))
 
 const Node = ({ node, primary }: { node: LayoutNode; primary: string | null }) =>
   node.kind === 'pane' ? <PaneView pane={node} primary={primary} /> : <SplitView split={node} primary={primary} />
@@ -120,7 +109,7 @@ const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string | null })
           {/* The notice strip, for a view with no header of its own: under the
               pane's bar, in the primary pane only. A conversation draws its
               strip above its own composer instead, below its own header. */}
-          {needsStrip(pane.view) && pane.id === primary && <NoticeStripOutlet />}
+          {needsStrip(pane.view) && pane.id === primary && <NoticeStripOutlet host />}
           <div className={styles.screen}>
             <ViewHost view={pane.view} />
           </div>

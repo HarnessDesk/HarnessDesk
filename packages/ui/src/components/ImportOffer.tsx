@@ -53,13 +53,12 @@ const kindNoun = (kind: string): string =>
 /**
  * One detection, shared by every mounted caller.
  *
- * `useImportOffer` is called from `SidebarNotices`, every `NoticeStripOutlet`
- * and `ComposerNotices` — a split with a room beside a conversation mounts
- * several at once — and each used to run its own `runtime/imports/detect`
- * the moment it rendered. The scan reads every other agent's configuration on
- * disk, so five callers meant five passes over the same files for one
- * answer. This runs it once per `(runtime, folder)` and every caller reads
- * the same result back.
+ * `useImportOffer` is called from `SidebarNotices` and every `NoticeStripOutlet`
+ * — a split can mount more than one strip outlet at once — and each used to
+ * run its own `runtime/imports/detect` the moment it rendered. The scan reads
+ * every other agent's configuration on disk, so several callers meant several
+ * passes over the same files for one answer. This runs it once per
+ * `(runtime, folder)` and every caller reads the same result back.
  */
 interface ImportCache {
   readonly key: string
