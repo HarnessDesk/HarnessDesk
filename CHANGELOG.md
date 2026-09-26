@@ -7,6 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The Dashboard shows when the work ran.** A new "When it ran" band draws a
+  year as a calendar heatmap — Year or By agent, Tokens or Cost — with the
+  active days, the current and best streak, and the busiest day beside it. A
+  day before the ledger has scanned that far reads as unknown, not empty.
+
 - **A flow Seat's question waits for you.** On a run you started, a Seat's
   question is no longer cut off after twenty seconds: it waits for your
   answer. In a Goal a trigger opened, it waits as long as **Settings ›
