@@ -71,7 +71,7 @@ export const sessionMethods = {
     // gateway address reaches the adapter.
     // `attachments` is the host's own, like `route`: a Seat's approved filter
     // is set by `agent/seat` alone, never by whoever calls this.
-    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = params.options as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
       routeId?: string
     }
     let options = rest as typeof params.options
@@ -87,7 +87,7 @@ export const sessionMethods = {
   'session/resume': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, knownCwd: _clientKnownCwd, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>
@@ -138,15 +138,21 @@ export const sessionMethods = {
         ? await (async (): Promise<AgentSession | null> => {
             try {
               const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
+              // In the host-only field: the adapter never reads a caller's
+              // `cwd` in its place, so only this record can name the folder.
               return await runtime.resumeSession(sessionId, {
                 ...options,
-                cwd: knownCwd,
+                knownCwd,
                 ...(environment ? { environment } : {}),
               })
-            } catch {
-              // Falls through to the same refusal the first attempt gave —
-              // naming the seat's own known folder is a better error than
-              // the listing's, but this is not the place to invent a third.
+            } catch (retryError) {
+              // The Seat's own folder is gone: that is the news, with the
+              // state and the row mark it draws — not the listing's sentence.
+              if (isFolderGone(retryError)) {
+                throw new SessionFolderGoneError(ctx.sessions.cannotReopen(runtime, retryError), folderGoneOf(retryError))
+              }
+              // Anything else falls through to the same refusal the first
+              // attempt gave; this is not the place to invent a third.
               return null
             }
           })()
@@ -183,7 +189,7 @@ export const sessionMethods = {
   'session/fork': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, knownCwd: _clientKnownCwd, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>

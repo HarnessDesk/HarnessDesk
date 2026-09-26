@@ -2018,13 +2018,18 @@ export class AppStore {
            the whole of the original complaint: one deleted worktree, three
            members, three identical toasts. */
         const text = describe(error)
-        // Said once per conversation for as long as it keeps failing the same
-        // way — cleared above the moment it reopens — rather than once per
-        // retry: a Seat's rail polling a conversation the agent does not list
-        // yet stacked this sentence once per poll otherwise.
-        if (this.#lastResumeRefusal.get(key) !== text) {
+        // An automatic retry — a room's rail opening a Seat's conversation
+        // nobody clicked (`reveal: false`) — says a refusal once per
+        // conversation for as long as it keeps failing the same way, cleared
+        // above the moment it reopens: polling a conversation the agent does
+        // not list yet stacked this sentence once per poll otherwise. A
+        // person's own open always gets an answer: the same sentence still on
+        // screen is refreshed rather than dropped, and one they dismissed is
+        // said again, because an empty pane that says nothing reads as a hang.
+        const automatic = options.reveal === false
+        if (!automatic || this.#lastResumeRefusal.get(key) !== text) {
           this.#lastResumeRefusal.set(key, text)
-          this.#backgroundNotice('error', text)
+          this.#backgroundNotice('error', text, { refresh: !automatic })
         }
       }
     } finally {
@@ -2224,8 +2229,9 @@ export class AppStore {
    * A gone folder gets a durable fact keyed on the folder (`foldersGone`),
    * which is what stops the identical-toast pile-up for it. This refusal has
    * nowhere as stable to live — the folder is fine, only the agent's word
-   * about this one conversation is stale — so it is deduped here instead: one
-   * toast per distinct message per conversation, cleared the moment that
+   * about this one conversation is stale — so an automatic retry is deduped
+   * here instead (a person's own open never is): one toast per distinct
+   * message per conversation, cleared the moment that
    * conversation actually reopens, so a later, genuinely new failure still
    * gets its own. Without this, a room's rail retrying a Seat's still-loading
    * conversation stacked the same sentence once per retry (measured: three
@@ -6140,8 +6146,14 @@ export class AppStore {
    * telling the user it is down, in which case the banner and the empty
    * state say it better than a toast full of transport jargon would.
    */
-  #backgroundNotice(level: NoticeLevel, message: string): void {
+  #backgroundNotice(level: NoticeLevel, message: string, how: { readonly refresh?: boolean } = {}): void {
     if (this.#snapshot.health && this.#snapshot.health.state !== 'ready') return
+    if (how.refresh) {
+      // A person asked again: the identical toast is replaced by a fresh one,
+      // never swallowed by `notice`'s repeat window and never stacked.
+      const others = this.#snapshot.notices.filter((entry) => entry.level !== level || entry.message !== message || entry.action)
+      if (others.length !== this.#snapshot.notices.length) this.#patch({ notices: others })
+    }
     this.notice(level, message)
   }
 

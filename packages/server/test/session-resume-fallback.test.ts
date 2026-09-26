@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import {
   runtimeId,
   sessionId,
+  SessionFolderGoneError,
   SessionGoneError,
   type AgentRuntime,
   type AgentSession,
@@ -95,7 +96,7 @@ test("a flow Seat's own recorded folder resumes a conversation its agent does no
     seatCwd: KNOWN_CWD,
     resumeSession: async (_id, opts) => {
       calls.push(opts)
-      if (opts.cwd === KNOWN_CWD) return fakeSession(KNOWN_CWD)
+      if (opts.knownCwd === KNOWN_CWD) return fakeSession(KNOWN_CWD)
       throw doesNotList()
     },
   })
@@ -103,10 +104,66 @@ test("a flow Seat's own recorded folder resumes a conversation its agent does no
   const result = await sessionMethods['session/resume'](ctx, { runtime: RUNTIME, sessionId: SESSION })
 
   assert.equal(result.cwd, KNOWN_CWD)
-  // Asked twice: once plain (refused), once with the Seat's own known folder.
+  // Asked twice: once plain (refused), once with the Seat's own known folder,
+  // in the host-only field the adapter reads — never as `cwd`, which a
+  // caller on the wire can also write.
   assert.equal(calls.length, 2)
-  assert.equal(calls[0]!.cwd, undefined)
-  assert.equal(calls[1]!.cwd, KNOWN_CWD)
+  assert.equal(calls[0]!.knownCwd, undefined)
+  assert.equal(calls[1]!.knownCwd, KNOWN_CWD)
+})
+
+/** Mimics the ACP adapter: `knownCwd` is trusted, a caller's `cwd` is not. */
+const adapterLike = (calls: Array<Record<string, unknown>>) => async (_id: SessionId, opts: Record<string, unknown>) => {
+  calls.push(opts)
+  if (typeof opts.knownCwd === 'string') return fakeSession(opts.knownCwd)
+  throw doesNotList()
+}
+
+test('a renderer-supplied folder never opens a conversation that is not a Seat', async () => {
+  const calls: Array<Record<string, unknown>> = []
+  const ctx = contextFor({ seatCwd: null, resumeSession: adapterLike(calls) })
+
+  await assert.rejects(
+    sessionMethods['session/resume'](ctx, { runtime: RUNTIME, sessionId: SESSION, options: { cwd: '/' } }),
+    (error: Error & { wireCode?: string }) => {
+      assert.equal(error.wireCode, 'sessionGone')
+      assert.match(error.message, /does not list conversation/)
+      return true
+    },
+  )
+  assert.equal(calls.length, 1, 'never retried: there is no Seat record to retry on')
+  assert.ok(calls.every((opts) => opts.knownCwd === undefined))
+})
+
+test("a caller's own `knownCwd` is stripped before the runtime sees it, Seat or not", async () => {
+  for (const seatCwd of [null, KNOWN_CWD]) {
+    const calls: Array<Record<string, unknown>> = []
+    const ctx = contextFor({ seatCwd, resumeSession: adapterLike(calls) })
+    const forged = { runtime: RUNTIME, sessionId: SESSION, options: { knownCwd: '/' } } as unknown as Parameters<(typeof sessionMethods)['session/resume']>[1]
+    await sessionMethods['session/resume'](ctx, forged).catch(() => null)
+    assert.equal(calls[0]!.knownCwd, undefined)
+    // A Seat still opens — but only ever on its own recorded folder.
+    if (seatCwd) assert.equal(calls[1]!.knownCwd, KNOWN_CWD)
+    else assert.equal(calls.length, 1)
+  }
+})
+
+test("a Seat whose recorded folder is gone says so, rather than repeating the listing's sentence", async () => {
+  const ctx = contextFor({
+    seatCwd: KNOWN_CWD,
+    resumeSession: async (_id, opts) => {
+      if (opts.knownCwd === KNOWN_CWD) throw new SessionFolderGoneError('Antigravity cannot open this conversation: its folder no longer exists.', KNOWN_CWD)
+      throw doesNotList()
+    },
+  })
+
+  await assert.rejects(
+    sessionMethods['session/resume'](ctx, { runtime: RUNTIME, sessionId: SESSION }),
+    (error: Error & { wireCode?: string }) => {
+      assert.equal(error.wireCode, 'sessionFolderGone')
+      return true
+    },
+  )
 })
 
 test('with no Seat record, the same refusal is thrown — never a folder invented for it', async () => {
@@ -135,7 +192,7 @@ test('a second, different refusal from the Seat-cwd retry falls through to the o
   const ctx = contextFor({
     seatCwd: KNOWN_CWD,
     resumeSession: async (_id, opts) => {
-      if (opts.cwd === KNOWN_CWD) throw new Error('the folder no longer exists')
+      if (opts.knownCwd === KNOWN_CWD) throw new Error('the agent is not running')
       throw doesNotList()
     },
   })

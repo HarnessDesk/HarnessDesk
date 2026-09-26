@@ -59,14 +59,40 @@ describe('reopening a conversation the agent still does not list', () => {
     expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([SAID])
   })
 
-  it('does not stack a second identical toast for the same still-unresolved refusal', async () => {
+  it('does not stack a second identical toast for the same still-unresolved automatic retry', async () => {
     // The measured case: a room's rail keeps trying to open a Seat's
-    // conversation as it works, and each try met the same "does not list
-    // conversation" refusal — three toasts before, one now.
+    // conversation as it works (`reveal: false` — nobody asked), and each try
+    // met the same "does not list conversation" refusal — three toasts
+    // before, one now.
+    await store.openSession(ID, { runtime: RUNTIME, reveal: false })
+    await store.openSession(ID, { runtime: RUNTIME, reveal: false })
+    await store.openSession(ID, { runtime: RUNTIME, reveal: false })
+    expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([SAID])
+  })
+
+  it('stays quiet on an automatic retry after a person already saw the refusal', async () => {
     await store.openSession(ID, { runtime: RUNTIME })
+    await store.openSession(ID, { runtime: RUNTIME, reveal: false })
+    expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([SAID])
+  })
+
+  it('answers a deliberate second click after the first toast was dismissed', async () => {
+    // A person clicking the same failing row again must hear back: the first
+    // toast is gone, and an empty pane that says nothing reads as a hang.
     await store.openSession(ID, { runtime: RUNTIME })
+    const [first] = store.getSnapshot().notices
+    store.dismissNotice(first!.id)
     await store.openSession(ID, { runtime: RUNTIME })
     expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([SAID])
+  })
+
+  it('refreshes the toast still on screen on a deliberate second click, rather than stacking or dropping it', async () => {
+    await store.openSession(ID, { runtime: RUNTIME })
+    const [first] = store.getSnapshot().notices
+    await store.openSession(ID, { runtime: RUNTIME })
+    const notices = store.getSnapshot().notices
+    expect(notices.map((notice) => notice.message)).toEqual([SAID])
+    expect(notices[0]!.id).not.toBe(first!.id)
   })
 
   it('still toasts a genuinely different refusal', async () => {
@@ -79,17 +105,17 @@ describe('reopening a conversation the agent still does not list', () => {
     ])
   })
 
-  it('toasts again once the conversation opens and then fails the same way a second time', async () => {
+  it('an automatic retry toasts again once the conversation opens and then fails the same way a second time', async () => {
     // Time moves on between the two toasts — `notice()`'s own five-second
     // window for a merely fast repeat is a different rule from this one,
     // which is about a refusal that never resolved in between.
-    await store.openSession(ID, { runtime: RUNTIME })
+    await store.openSession(ID, { runtime: RUNTIME, reveal: false })
     delete refusals['session/resume']
     answers['session/resume'] = session('s-1')
     const later = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10_000)
-    await store.openSession(ID, { runtime: RUNTIME })
+    await store.openSession(ID, { runtime: RUNTIME, reveal: false })
     refusals['session/resume'] = sessionGone()
-    await store.openSession(ID, { runtime: RUNTIME })
+    await store.openSession(ID, { runtime: RUNTIME, reveal: false })
     later.mockRestore()
     expect(store.getSnapshot().notices.map((notice) => notice.message)).toEqual([SAID, SAID])
   })
