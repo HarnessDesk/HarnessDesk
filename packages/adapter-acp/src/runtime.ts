@@ -2853,10 +2853,24 @@ interface AcpSessionPage {
  */
 const LISTING_PAGE_LIMIT = 1000
 
-/** Antigravity labels an unnamed conversation `Session <id>` in its store. */
+/**
+ * Antigravity labels an unnamed conversation `Session <id>` in its store —
+ * but the id it embeds is not always `row.sessionId` in full. Measured on the
+ * real, signed-in binary: a session HarnessDesk knows as
+ * `a5b55539-b2f3-415b-8dc0-6546bb707217` came back titled `Session
+ * a5b55539` — only the first UUID segment. An exact `===` against the whole
+ * id only ever matched a placeholder shaped like the fixture's own, so the
+ * short form passed through as if it were a real name and drew "Session
+ * a5b55539" on the board and in the sidebar. Matched as a prefix instead,
+ * case-insensitively, so either shape is caught.
+ */
 const titleOf = (row: AcpSessionRow, runtimeId: string): string | null => {
   const title = row.title?.trim() ?? ''
-  const antigravityPlaceholder = runtimeId === 'antigravity-acp' && title === `Session ${row.sessionId}`
+  const placeholderId = /^Session ([A-Za-z0-9-]+)$/.exec(title)?.[1] ?? null
+  const antigravityPlaceholder =
+    runtimeId === 'antigravity-acp' &&
+    placeholderId !== null &&
+    row.sessionId.toLowerCase().startsWith(placeholderId.toLowerCase())
   return title !== '' && !antigravityPlaceholder ? title : null
 }
 

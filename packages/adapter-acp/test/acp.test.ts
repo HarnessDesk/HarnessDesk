@@ -1588,6 +1588,49 @@ test('an ACP placeholder title leaves the opening ask available to the sidebar (
   }
 })
 
+test('an ACP placeholder title using Antigravity\'s own short id is still recognized', async (t) => {
+  // Measured on the real, signed-in Antigravity binary (2026-09-25, recording
+  // UC3): its own store stamped an unnamed session's title as `Session
+  // a5b55539` while HarnessDesk's own id for that same session was the full
+  // `a5b55539-b2f3-415b-8dc0-6546bb707217` — only the first UUID segment, not
+  // `row.sessionId` in full. The `===` check this guards against only ever
+  // matched the full-id shape the fake agent below produces by default, so
+  // the placeholder was never recognized and "Session a5b55539" leaked onto
+  // the board and the sidebar as if it were a real conversation name.
+  const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-acp-placeholder-short-id-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = join(dir, 'store.json')
+  const runtime = new AcpRuntime({
+    id: 'antigravity-acp',
+    name: 'Antigravity',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_STORE: store },
+  })
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: dir })
+    await session.send([{ type: 'text', text: 'Review the refill fix' }])
+    await tape.until((event) => event.type === 'turn/completed')
+
+    const saved = JSON.parse(await readFile(store, 'utf8')) as Record<string, { title: string }>
+    const shortId = String(session.id).split('-')[0]
+    saved[String(session.id)]!.title = `Session ${shortId}`
+    await writeFile(store, JSON.stringify(saved))
+
+    const row = (await runtime.listSessions()).data.find((entry) => entry.id === session.id)
+    assert.ok(row)
+    assert.equal(row.title, null, 'the truncated machine placeholder is not a conversation name either')
+    assert.equal(row.preview, 'Review the refill fix')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a non-Antigravity ACP title keeps a matching session-shaped name', async (t) => {
   const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
