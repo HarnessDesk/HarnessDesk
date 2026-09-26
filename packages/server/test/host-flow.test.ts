@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { BackgroundTask, FlowRun, GoalView, Session, SessionQueue, TeamState, WrapPreview } from '@harnessdesk/protocol'
+import type { BackgroundTask, FlowRun, GoalReceipt, GoalView, Session, SessionQueue, TeamState, WrapPreview } from '@harnessdesk/protocol'
 
 import { reportedProvider } from '../src/host.js'
 import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
@@ -214,26 +214,20 @@ test('wrapped or restored Goal cannot dispatch', async (t) => {
   }
   assert.equal(board.intents.length, 1, 'the run’s one card is on the Goal')
   const choices = { summary: 'Stopped by hand.', cards: board.intents.map((card) => ({ id: card.id, resolution: 'dropped' as const, reason: 'The run was stopped.' })) }
-  // `goal/wrap` re-reads the Goal itself and refuses a stamp that no longer
-  // matches — by design, the same refusal a person clears by asking for a
-  // fresh receipt (`This Goal changed while you reviewed its receipt.`).
-  // What the stopped run's own turn left behind (a fact recorded, a lane
-  // released) can still be settling in the gap between one call and the
-  // next, so under load a preview and the wrap right after it can
-  // legitimately straddle a change neither call did anything wrong to miss.
-  // Retried here on that one refusal, with a fresh preview each time, rather
-  // than assumed never to happen — anything else still fails at once.
-  const staleStamp = 'This Goal changed while you reviewed its receipt. Review it again.'
-  const wrapDeadline = Date.now() + 5_000
-  for (;;) {
-    const preview = await client.call('goal/preview', { goal, choices }) as WrapPreview
-    try {
-      await client.call('goal/wrap', { goal, stamp: preview.stamp, choices })
-      break
-    } catch (error) {
-      if (!(error instanceof Error) || error.message !== staleStamp || Date.now() > wrapDeadline) throw error
-    }
-  }
+  const preview = await client.call('goal/preview', { goal, choices }) as WrapPreview
+  const receipt = await client.call('goal/wrap', { goal, stamp: preview.stamp, choices }) as GoalReceipt
+  // The stopped Seat's turn had already ended, and its answer's own write to
+  // the transcript store is only ever scheduled, never awaited by the turn
+  // itself — so the receipt this wrap committed must still carry what the
+  // Seat actually said, not the gap a read that outran that write would
+  // otherwise leave behind (`Transcripts.enrich` settles the write first).
+  assert.equal(receipt.answers.length, 1, 'the stopped Seat’s answer is on the receipt')
+  assert.notEqual(receipt.answers[0]!.text.trim(), '', 'the Seat’s actual answer is recorded, not empty')
+  assert.equal(
+    receipt.gaps.some((gap) => gap.includes('has no recorded answer')),
+    false,
+    'no gap claims the Seat’s answer is missing',
+  )
   const sessions = harness.runtime.sessions.size
   const turns = client.events.filter((event) => event.type === 'turn/started').length
   const channel = (await client.call('team/state', { room: goal }) as TeamState).channel.length
