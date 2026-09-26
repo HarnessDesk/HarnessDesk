@@ -421,6 +421,21 @@ const RowBoard = () => {
           />
           {!folded && <RowButton title="dev" desc="dev@example.com" onClick={() => {}} />}
         </Rows>
+        <SectionHead name="A row with its one action" />
+        <Rows data-catalog-case="row-action">
+          <RowButton
+            mark={<TerminalIcon size={15} />}
+            title={<Text role="subject">Codex</Text>}
+            desc="dev@example.com"
+            onClick={() => {}}
+          />
+          <RowButton
+            mark={<TerminalIcon size={15} />}
+            title={<Text role="subject">Qwen Code</Text>}
+            onClick={() => {}}
+            action={<Button size="sm" variant="default">Sign in</Button>}
+          />
+        </Rows>
         <Checkbox
           data-catalog-case="checkbox-label"
           checked={picked}
