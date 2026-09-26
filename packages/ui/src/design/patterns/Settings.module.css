@@ -1392,6 +1392,13 @@
   height: 22px;
 }
 
+/* The account's ring and nothing inside it: the colour that names this
+   account everywhere else, on a line whose agent a heading already drew. */
+.avatarDot {
+  width: 10px;
+  height: 10px;
+}
+
 /* A person's face (`Face`): the same plate, squared. A person is not an
    account — account marks are rings — and the avatars were drawn as squared
    tiles. The corner steps up the radius scale with the size, so one object

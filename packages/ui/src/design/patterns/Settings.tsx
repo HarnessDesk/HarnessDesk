@@ -1295,12 +1295,13 @@ export const AccountMark = ({
   ...props
 }: HTMLAttributes<HTMLElement> & {
   as?: 'span' | 'button'
-  size?: 'sm' | 'lg'
+  /** `dot` is the account's colour alone, for a line whose owner is already drawn. */
+  size?: 'sm' | 'lg' | 'dot'
   children: ReactNode
 }) => createElement(as, {
   ...props,
   ...(as === 'button' ? { type: 'button' } : {}),
-  className: cx(styles.avatar, as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, className),
+  className: cx(styles.avatar, as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, className),
 }, children)
 
 export const FileButton = ({
