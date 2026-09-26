@@ -83,6 +83,14 @@ test('one foundation perturbation reaches unrelated surfaces, portals, and adapt
   const popup = page.locator('[data-slot="popover-popup"]')
   await expect(popup).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Open workspace' })).toBeVisible()
+  // The seat menu's account anatomy, as the catalogue shows it: an agent's
+  // accounts under its heading (the group is named by it), and a folded
+  // default that is the one current row, its other accounts not yet open.
+  const accounts = popup.getByRole('group', { name: 'Claude Code' })
+  await expect(accounts.getByRole('menuitem')).toHaveCount(2)
+  const folded = popup.locator('[role="menuitem"][aria-current="true"]')
+  await expect(folded).toHaveCount(1)
+  await expect(folded).toHaveAttribute('aria-expanded', 'false')
   await expect.poll(() => page.getByRole('menuitem', { name: 'Open workspace' }).evaluate(node => {
     let opacity = 1
     for (let element: Element | null = node; element; element = element.parentElement) opacity *= Number(getComputedStyle(element).opacity)

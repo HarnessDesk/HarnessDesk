@@ -50,7 +50,7 @@ import {
   store,
 } from './harness'
 import { PublicationCard } from '../components/Publication'
-import { PREVIEW_ROOT } from './sidebar-fixture'
+import { denseTurns, PREVIEW_ROOT } from './sidebar-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
@@ -66,6 +66,11 @@ const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer'
    the composer frames above before they were gated the same way. Only on
    `preview.html?empty`, for the same reason. */
 const SHOW_EMPTY = new URLSearchParams(window.location.search).has('empty')
+/* The conversation map's own long transcript, swapped in for `s1` rather than
+   given a session of its own — the map is the one thing on the page that
+   reads differently with dozens of turns instead of one, and every other
+   fixture on this screen still wants the ordinary short exchange. */
+const SHOW_DENSE = new URLSearchParams(window.location.search).has('dense')
 /* Painted only when asked for: the fixture draws its two pictures at load. */
 const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
@@ -73,6 +78,45 @@ const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
 previewMutable.patch({ captureHealth: new Map([[PROVENANCE_ROOT, captureHealth()]]) })
+if (SHOW_DENSE) {
+  const key = sessionKey(runtimeId('codex'), 's1' as never)
+  const session = store.getSnapshot().sessions.get(key)
+  if (session) previewMutable.patch({ sessions: new Map(store.getSnapshot().sessions).set(key, { ...session, turns: denseTurns }) })
+}
+
+/**
+ * A real streaming turn, for the one thing only a browser can answer:
+ * whether the auto-scroll that follows it can undo a reader's own release
+ * before the frame is out (#983 round 1). Appends one chunk to the
+ * conversation's own last turn every `intervalMs`, exactly as a live agent's
+ * items arrive, so `Conversation.tsx`'s real `onScroll` and layout effect run
+ * on real growth and a real native `scroll` event — jsdom fires neither.
+ * `e2e/ui-system/transcript-follow.spec.ts` is the one caller.
+ */
+;(window as unknown as { __hdStreamPreview: (chunks: number, intervalMs: number) => Promise<void> }).__hdStreamPreview =
+  async (chunks: number, intervalMs: number): Promise<void> => {
+    const snapshot = store.getSnapshot()
+    const target = snapshot.sessions.get(PREVIEW_SESSION_KEY)
+    if (!target) throw new Error('[preview] no session at PREVIEW_SESSION_KEY to stream into')
+    const turnIndex = target.turns.length - 1
+    const turn = target.turns[turnIndex] as { id: string; items: readonly unknown[] }
+    // Grown locally rather than re-read each tick: the turn's own identity
+    // and status stay exactly what the fixture gave them, so this is the one
+    // thing changing — new items landing — not a second, confounding change
+    // this test does not care about.
+    let items = turn.items.slice()
+    for (let index = 0; index < chunks; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+      items = [...items, { id: `stream-${index}`, type: 'assistantMessage', text: `streamed chunk ${index}` }]
+      const currentSnapshot = store.getSnapshot()
+      const currentSession = currentSnapshot.sessions.get(PREVIEW_SESSION_KEY)!
+      const turns = currentSession.turns.slice()
+      turns[turnIndex] = { ...turn, items } as never
+      const sessions = new Map(currentSnapshot.sessions)
+      sessions.set(PREVIEW_SESSION_KEY, { ...currentSession, turns } as never)
+      previewMutable.patch({ sessions })
+    }
+  }
 Object.assign(store as unknown as Record<string, unknown>, {
   readProvenance: async () => ({ project: PROVENANCE_ROOT, revision: 1, health: captureHealth(), commits: [previewProvenance] }),
   readProvenanceSeat: async () => ({ seat: null, session: previewProvenance.seats[0]!.session, unavailable: 'The historical Seat record is unavailable.' }),

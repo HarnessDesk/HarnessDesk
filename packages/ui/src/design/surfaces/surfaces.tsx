@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+
+import type { Session } from '@harnessdesk/protocol'
 
 import { BrowserPane } from '../../components/BrowserPane'
 import { Composer } from '../../components/Composer'
@@ -15,8 +17,9 @@ import { MountProvider } from '../../panels/mount'
 import { Workbench } from '../../panels/Workbench'
 import { dock, emptyWorkbench } from '../../state/workbench'
 import { PaneProvider } from '../../state/context'
+import type { AppStore } from '../../state/store'
 import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../preview/harness'
-import { PREVIEW_ROOT } from '../../preview/sidebar-fixture'
+import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
 import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
 import styles from './surfaces.module.css'
 
@@ -59,32 +62,280 @@ const Frame = ({
 )
 
 /**
+ * A store whose `s1` session carries a status or an approval the fixture's
+ * own does not, built from a fresh default store rather than the shared one
+ * `previewStore()` exports — so a failed case here cannot leave the module's
+ * own `store` failed for every other board that imports it.
+ */
+const conversationStatusStore = (over: { status?: unknown; approvals?: unknown }): AppStore => {
+  const base = previewStore().getSnapshot()
+  const sessions = new Map(base.sessions)
+  const session = sessions.get(PREVIEW_SESSION_KEY)
+  if (over.status !== undefined && session) sessions.set(PREVIEW_SESSION_KEY, { ...session, status: over.status } as never)
+  return previewStore({
+    sessions,
+    ...(over.approvals !== undefined ? { approvals: over.approvals as never } : {}),
+  } as never)
+}
+
+const RUNNING_STORE = conversationStatusStore({ status: { type: 'active' } })
+const FAILED_STORE = conversationStatusStore({ status: { type: 'error' } })
+const WAITING_STORE = conversationStatusStore({
+  approvals: [{
+    key: PREVIEW_SESSION_KEY,
+    approval: {
+      id: 'catalog-waiting-approval', type: 'command', kind: 'shell', command: 'pnpm test',
+      cwd: PREVIEW_ROOT, reason: 'Runs the project’s tests before the review is written.',
+      options: [
+        { id: 'yes', label: 'Allow', intent: 'approve' },
+        { id: 'always', label: 'Allow for this session', intent: 'approveAlways' },
+        { id: 'no', label: 'Deny', intent: 'deny' },
+      ],
+    },
+  }],
+})
+
+/**
+ * One header case: a caption naming what it proves, a frame cropped to the
+ * bar's own height (or, for the phone case, the header's own width) so the
+ * catalogue reads as a row of states rather than six repeats of the whole
+ * transcript, and a `data-testid` a browser spec can reach directly rather
+ * than searching the tab for the Nth header.
+ */
+const HeaderCase = ({
+  id,
+  label,
+  width,
+  children,
+}: {
+  id: string
+  label: string
+  width?: number
+  children: ReactNode
+}) => (
+  <div className={styles.headerCase} data-testid={id}>
+    <span className={styles.headerCaseLabel}>{label}</span>
+    <div className={styles.frame} data-height="header" style={width ? { width } : undefined}>
+      {children}
+    </div>
+  </div>
+)
+
+/**
  * The conversation, scoped exactly the way the workbench scopes it.
  *
  * `PaneProvider` is not decoration here: the transcript reads its session from
  * the pane, and the composer under it asks whether its pane has focus. Mount
  * it without one and you are looking at a branch the app never shows.
+ *
+ * Below the full conversation, the header alone, in the states the fixture
+ * above cannot show at once: idle (with the ceiling chip its own settings
+ * already carry), running with its brand dot, waiting for an approval,
+ * failed, the ceiling chip named on its own, and the phone-width fold. Each
+ * still mounts the real `Conversation` — only the frame around it is
+ * shorter, or narrower, than the one above.
  */
 export const ConversationSurface = () => (
-  <Mount>
-    <Frame height="page">
-      <PaneProvider
-        scope={{
-          paneId: 'design' as never,
-          view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
-          sessionKey: PREVIEW_SESSION_KEY,
-        }}
-      >
-        <Conversation
-          onChooseProject={() => {}}
-          onSignIn={() => {}}
-          onOpenUsage={() => {}}
-          onOpenRuntimes={() => {}}
-        />
-      </PaneProvider>
-    </Frame>
-  </Mount>
+  <>
+    <Mount>
+      <Frame height="page">
+        <PaneProvider
+          scope={{
+            paneId: 'design' as never,
+            view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+            sessionKey: PREVIEW_SESSION_KEY,
+          }}
+        >
+          <Conversation
+            onChooseProject={() => {}}
+            onSignIn={() => {}}
+            onOpenUsage={() => {}}
+            onOpenRuntimes={() => {}}
+          />
+        </PaneProvider>
+      </Frame>
+    </Mount>
+    <div className={styles.headerCases}>
+      <HeaderCase id="conversation-header-idle" label="Idle">
+        <Mount>
+          <PaneProvider
+            scope={{
+              paneId: 'design-idle' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-ceiling" label="Ceiling chip (Read · held)">
+        <Mount>
+          <PaneProvider
+            scope={{
+              paneId: 'design-ceiling' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-running" label="Running — neutral pill, brand dot">
+        <Mount with={RUNNING_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-running' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-waiting" label="Waiting for you">
+        <Mount with={WAITING_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-waiting' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-failed" label="Failed">
+        <Mount with={FAILED_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-failed' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-narrow" label="Phone width (≤400px container)" width={360}>
+        <Mount>
+          <PaneProvider
+            scope={{
+              paneId: 'design-narrow' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+    </div>
+  </>
 )
+
+/**
+ * A store of its own — `ConversationSurface`'s one turn never overflows, so
+ * the rail it mounts stays hidden, and the shared default store cannot be
+ * patched in place without moving that tab's own conversation out from under
+ * it. `denseTurns` is the same fixture `?dense` gives the browser spec: 14
+ * exchanges, long enough on their own to overflow a page-height frame without
+ * any help.
+ */
+const denseSession = { ...previewSession, turns: denseTurns } as unknown as Session
+
+/**
+ * The conversation map at the pitch a real transcript reads at.
+ *
+ * `ConversationSurface`, above, has one exchange — two marks, the rail's
+ * loosest case. Here there are fourteen: enough for the ~8px ruler the rail
+ * only becomes once a transcript is actually long, rather than the wide
+ * chip-like dashes two marks alone would still draw at this same width.
+ */
+export const ConversationMapDenseSurface = () => (
+  <div data-testid="conversation-map-dense">
+    <Mount with={previewStore({ sessions: new Map([[PREVIEW_SESSION_KEY, denseSession]]) })}>
+      <Frame height="page">
+        <PaneProvider
+          scope={{
+            paneId: 'design-map-dense' as never,
+            view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+            sessionKey: PREVIEW_SESSION_KEY,
+          }}
+        >
+          <Conversation
+            onChooseProject={() => {}}
+            onSignIn={() => {}}
+            onOpenUsage={() => {}}
+            onOpenRuntimes={() => {}}
+          />
+        </PaneProvider>
+      </Frame>
+    </Mount>
+  </div>
+)
+
+/**
+ * The same dense transcript with the rail's own preview already open.
+ *
+ * Not a hover stood in by hand: a real `.focus()` right after mount, which
+ * the rail already treats as the keyboard's — a script-driven focus with no
+ * pointer interaction just before it matches `:focus-visible` the same way
+ * Tab does — so this is a state the rail genuinely has, caught rather than
+ * staged. Press Escape to close it, or Up/Down to move it, the same as
+ * anywhere else the rail shows up.
+ */
+export const ConversationMapPreviewOpenSurface = () => {
+  const scope = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // The rail draws nothing until its own effect has measured the scroller
+    // and found it overflows, a tick or two after this one mounts — so the
+    // nav is not there to focus yet on the first pass. A short-lived
+    // observer catches it the moment it is.
+    const found = scope.current?.querySelector<HTMLElement>('nav[aria-label="Jump to a message"]')
+    if (found) {
+      found.focus()
+      return
+    }
+    const node = scope.current
+    if (!node) return
+    const observer = new MutationObserver(() => {
+      const rail = node.querySelector<HTMLElement>('nav[aria-label="Jump to a message"]')
+      if (rail) {
+        rail.focus()
+        observer.disconnect()
+      }
+    })
+    observer.observe(node, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <div ref={scope} data-testid="conversation-map-preview-open">
+      <Mount with={previewStore({ sessions: new Map([[PREVIEW_SESSION_KEY, denseSession]]) })}>
+        <Frame height="page">
+          <PaneProvider
+            scope={{
+              paneId: 'design-map-preview' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation
+              onChooseProject={() => {}}
+              onSignIn={() => {}}
+              onOpenUsage={() => {}}
+              onOpenRuntimes={() => {}}
+            />
+          </PaneProvider>
+        </Frame>
+      </Mount>
+    </div>
+  )
+}
 
 /**
  * The composer alone, at the width the conversation column gives it.
@@ -118,6 +369,54 @@ export const ComposerSurface = () => (
  */
 export const RailSurface = () => (
   <Mount>
+    <Frame height="page">
+      <div className={`${styles.beside} h-full`}>
+        <Sidebar
+          onOpenSettings={() => {}}
+          onOpenPlugins={() => {}}
+          onOpenAgents={() => {}}
+          onOpenUsage={() => {}}
+          onBrowseFolders={() => {}}
+          onSignIn={() => {}}
+          onSearch={() => {}}
+        />
+        <div className={styles.work} />
+      </div>
+    </Frame>
+  </Mount>
+)
+
+/**
+ * A flow's Seats in the left bar: three of one role, one per agent, all
+ * titled by the role — and one of them in a folder that has since gone.
+ *
+ * The role is the title every Seat of it carries, so at the default compact
+ * density nothing but the agent tells the three rows apart. That name is a
+ * word, so it is a chip on the title's own line, drawn only where rows from
+ * more than one agent share a title — the untouched rows below show none.
+ * The third Seat's worktree was deleted, so its row also wears the gone-folder
+ * mark on the right rail. Seeded on a store of its own so the shared fixture
+ * the other surfaces and `/preview.html` read is left as it is.
+ */
+const seatOf = (from: number, id: string, runtime: string) => ({
+  ...previewHistory[from]!,
+  id: id as never,
+  runtime: runtime as never,
+  title: 'Code reviewer',
+})
+const seatsHistory = [
+  seatOf(0, 'seat-review-alpha', 'codex'),
+  seatOf(1, 'seat-review-beta', 'claude'),
+  seatOf(2, 'seat-review-gamma', 'cursor'),
+  ...previewHistory.slice(5, 7),
+]
+const seatRowsStore = previewStore({
+  history: seatsHistory,
+  foldersGone: new Map([[previewHistory[2]!.cwd, 'This folder no longer exists.']]),
+})
+
+export const SeatRowsSurface = () => (
+  <Mount with={seatRowsStore}>
     <Frame height="page">
       <div className={`${styles.beside} h-full`}>
         <Sidebar

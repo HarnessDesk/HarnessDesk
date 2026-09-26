@@ -1752,7 +1752,7 @@ export class AcpRuntime implements AgentRuntime {
       // takes the agent's rather than falling back to the first thing the
       // user typed: one conversation, one name, in both windows.
       for (const row of rows) {
-        const title = titleOf(row, this.info.id)
+        const title = titleOf(row)
         if (title) this.#titles.set(makeSessionId(row.sessionId), title)
         // The ask a conversation opened with, for the same reason: a session
         // loaded here has no turns of its own to take one from — the agent
@@ -1775,7 +1775,7 @@ export class AcpRuntime implements AgentRuntime {
           (row): SessionSummary => ({
             id: makeSessionId(row.sessionId),
             runtime: this.info.id,
-            title: titleOf(row, this.info.id),
+            title: titleOf(row),
             // What the conversation opened with, for the rows an agent
             // leaves unnamed — the same split a live session has, where the
             // title is the agent's name and the preview is the ask.
@@ -2333,7 +2333,15 @@ export class AcpRuntime implements AgentRuntime {
       // before its response returns, so the session must exist — in replay mode,
       // folding updates into history turns without emitting live events — from
       // the moment the request is sent.
-      const cwd = await this.#cwdOf(id)
+      //
+      // The host's own record of the folder — a flow Seat's checkout, passed
+      // as the host-only `knownCwd` the wire refuses — is trusted over asking
+      // the agent. A Seat's conversation is not always in the listing yet:
+      // an agent was measured not answering `session/list` for a just-opened
+      // Seat still inside its first turn. `cwd` is never read here: a resume's
+      // `cwd` can come from whoever called, and a folder a caller names is
+      // exactly the open-root risk `#cwdOf`'s listing-only rule refuses.
+      const cwd = options.knownCwd ?? (await this.#cwdOf(id))
       // A stored session names the folder it ran in, and loading it starts the
       // agent there. Once that folder is deleted the spawn fails deep inside the
       // agent and comes back as a bare "Internal error" that names nothing —
@@ -2877,11 +2885,28 @@ interface AcpSessionPage {
  */
 const LISTING_PAGE_LIMIT = 1000
 
-/** Antigravity labels an unnamed conversation `Session <id>` in its store. */
-const titleOf = (row: AcpSessionRow, runtimeId: string): string | null => {
+/**
+ * A title that is only the conversation's own id — `Session <id>` — names
+ * nothing, whichever agent wrote it: Antigravity stamps one on every unnamed
+ * conversation in its store. Recognised by shape, never by which agent is
+ * running (rule 8). The id it embeds is not always `row.sessionId` in full:
+ * measured on the real, signed-in binary, a session known here as
+ * `a5b55539-b2f3-415b-8dc0-6546bb707217` came back titled `Session
+ * a5b55539` — only the first UUID segment. So the whole id matches, and so
+ * does its first segment when that segment is a full UUID one (eight hex
+ * characters); a shorter prefix (`Session 1`) is somebody's name.
+ */
+const isIdPlaceholder = (title: string, sessionId: string): boolean => {
+  const named = /^Session (\S+)$/.exec(title)?.[1]?.toLowerCase()
+  if (!named) return false
+  const id = sessionId.toLowerCase()
+  const head = id.split('-')[0] ?? ''
+  return named === id || (named === head && /^[0-9a-f]{8}$/.test(head))
+}
+
+const titleOf = (row: AcpSessionRow): string | null => {
   const title = row.title?.trim() ?? ''
-  const antigravityPlaceholder = runtimeId === 'antigravity-acp' && title === `Session ${row.sessionId}`
-  return title !== '' && !antigravityPlaceholder ? title : null
+  return title !== '' && !isIdPlaceholder(title, row.sessionId) ? title : null
 }
 
 const textOf = (block: AcpContentBlock): string => (block.type === 'text' ? block.text : '')

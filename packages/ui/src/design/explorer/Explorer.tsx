@@ -28,10 +28,13 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
 const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
 const DashboardSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.DashboardSurface })))
 const ConversationSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationSurface })))
+const ConversationMapDenseSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapDenseSurface })))
+const ConversationMapPreviewOpenSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapPreviewOpenSurface })))
 const GitSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GitSurface })))
 const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GroupSurface })))
 const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
 const RailSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RailSurface })))
+const SeatRowsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SeatRowsSurface })))
 const ToolsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ToolsSurface })))
 const SignInSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SignInSurface })))
 import { FOUNDATIONS, TOKEN_GROUPS, tokenVisual, useResolvedTokens } from './foundation'
@@ -133,6 +136,20 @@ const SURFACES = [
     render: ConversationSurface,
   },
   {
+    id: 'conversation-map-dense',
+    title: 'Conversation · map, dense',
+    about:
+      'The shipped conversation map on a fourteen-exchange transcript — the rail at the ~8px pitch a real transcript reads at, dense enough to overflow this frame on its own. Hover a dash for its preview, or press Tab then Up/Down.',
+    render: ConversationMapDenseSurface,
+  },
+  {
+    id: 'conversation-map-preview-open',
+    title: 'Conversation · map, preview open',
+    about:
+      'The same dense transcript with the rail focused on mount, so its preview is already open — the state Tab puts it in, caught rather than staged. Press Escape to close it, or Up/Down to move it.',
+    render: ConversationMapPreviewOpenSurface,
+  },
+  {
     id: 'composer',
     title: 'Composer',
     about:
@@ -145,6 +162,13 @@ const SURFACES = [
     about:
       'The sidebar at the density it actually stands at, inside a frame the width of a window — because the whole question about a rail is how much attention it takes from the work beside it, and a rail alone on a white page always looks fine.',
     render: RailSurface,
+  },
+  {
+    id: 'seat-rows',
+    title: 'Seats in the left bar',
+    about:
+      'Three Seats of one role, one per agent, all titled by the role — at compact density the agent is a chip on the title line, drawn only where rows from more than one agent share a title. The third Seat ran in a worktree that is gone, so its row also wears the gone-folder mark.',
+    render: SeatRowsSurface,
   },
   {
     id: 'git',
