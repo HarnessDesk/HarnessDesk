@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Cursor's work now shows in what it cost and where it went, from every
+  machine on the account.** Cursor keeps no local transcript, so it used to
+  contribute nothing to the ledger. Its own per-request usage events —
+  account-wide, covering every machine signed in — now sync in, so the
+  Dashboard can show its tokens, its requests, and Value at the tokens' own
+  list-price estimate.
+
 - **A review's `against` can no longer wedge a Goal's findings ledger forever.**
   `record_review` used to accept any string in `against`, but the ledger's own
   reader has always required each one to be a full commit id — so a candidate

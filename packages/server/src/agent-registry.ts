@@ -836,4 +836,6 @@ export interface AgentUsageBinding {
   readonly corpus?: import('./ledger/scan.js').CorpusKind
   /** Where the corpus is, when the agent's own environment moved it. */
   readonly root?: string
+  /** A ledger source that lives on a server rather than a local file — Cursor's usage events. */
+  readonly remote?: import('./ledger/remote.js').RemoteEventsSource
 }
