@@ -52,6 +52,7 @@ import {
   Lightbox,
   ListRowDetail,
   Message,
+  MessageContent,
   MessageFooter,
   Note,
   Separator,
@@ -575,8 +576,16 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
           })}
         </div>
       )}
-      {text.length > 0 && <UserText text={text} />}
-      {text.length > 0 && <UserMessageFooter text={text} at={item.startedAt ?? sentAt} />}
+      {text.length > 0 && (
+        // The surface and its footer, in the same MessageContent the room's
+        // own body and trouble line stand in — genuine structure, not a
+        // second box. `items-end` keeps both pinned to the row's own right
+        // edge; the gap replaces the row's own, so the rhythm holds.
+        <MessageContent className="items-end gap-(--hd-space-1-5)">
+          <UserText text={text} />
+          <UserMessageFooter text={text} at={item.startedAt ?? sentAt} />
+        </MessageContent>
+      )}
     </Message>
   )
 }
