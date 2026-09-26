@@ -954,8 +954,15 @@ const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
     return args === null || args === undefined ? null : <CodeBlock output={JSON.stringify(args, null, 2)} />
   }
   // The same test the receipt and the grouping use for "is a plan write".
+  // `planOf` answers `null` for "not a plan" and `[]` for "a plan write with
+  // nothing left in it" — an all-cancelled or explicitly cleared plan — and
+  // an empty array is truthy in JS, so a plain `if (argTodos)` opened a
+  // Checklist card with no rows in it for exactly that call.
   const argTodos = planOf(args)
-  if (argTodos) return <PlanSteps todos={argTodos} />
+  if (argTodos !== null) {
+    if (argTodos.length > 0) return <PlanSteps todos={argTodos} />
+    return <Note ink="muted">Cleared the plan.</Note>
+  }
   const entries = Object.entries(args as Record<string, unknown>)
   if (entries.length === 0) return null
   return (
