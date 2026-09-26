@@ -1130,6 +1130,11 @@ export class Host {
       confine: (root) => this.#confineRoom(root),
     }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
+      presentationOf: (runtime) => this.#runtimes.get(runtime)?.info.presentation.name ?? null,
+      // `info.provider` is `undefined` only for a runtime with no provider
+      // reader configured at all (see `AcpRuntime`'s three-valued field);
+      // `null` still means "has one, could not rule an override out."
+      canReadProvider: (runtime) => this.#runtimes.get(runtime)?.info.provider !== undefined,
       openSeat: async (input) => {
         const record = await this.#goals.seat(input)
         // A trigger Goal's Seat starts its meter here — once durable, never awaited inside the run's queue.
@@ -1476,6 +1481,7 @@ export class Host {
         return project ? { project, busy: isBusy(held) } : null
       },
       claimable: (goal: string, card: number, session) => this.#goalClaimable(goal, card, session.runtime, session.sessionId),
+      overlap: (goal: string, card: number, session) => this.#team.refuseOverlap(goal, this.#goalIntents(goal), card, session.runtime, session.sessionId),
       // A truly plain conversation (never kept as any Agent's Seat) has
       // nothing to adopt falsely — `opening` below hands it `agent: null`
       // either way, so it is not "loose" in the sense this check exists for.
@@ -2603,6 +2609,8 @@ export class Host {
       return dependency !== undefined && dependency.state !== 'done'
     })
     if (waits) return false
+    // A card whose paths overlap a live claim is not claimable, exactly as `claim` refuses it for an agent.
+    if (this.#team.refuseOverlap(goal, intents, card, runtime, sessionId) !== null) return false
     return !intents.some((one) =>
       one.id !== card && one.state === 'claimed' && one.claim?.runtime === runtime && one.claim.sessionId === sessionId,
     )
@@ -2706,6 +2714,10 @@ export class Host {
       if (!current) throw new Error('Choose an existing card.')
       if (current.state === 'claimed' && current.claim?.runtime === runtime && current.claim.sessionId === sessionId) return intents
       if (!this.#claimableIn(intents, goal, card, runtime, sessionId)) {
+        /* A file conflict says which paths, and which card holds them: the
+           person reading the stalled run has to know what to untangle. */
+        const overlap = this.#team.refuseOverlap(goal, intents, card, runtime, sessionId)
+        if (overlap) throw new Error(`Refused: ${overlap}`)
         throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
       }
       const at = Date.now()
@@ -2955,8 +2967,14 @@ export class Host {
       }
     }
     const executions = this.#flows.executionsFor(goal)
-    const steps = board.intents.flatMap((intent) => intent.state !== 'done' && intent.state !== 'abandoned' &&
-      flowStepOf(intent, undefined, executions)?.kind === 'person' ? [{ card: intent.id, title: intent.title }] : [])
+    // An unanswered card only needs its person while the run that opened it
+    // is still asking (`live`) — a settled or stopped run is asking nothing
+    // more, so answering it would do nothing.
+    const steps = board.intents.flatMap((intent) => {
+      if (intent.state === 'done' || intent.state === 'abandoned') return []
+      const step = flowStepOf(intent, undefined, executions)
+      return step?.kind === 'person' && step.live ? [{ card: intent.id, title: intent.title }] : []
+    })
     const postings: { key: string; reason: string }[] = []
     for (const run of executions.filter((one) => one.intake)) {
       for (const entry of Object.values(this.#flows.publicationOf(run.id)?.ops ?? {})) {

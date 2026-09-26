@@ -73,7 +73,7 @@ export {
   type TextProps,
   type TextRole,
 } from './patterns/Settings'
-export { Button, buttonVariants } from './ui/button'
+export { Button, buttonVariants, buttonEdge } from './ui/button'
 export { DisclosureChevron } from './ui/disclosure-chevron'
 export { Input } from './ui/input'
 export { Textarea } from './ui/textarea'
@@ -190,4 +190,5 @@ export {
 } from './patterns/ChannelMessage'
 export { AgentCard, CardBand, CardCrest, CardCrestBody, CardShell, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
+export { Checklist, ChecklistItem, type ChecklistState } from './patterns/Checklist'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'

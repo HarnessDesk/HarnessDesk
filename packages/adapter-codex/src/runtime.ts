@@ -90,7 +90,7 @@ import { CodexSession } from './session.js'
 import { ApprovalRouter } from './approvals.js'
 import { holderOf, isBusyRefusal, sessionStoreOf } from './writer-lock.js'
 import { codexEnvironmentConfig } from './lane-environment.js'
-import { codexProvider } from './provider.js'
+import { codexProvider, launchOverridesProvider } from './provider.js'
 
 /**
  * `AgentRuntime` over `codex app-server`.
@@ -384,10 +384,13 @@ export class CodexRuntime implements AgentRuntime {
   /**
    * OpenAI's, from Codex's own configuration, or unknown when anything it is
    * started with could point it elsewhere — a `-c` override naming a
-   * provider or base URL included. See `codexProvider`.
+   * provider, a base URL, or a profile selection included, since a launch
+   * override this reader cannot see the content of can pick a different
+   * profile as easily as `config.toml`'s own `profile` key can. See
+   * `codexProvider`.
    */
   async #resolveProvider(cwd?: string): Promise<string | null> {
-    if (this.#launch.overrides.some((one) => /model_provider|base_url/.test(one))) return null
+    if (launchOverridesProvider(this.#launch.overrides)) return null
     return codexProvider(this.#codexHome, this.#launch.env, cwd)
   }
 

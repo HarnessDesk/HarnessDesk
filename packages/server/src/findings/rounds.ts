@@ -22,6 +22,8 @@ export interface LoopSample {
   readonly reviewComplete: boolean
   readonly freshGuards: boolean
   readonly pendingException: boolean
+  /** The round closing is a plain one — no review series counts it — so a ceiling there names the budget, not a count of findings. */
+  readonly plain?: boolean
 }
 
 export interface LoopDecision {
@@ -45,7 +47,9 @@ export function decideLoop(sample: LoopSample): LoopDecision {
   } else if (sample.pendingException) {
     reason = 'Review the new regression or security finding before continuing.'
   } else if (sample.closed >= sample.limit) {
-    reason = `Round ${sample.closed} ended with ${sample.unresolved} open findings.`
+    reason = sample.plain
+      ? `This run reached its limit of ${sample.limit} round${sample.limit === 1 ? '' : 's'}.`
+      : `Round ${sample.closed} ended with ${sample.unresolved} open findings.`
   } else if (idle >= sample.idleLimit) {
     reason = `${idle} rounds ended without new evidence.`
   }

@@ -272,6 +272,8 @@ export interface FlowPreviewSeat {
   readonly agent: string | null
   readonly plan: SeatPlan
   readonly isolate: boolean
+  /** Whether this Seat is there to review, as the server decides it (`reviewsIn`): its round is a review series's round. */
+  readonly reviews: boolean
 }
 
 /**

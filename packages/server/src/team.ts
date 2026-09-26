@@ -641,15 +641,54 @@ const leadOf = (pattern: string): PatternLead => {
   return { raw, lead, isGlob: true }
 }
 
-const overlaps = (a: string, b: string): boolean => {
-  const first = leadOf(a)
-  const second = leadOf(b)
+/*
+ * Compared case-folded. On a case-insensitive volume — the default on macOS
+ * and Windows — `src/UI` and `src/ui` are one folder, and reading them as two
+ * would let two claims own it at once. Folding can only ever find more
+ * overlap, never less, which is the safe side for a rule that keeps agents
+ * apart.
+ */
+export const overlaps = (a: string, b: string): boolean => {
+  const first = leadOf(a.toLowerCase())
+  const second = leadOf(b.toLowerCase())
   if (first.lead === '' || second.lead === '') return true
   if (first.lead === second.lead) return true
   if (first.lead.startsWith(`${second.lead}/`) || second.lead.startsWith(`${first.lead}/`)) return true
   if (first.isGlob && second.lead.startsWith(first.raw)) return true
   if (second.isGlob && first.lead.startsWith(second.raw)) return true
   return false
+}
+
+/** The most lists a split may name, and the most paths in one list: a round is at most 32 cards. */
+const SPLIT_LIMIT = 32
+
+/**
+ * A split of files as an agent agreed it — one list of path patterns per card
+ * of a later round — made canonical, or the sentence saying why the board
+ * could not hold anyone to it. Every list must name a path inside the
+ * workspace, and no two lists may overlap: two cards whose paths overlap
+ * could never both be claimed, so a split that overlaps splits nothing.
+ */
+export const readSplit = (split: readonly (readonly string[])[]): { readonly lists: readonly (readonly string[])[] } | { readonly refused: string } => {
+  if (!Array.isArray(split) || split.length === 0) return { refused: 'the split names no lists of paths' }
+  if (split.length > SPLIT_LIMIT) return { refused: `the split names ${split.length} lists, and a round has at most ${SPLIT_LIMIT} cards` }
+  const lists: string[][] = []
+  for (const [index, list] of split.entries()) {
+    const raw = Array.isArray(list) ? list.filter((one): one is string => typeof one === 'string' && one.trim() !== '') : []
+    if (raw.length === 0) return { refused: `list ${index + 1} of the split names no paths` }
+    if (raw.length > SPLIT_LIMIT || raw.some((one) => one.length > 500)) return { refused: `list ${index + 1} of the split is too long` }
+    const outside = raw.filter((one) => normalisePattern(one) === null)
+    if (outside.length > 0) return { refused: `${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} outside this workspace` }
+    lists.push([...new Set(raw.map((one) => normalisePattern(one)!))])
+  }
+  for (let first = 0; first < lists.length; first += 1) {
+    for (let second = first + 1; second < lists.length; second += 1) {
+      if (lists[first]!.some((a) => lists[second]!.some((b) => overlaps(a, b)))) {
+        return { refused: `list ${first + 1} (${lists[first]!.join(', ')}) and list ${second + 1} (${lists[second]!.join(', ')}) overlap, so those two cards could never both be claimed` }
+      }
+    }
+  }
+  return { lists }
 }
 
 /**
@@ -2463,7 +2502,7 @@ export class Team {
 
   async complete(
     intentId: number,
-    args: { note?: string; handoff?: string; outcome?: string },
+    args: { note?: string; handoff?: string; outcome?: string; split?: readonly (readonly string[])[] },
     scope: TeamCallScope,
   ): Promise<string> {
     const caller = this.#caller(scope)
@@ -2500,6 +2539,10 @@ export class Team {
     const outcome = args.outcome?.trim() || null
     const refusal = this.#flows?.refuseOutcome(board.id, first.intent, outcome) ?? null
     if (refusal) return refusal
+    /* A split is checked as it is recorded, so the agent that agreed it hears
+       what is wrong while it can still fix it — not the round it was for. */
+    const split = args.split === undefined ? null : readSplit(args.split)
+    if (split && 'refused' in split) return `Refused: #${intentId} is not finished, because ${split.refused}. Finish it again with a split whose lists name paths inside the project and do not overlap.`
     /* A role that declares `produces: review` cannot finish by claim alone:
        `complete_claim` is never allowed to stand in for the structured
        judgment a merge step's evidence guard actually reads. */
@@ -2521,6 +2564,7 @@ export class Team {
       note: args.note?.trim() || null,
       handoff: args.handoff?.trim() || null,
       outcome,
+      ...(split ? { split: split.lists } : {}),
     })
     this.#signal(board, this.#actorOf(board, caller), 'completed', intent, args.note?.trim() || null)
     const opened = this.#unblock(board, this.#actorOf(board, caller))
@@ -4074,12 +4118,38 @@ export class Team {
     return peer ? this.#nameOn(board, peer) : 'a conversation that is not running'
   }
 
+  /**
+   * Why an opening Seat may not be given this card: its files overlap a live
+   * claim someone else holds. One sentence naming the paths and the card that
+   * holds them, or null. The host's own claim for a Seat asks this over the
+   * cards as they stand in its write, exactly as `claim` asks for an agent —
+   * without it two sibling cards owning the same paths were both seated.
+   */
+  refuseOverlap(room: string, intents: readonly Intent[], card: number, runtime: string, sessionId: string): string | null {
+    const intent = intents.find((one) => one.id === card)
+    if (!intent) return null
+    const board = this.#boards.get(room)
+    const hits = this.#overlapping(board ?? null, intents, intent.files, { runtime, sessionId })
+    return hits.length > 0
+      ? `the files of card #${card} overlap a live claim — ${hits.join('; ')}. Two cards whose paths overlap are never worked at once.`
+      : null
+  }
+
   /** Live claims whose files overlap these paths, excluding the caller's own. */
   #conflictsWith(board: Board, paths: readonly string[], caller: TeamPeer): string[] {
+    return this.#overlapping(board, board.intents, paths, caller)
+  }
+
+  #overlapping(
+    board: Board | null,
+    intents: readonly Intent[],
+    paths: readonly string[],
+    caller: { readonly runtime: string; readonly sessionId: string },
+  ): string[] {
     const hits: string[] = []
     const cleanPaths = Array.isArray(paths) ? paths : []
     if (cleanPaths.length === 0) return hits
-    for (const intent of board.intents) {
+    for (const intent of intents) {
       if (intent.state !== 'claimed' || !intent.claim) continue
       if (intent.claim.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId) {
         continue
@@ -4095,7 +4165,7 @@ export class Team {
       if (ownedFiles.length === 0) continue
       const overlap = ownedFiles.some((owned) => cleanPaths.some((path) => overlaps(owned, path)))
       if (overlap) {
-        hits.push(`${ownedFiles.join(', ')} is held by #${intent.id} (${this.#holderName(board, intent)})`)
+        hits.push(`${ownedFiles.join(', ')} is held by #${intent.id}${board ? ` (${this.#holderName(board, intent)})` : ''}`)
       }
     }
     return hits

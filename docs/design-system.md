@@ -178,8 +178,8 @@ Four steps carry the interface and a fifth names the app; 14px is the default an
 | `--hd-title` | `24px` |
 | `--hd-display` | `36px` |
 | `--hd-line-xs` | `16px` |
-| `--hd-line-sm` | `18px` |
-| `--hd-line` | `21px` |
+| `--hd-line-sm` | `20px` |
+| `--hd-line` | `20px` |
 | `--hd-line-lg` | `24px` |
 | `--hd-line-heading` | `28px` |
 | `--hd-line-title` | `30px` |
@@ -361,6 +361,10 @@ A block of related settings on a page. The reference's account-settings cards ar
 
 | token | value |
 | --- | --- |
+| `--hd-inset-dense` | `8px` |
+| `--hd-inset-row` | `12px` |
+| `--hd-inset-card` | `16px` |
+| `--hd-inset-dialog` | `24px` |
 | `--hd-card-padding` | `16px` |
 | `--hd-card-gap` | `12px` |
 | `--hd-seg-pad` | `2px` |
@@ -949,6 +953,13 @@ the room narrating rather than somebody speaking. It carries a chip, though,
 because the difference between "still reading" and "ran out of its window
 forty minutes ago" is the whole reason the row exists, and a grey sentence
 in a busy channel is not that difference.
+
+### `Checklist`
+
+`packages/ui/src/design/patterns/Checklist.tsx`
+
+`ordered` for steps whose order is the point — a plan written as numbered
+steps — so a screen reader hears them as a sequence, not a set.
 
 ### `CodeBlock`
 
@@ -1830,7 +1841,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 10 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
+| `screenAppearance` | 9 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
 | `singleAreaPrimitive` | 46 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |

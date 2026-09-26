@@ -35,7 +35,7 @@ it('offers the compact account-menu roles without changing ordinary rows', () =>
   const rows = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
   expect(rows.map((row) => row.dataset['layout'])).toEqual(['profile', 'account'])
   expect(document.querySelector<HTMLElement>('[data-size="compact"]')?.textContent).toBe('Run new sessions as')
-  expect(css).toMatch(/\.row\[data-layout='profile'\]\s*\{[^}]*padding:\s*var\(--hd-space-2\)/s)
+  expect(css).toMatch(/\.row\[data-layout='profile'\]\s*\{[^}]*padding:\s*0 var\(--hd-space-2\)/s)
   expect(css).toMatch(/\.row\[data-layout='account'\]\s*\{[^}]*padding:\s*var\(--hd-space-1-5\) var\(--hd-space-2\)/s)
   expect(css).toMatch(/\.label\[data-size='compact'\]\s*\{[^}]*font-weight:\s*var\(--hd-weight-normal\)/s)
 })

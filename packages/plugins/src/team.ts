@@ -31,6 +31,10 @@ import type { FindingAnchor, FindingCategory, FindingView } from '@harnessdesk/p
 
 const text = { type: 'string' } as const
 
+/** A split as the agent sent it, as lists of text: a malformed one arrives empty, and the board refuses it by name. */
+const splitOf = (value: unknown): string[][] =>
+  Array.isArray(value) ? value.map((one) => (Array.isArray(one) ? one.map(String) : [])) : []
+
 export const teamPlugin: HarnessPlugin = {
   manifest: {
     id: 'team',
@@ -271,16 +275,23 @@ export const teamPlugin: HarnessPlugin = {
               description:
                 'Your verdict, in one of the words your card listed — approve, request-changes, published. Prose goes in note; this is what decides what happens next.',
             },
+            split: {
+              type: 'array',
+              items: { type: 'array', items: { type: 'string' } },
+              description:
+                'Only when your card asks for it: the split of files agreed for the next round, one list of path patterns per card in card order, no two overlapping. Each of those cards will own only its own list.',
+            },
           },
           required: ['intent'],
         },
-        execute: (args: { intent: number; note?: string; context?: string; outcome?: string }, scope) =>
+        execute: (args: { intent: number; note?: string; context?: string; outcome?: string; split?: unknown }, scope) =>
           ctx.team.complete(
             Number(args.intent),
             {
               ...(args.note !== undefined ? { note: String(args.note) } : {}),
               ...(args.context !== undefined ? { handoff: String(args.context) } : {}),
               ...(args.outcome !== undefined ? { outcome: String(args.outcome) } : {}),
+              ...(args.split !== undefined ? { split: splitOf(args.split) } : {}),
             },
             scope,
           ),

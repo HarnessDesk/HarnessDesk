@@ -41,7 +41,12 @@
 
 .banner {
   display: flex;
-  align-items: center;
+  /* The icon and the dismiss are centred on the title's own first line
+     (below), not on the card's whole height, which put both 12px low the
+     moment a description wrapped to a second line. The actions row keeps
+     the card's centre — it is its own block of controls, not a lead or a
+     trailing glyph reading against the title. */
+  align-items: flex-start; /* desk: center → flex-start, the icon and dismiss carry their own nudge onto the title's line instead */
   gap: var(--hd-space-4); /* desk: canonical One UI System scale */
   width: min(var(--hd-column), 100%);
   padding: var(--hd-space-4) var(--hd-space-4) var(--hd-space-4) var(--hd-space-5); /* desk: canonical One UI System scale */
@@ -87,6 +92,11 @@
   display: inline-grid;
   place-items: center;
   color: var(--hd-muted-foreground);
+  /* The icon is smaller than the title's line, so centring it on the card
+     (the old `align-items: center`) put it 1–2px high once the card grew a
+     second line; this drops it back onto the title's own centre. 17px is
+     the glyph the tone icons render at (`DEFAULT_ICON`, above). */
+  margin-top: calc((var(--hd-line) - 17px) / 2);
 }
 
 .banner[data-tone='info'] .icon {
@@ -140,6 +150,9 @@
   align-items: center;
   gap: 8px;
   padding-left: 10px;
+  /* Its own block of controls, not a lead reading against the title — it
+     keeps the card's centre rather than the icon/dismiss's first-line rule. */
+  align-self: center;
 }
 
 .action {
@@ -180,18 +193,22 @@
   cursor: default;
 }
 
+/* The box — 28px, `icon-sm`'s own — comes from the `size` prop now, along
+   with the `edge="end"` pull that lands the cross on the title's column
+   instead of the button's invisible hit target (Banner.tsx). This sheet only
+   says the things the size doesn't: the round shape and the muted ink. */
 .dismiss {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
   border-radius: 50%;
   background: none;
   color: var(--hd-muted-foreground);
-  cursor: pointer;
+  /* Its hit target is taller than the title's line, so pulling the whole
+     button up by half the difference lands its own centre — and the glyph
+     inside it — on the title's centre, the way a smaller lead is pushed
+     down onto the same line. `--hd-btn-h-sm` rather than a literal 28: a
+     foundation is free to move it (Studio's comfortable density takes it to
+     34), and a literal here would silently stop matching the box the `size`
+     prop actually draws. */
+  margin-top: calc((var(--hd-line) - var(--hd-btn-h-sm)) / 2);
 }
 
 .dismiss:hover {
@@ -200,8 +217,10 @@
 }
 
 .banner[data-compact] .dismiss {
-  width: 24px;
-  height: 24px;
+  /* The compact card's dismiss is `size="icon-xs"` (Banner.tsx), whose box is
+     `--hd-icon-target` — the same token, not a second literal for the same
+     number. */
+  margin-top: calc((var(--hd-line) - var(--hd-icon-target)) / 2);
 }
 
 /* Too narrow for the words and the actions side by side, the actions take a

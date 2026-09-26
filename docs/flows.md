@@ -234,7 +234,8 @@ prints:
 - a trace of the loop against outcomes you supply, so both the approve path
   and the request-changes path are visible from one file;
 - **validation**: every role a rule names exists, every template's slot
-  resolves, no rule can never fire, and no loop lacks an exit.
+  resolves, no rule can never fire, no loop lacks an exit, and no round seats
+  two Seats that may commit in one working tree (see *Agents and Seats*).
 
 The last two are exact rather than sampled. Both quantifiers depend only on
 which outcomes are *present* in a round, so the space to search is the
@@ -536,18 +537,115 @@ Agent, and an explicit `count:` must agree with whichever list sets the
 round's width. A seat's actual ceiling is `narrower(Agent's own ceiling,
 this role's grant)`; an omitted `grant:` is `read`.
 
+Every Seat of a round is seated at once, and a round that is not
+`isolate: true` seats them all in the one working tree. When that ceiling lets
+them commit — `edit`, `publish` or `merge` — they move each other's HEAD and
+land commits on each other's branches, so the dry run, and with it the start,
+refuses a role without `isolate: true` in which two or more Seats may commit,
+naming the role and the two ways out: isolate it, or lower its grant to
+`read`. Nothing isolates it silently. Seats that may only read share a tree
+safely, so one writer beside reviewers that only read is fine, and a round
+opens exactly one role, so no two roles run at once.
+
+**Files and splits.** A rule's `then` may name the paths its card owns while
+claimed, `files: [src/api/**]`, and claiming a card claims them: the board
+refuses a claim — an agent's, the host's own for an opening Seat, or a
+person's assignment — whose paths overlap a live one, naming the paths and the
+card that holds them. One list suits a round of one card only; on a round of
+more, every card would own the same paths and only one could ever be claimed,
+so the dry run, and with it the start, refuses it. These are the compiler's
+rules, not the parser's: a run saved before them re-reads its own text on
+every launch, and still restores. Several cards each take their own part of a split
+the agents agreed: `then: { role: dev, title: "Build part {{n}}", split: contract }`
+gives card n the n-th list the latest `contract` round recorded. The
+`contract` card is told to finish with `complete_claim`'s `split` — one list
+of path patterns per `dev` card, in card order — and a split whose lists
+overlap is refused as it is recorded. When no usable split is there (none
+recorded, two different ones, or the wrong number of lists), the round stops
+before any card opens and says which, rather than seating every card on the
+same paths. A round refused at a card's claim lets go of the Seats it already
+opened, interrupting their first turn, so no sibling is left holding its card.
+
 **Independence** (`independentOf: [build]`) is judged on the vendor behind
 each Seat, as the runtime's adapter reads it from the agent's own
-configuration — Codex's `config.toml`, profiles and project `.codex`,
-Claude Code's settings files and environment, Gemini CLI's `.env` files and
-settings. Anything that could point an agent at another provider or base
-URL, a gateway account, or an agent the desk has no reader for, makes the
-vendor unknown, and an unknown vendor is never taken for an independent
-one: the step is refused a seat and the run stalls with the reason. A
-runtime's name decides nothing. A project's own files arrive with a clone,
-so they are read bounded and without blocking, a regular file only, through
-a link at no point below the project; anything that cannot be read that way
-is unknown.
+configuration — Codex's `config.toml`, Claude Code's settings files and
+environment, Gemini CLI's `.env` files and settings, DeepSeek Harness's own
+`cordis.patch.yml` layers. Anything that could point an agent at another
+provider or base URL, a gateway account, or an agent the desk has no reader
+for, makes the vendor unknown, and an unknown vendor is never taken for an
+independent one: the step is refused a seat and the run stalls with the
+reason. A runtime's name decides nothing. A project's own files arrive with a
+clone, so they are read bounded and without blocking, a regular file only,
+through a link at no point below the project; anything that cannot be read
+that way is unknown.
+
+Codex's read is scoped to the configuration actually *in force* for the
+session that runs, merged across every layer it reads (its home
+`config.toml`, each sibling `<name>.config.toml`, and a project's own
+`<project>/.codex/config.toml`): the `profile` every layer names must agree, or the
+answer is unknown outright; once agreed (or none is set anywhere), that
+profile's `[profiles.<name>]` table and any root override are read from
+*every* layer that has one, not only the layer that happened to select it —
+a home table a project merely selects still counts. A `config.toml` kept
+around with an unselected profile or provider table — a local Ollama setup
+for occasional use, say — no longer makes every session on that Codex
+unknown; only what is actually selected does. The scanner is deliberately
+cruder than a TOML parser, but never *silently* cruder: a header it cannot
+fully parse (a trailing comment and whitespace around a dot are normalized —
+only outside a quoted segment's own text, so `[profiles."a . b"]` still
+means the profile literally named `a . b` — a key captured from quotes that
+carries a backslash is not, since this scanner does not decode the escape it
+could be hiding), a dotted key, an inline table, or a multi-line string
+anywhere in the file — each of which could hide a real header or key from a
+line-based scan — answers unknown rather than being skipped or guessed at. A
+bracketed array left open at the end of a line is followed to its own
+closing bracket across as many lines as it takes instead — common as an
+`[mcp_servers.*]` table's own `args` — unless the key holding it is one this
+reader tracks (`profile`, `model_provider`, a `*base_url` key), which is
+never a shape any of them is legitimately written in and so stays unknown
+too. A Codex launch's own `-c` override counts the same way when it names
+`model_provider`, `base_url`, or `profile`, since a profile switch from the
+command line is exactly as much a redirection as one written in the file.
+
+DeepSeek Harness always starts on its `acp` profile, so only that profile's
+own patch and the home-level patch that outranks it are read — and only when
+the row is actually launched with `--profile acp` and nothing past it; any
+other argument could select a different profile or load an overlay these two
+files never speak for, so the row's own args are unknown rather than
+assumed. A patch aimed at one of DSH's other profiles is inert the same way.
+Each patch is read with the same strict YAML this desk reads a flow with
+(`packages/server/src/yaml.ts`): a shape it refuses, or a list holding
+anything but maps, is unknown outright, never guessed at from whatever a
+looser scan could make of the lines. Within those two layers, DeepSeek's own
+API is answered only when every one of these holds:
+no `llm-deepseek`, `llm-deepseek-account` or `llm-deepseek-api-key` entry
+sets a `baseURL` outside `api.deepseek.com`; no `agent-default-model` entry
+names a `provider` other than the vendor default, `deepseek-official`; no
+`llm-pi-ai` entry carries any `config` at all, since that entry ships
+mounted dormant until a settings document gives it live routes to some other
+vendor; and no layer has an `insert` anywhere, since a patch that inserts a
+plugin can add any capability at all, including a different default
+provider. `DSH_HOME` is expanded the same way DSH itself expands it — a
+leading `~` against the OS home — and a value that is still relative once
+expanded is unknown, not a guess against whichever directory this process
+happens to be running in.
+
+Cursor has no reader: which vendor a Cursor session reaches is a
+per-conversation model choice, not a runtime- or project-level setting, and
+this check is asked about a runtime, never a session — so Cursor stays
+unknown rather than guessed at from whichever model happened to run last.
+
+When independence cannot be proven because an *earlier* Seat's own provider
+could not be read at all — never merely because every candidate would repeat
+an already-used one — the stall names the agent that held that card, by
+number, and by its own presentation name where the desk has one, never a raw
+runtime id. The way forward it names depends on whether there is anything to
+fix: an agent with a reader that merely could not rule an override out can
+have that configuration fixed; an agent with no provider reader at all
+(Cursor) has nothing there to point at, so the stall says instead to drop
+`independentOf` for the step or seat that earlier card on an agent whose
+provider can be read. The guard itself stays fail-closed either way — only
+the wording changes.
 
 **A Seat's card** is claimed for it as the Seat opens, and the Seat reads its
 Agent's brief in a turn of its own. A Seat that asks for work inside that turn
@@ -608,8 +706,9 @@ changes stops the round before any command runs.
 **Evidence guards** read what the desk already observed, never a message or
 an agent's own claim. A guard judges *subjects*: the revisions of the
 nearest cards back along the finished round's dependencies whose grant lets
-them change files and whose Agent does not produce reviews — never a judge's
-or reviewer's own checkout, even one granted edit. A fact
+them change files and whose Seat is not there to review — never a judge's
+or reviewer's own checkout, even one granted edit. An Agent that produces both
+diffs and reviews is there to review only where its ceiling cannot commit. A fact
 speaks for a subject when it is filed on a card of that walk (the finished
 round's own, the rounds between, or the subject's own), names the subject's
 current revision, is fresh, and was observed on this desk. So
@@ -683,7 +782,10 @@ the desk resolves which Seat, which card and which revision from the calling
 conversation itself, never from anything the request names. A repair is a
 *claim* until a later review of the same finding confirms it — `repaired`
 without `confirmed` is never shown as "Verified" — and a confirmed finding
-never reopens; a regression is a new, linked finding instead.
+never reopens; a regression is a new, linked finding instead. A round
+reviews when its Agent produces reviews and, for an Agent that produces diffs
+too, its ceiling there cannot commit. Any other round is a plain one: it opens
+no review series, and a findings ledger it never read cannot stop it.
 
 **A review round with more than one card is blind until it closes.** No
 sibling reads another sibling's findings, its review, or anything it posted,
@@ -699,6 +801,13 @@ card has durably completed, the round's whole batch — every finding, every
 review, one comment each — is decided and journaled together, then sent one
 comment at a time; a person watching mid-round sees how many reviewers have
 finished, never a claim that the others agree.
+
+An Agent role's `blind:` key sets this. A review round is blind unless its role
+says `blind: false`, which lets siblings read each other's finished work while
+still holding their posting until the round closes. A plain round with more
+than one card, such as two analysts writing positions, is not blind by default,
+and becomes blind the same way when its role says `blind: true`: no sibling
+reads another's note, context package or messages until the round closes.
 
 **A later review of the same series is handed a delta, not a transcript**: the
 repairs claimed since its last review, what is still unresolved, and the exact

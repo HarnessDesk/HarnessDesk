@@ -38,8 +38,8 @@ const asked: SeatPlan = {
 }
 
 export const FLOW_SEATS: readonly FlowPreviewSeat[] = [
-  { role: 'fixer', index: 0, agent: 'implementer', isolate: true, plan: held },
-  { role: 'reviewer', index: 0, agent: 'code-reviewer', isolate: false, plan: asked },
+  { role: 'fixer', index: 0, agent: 'implementer', isolate: true, reviews: false, plan: held },
+  { role: 'reviewer', index: 0, agent: 'code-reviewer', isolate: false, reviews: true, plan: asked },
 ]
 
 const FIX_SOURCE = [

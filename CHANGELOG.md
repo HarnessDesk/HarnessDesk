@@ -24,6 +24,104 @@ move is real work and is not news to a person weighing an upgrade.
   either, and the whole-desk survey (the empty pane's "now what?") says so
   instead of a tagline or a bare "Ready." (#986)
 
+- **A role `independentOf` a DeepSeek or Cursor competitor could never seat.**
+  The desk could only read the vendor behind Claude Code, Gemini CLI and
+  Codex, so any other predecessor made the vendor unknown and, since an
+  unknown vendor is never taken for independent, the step stalled with no way
+  forward. DeepSeek Harness now has its own reader; Cursor still has none,
+  on purpose (below). Independence itself is unchanged — still refused the
+  moment any doubt exists — but three places that used to answer a vendor
+  they could not actually rule out now answer unknown instead, and the stall
+  says more when it still cannot be proven.
+
+  Codex's own reader used to scan the whole of `config.toml` as one flat
+  file, which both missed real overrides (a header with a trailing comment,
+  whitespace around a header's dot, a multi-line string that merely
+  *contained* something that looked like a header, a dotted key, an inline
+  table — each could hide a selected override from a line-based scan) and
+  wrongly counted unselected ones (an inactive `[profiles.*]` or
+  `[model_providers.*]` table kept around for occasional use). It now merges
+  every layer it reads — home `config.toml`, each sibling profile file, and
+  a project's own `.codex/config.toml` — into one decision: which `profile`
+  every layer agrees is active (layers that disagree are unknown), and that
+  profile's table and any root override from every layer that has one, not
+  only the layer that selected it. Anything the scanner cannot fully account
+  for now answers unknown outright rather than being skipped. A Codex
+  launch's own `-c profile=…` override is counted the same way `-c
+  model_provider=…` and `-c base_url=…` already were.
+
+  DeepSeek Harness's reader existed but was never reached — `known-agents.ts`
+  had no entry for it, so the real lookup a spawned agent goes through never
+  found one. Reached now, it also checks more than a `baseURL`: a live
+  `llm-pi-ai` route, an `agent-default-model` provider other than the vendor
+  default, or an `insert` anywhere in either of DSH's own patch layers each
+  now answers unknown too, since any of them can redirect a session's
+  default provider without ever touching an `llm-deepseek*` `baseURL`. A
+  `DSH_HOME` starting with `~` is expanded the way DSH itself expands it,
+  and a value that is still relative afterward is unknown rather than a
+  silent guess against the wrong directory.
+
+  Cursor still has no reader: which vendor a Cursor session reaches is a
+  choice made per conversation, not something a runtime- or project-level
+  check can answer honestly, so guessing was refused rather than risked.
+
+  A further review found five more gaps in these same two readers. DeepSeek's
+  patch files are now parsed with the same strict YAML this desk reads a flow
+  with, rather than a scanner that only understood a plain block-style list —
+  a flow-style item, a quoted key, an indented list or a JSON-style patch all
+  used to pass straight through unread, still answering DeepSeek's own API.
+  The row's own launch arguments are checked too: only `--profile acp`, DSH's
+  own template, is read as the `acp` profile now; anything else — another
+  flag, a different profile — could load an overlay these two files never
+  mention, and answers unknown. On Codex's side, normalising a header's
+  dotted path no longer eats the spaces inside a quoted profile name
+  (`[profiles."a . b"]` no longer loses track of which table `profile = "a .
+  b"` selects), a quoted key carrying a backslash escape this scanner does
+  not decode is no longer read as a plain, unmatched key, and a multi-line
+  array — common as an `[mcp_servers.*]` table's own `args` — is now followed
+  to its own closing bracket instead of making an otherwise plain
+  configuration unknown.
+
+  When independence still cannot be proven because an earlier card's own
+  provider could not be read, the stall names the agent that held that card,
+  by number and by its own presentation name where the desk has one. What it
+  says next now depends on whether there is anything to fix: an agent with a
+  reader that merely could not rule an override out is told to fix that
+  configuration; an agent with no provider reader at all is told instead to
+  drop `independentOf` for the step or seat that card on an agent whose
+  provider can be read.
+
+- **An agreed split of files is enforced.** A flow round of several cards gave
+  every card the same `files:` list, and the host seated both even though
+  their paths overlapped, so two developers who agreed to stay out of each
+  other's files were never held to it. Now the agent that agrees the split
+  records it when it finishes, with `complete_claim`'s `split` — one list of
+  paths per card — and a rule's `split: <role>` gives each card of the next
+  round its own list. A split whose parts overlap is refused as it is
+  recorded; a round with no usable split stops before any card opens and says
+  why; and the dry run, and so the start, refuses a flat `files:` on a round of
+  more than one card (a run already saved with that shape still restores and
+  keeps running). Any claim whose paths overlap a live one — including the one
+  made for a Seat as it opens, and a person's assignment — is refused with the
+  paths and the card holding them, and a Seat the refused round had already
+  opened is stopped and let go rather than left holding its card.
+
+- **Two Seats that may commit no longer share one working tree.** A flow
+  role that seats more than one card at a time — `count: 2`, or a list of
+  Agents or seats — with a grant that lets them commit (`edit`, `publish` or
+  `merge`) and without `isolate: true` ran every card in the same checkout,
+  where each one's commits and branch changes landed on the other's work. The
+  dry run, and so the start, now refuses that shape and names the role and the
+  fix: add `isolate: true`, or lower its grant to `read`. Only two or more
+  Seats that may commit are refused: a writer beside reviewers that only read
+  is fine. And a debate round of an Agent that both writes and reviews is no
+  longer taken for a review round, so it is never stopped with "Some findings
+  could not be read", and the flow's start screen no longer shows the review
+  note for it. When such a round reaches the budget it says "This run reached
+  its limit of N rounds"; a review round that stops on an unreadable ledger now
+  says it was evidence records that could not be read. A plain round with
+  several cards is blind when its role says `blind: true`.
+
 - **A Seat preference naming an effort its model does not have is refused
   before any Seat opens.** `runtime=model/effort` used to pass every plan —
   a flow's own `seat:`, an Agent's `prefer:`, and this Mac's own seating —

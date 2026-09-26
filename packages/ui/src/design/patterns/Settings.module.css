@@ -139,6 +139,16 @@
   padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-bar-pad) var(--hd-space-1) var(--hd-bar-ink);
 }
 
+/* A rail with no filter bar of its own — the app window's nav — has no
+   `--hd-bar-pad` to answer for, so the sidebar's left inset overshot its
+   row's own content by the bar padding it was never given: the label sat
+   17px right of where "Back to app" and every item under it already start.
+   `inset="nav"` reads the row's own `--hd-nav-inset` instead, the same
+   number every `Button size="navigation"` already carries. */
+.navigationGroupHeader[data-inset='nav'] {
+  padding-left: var(--hd-nav-inset);
+}
+
 /* The label's type is `GroupLabel`'s (design/ui/group-label.tsx), the one
    group heading: 13px, secondary ink, sentence case. Only its place in the
    header is said here. */
@@ -518,8 +528,21 @@
 }
 
 .searchClear {
+  /* Private, not `--hd-*`: the size of the `CrossIcon` this button's own
+     JSX passes (Settings.tsx), named once so the calc below reads it rather
+     than repeating the number the prop already says. */
+  --glyph-size: 12px;
   position: absolute;
-  right: var(--hd-space-1);
+  /* `edge` on `Button` pulls a box past an inset with a negative *margin*,
+     which an absolutely positioned element resolves the wrong way — a
+     negative margin-inline-end here would push the box's own border edge
+     *past* `right`'s edge rather than pull it back, so the fix has to be
+     said in `right` itself. Same formula, aimed at the leading icon's own
+     10px inset (`.search > svg`'s `left`) for a field symmetric on both
+     sides: `right` puts the box that far in, less half of what the box is
+     bigger than its own glyph, so the glyph itself lands there instead of
+     the button's invisible hit target. */
+  right: calc(var(--hd-space-2-5) - (var(--hd-btn-h-sm) - var(--glyph-size)) / 2); /* desk: 4px → 2px, so the glyph (not the box) lands on the leading icon's own 10px inset */
   top: 50%;
   transform: translateY(-50%);
 }
@@ -827,6 +850,23 @@
   margin: var(--hd-space-5) 0 var(--hd-space-2); /* desk: 26/10 → 20/8, the section rhythm */
 }
 
+/* The head sits above the `.rows` card it names rather than inside it, so
+   without its own inset its text started at the page's own edge while the
+   card's rows started a border-width and a card-padding in. This puts the
+   label's first letter and the action's trailing edge on that same column —
+   a `Section`'s `SectionAction` already does this by living inside the
+   card's own padding; a `SectionHead` has to say it explicitly because it
+   draws outside the card.
+
+   Earned only when a card of rows is what the head is actually naming
+   (`:has(+ […])` reads the very next sibling `Rows` renders): a head over a
+   `Note`, a plain button, or ProjectTriggers' own body has no such card to
+   answer to, and the same inset put its label 17px right of a body that
+   starts flush with the page instead. */
+.sectionHead:has(+ [data-slot='rows']) {
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
+}
+
 .sectionHead:first-child {
   margin-top: 0;
 }
@@ -945,6 +985,17 @@
   gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
   padding: var(--hd-space-3) var(--hd-card-padding); /* desk: 14 → 12, a 58px row where there was a 68 */
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+}
+
+/* A description turns the row's one line into two, and centring on the whole
+   box then centres the mark and the control on the gap between the lines
+   rather than on the title — the shadcn Card anatomy this row otherwise
+   follows keeps `CardAction`/`ItemActions` pinned to the top instead
+   (`self-start`) exactly for this reason. Without a description the row
+   still centres on its single line, which is already the title's line, so
+   nothing here changes it. */
+.row:has(.rowDesc) {
+  align-items: flex-start;
 }
 
 .row:last-child {
@@ -1118,6 +1169,19 @@
   gap: 8px;
 }
 
+/* Once a description pins the row to its top edge (`.row:has(.rowDesc)`,
+   above), a control taller than the title's own line — a `sm` button is
+   28px against the line's 20 — sits with its top on the title's top rather
+   than its centre on the title's centre, 4px low. Pulled up by half of what
+   it is taller than the line, its own centre lands on the title's, the same
+   `(line − size) / 2` nudge `.rowMark` already carries. A control that is
+   already about the title's own height (`RowValue`'s plain text, a switch)
+   is not worth a second formula for a few pixels neither `:has()` selector
+   below matches, so it keeps a plain top edge. */
+.row:has(.rowDesc) .rowCtl:has(button) {
+  margin-top: calc((var(--hd-line-sm) - var(--hd-btn-h-sm)) / 2);
+}
+
 .rowCtl:has(> .rowFixed:only-child:not([data-numeric])) {
   flex-grow: 1; /* desk: 0 → 1, a wrapped text answer takes its line */
   margin-inline-start: 0; /* desk: auto → 0, and starts under the title */
@@ -1152,15 +1216,29 @@
 }
 
 .rowMark {
+  /* A private size, not `--hd-*`: this tile answers to no other component,
+     so it is named once here rather than typed out twice (the box below,
+     and its own nudge's formula) — two literals agreeing is luck, one
+     variable is a fact. */
+  --mark-size: 34px;
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: var(--mark-size); /* desk: 34px → var(--mark-size), a private property the drift check cannot resolve inline; still 34px */
+  height: var(--mark-size); /* desk: 34px → var(--mark-size), same private property, still 34px */
   border-radius: var(--hd-radius-md);
   background: var(--hd-muted);
   color: var(--hd-secondary-foreground);
   box-shadow: inset 0 0 0 1px var(--hd-border);
+}
+
+/* The tile is taller than the title's own line, so once the row is pinned to
+   its top edge (above) the tile is pulled back up by half of what it is
+   bigger than that line — its own centre lands on the title's, the way
+   shadcn's `ItemMedia` nudges a lead onto a description block's first line
+   instead of the block's middle. */
+.row:has(.rowDesc) .rowMark {
+  margin-top: calc((var(--hd-line-sm) - var(--mark-size)) / 2);
 }
 
 .rowChev {
@@ -1510,6 +1588,12 @@
   place-items: center;
   width: 16px;
   color: var(--hd-accent);
+}
+
+/* Onto the title's line for the same reason `.rowMark` is (above): a 16px
+   glyph is smaller than the line, so it drops rather than lifts. */
+.row:has(.rowDesc) .choiceMark {
+  margin-top: calc((var(--hd-line-sm) - 16px) / 2);
 }
 
 /* An empty row is a sentence about the card, not one more item in it: its

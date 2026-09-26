@@ -38,11 +38,12 @@ import {
   evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
 } from './flow-evidence.js'
 import { decideLoop, QUESTION_STOP } from './findings/rounds.js'
+import { reviewsIn } from './flow-policy.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
 import type { TriggerClosure } from './intake/consent.js'
 import { effectiveBudget } from './intake/definition.js'
-import type { Team } from './team.js'
+import { readSplit, type Team } from './team.js'
 
 /**
  * A flow run as execution state on one Goal.
@@ -171,6 +172,22 @@ export const TRIGGER_RUN_ID = /^flow-trigger-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}
 export interface FlowExecutionPort {
   /** Which vendor a session of this runtime in `cwd` reaches, as its adapter reports it; null when unknown. */
   providerOf(runtime: string, cwd: string): Promise<string | null>
+  /**
+   * `RuntimeInfo.presentation.name` for a runtime id, for a stall a person
+   * reads — never the raw id. Absent or null falls back to a plain phrase;
+   * never a brand or backend check the UI itself is not allowed either
+   * (`AGENTS.md` rule 8).
+   */
+  presentationOf?(runtime: string): string | null
+  /**
+   * Whether this runtime has any provider reader at all — never whether it
+   * currently rules an override out. False for a runtime like Cursor, whose
+   * vendor is a per-session model choice this desk has no reader for; a
+   * stall then has nothing to tell a person to go fix. Absent reads as
+   * false, the same conservative default: a stall names the generic way
+   * forward rather than pointing at configuration that may not exist.
+   */
+  canReadProvider?(runtime: string): boolean
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
   openSeat(input: GoalSeatRequest): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
@@ -390,6 +407,36 @@ const policyOf = (run: StoredFlowExecution): FlowPolicy => {
 
 const bindingsFor = (run: StoredFlowExecution, role: string): FlowBinding[] =>
   run.compiled.bindings.filter((binding) => binding.role === role).sort((a, b) => a.index - b.index)
+
+/**
+ * The files each card of a round owns, taken from the split the latest round
+ * of `source` agreed — card n owns list n — or the sentence that stops the
+ * round before any card of it exists. The agents agree the split; the board
+ * then holds each card to its own part. There is no fallback: a round that
+ * cannot tell its cards' parts apart would hand them all the same paths,
+ * which is the agreement going unenforced.
+ */
+export const agreedSplit = (
+  rounds: readonly FlowRoundState[], before: number, source: string, target: string, width: number, intents: readonly Intent[],
+): readonly (readonly string[])[] | string => {
+  const next = `Next: wrap this Goal, which stops this run, and start the flow again in a new Goal; the "${source}" card has to record its split of the files when it finishes — one list of paths for each "${target}" card, in card order, no two overlapping.`
+  const stop = (why: string): string => `The ${width} "${target}" cards were not opened: ${why}, so each card cannot be held to its own files.\n${next}`
+  const from = [...rounds].reverse().find((one) => one.role === source && one.n < before)
+  if (!from) return stop(`no "${source}" round has run yet to agree a split`)
+  const recorded = from.cards.map((card) => intents.find((one) => one.id === card)).filter((card): card is Intent => Boolean(card?.split?.length))
+  if (recorded.length === 0) {
+    const cards = from.cards.map((card) => `#${card}`).join(', ')
+    return stop(`the "${source}" round (card${from.cards.length === 1 ? '' : 's'} ${cards || 'none'}) finished without recording a split of the files`)
+  }
+  const distinct = new Set(recorded.map((card) => JSON.stringify(card.split)))
+  if (distinct.size > 1) return stop(`cards ${recorded.map((card) => `#${card.id}`).join(' and ')} of the "${source}" round recorded different splits`)
+  const read = readSplit(recorded[0]!.split!)
+  if ('refused' in read) return stop(`the split card #${recorded[0]!.id} recorded is not usable: ${read.refused}`)
+  if (read.lists.length !== width) {
+    return stop(`card #${recorded[0]!.id} split the files ${read.lists.length} way${read.lists.length === 1 ? '' : 's'}, and "${target}" opens ${width} card${width === 1 ? '' : 's'}`)
+  }
+  return read.lists
+}
 
 /** A revision under judgment: see the invariant at `FlowSubject` in `flow-evidence.ts`. */
 export type FlowSubjectLike = FlowSubject
@@ -628,7 +675,7 @@ export class FlowExecutions {
         const seat = this.#seatForCard(run, card).seat
         if (seat) slots[String(seat.id)] = `${round.role}:${index}:${bindings[index]?.agent.id ?? seat.seat.runtime}`
       }
-      return { ...round, reviews: bindings.some((binding) => binding.agent.produces.includes('review')) }
+      return { ...round, reviews: bindings.some(reviewsIn) }
     })
     const pendingFindings = Object.values(run.findingOps ?? {}).filter((entry) => entry.state === 'prepared').length
     const pinned = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.pinned]))
@@ -828,11 +875,19 @@ export class FlowExecutions {
     const decision = decideLoop({
       closed, limit, idle: state.idleRounds, idleLimit: state.budget.withoutProgress, newProgress: true,
       unresolvedRepairs: [], unresolved: 0, reviewComplete: false, freshGuards: false, pendingException: false,
+      plain: !this.#reviewsInRound(run, round),
     })
     await this.#put(this.#operation({
       ...run,
       findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason! } : null },
     }, `close:${round}`, { kind: 'round', state: 'finished', card: null, seat: null }))
+  }
+
+  /** Whether a round of this run is a review series's round: any of its Seats is there to review (`reviewsIn`). */
+  #reviewsInRound(run: StoredFlowExecution, n: number): boolean {
+    const round = run.rounds.find((one) => one.n === n)
+    const role = round && run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round.role) : undefined
+    return role?.kind === 'agent' && bindingsFor(run, role.id).some(reviewsIn)
   }
 
   /**
@@ -846,9 +901,11 @@ export class FlowExecutions {
   }
 
   /**
-   * Every open review round with several reviewers, blind or sighted: none of
-   * them may post to a forge, and the round's batch is released only once it
-   * closes. `blind` is the role's own policy — true unless it says false.
+   * Every open review round with several reviewers, blind or sighted, and
+   * every open plain round with several cards whose role says `blind: true`:
+   * none of them may post to a forge, and the round's batch is released only
+   * once it closes. `blind` is the role's own policy — for a review round
+   * true unless it says false.
    */
   embargoedRounds(goal: string): readonly { readonly run: string; readonly round: number; readonly blind: boolean; readonly cards: readonly number[]; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[] {
     const out: { run: string; round: number; blind: boolean; cards: readonly number[]; holders: { card: number; runtime: string; sessionId: string }[] }[] = []
@@ -857,7 +914,12 @@ export class FlowExecutions {
       for (const round of run.rounds) {
         if (round.state === 'closed' || round.cards.length < 2) continue
         const role = run.document.flow.roles.find((one) => one.id === round.role)
-        if (role?.kind !== 'agent' || !bindingsFor(run, role.id).some((binding) => binding.agent.produces.includes('review'))) continue
+        if (role?.kind !== 'agent') continue
+        /* A review round is blind unless its role says `blind: false`; a
+           plain round — a debate, a build — only when its role says
+           `blind: true` (#1014). */
+        const reviews = bindingsFor(run, role.id).some(reviewsIn)
+        if (!reviews && role.blind !== true) continue
         const holders = round.cards.flatMap((card) => {
           const seat = this.#seatForCard(run, card).seat
           return seat ? [{ card, runtime: seat.session.runtime, sessionId: seat.session.sessionId }] : []
@@ -1144,7 +1206,7 @@ export class FlowExecutions {
     // A card that judges is never judged: a reviewer's own checkout is not a
     // subject whatever its grant, exactly as `reviewBinding` offers it only
     // what it depends on.
-    return binding !== undefined && binding.grant !== 'read' && !binding.agent.produces.includes('review')
+    return binding !== undefined && binding.grant !== 'read' && !reviewsIn(binding)
   }
 
   /**
@@ -1223,7 +1285,7 @@ export class FlowExecutions {
     return result.reason ? { state: result.state, reason: result.reason } : { state: result.state }
   }
 
-  /** Whether this card's Agent binding declares `produces: review` — `complete_claim` alone cannot finish it then. */
+  /** Whether this card's Seat is there to review (`reviewsIn`) — `complete_claim` alone cannot finish it then. */
   requiresReview(goal: string, card: number): boolean {
     const run = this.#runOfCard(goal, card)
     if (!run || run.document.format !== 'agents') return false
@@ -1231,7 +1293,8 @@ export class FlowExecutions {
     const role = run.document.flow.roles.find((one) => one.id === round?.role)
     if (role?.kind !== 'agent') return false
     const index = round!.cards.indexOf(card)
-    return bindingsFor(run, role.id)[index]?.agent.produces.includes('review') ?? false
+    const binding = bindingsFor(run, role.id)[index]
+    return binding ? reviewsIn(binding) : false
   }
 
   /**
@@ -1298,7 +1361,7 @@ export class FlowExecutions {
       round: round.n,
       role: round.role,
       seat: String(seat.id),
-      reviews: binding?.agent.produces.includes('review') ?? false,
+      reviews: binding ? reviewsIn(binding) : false,
       writer: this.#writer(run, card),
       held: intent?.state === 'claimed' && intent.claim?.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId,
     }
@@ -1881,6 +1944,25 @@ export class FlowExecutions {
     }
     const board = this.#team.stateFor(run.goal)
     const before = run.rounds.find((one) => one.n === round.n - 1)
+    /* Each card's own part of an agreed split, read from what the agreeing
+       card recorded, before any card exists: with no usable split the round
+       stops here, rather than handing every card the same paths. */
+    let parts: readonly (readonly string[])[] | null = null
+    if (then.split !== undefined) {
+      const agreed = agreedSplit(run.rounds, round.n, then.split, role.id, width, board.intents)
+      if (typeof agreed === 'string') {
+        await this.#stall(id, agreed)
+        return this.#get(id).rounds.find((one) => one.n === round.n)!
+      }
+      parts = agreed
+    }
+    /* A round whose card agrees a later round's split is told so, and how to
+       record it: an agreement in prose is one nothing can hold anybody to. */
+    const splitting = [...new Set(policy.rules.filter((rule) => rule.then.split === role.id).map((rule) => rule.then.role))]
+    const asksSplit = splitting.map((target) => {
+      const cards = bindingsFor(run, target).length
+      return `Finish this with complete_claim's split as well: the agreed split of files for the "${target}" round, one list of path patterns for each of its ${cards} card${cards === 1 ? '' : 's'}, in card order, no two overlapping. Each of those cards will own only its own list.`
+    })
     const cards: number[] = []
     const render = (template: string, vars: Readonly<Record<string, string>>): string | Error => {
       try {
@@ -1905,11 +1987,13 @@ export class FlowExecutions {
       const detail = [
         said as string | null,
         answers.length > 0 && role.kind !== 'check' ? `Finish this with complete_claim and an outcome of exactly one of: ${answers.join(', ')}.` : null,
+        ...asksSplit,
       ].filter((one): one is string => Boolean(one)).join('\n\n')
+      const files = parts ? parts[index]! : then.files ?? []
       const card = this.#team.addIntentForFlow(run.goal, {
         title: title as string,
         ...(detail ? { detail } : {}),
-        ...(then.files?.length ? { files: then.files } : {}),
+        ...(files.length ? { files } : {}),
         ...(dependsOn.length ? { dependsOn } : {}),
         role: role.id,
         dispatch: `${id}:${round.n}:${index}`,
@@ -1933,7 +2017,7 @@ export class FlowExecutions {
        before any of its Seats opens: a delta that cannot be read in full
        stops the run here, with nothing seated. */
     if (role.kind === 'agent' && run.findings && this.#reviewPackets && !this.#get(id).reviewPackets?.[String(round.n)] &&
-      bindings.some((binding) => binding.agent.produces.includes('review'))) {
+      bindings.some(reviewsIn)) {
       let packet: ReviewPacketPin | null
       try {
         packet = await this.#reviewPackets(id, round.n, round.role, (await this.#closure(this.#get(id), dependsOn)).subjects)
@@ -1961,17 +2045,62 @@ export class FlowExecutions {
     return round
   }
 
-  /** Providers of every Seat that worked a round of these roles; null in the set means one was unknown. */
-  async #writers(run: StoredFlowExecution, roles: readonly string[]): Promise<Set<string | null>> {
-    const providers = new Set<string | null>()
+  /**
+   * Every Seat that worked a round of these roles, with the provider its
+   * runtime reads as (null when unknown) and the card it held, when the
+   * round's own journal still names one — what a stall names when an
+   * unreadable provider is the reason nothing can be seated after it.
+   */
+  async #writerSeats(
+    run: StoredFlowExecution,
+    roles: readonly string[],
+  ): Promise<readonly { readonly card: number | null; readonly runtime: string | null; readonly provider: string | null }[]> {
+    const out: { readonly card: number | null; readonly runtime: string | null; readonly provider: string | null }[] = []
     for (const round of run.rounds) {
       if (!roles.includes(round.role)) continue
       for (const id of round.seats) {
         const seat = this.#port.seatOf(id)
-        providers.add(seat ? await this.#port.providerOf(seat.session.runtime, seat.checkout.cwd) : null)
+        const card = run.operations.find((one) => one.kind === 'seat' && one.seat === id)?.card ?? null
+        out.push({
+          card,
+          runtime: seat?.session.runtime ?? null,
+          provider: seat ? await this.#port.providerOf(seat.session.runtime, seat.checkout.cwd) : null,
+        })
       }
     }
-    return providers
+    return out
+  }
+
+  /** Providers of every Seat that worked a round of these roles; null in the set means one was unknown. */
+  async #writers(run: StoredFlowExecution, roles: readonly string[]): Promise<Set<string | null>> {
+    return new Set((await this.#writerSeats(run, roles)).map((one) => one.provider))
+  }
+
+  /**
+   * Why independence could not be proven, when every candidate was refused
+   * only because an earlier round's own provider could not be read at all —
+   * never when every candidate was merely already used. Names the earliest
+   * such card, by number, and the agent that held it, by its own
+   * presentation name, never a raw runtime id. The way forward differs by
+   * whether there is anything to fix: an agent with a reader that merely
+   * could not rule an override out can have that configuration fixed; an
+   * agent with no reader at all (Cursor, say) has nothing there to point
+   * at, so the only way forward is to drop `independentOf` for this step or
+   * seat that earlier card on an agent whose provider can be read. The
+   * guard stays fail-closed either way — this only changes what the stall
+   * says.
+   */
+  #unreadableProviderStall(writers: readonly { readonly card: number | null; readonly runtime: string | null; readonly provider: string | null }[]): string {
+    const first = writers.find((one) => one.provider === null)
+    if (!first) return INDEPENDENT
+    const name = first.runtime ? this.#port.presentationOf?.(first.runtime) : null
+    const location = first.card !== null ? `card #${first.card}` : 'an earlier seat'
+    const who = name ? `the agent on ${location}, ${name},` : `the agent on ${location}`
+    const readable = first.runtime !== null && (this.#port.canReadProvider?.(first.runtime) ?? false)
+    const advice = readable
+      ? 'Fix that agent’s own configuration if something there points it at another host, or run this role without independentOf.'
+      : 'That agent has no provider reader at all, so the only way forward is to run this role without independentOf, or to seat that earlier card on an agent whose provider can be read.'
+    return `This step needs an independent provider, but ${who} could not have its provider read, so no seat can be proven independent of it. ${advice}`
   }
 
   /**
@@ -1983,7 +2112,13 @@ export class FlowExecutions {
     const openedNow: string[] = []
     const fail = async (reason: string): Promise<false> => {
       const run = this.#get(id)
-      await this.#release(run.goal, openedNow, run.intake !== undefined)
+      /* A Seat this attempt opened has been handed nothing yet, but it is
+         still in its brief's turn, and a busy Seat refuses a release: left
+         open, it would hold its card and pick it up through `await_work`
+         while the run stands stalled — the sibling of a refused card working
+         anyway (#1015). So its turn is interrupted first, whoever started the
+         run. */
+      await this.#release(run.goal, openedNow, true)
       await this.#stall(id, reason)
       return false
     }
@@ -2026,7 +2161,8 @@ export class FlowExecutions {
       let candidates: readonly FlowSeat[] = binding.seats
       let writers: Set<string | null> | null = null
       if (independentOf.length > 0) {
-        const known = await this.#writers(run, independentOf)
+        const priorSeats = await this.#writerSeats(run, independentOf)
+        const known = new Set(priorSeats.map((one) => one.provider))
         writers = known
         const offered = binding.seats.length > 0 ? binding.seats : binding.agent.prefer
         const board = this.#team.stateFor(run.goal)
@@ -2038,7 +2174,10 @@ export class FlowExecutions {
           }
         }
         candidates = kept
-        if (candidates.length === 0) return fail(INDEPENDENT)
+        // `known.has(null)` is exactly the case an unreadable predecessor forces:
+        // the loop above never ran, so every candidate was refused for that
+        // reason alone, never because it was merely already used.
+        if (candidates.length === 0) return fail(known.has(null) ? this.#unreadableProviderStall(priorSeats) : INDEPENDENT)
       }
       if (await this.#port.digestOf(run.goal, binding.agent.id) !== binding.digest) return fail(BRIEF_CHANGED)
       if (await mayGo() !== true) return false

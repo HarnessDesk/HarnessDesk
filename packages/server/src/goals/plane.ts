@@ -56,6 +56,8 @@ export interface GoalPlanePort extends GoalOperationPort {
   confine(input: GoalCreateInput): Promise<{ root: string; cwd: string }>
   known(runtime: string, session: string): Promise<{ project: string; busy: boolean } | null>
   claimable(goal: string, card: number, session: SessionPointer): boolean
+  /** Why this card is not claimable when its files overlap a live claim, naming the paths and the card holding them. */
+  overlap?(goal: string, card: number, session: SessionPointer): string | null
   /**
    * Passed straight through to `Assignments` (see its own doc comment):
    * whether this live conversation's attachment loading was actually
@@ -188,6 +190,7 @@ export class GoalPlane {
       seats: () => port.seats.all(),
       known: (runtime, session) => port.known(runtime, session),
       claimable: (goal, card, session) => port.claimable(goal, card, session),
+      ...(port.overlap ? { overlap: (goal: string, card: number, session: SessionPointer) => port.overlap!(goal, card, session) } : {}),
       commit: (goal, card, session) => this.#assign(goal, card, session),
       ...(port.attachmentsObserved ? { attachmentsObserved: (session: SessionPointer) => port.attachmentsObserved!(session) } : {}),
     }, serial)
@@ -248,6 +251,7 @@ export class GoalPlane {
         stranded: this.port.stranded(id, intent.id),
         holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
         forPerson: step?.kind === 'person',
+        live: step?.live ?? false,
         runStopped: step?.stopped ?? false,
       })
     })

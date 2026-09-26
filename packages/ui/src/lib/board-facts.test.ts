@@ -28,6 +28,7 @@ const place = (over: Partial<PlaceInput> = {}) =>
     stranded: false,
     holderWaits: false,
     forPerson: false,
+    live: false,
     runStopped: false,
     ...over,
   })
@@ -51,7 +52,7 @@ describe('work that is not finished', () => {
     expect(place({ intent: intent({ state: 'blocked', blockedBy: 'hand', blockedReason: 'waits on the rename' }) })).toEqual({ column: 'needs', why: 'stopped' })
     expect(place({ intent: intent({ state: 'claimed', claim: HELD }), stranded: true })).toEqual({ column: 'needs', why: null })
     expect(place({ intent: intent({ state: 'claimed', claim: HELD }), holderWaits: true })).toEqual({ column: 'needs', why: 'waiting on you' })
-    expect(place({ intent: intent({ state: 'open' }), forPerson: true })).toEqual({ column: 'needs', why: 'needs your answer' })
+    expect(place({ intent: intent({ state: 'open' }), forPerson: true, live: true })).toEqual({ column: 'needs', why: 'needs your answer' })
   })
 })
 
@@ -157,10 +158,53 @@ describe('a card a Goal’s run addressed to the person', () => {
 
   it('is a person step with its declared words, only when one of that run’s rounds opened it', () => {
     const card = intent({ id: 2, state: 'open', role: 'close' })
-    expect(flowStepOf(card, undefined, [execution([2])])).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false })
+    expect(flowStepOf(card, undefined, [execution([2])])).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false, live: true })
     expect(flowStepOf(card, undefined, [execution([5])])).toBeNull()
-    expect(flowStepOf(card, undefined, [execution([2], 'settled')])).toBeNull()
     expect(flowStepOf(card, undefined, [])).toBeNull()
+  })
+
+  /*
+   * A round's own card keeps its role forever, whatever the run that opened
+   * it is doing now. A flow settling — the ordinary way one ends — must not
+   * erase which of its cards was the person's own decision: the moment it
+   * settles is the moment its last card, the person's own answer, would
+   * otherwise fall back to being read as an unchecked diff and land back in
+   * Needs you for good (#1022).
+   */
+  it('keeps a card’s role once the run that opened it has settled or stopped', () => {
+    const card = intent({ id: 2, state: 'done', outcome: 'closed', role: 'close' })
+    expect(flowStepOf(card, undefined, [execution([2], 'settled')])).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false, live: false })
+    expect(flowStepOf(card, undefined, [execution([2], 'stopped')])).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false, live: false })
+    // A done card keeps its role regardless of live: it needs no run still asking.
+    expect(place({ intent: card, forPerson: true, live: false })).toEqual({ column: 'ready', why: null })
+  })
+
+  /*
+   * The other half of the same fix: an *unanswered* card (`open` or
+   * `claimed`) is only the person's own step while the run that opened it
+   * is still asking — `running` or `stalled`. Once it settles or stops,
+   * nothing is asking any more, so answering it would do nothing: it must
+   * not sit in Needs you, and must not be counted as waiting on the person
+   * (the review finding on #1022's own fix, which had dropped this half of
+   * the check entirely).
+   */
+  it('an open card is the person’s to answer only while the run that opened it is live', () => {
+    const card = intent({ id: 2, state: 'open', role: 'close' })
+
+    const settledStep = flowStepOf(card, undefined, [execution([2], 'settled')])
+    expect(settledStep).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false, live: false })
+    expect(place({ intent: card, forPerson: settledStep?.kind === 'person', live: settledStep?.live ?? false }))
+      .toEqual({ column: 'todo', why: null })
+
+    const stoppedStep = flowStepOf(card, undefined, [execution([2], 'stopped')])
+    expect(stoppedStep).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false, live: false })
+    expect(place({ intent: card, forPerson: stoppedStep?.kind === 'person', live: stoppedStep?.live ?? false }))
+      .toEqual({ column: 'todo', why: null })
+
+    const runningStep = flowStepOf(card, undefined, [execution([2], 'running')])
+    expect(runningStep).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false, live: true })
+    expect(place({ intent: card, forPerson: runningStep?.kind === 'person', live: runningStep?.live ?? false }))
+      .toEqual({ column: 'needs', why: 'needs your answer' })
   })
 
   /*
@@ -195,19 +239,19 @@ describe('a card a Goal’s run addressed to the person', () => {
 
     const approvedStep = flowStepOf(approved, undefined, [stalled])
     expect(approvedStep?.stopped).toBe(true)
-    expect(place({ intent: approved, forPerson: approvedStep?.kind === 'person', runStopped: approvedStep?.stopped ?? false })).toEqual({
+    expect(place({ intent: approved, forPerson: approvedStep?.kind === 'person', live: approvedStep?.live ?? false, runStopped: approvedStep?.stopped ?? false })).toEqual({
       column: 'ready',
       why: null,
     })
 
     const waitingStep = flowStepOf(waiting, undefined, [stalled])
-    expect(place({ intent: waiting, forPerson: waitingStep?.kind === 'person', runStopped: waitingStep?.stopped ?? false })).toEqual({
+    expect(place({ intent: waiting, forPerson: waitingStep?.kind === 'person', live: waitingStep?.live ?? false, runStopped: waitingStep?.stopped ?? false })).toEqual({
       column: 'needs',
       why: 'needs your answer',
     })
 
     const heldStep = flowStepOf(held, undefined, [stalled])
-    expect(place({ intent: held, forPerson: heldStep?.kind === 'person', runStopped: heldStep?.stopped ?? false })).toEqual({
+    expect(place({ intent: held, forPerson: heldStep?.kind === 'person', live: heldStep?.live ?? false, runStopped: heldStep?.stopped ?? false })).toEqual({
       column: 'needs',
       why: 'run stopped',
     })

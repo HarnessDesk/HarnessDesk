@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import type { TeamEntry, TeamSignal } from '@harnessdesk/protocol'
 
 import { BRIEF_CHANGED, INDEPENDENT } from '../src/flow-execution.js'
+import { overlaps } from '../src/team.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
 const addedSignal = (channel: readonly TeamEntry[]): TeamSignal | undefined =>
@@ -234,6 +235,80 @@ rules:
   assert.equal(readback.run.reason, INDEPENDENT)
   assert.deepEqual(orders(readback.rig.events), ['order:seat-1'], 'a Seat that came back on the writer’s provider is sent nothing')
   assert.deepEqual(readback.rig.events.filter((one) => one.startsWith('release:')), ['release:seat-2'])
+})
+
+/*
+ * A predecessor whose provider is unknown makes the round unprovable
+ * (the #1019 stall). What the stall says once it happens depends on whether
+ * there is anything to fix, and the agent's own presentation name is used
+ * only when the desk actually has one (Opus review of #1028).
+ */
+const unreadableWriterFlow = (seat: string): string => `
+version: 2
+name: Write then review
+roles:
+  author: { kind: agent, uses: writer, seats: [${seat}] }
+  reviewer: { kind: agent, uses: reviewer, seats: [beta], independentOf: [author] }
+seed: { role: author, title: Write }
+rules:
+  - { id: review, on: author, when: { every: [done] }, then: { role: reviewer, title: Review } }
+`
+
+test('an unreadable predecessor with a reader names the card and the agent, and points at its configuration', async (t) => {
+  const rig = await goalRig(t)
+  // 'alpha' has a reader — `readableProviders` says so — but it is never given a provider, so it reads unknown.
+  rig.presentations.set('alpha', 'DeepSeek Harness')
+  rig.readableProviders.add('alpha')
+  rig.providers.set('beta', 'second')
+  const run = await rig.start(unreadableWriterFlow('alpha'), [agent('writer', ['done']), agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(stalled.state, 'stalled')
+  assert.equal(
+    stalled.reason,
+    'This step needs an independent provider, but the agent on card #1, DeepSeek Harness, could not have its provider read, so no seat can be proven independent of it. ' +
+      'Fix that agent’s own configuration if something there points it at another host, or run this role without independentOf.',
+  )
+  assert.deepEqual(opens(rig.events), ['open:seat-1'], 'the reviewer is never opened once independence cannot be proven')
+})
+
+test('an unreadable predecessor with no presentation name at all falls back to naming just the card', async (t) => {
+  const rig = await goalRig(t)
+  // No `rig.presentations` entry for 'alpha' at all — the desk has nothing to call it.
+  rig.readableProviders.add('alpha')
+  rig.providers.set('beta', 'second')
+  const run = await rig.start(unreadableWriterFlow('alpha'), [agent('writer', ['done']), agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(
+    stalled.reason,
+    'This step needs an independent provider, but the agent on card #1 could not have its provider read, so no seat can be proven independent of it. ' +
+      'Fix that agent’s own configuration if something there points it at another host, or run this role without independentOf.',
+  )
+})
+
+test('an unreadable predecessor with no provider reader at all points at independentOf or reseating, never at configuration', async (t) => {
+  const rig = await goalRig(t)
+  // 'alpha' is never added to `readableProviders` — no reader exists for it, the Cursor case.
+  rig.presentations.set('alpha', 'Cursor')
+  rig.providers.set('beta', 'second')
+  const run = await rig.start(unreadableWriterFlow('alpha'), [agent('writer', ['done']), agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(
+    stalled.reason,
+    'This step needs an independent provider, but the agent on card #1, Cursor, could not have its provider read, so no seat can be proven independent of it. ' +
+      'That agent has no provider reader at all, so the only way forward is to run this role without independentOf, or to seat that earlier card on an agent whose provider can be read.',
+  )
 })
 
 test('a brief changed since the run was compiled is refused before and after opening', async (t) => {
@@ -577,4 +652,114 @@ test('a trigger run that stops waits for the turns it interrupted to end before 
   for (const seat of ['seat-1', 'seat-2']) {
     assert.ok(rig.events.indexOf(`interrupt:${seat}`) < rig.events.indexOf(`release:${seat}`), `${seat}: interrupted, then released`)
   }
+})
+
+// ------------------------------------------------ an agreed split, enforced (#1015)
+
+const PAIR = `
+version: 2
+name: Pair build
+roles:
+  contract: { kind: agent, uses: writer }
+  dev: { kind: agent, uses: writer, count: 2, isolate: true }
+seed: { role: contract, title: Agree the split }
+rules:
+  - { id: build, on: contract, when: { every: [done] }, then: { role: dev, title: "Build part {{n}}", split: contract } }
+`
+
+test('each card of a split round owns the part of the split its slot was agreed, and both are seated', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(PAIR, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  // The agreeing card is told to record the split, and how many parts it needs.
+  assert.match(rig.board(run.goal).intents.find((card) => card.id === 1)?.detail ?? '', /complete_claim's split .* "dev" round, one list of path patterns for each of its 2 cards/)
+
+  const said = await rig.team.complete(1, { outcome: 'done', split: [['src/api/**', 'docs/api.md'], ['./src/ui/**']] }, rig.sessionOf('seat-1'))
+  assert.match(said, /^Completed #1/)
+  await rig.flows.flush()
+
+  const board = rig.board(run.goal)
+  assert.deepEqual(board.intents.find((card) => card.id === 2)?.files, ['src/api/**', 'docs/api.md'])
+  assert.deepEqual(board.intents.find((card) => card.id === 3)?.files, ['src/ui/**'])
+  assert.equal(board.intents.find((card) => card.id === 2)?.claim?.sessionId, rig.sessionOf('seat-2').sessionId)
+  assert.equal(board.intents.find((card) => card.id === 3)?.claim?.sessionId, rig.sessionOf('seat-3').sessionId)
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2', 'order:seat-3'])
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'running')
+})
+
+test('a split round whose agreeing card recorded no split stops, opening no card and seating nobody', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(PAIR, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const now = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(now.state, 'stalled')
+  assert.match(now.reason ?? '', /The 2 "dev" cards were not opened: the "contract" round \(card #1\) finished without recording a split of the files, so each card cannot be held to its own files\./)
+  assert.match(now.reason ?? '', /the "contract" card has to record its split of the files when it finishes/)
+  assert.doesNotMatch(now.reason ?? '', /complete_claim/, 'a person reads this, not a tool name')
+  assert.equal(rig.board(run.goal).intents.length, 1, 'no card was opened with a shared list')
+  assert.deepEqual(opens(rig.events), ['open:seat-1'])
+})
+
+test('a card whose files overlap a live claim is refused by name, and its sibling is not left seated', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(PAIR, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  // Somebody else already holds the second part's paths.
+  const state = rig.team.stateFor(run.goal)
+  rig.team.installProjection({
+    ...state,
+    intents: [...state.intents, {
+      id: 9, title: 'Someone else’s work', state: 'claimed', files: ['src/ui/button.ts'], dependsOn: [], createdAt: 1, updatedAt: 1,
+      claim: { runtime: 'alpha' as never, sessionId: 'outsider', at: Date.now() },
+    }],
+  })
+  await rig.team.complete(1, { outcome: 'done', split: [['src/api/**'], ['src/ui/**']] }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const now = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(now.state, 'stalled')
+  assert.match(now.reason ?? '', /card #\d+ could not be opened: Refused: the files of card #\d+ overlap a live claim — src\/ui\/button\.ts is held by #9/)
+  assert.deepEqual(orders(rig.events), ['order:seat-1'], 'no dev Seat was handed its card')
+  assert.ok(rig.events.includes('release:seat-2'), 'the sibling already opened is let go')
+})
+
+test('two sibling cards whose paths overlap are never both claimed', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(PAIR, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const state = rig.team.stateFor(run.goal)
+  const sibling = (id: number, files: string[], holder: string | null) => ({
+    id, title: `Part ${id}`, state: holder ? 'claimed' as const : 'open' as const, files, dependsOn: [], createdAt: 1, updatedAt: 1, role: 'dev',
+    ...(holder ? { claim: { runtime: 'alpha' as never, sessionId: holder, at: Date.now() } } : {}),
+  })
+  const intents = [...state.intents, sibling(5, ['src/**'], 'first'), sibling(6, ['src/app.ts'], null)]
+  assert.equal(
+    rig.team.refuseOverlap(run.goal, intents, 6, 'alpha', 'second'),
+    'the files of card #6 overlap a live claim — src/** is held by #5 (a conversation that is not running). Two cards whose paths overlap are never worked at once.',
+  )
+  assert.equal(rig.team.refuseOverlap(run.goal, intents, 6, 'alpha', 'first'), null, 'its own claim is not a conflict')
+})
+
+test('a split whose parts overlap is refused as it is recorded, and the card stays unfinished', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(PAIR, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const said = await rig.team.complete(1, { outcome: 'done', split: [['src/**'], ['src/ui/app.ts']] }, rig.sessionOf('seat-1'))
+  assert.match(said, /^Refused: #1 is not finished, because list 1 \(src\/\*\*\) and list 2 \(src\/ui\/app\.ts\) overlap/)
+  assert.equal(rig.board(run.goal).intents.find((card) => card.id === 1)?.state, 'claimed')
+})
+
+test('paths that differ only in case are one folder to the board, as on a case-insensitive volume', async (t) => {
+  assert.equal(overlaps('src/UI/**', 'src/ui/button.ts'), true)
+  assert.equal(overlaps('Docs/API.md', 'docs/api.md'), true)
+  assert.equal(overlaps('src/ui/**', 'src/api/**'), false)
+  const rig = await goalRig(t)
+  const run = await rig.start(PAIR, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const said = await rig.team.complete(1, { outcome: 'done', split: [['src/UI/**'], ['src/ui/**']] }, rig.sessionOf('seat-1'))
+  assert.match(said, /^Refused: #1 is not finished, because list 1 \(src\/UI\/\*\*\) and list 2 \(src\/ui\/\*\*\) overlap/)
+  assert.equal(rig.board(run.goal).intents.find((card) => card.id === 1)?.state, 'claimed')
 })

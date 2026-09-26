@@ -1,0 +1,113 @@
+/*
+ * The checklist (Checklist.tsx). One step per row: a mark in a box one line
+ * tall, so it centres on the step's first line however many lines follow,
+ * and the words in the ink their state gives them.
+ */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  height: var(--hd-line-sm);
+  color: var(--hd-muted-foreground);
+}
+
+.item[data-state='active'] .mark {
+  color: var(--hd-primary-ink);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  color: var(--hd-secondary-foreground);
+  text-wrap: pretty;
+}
+
+.item[data-state='active'] .body {
+  color: var(--hd-foreground);
+  font-weight: var(--hd-weight-medium);
+}
+
+.item[data-state='done'] .body {
+  color: var(--hd-muted-foreground);
+  text-decoration: line-through;
+  text-decoration-color: var(--hd-border-strong);
+}
+
+/*
+ * A step's words are sometimes a control rather than plain text — the Tasks
+ * panel's reword button (`TaskPanel.tsx`) — and a button is one of the few
+ * elements a browser will not draw an ancestor's `text-decoration` through,
+ * the way it will through a `span`. Its own utility class also sets its ink
+ * outright (`text-(--hd-foreground)`, from the shared `row` variant), which
+ * outranks `.body`'s inherited colour the same way. Both have to be answered
+ * on the control itself, keyed off the `data-state` `TaskPanel` passes it —
+ * three plain classes and an attribute beat one Tailwind utility on
+ * specificity, so this wins without `!important`. Pending reads `.body`'s
+ * own colour by inheriting it, so a to-do step's label is not full ink
+ * either. */
+.body [data-slot='button'] {
+  color: inherit;
+  /* A step's words, drawn as the box they replaced: `sm` is the canonical
+     size a screen may pick (`script/ui-architecture.mjs` refuses
+     `size="pattern"` outside `design/`), and its own height and padding are
+     this pattern's to zero back out — a checklist step already gives its
+     mark and its label the list's own 8px gap (`.item`'s `gap`), and `sm`'s
+     box added a second inset on top of it. */
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  /* A step is a sentence and has to wrap in the sidebar's narrow column:
+     the shared button is an inline-flex box that never wraps, so a long
+     step ran the Tasks panel past the column's edge. As inline text it
+     wraps like the words it stands for, and an unbroken path still breaks. */
+  display: inline;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  /* Inline padding grows the press area without moving a word: the line
+     is 20px and the app's floor for a target is 24px, so each side gets
+     the difference. Cloned per line, so a wrapped step's focus ring is a
+     box on every line rather than an open-ended strip. */
+  padding-block: calc((var(--hd-target-min) - var(--hd-line-sm)) / 2);
+  box-decoration-break: clone;
+  font: inherit;
+}
+
+.item[data-state='done'] .body [data-slot='button'] {
+  color: var(--hd-muted-foreground);
+  text-decoration: line-through;
+  text-decoration-color: var(--hd-border-strong);
+}
+
+.item[data-state='active'] .body [data-slot='button'] {
+  color: var(--hd-foreground);
+}
+
+.after {
+  display: inline-flex;
+  gap: var(--hd-space-1);
+  margin-left: var(--hd-space-1-5);
+  vertical-align: baseline;
+  font-weight: var(--hd-weight-normal);
+  text-decoration: none;
+}

@@ -1,9 +1,10 @@
 import { constants } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, relative, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 
 import { ConfinedTree } from '../confined-tree.js'
+import { parseYaml, YamlError } from '../yaml.js'
 import type { KnownAgent } from './known-agents.js'
 
 /**
@@ -38,6 +39,13 @@ export interface ProviderContext {
   readonly home?: string
   /** Claude Code's managed settings file; null reads none. Defaults to this platform's. */
   readonly managed?: string | null
+  /**
+   * The row's own launch arguments, when the caller has them (`knowledgeOverlay`
+   * passes the row's `args`). A reader that only knows what profile or mode a
+   * flag selects — DSH's `--profile acp` — needs these to see a flag the
+   * files it reads would never mention; see `dshProvider`.
+   */
+  readonly args?: readonly string[]
 }
 
 export type ProviderReader = (cwd?: string) => Promise<string | null>
@@ -52,6 +60,17 @@ export const providerReaderFor = (
       return (cwd) => claudeProvider(context, cwd)
     case 'gemini':
       return (cwd) => geminiProvider(context, cwd)
+    case 'dsh':
+      return () => dshProvider(context)
+    // Cursor's provider is a per-session model choice, not a runtime- or
+    // project-level setting `providerAt`/`providerOf` can answer: the same
+    // `cursor` runtime id can be running Claude, GPT or Gemini models at
+    // once across its live sessions, and this reader is asked about the
+    // runtime, never the session. Mapping a model id to its vendor here
+    // would silently answer for the wrong session as often as the right
+    // one, which is exactly the guess `independentOf` cannot afford — so
+    // Cursor stays unknown, on purpose, until a provider check can be asked
+    // per session.
     default:
       return undefined
   }
@@ -190,4 +209,165 @@ const geminiProvider = async (context: ProviderContext, cwd?: string): Promise<s
     if (read.kind === 'unreadable' || /base_?url/i.test(read.text) || /"gateway"/.test(read.text)) return null
   }
   return 'google'
+}
+
+/**
+ * DeepSeek Harness (`dsh --profile acp`): DeepSeek's own API, but only when
+ * every one of these holds across both layers a person can patch — the
+ * `acp` profile's own `cordis.patch.yml`, and the home-level one that
+ * outranks every profile (DSH always starts on `acp`; see the `dsh` entry
+ * in `known-agents.ts`, and `codexProvider` for the same reasoning about a
+ * profile nothing selects):
+ *
+ * - the row's own launch arguments are exactly `--profile acp`, DSH's own
+ *   template — anything else, including the same flag with more after it,
+ *   could load a profile or an overlay these two files never speak for, and
+ *   this reader has no way to tell what that would do;
+ * - `DEEPSEEK_BASE_URL` is not set in the environment it starts with;
+ * - no layer's `llm-deepseek`, `llm-deepseek-account` or
+ *   `llm-deepseek-api-key` entry sets `baseURL` outside `api.deepseek.com`;
+ * - no layer's `agent-default-model` entry sets a `provider` other than the
+ *   vendor default, `deepseek-official` — absent is the default, present and
+ *   different is a redirect;
+ * - no layer's `llm-pi-ai` entry carries any `config` at all: that entry
+ *   ships mounted dormant, with zero routes, until a settings document gives
+ *   it one — so any config on it at all means some other provider's routes
+ *   could be live, and which one `agent-default-model` might then pick is
+ *   not this reader's to guess;
+ * - no layer has an `insert` anywhere: a patch that inserts a plugin can add
+ *   any capability, including a different default model or provider, and
+ *   this reader does not attempt to understand an inserted tree.
+ *
+ * A file that is absent contributes nothing (the vendor default holds); one
+ * that cannot be read, like one that redirects anything above, answers
+ * unknown. DSH's own secret file (`.credentials.yaml`) is never opened:
+ * nothing it can hold changes where a request goes, and its contents are
+ * not this decision's business.
+ */
+const DSH_BASE_URL_ENV = 'DEEPSEEK_BASE_URL'
+const DSH_HOST = 'api.deepseek.com'
+const DSH_DEFAULT_PROVIDER = 'deepseek-official'
+const DSH_ENTRY_IDS = new Set(['llm-deepseek', 'llm-deepseek-account', 'llm-deepseek-api-key'])
+/**
+ * The arguments DSH's own known-agent entry launches with (`known-agents.ts`'s
+ * `dsh` entry keeps its own `acp.args` empty on purpose, so a person's own
+ * profile flag is never silently replaced — see `service.ts`'s
+ * `launchFor`). This is what `dshProvider` checks a row's own args against:
+ * anything else could select a profile this reader never looked at.
+ */
+const DSH_ACP_ARGS: readonly string[] = ['--profile', 'acp']
+
+const isYamlMap = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * The parsed top-level list of a patch file's items, each held to the shape
+ * this reader actually understands — a list of maps. `null` for anything
+ * else: a parse failure (`YamlError`, refused by `parseYaml`'s own strict
+ * subset), a document that isn't a list, or a list holding something other
+ * than a map. An empty file parses to `null` from `parseYaml` itself and is
+ * read as a patch with no items, not a shape this reader fails to recognise.
+ */
+const dshPatchItems = (text: string): readonly Record<string, unknown>[] | null => {
+  let parsed: unknown
+  try {
+    parsed = parseYaml(text)
+  } catch (error) {
+    if (error instanceof YamlError) return null
+    throw error
+  }
+  if (parsed === null) return []
+  if (!Array.isArray(parsed) || !parsed.every(isYamlMap)) return null
+  return parsed as Record<string, unknown>[]
+}
+
+/**
+ * Every item whose `id` is this one. DSH applies every patch in order and the
+ * later one wins, so a reader that checked only the first could pass a later
+ * override it never looked at.
+ */
+const yamlItemsById = (items: readonly Record<string, unknown>[], id: string): Record<string, unknown>[] =>
+  items.filter((item) => item['id'] === id)
+
+/**
+ * Whether one patch layer's text could point DSH's default session anywhere
+ * but DeepSeek's own API — every condition documented above `dshProvider`,
+ * checked against this layer alone (the caller checks all of them
+ * together). Any doubt along the way — a parse failure, a shape this reader
+ * does not recognise, a value of the wrong type — answers `true`: it could
+ * override, so the caller treats it exactly like one that does.
+ */
+const dshLayerOverrides = (text: string): boolean => {
+  const items = dshPatchItems(text)
+  if (items === null) return true
+  if (items.some((item) => Object.prototype.hasOwnProperty.call(item, 'insert'))) return true
+
+  for (const piAi of yamlItemsById(items, 'llm-pi-ai')) {
+    if (Object.prototype.hasOwnProperty.call(piAi, 'config')) return true
+  }
+
+  for (const defaultModel of yamlItemsById(items, 'agent-default-model')) {
+    if (!Object.prototype.hasOwnProperty.call(defaultModel, 'config')) continue
+    const config = defaultModel['config']
+    if (!isYamlMap(config)) return true
+    if (Object.prototype.hasOwnProperty.call(config, 'provider')) {
+      const provider = config['provider']
+      if (typeof provider !== 'string' || provider !== DSH_DEFAULT_PROVIDER) return true
+    }
+  }
+
+  for (const id of DSH_ENTRY_IDS) {
+    for (const item of yamlItemsById(items, id)) {
+      if (!Object.prototype.hasOwnProperty.call(item, 'config')) continue
+      const config = item['config']
+      if (!isYamlMap(config)) return true
+      if (!Object.prototype.hasOwnProperty.call(config, 'baseURL')) continue
+      const baseUrl = config['baseURL']
+      if (typeof baseUrl !== 'string') return true
+      try {
+        if (new URL(baseUrl).hostname !== DSH_HOST) return true
+      } catch {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+/** Expands DSH's own supported tilde forms (`~`, `~/…`) against the OS home; any other path is returned unchanged. */
+const expandDshHome = (path: string, home: string): string => {
+  if (path === '~') return home
+  if (path.startsWith('~/') || path.startsWith('~\\')) return join(home, path.slice(2))
+  return path
+}
+
+/** Whether two argument lists are exactly the same, in order. */
+const sameArgs = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((value, at) => value === b[at])
+
+const dshProvider = async (context: ProviderContext): Promise<string | null> => {
+  const env = context.env ?? process.env
+  if ((env[DSH_BASE_URL_ENV] ?? '').trim() !== '') return null
+  // This reader only ever looks at the `acp` profile's own files. A row
+  // launched with anything else on the command line — another flag, or a
+  // different profile altogether — could load an overlay these files never
+  // mention, so anything but the template's own args is unknown outright.
+  if (context.args === undefined || !sameArgs(context.args, DSH_ACP_ARGS)) return null
+  const osHome = context.home ?? homedir()
+  const configured = env['DSH_HOME']?.trim()
+  const dshHome = configured ? expandDshHome(configured, osHome) : join(osHome, '.dsh')
+  // DSH itself resolves a still-relative home against its own process's
+  // working directory; this reader has no reliable claim to that directory,
+  // so guessing which files it would mean is refused rather than risked.
+  if (!isAbsolute(dshHome)) return null
+  const reads = await Promise.all([
+    readOwn(join(dshHome, 'cordis.patch.yml')),
+    readOwn(join(dshHome, 'profiles', 'acp', 'cordis.patch.yml')),
+  ])
+  for (const read of reads) {
+    if (read.kind === 'absent') continue
+    if (read.kind === 'unreadable') return null
+    if (dshLayerOverrides(read.text)) return null
+  }
+  return 'deepseek'
 }

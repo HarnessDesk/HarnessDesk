@@ -84,7 +84,7 @@ const select = async (value: string): Promise<void> => {
 
 it('every candidate and effective ceiling remains visible', async () => {
   const seatHeld: FlowPreviewSeat = {
-    role: 'fixer', index: 0, agent: 'builder', isolate: true,
+    role: 'fixer', index: 0, agent: 'builder', isolate: true, reviews: false,
     plan: {
       id: 'builder', from: 'prefer', winner: 2, blocked: null, ceiling: { level: 'edit', hold: 'held' },
       candidates: [
@@ -95,7 +95,7 @@ it('every candidate and effective ceiling remains visible', async () => {
     } as SeatPlan,
   }
   const seatAsked: FlowPreviewSeat = {
-    role: 'reviewer', index: 0, agent: 'reviewer', isolate: false,
+    role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true,
     plan: { id: 'reviewer', from: 'machine', winner: 0, blocked: null, ceiling: { level: 'read', hold: 'asked' }, candidates: [candidate({ state: 'taken', reason: null, fix: null, label: 'Codex' })] } as SeatPlan,
   }
   const preview: FlowPreview = { ...emptyPreview(), seats: [seatHeld, seatAsked] }
@@ -125,7 +125,7 @@ it('every candidate and effective ceiling remains visible', async () => {
 
 it('a review flow discloses its effective budget and the blind-round messaging restriction; a plain flow shows neither', async () => {
   const reviewSeat: FlowPreviewSeat = {
-    role: 'reviewer', index: 0, agent: 'reviewer', isolate: false,
+    role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true,
     plan: { id: 'reviewer', from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'read', hold: 'held' }, candidates: [] } as SeatPlan,
   }
   const reviewPreview: FlowPreview = {
@@ -136,11 +136,20 @@ it('a review flow discloses its effective budget and the blind-round messaging r
       bindings: [{ role: 'reviewer', index: 0, agent: { id: 'reviewer', produces: ['review'] } as never, origin: 'project', digest: 'd', seats: [], grant: 'read' }],
     },
   }
+  // An Agent that writes and reviews, seated to commit: the server says its Seats are not there to review.
+  const debatePreview: FlowPreview = {
+    ...reviewPreview,
+    seats: [{ ...reviewSeat, role: 'analyst', agent: 'analyst', reviews: false }],
+    compiled: {
+      ...reviewPreview.compiled,
+      bindings: [{ role: 'analyst', index: 0, agent: { id: 'analyst', produces: ['diff', 'review'] } as never, origin: 'project', digest: 'd', seats: [], grant: 'edit' }],
+    },
+  }
   const theStore = store({
-    entries: [ENTRY('review'), ENTRY('plain')],
+    entries: [ENTRY('review'), ENTRY('plain'), ENTRY('debate')],
     agents: [AGENT('reviewer', 'Reviewer')],
     source: (id) => `version: 2\nname: ${id}\n`,
-    preview: (source) => source.includes('review') ? reviewPreview : emptyPreview(),
+    preview: (source) => source.includes('review') ? reviewPreview : source.includes('debate') ? debatePreview : emptyPreview(),
   })
   render(theStore, () => {})
   await act(async () => {})
@@ -150,6 +159,11 @@ it('a review flow discloses its effective budget and the blind-round messaging r
   expect(container.textContent).toContain('cannot message or post')
 
   await select('plain')
+  await act(async () => {})
+  expect(container.textContent).not.toContain('stop for a person after')
+  expect(container.textContent).not.toContain('cannot message or post')
+
+  await select('debate')
   await act(async () => {})
   expect(container.textContent).not.toContain('stop for a person after')
   expect(container.textContent).not.toContain('cannot message or post')

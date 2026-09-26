@@ -1,12 +1,11 @@
-import { Button, Chip, Text, TextMark, Textarea } from '../design'
+import { Button, Checklist, ChecklistItem, Chip, Text, Textarea } from '../design'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { applyPlanEdits, type ShownTodo } from '../lib/plan-edits'
-import { sessionPlan } from '../lib/todos'
+import { sessionPlan, todoState } from '../lib/todos'
 import { PanelSection } from '../slots/PanelBlocks'
 import { registerSlot } from '../slots/registry'
-import { TodoDoneIcon, TodoPendingIcon } from './Icons'
 import styles from './TaskPanel.module.css'
 
 /**
@@ -69,14 +68,11 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
     if (next !== todo.label) store.editPlanTask(todo.source, next, todo.at, key ?? undefined)
   }
 
-  const bullet = (
-    <TextMark role="value">{todo.done ? <TodoDoneIcon size={12} /> : <TodoPendingIcon size={12} />}</TextMark>
-  )
+  const state = todoState(todo)
 
   if (draft !== null) {
     return (
-      <Text as="li" role="value" className={styles.item}>
-        {bullet}
+      <ChecklistItem state={state}>
         <Textarea
           ref={field}
           variant="composer" controlSize="composer" className={styles.input}
@@ -100,16 +96,39 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
           }}
           spellCheck={false}
         />
-      </Text>
+      </ChecklistItem>
     )
   }
 
   return (
-    <Text as="li" role="value" className={styles.item}>
-      {bullet}
+    <ChecklistItem state={state}>
+      {/*
+       * `size="sm"` — a screen may only pick a canonical `Button` size,
+       * never `size="pattern"` (`script/ui-architecture.mjs`'s
+       * `screen-pattern-button` rule: that box is a pattern's to draw, not a
+       * screen's). Checklist.module.css, the pattern this row belongs to,
+       * is where the box is actually zeroed back out: a checklist step
+       * already gives its mark and its label the 8px gap the list is built
+       * on (`.item`'s own `gap`), and `sm`'s own padding added a second
+       * inset on top of it — the label's first word started a button's
+       * worth of padding right of the mark instead of on its gap.
+       * `variant="row"` is kept for the hover and focus a reword control
+       * still needs; only its box is the pattern's to draw here.
+       *
+       * The priority chip and "edited" now render inside the button rather
+       * than in `ChecklistItem`'s separate `after` slot: `after` is a
+       * sibling span next to an inline-flex button, which the row's own
+       * `min-h`/`py` used to keep on the label's line by accident — once the
+       * button stopped claiming a box of its own, the same markup let the
+       * chip drop to a line of its own instead. Inside the button's own
+       * children, both share the one inline flow the label's text does.
+       */}
       <Button
         type="button"
-        variant="row" size="row" className={styles.label}
+        variant="row"
+        size="sm"
+        data-state={state}
+        className={styles.label}
         title={
           todo.edited
             ? `You reworded this. The agent wrote “${todo.source}”, and is told your wording with your next message.`
@@ -117,17 +136,13 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
         }
         onClick={open}
       >
-        <Text role="value" done={todo.done}>{todo.label}</Text>
-        {/* The agent's own word for urgency, in a chip on the label's own
-            line — it names no meaning of its own scale, so it earns the
-            chip rather than a second line under every task (rule 9). */}
+        {todo.label}
         {todo.priority && <Chip size="sm" tone="neutral">{todo.priority}</Chip>}
-        {todo.active && <Text role="meta" className={styles.hint}>in progress</Text>}
         {/* The panel is a read of the conversation, so where it is showing
             something the conversation does not say, it says so. */}
-        {todo.edited && <Text role="meta" className={styles.edited}><em>edited</em></Text>}
+        {todo.edited && <Text role="meta"><em>edited</em></Text>}
       </Button>
-    </Text>
+    </ChecklistItem>
   )
 }
 
@@ -161,7 +176,7 @@ export const TaskPanel = () => {
   const finished = shown.filter((todo) => todo.done).length
   return (
     <PanelSection id="hd.tasks" title={`Tasks · ${finished}/${shown.length}`}>
-      <ul className={styles.list}>
+      <Checklist label="Tasks">
         {shown.map((todo) => (
           // A plan may list the same step twice; the label alone is then two
           // rows under one React key, which breaks reconciliation and focus.
@@ -169,7 +184,7 @@ export const TaskPanel = () => {
              file binary to grep and to git diff, and the string is identical either way. */
           <TaskRow key={`${todo.source}\0${todo.at}`} todo={todo} />
         ))}
-      </ul>
+      </Checklist>
     </PanelSection>
   )
 }

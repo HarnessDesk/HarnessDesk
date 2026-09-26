@@ -54,6 +54,11 @@ const mount = async (page: Page, width: number) => {
           h('div', { style: { marginTop: '48px' }, 'data-testid': 'path-head' },
             h(DetailHead, { name: 'Checkout payments and retries', owner: '~/work/storefront/packages/checkout-service/src/payments/retry/gateway', blurb: 'A project.' }),
           ),
+          h(Section, { title: 'Triggers', action: h(Button, { size: 'sm', variant: 'outline' }, 'New trigger…'), 'data-testid': 'note-first' },
+            // ProjectTriggers.tsx's own shape: a Note, not a Rows card, is
+            // the body's first (and only) child.
+            h(Note, null, 'Read from the committed file. Nothing here runs until you arm it on this machine.'),
+          ),
           h(Section, { title: 'Approvals', description: 'What a new session starts with.', 'data-testid': 'approvals' },
             h(SectionHead, { name: 'Alpha' }),
             h(Rows, { 'data-testid': 'alpha' }, h(Row, { title: 'Sandbox' })),
@@ -303,6 +308,33 @@ test('on a page a section head sits 32px under the card above and 8px over its o
     }
   })
   expect(gaps).toEqual({ headMargin: '32px', aboveHead: 32, labelToCard: 8, sectionLabelToCard: 8, aboveSection: 32 })
+})
+
+test('a section head\'s card inset is earned only when its body is a Rows card, not a Note', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 })
+  await mount(page, 640)
+  const offsets = await page.evaluate(() => {
+    const rowsSection = document.querySelector('[data-testid="second"]')!
+    const noteSection = document.querySelector('[data-testid="note-first"]')!
+    return {
+      // A body that starts with a Rows card: the head's label is inset from
+      // the section's own edge by the card's own column (border-width +
+      // card padding, 17px).
+      rows: Math.round(
+        rowsSection.querySelector('[data-slot="group-label"]')!.getBoundingClientRect().left -
+        rowsSection.getBoundingClientRect().left,
+      ),
+      // A body that is a Note, not a Rows card: nothing to answer to, so
+      // the head sits flush with the section's own edge, the same column
+      // the Note itself starts on.
+      note: Math.round(
+        noteSection.querySelector('[data-slot="group-label"]')!.getBoundingClientRect().left -
+        noteSection.getBoundingClientRect().left,
+      ),
+    }
+  })
+  expect(offsets.rows, 'the rows-bodied head should carry the card inset').toBeGreaterThan(10)
+  expect(offsets.note, 'the Note-bodied head should sit flush, not 17px in').toBeLessThanOrEqual(1)
 })
 
 test('the rhythm holds in the dark theme too', async ({ page }) => {

@@ -97,7 +97,15 @@ export const Banner = ({
       </AlertContent>
       {actions && <div className={styles.actions}>{actions}</div>}
       {onDismiss && (
-        <Button variant="ghost" size="sm"
+        <Button
+          variant="ghost"
+          // The card's own 28px/24px target, exactly: `icon-sm`'s box is
+          // `--hd-btn-h-sm` (28px) and `icon-xs`'s is `--hd-icon-target`
+          // (24px), so the compact card's smaller dismiss is a size rather
+          // than a one-off measurement in `.dismiss`.
+          size={compact ? 'icon-xs' : 'icon-sm'}
+          edge="end"
+          edgeGlyph={compact ? 11 : 13}
           type="button"
           className={styles.dismiss}
           aria-label="Dismiss"

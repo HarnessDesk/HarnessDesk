@@ -15,6 +15,10 @@ export interface Todo {
   readonly priority?: string | null
 }
 
+/** Where a step stands, in the words the design system's Checklist takes. */
+export const todoState = (todo: Todo): 'done' | 'active' | 'pending' =>
+  todo.done ? 'done' : todo.active ? 'active' : 'pending'
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 

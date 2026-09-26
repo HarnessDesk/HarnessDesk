@@ -801,18 +801,28 @@ export const TextMark = ({
 export const NavigationGroupHeader = ({
   label,
   filtering = false,
+  inset = 'bar',
   className,
   children,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
   label: ReactNode
   filtering?: boolean
+  /**
+   * Which row's left column this header's label answers to. `'bar'` — the
+   * default — is the sidebar's, whose own filter bar carries a padding this
+   * header adds back in (`--hd-bar-ink`). A rail with no bar of its own,
+   * such as the app window's nav, reads `'nav'` instead: the row's own
+   * `--hd-nav-inset`, the same number `Button size="navigation"` uses.
+   */
+  inset?: 'bar' | 'nav'
   children?: ReactNode
 }) => (
   <div
     {...props}
     data-slot="navigation-group-header"
     {...(filtering ? { 'data-filtering': '' } : {})}
+    {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}
     className={cx(styles.navigationGroupHeader, className)}
   >
     <GroupLabel className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</GroupLabel>
@@ -846,7 +856,17 @@ export const Rows = ({
     return <div className={cx(choiceListClass, className)} data-slot="choice-list" {...props}>{children}</div>
   }
   return (
-    <div className={cx(styles.rows, className)} {...(inDialog ? { 'data-context': 'dialog' } : {})} {...props}>
+    <div
+      className={cx(styles.rows, className)}
+      // Not when this card is also a `radiogroup`: outside a dialog that
+      // role is a bare wrapper around a list of answers (a branch picker's
+      // row buttons, say) rather than the settings card a `SectionHead`'s
+      // inset answers to, and `DialogForm.test.tsx` pins that shape as
+      // carrying no slot of its own.
+      {...(props.role !== 'radiogroup' ? { 'data-slot': 'rows' } : {})}
+      {...(inDialog ? { 'data-context': 'dialog' } : {})}
+      {...props}
+    >
       <RowsCardContext.Provider value>{children}</RowsCardContext.Provider>
     </div>
   )
@@ -859,7 +879,7 @@ export const Rows = ({
  * name or a path, whose end is the least of it, gives way on one line.
  */
 const RowDesc = ({ truncate, children }: { truncate: boolean; children: ReactNode }) => (
-  <span className={cx(styles.rowDesc, truncate && styles.rowDescTruncate)} data-wrap={truncate ? undefined : 'true'}>
+  <span className={cx(styles.rowDesc, truncate && styles.rowDescTruncate)} data-slot="row-desc" data-wrap={truncate ? undefined : 'true'}>
     {children}
   </span>
 )
@@ -881,13 +901,13 @@ export const Row = ({
   control?: ReactNode
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
-  <div className={cx(styles.row, className)} {...props}>
+  <div className={cx(styles.row, className)} data-slot="row" {...props}>
     {mark ? <span className={styles.rowMark}>{mark}</span> : null}
     <span className={styles.rowText}>
-      <span className={styles.rowTitle}>{title}</span>
+      <span className={styles.rowTitle} data-slot="row-title">{title}</span>
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
     </span>
-    {control ? <span className={styles.rowCtl}>{control}</span> : null}
+    {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
   </div>
 )
 
