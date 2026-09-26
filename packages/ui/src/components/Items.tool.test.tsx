@@ -109,6 +109,15 @@ describe('an opened tool step', () => {
     expect(outputs()).toEqual(['(no output)'])
   })
 
+  it("reads whitespace-only shell output as none, and leaves a running call's output unset", () => {
+    open(call({ tool: 'ls -a', args: { command: 'ls -a', description: 'List' }, result: [{ type: 'json', value: { output: '  \n', isError: false } }] }))
+    expect(outputs()).toEqual(['(no output)'])
+    act(() => root.unmount())
+    root = createRoot(container)
+    open({ ...call({ tool: 'ls -a', args: { command: 'ls -a', description: 'List' }, result: [{ type: 'json', value: { output: '', isError: false } }] }), status: 'inProgress' } as AgentItem)
+    expect(outputs().filter((text) => text.trim() === '')).toEqual([])
+  })
+
   it('keeps an expanded body inside its row surface instead of drawing a second card', () => {
     open(call({ tool: 'search_files', args: { query: 'row surface' } }))
 

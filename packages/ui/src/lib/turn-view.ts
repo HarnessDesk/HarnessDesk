@@ -3,7 +3,7 @@ import type { AgentItem, FileChange, ItemStatus, Turn } from '@harnessdesk/proto
 import { elapsedSince, instant } from './clock'
 import { countFileChange } from './diff'
 import { readToolResult } from './tool-result'
-import { findTodos } from './todos'
+import { planOf } from './todos'
 import { describedTitle, editedPathOf, isDescribed, isSilentReasoning, toolCallVerb } from './group-items'
 
 /**
@@ -272,9 +272,12 @@ const tally = (work: readonly AgentItem[]): string[] => {
       case 'toolCall':
         // A call that writes the turn's task list is the plan changing, not
         // a tool the reader needs counted: however often an agent rewrites
-        // its list, the receipt says so once.
-        if (findTodos(item.args)) {
-          planned = true
+        // its list, the receipt says so once. Read by `planOf` — the same
+        // reading the Tasks panel uses, so a list under some other key is a
+        // tool, and a cleared list is still the plan changing — and only
+        // when the write went through.
+        if (planOf(item.args) !== null) {
+          if (effectiveItemStatus(item) !== 'failed') planned = true
           break
         }
         // ACP flattens every step to a tool call; the arguments still say

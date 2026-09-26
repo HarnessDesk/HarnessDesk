@@ -1150,7 +1150,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
           {command ? (
             <CodeBlock
               command={shellCommandOf(command)}
-              output={commandOutput === '' ? (item.status === 'inProgress' ? '' : '(no output)') : commandOutput}
+              output={commandOutput !== undefined && commandOutput.trim() === '' ? (item.status === 'inProgress' ? undefined : '(no output)') : commandOutput}
               onCopyError={copyFailed}
             />
           ) : recordsCommand ? null : (
