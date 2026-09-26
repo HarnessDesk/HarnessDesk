@@ -191,8 +191,15 @@ const FLOW_EXECUTION = (over: Partial<FlowExecution> = {}): FlowExecution => ({
   ...over,
 })
 
-export const FLOW_EXECUTION_SCENES = ['pinned', 'stopped', 'question', 'diff', 'working-diff'] as const
+export const FLOW_EXECUTION_SCENES = ['pinned', 'stopped', 'question', 'seat-refused', 'diff', 'working-diff'] as const
 export type FlowExecutionScene = (typeof FLOW_EXECUTION_SCENES)[number]
+
+/** `seatRefused`'s own words for card #1 of two, around a seating refusal as `agent-seating.ts` writes one. */
+export const SEAT_REFUSED_REASON =
+  'The Seat for card #1 could not be opened: No seat could be opened for this Agent:\n' +
+  '  worker=large — worker could not open a conversation: the agent is not running\n' +
+  'A round’s cards start together, so card #2 was not started either.\n' +
+  'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.'
 
 /** What the "flow scene" Dial in the preview harness stages for `goal-flow`'s own reserved run. */
 export const sceneFlowExecution = (scene: FlowExecutionScene): FlowExecution => {
@@ -202,6 +209,17 @@ export const sceneFlowExecution = (scene: FlowExecutionScene): FlowExecution => 
   // Stopped for its person on its Seat's unanswered question: the host's exact sentence (`questionStall`, flow-execution.ts).
   if (scene === 'question') {
     return FLOW_EXECUTION({ target: FLOW_TARGETS.branch, state: 'stalled', reason: 'Card #1: its Seat asked a question nobody can answer. Its answer so far is kept.' })
+  }
+  // Stalled for its person on a round whose first Seat would not open: the
+  // host's exact sentence (`seatRefused`, flow-execution.ts), the Agent's own
+  // refusal in the middle and the sibling its round held back after it.
+  if (scene === 'seat-refused') {
+    return FLOW_EXECUTION({
+      target: FLOW_TARGETS.branch,
+      state: 'stalled',
+      rounds: [{ n: 1, role: 'fixer', cards: [1, 2], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+      reason: SEAT_REFUSED_REASON,
+    })
   }
   // A person's own stop, never a service's: the host's exact default
   // sentence (`packages/server/src/flow-execution.ts`), read lowercase and

@@ -11,7 +11,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import * as gitOps from '../git-ops.js'
-import { requireLaneSupport } from '../goals/lane-environment.js'
+import { laneEnvironmentFor } from '../goals/lane-environment.js'
 import { assertAbsoluteCwd } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 import { checkOption } from './runtimes.js'
@@ -78,8 +78,9 @@ export const sessionMethods = {
     if (typeof routeId === 'string') {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
-    const environment = ctx.laneEnvironment.forCheckout(options.cwd)
-    requireLaneSupport(runtime.info, environment)
+    // A lane's checkout is its cwd, which every runtime takes; its variables
+    // go only to a runtime that can take them per session (`laneEnvironmentFor`).
+    const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
     const live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
     return ctx.sessions.attach(runtime, live.id, live)
   },

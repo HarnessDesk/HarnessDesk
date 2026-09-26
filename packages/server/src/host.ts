@@ -150,8 +150,8 @@ import { availablePorts, laneOf, LaneAllocator, LaneStore } from './goals/lanes.
 import {
   environmentForCheckout,
   environmentForSession,
+  laneEnvironmentFor,
   laneStandingOrder,
-  requireLaneSupport,
 } from './goals/lane-environment.js'
 import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
@@ -3028,8 +3028,7 @@ export class Host {
             this.#lanes.list(),
             this.#evidence.seats.all(),
           )
-          requireLaneSupport(owner.info, environment)
-          return environment
+          return laneEnvironmentFor(owner, environment)
         },
       },
       agents: this.#agents,
@@ -4991,9 +4990,13 @@ export class Host {
     },
   ): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
-    const environment = where.environment ?? environmentForCheckout(where.cwd, this.#lanes.list())
-    requireLaneSupport(runtime.info, environment)
-    if (environment && this.#extensions && !this.#extensions.setBrowserResolver) {
+    // The lane is found by its checkout, from the desk's own lane record; the
+    // cwd is the confinement and every runtime takes it. The six values go to
+    // a runtime that can take them per session, and are said in the standing
+    // order either way (`laneEnvironmentFor`, `#orderSeat`).
+    const lane = where.environment ?? environmentForCheckout(where.cwd, this.#lanes.list())
+    const environment = laneEnvironmentFor(runtime, lane)
+    if (lane && this.#extensions && !this.#extensions.setBrowserResolver) {
       throw new Error(
         'This extension host cannot isolate a lane browser. Choose a supported extension host or turn isolation off.',
       )
@@ -5085,8 +5088,11 @@ export class Host {
   async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
     const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
+    // Whether the values reached the agent's environment, the same rule that
+    // decided it at the open: a runtime that took none is told to pass them itself.
+    const handed = laneEnvironmentFor(this.#runtime({ runtime }), environment) !== undefined
     await live.send(
-      [{ type: 'text', text: laneStandingOrder(text, environment) }],
+      [{ type: 'text', text: laneStandingOrder(text, environment, handed) }],
       { recordAs: 'notice' },
     )
   }

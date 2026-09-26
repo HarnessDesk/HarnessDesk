@@ -7,6 +7,17 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An isolated flow runs on any agent.** A competitor in an isolated lane
+  was refused on every agent that cannot take the lane's port variables per
+  conversation — "cannot pass a lane environment to a session" — so a
+  comparison with one of them could not start at all. The Seat now opens in
+  its own lane all the same, and its first message gives it the lane's ports
+  to pass to its commands itself. And when a Seat of a round cannot open, the
+  room now says why beside the header's **Needs you**: what refused it, which
+  of the round's other cards were held back with it (a round's cards start
+  together), and what to do next.
+
+
 - **Wrapping a Goal right after stopping its run now waits for the stopped
   Seat's answer to finish saving.** That answer is written to disk a beat
   after the turn ends, and wrapping right away could catch it mid-write: the

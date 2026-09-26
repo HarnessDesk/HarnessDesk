@@ -1635,6 +1635,34 @@ it("names a person-started flow's own stop reason on the live line, as a proper 
 })
 
 /**
+ * A run stalled on a round's Seat that would not open read "Needs you" in the
+ * header and said nothing about why anywhere in the room; a card's own
+ * "Give this to…" was the only way on in sight. The live line now carries the
+ * run's own reason — the refusal, the siblings its round held back, the next
+ * step — each line as the host wrote it.
+ */
+it("names a stalled run's own reason on the live line, lines kept, as a wait on you", async () => {
+  const reason = 'The Seat for card #1 could not be opened: Claude did not offer to pass a lane environment to a session when it started.\n' +
+    'A round’s cards start together, so card #2 was not started either.\n' +
+    'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.'
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled',
+    rounds: [], operations: [], legacyRun: null, reason,
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
+  await render(store)
+
+  expect(container.querySelector('header')!.textContent).toContain('Needs you')
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.getAttribute('data-kind')).toBe('stall')
+  expect(line.hasAttribute('data-settled')).toBe(true)
+  // It waits on you: it leads with the same pulsing light a question does.
+  expect(line.querySelector('[data-slot="dot"]')).not.toBeNull()
+  const words = line.querySelector<HTMLElement>('.whitespace-pre-line')!
+  expect(words.textContent).toBe(reason)
+})
+
+/**
  * The header reads "Needs you" over "Stopped" for an open person wait
  * (`runState`'s own ternary order); the live line now agrees, rather than
  * naming the stop while the header already moved past it.

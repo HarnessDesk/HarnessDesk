@@ -13,8 +13,8 @@ import {
 import {
   environmentForCheckout,
   environmentForSession,
+  laneEnvironmentFor,
   laneStandingOrder,
-  requireLaneSupport,
 } from '../src/goals/lane-environment.js'
 import { evidenceDesk, writeAgent } from './fixtures/evidence-desk.js'
 
@@ -53,24 +53,31 @@ test('resume finds a lane from its durable Seat without reading an unknown conve
   )
 })
 
-test('unsupported isolated candidates refuse with the candidate name and a fix', () => {
-  const runtime = {
-    capabilities: { sessionEnvironment: false },
-    presentation: { name: 'Fixture Runtime' },
-  }
-  const environment = environmentForCheckout('/work/lane-a', [lane()])
-  assert.throws(
-    () => requireLaneSupport(runtime, environment),
-    /Fixture Runtime.*turn isolation off/,
-  )
-  assert.doesNotThrow(() => requireLaneSupport(runtime, undefined))
-  assert.doesNotThrow(() =>
-    requireLaneSupport(
-      { ...runtime, capabilities: { sessionEnvironment: true } },
-      environment,
-    ),
-  )
+const laneRuntime = (sessionEnvironment: boolean) => ({
+  info: { capabilities: { sessionEnvironment } },
 })
+
+test('a lane hands its six values only to a runtime that can take them per session, and never refuses one that cannot', () => {
+  const environment = environmentForCheckout('/work/lane-a', [lane()])
+  assert.deepEqual(laneEnvironmentFor(laneRuntime(true), environment), environment)
+  // Measured: a comparison with a competitor on an agent whose own ACP server
+  // claims nothing, or on a row running a bridge built before lane support,
+  // could not start at all, because this refused. The lane is the checkout; the values are a
+  // convenience its standing order carries anyway.
+  assert.equal(laneEnvironmentFor(laneRuntime(false), environment), undefined)
+  assert.equal(laneEnvironmentFor(laneRuntime(true), undefined), undefined)
+})
+
+test('a Seat that was not handed the values is told they are not in its environment', () => {
+  const environment = environmentForCheckout('/work/lane-a', [lane()])
+  const told = laneStandingOrder('Do the work.', environment, false)
+  assert.match(told, /^Do the work\.\n\nThis Seat has a dedicated HarnessDesk lane\. Its reserved values are below\. They are not set in your environment, so give them to each command explicitly \(for example PORT=30000 before the command\):\n/)
+  for (const [key, value] of Object.entries(environment ?? {})) {
+    assert.match(told, new RegExp(`^${key}=${value}$`, 'm'))
+  }
+  assert.doesNotMatch(laneStandingOrder('Do the work.', environment, true), /not set in your environment/)
+})
+
 test('the standing order names all six values and explicit-port advice without changing plain text', () => {
   const text = 'Do the work.'
   const environment = environmentForCheckout('/work/lane-a', [lane()])
@@ -118,4 +125,35 @@ test('real Goal seating sends the durable lane map to the runtime and the first 
     assert.match(text, new RegExp(`^${key}=${value}$`, 'm'))
   }
   assert.match(text, /ignore PORT.*explicit port argument.*inclusive/i)
+})
+
+test('real Goal seating opens a runtime without session environments in its lane, confined to the lane, and tells it the values', async (t) => {
+  const { host, runtime, stateDir, repo } = await evidenceDesk(t)
+  await writeAgent(stateDir, 'worker', 'Worker')
+  ;(runtime as unknown as { info: RuntimeInfo }).info = {
+    ...runtime.info,
+    capabilities: { ...runtime.info.capabilities, sessionEnvironment: false },
+  }
+  const created = (await host.call('goal/create', {
+    root: repo.dir,
+    sentence: 'Prove the isolated lane without variables',
+    checkout: 'isolated',
+  })) as GoalView
+  const seat = (await host.call('goal/seat', { goal: created.goal.id, agent: 'worker' })) as SeatRecord
+  const lanes = (await host.call('lane/list', {})) as readonly Lane[]
+  const mine = lanes.find((one) => one.seat === String(seat.id))
+  assert.ok(mine, 'the Seat holds a lane')
+  assert.notEqual(mine.cwd, repo.dir, 'never the main checkout')
+  assert.equal(runtime.lastCreateOptions?.cwd, mine.cwd, 'the conversation opened in the lane')
+  assert.equal(runtime.lastCreateOptions?.environment, undefined, 'no variables it cannot take')
+
+  const session = (await host.call('session/read', {
+    runtime: runtimeId(seat.session.runtime),
+    sessionId: sessionId(seat.session.sessionId),
+  })) as Session
+  const order = session.turns.flatMap((turn) => turn.items).find((item) => item.type === 'notice')
+  assert.ok(order?.type === 'notice')
+  assert.match(order.text, /They are not set in your environment, so give them to each command explicitly/)
+  assert.match(order.text, new RegExp(`^HARNESSDESK_LANE_ID=${mine.id}$`, 'm'))
+  assert.match(order.text, new RegExp(`^PORT=${mine.ports.start}$`, 'm'))
 })

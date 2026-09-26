@@ -125,7 +125,7 @@ const SURFACES = [
     id: 'group',
     title: 'Group project',
     about:
-      'The team board and the room it belongs to, side by side — the shipped `TeamBoardPane` and `TeamRoomPane` on the preview\'s Checkout rewrite room: five columns of work, the claimed card naming the agent session that holds it, and the room\'s chat and members beside. Below it, a Goal whose run stopped on its Seat\'s unanswered question: the header reads Needs you, and the board draws that Seat\'s card in Needs you and counts it — beside a reviewer\'s card that already answered on the same run, which stays in Ready with its outcome rather than being swept in too. Where the room stands in the workspace list is on the Left bar tab.',
+      'The team board and the room it belongs to, side by side — the shipped `TeamBoardPane` and `TeamRoomPane` on the preview\'s Checkout rewrite room: five columns of work, the claimed card naming the agent session that holds it, and the room\'s chat and members beside. Below it, a Goal whose run stopped on its Seat\'s unanswered question: the header reads Needs you, and the board draws that Seat\'s card in Needs you and counts it — beside a reviewer\'s card that already answered on the same run, which stays in Ready with its outcome rather than being swept in too. Then a run stalled because the first Seat of its round would not open: its two cards wait unclaimed, and the room\'s live line gives the host\'s own reason — the refusal, the sibling the round held back, and the way on. Where the room stands in the workspace list is on the Left bar tab.',
     render: GroupSurface,
   },
   {
