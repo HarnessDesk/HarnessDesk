@@ -114,10 +114,24 @@ a:hover {
    floating 2px clear of the control, and Studio draws the reference's 3px
    wash lying against it. The offset is the part that changes the character —
    at 2px clear, on a row sitting 2px from its neighbour, the ring reads as a
-   marquee drawn around the control rather than as the control being live. */
-:focus-visible {
+   marquee drawn around the control rather than as the control being live.
+
+   `[data-focus-ring="inline"]` opts a control out: a composite whose one tab
+   stop stands for a roving position inside it — the conversation map's rail,
+   for one — draws its own ring on whichever part is actually current, and
+   the document's ring on the outer control itself would then frame the part
+   that has nothing to do with where the position is, at whatever size the
+   whole control happens to be. */
+:focus-visible:not([data-focus-ring='inline']) {
   outline: var(--hd-ring-width) solid var(--hd-ring-muted);
   outline-offset: var(--hd-ring-offset);
+}
+
+/* Opting out of the rule above still leaves the browser's own default focus
+   outline — thin, and drawn around the same whole control — so it has to be
+   told none, not merely left unstated. */
+[data-focus-ring='inline']:focus-visible {
+  outline: none;
 }
 
 /* Dragging the window by its chrome; interactive children opt back out. */
