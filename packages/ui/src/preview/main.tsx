@@ -58,6 +58,7 @@ import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, tr
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { MessageQueue } from '../components/MessageQueue'
+import { SettingsFrames } from './frames-settings'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -216,7 +217,7 @@ Object.assign(store as unknown as Record<string, unknown>, {
  */
 
 /** A stand-in pane, so the frame's own edges are what the frame shows. */
-const Frame = ({ title, children }: { title: string; children: ReactNode }) => (
+export const Frame = ({ title, children }: { title: string; children: ReactNode }) => (
   <section className="min-w-0">
     <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{title}</h2>
     <div className="overflow-hidden rounded-lg border bg-background">
@@ -315,7 +316,7 @@ const RuntimesPreview = () => {
   )
 }
 
-const Dial = <T extends string>({
+export const Dial = <T extends string>({
   label,
   value,
   options,
@@ -853,6 +854,8 @@ const Preview = () => {
           </Frame>
         </div>
       </div>
+
+      <SettingsFrames />
     </div>
   )
 }

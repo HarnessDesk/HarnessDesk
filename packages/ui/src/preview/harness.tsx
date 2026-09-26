@@ -5,6 +5,11 @@ import {
   sessionKey,
   type AgentAttachmentsView,
   type AgentEntry,
+  type AgentFieldEdit,
+  type AgentNotesView,
+  type AuthoringDocument,
+  type AuthoringSavePreview,
+  type AuthoringTarget,
   type CarryFindingsInput,
   type FindingPublicationsView,
   type CeilingLevel,
@@ -361,7 +366,7 @@ const EDGE_TEAM = {
   ],
 } as unknown as TeamState
 
-const LIBRARY = {
+export const LIBRARY = {
   generatedAt: now,
   runtimes: [runtimeId('codex'), runtimeId('claude'), runtimeId('cursor')],
   locations: (['codex', 'claude', 'cursor'] as const).flatMap((id) => [
@@ -691,6 +696,46 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
     definition: null,
   },
 ]
+
+/**
+ * The `AGENT.md` text a preview Agent's own front matter would read as — built
+ * from the same fixture `agentEntry()` already carries, so `AgentFields`'
+ * edit-then-preview flow has a real file to diff against instead of an empty
+ * string. Only `PREVIEW_AGENTS` entries with a `definition` have one; `draft`,
+ * whose file does not parse, has none to offer.
+ */
+const agentSource = (entry: AgentEntry): string => {
+  const definition = entry.definition
+  if (!definition) return ''
+  return [
+    '---',
+    `name: ${definition.name}`,
+    `description: ${definition.description ?? ''}`,
+    `ceiling: ${definition.ceiling}`,
+    'answers:',
+    ...definition.answers.map((one) => `  - ${one}`),
+    'produces:',
+    ...definition.produces.map((one) => `  - ${one}`),
+    '---',
+    '',
+    definition.brief,
+    '',
+  ].join('\n')
+}
+
+/** One field of `agentSource(entry)`'s front matter, replaced with a new value — a small, real-looking diff for `FieldEditDialog`'s preview to show. */
+const applyAgentFieldEdit = (source: string, edit: AgentFieldEdit): string => {
+  if (edit.key === 'name' || edit.key === 'description' || edit.key === 'ceiling') {
+    const line = edit.key === 'ceiling' ? 'ceiling' : edit.key
+    return source.replace(new RegExp(`^${line}:.*$`, 'm'), `${line}: ${edit.value}`)
+  }
+  if (edit.key === 'answers' || edit.key === 'produces') {
+    const block = edit.value.map((one) => `  - ${one}`).join('\n')
+    return source.replace(new RegExp(`^${edit.key}:\\n(  - .*\\n?)*`, 'm'), `${edit.key}:\n${block}\n`)
+  }
+  // `prefer` has no line of its own in this fixture's source — the diff shows the file unchanged but for a trailing note, which is enough to demonstrate the dialog without inventing YAML this fixture does not otherwise carry.
+  return `${source}# prefer: ${edit.key === 'prefer' ? edit.value.map((seat) => seat.runtime).join(', ') : ''}\n`
+}
 
 const takenOn = (
   id: string,
@@ -1167,6 +1212,27 @@ class PreviewStore {
     }
   }
   projectChecks = async (): Promise<ProjectChecks> => PREVIEW_CHECKS
+  /** `AgentNotes`' own `NOTES.md` read — one Agent has prose worth showing, the rest read as having none, which is the ordinary case a roster's worth of Agents mostly has. */
+  readAgentNotes = async (id: string, origin: AgentEntry['origin']): Promise<AgentNotesView> => {
+    const found = PREVIEW_AGENTS.find((one) => one.id === id && one.origin === origin)
+    if (id === 'code-reviewer') {
+      return {
+        path: `${found?.path.replace(/AGENT\.md$/, '') ?? ''}NOTES.md`,
+        text: 'Prefer the smaller diff when two fixes both close the finding.',
+        digest: 'notes-digest-code-reviewer',
+        writable: found?.origin !== 'builtin',
+        problem: null,
+      }
+    }
+    return { path: `${found?.path.replace(/AGENT\.md$/, '') ?? ''}NOTES.md`, text: null, digest: null, writable: found?.origin !== 'builtin', problem: null }
+  }
+  clearAgentNotes = async (id: string, origin: AgentEntry['origin']): Promise<AgentNotesView> => ({
+    path: `${PREVIEW_AGENTS.find((one) => one.id === id && one.origin === origin)?.path.replace(/AGENT\.md$/, '') ?? ''}NOTES.md`,
+    text: '',
+    digest: 'notes-digest-cleared',
+    writable: true,
+    problem: null,
+  })
 
   // --- intake ------------------------------------------------------------
   projectTriggers = async (): Promise<import('@harnessdesk/protocol').TriggerProjectView> => triggerProjectView()
@@ -1437,6 +1503,36 @@ class PreviewStore {
   loadWorktrees = async () => {}
   agentCatalog = async () => []
   agentsIn = async (): Promise<readonly AgentEntry[]> => PREVIEW_AGENTS
+  /* `AgentFields`, `AgentNotes` and the two field-edit dialogs all wait on
+     this read before they draw anything — without it `AgentPage` falls back
+     to its no-document branch and none of them ever mount. The source is
+     synthesised from the same fixture `AgentEntry` the roster already
+     carries (`agentSource`, above), so a field's diff matches what the
+     page's own rows already say. */
+  readAuthoring = async (target: AuthoringTarget): Promise<AuthoringDocument> => {
+    const entry = target.kind === 'agent' ? PREVIEW_AGENTS.find((one) => one.id === target.id) : undefined
+    if (!entry?.definition || entry.digest === null) throw new Error('The preview desk has no such file.')
+    return {
+      target,
+      source: agentSource(entry),
+      digest: entry.digest,
+      exists: true,
+      displayPath: entry.path,
+      writable: entry.origin !== 'builtin',
+      issues: [],
+    }
+  }
+  previewAgentEdit = async (
+    target: Extract<AuthoringTarget, { readonly kind: 'agent' }>,
+    _expected: string,
+    edit: AgentFieldEdit,
+  ): Promise<AuthoringSavePreview> => {
+    const entry = PREVIEW_AGENTS.find((one) => one.id === target.id)
+    if (!entry?.definition) throw new Error('The preview desk has no such file.')
+    const before = agentSource(entry)
+    return { token: 'preview-authoring-token', edits: [{ path: entry.path, before, after: applyAgentFieldEdit(before, edit) }], issues: [], resuming: false }
+  }
+  applyAuthoringSave = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: [], message: 'The preview desk writes nothing.' })
   plansIn = async (): Promise<readonly SeatPlan[]> => [...PREVIEW_PLANS.values()]
   modelsFor = async (): Promise<readonly ModelInfo[]> => [
     {
