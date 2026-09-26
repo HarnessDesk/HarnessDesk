@@ -917,7 +917,7 @@ const findDiff = (value: unknown): string | null => {
  * not every source has one) sits in a chip on the step's own line (rule 9).
  */
 const PlanSteps = ({ todos }: { todos: readonly Todo[] }) => (
-  <Checklist className={styles.list}>
+  <Checklist>
     {todos.map((todo, index) => (
       <ChecklistItem
         key={index}
@@ -1341,7 +1341,7 @@ const Plan = ({ item }: { item: PlanItem }) => {
   return (
     <Row icon={<PlanIcon size={14} />} title="Plan" defaultOpen>
       {/* The same list as a tool's todo list, every step still to do. */}
-      <Checklist className={styles.list}>
+      <Checklist>
         {steps.map((step, index) => (
           <ChecklistItem key={index} state="pending">
             {step}

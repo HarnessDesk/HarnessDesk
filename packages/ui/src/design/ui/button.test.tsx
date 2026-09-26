@@ -235,15 +235,15 @@ it('fills a swatch with the colour it offers and keeps it under the pointer', ()
  */
 it('pulls an icon button\'s box past the inset so its glyph lands on it', () => {
   const end = renderToStaticMarkup(<Button variant="ghost" size="icon-sm" edge="end" aria-label="Dismiss" />)
-  expect(end).toContain('me-(--hd-edge-pull)')
-  expect(end).toMatch(/--hd-edge-pull:calc\(\(var\(--hd-btn-h-sm\) - 16px\) \/ -2\)/)
+  expect(end).toContain('me-(--edge-pull)')
+  expect(end).toMatch(/--edge-pull:calc\(\(var\(--hd-btn-h-sm\) - 16px\) \/ -2\)/)
 
   const start = renderToStaticMarkup(<Button variant="ghost" size="icon" edge="start" aria-label="Back" />)
-  expect(start).toContain('ms-(--hd-edge-pull)')
-  expect(start).toMatch(/--hd-edge-pull:calc\(\(var\(--hd-btn-h\) - 16px\) \/ -2\)/)
+  expect(start).toContain('ms-(--edge-pull)')
+  expect(start).toMatch(/--edge-pull:calc\(\(var\(--hd-btn-h\) - 16px\) \/ -2\)/)
 
   // A labelled button ignores `edge`: its own padding already puts its text
   // on the inset, and the icon-only formula has no size to key off.
   const labelled = renderToStaticMarkup(<Button variant="ghost" size="sm" edge="end">Dismiss</Button>)
-  expect(labelled).not.toContain('--hd-edge-pull')
+  expect(labelled).not.toContain('--edge-pull')
 })

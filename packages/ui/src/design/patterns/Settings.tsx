@@ -822,7 +822,17 @@ export const Rows = ({
     return <div className={cx(choiceListClass, className)} data-slot="choice-list" {...props}>{children}</div>
   }
   return (
-    <div className={cx(styles.rows, className)} data-slot="rows" {...(inDialog ? { 'data-context': 'dialog' } : {})} {...props}>
+    <div
+      className={cx(styles.rows, className)}
+      // Not when this card is also a `radiogroup`: outside a dialog that
+      // role is a bare wrapper around a list of answers (a branch picker's
+      // row buttons, say) rather than the settings card a `SectionHead`'s
+      // inset answers to, and `DialogForm.test.tsx` pins that shape as
+      // carrying no slot of its own.
+      {...(props.role !== 'radiogroup' ? { 'data-slot': 'rows' } : {})}
+      {...(inDialog ? { 'data-context': 'dialog' } : {})}
+      {...props}
+    >
       <RowsCardContext.Provider value>{children}</RowsCardContext.Provider>
     </div>
   )

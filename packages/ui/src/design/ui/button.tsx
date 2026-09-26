@@ -270,8 +270,8 @@ const buttonEdge = (
   edge: 'start' | 'end',
   glyph = 16,
 ): { className: string; style: CSSProperties } => ({
-  className: edge === 'end' ? 'me-(--hd-edge-pull)' : 'ms-(--hd-edge-pull)',
-  style: { '--hd-edge-pull': edgePull(size, glyph) } as CSSProperties,
+  className: edge === 'end' ? 'me-(--edge-pull)' : 'ms-(--edge-pull)',
+  style: { '--edge-pull': edgePull(size, glyph) } as CSSProperties,
 })
 
 type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
@@ -335,7 +335,7 @@ const Button = ({
       cursor === 'default' && 'cursor-default',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
       swatch !== undefined && 'bg-(--swatch) bg-clip-border hover:bg-(--swatch)',
-      edgeSize && (edge === 'end' ? 'me-(--hd-edge-pull)' : 'ms-(--hd-edge-pull)'),
+      edgeSize && (edge === 'end' ? 'me-(--edge-pull)' : 'ms-(--edge-pull)'),
     )}
     style={
       typeof style === 'function'
@@ -343,7 +343,7 @@ const Button = ({
         : ({
             ...style,
             ...(swatch !== undefined ? { '--swatch': swatch } : {}),
-            ...(edgeSize ? { '--hd-edge-pull': edgePull(edgeSize, edgeGlyph) } : {}),
+            ...(edgeSize ? { '--edge-pull': edgePull(edgeSize, edgeGlyph) } : {}),
           } as CSSProperties)
     }
     /* A bare <button> submits the form around it; nothing in this app means
