@@ -2240,6 +2240,11 @@ const Room = ({
         <div
           ref={stream}
           data-slot="room-stream"
+          // The column inset the transcript's own scroll box carries too
+          // (`SessionBars`' `JobsBar` names the same shape) — several screens
+          // repeat it with no shared owner yet, and giving it one, with the
+          // scrollbar and composer accounting each carries, is a bigger
+          // cross-file decision than this finding alone.
           className={`${styles.stream} py-2 px-6`}
           onScroll={(event) => {
             const box = event.currentTarget
