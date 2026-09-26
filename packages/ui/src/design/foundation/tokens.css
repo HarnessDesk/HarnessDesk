@@ -705,7 +705,7 @@ body {
   --hd-hover: var(--hdp-alias-interactive-bg-hover);
   --hd-hover-solid: var(--hdp-alias-interactive-bg-hover-solid, var(--hd-muted));
   --hd-tooltip-fill: var(--hdp-alias-tooltip-bg);
-  --hd-tooltip-foreground: var(--hdp-alias-label-primary-inverted);
+  --hd-tooltip-foreground: var(--hdp-static-grey-00); /* desk: label-primary-inverted → static white: the tooltip is a dark card in both themes, and the inverted label went near-black in dark, 1.3:1 on the card */
   --hd-active: var(--hdp-alias-interactive-bg-active);
   /*
    * The row you are *on*, which is a different question from the row you are
