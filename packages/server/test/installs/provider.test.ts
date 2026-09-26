@@ -149,6 +149,18 @@ test('a later patch item with the same id is read too, since the later one is th
   assert.equal(await readDsh({ DSH_HOME: route }), null)
 })
 
+/*
+ * Found re-walking UC2 after #1028 (#1030): DSH scaffolds each profile's patch
+ * as comments over a bare `[]`, which the flow-file parser refuses, so a
+ * fresh install always read as unknown.
+ */
+test('DSH’s own scaffolded patch, comments over an empty list, reads as deepseek', async (t) => {
+  const home = tree(t, { 'cordis.patch.yml': '# Patches for this profile.\n# Add entries below.\n[]\n' })
+  assert.equal(await readDsh({ DSH_HOME: home }), 'deepseek')
+  const other = tree(t, { 'cordis.patch.yml': '# comment\n[{ id: llm-pi-ai }]\n' })
+  assert.equal(await readDsh({ DSH_HOME: other }), null, 'any other flow-style content still goes to the parser and is refused')
+})
+
 test('an insert anywhere in a patch layer makes the provider unknown', async (t) => {
   const home = tree(t, { 'cordis.patch.yml': '- id: llm-deepseek\n  insert:\n    - id: some-new-plugin\n      name: "@x/plugin"\n' })
   assert.equal(await readDsh({ DSH_HOME: home }), null, 'an inserted plugin can add any capability, including a different default provider')
