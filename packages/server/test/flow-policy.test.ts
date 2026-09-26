@@ -403,3 +403,44 @@ seed: { role: verify, title: Verify }
 `)
   assert.ok(checkRole.some((one) => one.startsWith('roles.verify.blind:')), checkRole.join(' | '))
 })
+
+test('a round of several cards takes its files from an agreed split, never one shared list (#1015)', () => {
+  // Judged when compiled — the dry run and the start — so a saved run's own source still parses.
+  const errors = (text: string): readonly string[] => {
+    const parsed = parseFlowPolicy(text)
+    assert.deepEqual(parsed.problems, [], 'the text itself parses')
+    return compileFlowPolicy(parsed.document!, [agent('writer')]).problems.map((one) => `${one.at}: ${one.text}`)
+  }
+  const flow = (then: string, seed = '{ role: contract, title: Agree }') => `
+version: 2
+name: Pair
+roles:
+  contract: { kind: agent, uses: writer }
+  dev: { kind: agent, uses: writer, count: 2, isolate: true }
+  person: { kind: person, outcomes: [done] }
+seed: ${seed}
+rules:
+  - { id: build, on: contract, when: { every: done }, then: ${then} }
+`
+  assert.deepEqual(errors(flow('{ role: dev, title: Build, files: [src/**] }')), [
+    'rules[0].then.files: all 2 cards of "dev" would own the same paths, and two cards whose paths overlap are never both worked — give each card its own part with split: naming the role that agrees it',
+  ])
+  assert.deepEqual(errors(flow('{ role: dev, title: Build, split: contract, files: [src/**] }')), [
+    'rules[0].then.split: a round takes its files from files or from split, not both',
+  ])
+  assert.deepEqual(errors(flow('{ role: dev, title: Build, split: person }')), [
+    'rules[0].then.split: "person" is not an Agent role, so it cannot agree a split',
+  ])
+  assert.deepEqual(errors(flow('{ role: dev, title: Build, split: dev }')), [
+    'rules[0].then.split: "dev" never finishes before this rule, so no split of its would be recorded yet',
+  ])
+  assert.deepEqual(errors(flow('{ role: dev, title: Build }', '{ role: contract, title: Agree, split: dev }')), [
+    'seed.split: the seed opens the first round, so no round before it can have agreed a split',
+  ])
+  // One card may own one list, and a split reads back exactly as written.
+  assert.deepEqual(errors(flow('{ role: person, title: Check, files: [src/**] }')), [])
+  const parsed = parseFlowPolicy(flow('{ role: dev, title: Build, split: contract }'))
+  assert.deepEqual(parsed.problems, [])
+  const again = parseFlowPolicy(serializeFlowPolicy(parsed.document!.format === 'agents' ? parsed.document!.flow : (null as never)))
+  assert.equal(again.document?.format === 'agents' ? again.document.flow.rules[0]!.then.split : null, 'contract')
+})

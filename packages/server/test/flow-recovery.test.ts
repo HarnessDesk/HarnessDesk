@@ -6,7 +6,8 @@ import { test } from 'node:test'
 
 import type { FlowExecution, SeatRecord } from '@harnessdesk/protocol'
 
-import { ExecutionFiles, FlowExecutions, type FlowExecutionPort } from '../src/flow-execution.js'
+import { ExecutionFiles, FlowExecutions, sourceDigest, type FlowExecutionPort } from '../src/flow-execution.js'
+import { compileFlowPolicy, parseFlowPolicy } from '../src/flow-policy.js'
 import { recoveryOf } from '../src/flow-recovery.js'
 import { Flows, type FlowPort } from '../src/flows.js'
 import { Team, type TeamPeer } from '../src/team.js'
@@ -380,6 +381,42 @@ test('a saved run that no longer matches its own text blocks its Goal, and one n
   await rig.restart()
   await assert.rejects(rig.start(TWO_STAGES, AGENTS), /A saved flow run could not be read. Restore its state file before starting another run./)
   assert.equal(JSON.parse(await readFile(file, 'utf8')).source.endsWith('# edited later\n'), true, 'the broken file is kept as it was')
+})
+
+/*
+ * A run saved before a round of several cards had to take its files from a
+ * split (#1015) — one `files:` list on such a round — is refused a fresh
+ * start, but the run already saved still reads and resumes: the rule is the
+ * compiler's, and recovery only re-parses the text it was started from.
+ */
+test('a run saved with one files list on a round of several cards still restores after the split rule', async (t) => {
+  const rig = await goalRig(t)
+  const plain = `
+version: 2
+name: Write then review
+roles:
+  author: { kind: agent, uses: writer }
+  reviewer: { kind: agent, uses: reviewer, count: 2 }
+seed: { role: author, title: Write }
+rules:
+  - { id: review, on: author, when: { every: [done] }, then: { role: reviewer, title: Review, FILES } }
+`
+  const started = await rig.start(plain.replace(', FILES', ''), AGENTS)
+  await rig.flows.flush()
+  const file = join(rig.dir, 'flows-v2', `${encodeURIComponent(started.id)}.json`)
+  const saved = JSON.parse(await readFile(file, 'utf8'))
+  // Rewritten to the shape an older build started and saved, consistently.
+  const source = plain.replace('FILES', 'files: [src/**]')
+  const document = parseFlowPolicy(source).document!
+  assert.match(compileFlowPolicy(document, AGENTS).problems.map((one) => one.text).join(' '), /all 2 cards of "reviewer" would own the same paths/, 'a fresh start of it is refused')
+  await writeFile(file, JSON.stringify({
+    ...saved, source, document, compiled: { ...saved.compiled, document },
+    authorization: { ...saved.authorization, sourceDigest: sourceDigest(source) },
+  }), 'utf8')
+
+  await rig.restart()
+  assert.equal(rig.executions.refusal(started.goal), null, 'its Goal is not blocked')
+  assert.deepEqual(rig.executions.runs().map((run) => [run.id, run.state]), [[started.id, 'running']])
 })
 
 /*

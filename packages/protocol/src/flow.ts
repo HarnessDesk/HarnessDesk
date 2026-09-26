@@ -127,8 +127,19 @@ export interface FlowThen {
   readonly role: string
   readonly title: string
   readonly detail?: string | null
-  /** Path patterns each card of the round owns while claimed. */
+  /**
+   * Path patterns the round's card owns while claimed. One list for the whole
+   * round, so only a round of one card may name it: two cards owning the same
+   * paths could never both be claimed.
+   */
   readonly files?: readonly string[]
+  /**
+   * The role whose latest round recorded this round's split: card n owns the
+   * n-th list of paths that round's card finished with (`complete_claim`'s
+   * `split`). The agents agree the split; the board then holds each card to
+   * its own part. A round with no usable split stops before any card opens.
+   */
+  readonly split?: string
 }
 
 /**

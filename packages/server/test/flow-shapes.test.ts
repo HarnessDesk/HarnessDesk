@@ -136,3 +136,15 @@ test('unattended: a topology only ever started by hand today, with its future tr
     'recorded as a future requirement in test metadata, never phrased as an engine switch',
   )
 })
+
+test('the design’s pair build (UC5) compiles against the shipped Agents, its dev cards taking the split the contract agreed', async () => {
+  const spec = await readFile(join(builtinFlowRoot(), '..', '..', '..', 'docs', 'superpowers', 'specs', '2026-09-17-agents-and-goals-design.md'), 'utf8')
+  const section = spec.slice(spec.indexOf('### UC5'))
+  const source = /```yaml\n([\s\S]*?)```/.exec(section)?.[1]
+  assert.ok(source, 'UC5 carries its flow')
+  const compiled = compileShape(source!, await agentsOf())
+  assert.equal(compiled.document.format, 'agents')
+  const build = compiled.document.format === 'agents' ? compiled.document.flow.rules.find((rule) => rule.then.role === 'dev') : undefined
+  assert.equal(build?.then.split, 'contract', 'each dev card owns its own part of the agreed split')
+  assert.equal(build?.then.files, undefined, 'never one list shared by both')
+})

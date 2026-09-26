@@ -150,6 +150,12 @@ export interface Intent {
   readonly blockedBy?: 'graph' | 'hand' | null
   /** The context package left by `complete_claim`. */
   readonly handoff?: string | null
+  /**
+   * The split of files its holder agreed when it finished — one list of path
+   * patterns per card of a later round, in card order, no two overlapping. A
+   * flow rule naming this card's role in `split` gives card n the n-th list.
+   */
+  readonly split?: readonly (readonly string[])[] | null
   /** The one-line completion note the next agent will read. */
   readonly note?: string | null
   /** The goal this belongs to, when it came from one. */
