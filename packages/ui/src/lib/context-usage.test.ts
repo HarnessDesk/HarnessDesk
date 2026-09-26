@@ -87,7 +87,7 @@ describe('formatCost', () => {
 })
 
 describe('the context composition', () => {
-  /** The live shape recorded off `@harnessdesk/dsh-acp` on 2026-08-24. */
+  /** A live segment-breakdown shape recorded from a DeepSeek session on 2026-08-24. */
   const dsh = {
     total: tokens({ totalTokens: 10_830 }),
     last: tokens({ totalTokens: 10_830 }),

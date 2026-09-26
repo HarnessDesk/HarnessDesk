@@ -381,6 +381,14 @@ export class AgentRegistryStore {
    * against this build's bridges; entries this build cannot serve — an
    * unknown template, a bridge the build lacks, a missing field — are warned
    * about by name and skipped, never silently.
+   *
+   * A hand-written entry that still runs HarnessDesk's old DeepSeek bridge
+   * (`@harnessdesk/dsh-acp`, removed once DSH's own `dsh --profile acp`
+   * carried messages, tools and context usage on its own) is never rewritten
+   * — the file stays the user's — but it is not spawned either: `resolveLaunch`
+   * blocks it and names the built-in `dsh` template to switch to, reported as
+   * health rather than left to fail the ACP handshake in whatever way an
+   * old, unmaintained bridge now does.
    */
   configs(): readonly AcpAgentConfig[] {
     const out: AcpAgentConfig[] = []
@@ -431,7 +439,8 @@ export class AgentRegistryStore {
         continue
       }
       seen.add(entry['id'] as string)
-      out.push(entry as unknown as AcpAgentConfig)
+      const config = entry as unknown as AcpAgentConfig
+      out.push(pointsAtOldDshBridge(entry) ? { ...config, resolveLaunch: async () => OLD_DSH_BRIDGE_BLOCK } : config)
     }
     return out
   }
@@ -503,6 +512,38 @@ const isEnv = (value: unknown): value is Readonly<Record<string, string>> =>
   typeof value === 'object' &&
   value !== null &&
   Object.values(value).every((entry) => typeof entry === 'string')
+
+/**
+ * Every command line this project ever told anyone to write for its own
+ * DeepSeek bridge: `dsh --profile acp --patch <profile>/harnessdesk.patch.yml`
+ * (mounting `@harnessdesk/dsh-acp` inside DSH's own process), or a direct run
+ * of the bridge's own entry point under a `--config`/`--patch` pointed at a
+ * Cordis composition. A person's own id or name proves nothing — this reads
+ * what is actually on the command line.
+ */
+const OLD_BRIDGE_HINT = /dsh-acp|harnessdesk\.?patch/i
+const pointsAtOldDshBridge = (entry: Record<string, unknown>): boolean => {
+  const command = typeof entry['command'] === 'string' ? entry['command'] : ''
+  const cwd = typeof entry['cwd'] === 'string' ? entry['cwd'] : ''
+  const args = isArgs(entry['args']) ? entry['args'] : []
+  if (OLD_BRIDGE_HINT.test(command) || OLD_BRIDGE_HINT.test(cwd) || args.some((arg) => OLD_BRIDGE_HINT.test(arg))) {
+    return true
+  }
+  // The one shape this project's own docs told people to write, with nothing
+  // in it that names the bridge directly: `dsh --profile acp --patch …`.
+  return command === 'dsh' && args.includes('--patch')
+}
+
+/** What a blocked launch says about an entry `pointsAtOldDshBridge`. Reported as health, never tried. */
+const OLD_DSH_BRIDGE_BLOCK = {
+  blocked: {
+    reason: 'unknown' as const,
+    message: "This agent runs HarnessDesk's own DeepSeek bridge (@harnessdesk/dsh-acp), which has been removed.",
+    remediation:
+      'Remove this entry and add "DeepSeek" from the agent catalogue, or set "template": "dsh" on this row — ' +
+      "DeepSeek now runs on DSH's own ACP server (dsh --profile acp).",
+  },
+}
 
 /**
  * What the host asks of the registry: the catalogue, a registration, a

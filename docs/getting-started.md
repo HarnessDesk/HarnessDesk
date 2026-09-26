@@ -83,12 +83,6 @@ What it does and does not carry, measured on DSH `0.1.7-rc.2` on 2026-09-25:
 - **No plans or titles on the wire.** The Tasks panel reads the plan from
   DSH's `todo_write` calls instead; a conversation is named by its opening ask.
 
-Our own server, [`@harnessdesk/dsh-acp`](https://github.com/HarnessDesk/dsh-acp),
-still exists for a desk pinned to a DSH before `0.1.7`: it streams, replays and
-carries plans and titles, and from `0.6.0` takes per-session tool servers too.
-On `0.1.7-rc.2` it no longer reads the harness's message events, so assistant
-text and reasoning never reach the wire; do not pair it with a current DSH.
-
 ## Build and run
 
 ```bash

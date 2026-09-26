@@ -169,6 +169,55 @@ test("DeepSeek Harness is a template: its own ACP server, the key it keeps in it
   assert.deepEqual(secret?.alsoAt?.map((source) => source.path), ['${DSH_HOME:-~/.dsh}/.credentials.yaml', '${DSH_HOME:-~/.dsh}/.env'])
 })
 
+test('an entry that still runs the old DeepSeek bridge is blocked, not spawned, with a way out named', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+
+  // The one command line this project's own docs ever told anyone to write.
+  store.add({
+    id: 'dsh',
+    name: 'DeepSeek Harness',
+    command: 'dsh',
+    args: ['--profile', 'acp', '--patch', '/somewhere/profiles/acp/harnessdesk.patch.yml'],
+  })
+  const [config] = store.configs()
+  assert.ok(config, 'the entry is still read, never dropped silently')
+  assert.equal(typeof config.resolveLaunch, 'function')
+  const decision = await config.resolveLaunch?.('start')
+  assert.ok(decision && 'blocked' in decision, 'it is reported as health, never tried')
+  if (decision && 'blocked' in decision) {
+    assert.match(decision.blocked.message, /dsh-acp/)
+    assert.match(decision.blocked.remediation ?? '', /DeepSeek Harness's own ACP server|"dsh"/)
+  }
+})
+
+test('a direct run of the old bridge entry point is caught by name, whatever id or command line', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+
+  store.add({
+    id: 'deepseek-local',
+    name: 'My DeepSeek',
+    command: 'node',
+    args: ['/Users/me/checkouts/dsh-acp/dist/src/main.js', '--config', '/Users/me/.dsh/dsh-acp.yml'],
+  })
+  const [config] = store.configs()
+  const decision = await config?.resolveLaunch?.('start')
+  assert.ok(decision && 'blocked' in decision, 'a bin.js path naming the old bridge is caught by content, not by id')
+})
+
+test('the official DeepSeek template is never blocked', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+
+  store.add({ id: 'dsh', template: 'dsh' })
+  const [config] = store.configs()
+  assert.equal(config?.resolveLaunch, undefined, 'the template DSH ships is never mistaken for the retired bridge')
+})
+
 test('the template set is a decision', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))
