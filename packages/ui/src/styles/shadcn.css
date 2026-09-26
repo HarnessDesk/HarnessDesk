@@ -47,6 +47,11 @@
  * and on `:root` these would all resolve to nothing.
  */
 body {
+  /* Tailwind's bare `transition`, `transition-colors` and friends take the
+     desk's own fast step and curve, so a utility that names no duration
+     still moves on the system's clock rather than Tailwind's 150ms. */
+  --default-transition-duration: var(--hd-duration-fast);
+  --default-transition-timing-function: var(--hd-ease);
   --background: var(--hd-background);
   --foreground: var(--hd-foreground);
   --card: var(--hd-card);

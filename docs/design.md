@@ -33,6 +33,30 @@ somebody happened to install it. Neither stack ends in a bare `monospace`:
 Windows CJK falls back to
 SimSun from there.
 
+`--hd-font-heading` is the face a place's name is set in — the `wordmark`, `page`
+and detail titles — with `--hd-tracking-heading` (−0.01em). Both default to the
+interface sans; the tokens exist so a foundation that wants its own voice for a
+place's name changes one line rather than three patterns.
+
+### The title block
+
+A page's head closes on a hairline with a short mark in the accent at its
+start (`PageHead`, `DetailHead`): the rule under the title on a drawing sheet.
+The name of a place is set off from what is on it by one line rather than a box
+or a band of colour, and the mark is the only place the accent appears on a page
+that the reader did not put there. Its colours and measures are the
+`--hd-title-rule*` tokens, so a foundation retunes the mark, or sets its width
+to 0 to drop it, without touching the pattern.
+
+### The accent
+
+The accent is Blueprint cobalt, `rgb(52, 88, 240)`: deep enough that white
+reads on it at 5.5:1 where the lighter blue before it managed 4.1:1 — short of
+AA for a 13px label on the fill. Its hover darkens rather than lightens, since a
+press presses ink into the page rather than washing it out. The accent still
+means what is *yours* — the focus ring, a link, a selection, the title mark —
+and a primary button stays ink (`--hd-solid`), as the section on buttons says.
+
 ### The sizes
 
 The rule is a split: **13px is the chrome, 14px is what is read.** The counts
@@ -612,6 +636,40 @@ What stayed, and why:
 | Clear browsing data | Names its blast radius: this pane, not your browser. |
 | Every disabled row's reason | A tooltip on a disabled control is unreachable. |
 
+## Motion
+
+Motion says where a thing came from and where it went, and nothing else. It is
+tokens, like type and space, and `design-audit` counts a time written out in a
+transition, an animation or a Tailwind utility (`rawDuration`), so a surface
+cannot pick its own clock.
+
+| token | value | what it times |
+| --- | --- | --- |
+| `--hd-duration-fast` | 100ms | a change the finger caused: a hover, a press, a colour. Tailwind's bare `transition-*` utilities default to it |
+| `--hd-duration-enter` | 180ms | something arriving: a menu, a dialog, a fold's body |
+| `--hd-duration-exit` | 120ms | the same thing leaving — quicker, because nobody waits to watch a menu close |
+| `--hd-duration` / `-slow` | 200 / 300ms | a surface resizing, or crossing the window; rare |
+| `--hd-duration-pulse` / `-sweep` / `-cadence` | 1.6s / 1.8s / 1s | the only loops: a live dot, the sweep over words still being written, the stepped working line |
+
+Three curves, one per direction of travel: `--hd-ease` for a state changing in
+place, `--hd-ease-out` for an arrival (fast off the mark, settling), and
+`--hd-ease-in` for a departure (accelerating away). An arriving surface grows
+from `--hd-motion-scale` (0.97) toward its trigger, or rises
+`--hd-motion-rise` into place; small on purpose, a hint of direction rather
+than a flourish.
+
+Overlays do not choose any of this. `design/ui/motion.ts` holds it once:
+`floatingMotion` for anything anchored to a trigger (menus, popovers, selects,
+tooltips, hover cards), `modalMotion` and `scrimMotion` for a dialog, and
+`revealMotion` for a block that appears in place when something opens, such as
+a turn's work fold. They are transitions from Base UI's `data-starting-style`
+and `data-ending-style`, never keyframe animations keyed on them: the starting
+attribute is gone a frame later and an animation declared on it goes with it,
+which is how every menu in the app used to cut in rather than arrive.
+
+`prefers-reduced-motion` takes every duration to an instant in `app.css`; the
+tokens need no reduced variant of their own.
+
 ## A page: sections and summaries
 
 A page is a head and a column of sections, and a section is a label over one
@@ -774,6 +832,23 @@ surface's description says what the tab shows *on this fixture* and names what
 it does not. A description written for a richer picture than the tab renders is
 the same misleading a drawing was, in words. The only check that has caught
 these is opening every tab in a browser.
+
+### What the engine checks
+
+Some of the rules here are about the words a screen happens to hold, not
+about a declaration, and the audit cannot read them from source.
+`e2e/ui-system/taste.spec.ts` lays out every frame of the preview harness and
+a confirm from the catalogue, and fails on four of them:
+
+- **A sentence cut off by an ellipsis.** Names and paths truncate; sentences
+  wrap. A `Row`'s description wraps by default, and `truncateDesc` is the
+  opt-in for one that is a name or a path.
+- **A page, section or dialog title that wraps** at 1440px.
+- **A one-word last line** in a description, a blurb or a message. A
+  confirm's body is left to the engine's own breaks, by decision. `app.css` sets `text-wrap: pretty` on everything read as a
+  sentence and `balance` on titles, so this should not need a hand.
+- **A second line every row of a group repeats**, which belongs to the group
+  as one note.
 
 ### What the audit refuses
 

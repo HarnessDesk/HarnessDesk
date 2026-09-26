@@ -1,6 +1,7 @@
 import type { AgentItem } from '@harnessdesk/protocol'
 
 import { editOf } from './handoff'
+import { planOf } from './todos'
 
 /**
  * Grouping a turn's items for display.
@@ -384,8 +385,10 @@ export const describeGroup = (items: readonly AgentItem[]): string => {
         continue
       }
     }
-    const kind = item.type === 'toolCall' ? toolCallVerb(item) : item.type
-    counts.set(kind, (counts.get(kind) ?? 0) + 1)
+    // A plan write is the plan changing, said once, as the turn's receipt
+    // says it (`turn-view.ts`), never a tool call.
+    const kind = item.type === 'toolCall' ? (planOf(item.args) !== null ? 'plan' : toolCallVerb(item)) : item.type
+    counts.set(kind, kind === 'plan' ? 1 : (counts.get(kind) ?? 0) + 1)
   }
   if (paths.size > 0) counts.set('fileChange', (counts.get('fileChange') ?? 0) + paths.size)
 
@@ -406,13 +409,16 @@ export const describeGroup = (items: readonly AgentItem[]): string => {
         return `ran ${count} sub-agent${count === 1 ? '' : 's'}`
       case 'image':
         return `${count} image${count === 1 ? '' : 's'}`
+      case 'plan':
+        return 'updated the plan'
       default:
         return `${count} ${type}`
     }
   }
 
   const sentence = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
+    // Most first; the plan changing is said last, as the turn's receipt says it.
+    .sort((a, b) => Number(a[0] === 'plan') - Number(b[0] === 'plan') || b[1] - a[1])
     .map(([type, count]) => label(type, count))
     .join(', ')
   return sentence.charAt(0).toUpperCase() + sentence.slice(1)

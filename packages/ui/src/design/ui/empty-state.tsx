@@ -111,7 +111,6 @@ const EmptyState = (allProps: EmptyStateProps) => {
         mark={icon}
         title={title}
         desc={description}
-        wrapDesc
         control={children}
         {...(className ? { className } : {})}
         {...props}

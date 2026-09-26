@@ -120,7 +120,11 @@
 /* The table's head. It sits above the list rather than inside it, so it does
    not scroll away — the columns line up because both read the same widths,
    and because it keeps the rows' own right inset (`CommitRow`'s). A table
-   only this pane draws, so its head is this pane's, not a shared part. */
+   only this pane draws, so its head is this pane's, not a shared part.
+   Its height is deliberately `--hd-control-h-sm`, not `--hd-table-row-h`:
+   a header bar and a data row answer different questions (#835), and a
+   part invented for the one pane that draws a head like this would be a
+   one-screen part. */
 .tableHead {
   flex: none;
   display: flex;
@@ -311,6 +315,8 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  /* A content floor, not a chrome rung — every resizable pane's is sized to
+     what it holds, so this one has no sibling to share a part with. */
   min-height: var(--hd-history-detail-min-h); /* desk: GitHistoryCommitDetail's min-h → here, the floor of the one resizable detail this pane has */
 }
 

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { CheckIcon, BulletIcon } from '@/components/Icons'
 import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
+import { floatingMotion } from './motion'
 
 /* Vendored from shadcn/ui (dropdown-menu). Icons come from the app's
  * façade — the one place allowed to draw one — and the floating surface
@@ -62,7 +63,8 @@ const DropdownMenuContent = ({
       <DropdownMenuPrimitive.Popup
         data-slot="dropdown-menu-content"
         className={cn(
-          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 max-h-(--available-height) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border p-1 shadow-md',
+          floatingMotion,
+          'bg-popover text-popover-foreground max-h-(--available-height) min-w-32 overflow-x-hidden overflow-y-auto rounded-lg border p-1 shadow-md',
           SURFACE_FOCUS,
           className,
         )}
@@ -241,7 +243,8 @@ const DropdownMenuSubContent = ({
       <DropdownMenuPrimitive.Popup
         data-slot="dropdown-menu-sub-content"
         className={cn(
-          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 min-w-32 origin-(--transform-origin) overflow-hidden rounded-lg border p-1 shadow-lg',
+          floatingMotion,
+          'bg-popover text-popover-foreground min-w-32 overflow-hidden rounded-lg border p-1 shadow-lg',
           SURFACE_FOCUS,
           className,
         )}

@@ -2,7 +2,7 @@
   "rawType": 0,
   "rawWeight": 0,
   "patternClass": 0,
-  "screenAppearance": 49,
+  "screenAppearance": 45,
   "singleAreaPrimitive": 44,
   "uppercaseLabel": 0,
   "screenUnclassified": 0,
@@ -18,6 +18,7 @@
   "rawRadius": 0,
   "offGrid": 0,
   "rawZIndex": 0,
+  "rawDuration": 0,
   "rawColour": 0,
   "arbitraryUtility": 0
 }

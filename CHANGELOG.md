@@ -7,6 +7,20 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The account menu says less.** Every account is one line — its name and
+  what is left — with the address and plan on hover rather than under every
+  name. An agent with several accounts shows its mark once, as a heading with
+  its accounts under it. Agents still waiting for a sign-in step behind **Add
+  an account…** instead of filling the list, the **Local** tag on your profile
+  is gone (every profile is local), and **Usage remaining** no longer takes a
+  row to say "—" when nothing is metered. The current account is marked by its
+  filled row rather than a tick, so every figure ends at the same edge, and
+  Dashboard — already in the sidebar's nav — is no longer repeated here.
+
+- **Old DeepSeek bridge removed.** If your `agents.json` runs
+  `@harnessdesk/dsh-acp`, change that row to `{ "id": "dsh", "template": "dsh" }`
+  — DeepSeek now runs on DSH's own ACP server.
+
 - **DeepSeek seats finish their cards.** A DeepSeek conversation's board
   calls — finishing a card, claiming one — were refused as unattributed,
   because the only way it reached HarnessDesk's tools was one tool server

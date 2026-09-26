@@ -1329,6 +1329,36 @@ it('says when a member has not used the board, once there is something to take',
   expect(row('Codex').textContent).not.toContain('has not used the board')
 })
 
+it('says the board caution once, for the group, when every agent shown would carry it', async () => {
+  // One open card and nobody on it: both members are equally idle on the board.
+  const open = state.intents.filter((one) => one.state === 'open')
+  const { store } = rig([{ ...CODEX, usedBoard: false }, { ...CLAUDE, usedBoard: false }], undefined, { intents: open })
+  await render(store)
+
+  expect(container.textContent).toContain('None of these agents has used the board yet.')
+  expect(row('Opus').textContent).not.toContain('has not used the board')
+  expect(row('Codex').textContent).not.toContain('has not used the board')
+})
+
+it('the shared caution leaves each member\u2019s own card saying it', async () => {
+  // The rail says it once; the card is read one member at a time, so it keeps it.
+  const open = state.intents.filter((one) => one.state === 'open')
+  const { store } = rig([{ ...CODEX, usedBoard: false }, { ...CLAUDE, usedBoard: false }], undefined, { intents: open })
+  await render(store)
+  expect(row('Opus').textContent).not.toContain('has not used the board')
+  // The row is the card's trigger: hovering it opens the member's card.
+  const target = row('Opus')
+  const trigger = target.closest('[data-slot="hover-card-trigger"]') ?? target.querySelector('[data-slot="hover-card-trigger"]') ?? target
+  await act(async () => {
+    target.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter'))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1000)) })
+  const card = document.body.querySelector('[data-slot="agent-card"]')
+  expect(card, 'the member card opened').not.toBeNull()
+  expect(card!.textContent).toContain('Reachable, but has taken nothing from the board this run.')
+})
+
 it('shows the claimed task rather than “has not used the board” when a member holds a claim (#375)', async () => {
   // A member that has not used the board this run (e.g. after restart), but holds a claimed intent on the board
   const onClaim: TeamPeerInfo = { ...CODEX, usedBoard: false }

@@ -1,5 +1,5 @@
 /*
- * The five values every other sheet assumes exist.
+ * The two values every other sheet assumes exist.
  *
  * This file began as a reconstruction of the variables the DeepSeek Harness
  * client UI expected from its own global stylesheet (MIT) — the composite
@@ -8,7 +8,7 @@
  * than copied from anywhere. See design-platform.css and
  * THIRD_PARTY_NOTICES.md.
  *
- * These are the *fallback* faces and the motion contract. ../design/foundation/tokens.css
+ * These are the *fallback* faces. ../design/foundation/tokens.css
  * owns the face the app actually sets in (Geist, bundled) and redeclares both
  * font variables on `body`; what is here is what resolves before that, and
  * what resolves if the design layer is ever loaded without it.
@@ -20,23 +20,15 @@
  * sake — Windows falls back to SimSun from there, which is not the same
  * document.
  *
- * Motion: 170ms is the interval a pointer crossing a dense list of rows can
- * absorb without the interface feeling like it is catching up, and it is the
- * one to reach for. 90ms is for a state that must feel instantaneous — a
- * press, a focus ring. 280ms is for something that changes size or position,
- * where the eye needs to follow the thing rather than notice it has moved.
- * The curve leaves slowly, crosses quickly and settles flat, so a pane that
- * resizes reads as arriving somewhere rather than stopping.
+ * Motion is not declared here. The design layer owns it (`tokens.css`,
+ * "motion"), and a platform copy of the same decision was dead weight that
+ * nothing read.
  */
 :root {
   --hdp-font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --hdp-font-family-code: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas,
     'Liberation Mono', 'PingFang SC', 'Microsoft YaHei';
-  --hdp-ease-in-out: cubic-bezier(0.3, 0, 0.1, 1); /* desk: our own settle curve */
-  --hdp-transition-duration: 0.17s; /* desk: 0.2 → 0.17, a crossed row should not lag */
-  --hdp-transition-duration-fast: 0.09s; /* desk: 0.1 → 0.09 */
-  --hdp-transition-duration-slow: 0.28s; /* desk: 0.3 → 0.28 */
 }
 
 @keyframes hd-spin {

@@ -350,14 +350,19 @@ try {
             if (mark.getBoundingClientRect().right > action.getBoundingClientRect().left) faults.push('sidebar hover action overlaps metadata')
           }
         }
+        // A popup on its way out (Base UI marks it \`data-ending-style\` for the
+        // length of its exit transition) is the last scene's, not this one's:
+        // it takes no pointer by design and is gone a moment later.
+        const leaving = (node) => node.closest('[data-ending-style]') !== null
         for (const popup of document.querySelectorAll('[data-slot="popover-popup"]')) {
+          if (leaving(popup)) continue
           const box = popup.getBoundingClientRect()
           if (box.top < 0 || box.bottom > innerHeight + 1 || box.left < 0 || box.right > innerWidth + 1) {
             faults.push('popup extends outside the viewport: ' + JSON.stringify(box.toJSON()))
           }
         }
         for (const item of document.querySelectorAll('[role="menuitem"]')) {
-          if (!visible(item)) continue
+          if (!visible(item) || leaving(item)) continue
           let opacity = 1
           for (let node = item; node; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity)
           if (opacity < 0.99) faults.push('invisible menu item: ' + item.textContent.slice(0, 80))

@@ -35,7 +35,7 @@
 
 .ring {
   opacity: 0.55;
-  transition: opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity var(--hd-duration-fast) var(--hd-ease);
 }
 
 .ring:hover {

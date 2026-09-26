@@ -51,13 +51,15 @@ for (const height of [900, 520]) {
   test(`open sidebar menu repositions after theme changes and account expansion at ${height}px`, async ({ page }, testInfo) => {
     // Add synthetic accounts at the fixture boundary. The real Sidebar,
     // disclosure, scrolling menu and canonical Popover remain unchanged.
+    // Enough of them that the one-line account rows still outgrow a 900px
+    // window: sixteen fit once each row stopped carrying its address.
     await page.route('**/src/preview/sidebar-fixture.ts*', async route => {
       const response = await route.fetch()
       await route.fulfill({
         response,
         body: `${await response.text()}\n{
           const status = previewAccounts[Object.keys(previewAccounts)[1]];
-          status.accounts.push(...Array.from({ length: 16 }, (_, index) => ({
+          status.accounts.push(...Array.from({ length: 32 }, (_, index) => ({
             kind: 'oauth', label: 'Account ' + (index + 1), email: 'account' + (index + 1) + '@example.com'
           })));
         }`,

@@ -352,7 +352,6 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
                 <Row
                   title="Continue an open Goal"
                   desc={definition.again ? 'Stops the old round and opens a new one on the role named below.' : 'Records the fact and needs a person — no new round opens on its own.'}
-                  wrapDesc
                   control={(
                     <Switch
                       checked={definition.again !== null}

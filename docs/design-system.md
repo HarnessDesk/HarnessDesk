@@ -50,10 +50,18 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hdp-font-family` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
 | `--hdp-font-family-code` | `ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'` |
 | `--hd-font-display` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
-| `--hd-accent` | `rgb(82, 117, 235)` |
+| `--hd-font-heading` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
+| `--hd-tracking-heading` | `-0.01em` |
+| `--hd-title-rule` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-title-rule-width` | `1px` |
+| `--hd-title-rule-gap` | `12px` |
+| `--hd-title-rule-mark` | `rgb(52, 88, 240)` |
+| `--hd-title-rule-mark-width` | `24px` |
+| `--hd-title-rule-mark-height` | `2px` |
+| `--hd-accent` | `rgb(52, 88, 240)` |
 | `--hd-accent-foreground` | `rgb(255, 255, 255)` |
-| `--hd-accent-hover` | `rgb(98, 135, 249)` |
-| `--hd-accent-dim` | `rgba(82, 117, 235, 0.12)` |
+| `--hd-accent-hover` | `rgb(38, 70, 214)` |
+| `--hd-accent-dim` | `rgba(52, 88, 240, 0.12)` |
 | `--hd-danger` | `rgb(228, 68, 62)` |
 | `--hd-danger-dim` | `rgba(228, 68, 62, 0.12)` |
 | `--hd-success` | `rgb(65, 189, 111)` |
@@ -70,7 +78,7 @@ A state colour used as *text on its own soft fill* is a different question from 
 | `--hd-warning-ink` | `rgb(150, 100, 0)` |
 | `--hd-danger-ink` | `rgb(196, 52, 48)` |
 | `--hd-success-ink` | `rgb(0, 126, 63)` |
-| `--hd-primary-ink` | `rgb(69, 99, 205)` |
+| `--hd-primary-ink` | `rgb(40, 72, 210)` |
 
 ### Tints
 
@@ -176,6 +184,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-control-h` | `<cycle>` |
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
+| `--hd-table-row-h` | `26px` |
 | `--hd-history-detail-min-h` | `160px` |
 | `--hd-field-h` | `30px` |
 | `--hd-control-h-lg` | `<cycle>` |
@@ -203,14 +212,23 @@ Controls are one height so a row of them lines up without anyone counting pixels
 
 ### Motion
 
-One curve, three durations. Fast is a state change the finger caused — a hover, a press. Base is something appearing or leaving. Slow is a surface moving across the window, and is rare.
+Motion says where a thing came from and where it went, and nothing else. Three curves, each for one direction of travel: --hd-ease a state that changes in place: a hover, a press, a colour, a width. Symmetric, because nothing arrives. --hd-ease-out something arriving — a menu, a dialog, a fold opening. Fast off the mark and settling, so it is there at once and still reads as having moved. --hd-ease-in something leaving. It accelerates away and is quicker than its entrance: nobody waits to watch a menu close. Durations name the event, not a number. Fast is a change the finger caused. Enter and exit are an overlay or a fold. Base is a surface resizing; slow is a surface crossing the window, and is rare. The loops are ambient — a live dot, the sweep on words still being written — and are the only motion that repeats. `prefers-reduced-motion` takes every one of these to an instant in app.css. `design-audit` counts a time written out in a transition or an animation (`rawDuration`), so a new surface cannot pick its own.
 
 | token | value |
 | --- | --- |
 | `--hd-ease` | `cubic-bezier(0.4, 0, 0.2, 1)` |
+| `--hd-ease-out` | `cubic-bezier(0.16, 1, 0.3, 1)` |
+| `--hd-ease-in` | `cubic-bezier(0.5, 0, 0.75, 0)` |
 | `--hd-duration-fast` | `0.1s` |
+| `--hd-duration-enter` | `0.18s` |
+| `--hd-duration-exit` | `0.12s` |
 | `--hd-duration` | `0.2s` |
 | `--hd-duration-slow` | `0.3s` |
+| `--hd-duration-pulse` | `1.6s` |
+| `--hd-duration-sweep` | `1.8s` |
+| `--hd-duration-cadence` | `1s` |
+| `--hd-motion-scale` | `0.97` |
+| `--hd-motion-rise` | `4px` |
 
 ### Elevation
 
@@ -233,8 +251,8 @@ The values below are Desk's, and they are the app's own: a hard 2px ring in the 
 | --- | --- |
 | `--hd-ring-width` | `2px` |
 | `--hd-ring-offset` | `2px` |
-| `--hd-ring-muted` | `rgb(82, 117, 235)` |
-| `--hd-focus-ring` | `0 0 0 2px rgb(82, 117, 235)` |
+| `--hd-ring-muted` | `rgb(52, 88, 240)` |
+| `--hd-focus-ring` | `0 0 0 2px rgb(52, 88, 240)` |
 | `--hd-press` | `none` |
 | `--hd-hairline` | `inset 0 0 0 1px rgba(9, 12, 17, 0.12)` |
 | `--hd-hairline-soft` | `inset 0 0 0 1px rgba(9, 12, 17, 0.05)` |
@@ -279,7 +297,7 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-border-emphasis` | `rgba(9, 12, 17, 0.14)` |
 | `--hd-border-heavy` | `rgba(9, 12, 17, 0.2)` |
 | `--hd-input` | `rgb(255, 255, 255)` |
-| `--hd-ring` | `rgb(82, 117, 235)` |
+| `--hd-ring` | `rgb(52, 88, 240)` |
 | `--hd-hover` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-hover-solid` | `rgb(242, 242, 242)` |
 | `--hd-tooltip-fill` | `rgb(41, 41, 41)` |
@@ -341,7 +359,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-toggle-knob` | `rgb(255, 255, 255)` |
 | `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-toggle-track` | `rgba(9, 12, 17, 0.14)` |
-| `--hd-toggle-on` | `rgb(82, 117, 235)` |
+| `--hd-toggle-on` | `rgb(52, 88, 240)` |
 | `--hd-toggle-width` | `34px` |
 | `--hd-toggle-width-sm` | `30px` |
 | `--hd-toggle-height-sm` | `18px` |
@@ -365,7 +383,11 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-warning-ink` | `rgb(150, 100, 0)` |
 | `--hd-danger-ink` | `rgb(196, 52, 48)` |
 | `--hd-success-ink` | `rgb(0, 126, 63)` |
-| `--hd-primary-ink` | `rgb(69, 99, 205)` |
+| `--hd-primary-ink` | `rgb(40, 72, 210)` |
+| `--hd-accent-dim` | `rgba(52, 88, 240, 0.12)` |
+| `--hd-accent-foreground` | `rgb(255, 255, 255)` |
+| `--hd-primary-foreground` | `rgb(255, 255, 255)` |
+| `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 | `--hd-sidebar-selected-foreground` | `` |
 | `--hd-sidebar-selected-muted-foreground` | `` |
@@ -390,9 +412,9 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-press` | `none` |
 | `--hd-ring-width` | `2px` |
 | `--hd-ring-offset` | `2px` |
-| `--hd-ring-muted` | `rgb(82, 117, 235)` |
+| `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-card-fill` | `` |
-| `--hd-ring-muted` | `rgb(82, 117, 235)` |
+| `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-field-h` | `30px` |
 | `--hd-btn-h` | `30px` |
 | `--hd-field-h` | `30px` |
@@ -1188,6 +1210,24 @@ and Shift+Tab goes back to the trigger, as Escape does. A panel of plain
 buttons in a menu keeps Tab for going from one to the next, and leaves by
 it after the last.
 
+### `MenuAccountGroup`
+
+`packages/ui/src/design/patterns/Menu.tsx`
+
+Several accounts of one agent, under one heading. `heading={false}` keeps
+the group — so a row does not change parent, and lose focus, when the
+heading comes and goes — but draws no heading and steps nothing in: one
+account of the agent on show, as one row wearing its own mark.
+
+The heading wears the agent's mark once and names it; it is not a choice,
+so it takes no hover and no press, and it is the group's accessible name —
+`aria-labelledby`, the wiring the vendored group label would give. Plain
+elements rather than `DropdownMenuGroup`/`DropdownMenuLabel`: one screen
+composes this, and the audit's single-area primitive ceiling may only
+fall. The `account` rows under a heading step in so that, after an
+`AccountMark size="dot"` (the account's colour), their names start on the
+heading's name column; the heading already drew whose they are.
+
 ### `MenuToggle`
 
 `packages/ui/src/design/patterns/Menu.tsx`
@@ -1628,7 +1668,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 49 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
+| `screenAppearance` | 45 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
 | `singleAreaPrimitive` | 44 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
@@ -1644,6 +1684,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawRadius` | 0 | Will not follow a shape change. |
 | `offGrid` | 0 | Will not follow a density change. |
 | `rawZIndex` | 0 | Two layers claim the same plane, and the one that wins is the one written later. |
+| `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 
