@@ -8,6 +8,7 @@ import {
   BriefNotHandedOverError,
   isCeilingLevel,
   isBlocked,
+  OptionRefusedError,
   remainingOf,
   SeatRefusedError,
   type AgentDefinition,
@@ -585,9 +586,17 @@ export async function seatAgent(
       cwd: params.cwd, title: definition.name,
       ...(context.environment ? { environment: context.environment } : {}),
       ...(attachmentsInput ? { attachments: attachmentsInput } : {}),
-    })
+    }, words)
     if ('reason' in opened) {
       passed.push(opened)
+      // The runtime refused the effort itself: stop here, on this candidate's
+      // own line, rather than seating a different runtime in silence (#1013).
+      if (opened.fatal) {
+        const untried = rest.length > 0
+          ? ` ${rest.length === 1 ? 'One more candidate was' : `${rest.length} more candidates were`} not tried: an effort a runtime refuses outright is its own seat's preference to fix, not a reason to try another agent.`
+          : ''
+        throw new SeatRefusedError(explainRefusal(passed) + untried, { candidates: said(passed) })
+      }
       continue
     }
 
@@ -947,6 +956,37 @@ const wordsFor = (
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
+ * Whether a seat's own failure to open is the runtime itself refusing the
+ * effort asked for — never a guess from some other failure family, and never
+ * true for a seat that asked for no effort at all.
+ *
+ * Told apart by the typed `OptionRefusedError` both adapters throw for a pick
+ * their own local check refuses (`@harnessdesk/protocol`'s `refuseOptionValue`,
+ * applied in `AcpSession.setOption` and Codex's `CodexSession.setOption`),
+ * never by matching an adapter's own wording: an ACP agent may answer
+ * `session/set_config_option` with anything it likes, and that refusal is a
+ * plain `Error`, not this one, and rightly not read as meaning the same thing.
+ *
+ * This is the case a dry run could not always catch (`unavailableSeats` in
+ * `methods/flows.ts`, when a runtime was not running or its catalogue named
+ * no levels) — so it is caught here instead, at the one place it is finally
+ * knowable, and held to the same rule: never seat a different runtime in
+ * silence over it (#1013).
+ */
+const refusedEffort = (seat: FlowSeat, error: unknown): boolean =>
+  Boolean(seat.effort) && error instanceof OptionRefusedError && error.optionId === 'effort'
+
+/**
+ * The sentence for a seat this desk will not try to fix by trying another
+ * runtime: the runtime's own label for the level asked, never the wire id,
+ * with the full stop a caller that appends more prose after it (`seatAgent`'s
+ * "N more candidates were not tried…") depends on to read as two sentences,
+ * not a run-on one.
+ */
+const noEffortWhy = (words: SeatWords, seat: FlowSeat): string =>
+  `${words.runtime(seat.runtime)} does not offer ${words.effort(seat.runtime, seat.model, seat.effort!)} effort.`
+
+/**
  * Opens one candidate and holds it to what it asked for: the open seat, or the
  * candidate passed over with why — and then nothing the seating opened is left
  * open, unless somebody took it up meanwhile.
@@ -960,6 +1000,17 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
  * gone. Either way, what the conversation was left as goes on the candidate's
  * line — left as it is, because somebody used it or it was never the
  * seating's, or archived, because it could not be deleted — never dropped.
+ *
+ * A failure the runtime blamed on the effort itself (`refusedEffort`) is
+ * recorded as `noEffort`, not `couldNotOpen` — the fix is the seat's own
+ * effort, never the runtime — worded in the runtime's own label for the level
+ * asked, never the wire option id, and marked `fatal`: the caller's loop
+ * stops on this candidate rather than trying the next one. So is an effort
+ * that was not refused outright but simply dropped at open — a greyed control
+ * a family with one level declares, the way `session/new` drops a pick that
+ * has no place — and only found once the read-back differs from what was
+ * asked: when effort is the *only* difference, it is exactly as much the
+ * seat's own instruction to fix as a runtime that says no outright.
  */
 const openAsAsked = async (
   ctx: HostContext,
@@ -970,17 +1021,30 @@ const openAsAsked = async (
     readonly environment?: Readonly<Record<string, string>>
     readonly attachments?: SessionAttachments
   },
+  words: SeatWords,
 ): Promise<OpenedSeat | PassedOver> => {
   let opened: OpenedSeat
   try {
     opened = await ctx.seats.open(seat, where)
   } catch (error) {
+    if (refusedEffort(seat, error)) {
+      return { seat, why: noEffortWhy(words, seat), reason: { kind: 'noEffort', effort: seat.effort! }, fatal: true as const }
+    }
     const left = leftOnFailure(error)
     return { ...passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) }), ...(left ? { left } : {}) }
   }
   const found = differencesOf(seat, opened.running)
   if (found.length === 0) return opened
   const left = await ctx.seats.discard(opened.runtime, opened.sessionId)
+  // A pick this model had no place for is dropped quietly at open — the way a
+  // greyed control is — rather than refused; read back, it looks exactly like
+  // any other openedOtherwise difference. When effort is the *only* one, it
+  // is held to the same rule as a runtime that refuses it outright
+  // (`refusedEffort` above): an asked-for effort is the seat's own
+  // instruction to fix, never a reason to quietly try a different runtime.
+  if (found.length === 1 && found[0]!.field === 'effort' && seat.effort) {
+    return { seat, why: noEffortWhy(words, seat), reason: { kind: 'noEffort', effort: seat.effort }, fatal: true as const, left }
+  }
   return { ...passedFor(seat, { kind: 'openedOtherwise', differences: found }), left }
 }
 
@@ -1190,6 +1254,25 @@ export const offerOf = async (
       runtime: id,
       models: catalogue?.map((one) => one.id) ?? null,
       efforts: null,
+      // Each model's own reasoning levels, read from the same catalogue as
+      // `models` — never a session's answer, and never guessed at when the
+      // catalogue itself could not be read (`catalogue` is null, and this
+      // stays undefined; `reasonAgainst` then has no model to look one up by
+      // and falls back to the flat `efforts`, which is also null here). A
+      // model whose levels are only a session-wide fallback — never its own
+      // declaration (`reasoningLevelsShared`) — is left out of this map
+      // entirely, so `reasonAgainst` finds no entry for it and falls back to
+      // `efforts` (null) rather than refusing against a reading that may say
+      // nothing true about this particular model (#1013).
+      ...(catalogue
+        ? {
+            modelEfforts: new Map(
+              catalogue
+                .filter((one) => !one.reasoningLevelsShared)
+                .map((one) => [one.id, one.reasoningLevels.map((level) => level.id)]),
+            ),
+          }
+        : {}),
       signedIn,
       spent: report ? isBlocked(report) : false,
       spentModels: report ? spentScopesOf(report) : [],

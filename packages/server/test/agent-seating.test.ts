@@ -106,6 +106,38 @@ test('an effort the runtime does not offer is passed over rather than dropped', 
   assert.match(chosen.passed[0]?.why ?? '', /xhigh/)
 })
 
+test("a candidate's model has its own reasoning levels read from the catalogue, before any seat opens — this is issue #1013's core fix: a Seat preference's bad effort is caught by the plan itself, not only by trying to open it", () => {
+  // `offer.efforts` alone (the flat, no-model-in-hand list `reasonAgainst`
+  // falls back to) is still null here, exactly as a runtime that has not
+  // opened a session leaves it — the fix is that a *model-scoped* reading
+  // (`modelEfforts`, from the same catalogue read that named the model at
+  // all) is enough on its own, with no session asked for anything.
+  const offers = [offer('cursor', { efforts: null, modelEfforts: new Map([['m1', ['low', 'high']]]) })]
+  const chosen = chooseSeat([seat('cursor', 'm1', 'xhigh')], offers)
+  assert.equal(chosen.seat, null)
+  assert.equal(chosen.passed[0]?.reason.kind, 'noEffort')
+  assert.match(chosen.passed[0]?.why ?? '', /xhigh/)
+})
+
+test('a model whose own catalogue entry names no levels at all is left alone, never refused: an empty list is "not knowable from here", not "has none" (#1013 finding 3)', () => {
+  const offers = [offer('cursor', { efforts: null, modelEfforts: new Map([['m1', []]]) })]
+  const chosen = chooseSeat([seat('cursor', 'm1', 'xhigh')], offers)
+  assert.equal(chosen.seat?.runtime, 'cursor')
+})
+
+test('"default" is never refused, even against a model whose own levels do not include it', () => {
+  const offers = [offer('cursor', { efforts: null, modelEfforts: new Map([['m1', ['low', 'high']]]) })]
+  const chosen = chooseSeat([seat('cursor', 'm1', 'default')], offers)
+  assert.equal(chosen.seat?.runtime, 'cursor')
+})
+
+test('a model absent from the catalogue map falls back to the flat effort list, for a candidate naming no model at all', () => {
+  const offers = [offer('cursor', { efforts: ['low', 'high'], modelEfforts: new Map([['m1', ['low', 'high']]]) })]
+  const chosen = chooseSeat([seat('cursor', undefined, 'xhigh')], offers)
+  assert.equal(chosen.seat, null)
+  assert.equal(chosen.passed[0]?.reason.kind, 'noEffort')
+})
+
 test('a candidate with no model asks only for the runtime', () => {
   const chosen = chooseSeat([seat('cursor')], [offer('cursor', { models: [] })])
   assert.equal(chosen.seat?.runtime, 'cursor')

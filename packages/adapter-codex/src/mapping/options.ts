@@ -1,6 +1,7 @@
 import type { CodexProtocol } from '@harnessdesk/codex'
 import {
   findOption,
+  OptionRefusedError,
   refuseOptionValue,
   type CeilingControl,
   type CeilingLevel,
@@ -224,9 +225,9 @@ export const overlayDraftValues = (
   let next = state
   for (const [id, value] of Object.entries(values)) {
     const option = findOption(sessionOptions(next, catalog), id)
-    if (!option) throw new Error(`Codex has no session option named ${JSON.stringify(id)}.`)
+    if (!option) throw new OptionRefusedError(`Codex has no session option named ${JSON.stringify(id)}.`, id, value, true)
     const refusal = refuseOptionValue(option, value)
-    if (refusal) throw new Error(refusal)
+    if (refusal) throw new OptionRefusedError(refusal, id, value, false)
     const text = value as string
     switch (id) {
       case 'model': {
@@ -595,7 +596,7 @@ export const settingsUpdateFor = (
     case 'serviceTier':
       return { serviceTier: value === STANDARD_TIER ? null : value }
     default:
-      throw new Error(`Codex has no session option named ${JSON.stringify(id)}.`)
+      throw new OptionRefusedError(`Codex has no session option named ${JSON.stringify(id)}.`, id, value, true)
   }
 }
 
@@ -649,7 +650,7 @@ export const splitStartOptions = (
         after.push([id, value])
         break
       default:
-        throw new Error(`Codex has no session option named ${JSON.stringify(id)}.`)
+        throw new OptionRefusedError(`Codex has no session option named ${JSON.stringify(id)}.`, id, value, true)
     }
   }
   return { start, after }

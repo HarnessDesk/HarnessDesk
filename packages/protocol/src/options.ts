@@ -144,6 +144,34 @@ export const refuseOptionValue = (option: ConfigOption, value: OptionValue): str
   return null
 }
 
+/**
+ * Thrown when a session control refuses the value it was asked to move to,
+ * for a reason this side already knows before the wire is ever touched — no
+ * control by that id exists at all, or one does and does not offer the value
+ * (`refuseOptionValue`, above). Every adapter that validates its own picks
+ * locally throws this instead of a plain `Error`, so a caller can tell "this
+ * option itself was refused" from "the session could not be reached at all"
+ * by the id and value carried here, never by matching an adapter's own
+ * wording — wording that is not a contract, since an agent may still answer
+ * `session/set_config_option` with anything it likes, and that refusal is
+ * still a plain `Error`, not this one.
+ */
+export class OptionRefusedError extends Error {
+  /** The option id the caller asked to move — `effort`, `model`, `thinking`. */
+  readonly optionId: string
+  readonly value: OptionValue
+  /** True when no control by this id exists on the session at all; false when one exists and refused the value. */
+  readonly unknownOption: boolean
+
+  constructor(message: string, optionId: string, value: OptionValue, unknownOption: boolean) {
+    super(message)
+    this.name = 'OptionRefusedError'
+    this.optionId = optionId
+    this.value = value
+    this.unknownOption = unknownOption
+  }
+}
+
 /** The option with this id, if the runtime declared one. */
 export const findOption = (
   options: readonly ConfigOption[] | undefined,
