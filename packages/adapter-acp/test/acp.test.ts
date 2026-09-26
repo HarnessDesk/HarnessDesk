@@ -1664,7 +1664,55 @@ test('an ACP placeholder title leaves the opening ask available to the sidebar (
   }
 })
 
-test('a non-Antigravity ACP title keeps a matching session-shaped name', async (t) => {
+test('an ACP placeholder title using Antigravity\'s own short id is still recognized', async (t) => {
+  // Measured on the real, signed-in Antigravity binary (2026-09-25, recording
+  // UC3): its own store stamped an unnamed session's title as `Session
+  // a5b55539` while HarnessDesk's own id for that same session was the full
+  // `a5b55539-b2f3-415b-8dc0-6546bb707217` — only the first UUID segment, not
+  // `row.sessionId` in full. The `===` check this guards against only ever
+  // matched the full-id shape the fake agent below produces by default, so
+  // the placeholder was never recognized and "Session a5b55539" leaked onto
+  // the board and the sidebar as if it were a real conversation name.
+  const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-acp-placeholder-short-id-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = join(dir, 'store.json')
+  const runtime = new AcpRuntime({
+    id: 'antigravity-acp',
+    name: 'Antigravity',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_STORE: store },
+  })
+  const tape = record(runtime)
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: dir })
+    await session.send([{ type: 'text', text: 'Review the refill fix' }])
+    await tape.until((event) => event.type === 'turn/completed')
+
+    // Beside it, a stored conversation with the real agent's UUID-shaped id,
+    // titled with only that id's first segment.
+    const uuid = 'a5b55539-b2f3-415b-8dc0-6546bb707217'
+    const saved = JSON.parse(await readFile(store, 'utf8')) as Record<string, Record<string, unknown>>
+    saved[uuid] = { ...saved[String(session.id)]!, sessionId: uuid, title: 'Session a5b55539', turns: [] }
+    await writeFile(store, JSON.stringify(saved))
+
+    const row = (await runtime.listSessions()).data.find((entry) => String(entry.id) === uuid)
+    assert.ok(row)
+    assert.equal(row.title, null, 'the truncated machine placeholder is not a conversation name either')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an id placeholder is recognised by its shape on any ACP agent, and a session-shaped name that is not the id is kept', async (t) => {
+  // Rule 8: never gated on which agent is running. A title that is only the
+  // conversation's own id names nothing whoever wrote it; one that merely
+  // starts with "Session" — or names a prefix too short to be an id's own
+  // segment — is somebody's name.
   const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
@@ -1685,13 +1733,17 @@ test('a non-Antigravity ACP title keeps a matching session-shaped name', async (
     await session.send([{ type: 'text', text: 'Keep this provider title' }])
     await tape.until((event) => event.type === 'turn/completed')
 
-    const saved = JSON.parse(await readFile(store, 'utf8')) as Record<string, { title: string }>
-    saved[String(session.id)]!.title = `Session ${String(session.id)}`
-    await writeFile(store, JSON.stringify(saved))
+    const titled = async (id: string, title: string): Promise<string | null | undefined> => {
+      const saved = JSON.parse(await readFile(store, 'utf8')) as Record<string, Record<string, unknown>>
+      saved[id] = { ...saved[String(session.id)]!, sessionId: id, title, turns: [] }
+      await writeFile(store, JSON.stringify(saved))
+      return (await runtime.listSessions()).data.find((entry) => String(entry.id) === id)?.title
+    }
 
-    const row = (await runtime.listSessions()).data.find((entry) => entry.id === session.id)
-    assert.ok(row)
-    assert.equal(row.title, `Session ${String(session.id)}`)
+    assert.equal(await titled(String(session.id), `Session ${String(session.id)}`), null, 'its own full id')
+    assert.equal(await titled('1b2c3d4e-0000-4000-8000-000000000000', 'Session 1'), 'Session 1', 'a short prefix is a name')
+    assert.equal(await titled('2b2c3d4e-0000-4000-8000-000000000000', 'Session planning'), 'Session planning')
+    assert.equal(await titled('3b2c3d4e-0000-4000-8000-000000000000', 'Session 3b2c3d4e'), null, 'a UUID id\'s first segment')
   } finally {
     await runtime.dispose()
   }
@@ -2320,6 +2372,45 @@ test('where an agent keeps a listing, the listing is the one word asked, over th
   assert.deepEqual(
     opened().filter((open) => open.method === 'session/load'),
     [{ method: 'session/load', sessionId: String(moved.id), cwd: movedTo }],
+  )
+})
+
+test('resumeSession trusts only the host-only knownCwd over the listing, never a caller-supplied cwd (#uc3)', async (t) => {
+  // Measured on the real, signed-in Google Antigravity binary: a flow's
+  // freshly opened Seat, still inside its first turn, was not yet answered
+  // back by the agent's own `session/list` — "Antigravity does not list
+  // conversation …, so the folder it worked in is not known" — even though
+  // this desk had just opened that exact conversation in that exact folder.
+  // The host passes the Seat's own durable record as `knownCwd`, a field the
+  // wire refuses; `cwd` is one a renderer can write, so it is never trusted.
+  let hiddenAt = ''
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => {
+      hiddenAt = folderIn(dir, 'hidden')
+      return { hidden: { cwd: hiddenAt } }
+    },
+    { FAKE_ACP_UNLISTED: 'hidden' },
+  )
+
+  // Nothing the host knows: the listing is the only word, and it refuses.
+  await assert.rejects(() => runtime.resumeSession(sessionId('hidden')), (error: Error) => {
+    assert.match(error.message, /does not list conversation/)
+    return true
+  })
+  // A caller's own `cwd` changes nothing — it is the open-root risk itself.
+  await assert.rejects(() => runtime.resumeSession(sessionId('hidden'), { cwd: hiddenAt }), (error: Error) => {
+    assert.match(error.message, /does not list conversation/)
+    return true
+  })
+
+  // The host's own record opens it without the listing at all — the agent
+  // still serves `session/load` for it.
+  const resumed = await runtime.resumeSession(sessionId('hidden'), { knownCwd: hiddenAt })
+  assert.equal(resumed.settings().cwd, hiddenAt)
+  assert.deepEqual(
+    opened().filter((open) => open.method === 'session/load'),
+    [{ method: 'session/load', sessionId: 'hidden', cwd: hiddenAt }],
   )
 })
 

@@ -184,6 +184,30 @@ describe('TaskPanel', () => {
     expect(setListPrefs).toHaveBeenCalledWith({ panelsCollapsed: ['hd.tasks'] })
   })
 
+  it("shows an ACP step's own priority as a chip, and nothing when the agent said none", () => {
+    mount(
+      {
+        s1: session([
+          {
+            id: 't1',
+            status: 'completed',
+            items: [],
+            plan: [
+              { step: 'ship the fix', status: 'inProgress', priority: 'high' },
+              { step: 'write the tests', status: 'pending' },
+            ],
+          },
+        ]) as unknown as Session,
+      },
+      's1',
+    )
+    expect(text()).toContain('ship the fix')
+    expect(text()).toContain('high')
+    const items = [...container.querySelectorAll('li')]
+    expect(items[0]?.textContent).toContain('high')
+    expect(items[1]?.textContent).not.toContain('high')
+  })
+
   it('shows only the title once folded, and offers the way back', () => {
     mount({ s1: planning([{ content: 'a task', status: 'pending' }]) }, 's1', ['hd.tasks'])
     expect(text()).toContain('Tasks · 0/1')

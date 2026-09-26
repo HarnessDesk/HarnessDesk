@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Session } from '@harnessdesk/protocol'
 
-import { findTodos, planOf, sessionPlan } from './todos'
+import { findTodos, planOf, sessionPlan, turnPlan } from './todos'
 
 /**
  * The plan a conversation is working to.
@@ -198,6 +198,26 @@ describe('sessionPlan', () => {
     expect(plan?.map((todo) => todo.label)).toEqual(['read the file', 'write the patch'])
   })
 
+  it("carries an ACP step's own priority through, and says nothing when the agent said nothing", () => {
+    const plan = sessionPlan(
+      session([
+        {
+          id: 't1',
+          status: 'completed',
+          items: [],
+          plan: [
+            { step: 'ship the fix', status: 'inProgress', priority: 'high' },
+            { step: 'write the tests', status: 'pending' },
+          ],
+        },
+      ]),
+    )
+    expect(plan).toEqual([
+      { label: 'ship the fix', done: false, active: true, priority: 'high' },
+      { label: 'write the tests', done: false, active: false, priority: null },
+    ])
+  })
+
   it('spans turns, keeping the latest and not the first', () => {
     const plan = sessionPlan(
       session([
@@ -276,6 +296,42 @@ describe('sessionPlan', () => {
   it('has nothing to say about a conversation that never planned', () => {
     expect(sessionPlan(session([{ id: 't1', status: 'completed', items: [] }]))).toBeNull()
     expect(sessionPlan(null)).toBeNull()
+  })
+})
+
+describe('turnPlan', () => {
+  // `sessionPlan`'s own turn.plan branch is this function, factored out so a
+  // view scoped to one turn — the inline work under it, not the whole
+  // conversation — can ask the same question without drifting from what the
+  // Tasks panel shows for the same turn.
+  it('reads one turn the way sessionPlan reads the last one that had a plan', () => {
+    const turn = {
+      id: 't1',
+      status: 'completed',
+      items: [],
+      plan: [
+        { step: 'ship the fix', status: 'inProgress', priority: 'high' },
+        { step: 'write the tests', status: 'completed' },
+      ],
+    } as unknown as Parameters<typeof turnPlan>[0]
+    expect(turnPlan(turn)).toEqual([
+      { label: 'ship the fix', done: false, active: true, priority: 'high' },
+      { label: 'write the tests', done: true, active: false, priority: null },
+    ])
+  })
+
+  it('is null for a turn with no plan of its own, even one full of tool calls', () => {
+    const turn = {
+      id: 't1',
+      status: 'completed',
+      items: [call('c1', 'TodoWrite', { todos: [{ content: 'from a tool', status: 'pending' }] })],
+    } as unknown as Parameters<typeof turnPlan>[0]
+    expect(turnPlan(turn)).toBeNull()
+  })
+
+  it('is null for no turn at all', () => {
+    expect(turnPlan(null)).toBeNull()
+    expect(turnPlan(undefined)).toBeNull()
   })
 })
 

@@ -4,12 +4,15 @@ import {
   planStatus,
   type AgentItem,
   type Session,
+  type Turn,
 } from '@harnessdesk/protocol'
 
 export interface Todo {
   readonly label: string
   readonly done: boolean
   readonly active: boolean
+  /** ACP's own word for the step's urgency, when the agent sent one. */
+  readonly priority?: string | null
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -167,13 +170,8 @@ export const sessionPlan = (session: Session | null | undefined): Todo[] | null 
   for (let turnIndex = session.turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
     const turn = session.turns[turnIndex]
     if (!turn) continue
-    if (turn.plan) {
-      return turn.plan.map((step) => ({
-        label: step.step,
-        done: step.status === 'completed',
-        active: step.status === 'inProgress',
-      }))
-    }
+    const plan = turnPlan(turn)
+    if (plan) return plan
     for (let itemIndex = turn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
       const item = turn.items[itemIndex]
       if (item?.type !== 'toolCall') continue
@@ -182,4 +180,26 @@ export const sessionPlan = (session: Session | null | undefined): Todo[] | null 
     }
   }
   return null
+}
+
+/**
+ * One turn's own plan — an ACP `plan` update or Codex's `update_plan`,
+ * already reduced onto `turn.plan` — read as the same `Todo` shape a
+ * tool-argument checklist takes. `null` when this turn never had one, which
+ * is not the same as `[]`: an agent that cleared its plan still *had* one,
+ * and `sessionPlan` is the one that knows to keep looking on `null`.
+ *
+ * Exported so a view scoped to one turn — the inline work under it, not the
+ * whole conversation — can ask the same question `sessionPlan` asks of the
+ * conversation, and so the two can never drift on what a step's `done` or
+ * `active` means.
+ */
+export const turnPlan = (turn: Turn | null | undefined): Todo[] | null => {
+  if (!turn?.plan) return null
+  return turn.plan.map((step) => ({
+    label: step.step,
+    done: step.status === 'completed',
+    active: step.status === 'inProgress',
+    priority: step.priority ?? null,
+  }))
 }

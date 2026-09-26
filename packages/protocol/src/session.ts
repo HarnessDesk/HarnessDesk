@@ -115,6 +115,15 @@ export type SessionOptions = Partial<SessionSettings> & {
    * way a plain seat omits `route`.
    */
   readonly attachments?: SessionAttachments
+  /**
+   * The folder a reopened conversation ran in, as the host's own durable
+   * record knows it — a flow Seat's checkout, which the agent's own listing
+   * may not answer for yet. Host-only, like `attachments`: refused on the
+   * wire and stripped by the handlers, because a folder a caller names is
+   * exactly the open-root risk an adapter's listing-only rule exists to
+   * refuse. `cwd` on a resume is never read in its place.
+   */
+  readonly knownCwd?: string
 }
 
 /**
@@ -393,6 +402,8 @@ export type PlanStepStatus = 'pending' | 'inProgress' | 'completed'
 export interface PlanStep {
   readonly step: string
   readonly status: PlanStepStatus
+  /** ACP's own word for the step's urgency (`"high"`, `"medium"`, …), shown as the agent spelled it — never normalized, since agents do not agree on a scale. */
+  readonly priority?: string | null
 }
 
 export interface Turn {

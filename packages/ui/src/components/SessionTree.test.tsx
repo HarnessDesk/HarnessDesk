@@ -150,6 +150,81 @@ it('a conversation with work still running in the background wears a green glyph
   expect(row('Quiet one').title).not.toContain('background')
 })
 
+it('two flow seats of one role, on different runtimes, read apart on their own line at compact density (#uc3)', () => {
+  // Measured on UC3's own review flow: three seats — Claude Code, DeepSeek,
+  // Antigravity — all opened as "Code reviewer" (the role's own title, the
+  // same for every seat of it), and at the app's default compact density the
+  // sidebar drew three identical rows with nothing on any of them to tell a
+  // person which vendor was which. The agent's name is a word, so it is a chip
+  // on the title's own line (rule 9) — earned only where titles collide, and
+  // costing no row height.
+  const claude = {
+    id: 'claude-code',
+    name: 'Claude',
+    capabilities: {},
+    presentation: { name: 'Claude' },
+  } as unknown as RuntimeInfo
+  const dsh = {
+    id: 'dsh',
+    name: 'DeepSeek',
+    capabilities: {},
+    presentation: { name: 'DeepSeek' },
+  } as unknown as RuntimeInfo
+  const rowOf = (id: string, runtime: RuntimeInfo, title: string): SessionSummary =>
+    ({
+      id,
+      runtime: runtime.id,
+      title,
+      preview: null,
+      cwd: '/repo',
+      status: { type: 'notLoaded' },
+      createdAt: 1,
+      updatedAt: 2,
+      archived: false,
+    }) as unknown as SessionSummary
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: claude.id,
+    runtimes: [claude, dsh],
+    history: [
+      rowOf('session-1', claude, 'Code reviewer'),
+      rowOf('session-2', dsh, 'Code reviewer'),
+      rowOf('session-3', dsh, 'Refill the cache'),
+    ],
+  } as AppSnapshot
+  // The app's own default — nothing here picks "comfortable".
+  expect(snapshot.listPrefs.density).toBe('compact')
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+
+  const rows = [...container.querySelectorAll('button')].filter((button) =>
+    button.textContent?.includes('Code reviewer'),
+  )
+  expect(rows).toHaveLength(2)
+  expect([...rows[0]!.querySelectorAll('[data-slot="chip"]')].map((chip) => chip.textContent)).toEqual(['Claude'])
+  expect([...rows[1]!.querySelectorAll('[data-slot="chip"]')].map((chip) => chip.textContent)).toEqual(['DeepSeek'])
+  for (const row of rows) expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
+
+  // A title only one row wears already says which conversation it is: no
+  // chip, and no second line either.
+  const alone = [...container.querySelectorAll('button')].find((button) =>
+    button.textContent?.includes('Refill the cache'),
+  )!
+  expect(alone.querySelector('[data-slot="chip"]')).toBeNull()
+  expect(alone.querySelector('[class*="rowMeta"]')).toBeNull()
+})
+
 /**
  * Rooms in the tree.
  *

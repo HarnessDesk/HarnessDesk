@@ -544,6 +544,42 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text === 'rename to blank') {
+    // Whitespace is not a name — the client must not read this as the agent
+    // clearing a title it never gave.
+    update(state.id, { sessionUpdate: 'session_info_update', title: '   ' })
+    say('tried to blank it.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text.startsWith('rename to ')) {
+    // DSH's own fork, and the RFD any ACP agent may follow: a title, learned
+    // mid-conversation rather than only the next time `session/list` is read.
+    update(state.id, { sessionUpdate: 'session_info_update', title: text.slice('rename to '.length).trim() })
+    say('renamed.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text === 'plan with priority') {
+    // A mix worth testing in one update: a well-formed entry with a
+    // priority, one with none, and two an honest client must throw away — a
+    // blank label and a status this client has never heard of. Schema-light
+    // on purpose (see the adapter's own file), because a plan update is
+    // exactly where an ACP agent of "varying fidelity" is likeliest to send
+    // something half-shaped.
+    update(state.id, {
+      sessionUpdate: 'plan',
+      entries: [
+        { content: 'ship the fix', status: 'in_progress', priority: 'high' },
+        { content: 'write the tests', status: 'pending' },
+        { content: '   ', status: 'pending' },
+        { content: 'not a real status', status: 'blocked' },
+      ],
+    })
+    say('planned.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (STORE) {
     const store = readStore()
     // Named the way an agent names a conversation — its own summary, not the

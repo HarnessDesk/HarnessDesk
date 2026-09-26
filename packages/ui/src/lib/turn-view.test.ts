@@ -265,6 +265,45 @@ describe('describeTurnWork', () => {
     expect(describeGroup(three)).toBe('Edited 3 files')
   })
 
+  test("a turn's own ACP plan says so in the fold line, once, with no tool call to hang it on", () => {
+    // ACP's `plan` update is a session/update, never a tool call, so there is
+    // no item here for the loop to count — without `planWithNoToolCall` a
+    // turn that only ever set its plan folded to "Worked for 25s" and said
+    // nothing happened.
+    const work = [item('command', 'c1', { actions: [{ type: 'unknown', command: 'pnpm test' }] })]
+    const plan = [{ step: 'read the file', status: 'completed' as const }]
+    expect(describeTurnWork(done(work, { plan }), work, started).receipt).toBe('ran 1 command, updated the plan')
+  })
+
+  test('a matching plan tool call already says "updated the plan"; turn.plan beside it says it once, not twice', () => {
+    // The loop inside `tally` finds `w` itself (`planned`), so
+    // `planWithNoToolCall` — computed against the whole turn, not just what
+    // `tally` sees — is false: the two flags cannot both fire for the same
+    // call, and the phrase appears exactly once either way.
+    const write = item('toolCall', 'w', { tool: 'TodoWrite', args: { todos: [{ content: 'read the file', status: 'completed' }] } })
+    const plan = [{ step: 'read the file', status: 'completed' as const }]
+    const receipt = describeTurnWork(done([write], { plan }), [write], started).receipt
+    expect(receipt).toBe('updated the plan')
+    expect(receipt.match(/updated the plan/g)?.length).toBe(1)
+  })
+
+  test('a plan-shaped call and a turn.plan that has nothing to do with it: still said once', () => {
+    // Both flags could in principle disagree about *which* update to credit,
+    // but never about whether to say it at all — a plan-shaped call anywhere
+    // in the turn is enough, whatever `turn.plan` itself holds.
+    const write = item('toolCall', 'w', { tool: 'TodoWrite', args: { todos: [{ content: 'a', status: 'pending' }] } })
+    const other = item('toolCall', 'x', { tool: 'lookup', args: { q: 'a' } })
+    const plan = [{ step: 'a completely different plan', status: 'pending' as const }]
+    const receipt = describeTurnWork(done([write, other], { plan }), [write, other], started).receipt
+    expect(receipt).toBe('called 1 tool, updated the plan')
+    expect(receipt.match(/updated the plan/g)?.length).toBe(1)
+  })
+
+  test('a plan that never got anywhere — an empty one — says nothing extra', () => {
+    const work = [item('command', 'c1', { actions: [{ type: 'unknown', command: 'pnpm test' }] })]
+    expect(describeTurnWork(done(work, { plan: [] }), work, started).receipt).toBe('ran 1 command')
+  })
+
   test('a step still running is not yet something the turn did', () => {
     // `runsOf` in turn-summary.ts has always skipped one. Counting it here
     // put "ran 1 command" over a summary row that had nothing to show.
