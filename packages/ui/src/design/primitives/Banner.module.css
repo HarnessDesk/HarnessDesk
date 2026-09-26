@@ -41,12 +41,12 @@
 
 .banner {
   display: flex;
-  /* `flex-start`, not `center`: the icon and the dismiss are centred on the
-     title's own first line (below), not on the card's whole height, which
-     used to put both 12px low the moment a description wrapped to a second
-     line. The actions row keeps the card's centre — it is its own block of
-     controls, not a lead or a trailing glyph reading against the title. */
-  align-items: flex-start;
+  /* The icon and the dismiss are centred on the title's own first line
+     (below), not on the card's whole height, which put both 12px low the
+     moment a description wrapped to a second line. The actions row keeps
+     the card's centre — it is its own block of controls, not a lead or a
+     trailing glyph reading against the title. */
+  align-items: flex-start; /* desk: center → flex-start, the icon and dismiss carry their own nudge onto the title's line instead */
   gap: var(--hd-space-4); /* desk: canonical One UI System scale */
   width: min(var(--hd-column), 100%);
   padding: var(--hd-space-4) var(--hd-space-4) var(--hd-space-4) var(--hd-space-5); /* desk: canonical One UI System scale */
