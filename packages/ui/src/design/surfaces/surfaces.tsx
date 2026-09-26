@@ -14,6 +14,7 @@ import { MountProvider } from '../../panels/mount'
 import { Workbench } from '../../panels/Workbench'
 import { dock, emptyWorkbench } from '../../state/workbench'
 import { PaneProvider } from '../../state/context'
+import type { AppStore } from '../../state/store'
 import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../preview/harness'
 import { PREVIEW_ROOT } from '../../preview/sidebar-fixture'
 import styles from './surfaces.module.css'
@@ -57,31 +58,180 @@ const Frame = ({
 )
 
 /**
+ * A store whose `s1` session carries a status or an approval the fixture's
+ * own does not, built from a fresh default store rather than the shared one
+ * `previewStore()` exports — so a failed case here cannot leave the module's
+ * own `store` failed for every other board that imports it.
+ */
+const conversationStatusStore = (over: { status?: unknown; approvals?: unknown }): AppStore => {
+  const base = previewStore().getSnapshot()
+  const sessions = new Map(base.sessions)
+  const session = sessions.get(PREVIEW_SESSION_KEY)
+  if (over.status !== undefined && session) sessions.set(PREVIEW_SESSION_KEY, { ...session, status: over.status } as never)
+  return previewStore({
+    sessions,
+    ...(over.approvals !== undefined ? { approvals: over.approvals as never } : {}),
+  } as never)
+}
+
+const RUNNING_STORE = conversationStatusStore({ status: { type: 'active' } })
+const FAILED_STORE = conversationStatusStore({ status: { type: 'error' } })
+const WAITING_STORE = conversationStatusStore({
+  approvals: [{
+    key: PREVIEW_SESSION_KEY,
+    approval: {
+      id: 'catalog-waiting-approval', type: 'command', kind: 'shell', command: 'pnpm test',
+      cwd: PREVIEW_ROOT, reason: 'Runs the project’s tests before the review is written.',
+      options: [
+        { id: 'yes', label: 'Allow', intent: 'approve' },
+        { id: 'always', label: 'Allow for this session', intent: 'approveAlways' },
+        { id: 'no', label: 'Deny', intent: 'deny' },
+      ],
+    },
+  }],
+})
+
+/**
+ * One header case: a caption naming what it proves, a frame cropped to the
+ * bar's own height (or, for the phone case, the header's own width) so the
+ * catalogue reads as a row of states rather than six repeats of the whole
+ * transcript, and a `data-testid` a browser spec can reach directly rather
+ * than searching the tab for the Nth header.
+ */
+const HeaderCase = ({
+  id,
+  label,
+  width,
+  children,
+}: {
+  id: string
+  label: string
+  width?: number
+  children: ReactNode
+}) => (
+  <div className={styles.headerCase} data-testid={id}>
+    <span className={styles.headerCaseLabel}>{label}</span>
+    <div className={styles.frame} data-height="header" style={width ? { width } : undefined}>
+      {children}
+    </div>
+  </div>
+)
+
+/**
  * The conversation, scoped exactly the way the workbench scopes it.
  *
  * `PaneProvider` is not decoration here: the transcript reads its session from
  * the pane, and the composer under it asks whether its pane has focus. Mount
  * it without one and you are looking at a branch the app never shows.
+ *
+ * Below the full conversation, the header alone, in the states the fixture
+ * above cannot show at once: idle (with the ceiling chip its own settings
+ * already carry), running with its brand dot, waiting for an approval,
+ * failed, the ceiling chip named on its own, and the phone-width fold. Each
+ * still mounts the real `Conversation` — only the frame around it is
+ * shorter, or narrower, than the one above.
  */
 export const ConversationSurface = () => (
-  <Mount>
-    <Frame height="page">
-      <PaneProvider
-        scope={{
-          paneId: 'design' as never,
-          view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
-          sessionKey: PREVIEW_SESSION_KEY,
-        }}
-      >
-        <Conversation
-          onChooseProject={() => {}}
-          onSignIn={() => {}}
-          onOpenUsage={() => {}}
-          onOpenRuntimes={() => {}}
-        />
-      </PaneProvider>
-    </Frame>
-  </Mount>
+  <>
+    <Mount>
+      <Frame height="page">
+        <PaneProvider
+          scope={{
+            paneId: 'design' as never,
+            view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+            sessionKey: PREVIEW_SESSION_KEY,
+          }}
+        >
+          <Conversation
+            onChooseProject={() => {}}
+            onSignIn={() => {}}
+            onOpenUsage={() => {}}
+            onOpenRuntimes={() => {}}
+          />
+        </PaneProvider>
+      </Frame>
+    </Mount>
+    <div className={styles.headerCases}>
+      <HeaderCase id="conversation-header-idle" label="Idle">
+        <Mount>
+          <PaneProvider
+            scope={{
+              paneId: 'design-idle' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-ceiling" label="Ceiling chip (Read · held)">
+        <Mount>
+          <PaneProvider
+            scope={{
+              paneId: 'design-ceiling' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-running" label="Running — neutral pill, brand dot">
+        <Mount with={RUNNING_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-running' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-waiting" label="Waiting for you">
+        <Mount with={WAITING_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-waiting' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-failed" label="Failed">
+        <Mount with={FAILED_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-failed' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-narrow" label="Phone width (≤400px container)" width={360}>
+        <Mount>
+          <PaneProvider
+            scope={{
+              paneId: 'design-narrow' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+    </div>
+  </>
 )
 
 /**
