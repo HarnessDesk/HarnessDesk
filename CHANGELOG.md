@@ -7,6 +7,22 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A role `independentOf` a DeepSeek or Cursor competitor could never seat.**
+  The desk could only read the vendor behind Claude Code, Gemini CLI and
+  Codex, so any other predecessor made the vendor unknown and, since an
+  unknown vendor is never taken for independent, the step stalled with no way
+  forward. DeepSeek Harness now has its own reader, through its
+  `cordis.patch.yml` layers. Codex's own reader used to scan the whole of
+  `config.toml`, so a `[profiles.*]` or `[model_providers.*]` table defined
+  for occasional use — and never selected — made every session on that Codex
+  unknown too; it now reads only the profile and provider actually in force.
+  Cursor still has none: which vendor a Cursor session reaches is a choice
+  made per conversation, not something a runtime- or project-level check can
+  answer honestly, so guessing was refused rather than risked. When
+  independence still cannot be proven because an earlier card's own provider
+  could not be read, the stall now names that card and the agent that held
+  it, instead of a generic message with no way forward.
+
 - **Two Seats that may commit no longer share one working tree.** A flow
   role that seats more than one card at a time — `count: 2`, or a list of
   Agents or seats — with a grant that lets them commit (`edit`, `publish` or

@@ -236,6 +236,36 @@ rules:
   assert.deepEqual(readback.rig.events.filter((one) => one.startsWith('release:')), ['release:seat-2'])
 })
 
+test('an unreadable predecessor’s provider names the card and the agent, not a stall with no way forward', async (t) => {
+  const rig = await goalRig(t)
+  // 'alpha' is never given a provider, so it reads unknown — the #1019 stall:
+  // one predecessor the desk cannot read makes every candidate unprovable.
+  rig.presentations.set('alpha', 'DeepSeek Harness')
+  rig.providers.set('beta', 'second')
+  const run = await rig.start(`
+version: 2
+name: Write then review
+roles:
+  author: { kind: agent, uses: writer, seats: [alpha] }
+  reviewer: { kind: agent, uses: reviewer, seats: [beta], independentOf: [author] }
+seed: { role: author, title: Write }
+rules:
+  - { id: review, on: author, when: { every: [done] }, then: { role: reviewer, title: Review } }
+`, [agent('writer', ['done']), agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(stalled.state, 'stalled')
+  assert.equal(
+    stalled.reason,
+    'This step needs an independent provider, but card #1 (DeepSeek Harness)’s provider could not be read, so no seat can be proven independent of it. ' +
+      'Fix that agent’s own configuration if something there points it at another host, or run this role without independentOf.',
+  )
+  assert.deepEqual(opens(rig.events), ['open:seat-1'], 'the reviewer is never opened once independence cannot be proven')
+})
+
 test('a brief changed since the run was compiled is refused before and after opening', async (t) => {
   const rig = await goalRig(t)
   rig.digests.set('writer', 'edited-digest')

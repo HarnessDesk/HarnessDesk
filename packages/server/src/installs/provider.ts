@@ -52,6 +52,17 @@ export const providerReaderFor = (
       return (cwd) => claudeProvider(context, cwd)
     case 'gemini':
       return (cwd) => geminiProvider(context, cwd)
+    case 'dsh':
+      return () => dshProvider(context)
+    // Cursor's provider is a per-session model choice, not a runtime- or
+    // project-level setting `providerAt`/`providerOf` can answer: the same
+    // `cursor` runtime id can be running Claude, GPT or Gemini models at
+    // once across its live sessions, and this reader is asked about the
+    // runtime, never the session. Mapping a model id to its vendor here
+    // would silently answer for the wrong session as often as the right
+    // one, which is exactly the guess `independentOf` cannot afford — so
+    // Cursor stays unknown, on purpose, until a provider check can be asked
+    // per session.
     default:
       return undefined
   }
@@ -190,4 +201,86 @@ const geminiProvider = async (context: ProviderContext, cwd?: string): Promise<s
     if (read.kind === 'unreadable' || /base_?url/i.test(read.text) || /"gateway"/.test(read.text)) return null
   }
   return 'google'
+}
+
+/**
+ * DeepSeek Harness (`dsh --profile acp`): DeepSeek's own API, unless
+ * `DEEPSEEK_BASE_URL` is set in the environment it starts with, or a
+ * person's own composition — the `acp` profile's `cordis.patch.yml`, or the
+ * home-level one that outranks every profile — patches its `llm-deepseek`,
+ * `llm-deepseek-account` or `llm-deepseek-api-key` entry to a `baseURL`
+ * outside `api.deepseek.com`. DSH always starts on the `acp` profile (see
+ * the `dsh` entry in `known-agents.ts`), so that is the only profile read;
+ * DSH's other profiles (`web`, `headless`, `sdk`) are never this session's,
+ * so a patch aimed at one of those is read as inert, never an override — the
+ * same reasoning `codexProvider` applies to an inactive Codex profile.
+ * DSH's own secret file (`.credentials.yaml`) is never opened: nothing it
+ * can hold changes where a request goes, and its contents are not this
+ * decision's business.
+ */
+const DSH_BASE_URL_ENV = 'DEEPSEEK_BASE_URL'
+const DSH_HOST = 'api.deepseek.com'
+const DSH_ENTRY_IDS = new Set(['llm-deepseek', 'llm-deepseek-account', 'llm-deepseek-api-key'])
+
+/** Splits a patch file's top-level YAML list into its items' own lines, cruder than a YAML parser: no nesting, no anchors. */
+const yamlListItems = (text: string): string[][] => {
+  const items: string[][] = []
+  let current: string[] | null = null
+  for (const raw of text.split(/\r?\n/)) {
+    if (/^-(\s|$)/.test(raw)) {
+      current = []
+      items.push(current)
+    }
+    current?.push(raw)
+  }
+  return items
+}
+
+/** Strips a trailing `# comment` and a single layer of surrounding quotes. */
+const dequoteYaml = (raw: string): string => {
+  const value = raw.trim().replace(/\s*#.*$/, '').trim()
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1)
+  return value
+}
+
+/** The first `key: value` line's value in a block, dequoted; null when the key is absent. */
+const yamlValue = (block: readonly string[], key: string): string | null => {
+  const pattern = new RegExp(`^-?\\s*${key}:\\s*(.+?)\\s*$`)
+  for (const line of block) {
+    const match = pattern.exec(line)
+    if (match) return dequoteYaml(match[1]!)
+  }
+  return null
+}
+
+/** Whether a patch file's `llm-deepseek*` entries point their `baseURL` anywhere but DeepSeek's own host. */
+const dshOverride = (text: string): boolean => {
+  for (const item of yamlListItems(text)) {
+    const id = yamlValue(item, 'id')
+    if (!id || !DSH_ENTRY_IDS.has(id)) continue
+    const baseUrl = yamlValue(item, 'baseURL')
+    if (!baseUrl) continue
+    try {
+      if (new URL(baseUrl).hostname !== DSH_HOST) return true
+    } catch {
+      return true
+    }
+  }
+  return false
+}
+
+const dshProvider = async (context: ProviderContext): Promise<string | null> => {
+  const env = context.env ?? process.env
+  if ((env[DSH_BASE_URL_ENV] ?? '').trim() !== '') return null
+  const home = env['DSH_HOME']?.trim() || join(context.home ?? homedir(), '.dsh')
+  const reads = await Promise.all([
+    readOwn(join(home, 'cordis.patch.yml')),
+    readOwn(join(home, 'profiles', 'acp', 'cordis.patch.yml')),
+  ])
+  for (const read of reads) {
+    if (read.kind === 'absent') continue
+    if (read.kind === 'unreadable') return null
+    if (dshOverride(read.text)) return null
+  }
+  return 'deepseek'
 }

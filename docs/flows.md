@@ -549,16 +549,37 @@ opens exactly one role, so no two roles run at once.
 
 **Independence** (`independentOf: [build]`) is judged on the vendor behind
 each Seat, as the runtime's adapter reads it from the agent's own
-configuration — Codex's `config.toml`, profiles and project `.codex`,
-Claude Code's settings files and environment, Gemini CLI's `.env` files and
-settings. Anything that could point an agent at another provider or base
-URL, a gateway account, or an agent the desk has no reader for, makes the
-vendor unknown, and an unknown vendor is never taken for an independent
-one: the step is refused a seat and the run stalls with the reason. A
-runtime's name decides nothing. A project's own files arrive with a clone,
-so they are read bounded and without blocking, a regular file only, through
-a link at no point below the project; anything that cannot be read that way
-is unknown.
+configuration — Codex's `config.toml`, Claude Code's settings files and
+environment, Gemini CLI's `.env` files and settings, DeepSeek Harness's own
+`cordis.patch.yml` layers. Anything that could point an agent at another
+provider or base URL, a gateway account, or an agent the desk has no reader
+for, makes the vendor unknown, and an unknown vendor is never taken for an
+independent one: the step is refused a seat and the run stalls with the
+reason. A runtime's name decides nothing. A project's own files arrive with a
+clone, so they are read bounded and without blocking, a regular file only,
+through a link at no point below the project; anything that cannot be read
+that way is unknown.
+
+Codex's read is scoped to the configuration actually in force for the
+session that runs: the root of `config.toml`, plus the one `[profiles.<name>]`
+table the root's own `profile` selects and the one `[model_providers.<id>]`
+table the active `model_provider` names. A `config.toml` kept around with an
+unselected profile or provider table — a local Ollama setup for occasional
+use, say — no longer makes every session on that Codex unknown; only what the
+session actually reads does. DeepSeek Harness always starts on its `acp`
+profile, so only that profile's own patch and the home-level patch that
+outranks it are read; a patch aimed at one of DSH's other profiles is inert
+the same way. Cursor has no reader: which vendor a Cursor session reaches is
+a per-conversation model choice, not a runtime- or project-level setting, and
+this check is asked about a runtime, never a session — so Cursor stays
+unknown rather than guessed at from whichever model happened to run last.
+
+When independence cannot be proven because an *earlier* Seat's own provider
+could not be read at all — never merely because every candidate would repeat
+an already-used one — the stall names that card, by number, and the agent
+that held it, by its own presentation name, never a raw runtime id: fixing
+that agent's configuration, or dropping `independentOf` for the role, is the
+way past it. The guard itself stays fail-closed either way.
 
 **A Seat's card** is claimed for it as the Seat opens, and the Seat reads its
 Agent's brief in a turn of its own. A Seat that asks for work inside that turn

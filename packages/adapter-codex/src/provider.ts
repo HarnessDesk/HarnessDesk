@@ -10,13 +10,18 @@ import { rootOf } from './profiles.js'
  * profile beside it (`<name>.config.toml`), a project's own
  * `.codex/config.toml`, and the environment it is started with.
  *
- * OpenAI's, unless any of those could point it elsewhere — a
- * `model_provider` other than `openai`, any `base_url`, a
- * `[model_providers.*]` table, or `OPENAI_BASE_URL` — and then unknown. A
- * file that exists but cannot be read rules nothing out, so it is unknown
- * too. Read as text, deliberately cruder than a TOML parser: a key in a
- * comment reads as an override, which errs toward unknown, the one answer
- * that can never claim two steps are independent when they are not.
+ * OpenAI's, unless the configuration actually *in force* could point it
+ * elsewhere — a `model_provider` other than `openai` reachable from the
+ * file's own root or from the `[profiles.<name>]` table its root `profile`
+ * selects, any `base_url` set there or in the `[model_providers.<id>]` table
+ * that active `model_provider` names, or `OPENAI_BASE_URL` — and then
+ * unknown. Defining another profile or provider table that nothing selects
+ * is not an override: a `config.toml` kept around for occasional use is not
+ * what a session actually run on it reaches. A file that exists but cannot
+ * be read rules nothing out, so it is unknown too. Read as text, deliberately
+ * cruder than a TOML parser: a key in a comment reads as an override, which
+ * errs toward unknown, the one answer that can never claim two steps are
+ * independent when they are not.
  *
  * Every read is bounded and never holds the desk's thread: opened without
  * blocking, only a regular file, its size checked before a byte is read, and
@@ -81,17 +86,90 @@ export const readBounded = async (path: string, options: { readonly under?: stri
   }
 }
 
-/** `model_provider = "<id>"` other than OpenAI's own, any `base_url`, or a provider table. */
-const overrides = (text: string): boolean =>
-  /^\s*[A-Za-z_]*base_url\s*=/m.test(text) ||
-  /^\s*\[\s*model_providers\b/m.test(text) ||
-  /model_providers\./.test(text) ||
-  [...text.matchAll(/^\s*model_provider\s*=\s*(.*)$/gm)].some((match) => !/^["']openai["']\s*(#.*)?$/.test(match[1]!.trim()))
+/** A line's key and raw value, cruder than a TOML parser: no comment or string escaping beyond a trailing `#`. */
+const ASSIGNMENT = /^(?:([A-Za-z0-9_-]+)|"([^"]*)"|'([^']*)')\s*=\s*(.*)$/
+
+/** Strips a trailing `# comment` and surrounding quotes; a bare identifier is trimmed only. */
+const dequote = (raw: string): string => {
+  const value = raw.trim().replace(/\s*#.*$/, '').trim()
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1)
+  return value
+}
+
+/** A `[profiles.<id>]` or `[model_providers.<id>]` table header; any other header, or none, otherwise. */
+type Section = 'root' | 'other' | { readonly kind: 'profile' | 'provider'; readonly id: string }
+
+const sectionFor = (header: string): Section => {
+  const profile = /^profiles\.(.+)$/.exec(header.trim())
+  if (profile) return { kind: 'profile', id: dequote(profile[1]!) }
+  const provider = /^model_providers\.(.+)$/.exec(header.trim())
+  if (provider) return { kind: 'provider', id: dequote(provider[1]!) }
+  return 'other'
+}
+
+const isBaseUrlKey = (key: string): boolean => /^[A-Za-z_]*base_url$/.test(key)
+
+/**
+ * Whether the configuration actually in force — the root table, the
+ * `[profiles.<name>]` table the root's own `profile` selects, and the
+ * `[model_providers.<id>]` table its active `model_provider` names — could
+ * point Codex anywhere but OpenAI's own endpoint. A profile or provider table
+ * nothing here selects is read, but never counted: defining one is not
+ * turning it on.
+ */
+const activeOverrides = (text: string): boolean => {
+  let current: Section = 'root'
+  let rootProfile: string | null = null
+  let rootProvider: string | null = null
+  let rootBaseUrl = false
+  const profileLines = new Map<string, string[]>()
+  const providerLines = new Map<string, string[]>()
+
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    if (line.startsWith('[[')) { current = 'other'; continue }
+    const header = /^\[\s*([^[\]]+?)\s*\]$/.exec(line)
+    if (header) { current = sectionFor(header[1]!); continue }
+    const assignment = ASSIGNMENT.exec(line)
+    if (!assignment) continue
+    const key = (assignment[1] ?? assignment[2] ?? assignment[3])!
+    const value = assignment[4]!
+    if (current === 'root') {
+      if (key === 'profile') rootProfile = dequote(value)
+      else if (key === 'model_provider') rootProvider = dequote(value)
+      else if (isBaseUrlKey(key)) rootBaseUrl = true
+    } else if (current !== 'other') {
+      const bucket = current.kind === 'profile' ? profileLines : providerLines
+      if (!bucket.has(current.id)) bucket.set(current.id, [])
+      bucket.get(current.id)!.push(line)
+    }
+  }
+  if (rootBaseUrl) return true
+
+  let activeProvider = rootProvider
+  for (const line of rootProfile !== null ? profileLines.get(rootProfile) ?? [] : []) {
+    const assignment = ASSIGNMENT.exec(line)
+    if (!assignment) continue
+    const key = (assignment[1] ?? assignment[2] ?? assignment[3])!
+    const value = assignment[4]!
+    if (key === 'model_provider') activeProvider = dequote(value)
+    else if (isBaseUrlKey(key)) return true
+  }
+  if (activeProvider !== null && activeProvider !== 'openai') return true
+
+  return (providerLines.get(activeProvider ?? 'openai') ?? []).some((line) => {
+    const assignment = ASSIGNMENT.exec(line)
+    if (!assignment) return false
+    const key = (assignment[1] ?? assignment[2] ?? assignment[3])!
+    return isBaseUrlKey(key)
+  })
+}
 
 /** Null when the file is absent; true when it could override; unreadable counts as could. */
 const fileOverrides = async (path: string, under?: string): Promise<boolean | null> => {
   const read = await readBounded(path, under === undefined ? {} : { under })
-  return read.kind === 'absent' ? null : read.kind === 'unreadable' ? true : overrides(read.text)
+  return read.kind === 'absent' ? null : read.kind === 'unreadable' ? true : activeOverrides(read.text)
 }
 
 export const codexProvider = async (

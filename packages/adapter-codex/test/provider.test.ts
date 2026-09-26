@@ -26,12 +26,15 @@ test('Codex with its own configuration untouched serves OpenAI’s models', asyn
   assert.equal(await codexProvider(home, {}), 'openai', 'naming OpenAI itself is no override')
 })
 
-test('any provider or base URL the person set makes the provider unknown', async (t) => {
+test('any provider or base URL actually in force makes the provider unknown', async (t) => {
   const cases: readonly [string, string][] = [
     ['config.toml', 'model_provider = "ollama"\n'],
     ['config.toml', 'openai_base_url = "http://localhost:4000/v1"\n'],
-    ['config.toml', '[model_providers.proxy]\nname = "Proxy"\nbase_url = "https://proxy.example.com/v1"\n'],
-    ['config.toml', '[model_providers.local]\nname = "Local"\nenv_key = "LOCAL_KEY"\n'],
+    // The active `model_provider` names this table, so its `base_url` is in force even though the id is "openai".
+    ['config.toml', 'model_provider = "openai"\n[model_providers.openai]\nname = "OpenAI"\nbase_url = "https://proxy.example.com/v1"\n'],
+    // A profile a person actually selected can point the active provider elsewhere.
+    ['config.toml', 'profile = "prod"\n[profiles.prod]\nmodel_provider = "azure"\n'],
+    ['config.toml', 'profile = "prod"\n[profiles.prod]\nopenai_base_url = "http://localhost:4000/v1"\n'],
     ['sol.config.toml', 'model_provider = "azure"\n'],
   ]
   for (const [file, text] of cases) {
@@ -41,6 +44,29 @@ test('any provider or base URL the person set makes the provider unknown', async
   }
   const home = folder(t, 'codex-provider-home-')
   assert.equal(await codexProvider(home, { OPENAI_BASE_URL: 'https://proxy.example.com/v1' }), null, 'the environment it is started with')
+})
+
+test('a profile or provider table nothing selects is defined but never in force, and stays OpenAI’s', async (t) => {
+  const home = folder(t, 'codex-provider-home-')
+  // Exactly #1019: a config.toml kept around for occasional use, with an
+  // inactive local/ollama-style profile and a matching provider table, while
+  // the session that actually runs stays on the plain, unselected root config.
+  writeFileSync(join(home, 'config.toml'), [
+    'model = "gpt-5.5"',
+    '[profiles.ollama-launch]',
+    'model_provider = "ollama-launch"',
+    'openai_base_url = "http://localhost:11434/v1"',
+    '',
+    '[model_providers.ollama-launch]',
+    'name = "Ollama"',
+    'base_url = "http://localhost:11434/v1"',
+  ].join('\n'))
+  assert.equal(await codexProvider(home, {}), 'openai', 'an unselected profile and provider table are read but never counted')
+
+  // A provider table with no active reference at all, root or profile.
+  const other = folder(t, 'codex-provider-home-')
+  writeFileSync(join(other, 'config.toml'), '[model_providers.local]\nname = "Local"\nenv_key = "LOCAL_KEY"\n')
+  assert.equal(await codexProvider(other, {}), 'openai')
 })
 
 test('a project’s own Codex configuration can override it for sessions there', async (t) => {

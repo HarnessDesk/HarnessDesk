@@ -63,9 +63,40 @@ test('Gemini CLI serves Google’s models unless a base URL is set anywhere it r
   assert.equal(await read('gemini', { home: gateway, env: {} }), null, 'a gateway sign-in')
 })
 
+test('DeepSeek Harness serves its own models unless a base URL points elsewhere', async (t) => {
+  const clean = tree(t, {})
+  assert.equal(await read('dsh', { home: clean, env: {} }), 'deepseek')
+  assert.equal(await read('dsh', { home: clean, env: { DEEPSEEK_BASE_URL: 'https://proxy.example.com' } }), null, 'the environment it starts with')
+
+  const onHost = tree(t, { '.dsh/cordis.patch.yml': '- id: llm-deepseek-account\n  config:\n    reasoningEffort: high\n' })
+  assert.equal(await read('dsh', { home: onHost, env: {} }), 'deepseek', 'an override with no baseURL at all changes nothing')
+
+  const same = tree(t, { '.dsh/cordis.patch.yml': "- id: llm-deepseek\n  config:\n    baseURL: https://api.deepseek.com/anthropic\n" })
+  assert.equal(await read('dsh', { home: same, env: {} }), 'deepseek', 'pointed back at DeepSeek’s own host is no override')
+
+  const homeLevel = tree(t, { '.dsh/cordis.patch.yml': "- id: llm-deepseek\n  config:\n    baseURL: 'https://proxy.example.com/v1'\n" })
+  assert.equal(await read('dsh', { home: homeLevel, env: {} }), null, 'the home-level patch, which outranks every profile')
+
+  const profileLevel = tree(t, { '.dsh/profiles/acp/cordis.patch.yml': '- id: llm-deepseek-api-key\n  config:\n    baseURL: https://proxy.example.com/v1\n' })
+  assert.equal(await read('dsh', { home: profileLevel, env: {} }), null, 'the acp profile’s own patch')
+
+  const unrelated = tree(t, { '.dsh/cordis.patch.yml': '- id: web-search\n  config:\n    baseURL: https://proxy.example.com/v1\n' })
+  assert.equal(await read('dsh', { home: unrelated, env: {} }), 'deepseek', 'a baseURL on an entry that is not one of DeepSeek’s own is not this decision’s business')
+
+  // DSH always starts on the `acp` profile; a patch aimed at another
+  // shipped profile is defined but never in force, like an inactive Codex
+  // profile — see #1019.
+  const otherProfile = tree(t, { '.dsh/profiles/web/cordis.patch.yml': '- id: llm-deepseek\n  config:\n    baseURL: https://proxy.example.com/v1\n' })
+  assert.equal(await read('dsh', { home: otherProfile, env: {} }), 'deepseek', 'a patch aimed at a profile DSH did not start on is inert')
+
+  const broken = tree(t, {})
+  mkdirSync(join(broken, '.dsh', 'cordis.patch.yml'), { recursive: true })
+  assert.equal(await read('dsh', { home: broken, env: {} }), null, 'a patch file that cannot be read rules nothing out')
+})
+
 test('an agent with no reader is unknown, whatever it is called', () => {
   assert.equal(providerReaderFor({ id: 'codex' }, {}), undefined)
-  assert.equal(providerReaderFor({ id: 'cursor' }, {}), undefined)
+  assert.equal(providerReaderFor({ id: 'cursor' }, {}), undefined, 'Cursor’s provider is a per-session model choice, not read here')
   assert.equal(providerReaderFor(undefined, {}), undefined)
 })
 

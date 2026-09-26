@@ -70,6 +70,8 @@ export interface GoalRig {
   readonly lanes: Map<string, Lane>
   readonly digests: Map<string, string>
   readonly providers: Map<string, string>
+  /** `RuntimeInfo.presentation.name` a stall names for a runtime id; unset reads as none, so the stall falls back to a plain phrase. */
+  readonly presentations: Map<string, string>
   readonly goals: Map<string, string>
   /** What `headOf` answers for a checkout's `cwd`, keyed by that path; unset cwds read as no repository. */
   readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean }>
@@ -175,7 +177,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
   const team = new Team(join(dir, 'team'), teamPort)
   const rig = {
     team, dir, peers, events: [] as string[], seats: new Map<string, SeatRecord>(), lanes: new Map<string, Lane>(),
-    digests: new Map<string, string>(), providers: new Map<string, string>(), goals: new Map<string, string>(),
+    digests: new Map<string, string>(), providers: new Map<string, string>(), presentations: new Map<string, string>(), goals: new Map<string, string>(),
     heads: new Map<string, { at: string | null; dirty: boolean }>(),
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
@@ -262,6 +264,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
   }
   const port: FlowExecutionPort = {
     providerOf: async (runtime) => rig.providers.get(runtime) ?? null,
+    presentationOf: (runtime) => rig.presentations.get(runtime) ?? null,
     canDispatch: () => rig.dispatch,
     createGoal: async (input) => {
       const room = await team.createRoom('/repo', input.sentence)

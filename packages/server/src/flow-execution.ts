@@ -172,6 +172,13 @@ export const TRIGGER_RUN_ID = /^flow-trigger-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}
 export interface FlowExecutionPort {
   /** Which vendor a session of this runtime in `cwd` reaches, as its adapter reports it; null when unknown. */
   providerOf(runtime: string, cwd: string): Promise<string | null>
+  /**
+   * `RuntimeInfo.presentation.name` for a runtime id, for a stall a person
+   * reads — never the raw id. Absent or null falls back to a plain phrase;
+   * never a brand or backend check the UI itself is not allowed either
+   * (`AGENTS.md` rule 8).
+   */
+  presentationOf?(runtime: string): string | null
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
   openSeat(input: GoalSeatRequest): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
@@ -1978,17 +1985,54 @@ export class FlowExecutions {
     return round
   }
 
-  /** Providers of every Seat that worked a round of these roles; null in the set means one was unknown. */
-  async #writers(run: StoredFlowExecution, roles: readonly string[]): Promise<Set<string | null>> {
-    const providers = new Set<string | null>()
+  /**
+   * Every Seat that worked a round of these roles, with the provider its
+   * runtime reads as (null when unknown) and the card it held, when the
+   * round's own journal still names one — what a stall names when an
+   * unreadable provider is the reason nothing can be seated after it.
+   */
+  async #writerSeats(
+    run: StoredFlowExecution,
+    roles: readonly string[],
+  ): Promise<readonly { readonly card: number | null; readonly runtime: string | null; readonly provider: string | null }[]> {
+    const out: { readonly card: number | null; readonly runtime: string | null; readonly provider: string | null }[] = []
     for (const round of run.rounds) {
       if (!roles.includes(round.role)) continue
       for (const id of round.seats) {
         const seat = this.#port.seatOf(id)
-        providers.add(seat ? await this.#port.providerOf(seat.session.runtime, seat.checkout.cwd) : null)
+        const card = run.operations.find((one) => one.kind === 'seat' && one.seat === id)?.card ?? null
+        out.push({
+          card,
+          runtime: seat?.session.runtime ?? null,
+          provider: seat ? await this.#port.providerOf(seat.session.runtime, seat.checkout.cwd) : null,
+        })
       }
     }
-    return providers
+    return out
+  }
+
+  /** Providers of every Seat that worked a round of these roles; null in the set means one was unknown. */
+  async #writers(run: StoredFlowExecution, roles: readonly string[]): Promise<Set<string | null>> {
+    return new Set((await this.#writerSeats(run, roles)).map((one) => one.provider))
+  }
+
+  /**
+   * Why independence could not be proven, when every candidate was refused
+   * only because an earlier round's own provider could not be read at all —
+   * never when every candidate was merely already used. Names the earliest
+   * such card (by number, and by the agent's own presentation name, never a
+   * raw runtime id) and the way forward: read that agent's own
+   * configuration for whatever points it elsewhere, or start this role
+   * without `independentOf`. The guard stays fail-closed either way — this
+   * only changes what the stall says.
+   */
+  #unreadableProviderStall(writers: readonly { readonly card: number | null; readonly runtime: string | null; readonly provider: string | null }[]): string {
+    const first = writers.find((one) => one.provider === null)
+    if (!first) return INDEPENDENT
+    const name = (first.runtime && this.#port.presentationOf?.(first.runtime)) || 'an agent this desk could not identify'
+    const where = first.card !== null ? `card #${first.card} (${name})` : `an earlier seat (${name})`
+    return `This step needs an independent provider, but ${where}’s provider could not be read, so no seat can be proven independent of it. ` +
+      `Fix that agent’s own configuration if something there points it at another host, or run this role without independentOf.`
   }
 
   /**
@@ -2043,7 +2087,8 @@ export class FlowExecutions {
       let candidates: readonly FlowSeat[] = binding.seats
       let writers: Set<string | null> | null = null
       if (independentOf.length > 0) {
-        const known = await this.#writers(run, independentOf)
+        const priorSeats = await this.#writerSeats(run, independentOf)
+        const known = new Set(priorSeats.map((one) => one.provider))
         writers = known
         const offered = binding.seats.length > 0 ? binding.seats : binding.agent.prefer
         const board = this.#team.stateFor(run.goal)
@@ -2055,7 +2100,10 @@ export class FlowExecutions {
           }
         }
         candidates = kept
-        if (candidates.length === 0) return fail(INDEPENDENT)
+        // `known.has(null)` is exactly the case an unreadable predecessor forces:
+        // the loop above never ran, so every candidate was refused for that
+        // reason alone, never because it was merely already used.
+        if (candidates.length === 0) return fail(known.has(null) ? this.#unreadableProviderStall(priorSeats) : INDEPENDENT)
       }
       if (await this.#port.digestOf(run.goal, binding.agent.id) !== binding.digest) return fail(BRIEF_CHANGED)
       if (await mayGo() !== true) return false
