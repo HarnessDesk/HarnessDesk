@@ -81,7 +81,7 @@
    screen's own part is suppressed, and only because the frame is short, not
    the screen itself. */
 .frame[data-height='header'] {
-  height: calc(var(--hd-bar-h) + 1px);
+  height: calc(var(--hd-bar-h) + 1px); /* desk: 220px → calc(46px + 1px), tight to the bar itself now the dock is hidden here */
 }
 
 .frame[data-height='header'] [class*='dockArea'] {
