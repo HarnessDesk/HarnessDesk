@@ -7,6 +7,8 @@ import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
+import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
+import { Mount } from '../../preview/harness'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
@@ -461,6 +463,14 @@ const RowBoard = () => {
             />
           ))}
         </Rows>
+
+        {/* A machine setting as Settings › Permissions ships it: one question,
+            its answers as RowChoice rows, and what they share said once. */}
+        <div data-catalog-case="question-wait">
+          <Mount>
+            <QuestionWaitSection />
+          </Mount>
+        </div>
       </div>
       </Specimen>
       <p className={styles.rule}>

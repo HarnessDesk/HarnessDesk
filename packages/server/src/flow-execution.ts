@@ -901,19 +901,53 @@ export class FlowExecutions {
    * That turn is over, so the answer cannot go into it: the run goes back to
    * running, durably, and the Seat — reopened first, the way a relaunch
    * reopens one — is handed the question and its answer in a turn of its
-   * own, with its card, and carries on. False when no run here stopped on
-   * this Seat's question, so the answer is not the flow's to deliver. Throws
-   * a sentence, the run left as it was, when it is and cannot be delivered.
+   * own, with its card, and carries on. `settle` closes the old question,
+   * as answered, right before that turn is sent: never after it has begun.
+   * False when no run here stopped on this Seat's question, so the answer is
+   * not the flow's to deliver. Throws a sentence when it is and cannot be
+   * delivered: before `settle`, the question is kept and the run left
+   * stopped on it; after, the run stops with the answer in its reason.
    */
-  async answerQuestion(runtime: string, sessionId: string, words: { readonly question: string; readonly answer: string }): Promise<boolean> {
+  async answerQuestion(
+    runtime: string,
+    sessionId: string,
+    words: { readonly question: string; readonly answer: string },
+    settle: () => Promise<void>,
+  ): Promise<boolean> {
     for (const run of [...this.#runs.values()]) {
       if (run.state !== 'stalled' || !this.#seatingOf(run, runtime, sessionId)) continue
-      return this.#queue.within(run.id, () => this.#answerQuestion(run.id, runtime, sessionId, words))
+      return this.#queue.within(run.id, () => this.#answerQuestion(run.id, runtime, sessionId, words, settle))
     }
     return false
   }
 
-  async #answerQuestion(id: string, runtime: string, sessionId: string, words: { readonly question: string; readonly answer: string }): Promise<boolean> {
+  /**
+   * The question was answered in the turn that asked it after all — an
+   * answer that landed between its run stopping and its turn being
+   * interrupted, or after an interrupt that never took. The run stopped on
+   * that question goes back to running; the turn carries on with the answer.
+   */
+  async answeredInTurn(runtime: string, sessionId: string): Promise<void> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'stalled' || !this.#seatingOf(run, runtime, sessionId)) continue
+      await this.#queue.within(run.id, async () => {
+        const now = this.#get(run.id)
+        const seating = this.#seatingOf(now, runtime, sessionId)
+        if (seating && now.state === 'stalled' && now.reason === questionStall(seating.card, QUESTION_STOP)) {
+          await this.#put({ ...now, state: 'running', reason: null })
+        }
+      })
+      return
+    }
+  }
+
+  async #answerQuestion(
+    id: string,
+    runtime: string,
+    sessionId: string,
+    words: { readonly question: string; readonly answer: string },
+    settle: () => Promise<void>,
+  ): Promise<boolean> {
     const stopped = (): boolean => {
       const run = this.#get(id)
       const seating = this.#seatingOf(run, runtime, sessionId)
@@ -928,7 +962,10 @@ export class FlowExecutions {
       if (!gate.ok) throw new Error(`Your answer was not sent: ${gate.reason}`)
       if (!stopped()) return false
     }
-    // Everything below is read now, after the last await, never carried across one.
+    /* Read again here, after the gate's await. What is carried past the
+       awaits below — the Seat, its round and its binding — is safe to carry:
+       only this run's queue writes this run, and it is held throughout; the
+       run itself is always read afresh. */
     const run = this.#get(id)
     const seating = this.#seatingOf(run, runtime, sessionId)!
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === seating.card)
@@ -943,9 +980,22 @@ export class FlowExecutions {
     const index = round ? round.cards.indexOf(card.id) : -1
     const binding = round ? bindingsFor(run, round.role)[index] : undefined
     if (!round || !binding) throw new Error(`Card #${card.id} no longer matches a Seat of its round, so it cannot be handed your answer.`)
+    const stall = questionStall(card.id, QUESTION_STOP)
     // Durable before the Seat hears anything, and before the person is told it was sent.
     await this.#put({ ...run, state: 'running', reason: null })
     if (!await this.#sameSeat(id, seat, card.id, round.role, 'answered')) throw new Error(this.#get(id).reason ?? 'The Seat could not be reopened.')
+    /* Reopening can take a while — a runtime starting that was not up — and
+       the gate was read before it began. A limit reached meanwhile still
+       holds: read it again right before the hand-back (#939). One that
+       lifts on its own leaves the run stopped on the question, still
+       answerable; any other stops the run with its reason. */
+    if (this.#get(id).intake) {
+      const again = await this.#gateOf(id)
+      if (!again.ok) {
+        await this.#put({ ...this.#get(id), state: 'stalled', reason: again.transient ? stall : again.reason })
+        throw new Error(`Your answer was not sent: ${again.reason}`)
+      }
+    }
     const prefix = `turn:${round.n}:${index}:answer:`
     const key = `${prefix}${this.#get(id).operations.filter((one) => one.key.startsWith(prefix)).length + 1}`
     const lead = [
@@ -954,15 +1004,22 @@ export class FlowExecutions {
       `Their answer: ${words.answer}`,
       'Carry on from where you were, with that answer.',
     ].join('\n\n')
+    // The old question closes as answered before the turn that carries the answer begins.
+    await settle()
     const refused = await this.#handOver(id, key, seat, card.id, binding, lead)
     const left = this.#get(id)
     if (refused !== null || left.operations.find((one) => one.key === key)?.state === 'prepared') {
       /* Not delivered — refused, or a turn began between the look and the
-         send: the run stops on the same question again, so it can still be
-         answered, and nothing reads as running over an answer never heard. */
+         send. The question is already closed, so the run stops with the
+         answer in its reason: nothing reads as running over an answer the
+         Seat never heard, and the answer is not lost. */
+      const why = refused ?? 'it started another turn first'
       const kept = left.operations.filter((one) => one.key !== key || one.state !== 'prepared')
-      await this.#put({ ...left, operations: kept, state: 'stalled', reason: questionStall(card.id, QUESTION_STOP) })
-      throw new Error(refused ?? `The Seat for card #${card.id} started another turn before your answer reached it. Answer again when it ends.`)
+      await this.#put({
+        ...left, operations: kept, state: 'stalled',
+        reason: `Card #${card.id}: your answer (${words.answer}) could not be handed to its Seat: ${why}. Tell it in that conversation.`,
+      })
+      throw new Error(`Your answer could not be handed to the Seat for card #${card.id}: ${why}.`)
     }
     return true
   }
@@ -978,9 +1035,14 @@ export class FlowExecutions {
     return mine.filter((one) => !done(board.find((card) => card.id === one.card))).at(-1) ?? mine.at(-1) ?? null
   }
 
-  /** Whether a conversation is a Seat of a running run: nobody is watching for its questions. */
+  /**
+   * Whether a conversation is a Seat of a running run a trigger started:
+   * nobody is here for its questions, so they wait only as long as this
+   * machine says. A run a person started is theirs, and its Seat's question
+   * waits for their answer.
+   */
   unattended(runtime: string, sessionId: string): boolean {
-    return [...this.#runs.values()].some((run) => run.state === 'running' && run.operations.some((one) => {
+    return [...this.#runs.values()].some((run) => run.state === 'running' && run.intake !== undefined && run.operations.some((one) => {
       if (one.kind !== 'seat' || !one.seat) return false
       const record = this.#port.seatOf(one.seat)
       return record !== null && record.closed === null && record.session.runtime === runtime && record.session.sessionId === sessionId

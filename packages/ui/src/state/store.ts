@@ -1,4 +1,8 @@
 import {
+  DEFAULT_QUESTION_WAIT,
+  QUESTION_WAIT_PREFERENCE,
+  questionWaitOf,
+  type QuestionWait,
   mergeRead,
   orderTasks,
   reduceSession,
@@ -432,6 +436,19 @@ export class AppStore {
 
   triggerGoal(goal: string): Promise<TriggerGoalStatus | null> {
     return this.transport.request('trigger/goal', { goal: goal as GoalId })
+  }
+
+  /** How long an agent's question waits when nobody is here, before its run stops for you. */
+  async loadQuestionWait(): Promise<QuestionWait> {
+    try {
+      return questionWaitOf(await this.transport.request('app/state/get', {}))
+    } catch {
+      return DEFAULT_QUESTION_WAIT
+    }
+  }
+
+  async setQuestionWait(value: QuestionWait): Promise<boolean> {
+    return this.#writePreference({ [QUESTION_WAIT_PREFERENCE]: value }, 'How long a question waits when nobody is here')
   }
 
   /** What happens when a Goal a trigger opened cannot hold a Seat's ceiling. Mirrors `loadUnheldCeilings`. */

@@ -580,7 +580,7 @@ export class Flows implements TeamFlows {
     return this.#executions?.blindRounds(room) ?? []
   }
 
-  /** Whether nobody is watching this conversation's questions: it is a Seat of a running run. */
+  /** Whether nobody is here for this conversation's questions: it is a Seat of a running run a trigger started. */
   unattended(runtime: string, sessionId: string): boolean {
     return this.#executions?.unattended(runtime, sessionId) ?? false
   }
@@ -590,8 +590,18 @@ export class Flows implements TeamFlows {
   }
 
   /** A person answered the question a Seat's run stopped on: the Seat is handed it and the run goes on. See `FlowExecutions.answerQuestion`. */
-  answerQuestion(runtime: string, sessionId: string, words: { readonly question: string; readonly answer: string }): Promise<boolean> {
-    return this.#executions?.answerQuestion(runtime, sessionId, words) ?? Promise.resolve(false)
+  answerQuestion(
+    runtime: string,
+    sessionId: string,
+    words: { readonly question: string; readonly answer: string },
+    settle: () => Promise<void>,
+  ): Promise<boolean> {
+    return this.#executions?.answerQuestion(runtime, sessionId, words, settle) ?? Promise.resolve(false)
+  }
+
+  /** The question a run stopped on was answered in its own turn after all: the run goes on. See `FlowExecutions.answeredInTurn`. */
+  answeredInTurn(runtime: string, sessionId: string): Promise<void> {
+    return this.#executions?.answeredInTurn(runtime, sessionId) ?? Promise.resolve()
   }
 
   /** A candidate this process minted for this caller's card, still current. */

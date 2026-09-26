@@ -179,6 +179,34 @@ test('unanswered question preserves partial output', async () => {
   assert.deepEqual(interrupts, ['alpha:s1'])
 })
 
+test('a question’s wait is this machine’s: none at all sets no timer, and an answer between stop and interrupt keeps the turn', async () => {
+  const timers: { fire: () => void; ms: number }[] = []
+  const order: string[] = []
+  let wait: number | null = null
+  let release: (() => void) | null = null
+  const deadline = new QuestionDeadline({
+    waitMs: () => wait,
+    setTimer: (fire, ms) => { timers.push({ fire, ms }); return timers.length },
+    clearTimer: () => {},
+    interrupt: async (key) => { order.push(`interrupt ${key}`) },
+    // The stop takes a while: a person's answer lands before it is done.
+    stop: async (key) => { order.push(`stop ${key}`); await new Promise<void>((resolve) => { release = resolve }) },
+  })
+  deadline.asked('alpha:s1', 'q-1')
+  assert.equal(timers.length, 0, 'until a person is back: no deadline')
+  wait = 300_000
+  deadline.asked('alpha:s2', 'q-2')
+  assert.deepEqual(timers.map((one) => one.ms), [300_000], 'the wait read as the question is asked')
+  timers[0]!.fire()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(deadline.expired('alpha:s2', 'q-2'), true)
+  deadline.answered('alpha:s2', 'q-2')
+  assert.equal(deadline.expired('alpha:s2', 'q-2'), false, 'answered, it is forgotten')
+  release!()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(order, ['stop alpha:s2'], 'answered in its turn while the run was stopping: that turn is not cut off')
+})
+
 test('trigger budget cannot widen flow progress rules', async (t) => {
   const { effectiveBudget } = await import('../src/intake/definition.js')
   const { agent, goalRig } = await import('./fixtures/flow-goal-rig.js')

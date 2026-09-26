@@ -7,15 +7,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **Answering a flow Seat's question later carries on the work.** When a flow
-  Seat's question went unanswered for twenty seconds, its turn stopped and its
-  run waited for you — but answering it afterwards, on the room's question
-  card, went nowhere and the run stayed stopped. The Seat is now handed your
-  answer in a turn of its own and carries on with its card, and the run goes
-  with it. While a run is stopped like that, its board draws the Seat's card in
-  **Needs you**, as the header already said, rather than under Working; the
-  sidebar reads the same. A Goal started in a project opened through a link is
-  no longer listed a second time under **Other projects**.
+- **A flow Seat's question waits for you.** On a run you started, a Seat's
+  question is no longer cut off after twenty seconds: it waits for your
+  answer. In a Goal a trigger opened, it waits as long as **Settings ›
+  Permissions › When nobody is here, an agent's question waits** says — five
+  minutes by default, from stopping right away to waiting until you are back
+  — and then its run stops for you. Answering it after that, on the room's
+  question card, now carries on the work: the Seat is handed your answer in a
+  turn of its own and the run goes with it, where before the answer went
+  nowhere. While a run is stopped like that, its board draws the Seat's card
+  in **Needs you**, as the header already said. A Goal started in a project
+  opened through a link is no longer listed a second time under **Other
+  projects**.
 
 - **A signed-out agent's mark looks empty.** The seat's badge and the menu's
   mark for an agent with no one signed in were meant to read as an empty seat

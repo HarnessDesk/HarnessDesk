@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 
-import type { Session } from '@harnessdesk/protocol'
+import { activityOf, flowStepOf, placeCard, type Session } from '@harnessdesk/protocol'
 
 import { BrowserPane } from '../../components/BrowserPane'
 import { Composer } from '../../components/Composer'
@@ -459,13 +459,24 @@ const questionStopStore = (): AppStore => {
   const teams = new Map(base.teams)
   const board = teams.get(goal)
   if (board) teams.set(goal, { ...board, intents: [PREVIEW_FLOW_CARD] })
-  // The Goal's activity as the host now computes it for such a run: its card placed in Needs you.
+  /* The Goal's activity derived as the host derives it — from the same card
+     placement the board draws — never written in: a header and a board that
+     disagreed would show here too. */
+  const execution = sceneFlowExecution('question')
+  const step = flowStepOf(PREVIEW_FLOW_CARD, undefined, [execution])
+  const placed = placeCard({
+    intent: PREVIEW_FLOW_CARD, evidence: undefined, stranded: false, holderWaits: false,
+    forPerson: step?.kind === 'person', runStopped: step?.stopped ?? false,
+  })
+  const activity = activityOf(PREVIEW_FLOW_GOAL.goal, {
+    needsYou: placed.column === 'needs', busy: false, liveFlow: true, cards: [PREVIEW_FLOW_CARD], dependencies: [],
+  })
   const goals = new Map(base.goals)
-  goals.set(goal, { ...PREVIEW_FLOW_GOAL, activity: 'needs-you' })
+  goals.set(goal, { ...PREVIEW_FLOW_GOAL, activity })
   return previewStore({
     teams,
     goals,
-    flowExecutions: new Map([['preview-flow-run', sceneFlowExecution('question')]]),
+    flowExecutions: new Map([['preview-flow-run', execution]]),
   })
 }
 

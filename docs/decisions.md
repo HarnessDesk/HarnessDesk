@@ -813,3 +813,38 @@ explanation, never in its colour.
 
 **The rule:** a ceiling chip's colour never carries a fact its words do not
 already say.
+
+---
+
+## A question waits for a person unless nobody is here, and an answer is never too late
+
+A Seat's question used to be cut off after twenty seconds on every flow run.
+That deadline was written for unattended work, where nobody will ever
+answer, but it applied to any Seat of a running run — including one a
+person had just started and was watching in its room. The walk that found
+it saw the person answer on the room's own card, a few minutes in, to a run
+that had already stopped.
+
+So the deadline belongs only to a run a trigger started. There, how long a
+question waits is a machine setting (Settings › Permissions, `unattendedQuestionWait`):
+five minutes by default, from stopping right away to waiting until the
+person is back. It is never a trigger's, a flow's or a repository's to set,
+for the same reason the unattended ceiling policy is not: nothing an event
+carries may decide how long unattended work runs without a person. A run a
+person started has no deadline; its Seat waits for the answer.
+
+When the wait does run out, the run stops first and the turn is interrupted
+second, so the turn's end cannot hand the card straight back. An answer
+that arrives later is still an answer: the run goes back to running,
+durably; the Seat is reopened the way a relaunch reopens one; consent and
+spend are read again after that reopen; and the question is closed as
+answered — never as a refusal, which would hold the Seat's messages to its
+teammates — right before the turn that carries the answer is sent. An
+answer no run is waiting for any more is refused rather than put into a
+turn that is over. What the desk remembers of a stopped question is held in
+memory, so after a restart the question's card is gone and the Seat is
+handed its card again instead, as any relaunch hands it.
+
+**The rule:** only unattended work is timed, by the person's own setting;
+an answer that comes late is delivered, never dropped and never read as a
+refusal.

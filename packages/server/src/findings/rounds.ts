@@ -1,4 +1,4 @@
-import { ciVerdict, type EvidenceRecord, type EvidenceView, type FindingId, type FindingSeries, type FindingView } from '@harnessdesk/protocol'
+import { ciVerdict, DEFAULT_QUESTION_WAIT, questionWaitMs, type EvidenceRecord, type EvidenceView, type FindingId, type FindingSeries, type FindingView } from '@harnessdesk/protocol'
 
 /**
  * Review rounds, bounded: the pure half of what happens when a flow round
@@ -187,11 +187,14 @@ export const pendingOf = (series: readonly FindingSeries[]): ReadonlySet<Finding
 /** What a run records when an unattended Seat asks a question nobody is there to answer. */
 export const QUESTION_STOP = 'asked a question nobody can answer'
 
-/** How long an unattended question waits before its turn is interrupted. */
-export const QUESTION_MS = 20_000
+/** How long an unattended question waits by default before its run stops: this machine's `QuestionWait`, unless a person chose another. */
+export const QUESTION_MS = questionWaitMs(DEFAULT_QUESTION_WAIT)!
 
 export interface QuestionPort {
+  /** A fixed wait, for tests; `waitMs` is read instead when it is given. */
   readonly ms?: number
+  /** This machine's wait, read as each question is asked; null waits until a person answers. */
+  readonly waitMs?: () => number | null
   setTimer(fire: () => void, ms: number): unknown
   clearTimer(timer: unknown): void
   /** Interrupts the asking conversation's turn once. What it already said is kept. */
@@ -203,13 +206,19 @@ export interface QuestionPort {
 /**
  * The deadline on an unattended Seat's question. One timer per
  * conversation, however often the question is seen; an answer in time
- * clears it; expiry interrupts once and stops with a named reason. It never
- * answers the question: a forged answer is worse than a stop.
+ * clears it; expiry stops the run with a named reason and then interrupts
+ * the turn once. It never answers the question: a forged answer is worse
+ * than a stop. A wait of null sets no timer at all: the question waits.
  */
 export class QuestionDeadline {
   readonly #port: QuestionPort
   readonly #waiting = new Map<string, { readonly question: string; readonly timer: unknown }>()
+  /** Questions whose wait ran out and that nobody has answered since. Forgotten once answered; empty after a restart. */
   readonly #expired = new Set<string>()
+  /** Questions whose run is being stopped now, between the stop and the interrupt. */
+  readonly #stopping = new Set<string>()
+  /** Of those, the ones answered in that window: their turn is not interrupted. */
+  readonly #answeredWhileStopping = new Set<string>()
 
   constructor(port: QuestionPort) {
     this.#port = port
@@ -217,11 +226,16 @@ export class QuestionDeadline {
 
   asked(key: string, question: string): void {
     if (this.#waiting.has(key) || this.#expired.has(`${key}\u0000${question}`)) return
-    const timer = this.#port.setTimer(() => void this.#expire(key, question), this.#port.ms ?? QUESTION_MS)
+    const ms = this.#port.waitMs ? this.#port.waitMs() : (this.#port.ms ?? QUESTION_MS)
+    if (ms === null) return
+    const timer = this.#port.setTimer(() => void this.#expire(key, question), ms)
     this.#waiting.set(key, { question, timer })
   }
 
   answered(key: string, question: string): void {
+    const at = `${key}\u0000${question}`
+    this.#expired.delete(at)
+    if (this.#stopping.has(at)) this.#answeredWhileStopping.add(at)
     const waiting = this.#waiting.get(key)
     if (!waiting || waiting.question !== question) return
     this.#port.clearTimer(waiting.timer)
@@ -229,8 +243,8 @@ export class QuestionDeadline {
   }
 
   /**
-   * Whether this question outlived its deadline: its turn was interrupted and
-   * its run stopped on it, so an answer to it now has no turn to go into.
+   * Whether this question outlived its wait and is still unanswered: its run
+   * stopped on it, so an answer to it now has no turn to go into.
    */
   expired(key: string, question: string): boolean {
     return this.#expired.has(`${key}\u0000${question}`)
@@ -245,13 +259,19 @@ export class QuestionDeadline {
   async #expire(key: string, question: string): Promise<void> {
     const waiting = this.#waiting.get(key)
     if (!waiting || waiting.question !== question) return
+    const at = `${key}\u0000${question}`
     this.#waiting.delete(key)
-    this.#expired.add(`${key}\u0000${question}`)
+    this.#expired.add(at)
     /* The run stops first, durably, and only then is the turn interrupted:
        the end of that turn is what re-arms a running run's Seat, and a turn
        that ended before its run had stopped was handed its card straight
-       back — a Seat at work again on a run that says it is waiting for you. */
+       back — a Seat at work again on a run that says it is waiting for you.
+       An answer that lands between the two went into the live turn, which
+       is then left to carry on rather than being cut off. */
+    this.#stopping.add(at)
     await this.#port.stop(key, QUESTION_STOP).catch(() => undefined)
+    this.#stopping.delete(at)
+    if (this.#answeredWhileStopping.delete(at)) return
     await this.#port.interrupt(key).catch(() => undefined)
   }
 }
