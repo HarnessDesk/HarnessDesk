@@ -273,7 +273,6 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
             <RowButton
               key={`${entry.origin}-${entry.id}`}
               title={entry.problem ? `${entry.name} — will not run` : entry.name}
-              wrapDesc
               desc={entry.problem ?? entry.description ?? undefined}
               onClick={() => void choose(entry)}
             />
@@ -351,7 +350,6 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
                   preview.target.label
                 )
               }
-              wrapDesc
               desc={[
                 preview.target.dirty ? 'Not committed — a working-tree snapshot, never a committed head.' : null,
                 preview.target.independence === 'unknown' ? 'Independence from the author is unknown.' : null,

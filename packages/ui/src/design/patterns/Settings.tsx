@@ -597,8 +597,8 @@ export const SectionHead = ({
 }
 
 const TEXT_ROLE = {
-  wordmark: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
-  page: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
+  wordmark: 'font-(family-name:--hd-font-heading) text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-(--hd-tracking-heading)',
+  page: 'font-(family-name:--hd-font-heading) text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-(--hd-tracking-heading)',
   subject: 'text-base leading-(--hd-line) font-medium',
   row: 'text-sm leading-(--hd-line-sm) font-medium',
   navigation: 'text-sm leading-(--hd-line-sm) font-normal',
@@ -807,11 +807,23 @@ export const Rows = ({
   )
 }
 
+/**
+ * A row's second line. A sentence wraps and arrives whole — rule 9's "an
+ * earned line has to arrive whole" — so wrapping is the default and the
+ * attribute the stylesheet and the tests key on (`data-wrap`) says so. Only a
+ * name or a path, whose end is the least of it, gives way on one line.
+ */
+const RowDesc = ({ truncate, children }: { truncate: boolean; children: ReactNode }) => (
+  <span className={cx(styles.rowDesc, truncate && styles.rowDescTruncate)} data-wrap={truncate ? undefined : 'true'}>
+    {children}
+  </span>
+)
+
 export const Row = ({
   mark,
   title,
   desc,
-  wrapDesc = false,
+  truncateDesc = false,
   control,
   className,
   ...props
@@ -819,8 +831,8 @@ export const Row = ({
   mark?: ReactNode
   title: ReactNode
   desc?: ReactNode
-  /** A description too specific to trim — a reason, a per-row fact — arrives whole rather than ellipsised. */
-  wrapDesc?: boolean
+  /** The description is a name or a path, which gives way at its end on one line. A sentence never does: by default it wraps and arrives whole. */
+  truncateDesc?: boolean
   control?: ReactNode
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
@@ -828,7 +840,7 @@ export const Row = ({
     {mark ? <span className={styles.rowMark}>{mark}</span> : null}
     <span className={styles.rowText}>
       <span className={styles.rowTitle}>{title}</span>
-      {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
+      {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
     </span>
     {control ? <span className={styles.rowCtl}>{control}</span> : null}
   </div>
@@ -874,7 +886,7 @@ export const RowButton = ({
   mark,
   title,
   desc,
-  wrapDesc = false,
+  truncateDesc = false,
   control,
   onClick,
   chevron = true,
@@ -886,8 +898,8 @@ export const RowButton = ({
   mark?: ReactNode
   title: ReactNode
   desc?: ReactNode
-  /** A description too specific to trim — a reason, a per-row fact — arrives whole rather than ellipsised. */
-  wrapDesc?: boolean
+  /** The description is a name or a path, which gives way at its end on one line. A sentence never does: by default it wraps and arrives whole. */
+  truncateDesc?: boolean
   control?: ReactNode
   onClick: () => void
   chevron?: boolean
@@ -914,7 +926,7 @@ export const RowButton = ({
       {mark ? <span className={styles.rowMark}>{mark}</span> : null}
       <span className={styles.rowText}>
         <span className={styles.rowTitle}>{title}</span>
-        {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
+        {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
       </span>
       {/* The control and the chevron are one trailing item, so a row too narrow
           for them beside the title wraps them together and they keep the row's
@@ -983,7 +995,7 @@ export const RowButton = ({
 export const RowChoice = ({
   title,
   desc,
-  wrapDesc = false,
+  truncateDesc = false,
   selected,
   tabStop,
   disabled,
@@ -991,8 +1003,8 @@ export const RowChoice = ({
 }: {
   title: ReactNode
   desc?: ReactNode
-  /** A consequence in a narrow choice arrives whole rather than ellipsised. */
-  wrapDesc?: boolean
+  /** The description is a name or a path, which gives way at its end on one line. A sentence never does: by default it wraps and arrives whole. */
+  truncateDesc?: boolean
   selected: boolean
   /** The Tab entry when a radio group has no selected answer. */
   tabStop?: boolean
@@ -1018,7 +1030,7 @@ export const RowChoice = ({
     <span className={styles.choiceMark}>{selected ? <CheckIcon size={15} /> : null}</span>
     <span className={styles.rowText}>
       <span className={styles.rowTitle}>{title}</span>
-      {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
+      {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
     </span>
   </Button>
   )

@@ -570,7 +570,7 @@ const MethodRow = ({ method, onChoose }: { method: AuthMethod; onChoose: () => v
     <RowButton
       mark={<Glyph size={16} />}
       title={method.label}
-      {...(method.description ? { desc: <Prose text={method.description} />, wrapDesc: true } : {})}
+      {...(method.description ? { desc: <Prose text={method.description} /> } : {})}
       onClick={onChoose}
     />
   )
@@ -1006,7 +1006,6 @@ const KeyField = ({
               mark={<StateMark tone="success"><CheckIcon size={14} /></StateMark>}
               title={`${label} stored`}
               desc={`Kept on this machine (${protection}). Restart a conversation to pick up a change.`}
-              wrapDesc
             />
           </Rows>
           <div className={own.actions}>

@@ -66,7 +66,7 @@ export const GoalAssign = ({
                 <Row
                   key={String(key)}
                   title={sessionLabel(summary.title, summary.preview)}
-                  desc={summary.cwd}
+                  desc={summary.cwd} truncateDesc
                   control={<RadioGroupItem value={key} aria-label={sessionLabel(summary.title, summary.preview)} />}
                 />
               )

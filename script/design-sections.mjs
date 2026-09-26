@@ -133,6 +133,12 @@ export const SECTIONS = [
     'Use a --hd-z-* rung from design/foundation/tokens.css. Single digits are local ordering inside one component and are not counted; anything from 10 up is a plane the whole app shares.',
   ],
   [
+    'rawDuration',
+    'Motion written as a number',
+    'Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock.',
+    'Use a motion token from design/foundation/tokens.css: --hd-duration-fast/-enter/-exit/--hd-duration/-slow for a change or an arrival, -pulse/-sweep/-cadence for a loop, with --hd-ease/-out/-in. An overlay composes floatingMotion/modalMotion from design/ui/motion.ts.',
+  ],
+  [
     'rawColour',
     'Colours written out rather than named',
     'Will not follow a palette or theme change.',
