@@ -201,11 +201,51 @@ test('a direct run of the old bridge entry point is caught by name, whatever id 
     id: 'deepseek-local',
     name: 'My DeepSeek',
     command: 'node',
-    args: ['/Users/me/checkouts/dsh-acp/dist/src/main.js', '--config', '/Users/me/.dsh/dsh-acp.yml'],
+    args: ['/Users/me/checkouts/harnessdesk-dsh-acp/dist/src/main.js'],
   })
-  const [config] = store.configs()
-  const decision = await config?.resolveLaunch?.('start')
-  assert.ok(decision && 'blocked' in decision, 'a bin.js path naming the old bridge is caught by content, not by id')
+  store.add({
+    id: 'deepseek-symlinked',
+    name: 'DeepSeek via profile',
+    command: 'dsh',
+    args: ['--profile', 'acp'],
+    cwd: '/Users/me/.dsh/profiles/acp/node_modules/@harnessdesk/dsh-acp',
+  })
+  const [checkout, symlinked] = store.configs()
+  const checkoutDecision = await checkout?.resolveLaunch?.('start')
+  const symlinkedDecision = await symlinked?.resolveLaunch?.('start')
+  assert.ok(
+    checkoutDecision && 'blocked' in checkoutDecision,
+    'an exact `harnessdesk-dsh-acp` checkout segment is caught by content, not by id',
+  )
+  assert.ok(
+    symlinkedDecision && 'blocked' in symlinkedDecision,
+    'the package name reached through a symlinked cwd is caught too',
+  )
+})
+
+test('a folder or patch file that merely mentions "dsh-acp" or "--patch" is not the old bridge', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+
+  // DSH's own official server, pointed at a patch file of the person's own —
+  // `--patch` is DSH's generic flag, not something unique to our bridge.
+  store.add({
+    id: 'dsh',
+    name: 'DeepSeek',
+    command: 'dsh',
+    args: ['--profile', 'acp', '--patch', '~/my.patch.yml'],
+  })
+  // An unrelated folder that merely starts with the same prefix.
+  store.add({
+    id: 'other-agent',
+    name: 'Something else entirely',
+    command: 'node',
+    args: ['/tmp/dsh-acp-features/x'],
+  })
+  const [ownPatch, unrelated] = store.configs()
+  assert.equal(ownPatch?.resolveLaunch, undefined, 'DSH run with a person’s own --patch file is never blocked')
+  assert.equal(unrelated?.resolveLaunch, undefined, 'a "dsh-acp"-prefixed folder name alone is never blocked')
 })
 
 test('the official DeepSeek template is never blocked', async (t) => {

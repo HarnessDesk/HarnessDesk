@@ -514,24 +514,28 @@ const isEnv = (value: unknown): value is Readonly<Record<string, string>> =>
   Object.values(value).every((entry) => typeof entry === 'string')
 
 /**
- * Every command line this project ever told anyone to write for its own
- * DeepSeek bridge: `dsh --profile acp --patch <profile>/harnessdesk.patch.yml`
- * (mounting `@harnessdesk/dsh-acp` inside DSH's own process), or a direct run
- * of the bridge's own entry point under a `--config`/`--patch` pointed at a
- * Cordis composition. A person's own id or name proves nothing — this reads
- * what is actually on the command line.
+ * What uniquely names HarnessDesk's own retired DeepSeek bridge on a command
+ * line: the package itself (`@harnessdesk/dsh-acp`, however it is reached —
+ * a `node_modules` path, a symlinked checkout), a checkout or entry point
+ * whose own path segment is exactly `harnessdesk-dsh-acp`, or the one patch
+ * file name this project's docs ever told anyone to write,
+ * `harnessdesk.patch.yml`. Nothing looser: `dsh-acp` alone is also a prefix
+ * someone could give an unrelated folder (`dsh-acp-features`), and `--patch`
+ * alone is DSH's own, generic flag — a person pointing DSH's official server
+ * at a patch file of their own is not this bridge.
  */
-const OLD_BRIDGE_HINT = /dsh-acp|harnessdesk\.?patch/i
+const isOldBridgeReference = (value: string): boolean => {
+  if (value.includes('@harnessdesk/dsh-acp')) return true
+  const segments = value.split(/[\\/]/)
+  return segments.includes('harnessdesk-dsh-acp') || segments[segments.length - 1] === 'harnessdesk.patch.yml'
+}
+
+/** A person's own id or name proves nothing — this reads what is actually on the command line. */
 const pointsAtOldDshBridge = (entry: Record<string, unknown>): boolean => {
   const command = typeof entry['command'] === 'string' ? entry['command'] : ''
   const cwd = typeof entry['cwd'] === 'string' ? entry['cwd'] : ''
   const args = isArgs(entry['args']) ? entry['args'] : []
-  if (OLD_BRIDGE_HINT.test(command) || OLD_BRIDGE_HINT.test(cwd) || args.some((arg) => OLD_BRIDGE_HINT.test(arg))) {
-    return true
-  }
-  // The one shape this project's own docs told people to write, with nothing
-  // in it that names the bridge directly: `dsh --profile acp --patch …`.
-  return command === 'dsh' && args.includes('--patch')
+  return isOldBridgeReference(command) || isOldBridgeReference(cwd) || args.some(isOldBridgeReference)
 }
 
 /** What a blocked launch says about an entry `pointsAtOldDshBridge`. Reported as health, never tried. */
