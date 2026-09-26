@@ -236,3 +236,16 @@ test('a plain round with several cards is blind only when its role says blind: t
   assert.equal(sighted.blind, 0, 'a plain round is not blind by default')
   assert.match(sighted.board, /SECRET-NOTE/)
 })
+
+test('with no findings plane attached, a plain round at the budget still says the run reached its limit', async (t) => {
+  const rig = await goalRig(t)
+  for (const n of [1, 2]) rig.heads.set(`/repo/.lanes/${n}`, { at: `sha-lane-${n}`, dirty: false })
+  // Nothing listens for round closes here, so the engine closes the round itself.
+  const run = await rig.start(DEBATE('').replace('budget: { rounds: 10, without-progress: 5 }', 'budget: { rounds: 1, without-progress: 5 }'), [ANALYST])
+  await rig.flows.flush()
+  for (const card of [1, 2]) await rig.team.complete(card, { outcome: 'disagree' }, holderOf(rig, run.goal, card))
+  await rig.flows.flush()
+  const stopped = rig.flows.findingRun(run.id)?.findings?.stopped
+  assert.deepEqual(stopped, { round: 1, reason: 'This run reached its limit of 1 round.' })
+  assert.equal(rig.board(run.goal).intents.filter((one) => one.role === 'analyst').length, 2, 'no debate round opened past the budget')
+})
