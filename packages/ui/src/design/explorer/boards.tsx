@@ -1198,25 +1198,29 @@ const PaneColumnDemo = ({
   }, [clearComposer])
 
   return (
-    <div
-      className="relative w-60 overflow-hidden rounded-(--hd-radius-md) border border-(--hd-border) bg-(--hd-card)"
-      // `--rail` is normally the sidebar's own scope (`Sidebar.module.css`);
-      // stood up here the same way so the rail case resolves to a real
-      // number instead of the unscoped custom property's own fallback of
-      // nothing.
-      style={{ height: clearComposer ? 132 : 104, '--composer-h': '28px', '--rail': 'var(--hd-bar-pad)' } as React.CSSProperties}
-    >
-      <PaneColumn ref={column} inset={inset} clearComposer={clearComposer} data-catalog-inset={inset} className="h-full">
-        <div className="flex h-full flex-col justify-center gap-(--hd-space-1-5) rounded-(--hd-radius-sm) border border-(--hd-border-heavy) p-(--hd-space-1-5)">
-          {rows}
-        </div>
-      </PaneColumn>
-      {clearComposer && (
-        <div className="absolute inset-x-0 bottom-0 h-7 border-t border-(--hd-border) bg-(--hd-muted)" />
-      )}
-      <div className="pointer-events-none absolute bottom-1 left-1 rounded-(--hd-radius-sm) bg-(--hd-popover) px-1 py-0.5 text-[10px] leading-none text-(--hd-muted-foreground)">
-        {meta}
+    <div className="flex w-60 flex-col gap-(--hd-space-1)">
+      <div
+        className="relative overflow-hidden rounded-(--hd-radius-md) border border-(--hd-border) bg-(--hd-card)"
+        // `--rail` is normally the sidebar's own scope (`Sidebar.module.css`);
+        // stood up here the same way so the rail case resolves to a real
+        // number instead of the unscoped custom property's own fallback of
+        // nothing.
+        style={{ height: clearComposer ? 132 : 104, '--composer-h': '28px', '--rail': 'var(--hd-bar-pad)' } as React.CSSProperties}
+      >
+        <PaneColumn ref={column} inset={inset} clearComposer={clearComposer} data-catalog-inset={inset} className="h-full">
+          <div className="flex h-full flex-col justify-center gap-(--hd-space-1-5) rounded-(--hd-radius-sm) border border-(--hd-border-heavy) p-(--hd-space-1-5)">
+            {rows}
+          </div>
+        </PaneColumn>
+        {clearComposer && (
+          <div className="absolute inset-x-0 bottom-0 h-7 border-t border-(--hd-border) bg-(--hd-muted)" />
+        )}
       </div>
+      {/* The case's own caption line, below the pane box rather than over
+          it — a case whose frame it would otherwise sit across. */}
+      <Text as="div" role="meta" numeric className="text-(--hd-muted-foreground)">
+        {meta}
+      </Text>
     </div>
   )
 }
