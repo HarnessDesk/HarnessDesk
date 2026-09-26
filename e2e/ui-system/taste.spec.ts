@@ -178,3 +178,39 @@ test('a second line every row of a group repeats is said once, for the group', a
   HELPERS)
   expect(repeated).toEqual([])
 })
+
+test('a page blurb never leaves one word alone, at any width it can be drawn at', async ({ page }) => {
+  // The preview draws each blurb at one width, where its words may happen to
+  // break well; the Dashboard's blurb on a real desk left "sign-in's." alone
+  // at 534px. So the rule is checked across the widths a blurb can take, with
+  // the texts that showed it, on the real element and its real stylesheet.
+  await frames(page)
+  const alone = await page.evaluate(() => {
+    const blurb = document.querySelector<HTMLElement>('[class*="pageBlurb"]')
+    if (!blurb) return ['no page blurb in the preview']
+    const texts = [
+      'What every plan has left, what the work cost at public rates, and where it went, read from each agent\u2019s own numbers on this machine. A card headed by another sign-in shows that sign-in\u2019s.',
+      'What every plan has left, what the work cost as the agents recorded it or at public rates, and where it went, read from each agent\u2019s own numbers on this machine.',
+      'Who does the work: a brief, the most it may do, and the seats it prefers.',
+    ]
+    const found: string[] = []
+    for (const text of texts) {
+      blurb.textContent = text
+      for (let width = 320; width <= 640; width += 4) {
+        blurb.style.width = `${width}px`
+        blurb.style.maxWidth = `${width}px`
+        const node = blurb.firstChild as Text
+        const tops = [...node.data.matchAll(/\S+/g)].map((m) => {
+          const range = document.createRange()
+          range.setStart(node, m.index!)
+          range.setEnd(node, m.index! + m[0].length)
+          return Math.round(range.getClientRects()[0]!.top)
+        })
+        const last = tops[tops.length - 1]
+        if (new Set(tops).size > 1 && tops.filter((top) => top === last).length === 1) found.push(`${width}px: ${text.slice(-30)}`)
+      }
+    }
+    return found
+  })
+  expect(alone).toEqual([])
+})

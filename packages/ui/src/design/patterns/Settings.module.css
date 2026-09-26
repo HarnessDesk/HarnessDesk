@@ -790,6 +790,7 @@
   font-size: var(--hd-text-sm); /* desk: 14 → 13, the support size */
   line-height: var(--hd-line-sm); /* desk: 21 → 18, with the size */
   color: var(--hd-secondary-foreground);
+  text-wrap: balance; /* short text under a name: even lines, never one word alone (app.css) */
 }
 
 .pageCtl {
@@ -1041,7 +1042,7 @@
   line-height: var(--hd-line-sm);
   color: var(--hd-secondary-foreground);
   overflow-wrap: anywhere;
-  text-wrap: pretty;
+  text-wrap: balance; /* short text under a name: even lines, never one word alone (app.css) */
 }
 
 /* A name or a path gives way at its end, on one line. A sentence never does. */
@@ -1240,6 +1241,7 @@
   font-size: var(--hd-text-sm); /* desk: 14 → 13, the support size */
   line-height: var(--hd-line-sm); /* desk: 21 → 18 */
   color: var(--hd-secondary-foreground);
+  text-wrap: balance; /* short text under a name: even lines, never one word alone (app.css) */
 }
 
 .detailCtl {
