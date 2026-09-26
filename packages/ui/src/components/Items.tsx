@@ -1,4 +1,5 @@
 import {
+  Fragment,
   createContext,
   useContext,
   useLayoutEffect,
@@ -25,6 +26,7 @@ import type {
   SessionId,
   SubagentItem,
   ToolCallItem,
+  ToolResultContent,
   UserMessageItem,
   WebSearchItem,
 } from '@harnessdesk/protocol'
@@ -71,6 +73,7 @@ import {
 } from '../lib/group-items'
 import { editOf } from '../lib/handoff'
 import { findTodos, type Todo } from '../lib/todos'
+import { readToolResult } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
   shellCommandOf,
@@ -242,6 +245,15 @@ const StatusMark = ({ status }: { status: ItemStatus }) => {
  * body only places what it holds, and each thing in it — a code plate, a
  * diff, a list of arguments, a line of thought — is a design part that owns
  * its own box.
+ *
+ * `inset="title"` carries no end padding of its own (see `list-row.tsx`).
+ * The end edge is the register's, never the body's kind: in a plain row every
+ * body reaches the row's right edge; in a bordered card every body keeps the
+ * card's inner edge. A plate, an argument panel, a result block and a line of
+ * reasoning end at the same place either way. `bareBody` is purely a
+ * *vertical* choice: a plate already carries its own visible edge right under
+ * the header, so it keeps the inset's own tight step; text has none of its
+ * own, so it takes the wider one and the gap between several parts.
  */
 const Row = ({
   icon,
@@ -259,7 +271,7 @@ const Row = ({
   meta?: ReactNode
   status?: ItemStatus
   defaultOpen?: boolean
-  /** The child draws its own plate, so the body supplies alignment only. */
+  /** The child draws its own plate, so the body only spaces it vertically. */
   bareBody?: boolean
   children?: ReactNode
 }) => {
@@ -287,7 +299,8 @@ const Row = ({
       {collapsible && open && (
         <ListRowDetail
           inset="title"
-          className={bareBody ? 'pe-0' : `grid gap-(--hd-space-2) pt-(--hd-space-2) pe-(--hd-space-3) pb-(--hd-space-3)`}
+          within={register === 'light' ? 'row' : 'card'}
+          className={bareBody ? undefined : 'grid gap-(--hd-space-2) pt-(--hd-space-2) pb-(--hd-space-3)'}
         >
           {children}
         </ListRowDetail>
@@ -937,6 +950,59 @@ const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
   )
 }
 
+/**
+ * One part of a tool's result, drawn the way its shape earns: text and image
+ * parts are already what a top-level result carries, so a content array
+ * found inside a `json` part recurses through this same function rather
+ * than a second copy of the same two cases.
+ *
+ * The recognition itself — which runtime's envelope this is — is
+ * `readToolResult`'s job, kept free of rendering so it can be run straight
+ * over stored transcripts. This function only decides how each kind draws.
+ */
+const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
+  if (part.type === 'text') {
+    return <CodeBlock key={key} output={stripAnsi(part.text)} />
+  }
+  if (part.type === 'image') {
+    // An <img> only for what one can draw: a PDF in one was a broken image
+    // (#79), and so was a link that declares a PDF (review, round 1).
+    // Anything else is named, with its type and size.
+    return <ResultImage key={key} url={part.url} mimeType={part.mimeType} />
+  }
+  // A JSON part carrying a bare string is output, not a document. Encoding it
+  // turns every newline into a literal \n and every quote into \" — the
+  // shell transcript arrives as its own source.
+  if (typeof part.value === 'string') {
+    return <CodeBlock key={key} output={stripAnsi(part.value)} />
+  }
+  const reading = readToolResult(part.value)
+  if (reading.kind === 'blocks') {
+    // Some runtimes (Claude Code's Agent tool among them) answer a call with
+    // an MCP content array rather than the plain value the call produced.
+    // Unwrapped, its blocks draw exactly as a top-level result would; still
+    // wrapped, a person sees the array's own `"type": "text"` punctuation.
+    return <Fragment key={key}>{reading.blocks.map((block, index) => resultPartView(block, `${key}-${index}`))}</Fragment>
+  }
+  if (reading.kind === 'command') {
+    // A command's own record (Antigravity's shell tool, among others) draws
+    // as the same plate a `command` step does — the exit line included,
+    // through the plate's own mechanism rather than a second one here.
+    return <CodeBlock key={key} command={reading.command} output={reading.output ? stripAnsi(reading.output) : '(no output)'} exitCode={reading.exitCode} />
+  }
+  if (reading.kind === 'output') {
+    // A bare `{output, isError}` pair (DeepSeek, among others): the text is
+    // drawn the same way `item.error` already is, whichever it says.
+    return <CodeBlock key={key} output={stripAnsi(reading.text)} />
+  }
+  const todos = findTodos(part.value)
+  if (todos) return <TodoListView key={key} todos={todos} />
+  const diff = findDiff(part.value)
+  if (diff) return <DiffView key={key} diff={diff} inline />
+  // Structured output is output: the same plate as a text result.
+  return <CodeBlock key={key} output={JSON.stringify(part.value, null, 2)} />
+}
+
 /** The glyph for what a tool call was, not which tool it went through. */
 const VERB_ICON: Record<ToolCallVerb, typeof ToolIcon> = {
   command: TerminalIcon,
@@ -979,6 +1045,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const relativePath = path ? relativeTo(path, root) : null
   const target = path ? fileLabel(path, root, labels) : null
   const command = toolCallCommandOf(item)
+  const recordsCommand = item.result?.some((part) => part.type === 'json' && readToolResult(part.value).kind === 'command') ?? false
   const commandOutputParts = command ? item.result?.map((part) => {
     if (part.type === 'text') return stripAnsi(part.text)
     if (part.type === 'json' && typeof part.value === 'string') return stripAnsi(part.value)
@@ -1046,7 +1113,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       }
       status={effectiveItemStatus(item)}
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
-      bareBody={Boolean(change) || Boolean(command)}
+      bareBody={Boolean(change) || Boolean(command) || recordsCommand}
     >
       {/* A plain wrapper, not `Text` itself: `Text` owns `data-role` for its
           own role, so a second meaning of the attribute has to sit outside it. */}
@@ -1069,38 +1136,14 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               panel's business, so neither is repeated here as a field. */}
           {command ? (
             <CodeBlock command={shellCommandOf(command)} output={commandOutput} onCopyError={copyFailed} />
-          ) : (
+          ) : recordsCommand ? null : (
+            // A result that is its own command record already opens onto the
+            // command it ran; its arguments would only say it again, with the
+            // absolute folder it ran in beside it.
             <ArgsView args={item.args} root={root} />
           )}
-          {commandOutput === undefined && item.result?.map((part, index) => {
-            if (part.type === 'text') {
-              return (
-                <CodeBlock key={index} output={stripAnsi(part.text)} />
-              )
-            }
-            if (part.type === 'image') {
-              // An <img> only for what one can draw: a PDF in one was a broken
-              // image (#79), and so was a link that declares a PDF (review,
-              // round 1). Anything else is named, with its type and size.
-              return <ResultImage key={index} url={part.url} mimeType={part.mimeType} />
-            }
-            // A JSON part carrying a bare string is output, not a document.
-            // Encoding it turns every newline into a literal \n and every
-            // quote into \" — the shell transcript arrives as its own source.
-            if (typeof part.value === 'string') {
-              return (
-                <CodeBlock key={index} output={stripAnsi(part.value)} />
-              )
-            }
-            const todos = findTodos(part.value)
-            if (todos) {
-              return <TodoListView key={index} todos={todos} />
-            }
-            const diff = findDiff(part.value)
-            if (diff) return <DiffView key={index} diff={diff} inline />
-            // Structured output is output: the same plate as a text result.
-            return <CodeBlock key={index} output={JSON.stringify(part.value, null, 2)} />
-          })}
+          {commandOutput === undefined &&
+            item.result?.map((part, index) => resultPartView(part, String(index)))}
         </>
       )}
     </Row>

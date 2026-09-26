@@ -318,8 +318,8 @@ On 2026-08-22, two investigations demonstrated why static catalogues fail:
   `~/.codex/config.toml`, HarnessDesk silently substituted the fallback
   catalogue default.
 - **Claude Code catalogue:** The official
-  `@agentclientprotocol/claude-agent-acp` bridge (0.77.0) bundles Agent SDK
-  0.3.270 and can expose the installed Claude Code catalogue through the
+  `@agentclientprotocol/claude-agent-acp` bridge (0.79.0) bundles Agent SDK
+  0.3.274 and can expose the installed Claude Code catalogue through the
   bridge. HarnessDesk still respects `CLAUDE_CODE_EXECUTABLE` so the bridge
   can drive an external Claude binary capable of declaring its current model
   set rather than silently relying on a stale embedded catalogue.
