@@ -4,8 +4,9 @@ import { expect, test } from '@playwright/test'
  * The catalogue used to open 342px wider than a 1440px window and scroll
  * sideways on every view — the top knob bar was one `nowrap` row, and
  * Foundation alone carries six settings. The bar now wraps, but a wrap that
- * regresses to `nowrap`, or a specimen frame that stretches past the column,
- * would bring the scrollbar back just as silently. This holds the floor: the
+ * regresses to `nowrap` would bring the scrollbar back just as silently.
+ * (A specimen wider than its column scrolls inside the page body instead,
+ * which this does not see.) This holds the floor: the
  * document is never wider than the window it is in, at the two widths the
  * window actually opens at and the one it should still work down to.
  */
