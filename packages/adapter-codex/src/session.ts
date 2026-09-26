@@ -1,6 +1,7 @@
 import { CodexRpcError, type CodexAppServer, type CodexProtocol } from '@harnessdesk/codex'
 import {
   findOption,
+  OptionRefusedError,
   refuseOptionValue,
   sessionId as makeSessionId,
   turnId as makeTurnId,
@@ -300,9 +301,9 @@ export class CodexSession implements AgentSession {
    */
   async setOption(id: string, value: OptionValue): Promise<void> {
     const option = findOption(this.options(), id)
-    if (!option) throw new Error(`This session has no option named ${JSON.stringify(id)}.`)
+    if (!option) throw new OptionRefusedError(`This session has no option named ${JSON.stringify(id)}.`, id, value, true)
     const refusal = refuseOptionValue(option, value)
-    if (refusal) throw new Error(refusal)
+    if (refusal) throw new OptionRefusedError(refusal, id, value, false)
     const update = settingsUpdateFor(id, value, this.#state, this.#catalog)
     const moves = movesAnything(this.#state, update)
     const before = this.#announced

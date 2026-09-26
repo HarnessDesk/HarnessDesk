@@ -40,13 +40,19 @@ import { renderFlowTemplate, seatSpec } from './flow.js'
  * never taken for a list of nothing.
  *
  * Two halves, because not everything can be known before a conversation
- * exists. What can be is checked before anything is opened; what only a
- * session can say — a runtime declares its efforts per session, and drops a
- * pick it has no place for rather than failing — is checked against what the
- * session reports once it is open. A pre-check that guesses and a post-check
- * that trusts are the same defect. Either way a candidate that fails is passed
+ * exists. A model's own reasoning levels are declared in its catalogue entry
+ * — the same read that names the model at all (`modelEfforts` below) — so a
+ * candidate naming a level that model does not have is refused here, before
+ * anything is opened, exactly as a candidate naming a model that does not
+ * exist is. What only a session can say is narrower than that: a runtime
+ * that settles a pick somewhere else, or drops one a session has no place for
+ * (`#applySeatPicks`), is checked against what the session reports once it is
+ * open (`differencesOf`). A pre-check that guesses and a post-check that
+ * trusts are the same defect. Either way a candidate that fails is passed
  * over, the next one tried, and the reason worded as a fact about the seat, so
- * a refusal is one list whichever half found each reason.
+ * a refusal is one list whichever half found each reason — except a runtime
+ * that refuses an asked-for effort outright while opening, which stops the
+ * whole seating there rather than trying the next candidate (`PassedOver.fatal`, #1013).
  */
 
 /**
@@ -106,12 +112,27 @@ export interface SeatOffer {
    */
   readonly models: readonly string[] | null
   /**
-   * Efforts, on the same terms as `models`: `high`, not `High`. **Null means
-   * not knowable before seating** — a runtime declares its efforts per
-   * session, so asking would mean opening one — and a candidate that names an
-   * effort is let through to be held to it once it is open (`differencesOf`).
+   * Efforts, on the same terms as `models`, for a candidate that names no
+   * model to be judged against: `high`, not `High`. **Null means not
+   * knowable before seating.** A candidate that names a model is judged
+   * against `modelEfforts` instead, which is knowable from the same
+   * catalogue read as `models` — this flat list is only what is left when
+   * there is no model to look one up by.
    */
   readonly efforts: readonly string[] | null
+  /**
+   * Each model's own reasoning levels, by the id a seat spec's `/effort`
+   * writes — read from the same catalogue as `models`, never a session's
+   * answer, so a candidate naming a level its model does not have is refused
+   * before anything opens, exactly as one naming a model that does not exist
+   * is. A model absent from this map was never in the catalogue read at all.
+   * **An empty list is not "no levels": it is left alone, never refused** —
+   * some agents report every model's levels as whatever the current
+   * session's model happens to declare, so a level list this desk read while
+   * nothing was open may say nothing true about a model nothing has yet
+   * selected (#1013).
+   */
+  readonly modelEfforts?: ReadonlyMap<string, readonly string[]>
   readonly signedIn: boolean
   /**
    * Its window is exhausted; seating it now would fail or queue. A window that
@@ -201,8 +222,23 @@ export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[], need
     if (!offer.models.includes(seat.model)) return { kind: 'noModel', model: seat.model }
     if (offer.spentModels?.includes(seat.model)) return { kind: 'spentModel', model: seat.model }
   }
-  if (seat.effort && offer.efforts !== null && !offer.efforts.includes(seat.effort)) {
-    return { kind: 'noEffort', effort: seat.effort }
+  /*
+   * `default` is a candidate's way of asking for whatever the model already
+   * runs at, never a level a catalogue lists — Cursor and ACP both drop it
+   * from a model's own reasoning levels precisely because it is not one of
+   * them — so it is never refused here.
+   */
+  if (seat.effort && seat.effort !== 'default') {
+    const perModel = seat.model ? offer.modelEfforts?.get(seat.model) : undefined
+    if (perModel !== undefined) {
+      // An empty list is "not knowable from this model's own entry", not "has
+      // none": some agents report every model's levels as whatever the
+      // current session's model declares, so this is left alone rather than
+      // refused on a reading that may say nothing true about this model.
+      if (perModel.length > 0 && !perModel.includes(seat.effort)) return { kind: 'noEffort', effort: seat.effort }
+    } else if (offer.efforts !== null && !offer.efforts.includes(seat.effort)) {
+      return { kind: 'noEffort', effort: seat.effort }
+    }
   }
   if (need?.unheld === 'refuse' && !(offer.holds ?? []).includes(need.level)) {
     return { kind: 'unheld', level: need.level, detail: null, ...(need.required ? { required: true as const } : {}) }

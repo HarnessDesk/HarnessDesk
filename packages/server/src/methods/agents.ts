@@ -8,6 +8,7 @@ import {
   BriefNotHandedOverError,
   isCeilingLevel,
   isBlocked,
+  OptionRefusedError,
   remainingOf,
   SeatRefusedError,
   type AgentDefinition,
@@ -585,12 +586,17 @@ export async function seatAgent(
       cwd: params.cwd, title: definition.name,
       ...(context.environment ? { environment: context.environment } : {}),
       ...(attachmentsInput ? { attachments: attachmentsInput } : {}),
-    })
+    }, words)
     if ('reason' in opened) {
       passed.push(opened)
       // The runtime refused the effort itself: stop here, on this candidate's
       // own line, rather than seating a different runtime in silence (#1013).
-      if (opened.fatal) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
+      if (opened.fatal) {
+        const untried = rest.length > 0
+          ? ` ${rest.length === 1 ? 'One more candidate was' : `${rest.length} more candidates were`} not tried: an effort a runtime refuses outright is its own seat's preference to fix, not a reason to try another agent.`
+          : ''
+        throw new SeatRefusedError(explainRefusal(passed) + untried, { candidates: said(passed) })
+      }
       continue
     }
 
@@ -950,13 +956,16 @@ const wordsFor = (
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
- * Whether a seat's own failure to open is the runtime saying outright, in its
- * own words, that it has no such effort option at all — the exact shape every
- * adapter throws for an option id it does not know
- * (`packages/adapter-acp/src/runtime.ts`, `packages/adapter-codex/src/mapping/options.ts`):
- * `... has no session option named "effort".` Never a guess from some other
- * failure family: a seat that asked for no effort could not fail this way,
- * and nothing else is read as meaning it.
+ * Whether a seat's own failure to open is the runtime itself refusing the
+ * effort asked for — never a guess from some other failure family, and never
+ * true for a seat that asked for no effort at all.
+ *
+ * Told apart by the typed `OptionRefusedError` both adapters throw for a pick
+ * their own local check refuses (`@harnessdesk/protocol`'s `refuseOptionValue`,
+ * applied in `AcpSession.setOption` and Codex's `CodexSession.setOption`),
+ * never by matching an adapter's own wording: an ACP agent may answer
+ * `session/set_config_option` with anything it likes, and that refusal is a
+ * plain `Error`, not this one, and rightly not read as meaning the same thing.
  *
  * This is the case a dry run could not always catch (`unavailableSeats` in
  * `methods/flows.ts`, when a runtime was not running or its catalogue named
@@ -965,7 +974,7 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
  * silence over it (#1013).
  */
 const refusedEffort = (seat: FlowSeat, error: unknown): boolean =>
-  Boolean(seat.effort) && /no session option named ["']?effort["']?/i.test(messageOf(error))
+  Boolean(seat.effort) && error instanceof OptionRefusedError && error.optionId === 'effort'
 
 /**
  * Opens one candidate and holds it to what it asked for: the open seat, or the
@@ -983,8 +992,10 @@ const refusedEffort = (seat: FlowSeat, error: unknown): boolean =>
  * seating's, or archived, because it could not be deleted — never dropped.
  *
  * A failure the runtime blamed on the effort itself (`refusedEffort`) is
- * marked `fatal`: the caller's loop stops on this candidate rather than
- * trying the next one.
+ * recorded as `noEffort`, not `couldNotOpen` — the fix is the seat's own
+ * effort, never the runtime — worded in the runtime's own label for the level
+ * asked, never the wire option id, and marked `fatal`: the caller's loop
+ * stops on this candidate rather than trying the next one.
  */
 const openAsAsked = async (
   ctx: HostContext,
@@ -995,17 +1006,18 @@ const openAsAsked = async (
     readonly environment?: Readonly<Record<string, string>>
     readonly attachments?: SessionAttachments
   },
+  words: SeatWords,
 ): Promise<OpenedSeat | PassedOver> => {
   let opened: OpenedSeat
   try {
     opened = await ctx.seats.open(seat, where)
   } catch (error) {
-    const left = leftOnFailure(error)
-    return {
-      ...passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) }),
-      ...(left ? { left } : {}),
-      ...(refusedEffort(seat, error) ? { fatal: true as const } : {}),
+    if (refusedEffort(seat, error)) {
+      const why = `${words.runtime(seat.runtime)} does not offer ${words.effort(seat.runtime, seat.model, seat.effort!)} effort`
+      return { seat, why, reason: { kind: 'noEffort', effort: seat.effort! }, fatal: true as const }
     }
+    const left = leftOnFailure(error)
+    return { ...passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) }), ...(left ? { left } : {}) }
   }
   const found = differencesOf(seat, opened.running)
   if (found.length === 0) return opened
@@ -1219,6 +1231,12 @@ export const offerOf = async (
       runtime: id,
       models: catalogue?.map((one) => one.id) ?? null,
       efforts: null,
+      // Each model's own reasoning levels, read from the same catalogue as
+      // `models` — never a session's answer, and never guessed at when the
+      // catalogue itself could not be read (`catalogue` is null, and this
+      // stays undefined; `reasonAgainst` then has no model to look one up by
+      // and falls back to the flat `efforts`, which is also null here).
+      ...(catalogue ? { modelEfforts: new Map(catalogue.map((one) => [one.id, one.reasoningLevels.map((level) => level.id)])) } : {}),
       signedIn,
       spent: report ? isBlocked(report) : false,
       spentModels: report ? spentScopesOf(report) : [],

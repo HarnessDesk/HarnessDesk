@@ -10,6 +10,7 @@ import { CodexRuntime } from '@harnessdesk/adapter-codex'
 import { digestOf } from '@harnessdesk/agent-inventory'
 import {
   findOption,
+  OptionRefusedError,
   refuseOptionValue,
   runtimeId,
   sessionId,
@@ -661,6 +662,8 @@ const rig = async (
     readonly comesBackAs?: (seat: FlowSeat) => Partial<SeatRunning>
     /** Why opening this seat fails, or null when it opens. */
     readonly openFails?: (seat: FlowSeat) => string | null
+    /** The exact error to throw opening this seat — e.g. a typed `OptionRefusedError` — or null when it opens. */
+    readonly openThrows?: (seat: FlowSeat) => unknown | null
     readonly orderFails?: string
     /** The Agent's ceiling, as its file declares it. */
     readonly permission?: FlowPermission
@@ -756,6 +759,8 @@ const rig = async (
     }),
     seats: {
       open: async (seat: FlowSeat, where: { cwd: string; title: string }): Promise<OpenedSeat> => {
+        const thrown = options.openThrows?.(seat)
+        if (thrown) throw thrown
         const fails = options.openFails?.(seat)
         if (fails) throw new Error(fails)
         if (alive > 0) overlaps.push(`${seat.runtime} opened while ${alive} other seat(s) were still open`)
@@ -1095,11 +1100,19 @@ test('a runtime that outright refuses an asked-for effort is never quietly passe
   // the "opened and ran something else" case another test already covers —
   // and a Seat preference is a person's own instruction, never a transient
   // condition worth routing around in silence. A fallback candidate exists
-  // and would happily open; it must never be reached.
+  // and would happily open; it must never be reached. The typed
+  // `OptionRefusedError` is exactly what `AcpSession.setOption` and Codex's
+  // `CodexSession.setOption` throw for real — never a plain `Error` whose
+  // wording this test would otherwise have to guess at.
   const seen = await rig(
     'cursor=gpt-5/xhigh, claude=opus-5/high',
     { cursor: { models: ['gpt-5'] }, claude: { models: ['opus-5'] } },
-    { openFails: (seat) => (seat.runtime === 'cursor' ? 'Cursor has no session option named "effort".' : null) },
+    {
+      openThrows: (seat) =>
+        seat.runtime === 'cursor'
+          ? new OptionRefusedError('Cursor has no session option named "effort".', 'effort', 'xhigh', true)
+          : null,
+    },
   )
   await assert.rejects(
     () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
@@ -1107,13 +1120,68 @@ test('a runtime that outright refuses an asked-for effort is never quietly passe
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  cursor=gpt-5/xhigh — cursor could not open a conversation: Cursor has no session option named "effort".',
+          '  cursor=gpt-5/xhigh — cursor does not offer Extra high effort' +
+          ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
       )
       return true
     },
   )
   // The fallback was never tried: claude's seat is not among what opened.
   assert.deepEqual(seen.created, [])
+  untouched(seen)
+})
+
+test('an unknown option — not the value — that a runtime refuses outright is fatal the same way, and the sentence never leaks the wire option id', async () => {
+  const seen = await rig(
+    'cursor=gpt-5/xhigh, claude=opus-5/high',
+    { cursor: { models: ['gpt-5'] }, claude: { models: ['opus-5'] } },
+    {
+      openThrows: (seat) =>
+        seat.runtime === 'cursor'
+          ? new OptionRefusedError('Cursor has no session option named "effort".', 'effort', 'xhigh', true)
+          : null,
+    },
+  )
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.doesNotMatch(error.message, /session option named/)
+      return true
+    },
+  )
+})
+
+test('a plain Error an agent answers a wire refusal with — never the typed one our own check throws — still falls back, because it is not read as an effort refusal', async () => {
+  const seen = await rig(
+    'cursor=gpt-5/xhigh, claude=opus-5/high',
+    { cursor: { models: ['gpt-5'] }, claude: { models: ['opus-5'] } },
+    { openFails: (seat) => (seat.runtime === 'cursor' ? 'Cursor refused the change in its own words.' : null) },
+  )
+  await agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' })
+  assert.deepEqual(seen.created, [{ runtime: 'claude', model: 'opus-5', cwd: '/tmp/x' }])
+})
+
+test('an Agent\'s prefer list naming an effort its model does not offer is refused by the plan itself, before any Seat opens (#1013 finding 1)', async () => {
+  // The catalogue read for `readDesk` already carries this model's own
+  // reasoning levels — no session needed — so `claude=opus-5/xhigh` is
+  // refused while the candidates are still being weighed. Nothing is ever
+  // opened: `seen.created` proves `ctx.seats.open` was never even called.
+  const seen = await rig('claude=opus-5/xhigh', {
+    claude: {
+      catalogue: [{ id: 'opus-5', displayName: 'Opus 5', reasoningLevels: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }], supportsImages: false }],
+    },
+  })
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n  claude=opus-5/xhigh — claude does not offer xhigh effort',
+      )
+      assert.doesNotMatch(error.message, /could not open a conversation/)
+      return true
+    },
+  )
   untouched(seen)
 })
 
@@ -1316,7 +1384,11 @@ test('beside a runtime this desk has, an id nothing could add is still its own r
   ]
   const { offers } = await readDesk(seen.ctx, candidates)
   assert.deepEqual(offers, [
-    { runtime: 'codex', models: ['gpt-5.5'], efforts: null, signedIn: false, spent: false, spentModels: [], holds: [] },
+    {
+      runtime: 'codex', models: ['gpt-5.5'], efforts: null,
+      modelEfforts: new Map([['gpt-5.5', []]]),
+      signedIn: false, spent: false, spentModels: [], holds: [],
+    },
     { runtime: 'claude', unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false },
   ])
   assert.deepEqual(fixesFor(candidates, offers), [

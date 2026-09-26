@@ -8,16 +8,23 @@ move is real work and is not news to a person weighing an upgrade.
 ## Unreleased
 
 - **A Seat preference naming an effort its model does not have is refused
-  before any Seat opens.** `runtime=model/effort` used to pass the dry run
+  before any Seat opens.** `runtime=model/effort` used to pass every plan —
+  a flow's own `seat:`, an Agent's `prefer:`, and this Mac's own seating —
   whatever the model, and only fail once a Seat actually opened, with "no
-  session option named effort" — stalling the round when the preference had
-  no fallback, and silently seating a different agent when it did. The dry
-  run now checks a preference's effort against the levels that model itself
-  reports, and refuses it by name, with the levels it does offer. Where a
-  runtime is not running or names no levels at all, the dry run still cannot
-  know — but a Seat that opens and is refused on its effort there no longer
-  falls back to the next candidate in silence: the round stops, naming the
-  refused preference.
+  session option named effort". With no fallback the round stalled with that
+  raw wording; with one, the flow quietly seated a different agent instead.
+  Every plan now checks a preference's effort against the levels that model
+  itself reports — read from its catalogue entry, never a session — and
+  refuses it by name, in the runtime's own labels, with the levels it does
+  offer. A model whose catalogue names no levels at all is left alone rather
+  than guessed at, since some agents report every model's levels as whatever
+  the current session happens to be running; so is `default`, which asks for
+  whatever a model already runs at rather than one of its named levels. Where
+  a runtime cannot say in advance and only its own refusal at seat-open time
+  reveals the mismatch, that refusal — told apart from an unrelated failure by
+  a typed error the runtime itself throws, never by matching its wording — no
+  longer falls back to the next candidate in silence: the round stops there,
+  naming the refused preference and saying the rest were never tried.
 
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per

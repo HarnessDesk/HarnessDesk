@@ -59,6 +59,7 @@ import {
   findOption,
   peelUserContent,
   refuseOptionValue,
+  OptionRefusedError,
   SessionFolderGoneError,
   SessionGoneError,
   openingOf,
@@ -1923,10 +1924,11 @@ export class AcpRuntime implements AgentRuntime {
         continue
       }
       if (rankOptionId(id) < 2) {
-        throw new Error(
-          option
-            ? refusal
-            : `${this.#config.name} has no session option named ${JSON.stringify(id)}.`,
+        throw new OptionRefusedError(
+          option ? refusal : `${this.#config.name} has no session option named ${JSON.stringify(id)}.`,
+          id,
+          value,
+          !option,
         )
       }
       this.#config.logger?.debug?.('draft pick dropped', { option: id, reason: refusal })
@@ -3332,9 +3334,11 @@ class AcpSession implements AgentSession {
    */
   async setOption(id: string, value: OptionValue): Promise<void> {
     const option = findOption(this.options(), id)
-    if (!option) throw new Error(`${this.#host.agentName} has no session option named ${JSON.stringify(id)}.`)
+    if (!option) {
+      throw new OptionRefusedError(`${this.#host.agentName} has no session option named ${JSON.stringify(id)}.`, id, value, true)
+    }
     const refusal = refuseOptionValue(option, value)
-    if (refusal) throw new Error(refusal)
+    if (refusal) throw new OptionRefusedError(refusal, id, value, false)
     if (id === 'mode' && this.#modes) {
       await this.#host.connection.request('session/set_mode', {
         sessionId: this.id,
