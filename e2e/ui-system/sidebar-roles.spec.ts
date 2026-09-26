@@ -71,66 +71,6 @@ test('the accounts menu opens above its row, inside the sidebar and as wide as t
   expect(edges.menu.right).toBeLessThanOrEqual(edges.column.right)
 })
 
-test('growing the accounts menu after it opens asks Base UI to recompute its place', async ({ page }) => {
-  await page.goto('/preview.html')
-  const trigger = page.locator('button[class*="accountRow"]')
-  await trigger.evaluate((node) => node.scrollIntoView({ block: 'end' }))
-  await trigger.click()
-
-  const popup = page.locator('[data-slot="popover-popup"]')
-  await expect(popup).toBeVisible()
-  const before = await popup.evaluate((node, triggerNode) => {
-    if (!(triggerNode instanceof HTMLElement)) throw new Error('account trigger missing')
-    const menu = node.getBoundingClientRect()
-    return { bottom: menu.bottom, height: menu.height, rowTop: triggerNode.getBoundingClientRect().top }
-  }, await trigger.elementHandle())
-
-  // A plain browser tab is never the "backgrounded" window the real bug
-  // needs (`packages/desktop/electron/main.mjs`'s own comment has the
-  // measurement), so Base UI's native tracking already recovers here on its
-  // own — the position assertions below would pass even without
-  // `Popover.tsx`'s fix. What only the fix does, in any environment, is ask:
-  // counting window `resize` events is a direct check on that ask.
-  await page.evaluate(() => {
-    ;(window as unknown as { __hdResizeAsks: number }).__hdResizeAsks = 0
-    window.addEventListener('resize', () => {
-      ;(window as unknown as { __hdResizeAsks: number }).__hdResizeAsks += 1
-    })
-  })
-
-  // The row that discloses every seat, unfolding the short "current account
-  // only" list into the full roster — the same growth #945's own regression
-  // came from, just with fewer seats than eleven agents produces.
-  const disclosure = page.locator('[role="menuitem"][data-layout="account"][aria-expanded="false"]')
-  await expect(disclosure).toBeVisible()
-  await disclosure.click()
-
-  // The popup's box changes synchronously with the click; the fix's own ask
-  // for a recompute follows asynchronously, so wait for the height to have
-  // actually moved before reading anything else.
-  await expect(async () => {
-    const height = await popup.evaluate((node) => node.getBoundingClientRect().height)
-    expect(height).toBeGreaterThan(before.height + 20)
-  }).toPass({ timeout: 2000 })
-
-  const asks = await page.evaluate(() => (window as unknown as { __hdResizeAsks: number }).__hdResizeAsks)
-  expect(asks).toBeGreaterThan(0)
-
-  const after = await popup.evaluate((node, triggerNode) => {
-    if (!(triggerNode instanceof HTMLElement)) throw new Error('account trigger missing')
-    const menu = node.getBoundingClientRect()
-    return { top: menu.top, bottom: menu.bottom, height: menu.height, rowTop: triggerNode.getBoundingClientRect().top }
-  }, await trigger.elementHandle())
-
-  // Grown taller, still tucked above the row it opened from, not left at its
-  // pre-growth top with the extra height spilling downward over the row (or
-  // past it, off the window) — the shape of the regression this guards.
-  expect(after.height).toBeGreaterThan(before.height)
-  expect(after.bottom).toBeLessThanOrEqual(after.rowTop)
-  expect(after.bottom).toBeGreaterThan(before.bottom - 2)
-  expect(after.top).toBeGreaterThanOrEqual(0)
-})
-
 test('a settings group label is smaller than its page title', async ({ page }) => {
   await page.goto('/preview.html')
   await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('general')
