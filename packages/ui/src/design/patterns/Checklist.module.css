@@ -84,6 +84,12 @@
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: left;
+  /* Inline padding grows the press area without moving a word: the line
+     is 20px and the app's floor for a target is 24px, so each side gets
+     the difference. Cloned per line, so a wrapped step's focus ring is a
+     box on every line rather than an open-ended strip. */
+  padding-block: calc((var(--hd-target-min) - var(--hd-line-sm)) / 2);
+  box-decoration-break: clone;
   font: inherit;
 }
 
