@@ -41,6 +41,7 @@ import { worktreeBranch } from '../lib/worktree-branch'
 import {
   Bar,
   Button,
+  Chip,
   ConversationEmptyState,
   Menu,
   MenuItem,
@@ -57,8 +58,8 @@ import {
   Spinner,
   Submenu,
   Text,
+  ToolPaneHeaderDivider,
   dotTone,
-  softTone,
   type Tone,
 } from '../design'
 import { Badge } from '../design'
@@ -89,8 +90,13 @@ import styles from './Conversation.module.css'
 
 /** Scroll padding: top clears the notice banner, sides set the reading column's
  *  gutter (matching what the scrollbar-gutter reserves), bottom clears the
- *  floating composer. Composed here because padding is in the appearance family. */
+ *  floating composer. No shared scroll or column part owns this exact mix —
+ *  the notice inset and the composer's own measured height are this pane's,
+ *  and TeamRoomPane already zeroes the first rather than duplicate it. */
 const SCROLL_PADDING = 'calc(8px + var(--hd-notice-inset, 0px)) 24px calc(var(--composer-h, 150px) + 16px)'
+/** The strip above the composer, inset to the same gutter ComposerDock uses —
+ *  but ComposerDock also carries its own bottom padding for the composer box
+ *  it wraps, which this strip must not add above it, so it stays its own. */
 const BARS_PADDING = '0 calc(24px + var(--hd-scrollbar-width, 8px))'
 
 /** An empty-state title, in the page role at its own weight. */
@@ -584,11 +590,55 @@ export const Conversation = ({
   const busy = session ? isBusy(session) : false
   const live = session ? currentTurn(session) : undefined
 
+  // The auto-scroll below sets `scrollTop` itself, and that assignment fires
+  // its own native `scroll` event a frame later — indistinguishable, to a
+  // plain listener, from the reader scrolling back to the bottom. Without
+  // this mark that delayed event re-pinned every release a frame after it
+  // landed, so a selection made the instant a token streamed in snapped
+  // straight back. One event (or one frame, whichever comes first) is
+  // swallowed per programmatic scroll, the same way shadcn's own
+  // `data-autoscrolling` does it.
   const onScroll = useCallback(() => {
     const element = scroll.current
     if (!element) return
+    if (element.dataset.autoscrolling) {
+      delete element.dataset.autoscrolling
+      return
+    }
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight
     setPinned(distance < NEAR_BOTTOM_PX)
+  }, [])
+
+  // A reader who is selecting a word out of a streaming answer must not have
+  // it yanked out from under the cursor by the next token — release follow
+  // the moment the selection lands inside this transcript, the same way
+  // scrolling away from the bottom already does. Scoped to the transcript's
+  // own content: the empty-state pitches share this ref while they are what
+  // is mounted, and a selection made in "Nothing to show" is not a reason to
+  // stop following a conversation that has not started streaming anything.
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const element = scroll.current
+      const selection = document.getSelection()
+      if (!element || !element.hasAttribute('data-live-transcript')) return
+      if (!selection || selection.isCollapsed) return
+      if (selection.anchorNode && element.contains(selection.anchorNode)) setPinned(false)
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [])
+
+  // A link's own click does not move the scroll position, so `onScroll`
+  // never sees it — but opening one is exactly the kind of thing a streamed
+  // token should not scroll out from under. `element.contains` (real DOM
+  // ancestry, not React's tree) keeps this from firing on a portalled hover
+  // card's own link — its node lives outside this box no matter which
+  // component rendered it — and `a[href]` skips a row's own clickable
+  // wrapper, which is an anchor with nowhere to go.
+  const onScrollClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const element = scroll.current
+    const link = (event.target as HTMLElement).closest?.('a[href]')
+    if (element && link && element.contains(link)) setPinned(false)
   }, [])
 
   // Layout effect so the jump happens in the same frame the content grows,
@@ -596,13 +646,28 @@ export const Conversation = ({
   useLayoutEffect(() => {
     if (!pinned) return
     const element = scroll.current
-    if (element) element.scrollTop = element.scrollHeight
+    if (!element) return
+    element.dataset.autoscrolling = 'true'
+    element.scrollTop = element.scrollHeight
+    // A no-op assignment (already at the bottom) fires no `scroll` event at
+    // all, which would otherwise leave the mark to swallow the next real one.
+    const frame = requestAnimationFrame(() => delete element.dataset.autoscrolling)
+    return () => cancelAnimationFrame(frame)
   }, [items, pinned, session?.id])
 
   // Switching sessions always starts at the bottom of the new transcript.
   useEffect(() => {
     setPinned(true)
   }, [session?.id])
+
+  // A turn that was not there a moment ago is either a message the reader
+  // just sent or a fresh reply starting — either way the point of sending is
+  // to see what comes back, so a release from reading an earlier answer does
+  // not survive it.
+  const lastTurnId = session?.turns[session.turns.length - 1]?.id ?? null
+  useEffect(() => {
+    if (lastTurnId != null) setPinned(true)
+  }, [lastTurnId])
 
   // The transcript scrolls behind the floating composer; its measured height
   // becomes the scroll padding, so the last message always clears it — even
@@ -645,16 +710,30 @@ export const Conversation = ({
         {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
           <WindowControls />
         )}
-        <HeaderTitle session={session} />        {session && <span className="hd-no-drag inline-flex flex-none"><HeaderCeiling session={session} /></span>}
+        <HeaderTitle session={session} />
+        {/* Folds at a phone's width, same as the idle status and the rule:
+            the title is the one name in this row and must win the space.
+            The ceiling itself is not lost — it is still read from the seat's
+            own card (AgentCards, opened from Settings › Agents or this
+            conversation's own ⋯ › Save as an Agent…). */}
         {session && (
-          <span
-            className={`${styles.status} h-[22px] px-(--hd-space-2) rounded-(--hd-radius-md) text-base hd-no-drag ${softTone({ tone: STATUS_PILL_TONE[status] })}`}
-            data-status={status}
+          <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
+            <HeaderCeiling session={session} />
+          </span>
+        )}
+        {session && (
+          <Chip
+            tone={STATUS_PILL_TONE[status]}
+            className={`hd-no-drag${status === 'idle' ? ` ${styles.statusIdle}` : ''}`}
             title={STATUS_LABEL[status]}
           >
+            {/* The dot disagrees with the pill on purpose while running: Chip's
+                own rule has a dot borrow its chip's ink so the two never
+                disagree, which this one live indicator must do anyway, so it
+                draws its own mark instead of the shared Dot. */}
             <span className={`${styles.statusDot} h-[7px] rounded-full ${dotTone({ tone: STATUS_TONE[status] })} ${status === 'running' ? 'animate-[hd-pulse_var(--hd-duration-pulse)_ease-in-out_infinite]' : ''}`} />
             {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
-          </span>
+          </Chip>
         )}
         {session && <TasksChip />}
         <div className="hd-no-drag">
@@ -673,9 +752,15 @@ export const Conversation = ({
             status rather than with the buttons that do something. */}
         <PlanMeters onOpen={onOpenUsage} onSignIn={onSignIn} />
         {/* Everything to the left of this states a fact; everything to the
-            right does something. Without the rule they ran together as one
-            undifferentiated row of chrome. */}
-        {pane && <span className={`${styles.headerRule} h-[18px] bg-(--hd-border-strong)`} />}
+            right does something — the tool header's own divider, drawn for
+            the same reason between a tool's controls and its panel's. Wrapped
+            only so the phone-width fold below can hide it: the shared marker
+            takes no className of its own. */}
+        {pane && (
+          <span className={styles.headerRuleWrap}>
+            <ToolPaneHeaderDivider />
+          </span>
+        )}
         {/* A door to a view folds into ⋯ › View at a phone's width — where
             there is a ⋯ to fold into. A draft has none, so its browser button
             stays: folded, it was a door closed with nothing in its place. */}
@@ -701,12 +786,16 @@ export const Conversation = ({
             scroller and must not scroll with what it pictures. */}
         {session && <ConversationMap turns={session.turns} scroll={scroll} />}
         {loading && items.length === 0 ? (
+          // Shares its padding with ConversationEmptyState's, but not its
+          // shape: that pattern stacks a title over a sentence, and a spinner
+          // beside its word is a row, not a column — forcing one onto the
+          // other would flip which way this reads while it is loading.
           <div className={`${styles.loading} p-10`}>
             <Spinner size="sm" tone="brand" />
             <Text role="prose" ink="muted">Loading transcript…</Text>
           </div>
         ) : session && items.length > 0 ? (
-          <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
+          <div className={styles.scroll} ref={scroll} onScroll={onScroll} onClick={onScrollClick} data-live-transcript style={{ padding: SCROLL_PADDING }}>
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,
@@ -795,6 +884,9 @@ export const Conversation = ({
         )}
       </div>
 
+      {/* The fade this pane sits on is its own: no other screen holds a
+          scrolling transcript under a floating dock, so there is nowhere
+          else this gradient belongs yet. */}
       <div className={`${styles.dockArea} pt-(--hd-space-4) bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]`} ref={dockArea}>
         {/* Stacked by lifetime, shortest first: the jobs strip goes when this
             turn does, the queue happens after it. That order puts the thing
