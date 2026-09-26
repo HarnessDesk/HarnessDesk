@@ -464,11 +464,16 @@ const UserText = ({ text }: { text: string }) => {
 
   return (
     <Bubble variant="secondary">
-      <BubbleContent ref={body} variant="secondary" clampLines={12} expanded={expanded}>
+      <BubbleContent ref={body} clampLines={12} expanded={expanded}>
         {linkedText(text)}
       </BubbleContent>
       {overflowed && (
-        <Button variant="quiet" size="sm" className={`${styles.bubbleToggle} mt-(--hd-space-1)`} onClick={() => setExpanded((value) => !value)}>
+        <Button
+          variant="quiet" size="sm"
+          className={`${styles.bubbleToggle} mt-(--hd-space-1)`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
           {expanded ? 'Show less' : 'Show all'}
         </Button>
       )}
