@@ -187,6 +187,54 @@ test('an unpriced model is counted as unpriced, never as nothing', async () => {
   ledger.close()
 })
 
+test('a zero-token row is left unpriced even on a catalogued model — nothing to price is not $0', async () => {
+  const dir = scratch()
+  const databasePath = join(dir, 'usage.sqlite')
+  const store = new LedgerStore(databasePath)
+  store.commit(
+    { path: 'cursor-events:abc', size: 0, mtime: 0, offset: 0, tail: [] },
+    [
+      {
+        file: 'cursor-events:abc',
+        day: new Date(NOON).setHours(0, 0, 0, 0),
+        runtime: 'cursor',
+        model: 'claude-opus-5',
+        project: '',
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+        requests: 1,
+        vendorCost: null,
+      },
+    ],
+    NOON,
+    false,
+  )
+  store.close()
+
+  const pricing = new Pricing({
+    cachePath: join(dir, 'cache.json'),
+    overlayPath: join(dir, 'overlay.json'),
+    fetchCatalogue: async () => ({
+      anthropic: { models: { 'claude-opus-5': { id: 'claude-opus-5', cost: { input: 5, output: 25 } } } },
+    }),
+  })
+  await pricing.warm()
+
+  const ledger = new Ledger({ stateDir: dir, databasePath, corpora: [], pricing, now: () => NOON })
+  const report = ledger.query({ days: 30, groupBy: 'model' })
+  assert.equal(
+    report.coverage.unpriced,
+    1,
+    'a zero-token event on a model the catalogue knows would otherwise cost 0 x rates and read as priced',
+  )
+  assert.equal(report.coverage.priced, 0)
+  assert.equal(report.totalCost, null, 'nothing priced at all, so no total cost figure — never a false $0')
+  ledger.close()
+})
+
 test('the price overlay wins over the catalogue', async () => {
   const dir = scratch()
   writeFileSync(join(dir, 'overlay.json'), JSON.stringify({ 'claude-opus-5': { input: 1, output: 2 } }))

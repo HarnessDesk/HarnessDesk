@@ -331,23 +331,30 @@ used to leave undefined only for Cline.
 request-based plan's quota one event consumed: a plain call reads `1`, a cheap
 one can read a fraction of that, and a max-mode or otherwise expensive call
 reads several — the read behind this paragraph saw values past 300 on a
-single event. It is summed directly into the ledger's `requests`, so a
-max-mode call costs the row several requests rather than the flat one every
-other scanner counts per call. An event that omits it — about a quarter of a
-real window, always ones with no `tokenUsage` either — is counted as a single
-request, the same default Cursor's own dashboard falls back to for a call it
-does not itemise. One event in several hundred carries no `tokenUsage` at all
-(a non-token completion Cursor still bills for), and an event whose `kind` is
-`USAGE_EVENT_KIND_ABORTED_NOT_CHARGED` carries neither tokens nor a cost and
-is skipped outright — not a zero-cost row, no row at all.
+single event. That is the meter's own unit (the legacy request counter's
+`numRequests`, `docs/usage-dashboard.md`'s own Cursor meter section below),
+never the ledger's: `LedgerRow.requests` is a call count, the same count
+`SpendCoverage.priced` / `unpriced` partitions, so it would misread `requests`
+as a fraction of a call or several at once. Every event this scanner keeps
+counts as exactly one request, whatever `requestsCosts` said its quota weight
+was; `requestsCosts` itself is read only to decide whether a tokenless event
+is worth keeping at all. A small share of events carry no `tokenUsage` at all
+(a non-token completion Cursor still bills for) — those are kept only when
+`requestsCosts` is a nonzero weight, and dropped otherwise. An event whose
+`kind` is `USAGE_EVENT_KIND_ABORTED_NOT_CHARGED` carries neither tokens nor a
+cost and is skipped outright — not a zero-cost row, no row at all.
 
 `tokenUsage.totalCents / 100` is Value — the agent's own price for the
 tokens, `vendorCost` on the row, #992's rule — and it is never `chargedCents`,
 which is what the plan actually deducted and belongs only to the meter's
-`billing.overage.spent`, never the ledger. An event with no usable
-`totalCents` stays unpriced rather than free, and never shares a row with one
-that has a price: the same split every other scanner keeps between a request
-it can cost and one it cannot (`ledger/scan.ts`'s `add`).
+`billing.overage.spent`, never the ledger. A row with no tokens at all is
+never priced from the catalogue: the Ledger treats zero tokens as nothing to
+price, not a free $0 call, so it stays unpriced regardless of `vendorCost`. A
+token-bearing event with no usable `totalCents`, by contrast, falls through
+to the catalogue's own list-price rate for its model when one exists — an
+*estimate*, not a row left unpriced — and never shares a row with one that
+already has a Cursor-reported price: the same split every other scanner keeps
+between a request it can cost and one it cannot (`ledger/scan.ts`'s `add`).
 
 Because the source is remote rather than a file, it is keyed as its own
 "file" — `cursor-events:<hash of the account's own subject>`, never the raw
