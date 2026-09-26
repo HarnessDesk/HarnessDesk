@@ -89,6 +89,48 @@ const diffText = (): string[] =>
   [...container.querySelectorAll('td[class*="_code_"]')].map((cell) => cell.childNodes[1]?.textContent ?? '')
 
 describe('an opened tool step', () => {
+  it('does not offer to open a step with nothing under it', () => {
+    open(call({ tool: 'read', args: { file_path: '/workspace/README.md' }, result: [{ type: 'json', value: { output: '', isError: false } }] }))
+    expect(container.textContent).toContain('README.md')
+    expect(container.querySelector('button[aria-expanded]')).toBeNull()
+    expect(container.querySelector('[data-slot="list-row-detail"]')).toBeNull()
+  })
+
+  it("shows a plan write's plan, not the agent's echo of it", () => {
+    open(call({ tool: 'todo_write', args: { todos: [{ content: 'Read', status: 'completed' }] }, result: [{ type: 'text', text: 'Updated todo list: 0 pending, 0 in progress, 1 completed.' }] }))
+    expect(container.textContent).toContain('Read')
+    expect(container.textContent).not.toContain('Updated todo list')
+  })
+
+  it('draws nothing for a result with nothing in it, in any shape', () => {
+    open(call({ tool: 'README.md', args: { file_path: 'README.md' }, result: [{ type: 'json', value: { output: '', isError: false } }] }))
+    expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(0)
+    act(() => root.unmount())
+    root = createRoot(container)
+    open(call({ tool: 'lookup', result: [{ type: 'text', text: '  ' }, { type: 'json', value: '' }] }))
+    expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(0)
+  })
+
+  it("puts a shell call's {output} inside its own command plate, saying so when there was none", () => {
+    open(call({ tool: 'ls -a', args: { command: 'ls -a', description: 'List' }, result: [{ type: 'json', value: { output: '.\n..', isError: false } }] }))
+    expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(1)
+    expect(outputs()).toEqual(['.\n..'])
+    act(() => root.unmount())
+    root = createRoot(container)
+    open(call({ tool: 'ls -a', args: { command: 'ls -a', description: 'List' }, result: [{ type: 'json', value: { output: '', isError: false } }] }))
+    expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(1)
+    expect(outputs()).toEqual(['(no output)'])
+  })
+
+  it("reads whitespace-only shell output as none, and leaves a running call's output unset", () => {
+    open(call({ tool: 'ls -a', args: { command: 'ls -a', description: 'List' }, result: [{ type: 'json', value: { output: '  \n', isError: false } }] }))
+    expect(outputs()).toEqual(['(no output)'])
+    act(() => root.unmount())
+    root = createRoot(container)
+    open({ ...call({ tool: 'ls -a', args: { command: 'ls -a', description: 'List' }, result: [{ type: 'json', value: { output: '', isError: false } }] }), status: 'inProgress' } as AgentItem)
+    expect(outputs().filter((text) => text.trim() === '')).toEqual([])
+  })
+
   it('keeps an expanded body inside its row surface instead of drawing a second card', () => {
     open(call({ tool: 'search_files', args: { query: 'row surface' } }))
 

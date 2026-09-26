@@ -133,9 +133,12 @@ the wire. What ours still adds (streaming, replay, plans, titles) is
 presentation the desk can live without or derive: it keeps its own transcript,
 and reads the plan from `todo_write`.
 
-So DeepSeek is a template on DSH's own server. Our bridge takes session tool
-servers too from 0.6.0, for a desk pinned to an older DSH, and is otherwise
-not where DeepSeek support grows.
+So DeepSeek is a template on DSH's own server. Our bridge took session tool
+servers too from 0.6.0, for a desk pinned to an older DSH, and was otherwise
+not where DeepSeek support grew.
+
+Our bridge (`@harnessdesk/dsh-acp`) was removed from HarnessDesk's code,
+references and docs on 2026-09-25, once every desk could reach DSH 0.1.7.
 
 **The rule:** a seat's tools arrive with its session, or its board calls are
 refused; they are never shared and never attributed by inference.

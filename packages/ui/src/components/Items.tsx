@@ -73,7 +73,7 @@ import {
   type ToolCallVerb,
 } from '../lib/group-items'
 import { editOf } from '../lib/handoff'
-import { findTodos, type Todo } from '../lib/todos'
+import { findTodos, planOf, type Todo } from '../lib/todos'
 import { readToolResult } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
@@ -963,7 +963,22 @@ const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
  * `readToolResult`'s job, kept free of rendering so it can be run straight
  * over stored transcripts. This function only decides how each kind draws.
  */
+/** Whether a result part draws anything at all, by the same rules `resultPartView` follows. */
+const resultPartDraws = (part: ToolResultContent): boolean => {
+  if (part.type === 'text') return part.text.trim() !== ''
+  if (part.type === 'image') return true
+  if (typeof part.value === 'string') return part.value.trim() !== ''
+  const reading = readToolResult(part.value)
+  if (reading.kind === 'output') return reading.text.trim() !== ''
+  if (reading.kind === 'blocks') return reading.blocks.some((block) => block.type === 'image' || block.text.trim() !== '')
+  return true
+}
+
 const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
+  // Nothing to show draws nothing, in any of a result's shapes (see the
+  // `{output}` case below).
+  if (part.type === 'text' && part.text.trim() === '') return null
+  if (part.type === 'json' && typeof part.value === 'string' && part.value.trim() === '') return null
   if (part.type === 'text') {
     return <CodeBlock key={key} output={stripAnsi(part.text)} />
   }
@@ -993,6 +1008,9 @@ const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
     // through the plate's own mechanism rather than a second one here.
     return <CodeBlock key={key} command={reading.command} output={reading.output ? stripAnsi(reading.output) : '(no output)'} exitCode={reading.exitCode} />
   }
+  // A result with nothing in it draws nothing: an empty plate under a step
+  // reads as output that failed to load, when there was simply none.
+  if (reading.kind === 'output' && reading.text.trim() === '') return null
   if (reading.kind === 'output') {
     // A bare `{output, isError}` pair (DeepSeek, among others): the text is
     // drawn the same way `item.error` already is, whichever it says.
@@ -1051,6 +1069,12 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const commandOutputParts = command ? item.result?.map((part) => {
     if (part.type === 'text') return stripAnsi(part.text)
     if (part.type === 'json' && typeof part.value === 'string') return stripAnsi(part.value)
+    // A shell call whose runtime wraps its output in `{output, isError}`:
+    // the output belongs inside the command's own plate, not in a second box.
+    if (part.type === 'json') {
+      const reading = readToolResult(part.value)
+      if (reading.kind === 'output') return stripAnsi(reading.text)
+    }
     return null
   }) : undefined
   const commandOutput = commandOutputParts && commandOutputParts.length > 0
@@ -1107,6 +1131,13 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const Icon = plans ? PlanIcon : VERB_ICON[verb]
   const readsInFull =
     detail?.kind === 'read' && record !== null && Object.keys(record).every((key) => PATH_KEYS.includes(key))
+  const argsShown = !(recordsCommand || readsInFull) && typeof item.args === 'object' && item.args !== null
+    && (Array.isArray(item.args) || Object.keys(item.args).length > 0)
+  const resultsShown = !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed')
+    && (item.result ?? []).some(resultPartDraws)
+  /* A step with nothing to show under it does not offer to open: an opened
+     card with an empty body reads as something that failed to load. */
+  const bodyEmpty = !wire && !item.error && !change && !command && !argsShown && !resultsShown
 
   return (
     <Row
@@ -1133,6 +1164,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
       bareBody={Boolean(change) || Boolean(command) || recordsCommand}
     >
+      {bodyEmpty ? null : (<>
       {/* A plain wrapper, not `Text` itself: `Text` owns `data-role` for its
           own role, so a second meaning of the attribute has to sit outside it. */}
       {wire && (
@@ -1153,7 +1185,11 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               description is the row's title and the background flag is the
               panel's business, so neither is repeated here as a field. */}
           {command ? (
-            <CodeBlock command={shellCommandOf(command)} output={commandOutput} onCopyError={copyFailed} />
+            <CodeBlock
+              command={shellCommandOf(command)}
+              output={commandOutput !== undefined && commandOutput.trim() === '' ? (item.status === 'inProgress' ? undefined : '(no output)') : commandOutput}
+              onCopyError={copyFailed}
+            />
           ) : recordsCommand || readsInFull ? null : (
             // A result that is its own command record already opens onto the
             // command it ran; its arguments would only say it again, with the
@@ -1161,10 +1197,14 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
             // argument is the file the title already names.
             <ArgsView args={item.args} root={root} />
           )}
+          {/* A plan write that went through already shows the plan it wrote;
+              the agent's echo of it ("Updated todo list: …") says it twice. */}
           {commandOutput === undefined &&
+            !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed') &&
             item.result?.map((part, index) => resultPartView(part, String(index)))}
         </>
       )}
+      </>)}
     </Row>
   )
 }
