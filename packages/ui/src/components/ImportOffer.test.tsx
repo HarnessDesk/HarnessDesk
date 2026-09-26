@@ -75,6 +75,12 @@ const makeStore = (over: Partial<AppSnapshot>) => {
       snapshot = { ...snapshot, noticePolicy: afterDismiss(snapshot.noticePolicy, identity, Date.now()) }
       for (const listener of listeners) listener()
     },
+    // `useKeptOnce` calls these unconditionally as the offer's identity moves
+    // between found, dismissed and gone again; no test here reads them back,
+    // so a no-op is enough to keep the hook from throwing on a stub store.
+    keep: () => {},
+    markNoticeKept: () => {},
+    clearNoticeKept: () => {},
     policy: () => snapshot.noticePolicy,
     detections: () => detections,
   } as unknown as AppStore & {

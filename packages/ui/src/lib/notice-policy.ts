@@ -78,9 +78,21 @@ export interface NoticePolicy {
   readonly seen: readonly string[]
   /** Where a kind is shown, when a person has moved it from its default. */
   readonly surfaces: Readonly<Record<string, NoticeSurface>>
+  /**
+   * Standing notices already copied into the inbox, by their own `key`.
+   *
+   * A message kept there is not re-added the moment its window redraws it —
+   * that would undo a "Clear" or a read the instant the condition it names is
+   * still true, which is every render. Keyed separately from the inbox itself
+   * so clearing or reading the inbox copy never re-opens the door: the key
+   * only leaves this list when the underlying occurrence does, which shows up
+   * here as a new key.
+   */
+  readonly kept: readonly string[]
 }
 
 const SEEN_LIMIT = 40
+const KEPT_LIMIT = 40
 
 /**
  * How many times a kind has to be put away before its dismiss control offers
@@ -89,7 +101,7 @@ const SEEN_LIMIT = 40
  */
 export const MUTE_AFTER = 2
 
-export const emptyNoticePolicy = (): NoticePolicy => ({ muted: [], records: {}, seen: [], surfaces: {} })
+export const emptyNoticePolicy = (): NoticePolicy => ({ muted: [], records: {}, seen: [], surfaces: {}, kept: [] })
 
 const strings = (raw: unknown): readonly string[] =>
   Array.isArray(raw) ? raw.filter((entry): entry is string => typeof entry === 'string') : []
@@ -124,6 +136,7 @@ export const readNoticePolicy = (raw: unknown): NoticePolicy => {
     records,
     seen: strings(source.seen).slice(-SEEN_LIMIT),
     surfaces,
+    kept: strings(source.kept).slice(-KEPT_LIMIT),
   }
 }
 
@@ -171,6 +184,24 @@ export const withMuted = (policy: NoticePolicy, kind: string, muted: boolean): N
   ...policy,
   muted: muted ? mutedWith(policy.muted, kind) : policy.muted.filter((entry) => entry !== kind),
 })
+
+/** Whether this standing notice's own key has already been copied into the inbox. */
+export const wasKept = (policy: NoticePolicy, key: string): boolean => policy.kept.includes(key)
+
+/** Records that a standing notice's key has been copied into the inbox, so it is not copied again while it holds. */
+export const withKept = (policy: NoticePolicy, key: string): NoticePolicy =>
+  policy.kept.includes(key) ? policy : { ...policy, kept: [...policy.kept, key].slice(-KEPT_LIMIT) }
+
+/**
+ * Forgets that a key was copied into the inbox — called the moment a
+ * standing notice moves on to a different key (or none), which for a kind
+ * whose key carries no window of its own (`signin:<runtime>`,
+ * `health:<id>:<message>`) is the only way "the occurrence ended" ever shows
+ * up. Without this, signing out a second time would find its own key still
+ * marked kept from the first, and never be copied into the inbox again.
+ */
+export const withoutKept = (policy: NoticePolicy, key: string): NoticePolicy =>
+  policy.kept.includes(key) ? { ...policy, kept: policy.kept.filter((entry) => entry !== key) } : policy
 
 /**
  * Whether this message's dismiss control should also offer to silence it.

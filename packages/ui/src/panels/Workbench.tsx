@@ -25,6 +25,7 @@ import {
 } from '../design'
 import { Menu, MenuItem, MenuLabel, Popover, dismissOverlays } from '../design'
 import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
+import { NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import type { PaneView } from '../state/layout'
@@ -322,6 +323,9 @@ const RightPanel = () => {
   // panel takes the conversation's width while it is open, and the seam goes
   // for the same reason it goes in a zoom: nothing beside it to trade with.
   const sized = !zoomed && !snapshot.narrowWindow
+  // Zoomed, or laid over a narrow window's main area, this is the panel being
+  // read, and the strip above the panes rides here instead of the main area.
+  const noticeHost = noticeArea(workbench, snapshot.narrowWindow) === 'right'
   return (
     <>
       {sized && (
@@ -330,10 +334,9 @@ const RightPanel = () => {
       <div
         className={styles.right}
         style={sized ? { width: 'var(--panel-right)' } : undefined}
-        /* Zoomed, or laid over a narrow window's main area, this is the
-           panel being read, and the desk's notices ride it (#896). */
-        {...(noticeArea(workbench, snapshot.narrowWindow) === 'right' ? { 'data-notice-host': '' } : {})}
+        {...(noticeHost ? { 'data-notice-host': '' } : {})}
       >
+        {noticeHost && <NoticeStripOutlet host />}
         <PanelArea area="right" />
       </div>
     </>
@@ -348,6 +351,8 @@ const BottomPanel = () => {
   if (dockViews(dock).length === 0 || !shown) return <EdgeDropZone area="bottom" />
   const zoomed = workbench.zoom?.area === 'bottom'
   const height = dock.collapsed || zoomed ? undefined : 'var(--panel-bottom)'
+  // Zoomed is the one place `noticeArea` ever answers `bottom`.
+  const noticeHost = zoomed
   return (
     <>
       {!dock.collapsed && !zoomed && (
@@ -356,9 +361,9 @@ const BottomPanel = () => {
       <div
         className={styles.bottom}
         style={height ? { height } : undefined}
-        /* Zoomed, the one place `noticeArea` answers `bottom`. */
-        {...(zoomed ? { 'data-notice-host': '' } : {})}
+        {...(noticeHost ? { 'data-notice-host': '' } : {})}
       >
+        {noticeHost && <NoticeStripOutlet host />}
         <PanelArea area="bottom" />
       </div>
     </>

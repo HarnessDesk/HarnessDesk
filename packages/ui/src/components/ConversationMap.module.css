@@ -14,27 +14,40 @@
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 0;
+  gap: var(--hd-space-1-5); /* desk: 0 → 6px, so the marks read as a dense ruler rather than a column of chip-sized buttons */
   width: var(--hd-space-8);
   pointer-events: auto;
+  cursor: pointer; /* desk: the button's own → the rail's, now that the rail itself is the one target */
 }
 
 /*
- * The target around one thing said. It is the canonical control at its
- * smallest, which is the 24px floor: the dash inside it is two pixels tall and
- * nobody can hit two pixels.
- *
- * It stands in from the rail's left edge rather than the rail padding itself,
- * so the gutter to its left still belongs to the rail and a pointer there
- * still drives the magnification.
+ * The target around one thing said — no longer a control of its own. A
+ * chip-sized hit box per mark, at a real transcript's length, read as a
+ * column of buttons rather than one surface, so the rail is the single
+ * target now and the pointer picks the nearest mark the same way its push
+ * already does (see the component). What stays here is only the dash's own
+ * inset from the rail's edge, unchanged so `railFit`'s horizontal
+ * arithmetic — which this file does not otherwise touch — still measures
+ * what it always has.
  */
-/* Two classes, so this outranks the button's own centring: a dash grows from
-   its start, rightward into the gutter, never back out of the rail. */
 .rail .mark {
   flex: none;
-  justify-content: flex-start;
-  margin-left: var(--hd-space-2); /* desk: the rail's padding-left → the mark's margin, the same 8px */
-  width: calc(100% - var(--hd-space-2)); /* desk: 100% → less the margin, so the mark keeps its 24px */
+  margin-left: var(--hd-space-2);
+  width: calc(100% - var(--hd-space-2));
+}
+
+/*
+ * The keyboard's own mark stands at full strength rather than the pointer's
+ * usual peak (0.8) — focus is certain in a way a hover never is. The ring
+ * itself is `Tick`'s own `ring` prop (`design/ui/spark.tsx`): drawing it here
+ * would put an edge-family declaration in a screen sheet the audit's
+ * `screenAppearance` ceiling can only fall, not a place this rail may spend
+ * one. Never a pointer hover: `data-keyboard-current` is the keyboard's own
+ * position, not the pointer's nearest mark (`data-current`, which a hover
+ * reaches too).
+ */
+.rail .mark[data-keyboard-current] .dash {
+  opacity: 1;
 }
 
 /*
@@ -50,6 +63,7 @@
  */
 .dash {
   display: block;
+  margin-left: var(--hd-space-2); /* desk: the button's own px-2 → the dash's own margin, now that the mark it sits in is not a control */
   width: min(var(--cap, 100vw), calc(var(--hd-space-2) + var(--near, 0) * var(--reach, var(--hd-space-3)))); /* desk: the push is --reach (measured, at most --hd-space-3) and the dash stops at --cap in a tight pane */
   opacity: calc(0.35 + var(--near, 0) * 0.45);
   transition:
@@ -73,30 +87,29 @@
   margin-left: 0; /* desk: --hd-space-2 → 0, with the rail */
 }
 
-.rail .mark:focus-visible .dash {
-  opacity: 1;
-}
-
 /*
  * The first words, offered to the nearest mark only.
  *
- * It hangs to the right of the rail rather than over the column, because the
- * column is what the reader is looking for and covering it to describe it is
- * the wrong trade. The plate is the system's tip; this places it, and stops it
- * at four lines with an ellipsis rather than a cut through the fifth.
+ * The card itself is the system's Tooltip: anchored to its mark, so it flips
+ * to the other side and shifts along its axis rather than running off the
+ * window the way a hand-placed `translateY(-50%)` did for a mark near either
+ * edge. Only its text needs a rule of its own, below.
  */
 .preview {
-  position: absolute;
-  left: calc(100% + var(--hd-space-2));
-  z-index: 2;
-  display: -webkit-box; /* desk: block → -webkit-box, the box line-clamp needs */
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4; /* desk: max-height of four lines → line-clamp 4, an ellipsis instead of a cut */
-  line-clamp: 4;
-  width: 280px;
-  overflow: hidden;
   text-align: left;
   white-space: normal;
-  pointer-events: none;
-  transform: translateY(-50%);
+}
+
+/*
+ * Stopped at four lines with an ellipsis rather than a cut through the fifth
+ * — clamped on this element and not the card around it, because a line-clamp
+ * on a padded box lets its last line show through the padding underneath
+ * instead of being cut at the box's own edge.
+ */
+.previewText {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
 }

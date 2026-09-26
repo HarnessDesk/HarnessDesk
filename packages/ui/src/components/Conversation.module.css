@@ -25,25 +25,30 @@
    not a headline over it. */
 .title {
   flex: 1;
-  min-width: 0;
+  /* A floor so the ceiling chip beside it (or, narrower still, the plan
+     strip) cannot squeeze the one name in this row down past a few letters —
+     the fold beside it gives way first. 12ch measured 17px past the header's
+     own width at 340px with every other fold already spent; 9ch is the
+     widest floor that still fits there, which still keeps 11 of this pane's
+     own title, comfortably over the 10-character floor asked for. Layout
+     only: a minimum width, not a look. */
+  min-width: min(9ch, 40%); /* desk: 0 → min(9ch, 40%), the title's own floor */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.status {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
+/* Chip (design/patterns/Settings) now owns the pill's own shape and ground;
+   `.statusIdle` below is only the phone-width fold's hook for the idle pill,
+   which carries no fact worth a colour of its own. */
 
 .statusDot {
   width: 7px;
 }
 
-/* Status appearance (color, background, height, border-radius, padding)
-   composed on the elements via Tailwind. */
+/* The dot's shape and colour (height, border-radius, background) are
+   composed on the element via Tailwind — see the comment beside it in
+   Conversation.tsx for why it is not the shared Dot. */
 
 .tasksChip {
   flex: none;
@@ -73,11 +78,11 @@
   display: none;
 }
 
-/* The line between what the header says and what it does. */
-.headerRule {
-  flex: none;
-  width: 1px;
-  margin: 0 var(--hd-space-1); /* desk: canonical One UI System scale */
+/* ToolPaneHeaderDivider (design/ui/tool-pane) now draws the line between what
+   the header says and what it does; this wraps it only so the fold below can
+   hide it, since the shared marker takes no className of its own. */
+.headerRuleWrap {
+  display: contents;
 }
 
 .headerButton {
@@ -125,8 +130,18 @@
    door to a view folds into ⋯ › View. The header marks the doors that have a
    ⋯ to fold into (`data-folds`); a draft has none, and keeps its browser. */
 @container hd-header (max-width: 400px) {
-  .status[data-status='idle'],
-  .headerRule,
+  /* `.statusIdle` sits on the same element as Chip's own `.chip` class
+     (`display: inline-flex`, Settings.module.css) — a single class each, so
+     a plain `.statusIdle` here ties with it on specificity and the winner
+     becomes whichever module's CSS lands later in the bundle. The extra
+     attribute selector, on `data-slot` Chip always sets, breaks the tie in
+     this rule's favour regardless of load order. */
+  .statusIdle[data-slot='chip'],
+  .headerRuleWrap,
+  /* Same tie as the idle pill above: Tailwind's own `inline-flex` utility on
+     this span is a single class too, so a plain `.ceilingWrap` here can lose
+     to it on bundle order. `data-slot` is this span's own, not borrowed. */
+  .ceilingWrap[data-slot='ceiling-wrap'],
   .headerButtonWrap[data-folds] {
     display: none;
   }

@@ -91,3 +91,29 @@ test('an unattributed call is refused rather than guessed', async (t) => {
   const { team } = await rig(t)
   await assert.rejects(team.notify({ where: 'inbox', title: 'who am I' }, {}))
 })
+
+test('two messages the same conversation sends inside one millisecond get two different ids', async (t) => {
+  // A real clock ticks between two awaited calls almost always, which is
+  // exactly the case this would not catch — the collision only shows up when
+  // `Date.now()` genuinely answers the same millisecond twice.
+  t.mock.timers.enable({ apis: ['Date'] })
+  const { team, delivered } = await rig(t)
+  await team.notify({ where: 'inbox', title: 'first' }, scope)
+  await team.notify({ where: 'inbox', title: 'second' }, scope)
+  assert.equal(delivered.length, 2)
+  assert.notEqual(delivered[0]!.id, delivered[1]!.id)
+})
+
+test('a sender that used up its window is not held to it once the window has fully elapsed', async (t) => {
+  // Every call sweeps every sender's timestamps older than the window, not
+  // only the caller's own — otherwise a conversation that sends once and is
+  // never heard from again would sit in the map for the life of the host.
+  // That sweep is only observable through the rate limit it also serves:
+  // a sender that earned a refusal earns it back once its own window clears.
+  t.mock.timers.enable({ apis: ['Date'] })
+  const { team } = await rig(t)
+  for (let index = 0; index < 5; index += 1) await team.notify({ where: 'inbox', title: `n${index}` }, scope)
+  assert.match(await team.notify({ where: 'inbox', title: 'one too many' }, scope), /^Refused: .*5 things/)
+  t.mock.timers.tick(10 * 60_000 + 1)
+  assert.doesNotMatch(await team.notify({ where: 'inbox', title: 'fresh again' }, scope), /^Refused/)
+})

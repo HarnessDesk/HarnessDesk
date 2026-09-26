@@ -71,6 +71,42 @@
   min-width: 0;
 }
 
+/* Tight to the bar's own height (`--hd-bar-h`, plus the frame's own 1px
+   border) — the real screen still mounts in full underneath; only the frame
+   around it is this short, so a row of these reads as states of one header
+   rather than six repeats of the whole conversation. The composer dock is
+   `position: absolute; bottom: 0` of that real screen, not of this frame, so
+   a crop this short pulls it up over the header rather than hiding it below
+   the fold — hidden below for that reason, the one place in this directory a
+   screen's own part is suppressed, and only because the frame is short, not
+   the screen itself. */
+.frame[data-height='header'] {
+  height: calc(var(--hd-bar-h) + 1px); /* desk: 220px → calc(46px + 1px), tight to the bar itself now the dock is hidden here */
+}
+
+.frame[data-height='header'] [class*='dockArea'] {
+  display: none;
+}
+
+.headerCases {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+  margin-top: var(--hd-space-4);
+}
+
+.headerCase {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+  min-width: 0;
+}
+
+.headerCaseLabel {
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
 @media (max-width: 900px) {
   .pair {
     grid-template-columns: minmax(0, 1fr);

@@ -687,18 +687,18 @@ const errorText = (error: unknown): string =>
  * `UNATTRIBUTED` is permanent for that runtime and the fix is not the agent's.
  * `NOT_LIVE` is transient and the agent can fix it by taking a turn.
  */
+const UNATTRIBUTED =
+  'This call carries no caller token, so the board cannot tell which conversation is asking — and it records who asked for everything it stores. This will not change by retrying: it is how this agent is connected, not what you did. The desk shows it on the member row, with what would fix it.'
+
+const NOT_LIVE =
+  'This conversation is not attached to its agent, so it is not on the board yet. It joins when it takes a turn.'
+
 /** How much a message to the person may say, and how often one conversation may send one. */
 const PERSON_NOTICE_TITLE = 120
 const PERSON_NOTICE_BODY = 600
 const PERSON_NOTICE_TASK = 2000
 const PERSON_NOTICE_LIMIT = 5
 const PERSON_NOTICE_WINDOW_MS = 10 * 60_000
-
-const UNATTRIBUTED =
-  'This call carries no caller token, so the board cannot tell which conversation is asking — and it records who asked for everything it stores. This will not change by retrying: it is how this agent is connected, not what you did. The desk shows it on the member row, with what would fix it.'
-
-const NOT_LIVE =
-  'This conversation is not attached to its agent, so it is not on the board yet. It joins when it takes a turn.'
 
 /** The last segment of a path — a room's name when nobody gave it one. */
 const folderOf = (root: string): string =>
@@ -2681,7 +2681,17 @@ export class Team {
     }
     const key = keyOf(caller.runtime, caller.sessionId)
     const now = Date.now()
-    const recent = (this.#personNotices.get(key) ?? []).filter((at) => now - at < PERSON_NOTICE_WINDOW_MS)
+    // Every call is a natural point to drop what the window has fully cleared
+    // — a conversation that sends once and is never seen again would
+    // otherwise leave its entry in this map, forever, for the life of the
+    // host. Swept here rather than on a timer, since the map is only ever
+    // read at a call like this one.
+    for (const [otherKey, timestamps] of this.#personNotices) {
+      const kept = timestamps.filter((at) => now - at < PERSON_NOTICE_WINDOW_MS)
+      if (kept.length === 0) this.#personNotices.delete(otherKey)
+      else if (kept.length !== timestamps.length) this.#personNotices.set(otherKey, kept)
+    }
+    const recent = this.#personNotices.get(key) ?? []
     if (recent.length >= PERSON_NOTICE_LIMIT) {
       audit('refused-rate')
       return `Refused: this conversation has already told the person ${PERSON_NOTICE_LIMIT} things in the last ten minutes. Put the rest in your reply, or send one message that sums it up later.`
@@ -2691,7 +2701,11 @@ export class Team {
     const body = input.body?.trim().slice(0, PERSON_NOTICE_BODY)
     const task = input.task?.trim().slice(0, PERSON_NOTICE_TASK)
     this.#port.notifyPerson?.({
-      id: `${key}:${now}`,
+      // `now` alone collides when the same conversation calls twice inside
+      // one millisecond — two genuinely different messages would then share
+      // one id, and whichever the inbox or the composer keeps by id would
+      // silently drop the other.
+      id: `${key}:${now}:${(this.#noticeSeq += 1)}`,
       from: { runtime: caller.runtime, sessionId: caller.sessionId, name: caller.seatedAs ?? caller.title ?? caller.agent },
       where,
       title,
@@ -3724,6 +3738,9 @@ export class Team {
   readonly #used = new Set<string>()
   /** When each conversation last told the person something, for the rate limit. */
   readonly #personNotices = new Map<string, number[]>()
+
+  /** Breaks a tie between two `notify()` calls the same conversation makes inside one millisecond. */
+  #noticeSeq = 0
 
   /**
    * The board this caller reads, which is its room's and no other.

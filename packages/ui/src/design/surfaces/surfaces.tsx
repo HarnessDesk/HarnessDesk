@@ -1,10 +1,13 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+
+import type { Session } from '@harnessdesk/protocol'
 
 import { BrowserPane } from '../../components/BrowserPane'
 import { Composer } from '../../components/Composer'
 import { FilePane } from '../../components/FilePane'
 import { Conversation } from '../../components/Conversation'
 import { GitPane } from '../../components/GitPane'
+import { SignIn } from '../../components/SignIn'
 import { Sidebar } from '../../components/Sidebar'
 import { TeamBoardPane } from '../../components/TeamBoardPane'
 import { TeamRoomPane } from '../../components/TeamRoomPane'
@@ -14,8 +17,10 @@ import { MountProvider } from '../../panels/mount'
 import { Workbench } from '../../panels/Workbench'
 import { dock, emptyWorkbench } from '../../state/workbench'
 import { PaneProvider } from '../../state/context'
+import type { AppStore } from '../../state/store'
 import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../preview/harness'
-import { PREVIEW_ROOT, previewHistory } from '../../preview/sidebar-fixture'
+import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
+import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
 import styles from './surfaces.module.css'
 
 /**
@@ -57,32 +62,302 @@ const Frame = ({
 )
 
 /**
+ * A store whose `s1` session carries a status, a ceiling or an approval the
+ * fixture's own does not, built from a fresh default store rather than the
+ * shared one `previewStore()` exports — so a failed case here cannot leave
+ * the module's own `store` failed for every other board that imports it.
+ */
+const conversationStatusStore = (over: {
+  status?: unknown
+  approvals?: unknown
+  /** Strip the fixture's own ceiling — the plain path idle demonstrates. */
+  noCeiling?: boolean
+}): AppStore => {
+  const base = previewStore().getSnapshot()
+  const sessions = new Map(base.sessions)
+  const session = sessions.get(PREVIEW_SESSION_KEY)
+  if (session) {
+    const settings = over.noCeiling
+      ? { ...(session as never as { settings: Record<string, unknown> }).settings, ceiling: undefined, ceilingNote: undefined }
+      : (session as never as { settings: unknown }).settings
+    sessions.set(PREVIEW_SESSION_KEY, {
+      ...session,
+      ...(over.status !== undefined ? { status: over.status } : {}),
+      settings,
+    } as never)
+  }
+  return previewStore({
+    sessions,
+    ...(over.approvals !== undefined ? { approvals: over.approvals as never } : {}),
+  } as never)
+}
+
+const IDLE_STORE = conversationStatusStore({ noCeiling: true })
+const RUNNING_STORE = conversationStatusStore({ status: { type: 'active' } })
+const FAILED_STORE = conversationStatusStore({ status: { type: 'error' } })
+const WAITING_STORE = conversationStatusStore({
+  approvals: [{
+    key: PREVIEW_SESSION_KEY,
+    approval: {
+      id: 'catalog-waiting-approval', type: 'command', kind: 'shell', command: 'pnpm test',
+      cwd: PREVIEW_ROOT, reason: 'Runs the project’s tests before the review is written.',
+      options: [
+        { id: 'yes', label: 'Allow', intent: 'approve' },
+        { id: 'always', label: 'Allow for this session', intent: 'approveAlways' },
+        { id: 'no', label: 'Deny', intent: 'deny' },
+      ],
+    },
+  }],
+})
+
+/**
+ * One header case: a caption naming what it proves, a frame cropped to
+ * exactly the bar's own height — border included — so nothing from the
+ * transcript or the composer shows, and a `data-testid` a browser spec can
+ * reach directly rather than searching the tab for the Nth header.
+ *
+ * The crop alone is not enough: the composer dock is `position: absolute;
+ * bottom: 0` of the real screen mounted underneath, not of this frame, so a
+ * short frame pulls it up over the header rather than hiding it below the
+ * fold. `surfaces.module.css` hides it for this one data-height value only —
+ * the one place in this directory a screen's own part is suppressed, and
+ * only because the frame around it, not the screen, is what is short here.
+ */
+const HeaderCase = ({
+  id,
+  label,
+  width,
+  children,
+}: {
+  id: string
+  label: string
+  width?: number
+  children: ReactNode
+}) => (
+  <div className={styles.headerCase} data-testid={id}>
+    <span className={styles.headerCaseLabel}>{label}</span>
+    <div className={styles.frame} data-height="header" style={width ? { width } : undefined}>
+      {children}
+    </div>
+  </div>
+)
+
+/**
  * The conversation, scoped exactly the way the workbench scopes it.
  *
  * `PaneProvider` is not decoration here: the transcript reads its session from
  * the pane, and the composer under it asks whether its pane has focus. Mount
  * it without one and you are looking at a branch the app never shows.
+ *
+ * Below the full conversation, the header alone, in the states the fixture
+ * above cannot show at once: idle on the plain path (no ceiling — a resting
+ * status says nothing its absence does not, and this is the one case that
+ * shows it), the ceiling chip named on its own, running with its brand dot,
+ * waiting for an approval, failed, and the phone-width fold. Each still
+ * mounts the real `Conversation` — only the frame around it is shorter, or
+ * narrower, than the one above.
  */
 export const ConversationSurface = () => (
-  <Mount>
-    <Frame height="page">
-      <PaneProvider
-        scope={{
-          paneId: 'design' as never,
-          view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
-          sessionKey: PREVIEW_SESSION_KEY,
-        }}
-      >
-        <Conversation
-          onChooseProject={() => {}}
-          onSignIn={() => {}}
-          onOpenUsage={() => {}}
-          onOpenRuntimes={() => {}}
-        />
-      </PaneProvider>
-    </Frame>
-  </Mount>
+  <>
+    <Mount>
+      <Frame height="page">
+        <PaneProvider
+          scope={{
+            paneId: 'design' as never,
+            view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+            sessionKey: PREVIEW_SESSION_KEY,
+          }}
+        >
+          <Conversation
+            onChooseProject={() => {}}
+            onSignIn={() => {}}
+            onOpenUsage={() => {}}
+            onOpenRuntimes={() => {}}
+          />
+        </PaneProvider>
+      </Frame>
+    </Mount>
+    <div className={styles.headerCases}>
+      <HeaderCase id="conversation-header-idle" label="Idle">
+        <Mount with={IDLE_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-idle' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-ceiling" label="Ceiling chip (Read · held)">
+        <Mount>
+          <PaneProvider
+            scope={{
+              paneId: 'design-ceiling' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-running" label="Running — neutral pill, brand dot">
+        <Mount with={RUNNING_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-running' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-waiting" label="Waiting for you">
+        <Mount with={WAITING_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-waiting' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-failed" label="Failed">
+        <Mount with={FAILED_STORE}>
+          <PaneProvider
+            scope={{
+              paneId: 'design-failed' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+      <HeaderCase id="conversation-header-narrow" label="Phone width (≤400px container)" width={360}>
+        <Mount>
+          <PaneProvider
+            scope={{
+              paneId: 'design-narrow' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          </PaneProvider>
+        </Mount>
+      </HeaderCase>
+    </div>
+  </>
 )
+
+/**
+ * A store of its own — `ConversationSurface`'s one turn never overflows, so
+ * the rail it mounts stays hidden, and the shared default store cannot be
+ * patched in place without moving that tab's own conversation out from under
+ * it. `denseTurns` is the same fixture `?dense` gives the browser spec: 14
+ * exchanges, long enough on their own to overflow a page-height frame without
+ * any help.
+ */
+const denseSession = { ...previewSession, turns: denseTurns } as unknown as Session
+
+/**
+ * The conversation map at the pitch a real transcript reads at.
+ *
+ * `ConversationSurface`, above, has one exchange — two marks, the rail's
+ * loosest case. Here there are fourteen: enough for the ~8px ruler the rail
+ * only becomes once a transcript is actually long, rather than the wide
+ * chip-like dashes two marks alone would still draw at this same width.
+ */
+export const ConversationMapDenseSurface = () => (
+  <div data-testid="conversation-map-dense">
+    <Mount with={previewStore({ sessions: new Map([[PREVIEW_SESSION_KEY, denseSession]]) })}>
+      <Frame height="page">
+        <PaneProvider
+          scope={{
+            paneId: 'design-map-dense' as never,
+            view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+            sessionKey: PREVIEW_SESSION_KEY,
+          }}
+        >
+          <Conversation
+            onChooseProject={() => {}}
+            onSignIn={() => {}}
+            onOpenUsage={() => {}}
+            onOpenRuntimes={() => {}}
+          />
+        </PaneProvider>
+      </Frame>
+    </Mount>
+  </div>
+)
+
+/**
+ * The same dense transcript with the rail's own preview already open.
+ *
+ * Not a hover stood in by hand: a real `.focus()` right after mount, which
+ * the rail already treats as the keyboard's — a script-driven focus with no
+ * pointer interaction just before it matches `:focus-visible` the same way
+ * Tab does — so this is a state the rail genuinely has, caught rather than
+ * staged. Press Escape to close it, or Up/Down to move it, the same as
+ * anywhere else the rail shows up.
+ */
+export const ConversationMapPreviewOpenSurface = () => {
+  const scope = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // The rail draws nothing until its own effect has measured the scroller
+    // and found it overflows, a tick or two after this one mounts — so the
+    // nav is not there to focus yet on the first pass. A short-lived
+    // observer catches it the moment it is.
+    const found = scope.current?.querySelector<HTMLElement>('nav[aria-label="Jump to a message"]')
+    if (found) {
+      found.focus()
+      return
+    }
+    const node = scope.current
+    if (!node) return
+    const observer = new MutationObserver(() => {
+      const rail = node.querySelector<HTMLElement>('nav[aria-label="Jump to a message"]')
+      if (rail) {
+        rail.focus()
+        observer.disconnect()
+      }
+    })
+    observer.observe(node, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <div ref={scope} data-testid="conversation-map-preview-open">
+      <Mount with={previewStore({ sessions: new Map([[PREVIEW_SESSION_KEY, denseSession]]) })}>
+        <Frame height="page">
+          <PaneProvider
+            scope={{
+              paneId: 'design-map-preview' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation
+              onChooseProject={() => {}}
+              onSignIn={() => {}}
+              onOpenUsage={() => {}}
+              onOpenRuntimes={() => {}}
+            />
+          </PaneProvider>
+        </Frame>
+      </Mount>
+    </div>
+  )
+}
 
 /**
  * The composer alone, at the width the conversation column gives it.
@@ -351,6 +626,25 @@ export const DashboardSurface = () => (
   <Mount>
     <Frame height="window">
       <Usage onClose={() => {}} onSignIn={() => {}} />
+    </Frame>
+  </Mount>
+)
+
+/**
+ * Sign in, on the agent whose sign-in is waiting for a pasted code.
+ *
+ * The dialog the app opens from the seat and the rail, on the roster
+ * `/preview.html` photographs (`preview/signin-fixture.ts`), in the one state
+ * no other page shows: a browser sign-in whose command asked for the code the
+ * page shows when it cannot finish by itself. The dialog lays itself out in
+ * place rather than in a portal, so a window-sized frame holds it.
+ */
+const signInStore = previewStore(signInSeed('paste code'))
+
+export const SignInSurface = () => (
+  <Mount with={signInStore}>
+    <Frame height="window">
+      <SignIn runtime={SIGN_IN_SELECTED['paste code']} onClose={() => {}} />
     </Frame>
   </Mount>
 )

@@ -51,6 +51,24 @@ export interface UsageLane {
    * session. A real lane freshly reset to zero is not a placeholder.
    */
   readonly placeholder?: boolean
+  /**
+   * The vendor's own unit for this lane, when it is worth saying beside
+   * `usedPercent`. `usedPercent` stays the one scale every lane is compared
+   * on — this never replaces it, only adds the unit a person would ask
+   * "used out of what" in. Optional and unread by any binding today.
+   */
+  readonly unit?: 'percent' | 'requests' | 'credits' | 'acu' | 'usd'
+  /** The raw figure `unit` is denominated in, when the source gives one — a request count, a credit balance. Never a second `usedPercent`. */
+  readonly used?: number | null
+  /** The ceiling `used` is measured against, in the same `unit`. */
+  readonly limit?: number | null
+  /**
+   * Whether this lane is the plan's included allowance or metered overage on
+   * top of it. Two lanes with the same `scope` and different `layer` are not
+   * duplicates — they are the two halves of one figure — and must never be
+   * summed into one bar.
+   */
+  readonly layer?: 'plan' | 'overage'
 }
 
 /** A prepaid balance. Separate from lanes: it does not refill on a clock. */
@@ -93,6 +111,20 @@ export interface SpendCoverage {
   /** Days in the requested window that the scan actually covered. */
   readonly daysCovered: number
   readonly daysRequested: number
+  /**
+   * The earliest day this runtime scope has any row for at all, unwindowed —
+   * not clamped to the requested window the way `daysCovered` is. Local
+   * midnight, epoch milliseconds; `null` when the ledger has nothing for this
+   * scope yet.
+   *
+   * This is how the Dashboard heatmap tells "no record yet" from a real zero:
+   * a day before `earliestDay` has no record and draws as unknown; a day at
+   * or after it with no row had no recorded use (for session-total runtimes
+   * — OpenCode, Cline — a multi-day session lands on its last day, so a gap
+   * is not proof the agent was idle throughout). Optional so an old report —
+   * which drew every day before its own boot the same way — still validates.
+   */
+  readonly earliestDay?: number | null
 }
 
 export interface SpendSummary {
@@ -177,6 +209,43 @@ export interface UsageReport {
   readonly error: UsageError | null
   /** Figures for another sign-in, drawn beside this account and never read as it. */
   readonly unverified?: UnverifiedUsage | null
+  /**
+   * The shape of this plan's billing, in words a card can build a layout
+   * from without naming the vendor. A plan can be more than one shape at
+   * once — Claude Code is `windows` for its lanes and `balance` when it also
+   * carries prepaid credit — so this is a set, not a single kind, and it is
+   * never collapsed with `lanes`, `credits`, `spend` or `turns`: each stays
+   * the one fact it already was, this only says which shapes are present.
+   *
+   * Filled in the reader only where its shape is already known cheaply — see
+   * `docs/usage-dashboard.md`, "The five shapes" — and left `undefined`
+   * everywhere else rather than guessed.
+   */
+  readonly billing?: {
+    readonly kinds: readonly ('windows' | 'allowance' | 'balance' | 'metered' | 'free')[]
+    /**
+     * The vendor's own recurring charge for this plan — what the seat costs,
+     * not what was used. `source: 'vendor'` when the plan reports its own
+     * price, `'user'` when a person typed it in because the vendor does not
+     * say. Never inferred from `spend`, which is tokens at list price or a
+     * metered bill, not a subscription fee.
+     */
+    readonly fee?: { readonly amount: number; readonly currency: string; readonly period: 'month' | 'year'; readonly source: 'vendor' | 'user' } | null
+    /** A person's own spending cap for this plan, separate from any vendor-reported limit. */
+    readonly budget?: { readonly amount: number; readonly currency: string; readonly period: 'month' } | null
+    /** Metered spend on top of an allowance or window plan, when the vendor allows it and says how much. */
+    readonly overage?: { readonly enabled: boolean; readonly spent: number | null; readonly currency: string } | null
+  }
+  /**
+   * How many turns this account has run and at what rate, when a source
+   * counts turns rather than tokens or a percentage (Cursor's request-based
+   * plans). `unitsPerTurn` is null when the source does not say what a turn
+   * costs against its own unit. `since` bounds what the count covers — never
+   * a plan's whole lifetime unless the source says so. Distinct from `spend`
+   * and `credits`, which price the same work in money; this counts the turns
+   * themselves.
+   */
+  readonly turns?: { readonly count: number; readonly unitsPerTurn: number | null; readonly since: number } | null
 }
 
 /** How the ledger should slice its history. */
@@ -197,6 +266,45 @@ export interface LedgerRow {
   readonly cost: number | null
   /** True when the group contains models we have no price for. */
   readonly hasUnpriced: boolean
+  /**
+   * The token split behind `tokens`. Optional so an old client or a fixture
+   * that only ever set `tokens` is still a valid `LedgerRow` — nothing here
+   * changes what `tokens` means, these are its parts, not a second total.
+   *
+   * `tokens` is `input + output + cacheRead + cacheWrite`, the four kinds a
+   * model is billed for. `reasoning` is deliberately not a fifth addend:
+   * every scanner in `ledger/scan.ts` folds a reasoning count into `output`
+   * before it ever reaches a `UsageRow` — Codex's `output_tokens` already
+   * includes it, and OpenCode adds its `tokens_reasoning` back onto `output`
+   * explicitly — so `reasoning` here restates tokens already inside `output`,
+   * kept only so a caller can show "of which N reasoning" without minting a
+   * second total that would double-count if added in.
+   *
+   * Four of the five scanners also normalise `input` to exclude the cache
+   * before it is stored: Codex subtracts `cached_input_tokens` out of
+   * `input_tokens`, Claude's `input_tokens` already excludes both cache
+   * fields on arrival, Gemini/Qwen subtract `cached` from `prompt` before
+   * adding the tool-use tokens back in, and OpenCode does the same (see
+   * `fromGeminiCounts` and the Codex/Claude/OpenCode scans in
+   * `ledger/scan.ts`). For those four, a cache-hit rate is always
+   * `cacheRead / (input + cacheRead)` — the share of the *input* side that
+   * came from cache — never `cacheRead / tokens`, which would dilute it with
+   * output that was never a cache candidate.
+   *
+   * Cline is the fifth, and the odd one out: its `input` is stored exactly
+   * as Cline's own database records it, and whether that figure already
+   * includes cache reads has not been measured here, so a cache-hit rate for
+   * the `cline` runtime is not defined yet.
+   *
+   * `requests` is the call count the group's `tokens` and `cost` were summed
+   * over — the same count `SpendCoverage.priced` / `unpriced` partition.
+   */
+  readonly input?: number
+  readonly output?: number
+  readonly cacheRead?: number
+  readonly cacheWrite?: number
+  readonly reasoning?: number
+  readonly requests?: number
 }
 
 /** One agent's contribution to one day, for the stacked chart. */
@@ -205,6 +313,16 @@ export interface LedgerDay {
   readonly runtime: RuntimeId
   readonly cost: number
   readonly tokens: number
+  /**
+   * The same split as `LedgerRow`'s — see there for what `tokens` sums and
+   * how to read a cache-hit rate off these. Optional for the same reason.
+   */
+  readonly input?: number
+  readonly output?: number
+  readonly cacheRead?: number
+  readonly cacheWrite?: number
+  readonly reasoning?: number
+  readonly requests?: number
 }
 
 export interface LedgerReport {
@@ -218,6 +336,20 @@ export interface LedgerReport {
   readonly daily: readonly LedgerDay[]
   /** When the scan behind these figures last completed. */
   readonly scannedAt: number | null
+  /**
+   * The token split for the whole window — `LedgerRow`'s six fields, summed
+   * across every row rather than one group. Optional for the same reason as
+   * theirs: an old report with only `totalTokens` is still valid, and this is
+   * `totalTokens`'s parts, never a second total that could disagree with it.
+   */
+  readonly totals?: {
+    readonly input: number
+    readonly output: number
+    readonly cacheRead: number
+    readonly cacheWrite: number
+    readonly reasoning: number
+    readonly requests: number
+  }
 }
 
 /** Progress of a ledger scan, so a three-gigabyte corpus is not a silent wait. */

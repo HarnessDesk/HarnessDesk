@@ -145,7 +145,9 @@ import {
   type NoticeSurface,
   readNoticePolicy,
   surfaceFor,
+  withKept,
   withMuted,
+  withoutKept,
   withSurface,
 } from '../lib/notice-policy'
 
@@ -228,7 +230,7 @@ import {
   type Zoom,
 } from './workbench'
 import { defaultArea, permits } from '../panels/views'
-import { applyLoginCompleted, startedLogin, type LoginState } from './login'
+import { applyLoginAwaitsCode, applyLoginCompleted, startedLogin, type LoginState } from './login'
 import { readCustomPresets, type AgentPreset } from './presets'
 import { Transport, transportUrl } from '../lib/transport'
 
@@ -1425,6 +1427,25 @@ export class AppStore {
     await this.transport
       .request('runtime/login/cancel', { runtime, loginId: pending.start.loginId })
       .catch(() => {})
+  }
+
+  /**
+   * Hands the sign-in in progress the code its browser page showed. The code
+   * is a secret, and passes through here without being kept: not in the
+   * snapshot, not in a notice. True once it reached the agent; whether it was
+   * right arrives as the flow's `account/loginCompleted`.
+   */
+  async submitLoginCode(runtime: RuntimeId, code: string): Promise<boolean> {
+    const pending = this.#snapshot.logins[runtime]
+    if (!pending || pending.outcome.type !== 'pending') return false
+    try {
+      await this.transport.request('runtime/login/code', { runtime, loginId: pending.start.loginId, code })
+      return true
+    } catch (error) {
+      // The host's refusal is a sentence about the code, never the code.
+      this.notice('error', describe(error))
+      return false
+    }
   }
 
   /** Clears a settled sign-in from view. Use `cancelLogin` for one still pending. */
@@ -5117,6 +5138,9 @@ export class AppStore {
 
   #draftsByRuntime: Record<string, Readonly<Record<string, OptionValue>>> = {}
 
+  /** `person/notice` pushes that arrived before `loadPreferences` answered. */
+  #pendingPersonNotices: PersonNotice[] = []
+
   /**
    * Applies a saved preset, one option at a time, stopping at the first
    * refusal so a preset that no longer fits the runtime fails visibly rather
@@ -5679,6 +5703,23 @@ export class AppStore {
       // held off the screen for the life of a host that cannot answer.
       this.#patch({ preferencesLoaded: true })
     }
+    this.#drainPendingPersonNotices()
+  }
+
+  /**
+   * A message an Agent sent while preferences were still loading waited here
+   * rather than being applied against the guesses the snapshot starts with —
+   * the empty inbox and the unmuted policy a fresh store carries before its
+   * first read comes back. Replaying each one now, once the real policy and
+   * the real inbox are in the snapshot, is what keeps a notice that arrives
+   * in that window from overwriting a saved inbox with itself alone, and
+   * from reaching a composer or a card whose kind the person had muted.
+   */
+  #drainPendingPersonNotices(): void {
+    const pending = this.#pendingPersonNotices
+    if (pending.length === 0) return
+    this.#pendingPersonNotices = []
+    for (const notice of pending) this.#personNotice(notice)
   }
 
   async saveCustomPresets(presets: readonly AgentPreset[]): Promise<void> {
@@ -6145,6 +6186,26 @@ export class AppStore {
   }
 
   /**
+   * Records that a standing notice has been copied into the inbox, keyed on
+   * the notice's own key rather than on whether it is still sitting there —
+   * so clearing the inbox, or reading the message, never re-opens the door
+   * while the occurrence it names is still the same one.
+   */
+  markNoticeKept(key: string): void {
+    this.#setNoticePolicy(withKept(this.#snapshot.noticePolicy, key))
+  }
+
+  /**
+   * Forgets that a key was kept, once the standing notice under it has moved
+   * on to a different key or to none — see `withoutKept` for why a kind whose
+   * key never changes between occurrences needs this rather than relying on
+   * a fresh key to do it.
+   */
+  clearNoticeKept(key: string): void {
+    this.#setNoticePolicy(withoutKept(this.#snapshot.noticePolicy, key))
+  }
+
+  /**
    * Keeps a message in the inbox. Whoever raises a message worth reading later
    * sends it here — a kind moved to "Inbox only", a Goal that finished while
    * nobody was watching. The same id replaces its earlier copy, unread again.
@@ -6170,29 +6231,42 @@ export class AppStore {
    * idempotent by id, so two windows keep one copy.
    */
   #personNotice(notice: PersonNotice): void {
-    const surface = surfaceFor(this.#snapshot.noticePolicy, 'agent:message')
-    if (surface === null) return
-    if (notice.where === 'composer' && surface === 'composer') {
-      const others = this.#snapshot.agentNotices.filter((entry) => entry.id !== notice.id)
-      this.#patch({ agentNotices: [...others, notice].slice(-AGENT_NOTICE_LIMIT) })
+    // Preferences carry the real policy and the real inbox; a notice that
+    // arrives before they answer waits rather than being judged against the
+    // snapshot's starting guesses (see `#drainPendingPersonNotices`).
+    if (!this.#snapshot.preferencesLoaded) {
+      this.#pendingPersonNotices.push(notice)
       return
     }
-    this.keep({
+    const surface = surfaceFor(this.#snapshot.noticePolicy, 'agent:message')
+    if (surface === null) return
+    const forInbox = {
       id: notice.id,
       kind: 'agent:message',
-      tone: 'info',
+      tone: 'info' as const,
       title: notice.title,
       ...(notice.body ? { body: notice.body } : {}),
       at: notice.at,
       open: `session:${notice.from.runtime}:${notice.from.sessionId}`,
       from: notice.from,
       ...(notice.task ? { task: notice.task } : {}),
-    })
+    }
+    if (notice.where === 'composer' && surface === 'composer') {
+      const others = this.#snapshot.agentNotices.filter((entry) => entry.id !== notice.id)
+      this.#patch({ agentNotices: [...others, notice].slice(-AGENT_NOTICE_LIMIT) })
+      // Kept too, under the same id, so a question asked of a conversation
+      // nobody is watching is never lost to it — only ever put away twice
+      // for the one thing it is.
+      this.keep(forInbox)
+      return
+    }
+    this.keep(forInbox)
   }
 
-  /** Puts away a decision an Agent asked for on its composer. */
+  /** Puts away a decision an Agent asked for on its composer, and marks its kept copy read. */
   dismissAgentNotice(id: string): void {
     this.#patch({ agentNotices: this.#snapshot.agentNotices.filter((entry) => entry.id !== id) })
+    this.markInboxRead(id)
   }
 
   /**
@@ -6252,9 +6326,24 @@ export class AppStore {
       // never swallowed by `notice`'s repeat window and never stacked.
       const others = this.#snapshot.notices.filter((entry) => entry.level !== level || entry.message !== message || entry.action)
       if (others.length !== this.#snapshot.notices.length) this.#patch({ notices: others })
+      // The repeat window is kept apart from the list now (`#lastToast`), so
+      // asking again has to clear it too, or the fresh toast is swallowed.
+      if (this.#lastToast?.level === level && this.#lastToast.message === message) this.#lastToast = null
     }
     this.notice(level, message)
   }
+
+  /**
+   * The last toast shown, kept apart from `notices` for the repeat check
+   * below to compare against.
+   *
+   * `Notices` turns every entry in `notices` into a toast and dismisses it in
+   * the same effect, so by the time a second `notice()` call could compare
+   * against "the last entry still in the list", that list is back to empty —
+   * the repeat check below never had anything to find. A failure that fires
+   * twice in a row used to show two persistent error toasts instead of one.
+   */
+  #lastToast: { readonly level: NoticeLevel; readonly message: string; readonly at: number } | null = null
 
   notice(level: NoticeLevel, message: string, action?: NoticeAction): void {
     // The same failure often reaches us twice — once as the turn's error and
@@ -6262,15 +6351,21 @@ export class AppStore {
     // two identical toasts is a bug report about the toasts. A toast that
     // carries an action is exempt: archiving two conversations in a row must
     // leave two ways back, not one that undoes only the second.
-    const last = this.#snapshot.notices[this.#snapshot.notices.length - 1]
-    if (!action && last && last.level === level && last.message === message && Date.now() - last.at < 5000) {
+    const last = this.#lastToast
+    const now = Date.now()
+    if (!action && last && last.level === level && last.message === message && now - last.at < 5000) {
       return
     }
+    // Only a plain toast sets the record the check above reads: an action
+    // toast is already exempt from being suppressed by it, and letting one
+    // set the record anyway would make a *later* plain toast with the same
+    // words look like a repeat of an action toast it has nothing to do with.
+    if (!action) this.#lastToast = { level, message, at: now }
     const notice: Notice = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
       level,
       message,
-      at: Date.now(),
+      at: now,
       ...(action ? { action } : {}),
     }
     this.#patch({ notices: [...this.#snapshot.notices.slice(-4), notice] })
@@ -6438,6 +6533,12 @@ export class AppStore {
         void this.loadAccounts()
         void this.refreshRuntime()
       }
+      return
+    }
+    if (event.type === 'account/loginAwaitsCode') {
+      const current = this.#snapshot.logins[event.runtime] ?? null
+      const login = applyLoginAwaitsCode(current, event)
+      if (login !== current) this.#setLogin(event.runtime, login)
       return
     }
     if (event.type === 'account/changed') {

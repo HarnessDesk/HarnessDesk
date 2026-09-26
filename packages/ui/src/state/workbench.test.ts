@@ -15,8 +15,10 @@ import {
   dockViews,
   emptyWorkbench,
   findView,
+  focusedComposerVisible,
   focusView,
   focusedMount,
+  mainNoticeHost,
   mountOfTerminal,
   moveView,
   noticeArea,
@@ -503,7 +505,7 @@ describe('size and visibility', () => {
   })
 })
 
-describe('noticeArea — which area the desk’s floating notices ride (#896)', () => {
+describe('noticeArea — which area the strip above the panes rides', () => {
   test('the main area, normally, whatever sits beside it', () => {
     expect(noticeArea(emptyWorkbench(), false)).toBe('main')
     expect(noticeArea(dock(emptyWorkbench(), 'right', CHANGES), false)).toBe('main')
@@ -521,6 +523,92 @@ describe('noticeArea — which area the desk’s floating notices ride (#896)', 
     expect(noticeArea(right, true)).toBe('right')
     expect(noticeArea(collapseDock(right, 'right', true), true)).toBe('main')
     expect(noticeArea(emptyWorkbench(), true)).toBe('main')
+  })
+})
+
+describe('mainNoticeHost — which pane in the split tree carries the strip', () => {
+  test('the tree’s own first leaf, when nothing has taken the room', () => {
+    const workbench: Workbench = {
+      ...emptyWorkbench(),
+      main: {
+        root: {
+          kind: 'split',
+          id: 's1',
+          direction: 'row',
+          ratio: 0.5,
+          first: { kind: 'pane', id: 'p1', view: { kind: 'conversation', session: A } },
+          second: { kind: 'pane', id: 'p2', view: { kind: 'room', room: 'r1' } },
+        },
+        focused: 'p2',
+        expanded: null,
+      },
+    }
+    // Never the focused pane — a click into the second half must not move
+    // the strip onto it, or opening that half in the first place would have.
+    expect(mainNoticeHost(workbench, false)).toBe('p1')
+  })
+
+  test('the expanded pane, when one has taken the split’s room', () => {
+    const workbench: Workbench = {
+      ...emptyWorkbench(),
+      main: {
+        root: {
+          kind: 'split',
+          id: 's1',
+          direction: 'row',
+          first: { kind: 'pane', id: 'p1', view: { kind: 'conversation', session: A } },
+          second: { kind: 'pane', id: 'p2', view: CHANGES },
+          ratio: 0.5,
+        },
+        focused: 'p2',
+        expanded: 'p2',
+      },
+    }
+    expect(mainNoticeHost(workbench, false)).toBe('p2')
+  })
+
+  test('null whenever noticeArea answers anything but main', () => {
+    const zoomed = zoomArea(dock(emptyWorkbench(), 'right', CHANGES), 'right', 'content')
+    expect(mainNoticeHost(zoomed, false)).toBeNull()
+    const narrowRight = dock(emptyWorkbench(), 'right', CHANGES)
+    expect(mainNoticeHost(narrowRight, true)).toBeNull()
+  })
+})
+
+describe('focusedComposerVisible — whether the focused mount is a composer that can actually be seen', () => {
+  const withMain = (view: PaneView, focused = 'p1'): Workbench => ({
+    ...emptyWorkbench(),
+    main: { root: { kind: 'pane', id: 'p1', view }, focused, expanded: null },
+  })
+
+  test('a conversation with a session, or a room, focused and visible', () => {
+    expect(focusedComposerVisible(withMain({ kind: 'conversation', session: A }), false)).toBe(true)
+    expect(focusedComposerVisible(withMain({ kind: 'room', room: 'r1' }), false)).toBe(true)
+  })
+
+  test('an empty conversation pane, or a tool, is not a composer', () => {
+    expect(focusedComposerVisible(withMain({ kind: 'conversation', session: null }), false)).toBe(false)
+    expect(focusedComposerVisible(withMain(CHANGES), false)).toBe(false)
+  })
+
+  test('a docked composer counts too, as long as its panel is on screen', () => {
+    const docked = dock(dock(emptyWorkbench(), 'right', { kind: 'conversation', session: B }), 'bottom', TERM)
+    const id = mountIds(docked, 'right')[0]!
+    const focused = focusView(docked, id)
+    expect(focusedComposerVisible(focused, false)).toBe(true)
+    // Zoomed elsewhere, that same panel is off screen, and so is the composer in it.
+    expect(focusedComposerVisible(zoomArea(focused, 'bottom', 'window'), false)).toBe(false)
+  })
+
+  test('a composer in the main area is not visible when a zoom has taken the room from it', () => {
+    const workbench = zoomArea(dock(withMain({ kind: 'room', room: 'r1' }), 'right', CHANGES), 'right', 'content')
+    expect(focusedComposerVisible(workbench, false)).toBe(false)
+  })
+
+  test('a narrow window’s right panel covers the main area even with no zoom at all', () => {
+    const workbench = dock(withMain({ kind: 'conversation', session: A }), 'right', CHANGES)
+    expect(focusedComposerVisible(workbench, false)).toBe(true)
+    expect(focusedComposerVisible(workbench, true)).toBe(false)
   })
 })
 

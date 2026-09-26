@@ -30,12 +30,22 @@ const TooltipContent = ({
   sideOffset = 4,
   align = 'center',
   side = 'top',
+  // Passed through so one Tooltip can follow a target that changes without a
+  // Trigger of its own — a rail of marks too dense to give each one a real
+  // control, where the "trigger" is really whichever mark is active.
+  anchor,
   children,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Popup> &
-  Pick<React.ComponentProps<typeof TooltipPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'>) => (
+  Pick<React.ComponentProps<typeof TooltipPrimitive.Positioner>, 'align' | 'side' | 'sideOffset' | 'anchor'>) => (
   <TooltipPrimitive.Portal>
-    <TooltipPrimitive.Positioner align={align} side={side} sideOffset={sideOffset} className="z-(--hd-z-popover)">
+    <TooltipPrimitive.Positioner
+      align={align}
+      side={side}
+      sideOffset={sideOffset}
+      {...(anchor === undefined ? {} : { anchor })}
+      className="z-(--hd-z-popover)"
+    >
       <TooltipPrimitive.Popup
         data-slot="tooltip-content"
         className={cn(

@@ -646,7 +646,7 @@ export const NotificationsSection = () => {
         <Row title="Worth keeping" desc="Goes to the inbox in your seat menu and stays until you clear it." />
         <Row title="An Agent writes to you" desc="Kept in the inbox, or on its own conversation when it is waiting on your decision." />
         <Row title="The result of what you did" desc="A toast in the corner that leaves on its own. Always on." />
-        <Row title="The connection drops" desc="Said in the window's header until it is back. Always on." />
+        <Row title="The connection drops" desc="Shown in the strip above the composer, or under a pane's bar, until it is back. Always on." />
       </Rows>
 
       {NOTICE_USES.map((use) => {

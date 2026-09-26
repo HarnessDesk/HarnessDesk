@@ -21,6 +21,14 @@ import type { AccountStatus, AgentEvent, LoginStart, RuntimeId } from '@harnessd
  * once the flow completes; that maps exactly onto the `browser` LoginStart.
  * The exit settles the flow as an `account/loginCompleted` event, which is
  * how the shell hears about it — possibly long after the dialog closed.
+ *
+ * Some commands also offer a way back for a browser that cannot reach them:
+ * the page shows a code, and the command waits on its input for it to be
+ * pasted. A command run in the background has nobody at its input, so the
+ * sign-in hung. A login spec that declares the prompt it prints
+ * (`pasteCode`) gets a pipe for its input instead, and `submitCode` writes
+ * the code the person pastes into the desk. The code is a secret: it is
+ * never logged, and never repeated in anything this class reports.
  */
 
 export interface AcpCommandSpec {
@@ -29,11 +37,31 @@ export interface AcpCommandSpec {
   readonly env?: Readonly<Record<string, string>>
 }
 
+/** A sign-in command, and what it prints when it wants a code pasted into it. */
+export interface AcpLoginSpec extends AcpCommandSpec {
+  /**
+   * The words the command prints when it waits on its input for a code the
+   * browser page shows — matched literally, as the command prints them
+   * (`claude auth login`: "Paste code here if prompted"). Declared, the
+   * command's input is a pipe the desk writes the code to; absent, it is
+   * closed, as it always was.
+   */
+  readonly pasteCode?: string
+  /**
+   * The words the command prints when it refuses a pasted code and goes on
+   * reading for another — matched literally, and only after a paste. A
+   * command that says nothing of the sort and simply waits would leave the
+   * person told to wait for an answer already given, so the desk hears it
+   * and asks again (`account/loginAwaitsCode` with `refused`).
+   */
+  readonly pasteCodeRejected?: string
+}
+
 export interface AcpAccountCommands {
   /** Prints who is signed in: JSON (`loggedIn`, `email`) or `Logged in as …`. */
   readonly status?: AcpCommandSpec
   /** Starts the browser sign-in; prints its URL; exits 0 when signed in. */
-  readonly login?: AcpCommandSpec
+  readonly login?: AcpLoginSpec
   readonly logout?: AcpCommandSpec
 }
 
@@ -44,11 +72,21 @@ const URL_TIMEOUT_MS = 30_000
 const URL_SETTLE_MS = 250
 /** How long a sign-in command gets to leave after SIGTERM before it is killed outright. */
 const KILL_GRACE_MS = 3_000
+/** Longer than any sign-in code; a paste this long is something else on the clipboard. */
+const CODE_LIMIT = 4_096
+/** The shortest part of a pasted code struck out on its own when a command repeats it. */
+const CODE_PART_MIN = 6
+/** What a pasted code is replaced with, should a command repeat it in what it says. */
+const CODE_REDACTED = '[code]'
+/** Anything short of a whole single line: a line break would hand the command a second answer. */
+const CONTROL = /[\u0000-\u001f\u007f]/
 
 export class CliAccount {
   readonly #logins = new Map<string, ChildProcess>()
   /** How each flow still in flight is ended by `cancel()`, before its child is killed. */
   readonly #cancels = new Map<string, () => void>()
+  /** Where a pasted code goes, for each flow in flight whose command declared it takes one. */
+  readonly #codeSinks = new Map<string, (code: string) => Promise<void>>()
 
   constructor(
     private readonly commands: AcpAccountCommands,
@@ -97,11 +135,40 @@ export class CliAccount {
     const spec = this.commands.login
     if (!spec) throw new Error('This agent declares no sign-in command.')
     const loginId = randomUUID()
+    const prompt = spec.pasteCode?.trim() ? spec.pasteCode : null
+    const rejection = prompt !== null && spec.pasteCodeRejected?.trim() ? spec.pasteCodeRejected : null
     const child = (this.seams.spawn ?? spawn)(spec.command, [...(spec.args ?? [])], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // An input only where there is something to write to it: a command
+      // that reads it and was never told to has always found it closed.
+      stdio: [prompt ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       env: { ...process.env, ...spec.env },
     })
     this.#logins.set(loginId, child)
+    /* A write to a command that has already left fails on the pipe, and an
+       `'error'` with no listener takes the host down. How the command ended
+       is its exit's to report. */
+    child.stdin?.on('error', () => {})
+    /* The codes handed to this flow, kept only to be struck out of whatever
+       the command says afterwards — a command that repeats a rejected code
+       in its error would otherwise put it in the error the desk shows and
+       logs. They go with the flow. */
+    const submitted = new Set<string>()
+    const forget = (): void => {
+      this.#logins.delete(loginId)
+      this.#cancels.delete(loginId)
+      this.#codeSinks.delete(loginId)
+      submitted.clear()
+      child.stdin?.destroy()
+    }
+    const clean = (text: string): string => {
+      let out = text
+      // Longest first, so a whole code is struck as one before its halves are.
+      for (const code of [...submitted].sort((a, b) => b.length - a.length)) out = out.split(code).join(CODE_REDACTED)
+      // A refusal it read on from was answered by asking again; it is not how the flow ended.
+      if (rejection !== null) out = out.split(rejection).join('\n')
+      // The prompt is what the command asks, not what went wrong.
+      return prompt ? out.replace(new RegExp(`${escapeRegExp(prompt)}[\\s>:]*`, 'g'), '\n') : out
+    }
 
     /* A command that cannot be started — not installed, not on PATH, not
        executable — is reported by `spawn` as an `'error'` event, not as an
@@ -131,8 +198,7 @@ export class CliAccount {
     this.#cancels.set(loginId, () => {
       if (settled) return
       settled = true
-      this.#logins.delete(loginId)
-      this.#cancels.delete(loginId)
+      forget()
       if (handedOut) {
         this.emit({ type: 'account/loginCompleted', runtime: this.runtime, loginId, success: false, error: 'Sign-in was cancelled.' })
       }
@@ -141,8 +207,7 @@ export class CliAccount {
     void failed.then((error) => {
       if (settled) return
       settled = true
-      this.#logins.delete(loginId)
-      this.#cancels.delete(loginId)
+      forget()
       const said = `The sign-in command stopped: ${error.message}`
       if (!handedOut) {
         ending = said
@@ -165,6 +230,62 @@ export class CliAccount {
        its URL with no line break and wait. */
     let heard = ''
     let settleTimer: ReturnType<typeof setTimeout> | undefined
+    /* Whether the command has asked for a code yet, read the way the URL is:
+       from what it has printed so far, since a pipe can split the prompt
+       between two reads. */
+    let asked = false
+    let listened = ''
+    const listen = (text: string): void => {
+      if (prompt === null || asked) return
+      listened += text
+      if (!listened.includes(prompt)) {
+        // Only the end can still become the prompt.
+        listened = listened.slice(listened.length - (prompt.length - 1))
+        return
+      }
+      asked = true
+      listened = ''
+      // Before the hand-out the start says so itself; after it, this does.
+      if (handedOut && !settled) this.emit({ type: 'account/loginAwaitsCode', runtime: this.runtime, loginId })
+    }
+    /* After a paste, whether the command refused it and went on reading.
+       Only its own words for that count, and only once per paste: the flow
+       is still pending, so a refusal is not an ending but a second ask. What
+       it said is not passed on — the person is told in the desk's words,
+       and the command's cannot carry the code if they are never sent. */
+    let answering = false
+    let judged = ''
+    const judge = (text: string): void => {
+      if (rejection === null || !answering) return
+      judged += text
+      if (!judged.includes(rejection)) {
+        judged = judged.slice(judged.length - (rejection.length - 1))
+        return
+      }
+      answering = false
+      judged = ''
+      if (!settled) this.emit({ type: 'account/loginAwaitsCode', runtime: this.runtime, loginId, refused: true })
+    }
+    if (prompt !== null) {
+      this.#codeSinks.set(loginId, (code) => {
+        if (settled) return Promise.reject(new Error(NOT_WAITING))
+        if (!asked) return Promise.reject(new Error('The sign-in has not asked for a code.'))
+        submitted.add(code)
+        /* And each part a command may repeat on its own: one that splits the
+           line (`code#state`) and names only a half would put that half in
+           its error. Parts too short to be a secret stay, or striking them
+           would strike ordinary words. */
+        for (const part of code.split('#')) if (part.length >= CODE_PART_MIN) submitted.add(part)
+        answering = true
+        judged = ''
+        return new Promise<void>((resolve, reject) => {
+          child.stdin!.write(`${code}\n`, (error) => {
+            if (error) reject(new Error('The sign-in command stopped reading before the code reached it.'))
+            else resolve()
+          })
+        })
+      })
+    }
     const take = (found: string): void => {
       if (url !== null || settled) return
       url = found
@@ -172,6 +293,8 @@ export class CliAccount {
     }
     const scan = (chunk: Buffer): void => {
       const text = chunk.toString()
+      listen(text)
+      judge(text)
       tail.push(text)
       if (tail.length > 40) tail.shift()
       if (url !== null) return
@@ -206,14 +329,14 @@ export class CliAccount {
         return
       }
       settled = true
-      this.#logins.delete(loginId)
-      this.#cancels.delete(loginId)
       /* Its last words, but not the prompt it printed its URL in: after the
          hand-out the tail always holds that line, and a flow killed by a
          signal reported "Open https://… to sign in" as its error (review,
          round seven). Everything up to the URL is the prompt: one over two
-         lines left its first line as the error (round eleven). */
-      const said = code === 0 ? null : lastWords(tail, url) || stoppedBy(code, signal)
+         lines left its first line as the error (round eleven). Read before
+         the flow is forgotten, which forgets the codes they are cleaned of. */
+      const said = code === 0 ? null : lastWords(tail, url, clean) || stoppedBy(code, signal)
+      forget()
       if (handedOut) {
         this.emit({
           type: 'account/loginCompleted',
@@ -227,7 +350,7 @@ export class CliAccount {
            URL printed — is `login()`'s to report. It used to be reported here
            as well, as a completion for an id nobody held: two endings for one
            flow. */
-        ending = said ?? (lastWords(tail, url) || 'The sign-in command finished before its URL could be opened.')
+        ending = said ?? (lastWords(tail, url, clean) || 'The sign-in command finished before its URL could be opened.')
       }
       // Signed in or not, the account may have changed under the desk.
       if (code === 0) this.emit({ type: 'account/changed', runtime: this.runtime })
@@ -255,10 +378,9 @@ export class CliAccount {
          state should not rest on that. Review asked. */
       if (settled) throw new Error(ending ?? 'The sign-in command stopped before its URL could be opened.')
       handedOut = true
-      return { type: 'browser', loginId, url: outcome.found }
+      return { type: 'browser', loginId, url: outcome.found, ...(asked ? { pasteCode: true } : {}) }
     }
-    this.#logins.delete(loginId)
-    this.#cancels.delete(loginId)
+    forget()
     if (outcome.kind === 'error') {
       // A command that is not there is the common case — the agent's CLI was
       // never installed, or lives outside the PATH agents are started with —
@@ -279,11 +401,27 @@ export class CliAccount {
     if (outcome.kind === 'exit') {
       throw new Error(
         outcome.code === 0
-          ? lastWords(tail) || 'Already signed in.'
-          : lastWords(tail) || stoppedBy(outcome.code, outcome.signal),
+          ? lastWords(tail, null, clean) || 'Already signed in.'
+          : lastWords(tail, null, clean) || stoppedBy(outcome.code, outcome.signal),
       )
     }
-    throw new Error(lastWords(tail) || 'The sign-in command printed no URL to open.')
+    throw new Error(lastWords(tail, null, clean) || 'The sign-in command printed no URL to open.')
+  }
+
+  /**
+   * Writes the code a person pasted to the sign-in command that asked for it,
+   * as one line. Resolves once it is written; whether it was right is the
+   * command's to say, by how it exits. Every refusal is a sentence about the
+   * code, never the code.
+   */
+  async submitCode(loginId: string, code: string): Promise<void> {
+    const sink = this.#codeSinks.get(loginId)
+    if (!sink) throw new Error(NOT_WAITING)
+    const line = code.trim()
+    if (line === '') throw new Error('Paste the code the browser page shows.')
+    if (CONTROL.test(line)) throw new Error('A sign-in code is a single line of text.')
+    if (line.length > CODE_LIMIT) throw new Error('That is too long to be a sign-in code.')
+    await sink(line)
   }
 
   async cancel(loginId: string): Promise<void> {
@@ -632,6 +770,11 @@ const fromRecord = (record: Record<string, unknown>): { kind: string; label: str
   return null
 }
 
+/** Why a code was not taken: the flow ended, or never took one. */
+const NOT_WAITING = 'This sign-in is not waiting for a code.'
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 /** How a sign-in command ended, when it said nothing else: a signal is not a code. */
 const stoppedBy = (code: number | null, signal: NodeJS.Signals | null): string =>
   code !== null ? `The sign-in command exited with code ${code}.` : `The sign-in command was stopped${signal ? ` (${signal})` : ''}.`
@@ -640,10 +783,14 @@ const stoppedBy = (code: number | null, signal: NodeJS.Signals | null): string =
  * What a sign-in command said last: its last two lines, after the prompt it
  * printed its URL in, when it printed one.
  */
-const lastWords = (tail: readonly string[], url: string | null = null): string => {
+const lastWords = (
+  tail: readonly string[],
+  url: string | null = null,
+  clean: (text: string) => string = (text) => text,
+): string => {
   const text = tail.join('')
   const at = url === null ? -1 : text.lastIndexOf(url)
-  const after = at === -1 ? text : text.slice(text.indexOf('\n', at) + 1 || text.length)
+  const after = clean(at === -1 ? text : text.slice(text.indexOf('\n', at) + 1 || text.length))
   return after
     .split('\n')
     .map((line) => line.trim())

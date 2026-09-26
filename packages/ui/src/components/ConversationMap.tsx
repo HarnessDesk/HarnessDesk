@@ -2,16 +2,28 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 
 import type { Turn } from '@harnessdesk/protocol'
 
-import { Button, ChartTip, Tick } from '../design'
+import { Tick, Tooltip, TooltipContent } from '../design'
 import { buildMarks, railFit, shouldRenderMap, type RailFit } from '../lib/conversation-map'
 import styles from './ConversationMap.module.css'
 
 /**
  * The transcript, seen from the side.
  *
- * A stack of dashes down the left edge, one for each thing said. Moving along
- * it magnifies the dashes near the pointer the way a dock does, the nearest
- * one offers its first words, and pressing it goes there.
+ * A stack of dashes down the left edge, one for each thing said, packed as
+ * densely as a ruler rather than given each a target of its own — a chip-sized
+ * hit box per mark read as a column of buttons rather than one surface, and at
+ * a real transcript's length it pushed the pitch past what a ruler can read as
+ * one thing. So the rail itself is the one target: the pointer picks whichever
+ * mark it is nearest (`push`, below, is the same falloff a dock uses), and a
+ * click goes there. The dashes are decoration on top of that, drawn by
+ * `--near` and nothing else.
+ *
+ * Keyboard reaches the same marks a different way, because there is no
+ * per-mark element left to tab to: the rail is one stop, Up and Down move a
+ * virtual position along it (`keyboardIndex`), and what is "current" is said
+ * with `aria-activedescendant` rather than real DOM focus. Losing that
+ * position — Escape, Tab away, the transcript changing under it — falls back
+ * to whatever the pointer is doing, which is usually nothing.
  *
  * Two things are worth knowing before changing any of it.
  *
@@ -42,9 +54,14 @@ export const ConversationMap = ({
 }) => {
   const marks = useMemo(() => buildMarks(turns), [turns])
   const rail = useRef<HTMLElement>(null)
+  const markNodes = useRef<(HTMLElement | null)[]>([])
   const [pointer, setPointer] = useState<number | null>(null)
   const [overflows, setOverflows] = useState(false)
   const [fit, setFit] = useState<RailFit>(null)
+  /* The one mark a preview follows while the keyboard is driving: `null` when
+     it is not, so the pointer takes over the instant Escape, a blur or the
+     transcript itself lets go of it. */
+  const [keyboardIndex, setKeyboardIndex] = useState<number | null>(null)
   const drawn = shouldRenderMap({ marks: marks.length, overflows }) && fit !== null
   const shownRef = useRef(false)
   shownRef.current = fit !== null
@@ -96,6 +113,17 @@ export const ConversationMap = ({
     // Measured again once the rail is drawn, so the inset is the drawn one.
   }, [scroll, marks.length, drawn])
 
+  // A keyboard position naming a mark that is gone — the transcript moved
+  // under it, or shrank past it — is worse than none: a stale index would
+  // resolve to whatever now sits there instead. Same for the rail leaving the
+  // page entirely.
+  useEffect(() => {
+    if (keyboardIndex !== null && keyboardIndex >= marks.length) setKeyboardIndex(null)
+  }, [marks.length, keyboardIndex])
+  useEffect(() => {
+    if (!drawn) setKeyboardIndex(null)
+  }, [drawn])
+
   /* The half of the turn the mark previewed, not the turn around it: a dash
      showing the answer that lands on the prompt has taken the reader somewhere
      they did not ask to go. The turn itself is the fallback, for a transcript
@@ -123,6 +151,48 @@ export const ConversationMap = ({
     return (Math.cos((away / RADIUS) * Math.PI) + 1) / 2
   }
 
+  const markCentre = (index: number): number => {
+    const node = rail.current?.children[index] as HTMLElement | undefined
+    return node ? node.offsetTop + node.offsetHeight / 2 : -RADIUS * 2
+  }
+
+  /* Every mark's push, read once so the one nearest the pointer can be told
+     from the rest of them — reading it separately for each mark used to let a
+     pointer resting between two of them put both over the SNAP threshold at
+     once, and each opened its own preview. Only the peak may open one.
+     While the keyboard holds a position, it simply IS the peak: the same
+     `--near` the pointer would have driven, so a dash under keyboard focus
+     grows exactly the way one under the pointer does. */
+  const nears = marks.map((_, index) => (keyboardIndex === null ? push(markCentre(index)) : index === keyboardIndex ? 1 : 0))
+  let nearestPointer: number | null = null
+  if (keyboardIndex === null) {
+    for (const [index, value] of nears.entries()) {
+      if (value > SNAP / RADIUS && (nearestPointer === null || value > (nears[nearestPointer] ?? 0))) nearestPointer = index
+    }
+  }
+  const openIndex = keyboardIndex ?? nearestPointer
+
+  /* Whichever mark sits closest to a given point on the rail, for a click —
+     unlike the preview, going somewhere is not gated by SNAP: the rail is the
+     whole target, so every point on it belongs to its nearest mark. */
+  const closestTo = (position: number): number | null => {
+    let best: number | null = null
+    let bestDistance = Number.POSITIVE_INFINITY
+    marks.forEach((_, index) => {
+      const distance = Math.abs(markCentre(index) - position)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        best = index
+      }
+    })
+    return best
+  }
+
+  const goToIndex = (index: number | null) => {
+    const mark = index === null ? undefined : marks[index]
+    if (mark) goTo(mark.turn, mark.kind)
+  }
+
   return (
     <nav
       ref={rail}
@@ -131,43 +201,98 @@ export const ConversationMap = ({
       /* The push, and in a tight pane the longest a dash may be, as measured
          against the column: custom properties only the dash's width reads. */
       style={{ '--reach': `${fit.reach}px`, ...(fit.cap === null ? {} : { '--cap': `${fit.cap}px` }) } as React.CSSProperties}
+      /* A listbox, not the nav's own landmark role: its marks are options and
+         `aria-activedescendant` names the current one, which a navigation
+         region does not support. */
+      role="listbox"
       aria-label="Jump to a message"
+      // One stop for the whole rail; Up/Down move the position below rather
+      // than moving real focus, so a transcript of any length still costs the
+      // rest of the page exactly one Tab.
+      tabIndex={0}
+      /* The document's own ring would frame the whole rail — the pane's full
+         height, around a small centred cluster of dashes — since the rail
+         itself, not any one mark, is what actually holds focus. The active
+         mark draws its own ring instead (`Tick`'s `ring` prop, below). */
+      data-focus-ring="inline"
+      aria-activedescendant={openIndex !== null ? `conversation-map-mark-${openIndex}` : undefined}
       onPointerMove={(event) => {
         const box = event.currentTarget.getBoundingClientRect()
         setPointer(event.clientY - box.top)
       }}
       onPointerLeave={() => setPointer(null)}
+      onClick={(event) => {
+        const box = event.currentTarget.getBoundingClientRect()
+        goToIndex(closestTo(event.clientY - box.top))
+      }}
+      onFocus={(event) => {
+        // A click focuses the rail too, and a click is the pointer's to
+        // answer — only a focus a screen reader or Tab actually produced
+        // should hand the preview to the keyboard.
+        if (!event.currentTarget.matches(':focus-visible')) return
+        setKeyboardIndex((was) => was ?? nearestPointer ?? 0)
+      }}
+      onBlur={() => setKeyboardIndex(null)}
+      onKeyDown={(event) => {
+        if (marks.length === 0) return
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault()
+          const delta = event.key === 'ArrowDown' ? 1 : -1
+          setKeyboardIndex((was) => {
+            const base = was ?? nearestPointer ?? (delta > 0 ? -1 : marks.length)
+            return Math.min(marks.length - 1, Math.max(0, base + delta))
+          })
+        } else if (event.key === 'Enter' && keyboardIndex !== null) {
+          goToIndex(keyboardIndex)
+        } else if (event.key === 'Escape') {
+          setKeyboardIndex(null)
+        }
+      }}
     >
-      {marks.map((mark, index) => {
-        /* Its own middle, in the rail's coordinates. Read from the element so
-           the arithmetic cannot drift from the layout; the rail is short
-           enough that this costs nothing a person can feel. */
-        const node = rail.current?.children[index] as HTMLElement | undefined
-        const centre = node ? node.offsetTop + node.offsetHeight / 2 : -RADIUS * 2
-        const near = push(centre)
-        return (
-          <Button
-            key={`${mark.turn}-${mark.kind}-${index}`}
-            type="button"
-            variant="ghost"
-            size="chip"
-            className={styles.mark}
-            data-kind={mark.kind}
-            style={{ '--near': near } as React.CSSProperties}
-            aria-label={mark.preview}
-            onClick={() => goTo(mark.turn, mark.kind)}
-          >
-            {/* The dash is the drawing; the control around it is the target,
-                because two pixels is not something anybody can hit. */}
-            {/* What was asked stands out from what came back: a strong
-                stroke for the prompt, a quiet one for the answer. */}
-            <Tick emphasis={mark.kind === 'prompt' ? 'strong' : 'quiet'} className={styles.dash} />
-            {near > SNAP / RADIUS && (
-              <ChartTip as="span" className={styles.preview}>{mark.preview}</ChartTip>
-            )}
-          </Button>
-        )
-      })}
+      {marks.map((mark, index) => (
+        <div
+          key={`${mark.turn}-${mark.kind}-${index}`}
+          ref={(node) => {
+            markNodes.current[index] = node
+          }}
+          id={`conversation-map-mark-${index}`}
+          role="option"
+          aria-label={mark.preview}
+          aria-selected={openIndex === index}
+          className={styles.mark}
+          data-kind={mark.kind}
+          data-current={openIndex === index ? '' : undefined}
+          /* Only this — never a pointer hover, which also lands on `openIndex`
+             — draws the focus ring: the rail's own outline is off, so the one
+             mark the keyboard is actually on is the only visible sign it has
+             focus at all. */
+          data-keyboard-current={keyboardIndex === index ? '' : undefined}
+          style={{ '--near': nears[index] ?? 0 } as React.CSSProperties}
+        >
+          {/* What was asked stands out from what came back: a strong
+              stroke for the prompt, a quiet one for the answer. Only the
+              keyboard's own mark draws a ring — never a pointer hover, which
+              also reaches `data-current`/`openIndex`. */}
+          <Tick
+            emphasis={mark.kind === 'prompt' ? 'strong' : 'quiet'}
+            ring={keyboardIndex === index}
+            className={styles.dash}
+          />
+        </div>
+      ))}
+      {/* One card for the whole rail, anchored to whichever mark is active —
+          not one per mark — so only one can ever be open and closing never
+          overlaps opening the next. */}
+      <Tooltip open={openIndex !== null}>
+        <TooltipContent
+          side="right"
+          align="center"
+          anchor={openIndex !== null ? (markNodes.current[openIndex] ?? undefined) : undefined}
+          className={styles.preview}
+        >
+          <span className={styles.previewText}>{openIndex !== null ? marks[openIndex]?.preview : ''}</span>
+        </TooltipContent>
+      </Tooltip>
     </nav>
   )
 }

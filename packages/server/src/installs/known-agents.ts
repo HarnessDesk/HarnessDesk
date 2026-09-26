@@ -95,8 +95,12 @@ export interface KnownAgent {
     readonly kind: 'browser' | 'device-code' | 'api-key' | 'terminal' | 'gateway'
     /** Prints who is signed in, when the CLI can say. */
     readonly status?: CommandSpec
-    /** A sign-in that prints a URL and exits 0 when done; drivable from the desk. */
-    readonly login?: CommandSpec
+    /**
+     * A sign-in that prints a URL and exits 0 when done; drivable from the
+     * desk. `pasteCode` is the prompt it prints when it also takes the code a
+     * browser page shows, pasted into its input — see `AcpLoginSpec`.
+     */
+    readonly login?: CommandSpec & { readonly pasteCode?: string; readonly pasteCodeRejected?: string }
     readonly logout?: CommandSpec
     /** A sign-in that needs a terminal — the desk opens one on this. */
     readonly terminal?: string
@@ -126,6 +130,18 @@ export interface KnownAgent {
 }
 
 const cli = (command: string, ...args: string[]): CommandSpec => ({ command, args })
+
+/**
+ * What `claude auth login` prints when it waits on its input for a pasted
+ * code — `Paste code here if prompted > `, printed after the link every time
+ * and read line by line until the flow ends.
+ */
+export const CLAUDE_PASTE_PROMPT = 'Paste code here if prompted'
+/**
+ * What it writes to stderr when a pasted line is not `code#state` — then goes
+ * on reading, without printing the prompt again (2.1.258).
+ */
+export const CLAUDE_PASTE_REJECTED = 'Invalid code. Please make sure the full code was copied.'
 
 export const KNOWN_AGENTS: readonly KnownAgent[] = [
   {
@@ -585,9 +601,12 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
     auth: {
       kind: 'browser',
       status: cli('claude', 'auth', 'status'),
-      login: cli('claude', 'auth', 'login'),
+      // The prompt `claude auth login` prints beside its link and then reads
+      // its input for: a browser that cannot reach the command's own callback
+      // shows a code to paste instead. Read from 2.1.258's own source.
+      login: { ...cli('claude', 'auth', 'login'), pasteCode: CLAUDE_PASTE_PROMPT, pasteCodeRejected: CLAUDE_PASTE_REJECTED },
       logout: cli('claude', 'auth', 'logout'),
-      note: '`claude auth login` prints the sign-in link and exits when the browser comes back.',
+      note: '`claude auth login` prints the sign-in link and exits when the browser comes back; when the page shows a code instead, the desk asks for it and hands it to the command.',
     },
   },
   {

@@ -53,6 +53,75 @@ export const shouldRenderMap = ({
 
 const trim = (text: string): string => text.replace(/\s+/gu, ' ').trim()
 
+/**
+ * A code span's — or a fenced block's — content, pulled out before anything
+ * else runs and put back untouched at the end. Nothing inside is a marker:
+ * a `**` in a glob quoted as code, or a `_` in an identifier, is text, not
+ * emphasis, and the only way to be sure is never to look at it.
+ */
+const CODE_PLACEHOLDER = '\u0000'
+
+const withoutCode = (text: string): { readonly text: string; readonly spans: readonly string[] } => {
+  const spans: string[] = []
+  const keep = (code: string): string => {
+    spans.push(code)
+    return `${CODE_PLACEHOLDER}${spans.length - 1}${CODE_PLACEHOLDER}`
+  }
+  // Fenced first — its own backticks would otherwise be read as inline spans
+  // — dropping the fence line and the language tag, keeping the body.
+  const unfenced = text.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_, body: string) => keep(body))
+  const unspanned = unfenced.replace(/`([^`\n]+)`/g, (_, code: string) => keep(code))
+  return { text: unspanned, spans }
+}
+
+const restoreCode = (text: string, spans: readonly string[]): string =>
+  text.replace(new RegExp(`${CODE_PLACEHOLDER}(\\d+)${CODE_PLACEHOLDER}`, 'g'), (_, index: string) => spans[Number(index)] ?? '')
+
+/** A line's own heading, list or quote marker — every line carries one, not only the message's first. */
+const stripLineMarkers = (line: string): string =>
+  line.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s{0,3}(?:>|[-*+]|\d+[.)])\s+/, '')
+
+/**
+ * What may sit just outside an emphasis delimiter and still let it count as
+ * one. A letter, a digit, a dot or a slash means the delimiter opened or
+ * closed inside a word rather than around one — `__init__.py`, where the
+ * `.` right after the closing `__` says this was never emphasis, and
+ * `packages/**\/*.css`, where the `/` on both sides of `**` says the same
+ * for a glob. `firstSentence` in `group-items.ts` draws the identical line
+ * for the same reason: a lone `*` or `_` is left alone entirely, since there
+ * is nothing to check it against.
+ */
+const NOT_WORD = String.raw`[\p{L}\p{N}./]`
+const emphasis = (mark: string): RegExp =>
+  new RegExp(`(?<!${NOT_WORD})${mark}(\\S(?:[\\s\\S]*?\\S)?)${mark}(?!${NOT_WORD})`, 'gu')
+
+const BOLD_STAR = emphasis('\\*\\*')
+const BOLD_UNDERSCORE = emphasis('__')
+const STRIKE = emphasis('~~')
+/** A link (or image), kept for its own words: the target may itself hold a
+ *  balanced pair of parentheses — a wiki URL's `(disambiguation)` — without
+ *  leaving a stray `)` in the preview. */
+const LINK = /!?\[([^\]]*)\]\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g
+
+/**
+ * A message's markdown, gone — what is left is what the words say, not how
+ * they are marked up.
+ *
+ * A hover preview is scanned, not rendered, so the punctuation a renderer
+ * would have turned into emphasis is just noise here: `**caution**` reads as
+ * a title missing its warning, not as one. Run before the transcript's own
+ * whitespace collapse (see `trim` above), on the message's own newlines, so
+ * a heading or a list marker is caught on every line it opens, not only the
+ * one that happened to survive to the front of the flattened string.
+ */
+export const stripMarkdown = (text: string): string => {
+  const { text: hidden, spans } = withoutCode(text)
+  const delined = hidden.split('\n').map(stripLineMarkers).join('\n')
+  const unlinked = delined.replace(LINK, '$1')
+  const plain = unlinked.replace(BOLD_STAR, '$1').replace(BOLD_UNDERSCORE, '$1').replace(STRIKE, '$1')
+  return trim(restoreCode(plain, spans))
+}
+
 const promptText = (turn: Turn): string => {
   for (const item of turn.items) {
     if (item.type !== 'userMessage') continue
@@ -60,7 +129,7 @@ const promptText = (turn: Turn): string => {
       .map((part) => (part.type === 'text' ? part.text : part.type === 'mention' || part.type === 'skill' ? part.name : ''))
       .filter(Boolean)
       .join(' ')
-    const said = trim(words)
+    const said = stripMarkdown(words)
     if (said) return said.slice(0, PREVIEW_MAX)
   }
   return ''
@@ -70,7 +139,7 @@ const answerText = (turn: Turn): string => {
   const said: string[] = []
   for (const item of turn.items) {
     if (item.type !== 'assistantMessage' || item.phase === 'commentary') continue
-    const words = trim(item.text)
+    const words = stripMarkdown(item.text)
     if (words) said.push(words)
     if (said.join(' ').length >= PREVIEW_MAX) break
   }

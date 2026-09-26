@@ -28,12 +28,15 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
 const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
 const DashboardSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.DashboardSurface })))
 const ConversationSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationSurface })))
+const ConversationMapDenseSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapDenseSurface })))
+const ConversationMapPreviewOpenSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapPreviewOpenSurface })))
 const GitSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GitSurface })))
 const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GroupSurface })))
 const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
 const RailSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RailSurface })))
 const SeatRowsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SeatRowsSurface })))
 const ToolsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ToolsSurface })))
+const SignInSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SignInSurface })))
 import { FOUNDATIONS, TOKEN_GROUPS, tokenVisual, useResolvedTokens } from './foundation'
 import styles from './explorer.module.css'
 
@@ -133,6 +136,20 @@ const SURFACES = [
     render: ConversationSurface,
   },
   {
+    id: 'conversation-map-dense',
+    title: 'Conversation · map, dense',
+    about:
+      'The shipped conversation map on a fourteen-exchange transcript — the rail at the ~8px pitch a real transcript reads at, dense enough to overflow this frame on its own. Hover a dash for its preview, or press Tab then Up/Down.',
+    render: ConversationMapDenseSurface,
+  },
+  {
+    id: 'conversation-map-preview-open',
+    title: 'Conversation · map, preview open',
+    about:
+      'The same dense transcript with the rail focused on mount, so its preview is already open — the state Tab puts it in, caught rather than staged. Press Escape to close it, or Up/Down to move it.',
+    render: ConversationMapPreviewOpenSurface,
+  },
+  {
     id: 'composer',
     title: 'Composer',
     about:
@@ -173,6 +190,13 @@ const SURFACES = [
     about:
       'The shipped browser, editor and terminal panes, in the frame they share. What differs between them is only what each tool genuinely is; the header, the mark, the subject line, the tab strip and whether the body pads or bleeds are one component. On this page the browser can only plan pages, the editor shows the real source of `lib/brands.ts`, and the terminal redraws a fixture\'s scrollback with no shell behind it — nothing new arrives, and typing goes nowhere.',
     render: ToolsSurface,
+  },
+  {
+    id: 'signin',
+    title: 'Sign in',
+    about:
+      'The shipped Sign in dialog on the sign-in preview\'s roster, open on Claude while its browser sign-in waits: the command asked for the code the page shows when it cannot finish by itself, so the card asks for it in a password field, beside the page and the cancel. The dialog\'s other states — a refusal, a key, a device code, an account connected — are scenes of `/preview.html`, not of this tab.',
+    render: SignInSurface,
   },
   {
     id: 'propagation',

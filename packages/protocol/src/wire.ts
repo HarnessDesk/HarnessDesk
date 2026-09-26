@@ -1138,6 +1138,16 @@ export interface HostMethods {
     params: { readonly runtime: RuntimeId; readonly loginId: string }
     result: null
   }
+  /**
+   * The code a sign-in asked to have pasted — see `AgentRuntime.submitLoginCode`.
+   * A secret travelling one way, like a stored key: nothing on this wire ever
+   * hands it back, and no answer or error repeats it. The outcome is the
+   * flow's `account/loginCompleted`, as for every other way it ends.
+   */
+  'runtime/login/code': {
+    params: { readonly runtime: RuntimeId; readonly loginId: string; readonly code: string }
+    result: null
+  }
   'runtime/logout': { params: { readonly runtime: RuntimeId }; result: null }
   /**
    * One more account of the same agent.
