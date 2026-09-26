@@ -9,6 +9,7 @@ import type { FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/
 
 import type { GhInCheckout } from '../../src/evidence/forge.js'
 import { Host, StateStore } from '../../src/index.js'
+import type { QuestionTimers } from '../../src/host.js'
 import { makeRepo } from './evidence-desk.js'
 import { FakeRuntime } from './fake-runtime.js'
 import { silent } from './harness.js'
@@ -96,6 +97,8 @@ export interface DeskOptions {
   readonly onMain?: boolean
   /** Each runtime refuses a message while a turn is running, as a real agent's adapter does. */
   readonly refusesWhileBusy?: boolean
+  /** The timers an unattended Seat's question deadline runs on, so a test fires it when it says. */
+  readonly questionTimers?: QuestionTimers
 }
 
 export const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }, options: DeskOptions = {}): Promise<Desk> => {
@@ -125,6 +128,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     builtinAgents: tempDir('hd-flow-host-builtins-'),
     catalogRefreshMs: 0,
     evidence: { gh: gh.gh },
+    ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
   })
   const runtimes = [
     new FakeRuntime({ provider: 'vendor-a' }),

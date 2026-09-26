@@ -93,7 +93,7 @@ test('a budget stop, a firing that needs a person and a stalled run are each nam
   assert.match(waits[0]!.sentence, /cards, answers and findings are kept/)
 })
 
-test('question stops after twenty seconds with partial work', async () => {
+test('question stops after its wait with partial work', async () => {
   // A clock the test moves: nothing fires until it is advanced past its instant.
   let now = 0
   const timers: { at: number; fire: () => void; live: boolean }[] = []
@@ -113,13 +113,15 @@ test('question stops after twenty seconds with partial work', async () => {
   // The question is a named wait the moment it is asked — before any timer.
   const asked = goalWaits({ goal: GOAL, trigger: 'review', host: { ...NO_WAITS, questions: [{ id: 'q1', seat: 'reviewer', what: 'Which base?' }] }, run: null, stop: null, firings: [] })
   assert.deepEqual(asked.map((one) => one.kind), ['question'])
-  assert.match(asked[0]!.sentence, /twenty seconds, and what it said is kept/)
+  assert.match(asked[0]!.sentence, /after five minutes, and what it said is kept/, 'the default wait, said')
+  const waiting = goalWaits({ goal: GOAL, trigger: 'review', host: { ...NO_WAITS, questionWait: 'back', questions: [{ id: 'q1', seat: 'reviewer', what: 'Which base?' }] }, run: null, stop: null, firings: [] })
+  assert.match(waiting[0]!.sentence, /waits for your answer, however long/, 'the machine’s own wait, said')
 
   deadline.asked('fake\u0000s1', 'q1')
   deadline.asked('fake\u0000s1', 'q1')
   assert.equal(timers.length, 1, 'one timer, the phase-7 one — no second')
   await advance(QUESTION_MS - 1)
-  assert.deepEqual([interrupted, stopped], [[], []], 'nothing at 19999 ms')
+  assert.deepEqual([interrupted, stopped], [[], []], 'nothing a moment before the wait ends')
   await advance(QUESTION_MS)
   assert.deepEqual(interrupted, ['fake\u0000s1'], 'its turn is interrupted once, what it said kept')
   assert.deepEqual(stopped, [`fake\u0000s1:${QUESTION_STOP}`], 'one named stop at the boundary')

@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as Re
 import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
-import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, type ProjectGroup } from '../lib/projects'
+import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
 import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
 import { goalName, goalWords } from '../lib/goals'
@@ -1048,8 +1048,9 @@ export const useProjectGroups = (): ProjectGroup[] => {
      is work for nothing. Only the set of roots changes what comes out.
      Joined on NUL, the one byte a path cannot hold. */
   const roomRoots = useMemo(
-    () => [...new Set([...snapshot.teams.values()].map((team) => team.root))].sort().join('\u0000'),
-    [snapshot.teams],
+    () => [...new Set([...snapshot.teams.values()].map((team) => roomGroupRootOf(team.root, [snapshot.workspace, ...snapshot.workspaces])))]
+      .sort().join('\u0000'),
+    [snapshot.teams, snapshot.workspace, snapshot.workspaces],
   )
   return useMemo(() => {
     const listed = [...liveRef.current, ...snapshot.history]
@@ -1176,12 +1177,13 @@ export const SessionTree = ({ now }: { now: number }) => {
   const roomsByProject = useMemo(() => {
     const out = new Map<string, TeamState[]>()
     for (const team of snapshot.teams.values()) {
-      const held = out.get(team.root)
+      const root = roomGroupRootOf(team.root, [snapshot.workspace, ...snapshot.workspaces])
+      const held = out.get(root)
       if (held) held.push(team)
-      else out.set(team.root, [team])
+      else out.set(root, [team])
     }
     return out
-  }, [snapshot.teams])
+  }, [snapshot.teams, snapshot.workspace, snapshot.workspaces])
 
   // The current project stays open; the rest fold under "Other projects"
   // once there are enough of them for the fold to save anything. The fold's

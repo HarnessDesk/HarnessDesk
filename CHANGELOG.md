@@ -15,13 +15,29 @@ move is real work and is not news to a person weighing an upgrade.
   receipt. Review it again." A read now waits for that write first, so the
   receipt always carries what the Seat actually said.
 
+- **The Dashboard shows when the work ran.** A new "When it ran" band draws a
+  year as a calendar heatmap — Year or By agent, Tokens or Cost — with the
+  active days, the current and best streak, and the busiest day beside it. A
+  day before the ledger has scanned that far reads as unknown, not empty.
+
+- **A flow Seat's question waits for you.** On a run you started, a Seat's
+  question is no longer cut off after twenty seconds: it waits for your
+  answer. In a Goal a trigger opened, it waits as long as **Settings ›
+  Permissions › When nobody is here, an agent's question waits** says — five
+  minutes by default, from stopping right away to waiting until you are back
+  — and then its run stops for you. Answering it after that, on the room's
+  question card, now carries on the work: the Seat is handed your answer in a
+  turn of its own and the run goes with it, where before the answer went
+  nowhere. While a run is stopped like that, its board draws the Seat's card
+  in **Needs you**, as the header already said. A Goal started in a project
+  opened through a link is no longer listed a second time under **Other
+  projects**.
 - **A sign-in that wants a pasted code asks for it.** When an agent's browser
   sign-in cannot finish by itself, the page shows a code to paste back into
   the agent's sign-in command — which the desk runs in the background, so the
   sign-in used to wait forever. Sign in now shows a password field for that
   code beside the page and Cancel, and hands the code to the command. The
   code is never logged, kept or repeated in an error.
-
 - **Secondary text is its own level again, and a segmented control shows its
   choice.** Secondary and tertiary ink measured a hair apart — the app read
   as two greys doing the work of three — so secondary moved to the grey
