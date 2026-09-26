@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { AccountMark } from './Settings'
+import css from './Settings.module.css?raw'
 
 /**
  * An account's mark. Pinned: drawn as a control — one ring of a picker — it
@@ -47,4 +48,25 @@ it('leaves a mark that is not a control as the plate alone', () => {
   const mark = render(<AccountMark>A</AccountMark>)
   expect(mark.tagName).toBe('SPAN')
   expect(getComputedStyle(mark).cursor).not.toBe('pointer')
+})
+
+it('draws a signed-out mark as an empty seat: no plate, a dashed ring, the quietest ink', () => {
+  // Rendered, with a tint beside it: the off rule wins on the element, not by its place in the file.
+  const mark = render(<AccountMark size="sm" data-tint="blue" data-off="">A</AccountMark>)
+  const style = getComputedStyle(mark)
+  expect(style.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(style.color).toBe('var(--hd-muted-foreground)')
+  expect(style.boxShadow).toBe('none')
+  // jsdom does not resolve an outline shorthand written with var(), so the ring is read from the rule.
+  const ring = css.match(/\.avatar\[data-off\]:not\(:focus-visible\)\s*\{([^}]*)\}/)?.[1] ?? ''
+  expect(ring).toMatch(/outline:\s*var\(--hd-border-width\) dashed var\(--hd-border-strong\)/)
+  // The ring steps aside for a focus ring: no unscoped outline on an off mark.
+  const plate = css.match(/\.avatar\[data-off\]\s*\{([^}]*)\}/)?.[1] ?? ''
+  expect(plate).not.toMatch(/outline/)
+})
+
+it('leaves a tinted mark that is not off its colour — the control for the test above', () => {
+  const style = getComputedStyle(render(<AccountMark size="sm" data-tint="blue">A</AccountMark>))
+  expect(style.boxShadow).not.toBe('none')
+  expect(style.color).not.toBe('var(--hd-muted-foreground)')
 })

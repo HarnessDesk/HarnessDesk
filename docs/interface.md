@@ -250,8 +250,9 @@ hiding rows, because a filtered list must never read as missing data.
 is your identity — your profile's face and name, which are the house mark and
 "HarnessDesk" until you choose otherwise, and your HarnessDesk account when
 there is one — and at its end sits the mark of the agent new sessions run as,
-in its account's ring, with that agent's readiness dot beside it. The
-account's *name* is not on the row: an account is a pen, not a person. Rest on
+in its account's ring — or a dashed, empty ring when no one is signed in to
+it — with that agent's readiness dot beside it. The account's *name* is not on
+the row: an account is a pen, not a person. Rest on
 the mark for its name card — which account, on what plan, how much is left.
 The menu behind the row opens on you, and pressing that row opens your
 profile. Then comes switching: **Run new sessions as** lists every account of
