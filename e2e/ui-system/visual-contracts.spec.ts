@@ -233,11 +233,17 @@ test('the account marks case shows every size and the empty seat as the app draw
   await page.goto('/design.html?view=row')
   const sizes = page.locator('[data-catalog-case="account-mark-sizes"]')
   await expect(sizes).toBeVisible()
-  // sm, default and lg, tinted and plain, then the tinted and plain dot.
+  // sm, default and lg, tinted and plain, then the tinted and plain dot. These
+  // widths mirror the `.avatarSm` (22px), `.avatar` (30px), `.avatarLg` (44px)
+  // and `.avatarDot` (10px) literals in design/patterns/Settings.module.css —
+  // resizing `AccountMark` means editing this spec too (#995).
   const widths = await sizes.locator(':scope > span').evaluateAll(marks => marks.map(mark => Math.round(mark.getBoundingClientRect().width)))
   expect(widths).toEqual([22, 22, 30, 30, 44, 44, 10, 10])
   // The empty seat: no plate and a dashed ring, drawn by the real rule in a real engine.
   const off = page.locator('[data-catalog-case="account-mark-off"] [data-off]')
+  // A missing `data-off` would otherwise fail as a 30s "Test timeout …
+  // locator.evaluate" rather than a named assertion (#995).
+  await expect(off).toHaveCount(1)
   const look = await off.evaluate(node => {
     const style = getComputedStyle(node)
     return { background: style.backgroundColor, outline: style.outlineStyle, shadow: style.boxShadow }
