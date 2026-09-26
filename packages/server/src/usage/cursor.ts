@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -257,6 +258,39 @@ export const cursorCookie = (token: string): string | null => {
   return subject === null ? null : `WorkosCursorSessionToken=${subject}%3A%3A${token}`
 }
 
+/**
+ * A stable, anonymous stand-in for the account's own subject — SHA-256,
+ * truncated — never the subject itself. The events reader keys its ledger
+ * rows on this rather than on the account's own id or email.
+ */
+export const cursorAccountHash = (token: string): string | null => {
+  const subject = jwtSubject(token)
+  return subject === null ? null : createHash('sha256').update(subject).digest('hex').slice(0, 16)
+}
+
+/** One key out of a database another application owns, and nothing else. */
+export const readCursorToken = (path: string): string | null => {
+  if (!existsSync(path)) return null
+  let database: DatabaseSync
+  try {
+    database = new DatabaseSync(path, { readOnly: true })
+  } catch {
+    // Locked, or mid-write. The next read finds it.
+    return null
+  }
+  try {
+    const row = database.prepare('SELECT value FROM ItemTable WHERE key = ? LIMIT 1').get(KEY) as
+      | { value?: unknown }
+      | undefined
+    const token = typeof row?.value === 'string' ? row.value.trim() : null
+    return token && token !== '' ? token : null
+  } catch {
+    return null
+  } finally {
+    database.close()
+  }
+}
+
 export interface CursorMeterOptions {
   readonly databasePath?: string
   readonly endpoint?: string
@@ -404,13 +438,26 @@ export class CursorMeter implements UsageMeter {
 
     if (lanes.length === 0 && credits === null) return null
 
+    // The overage the plan actually metered, on top of its included
+    // allowance — the same figure `credits.used` reads on a non-legacy
+    // account, restated as `billing.overage.spent` so a card that reads
+    // billing rather than credits (the shape every other reader already
+    // expects) sees it too.
+    const overage =
+      onDemand?.enabled === true && typeof onDemand.used === 'number'
+        ? { enabled: true, spent: onDemand.used / 100, currency: 'USD' }
+        : null
+
     return {
       account: null,
       plan: planName(summary.membershipType),
       lanes,
       credits,
       reached,
-      billing: { kinds: onDemandEnabled ? (['allowance', 'metered'] as const) : (['allowance'] as const) },
+      billing: {
+        kinds: onDemandEnabled ? (['allowance', 'metered'] as const) : (['allowance'] as const),
+        ...(overage ? { overage } : {}),
+      },
       fetchedAt: this.#now(),
       staleAfterMs: STALE_AFTER_MS,
     }
@@ -458,27 +505,10 @@ export class CursorMeter implements UsageMeter {
 
   /** One key out of a database another application owns, and nothing else. */
   #session(): { readonly cookie: string; readonly subject: string } | null {
-    if (!existsSync(this.#path)) return null
-    let database: DatabaseSync
-    try {
-      database = new DatabaseSync(this.#path, { readOnly: true })
-    } catch {
-      // Locked, or mid-write. The next read finds it.
-      return null
-    }
-    try {
-      const row = database.prepare('SELECT value FROM ItemTable WHERE key = ? LIMIT 1').get(KEY) as
-        | { value?: unknown }
-        | undefined
-      const token = typeof row?.value === 'string' ? row.value.trim() : null
-      if (!token || token === '') return null
-      const subject = jwtSubject(token)
-      const cookie = cursorCookie(token)
-      return subject === null || cookie === null ? null : { cookie, subject }
-    } catch {
-      return null
-    } finally {
-      database.close()
-    }
+    const token = readCursorToken(this.#path)
+    if (token === null) return null
+    const subject = jwtSubject(token)
+    const cookie = cursorCookie(token)
+    return subject === null || cookie === null ? null : { cookie, subject }
   }
 }

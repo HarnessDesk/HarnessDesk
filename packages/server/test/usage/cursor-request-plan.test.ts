@@ -255,7 +255,10 @@ test('on-demand spend on a legacy plan is its own overage lane, never folded int
   assert.equal(overage.usedPercent, 25)
   assert.equal(overage.layer, 'overage')
   assert.equal(reading.credits, null)
-  assert.deepEqual(reading.billing, { kinds: ['allowance', 'metered'] })
+  assert.deepEqual(reading.billing, {
+    kinds: ['allowance', 'metered'],
+    overage: { enabled: true, spent: 5, currency: 'USD' },
+  })
 })
 
 test('on-demand off, or a zero limit, adds no overage lane', async () => {
@@ -320,7 +323,10 @@ test('a dollar-allowance account is unchanged: still one plan lane, and now its 
   assert.equal(reading.lanes.length, 1)
   assert.equal(reading.lanes[0]?.id, 'plan')
   assert.deepEqual(reading.credits, { remaining: 36.08, used: 13.92, unit: 'USD', unlimited: false })
-  assert.deepEqual(reading.billing, { kinds: ['allowance', 'metered'] })
+  assert.deepEqual(reading.billing, {
+    kinds: ['allowance', 'metered'],
+    overage: { enabled: true, spent: 13.92, currency: 'USD' },
+  })
 })
 
 test('the legacy endpoint failing falls back to the summary reading rather than blanking the card', async () => {

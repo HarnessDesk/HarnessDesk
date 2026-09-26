@@ -25,13 +25,14 @@ import { AgentDirectory, AgentRegistryStore, packagedPath, templateBrandFor } fr
 import { CredentialBroker } from './credentials.js'
 import { Host, type AccountFactory, type HostOptions } from './host.js'
 import { ClaudeFileMeter } from './usage/claude-file.js'
-import { corpusRoot, type CorpusKind } from './ledger/index.js'
+import { corpusRoot, type CorpusKind, type RemoteEventsSource } from './ledger/index.js'
 import { AgyMeter } from './usage/agy.js'
 import { AmpMeter } from './usage/amp.js'
 import { ClineMeter } from './usage/cline.js'
 import { clineDataDirOverride } from './installs/identity.js'
 import { CopilotMeter } from './usage/copilot.js'
 import { CursorMeter } from './usage/cursor.js'
+import { CursorEventsSource } from './usage/cursor-events.js'
 import { GeminiMeter } from './usage/gemini.js'
 import type { UsageMeter } from './usage/meter.js'
 import { Logger } from './log.js'
@@ -529,7 +530,7 @@ export const createDefaultHost = (
 export const localUsageFor = (
   agent: AcpAgentConfig,
   known?: Pick<KnownAgent, 'cli'> | undefined,
-): { meter?: UsageMeter; corpus?: CorpusKind; root?: string } | null => {
+): { meter?: UsageMeter; corpus?: CorpusKind; root?: string; remote?: RemoteEventsSource } | null => {
   const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0] ?? ownCli(agent)
   // Where the agent keeps its records is decided by its own environment — a
   // row can move an agent's home to hold a second account — so paths are
@@ -545,7 +546,9 @@ export const localUsageFor = (
     case 'claude':
       return { meter: new ClaudeFileMeter(), corpus: 'claude' }
     case 'cursor-agent':
-      return { meter: new CursorMeter() }
+      // Cursor keeps no local transcript (rule 3): its tokens, requests and
+      // Value come from its own account-wide usage events, not a corpus.
+      return { meter: new CursorMeter(), remote: new CursorEventsSource(agent.id) }
     case 'gemini':
       // A Code Assist sign-in has a quota to read; an API key has none, and
       // what its calls cost is in the chat logs either way.

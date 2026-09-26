@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Cursor's work now shows in what it cost and where it went, from every
+  machine on the account.** Cursor keeps no local transcript, so it used to
+  contribute nothing to the ledger. Its own per-request usage events —
+  account-wide, covering every machine signed in — now sync in, so the
+  Dashboard can show its tokens, its requests (a max-mode call counting for
+  several), and Value at the tokens' own list-price estimate.
+
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per
   conversation — "cannot pass a lane environment to a session" — so a

@@ -259,8 +259,8 @@ a reset; and the Accounts rail shows the balance where a percentage would go.
 credential file, config or cache. It reads to answer one question and keeps
 its own copy of nothing but the ledger.
 
-**Cursor reports no tokens, and a leftover request counter is stale, not
-live.** Its live surface is `GET /api/usage-summary`, and that payload has no
+**Cursor's live meter reports no tokens, and a leftover request counter is
+stale, not live.** Its live surface is `GET /api/usage-summary`, and that payload has no
 token or request counts in it at all. The old `GET /api/usage` still answers,
 with `{ numRequests, numRequestsTotal, numTokens, maxRequestUsage,
 maxTokenUsage, startOfMonth }`. On a dollar-cents account this counter is a
@@ -272,9 +272,11 @@ trusted only when it names *this* cycle — see the next paragraph — and skipp
 otherwise. What Cursor *does* say a dollar-cents account has spent is the
 on-demand budget, whose `used + remaining = limit` and which therefore can be
 believed on both halves; that is where the card's `$39.34 used · $10.66 left`
-comes from. The remaining POST dashboard endpoints (`get-filtered-usage-events`,
-`get-user-analytics`) answer *Invalid origin for state-changing request*, and
-defeating a vendor's CSRF guard to read a number is not a thing this desk does.
+comes from. `get-user-analytics` still answers *Invalid origin for
+state-changing request* and is not read; `get-filtered-usage-events` answers
+the same way to a request with no `Origin` header, which reads as a dead end
+until it is added — that one header is not a CSRF bypass, and what it opens
+up is below.
 
 **A request counter can outlive its plan, and while it is current it is the
 primary figure.** An account still on Cursor's older, request-quota tier is
@@ -296,7 +298,75 @@ milliseconds, clamped to the target month's last day rather than rolled into
 the one after when the start day does not exist there (the 31st into
 September). On-demand spend, when this account has it, draws as its own
 `layer: 'overage'` lane beside the request quota rather than folding into
-`credits` — the two would say the same thing twice.
+`credits` — the two would say the same thing twice. On-demand spend, whichever
+branch reports it, is also restated as `billing.overage.spent` — the one Paid
+figure a metered Cursor plan owes (below).
+
+**Cursor's tokens and Value come from a different surface: its own per-request
+usage events, folded into the ledger rather than read live.** With the
+`Origin: https://cursor.com` header a browser tab would send anyway,
+`POST /api/dashboard/get-filtered-usage-events` pages an account's history at
+1000 events a page, cookie-authenticated exactly like the meter, and never
+needs anything wider than that one header. It is the one built-in scanner
+whose source is a network call rather than a file this machine already has
+(`packages/server/src/usage/cursor-events.ts`), because Cursor keeps no local
+transcript at all (rule 3) — and because it is account-wide, one sync covers
+every machine signed in to that account, not only this one.
+
+Confirmed against the real endpoint, read-only, for a bounded window (never
+recorded beyond the shape — rule 13): the envelope is `{
+totalUsageEventsCount, usageEventsDisplay }`; an empty query answers `{}`; a
+terminal page short of a full page can omit `usageEventsDisplay` while keeping
+the count, which is what proves the page was the last one rather than an
+empty stall. `tokenUsage` — `inputTokens`, `outputTokens`, `cacheReadTokens`,
+`cacheWriteTokens`, `totalCents` — is Cursor's own API-rate estimate for that
+event, and it is a **disjoint** shape: `inputTokens` excludes both cache
+counters, the same as Claude's own usage block and unlike Codex's, where the
+cached share sits inside `input_tokens`. That makes a cache-hit rate for
+`cursor` the same formula the other four disjoint-counter scanners already use
+— `cacheRead / (input + cacheRead)` — never the one measured shape this doc
+used to leave undefined only for Cline.
+
+`requestsCosts` is Cursor's own accounting of how many "requests" of a
+request-based plan's quota one event consumed: a plain call reads `1`, a cheap
+one can read a fraction of that, and a max-mode or otherwise expensive call
+reads several — the read behind this paragraph saw values past 300 on a
+single event. It is summed directly into the ledger's `requests`, so a
+max-mode call costs the row several requests rather than the flat one every
+other scanner counts per call. An event that omits it — about a quarter of a
+real window, always ones with no `tokenUsage` either — is counted as a single
+request, the same default Cursor's own dashboard falls back to for a call it
+does not itemise. One event in several hundred carries no `tokenUsage` at all
+(a non-token completion Cursor still bills for), and an event whose `kind` is
+`USAGE_EVENT_KIND_ABORTED_NOT_CHARGED` carries neither tokens nor a cost and
+is skipped outright — not a zero-cost row, no row at all.
+
+`tokenUsage.totalCents / 100` is Value — the agent's own price for the
+tokens, `vendorCost` on the row, #992's rule — and it is never `chargedCents`,
+which is what the plan actually deducted and belongs only to the meter's
+`billing.overage.spent`, never the ledger. An event with no usable
+`totalCents` stays unpriced rather than free, and never shares a row with one
+that has a price: the same split every other scanner keeps between a request
+it can cost and one it cannot (`ledger/scan.ts`'s `add`).
+
+Because the source is remote rather than a file, it is keyed as its own
+"file" — `cursor-events:<hash of the account's own subject>`, never the raw
+identifier or an email — and a re-sync **replaces** the days it just fetched
+rather than adding to them: a day this machine already had rows for keeps
+whatever the latest fetch says, and a day the account no longer has any
+events for (one was deleted upstream) disappears along with it. It syncs
+incrementally, from the day after its last successful sync minus one (for an
+event Cursor files a little after the fact), at most once an hour, tied into
+the same scan a `usage/ledger` read already starts rather than a poll loop of
+its own — see "Refresh, without a poll loop" below. A first sync, with no
+earlier one to resume from, reaches back ninety days: the account's billing
+cycle would need a second network call to learn, and ninety days already
+matches the bound `readInsight` holds every other source to, so Cursor's
+ledger history starts no further back than the rest of this screen can
+already promise to explain. `coverage.earliestDay` for the `cursor` runtime is
+therefore the first day that first sync's window covered, not the account's
+whole history — a day before it reads "no record yet", exactly as an agent's
+own corpus does before its first line.
 
 ## What honest costs money to say
 
