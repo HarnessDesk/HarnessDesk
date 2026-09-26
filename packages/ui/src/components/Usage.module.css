@@ -31,9 +31,16 @@
      right under the strip instead, so it rises by the difference. */
   top: calc(var(--usage-strip) - max(var(--hd-space-6), var(--hd-titlebar-height))); /* desk: -strip → strip − the page's top padding, the head stops under the title strip */
   z-index: 1;
-  /* A band's head belongs to its band: it sits a label's step (its own 8px
-     padding) over the cards, not the 32px that parts one band from the next. */
-  margin: 0 0 calc(-1 * var(--hd-space-8)); /* desk: -strip → 0 0 -32, the head sits on its own cards */
+  margin: 0; /* desk: -strip → 0, no padding to pull back any more */
+}
+
+/* The first band's head is a sibling of its band in `.body`'s 32px column,
+   not inside it, so it takes that step back and sits a label's step (its own
+   8px padding) over the cards it names. The other heads are inside their
+   bands already, on the band's own 12px gap, and must not: pulled up 32px
+   there, a sticky head covered the top of what it heads. */
+.firstBandHead {
+  margin-bottom: calc(-1 * var(--hd-space-8)); /* desk: 0 → -32, the first head sits on its own cards */
 }
 
 .cards {

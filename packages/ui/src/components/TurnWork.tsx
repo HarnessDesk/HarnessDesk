@@ -115,7 +115,7 @@ export const TurnWork = ({
         <Separator render={<span />} className={styles.rule} />
       </TurnWorkHeader>
       {open && (
-        <TurnWorkBody className={styles.body} data-register="light">
+        <TurnWorkBody reveal={choice === true} className={styles.body} data-register="light">
           <StepNameScope items={shown} root={root}>
             {groupItems(shown).map((node) =>
               node.kind === 'group' ? (

@@ -380,3 +380,24 @@ test('selected account ink waits for a child transition that the row does not ca
     expect(measurement.ratio, measurement.text || 'mark').toBeGreaterThanOrEqual(floorOf(measurement.part))
   }
 })
+
+test('no band head covers what it heads, first band or not', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await stageAccounts(page)
+  await page.goto('/preview.html')
+  const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+  await expect(dashboard.getByRole('heading', { name: 'What is left', exact: true })).toBeVisible()
+  const overlaps = await dashboard.evaluate(node => {
+    const found: string[] = []
+    for (const head of node.querySelectorAll<HTMLElement>('[data-sticky]')) {
+      // What the head names is the next thing laid out after it, in its band.
+      let next = head.nextElementSibling as HTMLElement | null
+      while (next && next.getBoundingClientRect().height === 0) next = next.nextElementSibling as HTMLElement | null
+      if (!next) continue
+      const gap = next.getBoundingClientRect().top - head.getBoundingClientRect().bottom
+      if (gap < 0) found.push(`${head.textContent?.trim().slice(0, 30)}: ${Math.round(gap)}px`)
+    }
+    return found
+  })
+  expect(overlaps).toEqual([])
+})

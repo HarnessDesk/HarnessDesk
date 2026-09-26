@@ -73,8 +73,9 @@ body {
   /* The title block: the hairline a page head closes on, and the short mark
      in the accent at its start (Settings.module.css `.pageHead`). The title
      names the place; the rule sets it off from what is on it. The rule sits
-     inside the head's existing space — half above it, half below — so a page
-     with a title block starts its content exactly where it did without one. A foundation that wants no mark sets its
+     inside the head's existing 24px — 12 above it, the hairline, 11 below — so
+     a page with a title block starts its content exactly where it did
+     without one. A foundation that wants no mark sets its
      width to 0. */
   --hd-title-rule: var(--hd-border);
   --hd-title-rule-width: var(--hd-space-px);
@@ -1192,6 +1193,15 @@ body[data-hd-dark-theme] {
   --hd-danger-ink: rgb(246, 109, 99); /* desk: re-solved against the rebuilt palette */
   --hd-success-ink: rgb(86, 186, 119); /* desk: re-solved against the rebuilt palette */
   --hd-primary-ink: rgb(115, 150, 253); /* desk: re-solved against the rebuilt palette */
+
+  /* The accent on a dark ground is the palette's lighter step, and so the ink
+     on it inverts too: near-black reads 6.2:1 on it where white would manage
+     3.0:1. The knob on a toggle stays white — it is a shape, not a word, and
+     clears the 3:1 a shape needs. */
+  --hd-accent-dim: rgba(112, 142, 250, 0.12); /* desk: the wash follows the lifted accent */
+  --hd-accent-foreground: rgb(17, 17, 17); /* desk: white → near-black on the lifted accent */
+  --hd-primary-foreground: rgb(17, 17, 17); /* desk: white → near-black on the lifted accent */
+  --hd-toggle-knob-on: rgb(255, 255, 255); /* desk: the knob stays white on the lifted accent */
 }
 
 /*

@@ -763,7 +763,7 @@
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: calc(var(--hd-space-6) - var(--hd-title-rule-gap)); /* desk: 24 → 12, the title block's rule takes the other half of the space */
+  margin-bottom: calc(var(--hd-space-6) - var(--hd-title-rule-gap) - var(--hd-title-rule-width)); /* desk: 24 → 11, the title block's rule and the space above it take the rest */
 }
 
 .pageHeadText {
@@ -1184,7 +1184,7 @@
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--hd-space-4);
-  margin-bottom: calc(var(--hd-space-6) - var(--hd-title-rule-gap)); /* desk: 24 → 12, the title block's rule takes the other half of the space */
+  margin-bottom: calc(var(--hd-space-6) - var(--hd-title-rule-gap) - var(--hd-title-rule-width)); /* desk: 24 → 11, the title block's rule and the space above it take the rest */
 }
 
 .detailMark {

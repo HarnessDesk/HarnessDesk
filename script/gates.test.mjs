@@ -4075,7 +4075,18 @@ test('motion tokens, zero and step counts are not raw durations', () => {
   // a keyframe whose name ends in a digit and an s is a name, not a time
   assert.deepEqual(rawDurations('.a { animation: fade2s var(--hd-duration-enter); }'), [])
   // a time outside motion is not this rule's business
-  assert.deepEqual(rawDurations('.a { --hd-duration-enter: 0.18s; }'), [])
+  assert.deepEqual(rawDurations('.a { width: 2s; }'), [])
+})
+
+test('a time parked in a custom property, or written as a negative delay, is still a time (review of #962)', () => {
+  const found = (css) => rawDurations(css).map(({ property }) => property)
+  // AGENTS.md rule 11: a literal hidden behind a custom property is a literal.
+  assert.deepEqual(found('.a { --x-dur: 160ms; transition: opacity var(--x-dur); }'), ['--x-dur'])
+  assert.deepEqual(found('.a { animation-delay: -0.2s; }'), ['animation-delay'])
+  assert.deepEqual(found('.a { transition: opacity var(--hd-duration-fast) -40ms; }'), ['transition'])
+  // a token whose name ends in digits and an s is a name, not a negative time
+  assert.deepEqual(rawDurations('.a { transition: opacity var(--x-2s); }'), [])
+  assert.deepEqual(rawDurations('.a { --x-dur: var(--hd-duration-enter); }'), [])
 })
 
 test('a Tailwind utility that writes its own clock is counted; one that names a token is not', () => {
@@ -4085,4 +4096,13 @@ test('a Tailwind utility that writes its own clock is counted; one that names a 
   assert.deepEqual(rawDurationUtilities("'animate-[shimmer_1.8s_linear_infinite]'"), ['animate-[shimmer_1.8s_linear_infinite]'])
   assert.deepEqual(rawDurationUtilities("'duration-(--hd-duration-enter) data-ending-style:duration-(--hd-duration-exit)'"), [])
   assert.deepEqual(rawDurationUtilities("'animate-[shimmer_var(--hd-duration-sweep)_linear_infinite]'"), [])
+})
+
+test('an arbitrary Tailwind property or an inline style object that writes its own clock is counted', () => {
+  assert.deepEqual(rawDurationUtilities("'[transition:opacity_200ms]'"), ['[transition:opacity_200ms]'])
+  assert.deepEqual(rawDurationUtilities("'hover:[animation-duration:1.2s]'"), ['hover:[animation-duration:1.2s]'])
+  assert.deepEqual(rawDurationUtilities("'[transition:opacity_var(--hd-duration-fast)]'"), [])
+  assert.deepEqual(rawDurationUtilities("style={{ transition: 'opacity 200ms ease' }}"), ["transition: 'opacity 200ms ease'"])
+  assert.deepEqual(rawDurationUtilities("style={{ animationDuration: '160ms' }}"), ["animationDuration: '160ms'"])
+  assert.deepEqual(rawDurationUtilities("style={{ transition: 'opacity var(--hd-duration-fast)' }}"), [])
 })

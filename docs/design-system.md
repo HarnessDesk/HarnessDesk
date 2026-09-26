@@ -383,6 +383,10 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-danger-ink` | `rgb(196, 52, 48)` |
 | `--hd-success-ink` | `rgb(0, 126, 63)` |
 | `--hd-primary-ink` | `rgb(40, 72, 210)` |
+| `--hd-accent-dim` | `rgba(52, 88, 240, 0.12)` |
+| `--hd-accent-foreground` | `rgb(255, 255, 255)` |
+| `--hd-primary-foreground` | `rgb(255, 255, 255)` |
+| `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 | `--hd-sidebar-selected-foreground` | `` |
 | `--hd-sidebar-selected-muted-foreground` | `` |

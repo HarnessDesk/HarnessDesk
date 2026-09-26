@@ -78,12 +78,14 @@ const TurnItem = ({
 )
 
 /**
- * The fold's open body: the steps themselves. Opening the fold reveals them in
- * place — they rise a step as they fade in (`revealMotion`), so the reader sees
- * where the list came from. Closing is instant; the fold is already gone.
+ * The fold's open body: the steps themselves. When the reader opens the fold,
+ * the steps rise a step as they fade in (`revealMotion`), so they see where the
+ * list came from. Only then: a fold that is open by default — a running turn —
+ * mounts again whenever the transcript does, and replaying the arrival every
+ * time a tab comes back is motion that says nothing. Closing is instant.
  */
-const TurnWorkBody = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="turn-work-body" className={cn(revealMotion, className)} {...props} />
+const TurnWorkBody = ({ reveal = false, className, ...props }: React.ComponentProps<'div'> & { reveal?: boolean }) => (
+  <div data-slot="turn-work-body" className={cn(reveal && revealMotion, className)} {...props} />
 )
 
 /**

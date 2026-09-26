@@ -381,7 +381,7 @@ export const Usage = ({
         <PageHead title={scoped ? scoped.presentation.name : 'Dashboard'} blurb={blurb} />
 
         <div className={styles.body}>
-          <BandHead name="What is left" note={summary.headline ?? undefined} />
+          <BandHead name="What is left" note={summary.headline ?? undefined} className={styles.firstBandHead} />
           <section className={styles.band} aria-label="What is left">
 
             <div className={styles.cards}>

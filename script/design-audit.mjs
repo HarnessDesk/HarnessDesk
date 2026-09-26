@@ -1705,15 +1705,23 @@ export const rawZIndexes = (css) => {
  * change to how fast the app moves reaches every surface but that one. It
  * reads declarations, not property names alone: `transition`, `animation` and
  * their `-duration` and `-delay` longhands, prefixed or not, with any time in
- * the value counted. Zero is not a duration — `visibility 0s linear …` and the
- * reduced-motion reset say "no time", which no token needs to name.
+ * the value counted — a negative delay included. Zero is not a duration —
+ * `visibility 0s linear …` and the reduced-motion reset say "no time", which no
+ * token needs to name.
+ *
+ * A time parked in a custom property counts too (AGENTS.md rule 11: a literal
+ * hidden behind a custom property is still a literal): `--x-dur: 160ms` then
+ * `transition: opacity var(--x-dur)` is the same private clock with one more
+ * step. The audit does not read the foundation sheets, which are where the
+ * motion tokens themselves are written.
  */
-const TIME_LITERAL = /(?<![\w.-])(\d*\.?\d+)(?:ms|s)\b/g
+const TIME_LITERAL = /(?:(?<![\w.-])|(?<=(?:^|[\s(,:])-))(\d*\.?\d+)(?:ms|s)\b/g
 const timesIn = (value) => [...value.matchAll(TIME_LITERAL)].filter((match) => Number(match[1]) !== 0)
 export const rawDurations = (css) =>
   declarationsOf(css).filter(
     ({ property, value }) =>
-      /^(?:-webkit-)?(?:transition|animation)(?:-duration|-delay)?$/i.test(property) && timesIn(value).length > 0,
+      (/^(?:-webkit-)?(?:transition|animation)(?:-duration|-delay)?$/i.test(property) || property.startsWith('--')) &&
+      timesIn(value).length > 0,
   )
 
 /**
@@ -1721,11 +1729,16 @@ export const rawDurations = (css) =>
  * arbitrary `duration-[160ms]`, or a time inside an arbitrary `animate-[…]`.
  * `duration-(--hd-duration-enter)` names a token and is the way out.
  */
-const DURATION_UTILITY = /(?<![\w-])(?:[\w-]+:)*(?:duration|delay)-(?:\d+|\[[^\]]*\])(?![\w-])|(?<![\w-])(?:[\w-]+:)*animate-\[[^\]]*\]/g
-export const rawDurationUtilities = (code) =>
-  [...code.matchAll(DURATION_UTILITY)]
+const DURATION_UTILITY = /(?<![\w-])(?:[\w-]+:)*(?:duration|delay)-(?:\d+|\[[^\]]*\])(?![\w-])|(?<![\w-])(?:[\w-]+:)*animate-\[[^\]]*\]|(?<![\w-])(?:[\w-]+:)*\[(?:-webkit-)?(?:transition|animation)[\w-]*:[^\]]*\]/g
+/* An inline style object's motion: `style={{ transition: 'opacity 200ms' }}`,
+   `animationDuration: '160ms'`, and the like. */
+const INLINE_MOTION = /\b(?:transition|animation)(?:Duration|Delay)?\s*:\s*(['"`])((?:(?!\1).)*)\1/g
+export const rawDurationUtilities = (code) => [
+  ...[...code.matchAll(DURATION_UTILITY)]
     .map((match) => match[0])
-    .filter((utility) => !/animate-\[/.test(utility) || timesIn(utility.replace(/_/g, ' ')).length > 0)
+    .filter((utility) => /^(?:[\w-]+:)*(?:duration|delay)-/.test(utility) || timesIn(utility.replace(/_/g, ' ')).length > 0),
+  ...[...code.matchAll(INLINE_MOTION)].filter((match) => timesIn(match[2]).length > 0).map((match) => match[0]),
+]
 
 /**
  * A `.tsx` file's code, with its comments gone.

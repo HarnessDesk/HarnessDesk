@@ -171,9 +171,9 @@ body[data-hd-dark-theme] {
   --hdp-static-accent-300: rgb(175, 197, 255);
   --hdp-static-accent-400: rgb(136, 167, 254);
   --hdp-static-accent-450: rgb(92, 124, 250);
-  --hdp-static-accent-500: rgb(52, 88, 240);
+  --hdp-static-accent-500: rgb(112, 142, 250); /* desk: cobalt, lifted for the dark ground — 5.9:1 as ink on it */
   --hdp-static-accent-50: rgb(238, 243, 254);
-  --hdp-static-accent-600: rgb(38, 70, 214);
+  --hdp-static-accent-600: rgb(92, 124, 250); /* desk: the dark face's hover, a step under its accent */
   --hdp-static-accent-700-delete: rgb(50, 74, 154);
   --hdp-static-accent-800: rgb(50, 63, 97);
   --hdp-static-accent-900: rgb(38, 47, 70);

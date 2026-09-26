@@ -112,7 +112,7 @@ export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProp
           const name = ref === undefined
             ? null
             : ref.seat === null ? 'Observed by the desk' : nameOf(receipt.members, ref.seat) ?? ref.seatLabel ?? null
-          return <Row key={id} title={name ?? id} desc={name ? id : 'Recorded evidence ID'} />
+          return <Row key={id} title={name ?? id} desc={name ? id : 'Recorded evidence ID'} truncateDesc={name !== null} />
         })}</Rows>
       </>
     ) : null}
