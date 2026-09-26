@@ -75,7 +75,7 @@ import {
   type ToolCallVerb,
 } from '../lib/group-items'
 import { editOf } from '../lib/handoff'
-import { findTodos, planOf, type Todo } from '../lib/todos'
+import { findTodos, planOf, todoState, type Todo } from '../lib/todos'
 import { readToolResult } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
@@ -892,22 +892,16 @@ const findDiff = (value: unknown): string | null => {
 }
 
 /**
- * A plan's steps, drawn the way the Tasks panel draws them: the step's mark
- * set in its line (`TextMark`), a finished one struck and stepped back
- * (`Text done`), and the one in progress at the subject weight. A step's own
- * priority — ACP's, not every source has one — sits in a chip on the same
- * line rather than a second one under it (rule 9).
- *
- * Exported so a turn's own ACP plan, which carries no tool call of its own
- * to hang this off, still draws as the same list — one definition of what a
- * checklist looks like, whichever kind of update set it.
+ * A plan's steps, as the design system's one plan list — the same Checklist
+ * the Tasks panel and a turn's own ACP plan draw. A step's priority (ACP's;
+ * not every source has one) sits in a chip on the step's own line (rule 9).
  */
-export const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
+const PlanSteps = ({ todos }: { todos: readonly Todo[] }) => (
   <Checklist className={styles.list}>
     {todos.map((todo, index) => (
       <ChecklistItem
         key={index}
-        state={todo.done ? 'done' : todo.active ? 'active' : 'pending'}
+        state={todoState(todo)}
         {...(todo.priority ? { after: <Chip tone="neutral" size="sm">{todo.priority}</Chip> } : {})}
       >
         {todo.label}
@@ -939,8 +933,9 @@ const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) {
     return args === null || args === undefined ? null : <CodeBlock output={JSON.stringify(args, null, 2)} />
   }
-  const argTodos = findTodos(args)
-  if (argTodos) return <TodoListView todos={argTodos} />
+  // The same test the receipt and the grouping use for "is a plan write".
+  const argTodos = planOf(args)
+  if (argTodos) return <PlanSteps todos={argTodos} />
   const entries = Object.entries(args as Record<string, unknown>)
   if (entries.length === 0) return null
   return (
@@ -1022,7 +1017,7 @@ const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
     return <CodeBlock key={key} output={stripAnsi(reading.text)} />
   }
   const todos = findTodos(part.value)
-  if (todos) return <TodoListView key={key} todos={todos} />
+  if (todos) return <PlanSteps key={key} todos={todos} />
   const diff = findDiff(part.value)
   if (diff) return <DiffView key={key} diff={diff} inline />
   // Structured output is output: the same plate as a text result.
