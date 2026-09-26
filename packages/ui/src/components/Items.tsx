@@ -56,6 +56,8 @@ import {
   TextMark,
   TurnItem,
   type LightboxImage,
+  Checklist,
+  ChecklistItem,
 } from '../design'
 import { instant } from '../lib/clock'
 import { openExternal } from '../lib/desktop'
@@ -102,9 +104,6 @@ import {
   SearchIcon,
   SparkIcon,
   TerminalIcon,
-  TodoActiveIcon,
-  TodoDoneIcon,
-  TodoPendingIcon,
   ToolIcon,
 } from './Icons'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
@@ -904,17 +903,17 @@ const findDiff = (value: unknown): string | null => {
  * checklist looks like, whichever kind of update set it.
  */
 export const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
-  <ul className={styles.list}>
+  <Checklist className={styles.list}>
     {todos.map((todo, index) => (
-      <Text as="li" role="prose" key={index} className={styles.listItem}>
-        <TextMark role="prose">
-          {todo.done ? <TodoDoneIcon size={12} /> : todo.active ? <TodoActiveIcon size={12} /> : <TodoPendingIcon size={12} />}
-        </TextMark>
-        <Text role={todo.active ? 'subject' : 'prose'} done={todo.done}>{todo.label}</Text>
-        {todo.priority && <Chip tone="neutral" size="sm">{todo.priority}</Chip>}
-      </Text>
+      <ChecklistItem
+        key={index}
+        state={todo.done ? 'done' : todo.active ? 'active' : 'pending'}
+        {...(todo.priority ? { after: <Chip tone="neutral" size="sm">{todo.priority}</Chip> } : {})}
+      >
+        {todo.label}
+      </ChecklistItem>
     ))}
-  </ul>
+  </Checklist>
 )
 
 /** The one argument worth showing beside a call's title, shortened to the repo. */
@@ -1320,14 +1319,13 @@ const Plan = ({ item }: { item: PlanItem }) => {
   return (
     <Row icon={<PlanIcon size={14} />} title="Plan" defaultOpen>
       {/* The same list as a tool's todo list, every step still to do. */}
-      <ol className={styles.list}>
+      <Checklist className={styles.list}>
         {steps.map((step, index) => (
-          <Text as="li" role="prose" key={index} className={styles.listItem} data-status="pending">
-            <TextMark role="prose"><TodoPendingIcon size={12} /></TextMark>
-            <Text role="prose">{step}</Text>
-          </Text>
+          <ChecklistItem key={index} state="pending">
+            {step}
+          </ChecklistItem>
         ))}
-      </ol>
+      </Checklist>
     </Row>
   )
 }

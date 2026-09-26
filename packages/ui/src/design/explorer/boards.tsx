@@ -12,6 +12,8 @@ import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
   ComposerNotice,
+  Checklist,
+  ChecklistItem,
   InboxPanel,
   InboxList,
   NoticeCard,
@@ -571,6 +573,34 @@ const NOTICE_INBOX: InboxMessage[] = [
   { id: 'i2', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 is ready.', at: NOTICE_NOW - 2 * 3_600_000 },
   { id: 'i3', from: 'Checkout hardening', title: 'Goal finished', body: 'Checkout hardening closed its last card.', at: NOTICE_NOW - 26 * 3_600_000, read: true },
 ]
+
+/* The plan list the Tasks panel and the transcript both draw: every state a
+   step can be in, a long step that wraps under its first line, and a
+   priority chip on the step's own line. */
+const ChecklistBoard = () => (
+  <div className={styles.stack}>
+    <Case label="every state, and a long step wrapping under its first line">
+      <div style={{ width: 'calc(var(--hd-space-16) * 4)' }}>
+        <Checklist label="Tasks">
+          <ChecklistItem state="done">Inspect fetchJson and list the inputs it accepts</ChecklistItem>
+          <ChecklistItem state="active">Define validation rules: a URL string, non-empty, and http or https only</ChecklistItem>
+          <ChecklistItem state="pending" after={<Chip size="sm" tone="neutral">high</Chip>}>
+            Implement validation in fetchHelper.js with clear error messages
+          </ChecklistItem>
+          <ChecklistItem state="pending">Add tests for invalid inputs and the happy path</ChecklistItem>
+        </Checklist>
+      </div>
+    </Case>
+    <Case label="all done">
+      <div style={{ width: 'calc(var(--hd-space-16) * 4)' }}>
+        <Checklist>
+          <ChecklistItem state="done">Explore the repo</ChecklistItem>
+          <ChecklistItem state="done">Ship it</ChecklistItem>
+        </Checklist>
+      </div>
+    </Case>
+  </div>
+)
 
 const NoticesBoard = () => {
   const [inbox, setInbox] = useState(NOTICE_INBOX)
@@ -1291,6 +1321,12 @@ export const BOARDS: Board[] = [
     title: 'Face',
     about: 'A person, drawn: the face they chose, or the house mark.',
     render: FaceBoard,
+  },
+  {
+    id: 'checklist',
+    title: 'Checklist',
+    about: 'An agent\u2019s plan, in the Tasks panel and the transcript: the mark says the state, centred on the step\u2019s first line.',
+    render: ChecklistBoard,
   },
   {
     id: 'notices',

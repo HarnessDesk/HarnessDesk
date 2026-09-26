@@ -1,0 +1,62 @@
+/*
+ * The checklist (Checklist.tsx). One step per row: a mark in a box one line
+ * tall, so it centres on the step's first line however many lines follow,
+ * and the words in the ink their state gives them.
+ */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  height: var(--hd-line-sm);
+  color: var(--hd-muted-foreground);
+}
+
+.item[data-state='active'] .mark {
+  color: var(--hd-primary-ink);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  color: var(--hd-secondary-foreground);
+  text-wrap: pretty;
+}
+
+.item[data-state='active'] .body {
+  color: var(--hd-foreground);
+  font-weight: var(--hd-weight-medium);
+}
+
+.item[data-state='done'] .body {
+  color: var(--hd-muted-foreground);
+  text-decoration: line-through;
+  text-decoration-color: var(--hd-border-strong);
+}
+
+.after {
+  display: inline-flex;
+  gap: var(--hd-space-1);
+  margin-left: var(--hd-space-1-5);
+  vertical-align: baseline;
+  font-weight: var(--hd-weight-normal);
+  text-decoration: none;
+}

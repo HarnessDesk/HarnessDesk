@@ -187,4 +187,5 @@ export {
 } from './patterns/ChannelMessage'
 export { AgentCard, CardBand, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
+export { Checklist, ChecklistItem, type ChecklistState } from './patterns/Checklist'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'

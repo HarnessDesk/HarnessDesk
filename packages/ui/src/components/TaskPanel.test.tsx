@@ -132,7 +132,10 @@ describe('TaskPanel', () => {
     )
     expect(text()).toContain('Tasks · 1/3')
     expect(text()).toContain('write the spec')
-    expect(text()).toContain('in progress')
+    // The state is the mark, named for a screen reader, not a word in a column.
+    const items = [...container.querySelectorAll('li')]
+    expect(items.map((item) => item.getAttribute('data-state'))).toEqual(['done', 'active', 'pending'])
+    expect(items[1]?.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('In progress')
   })
 
   it('strikes a finished task through as done text, with its mark on the label\'s first line', () => {
@@ -141,13 +144,11 @@ describe('TaskPanel', () => {
       's1',
     )
     const items = [...container.querySelectorAll('li')]
-    const label = (item: Element | undefined) => item?.querySelector('button [data-slot="text"][data-role="value"]')
-    expect(label(items[0])?.hasAttribute('data-done')).toBe(true)
-    expect(label(items[1])?.hasAttribute('data-done')).toBe(false)
-    // The row itself is no longer the thing struck through.
-    expect(items[0]?.querySelector('button')?.hasAttribute('data-done')).toBe(false)
-    const mark = items[0]?.querySelector('[data-mark]')
-    expect(mark?.getAttribute('data-role')).toBe('value')
+    expect(items[0]?.getAttribute('data-state')).toBe('done')
+    expect(items[1]?.getAttribute('data-state')).toBe('pending')
+    // The mark is its own slot beside the words, not part of the button.
+    expect(items[0]?.querySelector('button [role="img"]')).toBeNull()
+    expect(items[0]?.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('Done')
   })
 
   it('is the *other* session’s plan when the other session is the one on screen', () => {
