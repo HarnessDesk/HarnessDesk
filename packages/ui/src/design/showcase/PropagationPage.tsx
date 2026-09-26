@@ -5,9 +5,9 @@ import { CodeEditor } from '../../components/CodeEditor'
 import { FolderIcon, SendIcon } from '../../components/Icons'
 import { terminalAppearance } from '../adapters/terminal'
 import { Dialog } from '../patterns/ModalDialog'
-import { Menu, MenuAccountGroup, MenuItem, MenuSeparator } from '../patterns/Menu'
+import { Menu, MenuAccountGroup, MenuAccountRow, MenuItem, MenuSeparator } from '../patterns/Menu'
 import { Popover } from '../patterns/Popover'
-import { AccountMark, PageHead, Row, RowChoice, Rows, Text } from '../patterns/Settings'
+import { AccountMark, PageHead, Row, RowChoice, Rows } from '../patterns/Settings'
 import {
   Board,
   BoardCard,
@@ -25,6 +25,8 @@ import styles from './propagation-page.module.css'
 /** Placeholder runtimes, just enough shape for `RuntimeMark` to draw a brand. */
 const CLAUDE_CODE_RUNTIME = { id: 'claude-code', presentation: { name: 'Claude Code', brand: 'claudecode' as const } }
 const CURSOR_RUNTIME = { id: 'cursor', presentation: { name: 'Cursor', brand: 'cursor' as const } }
+const ANTIGRAVITY_RUNTIME = { id: 'antigravity', presentation: { name: 'Antigravity', brand: 'antigravity' as const } }
+const DEEPSEEK_RUNTIME = { id: 'deepseek', presentation: { name: 'DeepSeek', brand: 'deepseek' as const } }
 
 /**
  * A browser-test fixture made only from production implementations.
@@ -78,22 +80,27 @@ export const PropagationPage = () => {
               {/* Several accounts of one agent, under its heading: each nested
                   row wears the account's colour alone (`AccountMark
                   size="dot"`), its name — the address before the @, whole on
-                  hover — and what is left of its usage, as the seat menu
-                  draws them. */}
+                  hover — and what is left of its usage, as `MenuAccountRow`
+                  draws them (#993: the same part the seat menu composes,
+                  not a copy of its layout). */}
               <MenuAccountGroup
                 label="Claude Code"
                 mark={<AccountMark size="sm"><RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={13} /></AccountMark>}
               >
-                <MenuItem layout="account" onSelect={() => undefined}>
-                  <AccountMark size="dot" aria-hidden="true" data-tint="blue">{null}</AccountMark>
-                  <Text role="navigation" truncate className="min-w-0 flex-1" title="dev@example.com · Max">dev</Text>
-                  <Text role="muted" numeric className="flex-none">78%</Text>
-                </MenuItem>
-                <MenuItem layout="account" onSelect={() => undefined}>
-                  <AccountMark size="dot" aria-hidden="true" data-tint="violet">{null}</AccountMark>
-                  <Text role="navigation" truncate className="min-w-0 flex-1" title="alex@example.com · Pro">alex</Text>
-                  <Text role="muted" numeric className="flex-none">42%</Text>
-                </MenuItem>
+                <MenuAccountRow
+                  mark={<AccountMark size="dot" aria-hidden="true" data-tint="blue">{null}</AccountMark>}
+                  name="dev"
+                  identity="dev@example.com · Max"
+                  figure={{ kind: 'reading', text: '78%' }}
+                  onSelect={() => undefined}
+                />
+                <MenuAccountRow
+                  mark={<AccountMark size="dot" aria-hidden="true" data-tint="violet">{null}</AccountMark>}
+                  name="alex"
+                  identity="alex@example.com · Pro"
+                  figure={{ kind: 'reading', text: '42%' }}
+                  onSelect={() => undefined}
+                />
               </MenuAccountGroup>
               {/* A second moment of the same menu, drawn beside the first:
                   folded, the seat menu shows only the default, so a group
@@ -105,12 +112,54 @@ export const PropagationPage = () => {
                 label="Cursor"
                 mark={<AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>}
               >
-                <MenuItem layout="account" current expanded={false} keepOpen onSelect={() => undefined}>
-                  <AccountMark size="sm" data-tint="rose"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
-                  <Text role="navigation" truncate className="min-w-0 flex-1" title="jane@example.com · Pro">jane</Text>
-                  <Text role="muted" numeric className="flex-none">91%</Text>
-                </MenuItem>
+                <MenuAccountRow
+                  mark={<AccountMark size="sm" data-tint="rose"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>}
+                  name="jane"
+                  identity="jane@example.com · Pro"
+                  figure={{ kind: 'reading', text: '91%' }}
+                  current
+                  expanded={false}
+                  keepOpen
+                  onSelect={() => undefined}
+                />
               </MenuAccountGroup>
+              {/* #993: the name tag. Two rows share the name their own
+                  account gave them — the app's rule hands each the one word
+                  that tells it apart, here the address's domain, exactly as
+                  `tagOf` in `components/Sidebar.tsx` would for two accounts
+                  of one agent that answer to the same name. */}
+              <MenuAccountGroup
+                label="Antigravity"
+                mark={<AccountMark size="sm"><RuntimeMark runtime={ANTIGRAVITY_RUNTIME} size={13} /></AccountMark>}
+              >
+                <MenuAccountRow
+                  mark={<AccountMark size="dot" aria-hidden="true" data-tint="teal">{null}</AccountMark>}
+                  name="dev"
+                  identity="dev@example.com · Pro"
+                  tag="example.com"
+                  figure={{ kind: 'reading', text: '64%' }}
+                  onSelect={() => undefined}
+                />
+                <MenuAccountRow
+                  mark={<AccountMark size="dot" aria-hidden="true" data-tint="orange">{null}</AccountMark>}
+                  name="dev"
+                  identity="dev@acme.dev · Pro"
+                  tag="acme.dev"
+                  figure={{ kind: 'reading', text: '12%' }}
+                  onSelect={() => undefined}
+                />
+              </MenuAccountGroup>
+              {/* #993: the readiness word. An agent with no accounts that has
+                  already answered draws its one word — "Needs sign-in" — in
+                  the figure slot rather than a reading, exactly as an
+                  account-less seat does in `components/Sidebar.tsx`. */}
+              <MenuAccountRow
+                mark={<AccountMark size="sm" data-off=""><RuntimeMark runtime={DEEPSEEK_RUNTIME} size={13} /></AccountMark>}
+                name="DeepSeek"
+                identity="DeepSeek"
+                figure={{ kind: 'word', text: 'Needs sign-in', tone: 'brand' }}
+                onSelect={() => undefined}
+              />
             </Menu>
           )}
         </Popover>
