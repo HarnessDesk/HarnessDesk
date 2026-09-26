@@ -319,12 +319,11 @@
   background: var(--hd-card);
 }
 
+/* The name is what this page is for, so it is never cut: it keeps its whole
+   width and the value beside it gives way instead. */
 .tokenName {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
+  flex: 1 0 auto; /* desk: 1 → 1 0 auto, the name never shrinks */
   white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 /* Most values are short — a length, a weight, an `rgb()`. A handful are not:
@@ -334,9 +333,8 @@
    column, so it shrinks and ellipsises like the name does — the full text is
    still there in the title tooltip. */
 .tokenValue {
-  flex-shrink: 1;
+  flex: 0 1 auto; /* desk: flex-shrink 1 → 0 1 auto, the value gives way to the name */
   min-width: 0;
-  max-width: 55%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
