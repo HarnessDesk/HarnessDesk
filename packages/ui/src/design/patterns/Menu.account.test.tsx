@@ -59,5 +59,21 @@ it('groups account rows under a heading that names them and is not a choice', ()
   expect(label?.querySelector('[aria-hidden="true"] [data-mark]')).not.toBeNull()
   // The heading is no choice: only the rows are items.
   expect([...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map((row) => row.textContent)).toEqual(['One', 'Two'])
-  expect(css).toMatch(/\.group > \.row\[data-layout='account'\]\s*\{[^}]*margin-left:\s*var\(--hd-space-8\)/s)
+  expect(css).toMatch(/\.group\[data-heading\] > \.row\[data-layout='account'\]\s*\{[^}]*margin-left:\s*var\(--hd-space-3\)/s)
+})
+
+it('keeps a group without its heading: no name, no step, the same parent for its row', () => {
+  act(() => {
+    root.render(
+      <Menu close={() => {}}>
+        <MenuAccountGroup label="Agent" mark={<span data-mark />} heading={false}>
+          <MenuItem layout="account" onSelect={() => {}}>One</MenuItem>
+        </MenuAccountGroup>
+      </Menu>,
+    )
+  })
+  expect(document.querySelector('[role="group"]')).toBeNull()
+  expect(document.querySelector('[data-mark]')).toBeNull()
+  expect(document.querySelector('[data-heading]')).toBeNull()
+  expect(document.querySelector('[role="menuitem"]')?.textContent).toBe('One')
 })

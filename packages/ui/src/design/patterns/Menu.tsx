@@ -213,23 +213,43 @@ export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode;
 )
 
 /**
- * Several accounts of one agent, under one heading. The heading wears the
- * agent's mark once and names it; it is not a choice, so it takes no hover
- * and no press, and it is the group's accessible name — `aria-labelledby`,
- * the wiring the vendored group label would give. Plain elements rather than
- * `DropdownMenuGroup`/`DropdownMenuLabel`: one screen composes this, and the
- * audit's single-area primitive ceiling may only fall. The `account` rows
- * inside sit on the heading's name column and leave their own mark out — the
- * heading already said whose they are.
+ * Several accounts of one agent, under one heading. `heading={false}` keeps
+ * the group — so a row does not change parent, and lose focus, when the
+ * heading comes and goes — but draws no heading and steps nothing in: one
+ * account of the agent on show, as one row wearing its own mark.
+ *
+ * The heading wears the agent's mark once and names it; it is not a choice,
+ * so it takes no hover and no press, and it is the group's accessible name —
+ * `aria-labelledby`, the wiring the vendored group label would give. Plain
+ * elements rather than `DropdownMenuGroup`/`DropdownMenuLabel`: one screen
+ * composes this, and the audit's single-area primitive ceiling may only
+ * fall. The `account` rows under a heading step in so that, after an
+ * `AccountMark size="dot"` (the account's colour), their names start on the
+ * heading's name column; the heading already drew whose they are.
  */
-export const MenuAccountGroup = ({ label, mark, children }: { label: string; mark: ReactNode; children: ReactNode }) => {
+export const MenuAccountGroup = ({
+  label,
+  mark,
+  heading = true,
+  children,
+}: {
+  label: string
+  mark: ReactNode
+  heading?: boolean
+  children: ReactNode
+}) => {
   const id = useId()
   return (
-    <div className={styles.group} role="group" aria-labelledby={id}>
-      <div className={styles.groupHead} id={id}>
-        <span aria-hidden="true" className={styles.groupMark}>{mark}</span>
-        <Text role="muted" truncate className={styles.groupLabel}>{label}</Text>
-      </div>
+    <div
+      className={styles.group}
+      {...(heading ? { role: 'group', 'aria-labelledby': id, 'data-heading': '' } : {})}
+    >
+      {heading && (
+        <div className={styles.groupHead} id={id}>
+          <span aria-hidden="true" className={styles.groupMark}>{mark}</span>
+          <Text role="muted" truncate className={styles.groupLabel}>{label}</Text>
+        </div>
+      )}
       {children}
     </div>
   )

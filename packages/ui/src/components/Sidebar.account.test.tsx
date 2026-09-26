@@ -840,19 +840,23 @@ const twoCodex = () => {
 it('keeps the default’s row — and the keyboard on it — when the picker opens and folds under a heading', () => {
   mount(twoCodex().snapshot)
   click(row())
-  // Folded, the default already sits under its agent's heading, alone.
-  const folded = groupNamed('OpenAI Codex')
-  expect(folded?.querySelectorAll('[role="menuitem"]').length).toBe(1)
+  // Folded, the default is one row wearing its own mark — no heading yet.
+  expect(groupNamed('OpenAI Codex')).toBeUndefined()
   const current = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')
   if (!current) throw new Error('no current seat')
+  expect(current.querySelector('.brand-codex')).not.toBeNull()
   act(() => current.focus())
   click(current)
   expect(current.isConnected).toBe(true)
   expect(document.activeElement).toBe(current)
+  // Open: the heading appears, the row steps under it and wears its colour instead of the mark.
   expect(groupNamed('OpenAI Codex')?.querySelectorAll('[role="menuitem"]').length).toBe(2)
+  expect(current.querySelector('.brand-codex')).toBeNull()
+  expect(current.querySelector('[data-tint]')).not.toBeNull()
   click(current)
   expect(current.isConnected).toBe(true)
   expect(document.activeElement).toBe(current)
+  expect(current.querySelector('.brand-codex')).not.toBeNull()
 })
 
 it('arrows into a group, across it and out of it', () => {
@@ -906,4 +910,14 @@ it('never tags a single row with its own name', () => {
   // Two single rows named "Cursor": the Claude one says whose it is, the Cursor one does not say "Cursor" twice.
   expect(claudeRow?.textContent?.trim()).toBe('CursorClaude')
   expect(cursorRow?.textContent?.trim()).toBe('Cursor')
+})
+
+it('calls an account under a heading that has not answered an unknown account, not a pending one', () => {
+  const { second, snapshot } = twoCodex()
+  const accounts = { ...snapshot.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)[second.id]
+  mount({ ...snapshot, accountsByRuntime: accounts })
+  openPicker()
+  const names = [...(groupNamed('OpenAI Codex')?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())
+  expect(names).toEqual(['jane', 'Unknown account'])
 })

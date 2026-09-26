@@ -573,7 +573,7 @@ export const AccountFooter = ({
   // readiness word the figure slot is about to say.
   const labelOf = (seat: Seat): string =>
     groupOf(seat).length > 1 && seat.name === seat.info.presentation.name
-      ? (seat.info.slot?.gateway?.name ?? (seat.account ? seat.sub : seat.known ? 'No account' : 'Checking…'))
+      ? (seat.info.slot?.gateway?.name ?? (seat.account ? seat.sub : seat.known ? 'No account' : 'Unknown account'))
       : seat.name
   // Two rows with one name get the word that differs, and only they do.
   // Across agents that is the agent — two single rows are two agents. Under
@@ -758,9 +758,19 @@ export const AccountFooter = ({
                       row's, which would sit over the mark's card) and whole on
                       the card. The name gives way before the tag: the tag is
                       the word that tells two rows apart. An account under its
-                      agent's heading wears no mark and no card: the heading
+                      agent's heading wears no mark and no card — the heading
                       carries the mark, and a card on the name would open at
-                      every rest on the list. */}
+                      every rest on the list — only its colour, the ring it
+                      wears everywhere else, drawn small. */}
+                  {child && (
+                    <AccountMark
+                      size="dot"
+                      aria-hidden="true"
+                      {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}
+                    >
+                      {null}
+                    </AccountMark>
+                  )}
                   <span className={styles.seatText} title={seat.sub} data-identity={seat.sub}>
                     <Text role="navigation" truncate className={styles.seatName}>{labelOf(seat)}</Text>
                     {(() => {
@@ -783,10 +793,14 @@ export const AccountFooter = ({
                 </MenuItem>
               )
               if (all.length === 1) return renderSeat(group[0]!, false)
+              // Folded to the default alone, the group keeps its place (and
+              // the row its focus) but draws no heading: one row, its mark.
+              const folded = group.length < all.length
               const agent = group[0]!.info
               return (
                 <MenuAccountGroup
                   key={agentKey(agent)}
+                  heading={!folded}
                   label={agent.presentation.name}
                   mark={
                     <AccountMark size="sm">
@@ -794,7 +808,7 @@ export const AccountFooter = ({
                     </AccountMark>
                   }
                 >
-                  {group.map((seat) => renderSeat(seat, true))}
+                  {group.map((seat) => renderSeat(seat, !folded))}
                 </MenuAccountGroup>
               )
             })}

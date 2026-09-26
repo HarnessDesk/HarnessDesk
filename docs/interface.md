@@ -259,7 +259,8 @@ every agent, one line each — its name, and the same figure the header strip
 shows — and the default is the filled row. The address and plan behind a name
 are on the name's tooltip and on the mark's card. An agent with more than one
 account is a heading — its mark and its name, not a choice — with its accounts
-under it, each one line on the heading's name column; an account known only by
+under it, each one line on the heading's name column after a small ring in the
+account's own colour (folded, the default is one row wearing its mark); an account known only by
 the agent's name is called by its gateway instead. Where two accounts share a
 name, a second word on the line tells them apart: the agent, between two
 agents' single rows, or the address's domain under one heading. An agent that
