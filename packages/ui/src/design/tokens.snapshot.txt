@@ -149,7 +149,6 @@
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
---hd-notice-inset = 0px
 --hd-placeholder-foreground = rgb(107, 107, 107)
 --hd-popover = rgb(255, 255, 255)
 --hd-popover-foreground = rgb(27, 27, 27)
@@ -610,7 +609,6 @@
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
---hd-notice-inset = 0px
 --hd-placeholder-foreground = rgb(177, 177, 177)
 --hd-popover = rgb(33, 33, 33)
 --hd-popover-foreground = rgb(231, 231, 231)
@@ -1078,7 +1076,6 @@
 --hd-nav-inset = 10px
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
---hd-notice-inset = 0px
 --hd-page-group-gap = 0px
 --hd-page-row-h = 36px
 --hd-page-row-padding = 0 10px
@@ -1551,7 +1548,6 @@
 --hd-nav-inset = 10px
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
---hd-notice-inset = 0px
 --hd-page-group-gap = 0px
 --hd-page-row-h = 36px
 --hd-page-row-padding = 0 10px

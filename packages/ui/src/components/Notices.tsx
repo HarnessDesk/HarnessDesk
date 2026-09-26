@@ -2,63 +2,57 @@ import { useEffect, useState, type ReactNode } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
+import { sessionKey, type SessionId } from '@harnessdesk/protocol'
+
 import { useRuntime, useRuntimeAccount, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { Banner, BannerAction, BannerStack, type BannerTone } from '../design'
+import {
+  ComposerNotice,
+  ComposerNoticeStack,
+  NoticeCard,
+  NoticeStrip,
+  showToast,
+  type NoticeAct,
+  type NoticeMessage,
+  type NoticeTone,
+} from '../design'
 import { describeLimits } from '../lib/limits'
 import { conditionFor } from '../lib/usage-alerts'
-import { isSilenced, offersMute, type NoticeIdentity } from '../lib/notice-policy'
+import { isSilenced, offersMute, surfaceFor, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
+import { useShell } from '../panels/views'
+import { useImportOffer } from './ImportOffer'
 
-const TONE: Record<string, BannerTone> = {
-  error: 'danger',
-  warning: 'warning',
-  info: 'info',
-}
-
-/** Transient messages, auto-dismissed unless they are errors. */
+/**
+ * Transient messages — the result of something just done, or a failure the
+ * store could not say in place — become toasts, one shape through the
+ * design system's `showToast`. An error stays until it is closed; the rest
+ * leave on their own. The store's list is only a queue into the toaster.
+ */
 export const Notices = () => {
   const store = useStore()
   const notices = useSnapshot().notices
 
   useEffect(() => {
-    const timers = notices
-      .filter((notice) => notice.level !== 'error')
-      .map((notice) =>
-        window.setTimeout(() => store.dismissNotice(notice.id), notice.level === 'info' ? 5_000 : 9_000),
+    for (const notice of notices) {
+      showToast(
+        {
+          id: notice.id,
+          tone: TOAST_TONE[notice.level] ?? 'neutral',
+          title: notice.message,
+          ...(notice.action ? { action: { label: notice.action.label, onSelect: () => notice.action?.run() } } : {}),
+        },
+        notice.level === 'error' ? { persist: true } : {},
       )
-    return () => timers.forEach((timer) => window.clearTimeout(timer))
+      store.dismissNotice(notice.id)
+    }
   }, [notices, store])
 
-  if (notices.length === 0) return null
+  return null
+}
 
-  return (
-    <BannerStack>
-      {notices.map((notice) => (
-        <Banner
-          key={notice.id}
-          compact
-          role="status"
-          tone={TONE[notice.level] ?? 'neutral'}
-          onDismiss={() => store.dismissNotice(notice.id)}
-          {...(notice.action
-            ? {
-                actions: (
-                  <BannerAction
-                    onClick={() => {
-                      notice.action?.run()
-                      store.dismissNotice(notice.id)
-                    }}
-                  >
-                    {notice.action.label}
-                  </BannerAction>
-                ),
-              }
-            : {})}
-        >
-          {notice.message}
-        </Banner>
-      ))}
-    </BannerStack>
-  )
+const TOAST_TONE: Record<string, NoticeTone> = {
+  error: 'danger',
+  warning: 'warning',
+  info: 'info',
 }
 
 /**
@@ -88,11 +82,10 @@ export const Notices = () => {
 
 /** One condition, ready to draw. */
 interface Notice extends NoticeIdentity {
-  readonly tone: BannerTone
+  readonly tone: NoticeTone
   readonly title: string
-  readonly body: ReactNode
-  readonly role: 'status' | 'alert'
-  readonly actions?: ReactNode
+  readonly body?: ReactNode
+  readonly action?: NoticeAct
 }
 
 /** The identity of a notice, without what it looks like. */
@@ -103,16 +96,25 @@ const identify = (notice: Notice): NoticeIdentity => ({
 })
 
 /**
- * A persistent strip for states that change what the app can do, rather than a
- * toast that scrolls away: being out of credits or disconnected is not an event,
- * it is a condition.
+ * The one standing condition for the active agent — a dropped link, an agent
+ * that cannot start or is not signed in, a plan that is spent or running out
+ * — with how it is put away. Where it is drawn is the surfaces' business
+ * (`surfaceFor`); this only says what is true.
  *
- * Each one states the condition as its title and what it means for the user
- * underneath, because "Usage limit reached" and "past sessions are still
- * readable" answer two different questions and only one of them is the alarm.
+ * Each states the condition as its title and what it means underneath,
+ * because "Usage limit reached" and "past sessions are still readable"
+ * answer two different questions and only one of them is the alarm.
  */
-export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
+interface Standing {
+  readonly message: NoticeMessage
+  readonly identity: NoticeIdentity
+  readonly dismiss: () => void
+  readonly mute?: () => void
+}
+
+const useStanding = (): Standing | null => {
   const store = useStore()
+  const shell = useShell()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
   const health = useRuntimeHealth()
@@ -124,18 +126,15 @@ export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
     if (snapshot.status === 'reconnecting' || snapshot.status === 'closed') {
       return {
         // Never written down, on purpose: a dropped link is news every time
-        // it drops, and it clears itself the moment it is fixed. Putting it
-        // away is a statement about right now and nothing further.
+        // it drops, and it clears itself the moment it is fixed.
         key: `link:${snapshot.status}`,
         kind: 'link',
         lifetime: 'session',
         tone: 'warning',
-        title: 'Reconnecting to HarnessDesk',
-        body: 'The connection to the host dropped. Sessions keep running; this window will catch up.',
-        role: 'status',
+        title: 'Reconnecting to HarnessDesk.',
+        body: 'Sessions keep running; this window will catch up.',
       }
     }
-
     if (health?.state === 'unavailable') {
       return {
         key: `health:${runtime.id}:${health.message}`,
@@ -143,11 +142,9 @@ export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
         lifetime: 'occurrence',
         tone: 'danger',
         title: health.message,
-        body: health.remediation,
-        role: 'alert',
+        ...(health.remediation ? { body: health.remediation } : {}),
       }
     }
-
     if (runtime.capabilities.account && account && account.accounts.length === 0) {
       const driveable = account.signInMethods.some((method) => method.flow !== 'external')
       const command = runtime.presentation.signIn?.command
@@ -156,12 +153,9 @@ export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
         kind: 'agent:signin',
         lifetime: 'occurrence',
         tone: 'warning',
-        title: `${runtime.presentation.name} is not signed in`,
-        role: 'status',
-        ...(driveable ? { actions: <BannerAction onClick={onSignIn}>Sign in</BannerAction> } : {}),
-        body: driveable ? (
-          'Sessions cannot start until an account is connected.'
-        ) : command ? (
+        title: `${runtime.presentation.name} is not signed in.`,
+        ...(driveable ? { action: { label: 'Sign in', onSelect: () => shell.signIn() } } : {}),
+        body: !driveable && command ? (
           <>
             Run <code>{command}</code> in a terminal to connect an account.
           </>
@@ -170,9 +164,8 @@ export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
         ),
       }
     }
-
-    // What the agent this conversation talks to is up against, and — the one
-    // thing a menu bar cannot do — somewhere else to take the work.
+    // What the agent this conversation talks to is up against, and somewhere
+    // else to take the work.
     const condition = conditionFor(runtime.id, snapshot.usage, nameFor, Date.now())
     if (condition) {
       const elsewhere = condition.handoff
@@ -183,21 +176,16 @@ export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
         tone: condition.tone,
         title: condition.title,
         body: condition.detail,
-        role: condition.tone === 'danger' ? 'alert' : 'status',
         ...(elsewhere
           ? {
-              actions: (
-                <BannerAction onClick={() => void store.handOff(elsewhere.runtime)}>
-                  {snapshot.activeSessionKey
-                    ? `Continue with ${elsewhere.name}`
-                    : `Switch to ${elsewhere.name}`}
-                </BannerAction>
-              ),
+              action: {
+                label: snapshot.activeSessionKey ? `Continue with ${elsewhere.name}` : `Switch to ${elsewhere.name}`,
+                onSelect: () => void store.handOff(elsewhere.runtime),
+              },
             }
           : {}),
       }
     }
-
     // Nothing metered reached us: the narrow view still speaks for a runtime
     // that answers `runtime/limits` and has no report of its own.
     const blocked = runtime.capabilities.metered ? describeLimits(snapshot.limits)?.blocked : null
@@ -209,17 +197,13 @@ export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
         tone: 'warning',
         title: blocked.title,
         body: blocked.detail,
-        role: 'status',
       }
     }
-
     return null
   })()
 
-  // Put away for this run only, for the lifetimes nothing is written down for.
-  // Cleared as soon as the notice changes to a different one or to none, so a
-  // link that drops a second time is a second piece of news rather than a
-  // thing this window has already decided it knows.
+  // Put away for this run only, for the lifetimes nothing is written down
+  // for; cleared as soon as the notice changes, so a second drop is news.
   const [putAway, setPutAway] = useState<string | null>(null)
   const key = notice?.key ?? null
   useEffect(() => {
@@ -227,27 +211,130 @@ export const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => {
   }, [key])
 
   if (!notice) return null
-  // Held until the host has said what the user silenced. A banner that flashes
-  // on its way to being hidden is the launch this mechanism exists to stop.
+  // Held until the host has said what the user silenced, so a silenced
+  // message never flashes on its way to being hidden.
   if (!snapshot.preferencesLoaded) return null
   const identity = identify(notice)
   if (putAway === notice.key || isSilenced(snapshot.noticePolicy, identity)) return null
+  return {
+    message: {
+      id: notice.key,
+      tone: notice.tone,
+      title: notice.title,
+      ...(notice.body !== undefined ? { body: notice.body } : {}),
+      ...(notice.action ? { action: notice.action } : {}),
+    },
+    identity,
+    dismiss: () => {
+      if (notice.lifetime === 'session') setPutAway(notice.key)
+      else store.dismissStanding(identity)
+    },
+    ...(offersMute(snapshot.noticePolicy, identity) ? { mute: () => store.setNoticeMuted(notice.kind, true) } : {}),
+  }
+}
 
-  return (
-    <Banner
-      tone={notice.tone}
-      title={notice.title}
-      role={notice.role}
-      onDismiss={() => {
-        if (notice.lifetime === 'session') setPutAway(notice.key)
-        else store.dismissStanding(identity)
-      }}
-      {...(offersMute(snapshot.noticePolicy, identity)
-        ? { onMute: () => store.setNoticeMuted(notice.kind, true) }
-        : {})}
-      {...(notice.actions ? { actions: notice.actions } : {})}
-    >
-      {notice.body}
-    </Banner>
+/** Where a standing notice goes: a dropped link is always the strip; the rest, the person's setting. */
+const placeOf = (policy: NoticePolicy, standing: Standing): NoticeSurface | null =>
+  standing.identity.kind === 'link' ? 'strip' : surfaceFor(policy, standing.identity.kind)
+
+/**
+ * Keeps, once, a notice whose kind the person moved to "Inbox only". Keyed by
+ * the notice's own key, so the same condition is one kept message however
+ * often the window draws it, and it is not made unread again by redrawing.
+ */
+const useKeptOnce = (message: NoticeMessage | null, kind: string | null, place: NoticeSurface | null): void => {
+  const store = useStore()
+  const inbox = useSnapshot().inbox
+  const id = message?.id ?? null
+  const title = typeof message?.title === 'string' ? message.title : null
+  const body = typeof message?.body === 'string' ? message.body : undefined
+  const tone = message?.tone ?? 'neutral'
+  const already = id !== null && inbox.some((entry) => entry.id === id)
+  useEffect(() => {
+    if (place !== 'inbox' || id === null || title === null || already) return
+    store.keep({ id, ...(kind ? { kind } : {}), tone, title, ...(body ? { body } : {}), at: Date.now() })
+  }, [place, id, title, body, tone, kind, already, store])
+}
+
+/**
+ * Above the composer: the standing condition, when the person's setting puts
+ * it here, and any decision an Agent in this conversation is waiting on.
+ * Mounted inside the composer's own frame, so nothing else is ever covered.
+ */
+export const ComposerNotices = () => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const standing = useStanding()
+  const place = standing ? placeOf(snapshot.noticePolicy, standing) : null
+  useKeptOnce(standing?.message ?? null, standing?.identity.kind ?? null, place)
+  const active = snapshot.activeSessionKey
+  const asking = snapshot.agentNotices.filter(
+    (notice) => active !== null && sessionKey(notice.from.runtime, notice.from.sessionId as SessionId) === active,
   )
+  if ((place !== 'composer' || !standing) && asking.length === 0) return null
+  return (
+    <ComposerNoticeStack>
+      {place === 'composer' && standing ? <ComposerNotice message={standing.message} onDismiss={standing.dismiss} onMute={standing.mute} /> : null}
+      {asking.map((notice) => (
+        <ComposerNotice
+          key={notice.id}
+          message={{ id: notice.id, tone: 'info', title: notice.title, ...(notice.body ? { body: notice.body } : {}) }}
+          onDismiss={() => store.dismissAgentNotice(notice.id)}
+        />
+      ))}
+    </ComposerNoticeStack>
+  )
+}
+
+/** The slim strip above the panes: a dropped link, and whatever the person moved here. */
+export const NoticeStripOutlet = () => {
+  const snapshot = useSnapshot()
+  const standing = useStanding()
+  const offer = useImportOffer()
+  const messages: NoticeMessage[] = []
+  const dismissals = new Map<string, () => void>()
+  if (standing && placeOf(snapshot.noticePolicy, standing) === 'strip') {
+    messages.push(standing.message)
+    dismissals.set(standing.message.id, standing.dismiss)
+  }
+  if (offer && surfaceFor(snapshot.noticePolicy, 'import:offer') === 'strip') {
+    messages.push(offer.message)
+    dismissals.set(offer.message.id, offer.dismiss)
+  }
+  if (messages.length === 0) return null
+  return (
+    <NoticeStrip
+      messages={messages}
+      onDismiss={(id) => dismissals.get(id)?.()}
+      onMute={(id) => (standing && id === standing.message.id ? standing.mute : undefined)}
+    />
+  )
+}
+
+/** The card at the foot of the sidebar: offers and news that can wait. */
+export const SidebarNotices = () => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const offer = useImportOffer()
+  const offerPlace = surfaceFor(snapshot.noticePolicy, 'import:offer')
+  useKeptOnce(offer?.message ?? null, 'import:offer', offerPlace)
+  const messages: NoticeMessage[] = []
+  const dismissals = new Map<string, () => void>()
+  if (offer && offerPlace === 'card') {
+    messages.push(offer.message)
+    dismissals.set(offer.message.id, offer.dismiss)
+  }
+  if (snapshot.goalMigrationPending) {
+    const ack = () => void store.ackGoalMigration()
+    messages.push({
+      id: 'goal:migration',
+      tone: 'info',
+      title: 'Rooms are now Goals',
+      body: 'Your rooms, boards and members were kept. Goal Seats now define active membership.',
+      action: { label: 'Got it', onSelect: ack },
+    })
+    dismissals.set('goal:migration', ack)
+  }
+  if (messages.length === 0) return null
+  return <NoticeCard messages={messages} onDismiss={(id) => dismissals.get(id)?.()} />
 }

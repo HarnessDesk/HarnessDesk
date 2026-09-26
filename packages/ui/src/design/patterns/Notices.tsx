@@ -1,6 +1,7 @@
 import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 
-import { ArrowLeftIcon, BellIcon, ChevronIcon, CrossIcon } from '../../components/Icons'
+import { ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CrossIcon } from '../../components/Icons'
+import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
 import type { BannerTone } from '../primitives/Banner'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
@@ -65,11 +66,42 @@ const ToneDot = ({ tone = 'neutral' }: { tone?: NoticeTone }) => (
 const Lead = ({ message }: { message: NoticeMessage }) =>
   message.mark ? <span className={styles.mark}>{message.mark}</span> : <ToneDot tone={message.tone} />
 
-const Dismiss = ({ onDismiss, label = 'Dismiss' }: { onDismiss: () => void; label?: string }) => (
-  <Button variant="ghost" size="icon-xs" type="button" className={styles.dismiss} aria-label={label} onClick={onDismiss}>
-    <CrossIcon size={12} />
-  </Button>
-)
+/**
+ * Putting a message away — and, once a kind has been put away twice
+ * (`onMute`), the way to stop it for good, the same escalation a banner has:
+ * the × opens Dismiss / Stop showing this rather than closing outright.
+ */
+const Dismiss = ({ onDismiss, onMute }: { onDismiss: () => void; onMute?: (() => void) | undefined }) => {
+  const [menuAt, setMenuAt] = useState<MenuPoint | null>(null)
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        type="button"
+        className={styles.dismiss}
+        aria-label="Dismiss"
+        {...(onMute ? { 'aria-haspopup': 'menu' as const, 'aria-expanded': menuAt !== null } : {})}
+        onClick={(event) => {
+          if (!onMute) {
+            onDismiss()
+            return
+          }
+          const rect = event.currentTarget.getBoundingClientRect()
+          setMenuAt({ x: rect.left, y: rect.bottom + 4 })
+        }}
+      >
+        <CrossIcon size={12} />
+      </Button>
+      {onMute ? (
+        <ContextMenu at={menuAt} label="Message options" onClose={() => setMenuAt(null)}>
+          <MenuItem icon={<CrossIcon size={14} />} label="Dismiss" onSelect={onDismiss} />
+          <MenuItem icon={<BellOffIcon size={14} />} label="Stop showing this" hint="Turn it back on in Settings › Notifications" onSelect={onMute} />
+        </ContextMenu>
+      ) : null}
+    </>
+  )
+}
 
 /** Which of several messages is showing, kept in range as the list changes. */
 const usePager = (count: number) => {
@@ -116,9 +148,12 @@ const ActionButton = ({ action, variant }: { action: NoticeAct; variant: 'defaul
 export const NoticeCard = ({
   messages,
   onDismiss,
+  onMute,
 }: {
   messages: readonly NoticeMessage[]
   onDismiss: (id: string) => void
+  /** Offered for a message whose kind has been put away often enough to be silenced. */
+  onMute?: (id: string) => (() => void) | undefined
 }) => {
   const pager = usePager(messages.length)
   const message = messages[pager.at]
@@ -129,7 +164,7 @@ export const NoticeCard = ({
         {message.mark ? <span className={styles.mark}>{message.mark}</span> : null}
         <Pager at={pager.at} count={messages.length} onPrevious={pager.previous} onNext={pager.next} />
         <span className={styles.fill} />
-        <Dismiss onDismiss={() => onDismiss(message.id)} />
+        <Dismiss onDismiss={() => onDismiss(message.id)} onMute={onMute?.(message.id)} />
       </div>
       <div className={styles.cardTitle} data-slot="notice-title">
         {message.title}
@@ -153,7 +188,15 @@ export const NoticeCard = ({
  * conversation's composer — the control it is about. Tinted by tone, one
  * line, one action as a link.
  */
-export const ComposerNotice = ({ message, onDismiss }: { message: NoticeMessage; onDismiss?: () => void }) => (
+export const ComposerNotice = ({
+  message,
+  onDismiss,
+  onMute,
+}: {
+  message: NoticeMessage
+  onDismiss?: () => void
+  onMute?: (() => void) | undefined
+}) => (
   <div className={styles.composer} data-slot="composer-notice" data-tone={message.tone ?? 'neutral'} role="status">
     <Lead message={message} />
     <span className={styles.line}>
@@ -161,7 +204,14 @@ export const ComposerNotice = ({ message, onDismiss }: { message: NoticeMessage;
       {message.body ? <span className={styles.lineBody}> {message.body}</span> : null}
     </span>
     {message.action ? <ActionButton action={message.action} variant="link" /> : null}
-    {onDismiss ? <Dismiss onDismiss={onDismiss} /> : null}
+    {onDismiss ? <Dismiss onDismiss={onDismiss} onMute={onMute} /> : null}
+  </div>
+)
+
+/** The composer notices, stacked over the composer they are about. */
+export const ComposerNoticeStack = ({ children }: { children: ReactNode }) => (
+  <div className={styles.composerStack} data-slot="composer-notices">
+    {children}
   </div>
 )
 
@@ -169,9 +219,11 @@ export const ComposerNotice = ({ message, onDismiss }: { message: NoticeMessage;
 export const NoticeStrip = ({
   messages,
   onDismiss,
+  onMute,
 }: {
   messages: readonly NoticeMessage[]
   onDismiss: (id: string) => void
+  onMute?: (id: string) => (() => void) | undefined
 }) => {
   const pager = usePager(messages.length)
   const message = messages[pager.at]
@@ -186,7 +238,7 @@ export const NoticeStrip = ({
       {message.action ? <ActionButton action={message.action} variant="link" /> : null}
       <span className={styles.fill} />
       <Pager at={pager.at} count={messages.length} onPrevious={pager.previous} onNext={pager.next} />
-      <Dismiss onDismiss={() => onDismiss(message.id)} />
+      <Dismiss onDismiss={() => onDismiss(message.id)} onMute={onMute?.(message.id)} />
     </div>
   )
 }
@@ -215,6 +267,17 @@ export const InboxButton = ({
     {unread > 0 ? <span className={styles.unreadCount}>{unread > 99 ? '99+' : unread}</span> : null}
   </Button>
 )
+
+/**
+ * How many kept messages are unread, beside whatever opens the inbox — the
+ * seat's row, say. Its own tint, never the readiness dot's colours.
+ */
+export const UnreadMark = ({ count }: { count: number }) =>
+  count > 0 ? (
+    <span className={styles.unreadMark} data-slot="unread-mark" aria-label={`${count} unread`}>
+      {count > 99 ? '99+' : count}
+    </span>
+  ) : null
 
 const ago = (at: number, now: number): string => {
   const minutes = Math.max(0, Math.round((now - at) / 60_000))
@@ -286,9 +349,15 @@ export const InboxList = ({
  * A result, said as a toast: the same message shape, through the registry's
  * Sonner so every toast in the app looks the same.
  */
-export const showToast = (message: Omit<NoticeMessage, 'id'> & { id?: string }): void => {
+export const showToast = (
+  message: Omit<NoticeMessage, 'id'> & { id?: string },
+  how: { readonly persist?: boolean } = {},
+): void => {
   const options = {
     ...(message.id ? { id: message.id } : {}),
+    // A failure stays until it is closed: a toast that left before it was
+    // read is a failure nobody saw.
+    ...(how.persist ? { duration: Number.POSITIVE_INFINITY, closeButton: true } : {}),
     ...(message.body ? { description: message.body } : {}),
     ...(message.action ? { action: { label: message.action.label, onClick: message.action.onSelect } } : {}),
   }

@@ -119,12 +119,19 @@
 
 /* --- composer: fastened to the top of the composer it blocks -------------- */
 
+.composerStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1-5);
+  padding-bottom: var(--hd-space-1-5);
+}
+
 .composer {
   display: flex;
   align-items: center;
   gap: var(--hd-space-2-5);
   padding: var(--hd-space-2) var(--hd-space-3);
-  border-radius: var(--hd-radius-lg) var(--hd-radius-lg) 0 0;
+  border-radius: var(--hd-radius-lg);
   background: var(--hd-muted);
   box-shadow: inset 0 0 0 var(--hd-space-px) var(--hd-border);
   font-size: var(--hd-text-sm);
@@ -201,6 +208,19 @@
   position: absolute;
   top: calc(-1 * var(--hd-space-0-5));
   right: calc(-1 * var(--hd-space-0-5));
+  min-width: var(--hd-space-4);
+  padding: 0 var(--hd-space-1);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-primary);
+  color: var(--hd-primary-foreground);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-space-4);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.unreadMark {
+  flex: none;
   min-width: var(--hd-space-4);
   padding: 0 var(--hd-space-1);
   border-radius: var(--hd-radius-full);

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { SidebarNotices } from './Notices'
+import { unreadCount } from '../lib/inbox'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, BriefIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BellIcon, BranchIcon, BriefIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -21,6 +23,8 @@ import {
   MenuLabel,
   MenuNote,
   MenuSeparator,
+  InboxList,
+  UnreadMark,
   NavigationGroupHeader,
   Popover,
   RailSection,
@@ -273,6 +277,9 @@ export const Sidebar = ({
 
       <Slot name="sidebar.panel" />
 
+      {/* Offers and news that can wait, one at a time, above your seat. */}
+      <SidebarNotices />
+
       <AccountFooter
         onOpenSettings={onOpenSettings}
         onOpenUsage={onOpenUsage}
@@ -461,9 +468,12 @@ export const AccountFooter = ({
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
   const accountRef = useRef<HTMLDivElement>(null)
+  const [inboxOpen, setInboxOpen] = useState(false)
+  const unread = unreadCount(snapshot.inbox)
   const resetMenu = (): void => {
     setAccountsOpen(false)
     setUsageOpen(false)
+    setInboxOpen(false)
     setConfirmingSignOut(false)
   }
 
@@ -612,6 +622,7 @@ export const AccountFooter = ({
       <Text role="subject" className={styles.accountName}>
         <Clipped className={styles.accountLabel}>{yourName}</Clipped>
       </Text>
+      <UnreadMark count={unread} />
       {here?.figure && here.tone !== 'good' && (
         <Text role="muted" tone={usageReadingTone(here.tone)} numeric className={styles.accountMeta}>
           {here.figure}
@@ -827,6 +838,40 @@ export const AccountFooter = ({
             />
 
           <MenuSeparator />
+            {/* The inbox: what Agents and the desk kept for you to read later.
+                Its count is the row's value, not a second line; opened, it
+                folds out under the row the way usage does. */}
+            <MenuItem
+              expanded={inboxOpen}
+              keepOpen
+              onSelect={() => setInboxOpen((value) => !value)}
+              icon={<BellIcon size={13} />}
+              label="Inbox"
+              value={
+                <Text role="muted" numeric className={styles.accountMenuMeta}>
+                  {unread > 0 ? `${unread} unread` : snapshot.inbox.length === 0 ? 'Empty' : ''}
+                  <DisclosureChevron open={inboxOpen} placement="trailing" className={styles.accountMenuCaret} />
+                </Text>
+              }
+            />
+            {inboxOpen && (
+              <InboxList
+                messages={snapshot.inbox.map((entry) => ({
+                  id: entry.id,
+                  tone: entry.tone,
+                  title: entry.from ? `${entry.from.name}: ${entry.title}` : entry.title,
+                  ...(entry.body ? { body: entry.body } : {}),
+                  at: entry.at,
+                  read: entry.read,
+                  ...(entry.task
+                    ? { action: { label: 'Start as a task', onSelect: () => void store.startSuggestedTask(entry.id) } }
+                    : {}),
+                }))}
+                onOpen={(id) => store.markInboxRead(id)}
+                onMarkAllRead={() => store.markInboxRead(null)}
+                onClear={() => store.clearInbox()}
+              />
+            )}
             {/* Only where something is metered: a row whose whole answer is
                 "—" took a line to say there was nothing to say. */}
             {hasUsage && (

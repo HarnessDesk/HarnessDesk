@@ -7,7 +7,8 @@ import type { ImportableConfig, RuntimeId, RuntimeInfo } from '@harnessdesk/prot
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { afterDismiss, type NoticeIdentity } from '../lib/notice-policy'
-import { ImportOffer } from './ImportOffer'
+import { ShellProvider } from '../panels/views'
+import { SidebarNotices } from './Notices'
 
 /**
  * "Not now" has to mean not now, and not once per agent.
@@ -90,7 +91,10 @@ const mount = async (
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <ImportOffer onReview={onReview} />
+        {/* Its default place: the card at the sidebar's foot. */}
+        <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: onReview }}>
+          <SidebarNotices />
+        </ShellProvider>
       </StoreProvider>,
     )
   })
@@ -98,21 +102,17 @@ const mount = async (
 }
 
 const notNow = (): HTMLButtonElement | null =>
-  [...container.querySelectorAll<HTMLButtonElement>('button')].find(
-    (button) => button.textContent === 'Not now',
-  ) ?? null
+  container.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')
 
 it('offers what it found, once there is something to offer', async () => {
   await mount({})
-  expect(container.textContent).toContain(
-    'Your other agents have skills and servers this machine could share',
-  )
+  expect(container.textContent).toContain('Skills and servers to share')
   // The evidence is the *kind* of thing found, never the detector's label —
   // those labels carry absolute paths nobody can read in a glance.
-  expect(container.textContent).toContain('It found skills and MCP servers')
+  expect(container.textContent).toContain('Your other agents have skills and MCP servers this machine could use')
   expect(container.textContent).not.toContain('/home/u')
   // The promise the Library keeps: the banner sells a preview, not a migration.
-  expect(container.textContent).toContain('nothing is copied until you confirm it')
+  expect(container.textContent).toContain('Nothing is copied until you confirm it')
 })
 
 it('routes to the Library and never asks again — following the signpost answers it', async () => {
@@ -134,7 +134,7 @@ it('routes to the Library and never asks again — following the signpost answer
   expect(container.textContent).toBe('')
 })
 
-it('takes "not now" as an answer, for every agent and not just this one', async () => {
+it('takes a dismissal as an answer, for every agent and not just this one', async () => {
   const store = await mount({})
   act(() => notNow()?.click())
   expect(container.textContent).toBe('')

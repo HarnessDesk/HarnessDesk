@@ -6,6 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 
+import { NoticeStripOutlet } from './Notices'
 import { PaneSurface, ResizeHandle, Text } from '../design'
 import { DockPanelActions, DockPanelBar } from '../design'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
@@ -90,12 +91,6 @@ const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string | null })
              the one that leaves room for the window buttons and the view below
              it does not. See `--titlebar-inset` in `app.css`. */
           {...(needsStrip(pane.view) ? { 'data-strip': '' } : {})}
-          /* `App.tsx` measures this box directly to place the floating
-             notice stack (#896) — the split tree's own geometry, read live,
-             rather than reconstructed from the sizes a right or bottom panel
-             were last dragged to, which a zoom or a narrow window overrides
-             without changing. */
-          {...(pane.id === primary ? { 'data-notice-host': '' } : {})}
           // Any interaction inside a pane makes it the target of shortcuts and
           // commands; capture phase so a click on a control counts too.
           onPointerDownCapture={() => {
@@ -122,20 +117,11 @@ const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string | null })
               </DockPanelActions>
             </DockPanelBar>
           )}
-          {/*
-            * `data-notice-yield`: the notice system's own contract (`app.css`,
-            * beside `.hd-floatingNotices`) for whatever a pane shows, composed
-            * once here so every screen gets it and none has to opt in for
-            * itself. A strip stays where it is — it already reserves the
-            * window-button room `--titlebar-inset` names, and a bar the
-            * floating stack already clears needs no second margin — so only
-            * what is mounted below moves: the whole of it, a screen owning its
-            * own header included, since a pane host that peeled the two apart
-            * would have to know a screen's own insides to do it. Scoped to the
-            * pane actually riding the stack (`data-notice-host`, above); a
-            * pane that never shows one costs nothing.
-            */}
-          <div className={styles.screen} {...(pane.id === primary ? { 'data-notice-yield': '' } : {})}>
+          {/* The notice strip, for a view with no header of its own: under the
+              pane's bar, in the primary pane only. A conversation draws its
+              strip above its own composer instead, below its own header. */}
+          {needsStrip(pane.view) && pane.id === primary && <NoticeStripOutlet />}
+          <div className={styles.screen}>
             <ViewHost view={pane.view} />
           </div>
         </PaneSurface>

@@ -8,7 +8,17 @@ import { sessionKey } from '@harnessdesk/protocol'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { afterDismiss, withMuted, type NoticeIdentity } from '../lib/notice-policy'
-import { StatusBanner } from './Notices'
+import { ShellProvider } from '../panels/views'
+import { ComposerNotices, NoticeStripOutlet } from './Notices'
+
+/* What the one banner used to be, now two surfaces: a dropped link on the
+   strip, and an agent's own condition on the composer (their defaults). */
+const StatusBanner = ({ onSignIn }: { onSignIn: () => void }) => (
+  <ShellProvider actions={{ chooseProject: () => {}, signIn: onSignIn, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
+    <NoticeStripOutlet />
+    <ComposerNotices />
+  </ShellProvider>
+)
 
 /**
  * The two things a persistent banner must do besides be true: go away, and

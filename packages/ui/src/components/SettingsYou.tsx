@@ -31,6 +31,8 @@ import {
   SectionHead,
   Segmented,
   NativeSelect,
+  InboxList,
+  UnreadMark,
   Switch,
   Text,
 } from '../design'
@@ -701,7 +703,18 @@ export const NotificationsSection = () => {
         )
       })}
 
-      <SectionHead name="Inbox" />
+      <SectionHead
+        name="Inbox"
+        action={
+          snapshot.inbox.length > 0 ? (
+            <Button variant="outline" size="sm" onClick={() => store.clearInbox()}>
+              Clear
+            </Button>
+          ) : undefined
+        }
+      />
+      {/* What was kept, the same list the seat menu folds out — so a message
+          put away there can be found here, and the count is the list's own. */}
       <Rows>
         <Row
           title="Kept messages"
@@ -710,15 +723,24 @@ export const NotificationsSection = () => {
               ? 'Nothing kept.'
               : `${snapshot.inbox.length} kept${inboxUnread > 0 ? `, ${inboxUnread} unread` : ''}.`
           }
-          control={
-            snapshot.inbox.length > 0 ? (
-              <Button variant="outline" size="sm" onClick={() => store.clearInbox()}>
-                Clear
-              </Button>
-            ) : undefined
-          }
+          control={<UnreadMark count={inboxUnread} />}
         />
       </Rows>
+      {snapshot.inbox.length > 0 ? (
+        <InboxList
+          messages={snapshot.inbox.map((entry) => ({
+            id: entry.id,
+            tone: entry.tone,
+            title: entry.from ? `${entry.from.name}: ${entry.title}` : entry.title,
+            ...(entry.body ? { body: entry.body } : {}),
+            at: entry.at,
+            read: entry.read,
+            ...(entry.task ? { action: { label: 'Start as a task', onSelect: () => void store.startSuggestedTask(entry.id) } } : {}),
+          }))}
+          onOpen={(id) => store.markInboxRead(id)}
+          onMarkAllRead={() => store.markInboxRead(null)}
+        />
+      ) : null}
 
       <SectionHead name="On your Mac" />
       <Rows>

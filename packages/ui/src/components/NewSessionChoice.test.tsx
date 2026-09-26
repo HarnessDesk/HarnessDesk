@@ -72,7 +72,7 @@ const shell: ShellActions = {
   signIn: vi.fn(),
   openUsage: vi.fn(),
   openRuntimes: vi.fn(),
-  openAgents: vi.fn(),
+  openAgents: vi.fn(), reviewImports: () => {},
 }
 
 const render = (store: AppStore, onClose = vi.fn()): typeof onClose => {

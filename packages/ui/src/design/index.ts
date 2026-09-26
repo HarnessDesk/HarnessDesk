@@ -98,10 +98,12 @@ export {
 export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives/Banner'
 export {
   ComposerNotice,
+  ComposerNoticeStack,
   InboxButton,
   InboxList,
   NoticeCard,
   NoticeStrip,
+  UnreadMark,
   showProgress,
   showToast,
   type NoticeAct,

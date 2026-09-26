@@ -3,8 +3,8 @@ import { useEffect, useState } from 'react'
 import type { ImportableConfig } from '@harnessdesk/protocol'
 
 import { useRuntime, useSnapshot, useStore } from '../state/context'
-import { Banner, BannerAction } from '../design'
-import { ImportIcon } from './Icons'
+import type { NoticeMessage } from '../design'
+import { useShell } from '../panels/views'
 import { isSilenced, type NoticeIdentity } from '../lib/notice-policy'
 
 /**
@@ -57,14 +57,18 @@ const whatWasFound = (items: readonly ImportableConfig[]): string => {
   return `${nouns.slice(0, -1).join(', ')} and ${nouns[nouns.length - 1] ?? ''}`
 }
 
-export const ImportOffer = ({ onReview }: { onReview: () => void }) => {
+/**
+ * The offer to import what the other agents on this machine already have, as
+ * a message for whichever surface the person keeps it on. Detection runs only
+ * once the host has said the offer was not already answered, and stops if it
+ * is answered while a detection is in flight.
+ */
+export const useImportOffer = (): { readonly message: NoticeMessage; readonly dismiss: () => void } | null => {
   const store = useStore()
+  const shell = useShell()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
   const [items, setItems] = useState<readonly ImportableConfig[]>([])
-  // Both halves of the guard, in one value the effect can depend on: the offer
-  // must not be detected before the host has said whether it was refused, and
-  // must not survive being refused while a detection was already in flight.
   const answered = !snapshot.preferencesLoaded || isSilenced(snapshot.noticePolicy, OFFER)
 
   useEffect(() => {
@@ -88,32 +92,21 @@ export const ImportOffer = ({ onReview }: { onReview: () => void }) => {
     store.dismissStanding(OFFER)
     setItems([])
   }
-
-  return (
-    <Banner
-      icon={<ImportIcon size={17} />}
-      title="Your other agents have skills and servers this machine could share"
-      onDismiss={dismiss}
-      actions={
-        <>
-          <BannerAction variant="secondary" onClick={dismiss}>
-            Not now
-          </BannerAction>
-          <BannerAction
-            onClick={() => {
-              // Following the signpost answers the question: the Library is
-              // where imports live from here on, so the banner never returns.
-              dismiss()
-              onReview()
-            }}
-          >
-            Review in Library
-          </BannerAction>
-        </>
-      }
-    >
-      It found {whatWasFound(items)} — every import is previewed, and nothing is copied until you
-      confirm it.
-    </Banner>
-  )
+  return {
+    message: {
+      id: OFFER.key,
+      title: 'Skills and servers to share',
+      body: `Your other agents have ${whatWasFound(items)} this machine could use. Nothing is copied until you confirm it.`,
+      action: {
+        label: 'Review in Library',
+        onSelect: () => {
+          // Following the signpost answers the question: the Library is where
+          // imports live from here on, so the offer never returns.
+          dismiss()
+          shell.reviewImports()
+        },
+      },
+    },
+    dismiss,
+  }
 }

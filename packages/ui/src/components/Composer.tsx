@@ -37,6 +37,7 @@ import {
   PopoverOptionMark,
   Text,
 } from '../design'
+import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
 import { contributionsHere, scopeHere } from '../lib/contributions'
 import { opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
@@ -932,6 +933,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   return (
     <ComposerDock>
       <Slot name="composer.row" />
+      {/* What stops a turn here, and what an Agent in this conversation is
+          waiting on you to decide — on the composer it is about, never over
+          another pane. */}
+      <NoticeStripOutlet />
+      <ComposerNotices />
       <ComposerShell
         className={`${styles.shell} ${styles.anchor}`}
         {...(dragging ? { 'data-dropping': '' } : {})}

@@ -40,6 +40,8 @@ const mount = (over: Partial<AppSnapshot> = {}) => {
     setNoticeSurface: (kind: string, surface: NoticeSurface | null) =>
       patch({ noticePolicy: withSurface(snapshot.noticePolicy, kind, surface) }),
     clearInbox: () => patch({ inbox: [] }),
+    markInboxRead: () => {},
+    startSuggestedTask: async () => {},
     setSystemNotification: () => {},
   }
   act(() => {
@@ -90,6 +92,8 @@ it('says how many messages are kept and clears them', () => {
   const inbox = kept(kept([], { id: 'a', tone: 'info', title: 'A', at: 1 }), { id: 'b', tone: 'info', title: 'B', at: 2 })
   const { read } = mount({ inbox })
   expect(container.textContent).toContain('2 kept, 2 unread.')
+  // The kept messages themselves, not only their count.
+  expect(container.querySelectorAll('[data-slot="inbox-list"] li')).toHaveLength(2)
   act(() => [...container.querySelectorAll('button')].find((button) => button.textContent === 'Clear')!.click())
   expect(read().inbox).toEqual([])
   expect(container.textContent).toContain('Nothing kept.')
