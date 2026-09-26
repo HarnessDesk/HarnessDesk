@@ -226,7 +226,7 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-2);
-  padding: var(--hd-space-1) var(--hd-space-1) var(--hd-space-1) var(--hd-space-2-5);
+  padding: var(--hd-space-1-5) var(--hd-space-1) var(--hd-space-1) var(--hd-space-2-5);
 }
 
 .inboxHeading {
@@ -298,7 +298,7 @@
 /* The panel scrolls, not a box inside it: one scroll, measured by the
    popover from the room the window has. */
 .inboxScroll {
-  padding-bottom: var(--hd-space-1);
+  padding-bottom: 0;
 }
 
 .inboxGroup {
@@ -339,6 +339,10 @@
   align-items: flex-start;
   gap: var(--hd-space-0-5);
   min-width: 0;
+  /* The tile is taller than a line of text: drop the words by half the
+     difference so the tile centres on the title's first line, not on the
+     top of the block. */
+  padding-top: calc((var(--hd-space-6) - var(--hd-line-sm)) / 2);
 }
 
 .inboxTop {
@@ -415,7 +419,8 @@ button.inboxTitle:focus-visible::after {
 
 .unreadDot {
   position: absolute;
-  top: calc(var(--hd-space-2-5) + var(--hd-space-1-5));
+  /* Centred on the first line, like the tile and the time beside it. */
+  top: calc(var(--hd-space-2-5) + (var(--hd-space-6) - var(--hd-space-1-5)) / 2);
   right: var(--hd-space-2-5);
   width: var(--hd-space-1-5);
   height: var(--hd-space-1-5);
