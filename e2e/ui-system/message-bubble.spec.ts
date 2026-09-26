@@ -103,3 +103,17 @@ test('an answer spans the full row, unframed', async ({ page }) => {
   expect(laid.background).toMatch(/^(rgba\(0, 0, 0, 0\)|transparent)$/)
   expect(laid.radius).toBe('0px')
 })
+
+test("a room message's Show more starts under its text and does not span the row", async ({ page }) => {
+  await page.goto('/design.html?view=channel')
+  const sample = page.getByTestId('channel-long-sample')
+  const toggle = sample.locator('[data-slot="channel-more"]')
+  await expect(toggle).toBeVisible()
+  const text = sample.locator('[data-slot="bubble"]').first()
+  const [toggleBox, textBox] = await Promise.all([toggle.boundingBox(), text.boundingBox()])
+  if (!toggleBox || !textBox) throw new Error('expected both boxes')
+  // Starts where the words start, within the button's own inset.
+  expect(Math.abs(toggleBox.x - textBox.x)).toBeLessThanOrEqual(12)
+  // Sized to its word, not stretched across the message.
+  expect(toggleBox.width).toBeLessThan(textBox.width / 2)
+})
