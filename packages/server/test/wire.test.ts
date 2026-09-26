@@ -700,6 +700,24 @@ test('sign-in is relayed to the runtime, and its outcome arrives as an event', a
   await client.until(() => client.events.some((event) => event.type === 'account/changed'))
 })
 
+/**
+ * The log file once it holds every line expected, read again until it does.
+ * `logger.flush()` waits for its own writes only, and the socket logs through
+ * a child logger with a queue of its own — so a read straight after the flush
+ * could find the file without the refusal, and a check that the code is
+ * absent passed on a log nothing had been written to yet.
+ */
+const logHolding = async (file: string, lines: readonly RegExp[]): Promise<string> => {
+  const deadline = Date.now() + 5_000
+  for (;;) {
+    const text = await readFile(file, 'utf8').catch(() => '')
+    const missing = lines.filter((line) => !line.test(text))
+    if (missing.length === 0) return text
+    if (Date.now() > deadline) throw new Error(`the log never said ${missing.join(', ')}`)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
 // The whole path, into a real sign-in command, is `login-code.test.ts`; this is the relay and the wire's refusals.
 test('a pasted sign-in code is relayed to the runtime, and never reaches the log', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-login-code-'))
@@ -742,8 +760,8 @@ test('a pasted sign-in code is relayed to the runtime, and never reaches the log
     },
   )
   await logger.flush()
-  const logged = await readFile(file, 'utf8')
-  assert.match(logged, /method failed/, 'the failure was logged')
+  // Both refusals written — the runtime's and the wire's — before the log is searched for the code.
+  const logged = await logHolding(file, [/method failed/, /rejected malformed client message/])
   assert.ok(!logged.includes(code), 'the code never reached the log')
 })
 

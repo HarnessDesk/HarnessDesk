@@ -25,6 +25,24 @@ const CLI = fileURLToPath(new URL('../../../adapter-acp/dist/test/fixtures/fake-
 const CODE = 'right-code-7f3a#state-91c2'
 const WRONG = 'wrong-code-0b1d#state-44e0'
 
+/**
+ * The log file once it holds every line expected, read again until it does.
+ * `logger.flush()` waits for its own writes only, and the socket logs through
+ * a child logger with a queue of its own — so a read straight after the flush
+ * could find the file without the refusal, and a check that the code is
+ * absent passed on a log nothing had been written to yet.
+ */
+const logHolding = async (file: string, lines: readonly RegExp[]): Promise<string> => {
+  const deadline = Date.now() + 5_000
+  for (;;) {
+    const text = await readFile(file, 'utf8').catch(() => '')
+    const missing = lines.filter((line) => !line.test(text))
+    if (missing.length === 0) return text
+    if (Date.now() > deadline) throw new Error(`the log never said ${missing.join(', ')}`)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
 test('a pasted code goes from the socket to the sign-in command and is repeated nowhere', async (t) => {
   const file = join(tempDir('hd-login-code-'), 'host.log')
   const logger = new Logger('test', { level: 'debug', console: false, file })
@@ -90,8 +108,8 @@ test('a pasted code goes from the socket to the sign-in command and is repeated 
   assert.equal(ended(second.loginId)?.success, true)
 
   await logger.flush()
-  const logged = await readFile(file, 'utf8')
-  assert.match(logged, /method failed/, 'the refusal was logged')
+  // The refusal of the late paste is the last line the socket writes; once it is there, so is everything before it.
+  const logged = await logHolding(file, [/method failed/])
   const said = `${JSON.stringify(client.events)}\n${logged}`
   for (const part of [CODE, WRONG, ...CODE.split('#'), ...WRONG.split('#')]) {
     assert.ok(!said.includes(part), 'no part of a pasted code reached an event or the log')
