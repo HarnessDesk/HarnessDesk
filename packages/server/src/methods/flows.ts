@@ -177,10 +177,14 @@ export const flowMethods = {
  * is spent: a flow that opens three of four seats and then stops is a room
  * somebody has to clean up.
  *
- * Effort is deliberately not checked here. A runtime declares its efforts per
- * *session*, so asking would mean opening one, and a dry run that opens a
- * conversation is not a dry run. The start path refuses it by name with the
- * choices listed, before any seat is opened.
+ * Effort is checked here too, against the same catalogue the model check
+ * just read: a runtime reports each model's reasoning levels as part of its
+ * listing, not per session, so nothing here has to open a conversation to
+ * know a level does not exist. What genuinely cannot be known before a
+ * session exists — a catalogue this desk could not read at all, or one that
+ * names no levels — is left alone rather than guessed at; `#1013`'s seat-open
+ * refusal is the backstop for exactly that case, so a mismatch this dry run
+ * could not see is still never seated silently.
  */
 const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProblem[]> => {
   const problems: FlowProblem[] = []
@@ -215,7 +219,26 @@ const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProbl
       if (!seat.model) continue
       const models = await runtime.listModels().catch(() => [])
       if (models.length === 0) continue
-      if (models.some((one) => one.id === seat.model)) continue
+      const found = models.find((one) => one.id === seat.model)
+      if (found) {
+        /* The model exists, and this desk knows its own reasoning levels —
+           read at the same moment as its id, never a session's answer — so a
+           preference naming one it does not have is exactly as knowable as a
+           preference naming a model that does not exist. A model the runtime
+           declares with no levels at all is not "unknown" here: it is known
+           to have none, so any named effort is refused. */
+        if (seat.effort && !found.reasoningLevels.some((level) => level.id === seat.effort)) {
+          const levels = found.reasoningLevels.map((level) => level.id)
+          problems.push({
+            level: 'error',
+            at,
+            text: levels.length
+              ? `${runtime.info.presentation.name}'s ${found.displayName} does not offer "${seat.effort}" effort — it offers ${levels.join(', ')}`
+              : `${runtime.info.presentation.name}'s ${found.displayName} has no effort levels, so "${seat.effort}" is refused`,
+          })
+        }
+        continue
+      }
       /* The compact form splits the effort off after a `/`, so a model id
          that contains one is read as a model and an effort. Say so, rather
          than "no such model": the author wrote a real id and the grammar

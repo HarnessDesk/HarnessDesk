@@ -1090,6 +1090,33 @@ test("a conversation that could not be opened is refused in the runtime's words"
   untouched(seen)
 })
 
+test('a runtime that outright refuses an asked-for effort is never quietly passed over for the next candidate (#1013)', async () => {
+  // Cursor throws the moment it cannot honor an initial option at all — not
+  // the "opened and ran something else" case another test already covers —
+  // and a Seat preference is a person's own instruction, never a transient
+  // condition worth routing around in silence. A fallback candidate exists
+  // and would happily open; it must never be reached.
+  const seen = await rig(
+    'cursor=gpt-5/xhigh, claude=opus-5/high',
+    { cursor: { models: ['gpt-5'] }, claude: { models: ['opus-5'] } },
+    { openFails: (seat) => (seat.runtime === 'cursor' ? 'Cursor has no session option named "effort".' : null) },
+  )
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        'No seat could be opened for this Agent:\n' +
+          '  cursor=gpt-5/xhigh — cursor could not open a conversation: Cursor has no session option named "effort".',
+      )
+      return true
+    },
+  )
+  // The fallback was never tried: claude's seat is not among what opened.
+  assert.deepEqual(seen.created, [])
+  untouched(seen)
+})
+
 test('a brief that could not be handed over closes the conversation, is refused with its own code, and nothing is recorded', async () => {
   const seen = await rig('claude=opus-5/high', undefined, { orderFails: 'Claude is not running.' })
   await assert.rejects(

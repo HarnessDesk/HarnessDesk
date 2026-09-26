@@ -7,6 +7,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A Seat preference naming an effort its model does not have is refused
+  before any Seat opens.** `runtime=model/effort` used to pass the dry run
+  whatever the model, and only fail once a Seat actually opened, with "no
+  session option named effort" — stalling the round when the preference had
+  no fallback, and silently seating a different agent when it did. The dry
+  run now checks a preference's effort against the levels that model itself
+  reports, and refuses it by name, with the levels it does offer. Where a
+  runtime is not running or names no levels at all, the dry run still cannot
+  know — but a Seat that opens and is refused on its effort there no longer
+  falls back to the next candidate in silence: the round stops, naming the
+  refused preference.
+
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per
   conversation — "cannot pass a lane environment to a session" — so a

@@ -588,6 +588,9 @@ export async function seatAgent(
     })
     if ('reason' in opened) {
       passed.push(opened)
+      // The runtime refused the effort itself: stop here, on this candidate's
+      // own line, rather than seating a different runtime in silence (#1013).
+      if (opened.fatal) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
       continue
     }
 
@@ -947,6 +950,24 @@ const wordsFor = (
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
+ * Whether a seat's own failure to open is the runtime saying outright, in its
+ * own words, that it has no such effort option at all — the exact shape every
+ * adapter throws for an option id it does not know
+ * (`packages/adapter-acp/src/runtime.ts`, `packages/adapter-codex/src/mapping/options.ts`):
+ * `... has no session option named "effort".` Never a guess from some other
+ * failure family: a seat that asked for no effort could not fail this way,
+ * and nothing else is read as meaning it.
+ *
+ * This is the case a dry run could not always catch (`unavailableSeats` in
+ * `methods/flows.ts`, when a runtime was not running or its catalogue named
+ * no levels) — so it is caught here instead, at the one place it is finally
+ * knowable, and held to the same rule: never seat a different runtime in
+ * silence over it (#1013).
+ */
+const refusedEffort = (seat: FlowSeat, error: unknown): boolean =>
+  Boolean(seat.effort) && /no session option named ["']?effort["']?/i.test(messageOf(error))
+
+/**
  * Opens one candidate and holds it to what it asked for: the open seat, or the
  * candidate passed over with why — and then nothing the seating opened is left
  * open, unless somebody took it up meanwhile.
@@ -960,6 +981,10 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
  * gone. Either way, what the conversation was left as goes on the candidate's
  * line — left as it is, because somebody used it or it was never the
  * seating's, or archived, because it could not be deleted — never dropped.
+ *
+ * A failure the runtime blamed on the effort itself (`refusedEffort`) is
+ * marked `fatal`: the caller's loop stops on this candidate rather than
+ * trying the next one.
  */
 const openAsAsked = async (
   ctx: HostContext,
@@ -976,7 +1001,11 @@ const openAsAsked = async (
     opened = await ctx.seats.open(seat, where)
   } catch (error) {
     const left = leftOnFailure(error)
-    return { ...passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) }), ...(left ? { left } : {}) }
+    return {
+      ...passedFor(seat, { kind: 'couldNotOpen', detail: messageOf(error) }),
+      ...(left ? { left } : {}),
+      ...(refusedEffort(seat, error) ? { fatal: true as const } : {}),
+    }
   }
   const found = differencesOf(seat, opened.running)
   if (found.length === 0) return opened
