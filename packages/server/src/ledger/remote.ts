@@ -18,10 +18,13 @@ export interface RemoteEventsSource {
    */
   resolveFile(): Promise<string | null>
   /**
-   * Fetches replacement rows for the half-open window `[from, to)`. `null`
-   * fails closed — a short read, a paging cap, or an envelope the source
-   * cannot make sense of — and the rows already stored for this window are
-   * left exactly as they were rather than replaced with a partial reading.
+   * Fetches replacement rows for the half-open window `[from, to)`, keyed
+   * under `file` — the caller's own `resolveFile()` read, passed in rather
+   * than re-derived, so the store's delete and this batch's insert always
+   * agree on the key even if the account changed mid-scan. `null` fails
+   * closed — a short read, a paging cap, or an envelope the source cannot
+   * make sense of — and the rows already stored for this window are left
+   * exactly as they were rather than replaced with a partial reading.
    */
-  sync(range: { readonly from: number; readonly to: number }): Promise<{ readonly rows: readonly UsageRow[] } | null>
+  sync(range: { readonly from: number; readonly to: number }, file: string): Promise<{ readonly rows: readonly UsageRow[] } | null>
 }

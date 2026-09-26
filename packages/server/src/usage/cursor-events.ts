@@ -224,7 +224,10 @@ export const fetchCursorEvents = async (options: FetchCursorEventsOptions): Prom
   if (!completed) return null // the page cap was reached before an empty or short page proved completion
 
   const raw = pages.flat()
-  if (expectedTotal === null) return raw.map(parseEvent).filter((event): event is CursorEvent => event !== null)
+  // An envelope with events but no count is the ambiguous shape fail-closed
+  // exists for: the confirmed shape always carries the count alongside the
+  // events array, so a page of events without one is never trusted.
+  if (expectedTotal === null) return pages.length === 0 ? [] : null
   if (raw.length < expectedTotal) return null // a short read: fewer rows than Cursor says exist
 
   // Reconcile exact duplicates at adjacent page boundaries only, and only the
@@ -350,12 +353,11 @@ export class CursorEventsSource implements RemoteEventsSource {
     return hash ? `cursor-events:${hash}` : null
   }
 
-  async sync(range: { readonly from: number; readonly to: number }): Promise<{ readonly rows: readonly UsageRow[] } | null> {
+  async sync(range: { readonly from: number; readonly to: number }, file: string): Promise<{ readonly rows: readonly UsageRow[] } | null> {
     const token = readCursorToken(this.#path)
     if (token === null) return null
     const cookie = cursorCookie(token)
-    const hash = cursorAccountHash(token)
-    if (cookie === null || hash === null) return null
+    if (cookie === null) return null
     const events = await fetchCursorEvents({
       cookie,
       since: range.from,
@@ -364,8 +366,15 @@ export class CursorEventsSource implements RemoteEventsSource {
       ...(this.#fetch ? { fetch: this.#fetch } : {}),
     })
     if (events === null) return null
-    const file = `cursor-events:${hash}`
-    return { rows: aggregateCursorEvents(events, this.runtime, file) }
+    // Cursor's date filter is the only guard on the window boundary; keep
+    // only events actually inside `[from, to)` so a re-sync never lets one
+    // outside it add into a neighbouring row through the store's ON CONFLICT
+    // sum (`replaceWindow` only deletes rows inside the window it replaces).
+    const inWindow = events.filter((event) => event.at >= range.from && event.at < range.to)
+    // `file` is the caller's already-resolved key (`resolveFile`'s own read),
+    // passed in rather than re-derived here, so the delete and the insert
+    // this row lands under always agree even if the account changed mid-scan.
+    return { rows: aggregateCursorEvents(inWindow, this.runtime, file) }
   }
 
   #accountHash(): string | null {
