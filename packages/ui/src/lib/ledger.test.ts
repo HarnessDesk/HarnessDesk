@@ -2,7 +2,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { runtimeId, type LedgerReport, type RuntimeId } from '@harnessdesk/protocol'
 
-import { periodTotals, shareOf, stackDaily } from './ledger'
+import {
+  alignGhost,
+  axisTicks,
+  foldOther,
+  niceCeiling,
+  periodTotals,
+  previousByRuntime,
+  previousPeriod,
+  shareOf,
+  stackDaily,
+} from './ledger'
 
 const DAY = 86_400_000
 const NOON = new Date('2026-08-22T12:00:00').getTime()
@@ -14,6 +24,7 @@ const CLAUDE = runtimeId('claude')
 const report = (
   days: number,
   daily: { day: number; runtime: RuntimeId; cost: number; tokens?: number }[],
+  earliestDay?: number | null,
 ): LedgerReport =>
   ({
     days,
@@ -21,7 +32,15 @@ const report = (
     totalCost: daily.reduce((sum, entry) => sum + entry.cost, 0),
     totalTokens: null,
     provenance: 'listPrice',
-    coverage: { priced: 0, unpriced: 0, unmetered: 0, estimated: 0, daysCovered: days, daysRequested: days },
+    coverage: {
+      priced: 0,
+      unpriced: 0,
+      unmetered: 0,
+      estimated: 0,
+      daysCovered: days,
+      daysRequested: days,
+      ...(earliestDay !== undefined ? { earliestDay } : {}),
+    },
     rows: [],
     daily: daily.map((entry) => ({ ...entry, tokens: entry.tokens ?? 0 })),
     scannedAt: NOON,
@@ -217,6 +236,201 @@ describe('periodTotals', () => {
 
   it('answers with nothing for an empty window', () => {
     expect(periodTotals(stackDaily(null, NOON), [1, 7])).toEqual([])
+  })
+})
+
+describe('stackDaily marking "no record yet"', () => {
+  it('marks every day before coverage.earliestDay as unknown, never as a priced zero', () => {
+    const earliest = TODAY - 2 * DAY
+    const series = stackDaily(
+      report(5, [{ day: TODAY, runtime: CODEX, cost: 4 }], earliest),
+      NOON,
+    )
+    expect(series.days.map((day) => day.unknown)).toEqual([true, true, false, false, false])
+  })
+
+  it('treats a ledger with no rows anywhere as unknown throughout', () => {
+    const series = stackDaily(report(3, [], null), NOON)
+    expect(series.days.map((day) => day.unknown)).toEqual([true, true, true])
+  })
+
+  it('is never unknown once coverage.earliestDay is absent, for an old report', () => {
+    // An old report shape predates the field entirely — validated as absent,
+    // not null, and treated the same honest way a ledger with real history
+    // going all the way back would be.
+    const series = stackDaily(report(2, [{ day: TODAY, runtime: CODEX, cost: 1 }]), NOON)
+    expect(series.days.map((day) => day.unknown)).toEqual([true, true])
+  })
+})
+
+describe('previousPeriod', () => {
+  const daily = (start: number, count: number, costOf: (index: number) => number) =>
+    Array.from({ length: count }, (_, index) => ({
+      day: TODAY - (count - 1 - index) * DAY - start,
+      runtime: CODEX,
+      cost: costOf(index),
+    }))
+
+  it('sums the older half of a doubled window', () => {
+    // 14 days: the newest 7 are "current" (10 each), the oldest 7 are
+    // "previous" (5 each) — previousPeriod is handed only the older half's
+    // series, the same shape the current-period fetch already is.
+    const wide = stackDaily(report(14, daily(0, 14, (index) => (index < 7 ? 5 : 10))), NOON)
+    const previous = previousPeriod(wide, 7, 70)
+    expect(previous.total).toBe(35)
+    expect(previous.complete).toBe(true)
+    expect(previous.change).toBeCloseTo(((70 - 35) / 35) * 100, 5)
+  })
+
+  it('offers no change when the older half is not wholly loaded', () => {
+    const wide = stackDaily(report(10, daily(0, 10, () => 5)), NOON)
+    const previous = previousPeriod(wide, 7, 35)
+    expect(previous.complete).toBe(false)
+    expect(previous.change).toBeNull()
+  })
+
+  it('offers no change when the older half was zero', () => {
+    const wide = stackDaily(report(14, daily(0, 14, (index) => (index < 7 ? 0 : 10))), NOON)
+    const previous = previousPeriod(wide, 7, 70)
+    expect(previous.total).toBe(0)
+    expect(previous.change).toBeNull()
+  })
+})
+
+describe('previousPeriod across a daylight-saving transition', () => {
+  const ZONE = 'America/New_York'
+  const previousTz = process.env.TZ
+
+  beforeAll(() => {
+    process.env.TZ = ZONE
+  })
+  afterAll(() => {
+    if (previousTz === undefined) delete process.env.TZ
+    else process.env.TZ = previousTz
+  })
+
+  it('still divides the window into two equal, calendar-correct halves', () => {
+    const now = new Date('2026-11-05T12:00:00').getTime()
+    const localMidnight = (back: number): number => {
+      const date = new Date(now)
+      date.setHours(0, 0, 0, 0)
+      date.setDate(date.getDate() - back)
+      return date.getTime()
+    }
+    // Four days, and the changeover (2026-11-01) falls inside the older half.
+    const daily = [0, 1, 2, 3].map((back) => ({
+      day: localMidnight(back),
+      runtime: CODEX,
+      cost: back < 2 ? 10 : 3,
+    }))
+    const wide = stackDaily(report(4, daily), now)
+    // stackDaily itself is what has to survive the transition (see the
+    // describe block above) — this only checks the split does not lose a
+    // day doing the arithmetic a second time over the same series.
+    const previous = previousPeriod(wide, 2, 20)
+    expect(previous.daily).toHaveLength(2)
+    expect(previous.total).toBe(6)
+    expect(previous.complete).toBe(true)
+  })
+})
+
+describe('previousByRuntime', () => {
+  it('keys the older half by the same series order as the current one', () => {
+    const daily14 = [
+      ...Array.from({ length: 7 }, (_, index) => ({
+        day: TODAY - (13 - index) * DAY,
+        runtime: CLAUDE,
+        cost: 2,
+      })),
+      ...Array.from({ length: 7 }, (_, index) => ({
+        day: TODAY - (6 - index) * DAY,
+        runtime: CODEX,
+        cost: 9,
+      })),
+    ]
+    const wide = stackDaily(report(14, daily14), NOON)
+    const previous = previousByRuntime(wide, 7)
+    expect(previous.complete).toBe(true)
+    expect(previous.totals.get(CLAUDE)).toBe(14)
+    expect(previous.totals.get(CODEX)).toBe(0)
+  })
+})
+
+describe('alignGhost', () => {
+  it('lines up "today" with the previous period\'s own last day', () => {
+    const previousDays = [1, 2, 3, 4, 5].map((cost, index) => ({
+      day: TODAY - (4 - index) * DAY,
+      total: cost,
+      tokens: 0,
+      parts: [cost],
+      unknown: false,
+    }))
+    expect(alignGhost(5, previousDays)).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('leaves a gap rather than a plunge when the previous period runs short', () => {
+    const previousDays = [1, 2].map((cost, index) => ({
+      day: TODAY - (1 - index) * DAY,
+      total: cost,
+      tokens: 0,
+      parts: [cost],
+      unknown: false,
+    }))
+    // Five current days, only two previous ones: the two most recent align,
+    // the earlier three have nothing to compare against.
+    expect(alignGhost(5, previousDays)).toEqual([null, null, null, 1, 2])
+  })
+})
+
+describe('niceCeiling and axisTicks', () => {
+  it('rounds up to 1, 2, 5 or 10 times a power of ten', () => {
+    expect(niceCeiling(0)).toBe(0)
+    expect(niceCeiling(1)).toBe(1)
+    expect(niceCeiling(63)).toBe(100)
+    expect(niceCeiling(42)).toBe(50)
+    expect(niceCeiling(21)).toBe(50)
+    expect(niceCeiling(120)).toBe(200)
+  })
+
+  it('gives an axis 0, a midpoint and a round ceiling', () => {
+    expect(axisTicks(63)).toEqual([0, 50, 100])
+  })
+})
+
+describe('foldOther', () => {
+  const row = (key: string, cost: number | null, hasUnpriced = false, tokens: number | null = 10) => ({
+    key,
+    label: key,
+    runtime: null,
+    tokens,
+    cost,
+    hasUnpriced,
+  })
+
+  it('leaves a short list alone', () => {
+    const rows = [row('a', 1), row('b', 2)]
+    expect(foldOther(rows, 6)).toEqual({ shown: rows, other: null })
+  })
+
+  it('folds the tail into one row, summing its cost', () => {
+    const rows = [row('a', 5), row('b', 4), row('c', 3), row('d', 1), row('e', 1)]
+    const { shown, other } = foldOther(rows, 3)
+    expect(shown).toEqual(rows.slice(0, 3))
+    expect(other?.label).toBe('Other · 2')
+    expect(other?.cost).toBe(2)
+  })
+
+  it('keeps a folded row unpriced rather than $0 when nothing in it has a price', () => {
+    const rows = [row('a', 5), row('b', 4), row('c', 3), row('d', null), row('e', null)]
+    const { other } = foldOther(rows, 3)
+    expect(other?.cost).toBeNull()
+  })
+
+  it('sums only the folded rows that do have a price, alongside the unpriced ones', () => {
+    const rows = [row('a', 5), row('b', 4), row('c', 3), row('d', 2), row('e', null, true)]
+    const { other } = foldOther(rows, 3)
+    expect(other?.cost).toBe(2)
+    expect(other?.hasUnpriced).toBe(true)
   })
 })
 
