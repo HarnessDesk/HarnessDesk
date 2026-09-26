@@ -201,6 +201,10 @@ export const ConversationMap = ({
       /* The push, and in a tight pane the longest a dash may be, as measured
          against the column: custom properties only the dash's width reads. */
       style={{ '--reach': `${fit.reach}px`, ...(fit.cap === null ? {} : { '--cap': `${fit.cap}px` }) } as React.CSSProperties}
+      /* A listbox, not the nav's own landmark role: its marks are options and
+         `aria-activedescendant` names the current one, which a navigation
+         region does not support. */
+      role="listbox"
       aria-label="Jump to a message"
       // One stop for the whole rail; Up/Down move the position below rather
       // than moving real focus, so a transcript of any length still costs the

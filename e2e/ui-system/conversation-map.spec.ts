@@ -227,6 +227,9 @@ test('the rail is one tab stop: arrow keys move the current mark and its preview
   // One stop for the whole rail.
   await rail(page).focus()
   await page.waitForTimeout(150)
+  // Its marks are options and aria-activedescendant names the current one,
+  // which only a composite role such as listbox supports.
+  await expect(page.getByRole('listbox', { name: 'Jump to a message' })).toHaveCount(1)
   const current = () => page.evaluate(() => document.querySelector('nav[aria-label="Jump to a message"]')?.getAttribute('aria-activedescendant'))
   const first = await current()
   await expect(tipsOf(page)).toHaveCount(1)
