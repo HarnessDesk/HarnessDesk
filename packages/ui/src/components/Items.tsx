@@ -961,6 +961,10 @@ const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
  * over stored transcripts. This function only decides how each kind draws.
  */
 const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
+  // Nothing to show draws nothing, in any of a result's shapes (see the
+  // `{output}` case below).
+  if (part.type === 'text' && part.text.trim() === '') return null
+  if (part.type === 'json' && typeof part.value === 'string' && part.value.trim() === '') return null
   if (part.type === 'text') {
     return <CodeBlock key={key} output={stripAnsi(part.text)} />
   }
@@ -990,6 +994,9 @@ const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
     // through the plate's own mechanism rather than a second one here.
     return <CodeBlock key={key} command={reading.command} output={reading.output ? stripAnsi(reading.output) : '(no output)'} exitCode={reading.exitCode} />
   }
+  // A result with nothing in it draws nothing: an empty plate under a step
+  // reads as output that failed to load, when there was simply none.
+  if (reading.kind === 'output' && reading.text.trim() === '') return null
   if (reading.kind === 'output') {
     // A bare `{output, isError}` pair (DeepSeek, among others): the text is
     // drawn the same way `item.error` already is, whichever it says.
@@ -1049,6 +1056,12 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const commandOutputParts = command ? item.result?.map((part) => {
     if (part.type === 'text') return stripAnsi(part.text)
     if (part.type === 'json' && typeof part.value === 'string') return stripAnsi(part.value)
+    // A shell call whose runtime wraps its output in `{output, isError}`:
+    // the output belongs inside the command's own plate, not in a second box.
+    if (part.type === 'json') {
+      const reading = readToolResult(part.value)
+      if (reading.kind === 'output') return stripAnsi(reading.text)
+    }
     return null
   }) : undefined
   const commandOutput = commandOutputParts && commandOutputParts.length > 0
@@ -1135,7 +1148,11 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               description is the row's title and the background flag is the
               panel's business, so neither is repeated here as a field. */}
           {command ? (
-            <CodeBlock command={shellCommandOf(command)} output={commandOutput} onCopyError={copyFailed} />
+            <CodeBlock
+              command={shellCommandOf(command)}
+              output={commandOutput === '' ? (item.status === 'inProgress' ? '' : '(no output)') : commandOutput}
+              onCopyError={copyFailed}
+            />
           ) : recordsCommand ? null : (
             // A result that is its own command record already opens onto the
             // command it ran; its arguments would only say it again, with the

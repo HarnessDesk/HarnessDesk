@@ -183,6 +183,16 @@ describe('describeTurnWork', () => {
     expect(described.trouble).toBe(false)
   })
 
+  test('rewriting the task list is the plan changing, said once, never a tool call', () => {
+    const todos = { todos: [{ content: 'Plan', status: 'completed' }, { content: 'Read', status: 'completed' }] }
+    const work = [
+      item('toolCall', 'p1', { tool: 'todo_write', args: todos, result: [{ type: 'json', value: { output: '', isError: false } }] }),
+      item('toolCall', 'x', { tool: 'lookup', args: { q: 'a' }, result: [] }),
+      item('toolCall', 'p2', { tool: 'todo_write', args: todos, result: [{ type: 'json', value: { output: '', isError: false } }] }),
+    ]
+    expect(describeTurnWork(done(work), work, started).receipt).toBe('called 1 tool, updated the plan')
+  })
+
   test('a read dressed as a shell command is a read, not a command', () => {
     const work = [
       item('command', 'a', { actions: [{ type: 'read', command: 'sed', name: 'a', path: '/a' }] }),
