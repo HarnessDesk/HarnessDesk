@@ -80,23 +80,26 @@
 /*
  * The first words, offered to the nearest mark only.
  *
- * It hangs to the right of the rail rather than over the column, because the
- * column is what the reader is looking for and covering it to describe it is
- * the wrong trade. The plate is the system's tip; this places it, and stops it
- * at four lines with an ellipsis rather than a cut through the fifth.
+ * The card itself is the system's Tooltip: anchored to its mark, so it flips
+ * to the other side and shifts along its axis rather than running off the
+ * window the way a hand-placed `translateY(-50%)` did for a mark near either
+ * edge. Only its text needs a rule of its own, below.
  */
 .preview {
-  position: absolute;
-  left: calc(100% + var(--hd-space-2));
-  z-index: 2;
-  display: -webkit-box; /* desk: block → -webkit-box, the box line-clamp needs */
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4; /* desk: max-height of four lines → line-clamp 4, an ellipsis instead of a cut */
-  line-clamp: 4;
-  width: 280px;
-  overflow: hidden;
   text-align: left;
   white-space: normal;
-  pointer-events: none;
-  transform: translateY(-50%);
+}
+
+/*
+ * Stopped at four lines with an ellipsis rather than a cut through the fifth
+ * — clamped on this element and not the card around it, because a line-clamp
+ * on a padded box lets its last line show through the padding underneath
+ * instead of being cut at the box's own edge.
+ */
+.previewText {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
 }

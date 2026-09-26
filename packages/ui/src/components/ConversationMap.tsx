@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 
 import type { Turn } from '@harnessdesk/protocol'
 
-import { Button, ChartTip, Tick } from '../design'
+import { Button, Tick, Tooltip, TooltipContent, TooltipTrigger } from '../design'
 import { buildMarks, railFit, shouldRenderMap, type RailFit } from '../lib/conversation-map'
 import styles from './ConversationMap.module.css'
 
@@ -45,6 +45,11 @@ export const ConversationMap = ({
   const [pointer, setPointer] = useState<number | null>(null)
   const [overflows, setOverflows] = useState(false)
   const [fit, setFit] = useState<RailFit>(null)
+  /* The one mark allowed a preview: whichever has keyboard focus, or failing
+     that the one nearest the pointer. Focus wins so that tabbing to a mark
+     never leaves two cards open — the pointer's last position and the
+     keyboard's current one — and never leaves the keyboard's with none. */
+  const [focused, setFocused] = useState<number | null>(null)
   const drawn = shouldRenderMap({ marks: marks.length, overflows }) && fit !== null
   const shownRef = useRef(false)
   shownRef.current = fit !== null
@@ -123,6 +128,24 @@ export const ConversationMap = ({
     return (Math.cos((away / RADIUS) * Math.PI) + 1) / 2
   }
 
+  /* Every mark's push, read once so the one nearest the pointer can be told
+     from the rest of them. Reading it inside the map used to let a pointer
+     resting between two marks put both of them over the SNAP threshold at
+     once, and each opened its own preview — two cards stacked on the same
+     spot. Only the peak may open one. */
+  const nears = marks.map((_, index) => {
+    const node = rail.current?.children[index] as HTMLElement | undefined
+    const centre = node ? node.offsetTop + node.offsetHeight / 2 : -RADIUS * 2
+    return push(centre)
+  })
+  let nearest: number | null = null
+  for (const [index, value] of nears.entries()) {
+    if (value > SNAP / RADIUS && (nearest === null || value > (nears[nearest] ?? 0))) nearest = index
+  }
+  // Focus wins over the pointer, so tabbing to a mark shows its words even
+  // with the mouse resting somewhere else on the rail.
+  const openIndex = focused ?? nearest
+
   return (
     <nav
       ref={rail}
@@ -138,36 +161,38 @@ export const ConversationMap = ({
       }}
       onPointerLeave={() => setPointer(null)}
     >
-      {marks.map((mark, index) => {
-        /* Its own middle, in the rail's coordinates. Read from the element so
-           the arithmetic cannot drift from the layout; the rail is short
-           enough that this costs nothing a person can feel. */
-        const node = rail.current?.children[index] as HTMLElement | undefined
-        const centre = node ? node.offsetTop + node.offsetHeight / 2 : -RADIUS * 2
-        const near = push(centre)
-        return (
-          <Button
-            key={`${mark.turn}-${mark.kind}-${index}`}
-            type="button"
-            variant="ghost"
-            size="chip"
-            className={styles.mark}
-            data-kind={mark.kind}
-            style={{ '--near': near } as React.CSSProperties}
-            aria-label={mark.preview}
-            onClick={() => goTo(mark.turn, mark.kind)}
+      {marks.map((mark, index) => (
+        <Tooltip key={`${mark.turn}-${mark.kind}-${index}`} open={openIndex === index}>
+          <TooltipTrigger
+            render={
+              // The dash is the drawing; the control around it is the target,
+              // because two pixels is not something anybody can hit.
+              <Button
+                type="button"
+                variant="ghost"
+                size="chip"
+                className={styles.mark}
+                data-kind={mark.kind}
+                style={{ '--near': nears[index] ?? 0 } as React.CSSProperties}
+                aria-label={mark.preview}
+                onClick={() => goTo(mark.turn, mark.kind)}
+                onFocus={() => setFocused(index)}
+                onBlur={() => setFocused((was) => (was === index ? null : was))}
+              />
+            }
           >
-            {/* The dash is the drawing; the control around it is the target,
-                because two pixels is not something anybody can hit. */}
             {/* What was asked stands out from what came back: a strong
                 stroke for the prompt, a quiet one for the answer. */}
             <Tick emphasis={mark.kind === 'prompt' ? 'strong' : 'quiet'} className={styles.dash} />
-            {near > SNAP / RADIUS && (
-              <ChartTip as="span" className={styles.preview}>{mark.preview}</ChartTip>
-            )}
-          </Button>
-        )
-      })}
+          </TooltipTrigger>
+          {/* Anchored to the mark rather than hand-placed, so it flips or
+              shifts to stay on screen for a dash near the top or bottom edge
+              the way the old fixed offset never could. */}
+          <TooltipContent side="right" align="center" className={styles.preview}>
+            <span className={styles.previewText}>{mark.preview}</span>
+          </TooltipContent>
+        </Tooltip>
+      ))}
     </nav>
   )
 }
