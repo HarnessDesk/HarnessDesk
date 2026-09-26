@@ -1153,6 +1153,19 @@
   gap: 8px;
 }
 
+/* Once a description pins the row to its top edge (`.row:has(.rowDesc)`,
+   above), a control taller than the title's own line — a `sm` button is
+   28px against the line's 20 — sits with its top on the title's top rather
+   than its centre on the title's centre, 4px low. Pulled up by half of what
+   it is taller than the line, its own centre lands on the title's, the same
+   `(line − size) / 2` nudge `.rowMark` already carries. A control that is
+   already about the title's own height (`RowValue`'s plain text, a switch)
+   is not worth a second formula for a few pixels neither `:has()` selector
+   below matches, so it keeps a plain top edge. */
+.row:has(.rowDesc) .rowCtl:has(button) {
+  margin-top: calc((var(--hd-line-sm) - var(--hd-btn-h-sm)) / 2);
+}
+
 .rowCtl:has(> .rowFixed:only-child:not([data-numeric])) {
   flex-grow: 1; /* desk: 0 → 1, a wrapped text answer takes its line */
   margin-inline-start: 0; /* desk: auto → 0, and starts under the title */

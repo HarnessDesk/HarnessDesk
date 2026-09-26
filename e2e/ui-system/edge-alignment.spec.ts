@@ -1,18 +1,21 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /**
- * The spacing/alignment system holds four claims a screenshot cannot check
+ * The spacing/alignment system holds five claims a screenshot cannot check
  * reliably but a rectangle's edges can: a `SectionHead` starts its label on
  * the same column as the card of rows it names, a settings row's mark and
  * trailing control land on the title's own line rather than the row's whole
- * block, a `Banner`'s icon and dismiss centre on the title's first line, and
- * a `Button`'s `edge="end"` pulls an icon-sized box far enough past the
- * inset that the glyph inside it — not the box — sits on the column.
+ * block, a `Banner`'s icon and dismiss centre on the title's first line, a
+ * `Button`'s `edge="end"` pulls an icon-sized box far enough past the inset
+ * that the glyph inside it — not the box — sits on the column, and a
+ * `Checklist` step drawn as a button (the Tasks panel's reword row) still
+ * carries the done state's strike and ink, which a browser will not draw
+ * through a button the way it will through a plain span.
  *
  * Mounted directly, the way `row-box.spec.ts` does: jsdom lays nothing out
- * and compiles no Tailwind, so none of these four defects is visible there,
- * and the census that found them ran against the real engine for the same
- * reason.
+ * and compiles no Tailwind, so none of these defects is visible there, and
+ * the census that found the first four ran against the real engine for the
+ * same reason.
  */
 
 const mount = async (page: Page) => {
@@ -27,6 +30,7 @@ const mount = async (page: Page) => {
         import edgeReact from ${JSON.stringify(reactUrl)};
         import { Section, SectionBody } from '/src/design/ui/section.tsx';
         import { Rows, Row, RowValue } from '/src/design/patterns/Settings.tsx';
+        import { Checklist, ChecklistItem } from '/src/design/patterns/Checklist.tsx';
         import { Switch } from '/src/design/ui/switch.tsx';
         import { Banner } from '/src/design/primitives/Banner.tsx';
         import { Button } from '/src/design/ui/button.tsx';
@@ -49,6 +53,18 @@ const mount = async (page: Page) => {
             h('span', { style: { flex: 1 } }, 'A row'),
             h(Button, { variant: 'ghost', size: 'icon-sm', edge: 'end' }, h('svg', { viewBox: '0 0 16 16', width: 16, height: 16 }, h('rect', { x: 0, y: 0, width: 16, height: 16 }))),
           ),
+          h('div', { 'data-testid': 'checklist-fixture' },
+            // The same anatomy TaskPanel.tsx draws a step as: a Button
+            // standing in for the label, its priority chip inside it.
+            h(Checklist, null,
+              h(ChecklistItem, { state: 'done' },
+                h(Button, { type: 'button', variant: 'row', size: 'pattern', 'data-state': 'done', 'data-testid': 'checklist-done-label' },
+                  'Ship the release notes',
+                  h('span', { 'data-testid': 'checklist-done-chip' }, 'high'),
+                ),
+              ),
+            ),
+          ),
         ));
       `,
     })
@@ -68,8 +84,8 @@ test.describe('the layout system holds its own claims', () => {
     const lefts = await page.evaluate(() => {
       const section = document.querySelector('[data-testid="section-fixture"]') as HTMLElement
       const label = section.querySelector('h2') as HTMLElement
-      const row = document.querySelector('[data-testid="rows-fixture"] [class*="row"]') as HTMLElement
-      const rowTitle = row.querySelector('[class*="rowTitle"]') as HTMLElement
+      const row = document.querySelector('[data-testid="rows-fixture"] [data-slot="row"]') as HTMLElement
+      const rowTitle = row.querySelector('[data-slot="row-title"]') as HTMLElement
       return {
         label: Math.round(label.getBoundingClientRect().left),
         row: Math.round(rowTitle.getBoundingClientRect().left),
@@ -85,7 +101,7 @@ test.describe('the layout system holds its own claims', () => {
       // The card's outer border sits further out than any row's own content —
       // a row keeps the card's inset on its trailing edge too — so the
       // column the action has to answer to is a row's control, not the box.
-      const control = document.querySelector('[data-testid="rows-fixture"] [class*="rowCtl"]') as HTMLElement
+      const control = document.querySelector('[data-testid="rows-fixture"] [data-slot="row-ctl"]') as HTMLElement
       return {
         action: Math.round(action.getBoundingClientRect().right),
         control: Math.round(control.getBoundingClientRect().right),
@@ -94,20 +110,22 @@ test.describe('the layout system holds its own claims', () => {
     expect(Math.abs(rights.action - rights.control), `action ${rights.action} vs row control ${rights.control}`).toBeLessThanOrEqual(1)
   })
 
-  test('a row with a description keeps its trailing control on the title\'s first line, not the block', async ({ page }) => {
+  test('a row with a description keeps its trailing control centred on the title\'s first line, not the block', async ({ page }) => {
     const reading = await page.evaluate(() => {
-      const row = document.querySelector('[data-testid="rows-fixture"] [class*="row"]:has([class*="rowDesc"])') as HTMLElement
-      const title = row.querySelector('[class*="rowTitle"]') as HTMLElement
-      const control = row.querySelector('[class*="rowCtl"]') as HTMLElement
+      const row = document.querySelector('[data-testid="rows-fixture"] [data-slot="row"]:has([data-slot="row-desc"])') as HTMLElement
+      const title = row.querySelector('[data-slot="row-title"]') as HTMLElement
+      const control = row.querySelector('[data-slot="row-ctl"]') as HTMLElement
       const t = title.getBoundingClientRect()
       const c = control.getBoundingClientRect()
-      return { titleCenter: (t.top + t.bottom) / 2, controlTop: c.top, controlBottom: c.bottom }
+      return { titleCenter: (t.top + t.bottom) / 2, controlCenter: (c.top + c.bottom) / 2 }
     })
-    // The control's own box may be taller than the title's line — a button is
-    // — so the claim is that the title's line falls inside the control's box
-    // near its top, not that the two share a centre.
-    expect(reading.titleCenter).toBeGreaterThanOrEqual(reading.controlTop - 1)
-    expect(reading.controlTop).toBeLessThanOrEqual(reading.titleCenter)
+    // A tight centre-to-centre bound, not merely "the control's box contains
+    // the title's line" — a control centred on the row's whole (taller)
+    // block, with a description under the title, still satisfies the loose
+    // form of that claim on both this branch and main, which is exactly the
+    // regression this spec exists to catch (a duplicate-on-main assertion is
+    // not a gate).
+    expect(Math.abs(reading.titleCenter - reading.controlCenter), `title ${reading.titleCenter} vs control ${reading.controlCenter}`).toBeLessThanOrEqual(1.5)
   })
 
   test('a banner\'s icon and dismiss centre on the title\'s first line', async ({ page }) => {
@@ -142,5 +160,22 @@ test.describe('the layout system holds its own claims', () => {
       return { glyphRight: glyph.getBoundingClientRect().right, inner }
     })
     expect(Math.abs(reading.glyphRight - reading.inner), `glyph ${reading.glyphRight} vs column ${reading.inner}`).toBeLessThanOrEqual(1)
+  })
+
+  test('a checklist step drawn as a button keeps the done state\'s strike and ink, and its chip inline', async ({ page }) => {
+    const reading = await page.evaluate(() => {
+      const label = document.querySelector('[data-testid="checklist-done-label"]') as HTMLElement
+      const chip = document.querySelector('[data-testid="checklist-done-chip"]') as HTMLElement
+      const cs = getComputedStyle(label)
+      return {
+        textDecorationLine: cs.textDecorationLine,
+        color: cs.color,
+        // The chip shares the label's first line rather than dropping to one
+        // of its own under it.
+        sameLine: Math.abs(label.getBoundingClientRect().top - chip.getBoundingClientRect().top) < 4,
+      }
+    })
+    expect(reading.textDecorationLine).toContain('line-through')
+    expect(reading.sameLine, 'the chip dropped to its own line').toBe(true)
   })
 })

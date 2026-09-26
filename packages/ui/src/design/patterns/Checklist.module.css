@@ -52,6 +52,32 @@
   text-decoration-color: var(--hd-border-strong);
 }
 
+/*
+ * A step's words are sometimes a control rather than plain text — the Tasks
+ * panel's reword button (`TaskPanel.tsx`) — and a button is one of the few
+ * elements a browser will not draw an ancestor's `text-decoration` through,
+ * the way it will through a `span`. Its own utility class also sets its ink
+ * outright (`text-(--hd-foreground)`, from the shared `row` variant), which
+ * outranks `.body`'s inherited colour the same way. Both have to be answered
+ * on the control itself, keyed off the `data-state` `TaskPanel` passes it —
+ * three plain classes and an attribute beat one Tailwind utility on
+ * specificity, so this wins without `!important`. Pending reads `.body`'s
+ * own colour by inheriting it, so a to-do step's label is not full ink
+ * either. */
+.body [data-slot='button'] {
+  color: inherit;
+}
+
+.item[data-state='done'] .body [data-slot='button'] {
+  color: var(--hd-muted-foreground);
+  text-decoration: line-through;
+  text-decoration-color: var(--hd-border-strong);
+}
+
+.item[data-state='active'] .body [data-slot='button'] {
+  color: var(--hd-foreground);
+}
+
 .after {
   display: inline-flex;
   gap: var(--hd-space-1);

@@ -1,26 +1,10 @@
 /*
  * The Tasks panel's rows.
  *
- * These were the block vocabulary's `list` until a task became editable: a
- * plugin's list block is data the renderer draws, and a control a person types
- * into is not that. The metrics are lifted from it unchanged, because the
- * panel should not have changed shape the day it grew a text field.
+ * The panel's list, its rows, its mark and their gaps are `Checklist`'s
+ * (`design/patterns/Checklist.tsx`) — this sheet only styles the two controls
+ * a plan step can grow: the reword label and the field it opens into.
  */
-
-.list {
-  margin: 0;
-  list-style: none;
-}
-
-.item {
-  display: flex;
-  /* The block list this grew out of used 7px, which is not a step on the
-     scale — and the drift gate counts values, not files, so a second copy of
-     it was one more off-scale number in the app. One rung down; a pixel of
-     bullet gap is not what tells these rows apart. */
-  gap: var(--hd-space-1-5);
-  align-items: first baseline; /* desk: flex-start → first baseline, the TextMark sits on the label's first line, not 8px above it */
-}
 
 /*
  * A button drawn as the text it replaced: the row has to look exactly like a
@@ -36,24 +20,10 @@
 .label {
   min-width: 0;
   flex: 1;
-  /* Vertically the control may bleed into the row's own padding; horizontally
-     it may not. The sidebar is a fixed column with no room to give, and a
-     negative inline margin here put the field 8px past its right edge and grew
-     the panel a horizontal scrollbar — which is the one thing `.sectionBody`
-     cannot show, because the column it sits in cannot scroll sideways. */
-  margin: calc(-1 * var(--hd-space-0-5)) 0;
-
+  /* No margin of its own: `Button`'s `size="pattern"` (Checklist.tsx) already
+     draws no padding here, so there is nothing left to counteract the way
+     the negative margin above used to for the row-sized box this replaced. */
   text-align: left;
-
-}
-
-.hint {
-  margin-left: var(--hd-space-1-5);
-}
-
-/* Says the panel is showing something the conversation does not say. */
-.edited {
-  margin-left: var(--hd-space-1-5);
 }
 
 .input {

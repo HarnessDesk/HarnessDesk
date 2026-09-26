@@ -101,26 +101,29 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
   }
 
   return (
-    <ChecklistItem
-      state={state}
-      after={
-        todo.priority || todo.edited ? (
-          <>
-            {/* The agent's own word for urgency, in a chip on the step's own
-                line — it names no meaning of its own scale, so it earns the
-                chip rather than a second line under every task (rule 9). */}
-            {todo.priority && <Chip size="sm" tone="neutral">{todo.priority}</Chip>}
-            {/* The panel is a read of the conversation, so where it is showing
-                something the conversation does not say, it says so. */}
-            {todo.edited && <Text role="meta"><em>edited</em></Text>}
-          </>
-        ) : undefined
-      }
-    >
+    <ChecklistItem state={state}>
+      {/*
+       * `size="pattern"` rather than `size="row"`: a checklist step already
+       * gives its mark and its label the 8px gap the list is built on
+       * (`Checklist.module.css` `.item`'s own `gap`), and `row`'s box added
+       * its own inline padding on top of it — the label's first word started
+       * a row's worth of padding right of the mark instead of on its gap.
+       * `variant="row"` is kept for the hover and focus a reword control
+       * still needs; only its box is somebody else's to draw here.
+       *
+       * The priority chip and "edited" now render inside the button rather
+       * than in `ChecklistItem`'s separate `after` slot: `after` is a
+       * sibling span next to an inline-flex button, which the row's own
+       * `min-h`/`py` used to keep on the label's line by accident — once the
+       * button stopped claiming a box of its own, the same markup let the
+       * chip drop to a line of its own instead. Inside the button's own
+       * children, both share the one inline flow the label's text does.
+       */}
       <Button
         type="button"
         variant="row"
-        size="row"
+        size="pattern"
+        data-state={state}
         className={styles.label}
         title={
           todo.edited
@@ -130,6 +133,10 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
         onClick={open}
       >
         {todo.label}
+        {todo.priority && <Chip size="sm" tone="neutral">{todo.priority}</Chip>}
+        {/* The panel is a read of the conversation, so where it is showing
+            something the conversation does not say, it says so. */}
+        {todo.edited && <Text role="meta"><em>edited</em></Text>}
       </Button>
     </ChecklistItem>
   )

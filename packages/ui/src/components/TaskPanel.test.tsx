@@ -7,6 +7,7 @@ import { sessionKey, type RuntimeId, type Session } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TaskPanel } from './TaskPanel'
+import checklistCss from '../design/patterns/Checklist.module.css?raw'
 
 /**
  * The sidebar's Tasks panel, through the DOM.
@@ -149,6 +150,19 @@ describe('TaskPanel', () => {
     // The mark is its own slot beside the words, not part of the button.
     expect(items[0]?.querySelector('button [role="img"]')).toBeNull()
     expect(items[0]?.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('Done')
+
+    /*
+     * The reword label is a `Button`, which a browser will not draw an
+     * ancestor's `text-decoration` or inherit its colour through — jsdom
+     * does not compute CSS module rules at all, so the strike itself has to
+     * be read from the label carrying the state a real browser keys the
+     * rule on, and the rule's own text has to be read from the sheet rather
+     * than from a computed style neither engine can produce here.
+     */
+    const label = items[0]?.querySelector('[data-slot="button"]')
+    expect(label?.getAttribute('data-state')).toBe('done')
+    expect(items[1]?.querySelector('[data-slot="button"]')?.getAttribute('data-state')).toBe('pending')
+    expect(checklistCss).toMatch(/\.item\[data-state='done'\]\s*\.body\s*\[data-slot='button'\]\s*\{[^}]*text-decoration:\s*line-through/s)
   })
 
   it('is the *other* session’s plan when the other session is the one on screen', () => {

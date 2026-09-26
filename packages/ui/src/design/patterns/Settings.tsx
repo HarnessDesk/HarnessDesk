@@ -835,7 +835,7 @@ export const Rows = ({
  * name or a path, whose end is the least of it, gives way on one line.
  */
 const RowDesc = ({ truncate, children }: { truncate: boolean; children: ReactNode }) => (
-  <span className={cx(styles.rowDesc, truncate && styles.rowDescTruncate)} data-wrap={truncate ? undefined : 'true'}>
+  <span className={cx(styles.rowDesc, truncate && styles.rowDescTruncate)} data-slot="row-desc" data-wrap={truncate ? undefined : 'true'}>
     {children}
   </span>
 )
@@ -857,13 +857,13 @@ export const Row = ({
   control?: ReactNode
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
-  <div className={cx(styles.row, className)} {...props}>
+  <div className={cx(styles.row, className)} data-slot="row" {...props}>
     {mark ? <span className={styles.rowMark}>{mark}</span> : null}
     <span className={styles.rowText}>
-      <span className={styles.rowTitle}>{title}</span>
+      <span className={styles.rowTitle} data-slot="row-title">{title}</span>
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
     </span>
-    {control ? <span className={styles.rowCtl}>{control}</span> : null}
+    {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
   </div>
 )
 
