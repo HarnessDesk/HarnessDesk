@@ -1,4 +1,4 @@
-import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, type Ref } from 'react'
+import { createElement, forwardRef, isValidElement, useCallback, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, type Ref } from 'react'
 
 import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
 import {
@@ -176,6 +176,52 @@ export const Popover = ({
     setOpen(false)
   })
 
+  /*
+   * A menu's own content can grow after it opens — a row disclosed, a usage
+   * panel expanded — and Base UI's placement does not follow: measured in
+   * the app, an 11-account menu grew from one row's height to eleven while
+   * staying pinned to the top it computed for the one row, running off the
+   * bottom of the window. Base UI recomputes correctly on a real window
+   * resize; it just never hears about the popup's own resize, so this
+   * reports one for it.
+   *
+   * Wired from the popup's own ref rather than an effect keyed on `open`:
+   * Base UI mounts the popup a render after `open` flips true, so an effect
+   * gated on `open` alone could run before the node exists and never get a
+   * second chance to attach. A ref callback fires exactly when the node
+   * itself appears and disappears, open state aside.
+   */
+  const panelCleanup = useRef<(() => void) | null>(null)
+  const setPanel = useCallback((node: HTMLDivElement | null) => {
+    panel.current = node
+    panelCleanup.current?.()
+    panelCleanup.current = null
+    if (!node || typeof ResizeObserver === 'undefined') return
+    let seenFirst = false
+    let settle = 0
+    const nudge = () => window.dispatchEvent(new Event('resize'))
+    const observer = new ResizeObserver(() => {
+      if (!seenFirst) {
+        // A ResizeObserver reports the element's starting size the moment it
+        // is observed. That first callback is the menu settling into the
+        // place Base UI just chose for it, not a growth to chase.
+        seenFirst = true
+        return
+      }
+      nudge()
+      // A second nudge shortly after the first: Base UI's own resize
+      // listener can be mid re-subscribe right when the popup's box
+      // changes, and a dispatch that lands in that gap is silently missed.
+      window.clearTimeout(settle)
+      settle = window.setTimeout(nudge, 80)
+    })
+    observer.observe(node)
+    panelCleanup.current = () => {
+      observer.disconnect()
+      window.clearTimeout(settle)
+    }
+  }, [])
+
   return (
     // `hd-no-drag` because menus live in the window's chrome — the conversation
     // header, a pane strip — and those are drag regions. A drag region eats the
@@ -234,7 +280,7 @@ export const Popover = ({
             className={styles.positioner}
           >
             <PopoverPopup
-              ref={panel}
+              ref={setPanel}
               aria-labelledby={triggerId}
               className={styles.panel}
               data-width={panelWidth === 'trigger' ? 'trigger' : undefined}
