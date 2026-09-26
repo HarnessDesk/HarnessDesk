@@ -27,6 +27,44 @@ const AGENTS = [agent('writer-a', ['done']), agent('writer-b', ['done']), agent(
 const opens = (events: readonly string[]) => events.filter((one) => one.startsWith('open:'))
 const orders = (events: readonly string[]) => events.filter((one) => one.startsWith('order:'))
 
+/*
+ * Issue #1032: a round closes only once every one of its cards has finished —
+ * that is the engine's own rule, not something `any` changes. `any: [pass]`
+ * only widens which of a *closed* round's outcomes satisfy the guard; it
+ * still waits for the second card exactly as `every` would.
+ */
+const RACE_AND_JUDGE = `
+version: 2
+name: Race and judge
+roles:
+  verify: { kind: agent, uses: checker, count: 2 }
+  judge:  { kind: agent, uses: decider }
+seed: { role: verify, title: Check the attempt }
+rules:
+  - { id: to-judge, on: verify, when: { any: [pass] }, then: { role: judge, title: Pick the better attempt } }
+`
+
+test('a mixed round only opens the judge once every one of its cards has finished, not on the first pass', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(RACE_AND_JUDGE, [agent('checker', ['pass', 'fail']), agent('decider', ['picked'])])
+  await rig.flows.flush()
+
+  await rig.team.complete(1, { outcome: 'pass' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  assert.equal(
+    rig.board(run.goal).intents.find((one) => one.role === 'judge'),
+    undefined,
+    'card #2 has not finished yet, so the round has not closed and `any: [pass]` has nothing to decide',
+  )
+
+  await rig.team.complete(2, { outcome: 'fail' }, rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+  assert.ok(
+    rig.board(run.goal).intents.some((one) => one.role === 'judge'),
+    'once the round closes, `any: [pass]` is satisfied — one card passed, the other failed',
+  )
+})
+
 test('only current round seats and every seat is durable before order', async (t) => {
   const rig = await goalRig(t)
   const run = await rig.start(THREE_STAGES, AGENTS)

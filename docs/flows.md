@@ -796,6 +796,24 @@ other flow does. `packages/server/flows/` ships eight such starting points —
 editable files over the same three step kinds; no shape's id ever reaches the
 engine.
 
+`comparison`'s own `competitor` role declares `count: 2` alongside its one
+`uses:`, so it seeds two competitor cards from either entry point — the
+generic Flow-start dialog reads the file through the same compiler `/race`
+does, with no dialog-specific path, so it never depended on `/race`'s
+substitution to open more than one. `/race`'s own value stays real on top of
+that: it still strips whatever `seats:`/`count:` the role carries and writes
+two explicit seats for the two attempts a person chose, so a race started
+that way compares two named seats instead of two cards on the role's one
+default Agent.
+
+The `to-judge` rule reads `any: [pass]`, not `every: [pass]`: the judge round
+opens once every competitor's check has finished and at least one passed,
+with every competitor's own check card still on the board as the judge's
+evidence, mixed or not. Only
+when nothing passed does no rule fire, which stops the run for the person as
+above, naming each card and what it answered, rather than opening a judge
+round with nothing to weigh.
+
 ## Findings, budgets and blind rounds
 
 A round that reviews raises **findings** — attributed claims recorded once,
