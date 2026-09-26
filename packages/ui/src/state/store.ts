@@ -48,6 +48,7 @@ import {
   type RuntimeId,
   type Session,
   type SessionQueue,
+  type PersonNotice,
   type SessionId,
   type SessionKey,
   type SessionSettings,
@@ -143,6 +144,7 @@ import {
   type NoticePolicy,
   type NoticeSurface,
   readNoticePolicy,
+  surfaceFor,
   withMuted,
   withSurface,
 } from '../lib/notice-policy'
@@ -229,6 +231,9 @@ import { defaultArea, permits } from '../panels/views'
 import { applyLoginCompleted, startedLogin, type LoginState } from './login'
 import { readCustomPresets, type AgentPreset } from './presets'
 import { Transport, transportUrl } from '../lib/transport'
+
+/** How many decisions Agents may have waiting on composers at once; the oldest give way. */
+const AGENT_NOTICE_LIMIT = 6
 
 const summaryOfSession = (session: Session): SessionSummary => ({
   id: session.id,
@@ -653,6 +658,9 @@ export class AppStore {
         }
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })
+        }
+        if (notification.method === 'person/notice') {
+          this.#personNotice(notification.params.notice)
         }
         if (notification.method === 'team/changed') {
           const { state } = notification.params
@@ -6120,6 +6128,61 @@ export class AppStore {
 
   clearInbox(): void {
     this.#setInbox([])
+  }
+
+  /**
+   * An Agent wrote to the person. The person's setting decides where: a
+   * decision it is waiting on stays on its own conversation's composer when
+   * the setting allows it; anything else, or a setting of "Inbox only", is
+   * kept; Off drops it. Every window receives the same push, and keeping is
+   * idempotent by id, so two windows keep one copy.
+   */
+  #personNotice(notice: PersonNotice): void {
+    const surface = surfaceFor(this.#snapshot.noticePolicy, 'agent:message')
+    if (surface === null) return
+    if (notice.where === 'composer' && surface === 'composer') {
+      const others = this.#snapshot.agentNotices.filter((entry) => entry.id !== notice.id)
+      this.#patch({ agentNotices: [...others, notice].slice(-AGENT_NOTICE_LIMIT) })
+      return
+    }
+    this.keep({
+      id: notice.id,
+      kind: 'agent:message',
+      tone: 'info',
+      title: notice.title,
+      ...(notice.body ? { body: notice.body } : {}),
+      at: notice.at,
+      open: `session:${notice.from.runtime}:${notice.from.sessionId}`,
+      from: notice.from,
+      ...(notice.task ? { task: notice.task } : {}),
+    })
+  }
+
+  /** Puts away a decision an Agent asked for on its composer. */
+  dismissAgentNotice(id: string): void {
+    this.#patch({ agentNotices: this.#snapshot.agentNotices.filter((entry) => entry.id !== id) })
+  }
+
+  /**
+   * Starts the task a kept message suggests: a new conversation, in the
+   * sender's folder and on its runtime, whose first message is the task. The
+   * message is read once it has been acted on.
+   */
+  async startSuggestedTask(id: string): Promise<void> {
+    const entry = this.#snapshot.inbox.find((message) => message.id === id)
+    if (!entry?.task) return
+    const from = entry.from
+    const sender = from
+      ? (this.#snapshot.sessions.get(sessionKey(from.runtime, from.sessionId as SessionId)) ??
+        this.#snapshot.history.find((summary) => summary.runtime === from.runtime && summary.id === from.sessionId))
+      : undefined
+    const key = await this.newSession({
+      ...(sender?.cwd ? { cwd: sender.cwd } : {}),
+      ...(from ? { runtime: from.runtime as RuntimeId } : {}),
+    })
+    if (!key) return
+    await this.send([{ type: 'text', text: entry.task }], key)
+    this.markInboxRead(id)
   }
 
   #setInbox(inbox: readonly InboxEntry[]): void {

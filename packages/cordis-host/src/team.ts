@@ -2,7 +2,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 
 import type {
   DecideFindingInput, EvidenceRecord, FindingReadInput, FindingView, RaiseFindingInput, RepairFindingInput,
-  ReviewCandidate, ReviewInput, ScopeQuery,
+  PersonNoticeInput, ReviewCandidate, ReviewInput, ScopeQuery,
 } from '@harnessdesk/protocol'
 
 import type { HostRuntime } from './runtime.js'
@@ -85,6 +85,11 @@ export interface TeamEngine {
   repairFinding(input: RepairFindingInput, scope: TeamScope): Promise<FindingView>
   decideFinding(input: DecideFindingInput, scope: TeamScope): Promise<FindingView>
   listFindings(input: FindingReadInput, scope: TeamScope): Promise<readonly FindingView[]>
+  /**
+   * A message from the calling conversation's Agent to the person. Prose
+   * back for the calling model: where it landed, or why it did not.
+   */
+  notify(input: PersonNoticeInput, scope: TeamScope): Promise<string>
 }
 
 /** Which conversation a call is on behalf of; the serialisable half of a ScopeQuery. */
@@ -244,6 +249,11 @@ export class TeamService extends Service {
   ): Promise<string> {
     const plugin = this.gate()
     return engine().send(args, asTeamScope(scope, plugin))
+  }
+
+  async notify(input: PersonNoticeInput, scope?: ScopeQuery): Promise<string> {
+    const plugin = this.gate()
+    return engine().notify(input, asTeamScope(scope, plugin))
   }
 
   async reviewCandidates(intent: number, scope?: ScopeQuery): Promise<readonly ReviewCandidate[]> {

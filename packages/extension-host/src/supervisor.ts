@@ -609,6 +609,22 @@ export class PluginHostProcess {
             })
             return
           }
+          case 'team/notify': {
+            const { where, title, body, task } = params as { where: string; title: string; body?: string; task?: string }
+            reply({
+              response: request.request,
+              result: await plane.notify(
+                {
+                  where: where === 'composer' ? 'composer' : 'inbox',
+                  title: String(title ?? ''),
+                  ...(typeof body === 'string' ? { body } : {}),
+                  ...(typeof task === 'string' ? { task } : {}),
+                },
+                scope,
+              ),
+            })
+            return
+          }
           case 'team/reviewCandidates': {
             reply({ response: request.request, result: await plane.reviewCandidates(Number(params['intent']), scope) })
             return

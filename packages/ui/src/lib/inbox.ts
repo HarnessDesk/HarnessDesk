@@ -24,12 +24,24 @@ export interface InboxEntry {
   readonly read: boolean
   /** Somewhere to go about it, as data: `settings:library`, `goal:<id>`. */
   readonly open?: string
+  /** The Agent that sent it, when one did: its conversation, and the name it goes by. */
+  readonly from?: { readonly runtime: string; readonly sessionId: string; readonly name: string }
+  /** A task the sender suggests, offered as "Start as a task". */
+  readonly task?: string
 }
 
 /** Enough to read back a week of a busy desk; the oldest go first. */
 export const INBOX_LIMIT = 100
 
 const TONES: readonly InboxTone[] = ['neutral', 'info', 'warning', 'danger']
+
+const fromOf = (raw: unknown): { from: NonNullable<InboxEntry['from']> } | null => {
+  if (typeof raw !== 'object' || raw === null) return null
+  const from = raw as Record<string, unknown>
+  return typeof from['runtime'] === 'string' && typeof from['sessionId'] === 'string' && typeof from['name'] === 'string'
+    ? { from: { runtime: from['runtime'], sessionId: from['sessionId'], name: from['name'] } }
+    : null
+}
 
 export const readInbox = (raw: unknown): readonly InboxEntry[] => {
   if (!Array.isArray(raw)) return []
@@ -47,6 +59,8 @@ export const readInbox = (raw: unknown): readonly InboxEntry[] => {
       at: entry.at,
       read: entry.read === true,
       ...(typeof entry.open === 'string' ? { open: entry.open } : {}),
+      ...(fromOf(entry.from) ?? {}),
+      ...(typeof entry.task === 'string' ? { task: entry.task } : {}),
     })
   }
   return entries.slice(0, INBOX_LIMIT)

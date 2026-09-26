@@ -475,3 +475,34 @@ export interface TeamPeerInfo {
    */
   readonly inbound: TeamInbound
 }
+
+// ------------------------------------------------------------ person notices
+
+/**
+ * Where an Agent may ask for a message to the person to go.
+ *
+ *   inbox     kept behind the bell until read: news worth reading later — work
+ *             finished, a suggested task, something found on the way.
+ *   composer  on the composer of the Agent's own conversation: a decision only
+ *             the person can make, and that the Agent is waiting on.
+ *
+ * Nothing else: an Agent does not get the sidebar card, the strip or a toast,
+ * so a busy desk of Agents cannot talk over the desk itself. The person's own
+ * setting has the last word — it can move these to the inbox or turn them off.
+ */
+export type PersonNoticeWhere = 'inbox' | 'composer'
+
+export interface PersonNoticeInput {
+  readonly where: PersonNoticeWhere
+  readonly title: string
+  readonly body?: string
+  /** A task the Agent suggests, offered as "Start as a task" beside the message. */
+  readonly task?: string
+}
+
+/** A message an Agent sent the person, as the host delivers it to every window. */
+export interface PersonNotice extends PersonNoticeInput {
+  readonly id: string
+  readonly from: { readonly runtime: string; readonly sessionId: string; readonly name: string }
+  readonly at: number
+}

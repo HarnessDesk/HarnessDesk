@@ -34,6 +34,8 @@ import {
   type TeamNoticeCause,
   type TeamSignalKind,
   type TeamState,
+  type PersonNotice,
+  type PersonNoticeInput,
 } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_YET } from './errno.js'
@@ -354,10 +356,16 @@ export interface TeamPort {
     runtime: RuntimeId
     sessionId: string
     cwd?: string
-    kind: 'team/message' | 'team/intent'
+    kind: 'team/message' | 'team/intent' | 'person/notice'
     decision?: string
   }): void
   log?(message: string, details?: Readonly<Record<string, unknown>>): void
+  /**
+   * Delivers a message an Agent sent the person to every window, where the
+   * person's own notice setting decides whether it lands on that
+   * conversation's composer, in the inbox, or nowhere.
+   */
+  notifyPerson?(notice: PersonNotice): void
   /**
    * A card was finished, by its holder or by the person — told with the card
    * as it stood a moment before, so its holder is still on it. The evidence
@@ -679,6 +687,13 @@ const errorText = (error: unknown): string =>
  * `UNATTRIBUTED` is permanent for that runtime and the fix is not the agent's.
  * `NOT_LIVE` is transient and the agent can fix it by taking a turn.
  */
+/** How much a message to the person may say, and how often one conversation may send one. */
+const PERSON_NOTICE_TITLE = 120
+const PERSON_NOTICE_BODY = 600
+const PERSON_NOTICE_TASK = 2000
+const PERSON_NOTICE_LIMIT = 5
+const PERSON_NOTICE_WINDOW_MS = 10 * 60_000
+
 const UNATTRIBUTED =
   'This call carries no caller token, so the board cannot tell which conversation is asking — and it records who asked for everything it stores. This will not change by retrying: it is how this agent is connected, not what you did. The desk shows it on the member row, with what would fix it.'
 
@@ -2645,6 +2660,51 @@ export class Team {
     return `${team}\n${counts} Address a message by its room name with agent_message; list work with list_intents.`
   }
 
+  /**
+   * A message from the calling conversation's Agent to the person — news for
+   * the inbox, or a decision it is waiting on for its own composer.
+   *
+   * Not a room verb: an Agent alone in a conversation has as much reason to
+   * say "done, and here is what I found" as one on a board. Bounded, because
+   * a desk of Agents that can each interrupt the person is a desk nobody can
+   * read: short words, a few messages in ten minutes per conversation, and
+   * the person's setting has the last word on where, and whether, it shows.
+   */
+  async notify(input: PersonNoticeInput, scope: TeamCallScope): Promise<string> {
+    const caller = this.#caller(scope)
+    const audit = (decision: string): void =>
+      this.#port.audit({ runtime: caller.runtime, sessionId: caller.sessionId, cwd: caller.cwd, kind: 'person/notice', decision })
+    const title = (input.title ?? '').trim().slice(0, PERSON_NOTICE_TITLE)
+    if (title === '') {
+      audit('refused-empty')
+      return 'Refused: the message has no title.'
+    }
+    const key = keyOf(caller.runtime, caller.sessionId)
+    const now = Date.now()
+    const recent = (this.#personNotices.get(key) ?? []).filter((at) => now - at < PERSON_NOTICE_WINDOW_MS)
+    if (recent.length >= PERSON_NOTICE_LIMIT) {
+      audit('refused-rate')
+      return `Refused: this conversation has already told the person ${PERSON_NOTICE_LIMIT} things in the last ten minutes. Put the rest in your reply, or send one message that sums it up later.`
+    }
+    this.#personNotices.set(key, [...recent, now])
+    const where = input.where === 'composer' ? 'composer' : 'inbox'
+    const body = input.body?.trim().slice(0, PERSON_NOTICE_BODY)
+    const task = input.task?.trim().slice(0, PERSON_NOTICE_TASK)
+    this.#port.notifyPerson?.({
+      id: `${key}:${now}`,
+      from: { runtime: caller.runtime, sessionId: caller.sessionId, name: caller.seatedAs ?? caller.title ?? caller.agent },
+      where,
+      title,
+      ...(body ? { body } : {}),
+      ...(task ? { task } : {}),
+      at: now,
+    })
+    audit(`sent-${where}`)
+    return where === 'composer'
+      ? 'Sent. It shows on this conversation\'s composer until the person answers or puts it away — unless their settings keep such messages in the inbox or turn them off.'
+      : 'Sent. It waits in the person\'s inbox until they read it — unless their settings turn such messages off.'
+  }
+
   async send(
     args: { to: string; text: string; wake?: boolean },
     scope: TeamCallScope,
@@ -3662,6 +3722,8 @@ export class Team {
   /** Members observed calling a team verb, this run. Never persisted: a name
    *  written down last week is no evidence about the process running now. */
   readonly #used = new Set<string>()
+  /** When each conversation last told the person something, for the rate limit. */
+  readonly #personNotices = new Map<string, number[]>()
 
   /**
    * The board this caller reads, which is its room's and no other.

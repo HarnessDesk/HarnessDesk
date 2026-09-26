@@ -94,3 +94,11 @@ it('says how many messages are kept and clears them', () => {
   expect(read().inbox).toEqual([])
   expect(container.textContent).toContain('Nothing kept.')
 })
+
+it('a message from an Agent goes where the Agent asks, to the inbox only, or nowhere', () => {
+  const { read } = mount()
+  const agents = select('Messages from Agents')
+  expect([...agents.options].map((option) => option.textContent)).toEqual(['Where the Agent asks', 'Inbox only', 'Off'])
+  choose(agents, 'inbox')
+  expect(read().noticePolicy.surfaces['agent:message']).toBe('inbox')
+})

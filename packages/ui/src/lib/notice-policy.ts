@@ -204,6 +204,8 @@ export interface NoticeKind {
   readonly use: NoticeUse
   /** Where it may be shown, the first being where it goes unless moved. */
   readonly surfaces: readonly [NoticeSurface, ...NoticeSurface[]]
+  /** A kind's own words for a surface, where the shared label would mislead. */
+  readonly labels?: Partial<Readonly<Record<NoticeSurface, string>>>
 }
 
 /**
@@ -220,8 +222,11 @@ export type NoticeSurface = 'card' | 'composer' | 'strip' | 'inbox'
  *                composer of the conversation it blocks, or at most the strip.
  *   convenient   something to do when there is a moment: the sidebar's card,
  *                the strip, or kept in the inbox.
+ *   agents       an Agent writing to the person (`notify_person`): kept in the
+ *                inbox, or, when it is waiting on a decision, on its own
+ *                conversation's composer. Never a card, a strip or a toast.
  */
-export type NoticeUse = 'blocks' | 'convenient'
+export type NoticeUse = 'blocks' | 'convenient' | 'agents'
 
 export const NOTICE_USES: readonly { readonly use: NoticeUse; readonly title: string; readonly detail: string }[] = [
   {
@@ -233,6 +238,11 @@ export const NOTICE_USES: readonly { readonly use: NoticeUse; readonly title: st
     use: 'convenient',
     title: 'When there is something to do later',
     detail: 'Updates and offers wait at the foot of the sidebar, one at a time, or in the inbox.',
+  },
+  {
+    use: 'agents',
+    title: 'When an Agent writes to you',
+    detail: 'News goes to the inbox; a decision it is waiting on shows on its own conversation.',
   },
 ]
 
@@ -310,6 +320,15 @@ export const NOTICE_KINDS: readonly NoticeKind[] = [
     detail: 'An agent cannot start, with what to do about it.',
     use: 'blocks',
     surfaces: ['composer', 'strip', 'inbox'],
+  },
+  {
+    kind: 'agent:message',
+    lifetime: 'occurrence',
+    title: 'Messages from Agents',
+    detail: 'What an Agent chose to tell you outside its conversation: work it finished, a task it suggests, a decision it is waiting on.',
+    use: 'agents',
+    surfaces: ['composer', 'inbox'],
+    labels: { composer: 'Where the Agent asks' },
   },
   {
     kind: 'import:offer',

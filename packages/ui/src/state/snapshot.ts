@@ -57,6 +57,7 @@ import type { Carry } from '../lib/handoff'
 
 import { emptyNoticePolicy, type NoticePolicy } from '../lib/notice-policy'
 import type { InboxEntry } from '../lib/inbox'
+import type { PersonNotice } from '@harnessdesk/protocol'
 
 import type { PlanEdit } from '../lib/plan-edits'
 
@@ -671,6 +672,12 @@ export interface AppSnapshot {
    */
   readonly inbox: readonly InboxEntry[]
   /**
+   * Decisions Agents are waiting on, shown on the sending conversation's
+   * composer until answered or put away. Live, not kept: the conversation
+   * itself holds the question once the moment passes.
+   */
+  readonly agentNotices: readonly PersonNotice[]
+  /**
    * The macOS notification switches — a master and one per kind, all
    * defaulting on. Host state for the same reason `noticePolicy` is, plus
    * one more: the desktop shell reads the same preference when it decides
@@ -849,6 +856,7 @@ const EMPTY: AppSnapshot = {
   usageOff: [],
   noticePolicy: emptyNoticePolicy(),
   inbox: [],
+  agentNotices: [],
   systemNotifications: {},
   preferencesLoaded: false,
   // Cookies kept and links staying in the pane are what a person expects of

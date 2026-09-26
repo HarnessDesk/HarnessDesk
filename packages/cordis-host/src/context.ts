@@ -5,7 +5,7 @@ import type {
   ToolSpec,
   UiSpec,
 } from './services.js'
-import type { DecideFindingInput, EditorEdit, EditorEvent, EvidenceRecord, FindingReadInput, FindingView, RaiseFindingInput, RepairFindingInput, ReviewCandidate, ReviewInput, ScopeQuery, UiDecoration,
+import type { DecideFindingInput, EditorEdit, EditorEvent, EvidenceRecord, FindingReadInput, FindingView, PersonNoticeInput, RaiseFindingInput, RepairFindingInput, ReviewCandidate, ReviewInput, ScopeQuery, UiDecoration,
   ForgeReference,
 } from '@harnessdesk/protocol'
 
@@ -226,6 +226,12 @@ export interface HarnessContext {
      * judge — structured, never prose; empty when it holds no such card.
      */
     reviewCandidates(intent: number, scope?: ScopeQuery): Promise<readonly ReviewCandidate[]>
+    /**
+     * Tells the person something, from the calling conversation's Agent: kept
+     * in the inbox, or on that conversation's composer. The person's setting
+     * decides where it lands and whether it lands at all.
+     */
+    notify(input: PersonNoticeInput, scope?: ScopeQuery): Promise<string>
     /**
      * Records one structured verdict against an observed candidate. Throws
      * the refusal rather than returning a sentence; the caller words it.

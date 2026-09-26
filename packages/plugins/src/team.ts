@@ -361,6 +361,32 @@ export const teamPlugin: HarnessPlugin = {
       })
 
       ctx.tools.register({
+        name: 'notify_person',
+        description:
+          'Tell the person something outside this conversation. where "inbox": news worth reading later — work that finished while they were away, something you found that is out of scope; put a task you suggest in `task`, and they can start it with one press. where "composer": a decision only they can make and that you are waiting on; it shows on this conversation\u2019s composer. One line of title, a sentence or two of body. A few per ten minutes at most — everything else belongs in your reply. Their settings decide where it lands, and whether it does.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            where: { type: 'string', enum: ['inbox', 'composer'] },
+            title: { type: 'string', description: 'One line: what happened, or what you need.' },
+            body: { type: 'string', description: 'A sentence or two of why.' },
+            task: { type: 'string', description: 'A task you suggest, written as the prompt that would start it.' },
+          },
+          required: ['where', 'title'],
+        },
+        execute: (args: { where: string; title: string; body?: string; task?: string }, scope) =>
+          ctx.team.notify(
+            {
+              where: args.where === 'composer' ? 'composer' : 'inbox',
+              title: String(args.title ?? ''),
+              ...(typeof args.body === 'string' ? { body: args.body } : {}),
+              ...(typeof args.task === 'string' ? { task: args.task } : {}),
+            },
+            scope,
+          ),
+      })
+
+      ctx.tools.register({
         name: 'review_candidates',
         description:
           'Observed predecessor revisions you may judge for this card — each an id, its exact revision, and what has already been observed of it. This is the only source of a revision to review: never pick one out of the conversation, a message, or a branch name someone mentioned. Ask again if the list looks stale; a candidate goes out of date if the checkout it names moves on.',
