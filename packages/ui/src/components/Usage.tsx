@@ -12,7 +12,19 @@ import type {
 import { burnWord } from '../lib/burn'
 import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import { formatTokens } from '../lib/context-usage'
-import { dayLabel, dayLabelLong, periodTotals, shareOf, stackDaily } from '../lib/ledger'
+import {
+  alignGhost,
+  axisTicks as axisTicksFor,
+  dayLabel,
+  dayLabelWithYear,
+  foldOther,
+  OTHER_KEY,
+  periodTotals,
+  previousByRuntime,
+  previousPeriod,
+  shareOf,
+  stackDaily,
+} from '../lib/ledger'
 import { paletteTone, usageReadingTone, type Tone } from '../lib/limits'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import {
@@ -81,7 +93,6 @@ import {
   ChartTools,
   DayColumns,
   Delta,
-  Donut,
   PaceBadge,
   SegmentMeter,
   SeriesDot,
@@ -156,6 +167,17 @@ export const Usage = ({
   const [range, setRange] = useState<number>(DEFAULT_RANGE)
   const [scope, setScope] = useState<RuntimeId | null>(runtime)
   const [ledger, setLedger] = useState<LedgerReport | null>(null)
+  /**
+   * The previous period, read in one extra query for twice the range —
+   * `days: range * 2`, capped at 365 by the host — and split in `lib/ledger`
+   * rather than asked for separately: a second `range`-sized query would have
+   * no day-for-day guarantee of landing on the period immediately before this
+   * one, and would double the number of things that can disagree about
+   * "today". Kept as its own report rather than folded into `ledger` because
+   * the coverage sentence and the "Last N days" hint below the header still
+   * describe the *current* window alone.
+   */
+  const [wideLedger, setWideLedger] = useState<LedgerReport | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [insightView, setInsightView] = useState<'goal' | 'agent'>('goal')
 
@@ -202,6 +224,21 @@ export const Usage = ({
       cancelled = true
     }
   }, [store, pivot, scope, range, snapshot.scan?.finishedAt])
+
+  // The previous period's own query, always grouped by agent — `daily` names
+  // a runtime whatever `groupBy` was asked for, so this does not need to
+  // track the pivot the ranked table is currently showing.
+  useEffect(() => {
+    let cancelled = false
+    void store
+      .ledger({ days: Math.min(365, range * 2), groupBy: 'runtime', ...(scope ? { runtime: scope } : {}) })
+      .then((report) => {
+        if (!cancelled) setWideLedger(report)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [store, scope, range, snapshot.scan?.finishedAt])
 
   const off = useMemo(() => new Set(snapshot.usageOff), [snapshot.usageOff])
   const tracked = useMemo(
@@ -434,11 +471,14 @@ export const Usage = ({
 
           <Spend
             ledger={ledger}
+            wideLedger={wideLedger}
             byId={byId}
             tintOf={agentTints}
             scan={snapshot.scan}
             now={now}
             range={range}
+            mode={snapshot.spendChartMode}
+            onModeChange={(next) => store.setSpendChartMode(next)}
             onScan={() => void store.scanUsage()}
             rangeControl={
               <Segmented
@@ -455,7 +495,15 @@ export const Usage = ({
               name="Where it went"
               action={<Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={setPivot} />}
             />
-            <Ranked ledger={ledger} pivot={pivot} byId={byId} tintOf={agentTints} />
+            <Ranked
+              ledger={ledger}
+              wideLedger={wideLedger}
+              pivot={pivot}
+              range={range}
+              now={now}
+              byId={byId}
+              tintOf={agentTints}
+            />
           </section>
 
           <UsageActivity byId={byId} scope={scope} now={now} scanFinishedAt={snapshot.scan?.finishedAt} />
@@ -1183,28 +1231,41 @@ export const noteOf = (
  * rather than the browser's `title`, which took a second to appear, could not
  * hold a breakdown, and was invisible to a keyboard.
  */
+const MODE_OPTIONS = [
+  { value: 'bars', label: 'Bars' },
+  { value: 'line', label: 'Line' },
+] as const
+
 const Spend = ({
   ledger,
+  wideLedger,
   byId,
   tintOf,
   scan,
   now,
   range,
+  mode,
+  onModeChange,
   onScan,
   rangeControl,
 }: {
   ledger: LedgerReport | null
+  /** Twice `range`'s worth of the same window, for the previous period and its ghost line. */
+  wideLedger: LedgerReport | null
   byId: ReadonlyMap<RuntimeId, RuntimeInfo>
   /** The roster's colours, resolved once — see `agentTints` in `Usage`. */
   tintOf: (runtime: string) => Tint
   scan: { running: boolean; filesDone: number; filesTotal: number } | null
   now: number
   range: number
+  mode: 'bars' | 'line'
+  onModeChange: (mode: 'bars' | 'line') => void
   onScan: () => void
   /** How far back to look. It belongs to this band: it changes nothing above it. */
   rangeControl?: ReactNode
 }) => {
   const series = useMemo(() => stackDaily(ledger, now), [ledger, now])
+  const wideSeries = useMemo(() => stackDaily(wideLedger, now), [wideLedger, now])
   const currency = ledger?.currency ?? 'USD'
   const money = (value: number): string => formatMoney(value, currency) ?? '—'
 
@@ -1224,6 +1285,31 @@ const Spend = ({
    */
   const headline =
     ledger === null ? '—' : ledger.totalCost === null ? 'unpriced' : money(series.total)
+
+  /*
+   * The previous period, its ghost line, and the y-axis.
+   *
+   * `previousPeriod` slices the older half out of `wideSeries` — the doubled
+   * query the parent asked for beside this one — and `alignGhost` lines its
+   * daily totals up with `series.days` by day *index within the period*
+   * rather than by calendar day, so today's bucket always reads against the
+   * previous period's own last day. The axis ceiling is drawn from whichever
+   * of the two halves is taller, so a quiet current period next to a busy
+   * previous one still gets a scale the ghost line fits inside rather than
+   * clipping off the top.
+   */
+  const previous = useMemo(
+    () => previousPeriod(wideSeries, range, series.total),
+    [wideSeries, range, series.total],
+  )
+  const ghost = useMemo(
+    () => alignGhost(series.days.length, previous.daily),
+    [series.days.length, previous.daily],
+  )
+  const ceiling = useMemo(() => {
+    const previousPeak = previous.daily.reduce((high, day) => Math.max(high, day.total), 0)
+    return axisTicksFor(Math.max(series.peak, previousPeak))
+  }, [series.peak, previous.daily])
 
   // The comparison periods, which are by definition *shorter* than the
   // window: the window's own total is the headline above them, and repeating
@@ -1249,16 +1335,33 @@ const Spend = ({
   const buckets = useMemo(
     () =>
       series.days.map((day) => ({
-        label: dayLabelLong(day.day),
+        // The chart's own tooltip is the one place on this band a bare month
+        // and day can name the wrong year: a 90-day range crosses a January.
+        label: dayLabelWithYear(day.day),
         total: day.total,
         parts: day.parts,
+        unknown: day.unknown,
       })),
     [series.days],
   )
+  const todayIndex = buckets.length - 1
 
   return (
     <section className={styles.band} aria-label="What it cost">
-      <BandHead name="What it cost" action={rangeControl} />
+      <BandHead
+        name="What it cost"
+        action={
+          <div className={styles.costControls}>
+            <Segmented
+              label="Bars or line"
+              options={MODE_OPTIONS}
+              value={mode}
+              onChange={(next) => onModeChange(next as 'bars' | 'line')}
+            />
+            {rangeControl}
+          </div>
+        }
+      />
 
       <ChartFrame>
         {/* Two surfaces inside one frame, separated by the frame's own gutter:
@@ -1268,11 +1371,26 @@ const Spend = ({
         <ChartCard className={styles.costHead}>
           <ChartHead>
             <div>
-              <ChartTitle>{headline}</ChartTitle>
+              {/* The window total is the band's headline, so it takes the
+                  same figure step as the Today / Last-7-days tiles beside
+                  it (review #1011, N6) — composed on `ChartTitle` itself
+                  rather than spelled out here as a raw utility. */}
+              <ChartTitle figure>{headline}</ChartTitle>
               <ChartHint>
                 Last {ledger?.days ?? range} days — {spendHint(ledger?.provenance)}
               </ChartHint>
             </div>
+            {/* More spend is the bad tone here, the same rule `Delta` already
+                applies to the shorter periods below — a total that grew
+                against the equal period before it is a fact worth reading,
+                not a small victory. */}
+            {previous.change !== null && (
+              <Delta
+                value={Math.round(previous.change)}
+                better="down"
+                caption={`vs the ${range} days before`}
+              />
+            )}
           </ChartHead>
           <div className={styles.periods}>
             {periods.map((period) => (
@@ -1302,7 +1420,7 @@ const Spend = ({
         </ChartCard>
 
         <ChartCard className={styles.costPlot}>
-          {series.peak > 0 ? (
+          {series.peak > 0 || previous.total > 0 ? (
             <>
               <DayColumns
                 buckets={buckets}
@@ -1310,14 +1428,21 @@ const Spend = ({
                 format={money}
                 label={`Spend per day for the last ${series.days.length} days`}
                 emptyLabel="Nothing spent"
+                mode={mode}
+                ghost={ghost}
+                today={todayIndex}
+                axisTicks={ceiling}
+                previousLabel="Previous"
               />
               <ChartAxis
                 start={dayLabel(series.days[0]?.day ?? now)}
                 end={dayLabel(series.days[series.days.length - 1]?.day ?? now)}
               />
-              {/* Only when the stack is actually stacked: a legend naming the
-                  one series a single-colour chart already is says nothing. */}
-              {runtimes.length > 1 && (
+              {/* Only in bars mode, and only when the stack is actually
+                  stacked: the line view draws one accent line for the whole
+                  period, not a colour per agent, so a legend naming agents
+                  beside it would name a split the chart is not drawing. */}
+              {mode === 'bars' && runtimes.length > 1 && (
                 <ChartKeys>
                   {runtimes.map((entry) => (
                     <ChartKey key={entry.key} tint={entry.tint} label={entry.label} />
@@ -1371,128 +1496,136 @@ const coverageSentence = (ledger: LedgerReport | null): string => {
 
 /* --- where it went ------------------------------------------------------- */
 
-/**
- * How few slices a doughnut can tell apart, and how few are worth drawing.
- *
- * The upper bound is the chart kit's own rule, kept where it is applied: past
- * five or six wedges a doughnut is a stacked bar wearing a costume, and the
- * ranking a bar does well is the thing this table is for. So the shape
- * switches rather than shrinking — parts of a whole while the parts are
- * countable, a ranked bar when they are not.
- *
- * The lower bound is the same argument from the other end. One row is not a
- * proportion, and a doughnut of it is a solid ring saying 100% — a chart
- * whose only reading is that it is the only thing there.
- */
-const DONUT_FITS = { least: 2, most: 6 }
+/** How many rows are shown before the rest fold into one "Other" row. */
+const RANKED_LIMIT = 6
 
-const Ranked = ({
+/**
+ * The ranked table's own change chip: this row's cost against the same key's
+ * total in the previous period.
+ *
+ * Null whenever a percentage would not be honest — either figure missing, or
+ * the previous period was zero, the same "a rise from nothing has no
+ * percentage" rule `periodTotals` keeps for the shorter tiles above. The
+ * caller is what keeps this to the *by agent* pivot: a model or a project can
+ * gain or lose contributors between one period and the next, so a change
+ * chip on either would really be reporting that different work landed on it,
+ * not that the same work cost more.
+ */
+export const rankedChange = (current: number | null, previous: number | null): number | null => {
+  if (current === null || previous === null || previous === 0) return null
+  return ((current - previous) / previous) * 100
+}
+
+export const Ranked = ({
   ledger,
+  wideLedger,
   pivot,
+  range,
+  now,
   byId,
   tintOf,
 }: {
   ledger: LedgerReport | null
+  /** Twice `range`'s worth of the same window, for the agent pivot's change chip. */
+  wideLedger: LedgerReport | null
   pivot: Pivot
+  range: number
+  now: number
   byId: ReadonlyMap<RuntimeId, RuntimeInfo>
   /** The roster's colours, for the pivot whose rows *are* agents. */
   tintOf: (runtime: string) => Tint
 }) => {
+  // Only the agent pivot's identity survives from one period to the next, so
+  // only it gets a previous total to compare against — see `rankedChange`.
+  const previous = useMemo(
+    () => (pivot === 'runtime' ? previousByRuntime(stackDaily(wideLedger, now), range) : null),
+    [pivot, wideLedger, range, now],
+  )
+
   if (!ledger || ledger.rows.length === 0) {
     return <EmptyState tight title="Nothing recorded in this window" />
   }
-  const rows = ledger.rows.slice(0, 12)
-  const peak = ledger.rows.reduce((high, row) => Math.max(high, row.cost ?? 0), 0)
+  const { shown, other } = foldOther(ledger.rows, RANKED_LIMIT)
+  const rows = other ? [...shown, other] : shown
   const total = ledger.rows.reduce((sum, row) => sum + (row.cost ?? 0), 0)
-  const unpriced = rows.filter((row) => row.hasUnpriced).length
+  const unpriced = ledger.rows.filter((row) => row.hasUnpriced).length
   const nameOf = (row: LedgerRow): string =>
-    pivot === 'runtime'
-      ? (byId.get(row.key as RuntimeId)?.presentation.name ?? row.label)
-      : row.label
-  // A doughnut is drawn from every row the window holds, not from the twelve
-  // the table shows: a whole with a slice missing is not a whole.
-  const asParts =
-    ledger.rows.length >= DONUT_FITS.least && ledger.rows.length <= DONUT_FITS.most && total > 0
-  // One assignment for the wedges and the rows together, so no two rows of a
-  // short list can land on the same hue — see `tintsFor`. Under the agent
-  // pivot the rows *are* the roster, so they take the roster's own colours
-  // and the doughnut agrees with the money chart above it; the other two
-  // pivots are their own set and resolve it here.
-  const tints = tintsFor(ledger.rows.map((row) => row.key))
-  const tintAt = (index: number): Tint =>
-    pivot === 'runtime'
-      ? tintOf(ledger.rows[index]?.key ?? '')
-      : (tints[index] as Tint)
+    row.key === OTHER_KEY
+      ? row.label
+      : pivot === 'runtime'
+        ? (byId.get(row.key as RuntimeId)?.presentation.name ?? row.label)
+        : row.label
+  // One assignment for the distribution bar and the rows together, so no two
+  // rows in a short list land on the same hue — see `tintsFor`, computed over
+  // exactly the rows drawn (Other included, so its swatch and its slice of
+  // the bar always agree). Under the agent pivot the rows *are* the roster,
+  // so they take the roster's own colours and the bar agrees with the money
+  // chart above it; the other two pivots, and "Other" under any pivot, are
+  // resolved from this set instead.
+  const tints = tintsFor(rows.map((row) => row.key))
+  const tintAt = (index: number, row: LedgerRow): Tint =>
+    row.key !== OTHER_KEY && pivot === 'runtime' ? tintOf(row.key) : (tints[index] as Tint)
 
   return (
     <>
-      <div className={styles.wentRow} {...(asParts ? { 'data-parts': '' } : {})}>
-        {asParts && (
-          <div className={styles.wentDonut}>
-            <Donut
-              size={132}
-              slices={ledger.rows.map((row, index) => ({
-                label: nameOf(row),
-                value: row.cost ?? 0,
-                tint: tintAt(index),
-              }))}
-            >
-              <Text role="metric">
-                {formatMoney(total, ledger.currency) ?? '—'}
-              </Text>
-              <Text role="meta">in total</Text>
-            </Donut>
-          </div>
-        )}
+      {/* One thin distribution bar, the shares it draws matching exactly the
+          rows under it — including "Other" — rather than a doughnut drawn
+          from a different set than the table shows. */}
+      <SegmentMeter
+        className={styles.distribution}
+        label="Where it went, by share"
+        parts={rows
+          .map((row, index) => ({ key: row.key, tint: tintAt(index, row), value: row.cost ?? 0 }))
+          .filter((part) => part.value > 0)}
+      />
 
-        <SurfaceCard className={styles.ranked}>
-          {rows.map((row, index) => {
-            const info = row.runtime ? byId.get(row.runtime) : null
-            const label = nameOf(row)
-            const share = shareOf(row.cost, total)
-            return (
-              <CardContent key={row.key} className={styles.rank} {...(asParts ? { 'data-parts': '' } : {})}>
-                <Text role="meta" className={styles.rankMark}>
-                  {/* The doughnut keyed these rows by colour, so the colour is
-                      what identifies them here — a second identity beside it
-                      would have the reader checking which one to trust. */}
-                  {asParts ? (
-                    <SeriesDot tint={tintAt(index)} />
-                  ) : (
-                    (pivot === 'runtime' || info) && (
-                      <RuntimeMark
-                        runtime={info ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)}
-                        size={15}
-                      />
-                    )
-                  )}
-                </Text>
-                <Text role="subject" truncate title={label}>
-                  {label}
-                </Text>
-                {!asParts && (
-                  <Progress
-                    className={styles.rankProgress}
-                    value={peak > 0 ? Math.max(1, Math.round(((row.cost ?? 0) / peak) * 100)) : 0}
-                    tone="brand"
-                    label={false}
-                    aria-label={`${label} share of peak spend`}
+      <SurfaceCard className={styles.ranked}>
+        {rows.map((row, index) => {
+          const info = row.runtime ? byId.get(row.runtime) : null
+          const label = nameOf(row)
+          const share = shareOf(row.cost, total)
+          const change =
+            row.key === OTHER_KEY
+              ? null
+              : rankedChange(row.cost, previous?.complete ? (previous.totals.get(row.key as RuntimeId) ?? null) : null)
+          return (
+            <CardContent key={row.key} className={styles.rank} data-pivot={pivot}>
+              <Text role="meta" className={styles.rankMark}>
+                {row.key === OTHER_KEY ? (
+                  <SeriesDot tint={tintAt(index, row)} />
+                ) : pivot === 'runtime' ? (
+                  <RuntimeMark
+                    runtime={info ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)}
+                    size={15}
                   />
+                ) : (
+                  <SeriesDot tint={tintAt(index, row)} />
                 )}
-                <Text role="muted" align="end" numeric>
-                  {share === null ? '' : share < 1 ? '<1%' : `${Math.round(share)}%`}
-                </Text>
-                <Text role="muted" align="end" numeric>
-                  {row.tokens === null ? '—' : formatTokens(row.tokens)}
-                </Text>
-                <Text role="value" align="end" numeric>
-                  {formatMoney(row.cost, ledger.currency) ?? '—'}
-                </Text>
-              </CardContent>
-            )
-          })}
-        </SurfaceCard>
-      </div>
+              </Text>
+              <Text role="subject" truncate title={label}>
+                {label}
+              </Text>
+              {pivot === 'runtime' && (
+                <span className={styles.rankChange}>
+                  {change !== null && <Delta value={Math.round(change)} better="down" />}
+                </span>
+              )}
+              <Text role="muted" align="end" numeric>
+                {share === null ? '' : share < 1 ? '<1%' : `${Math.round(share)}%`}
+              </Text>
+              <Text role="muted" align="end" numeric>
+                {row.tokens === null ? '—' : formatTokens(row.tokens)}
+              </Text>
+              <Text role="value" align="end" numeric>
+                {/* Unpriced is a fact, never a number — a folded "Other" row
+                    hiding an unpriced model must not read as though it cost
+                    nothing. */}
+                {row.cost === null ? 'unpriced' : (formatMoney(row.cost, ledger.currency) ?? '—')}
+              </Text>
+            </CardContent>
+          )
+        })}
+      </SurfaceCard>
       {/* One caveat under the table, rather than a "has unpriced" chip on every
           second row — a badge that repeats down a column stops reading as a
           warning and starts reading as a category. */}

@@ -92,6 +92,28 @@ describe('SegmentMeter', () => {
     mount(<SegmentMeter percent={8} tone="danger" label="Weekly" segments={10} />)
     expect(meter().children[0]?.className).toContain('bg-(--hd-danger)')
   })
+
+  it('draws a distribution — one continuous bar split by share — when given parts', () => {
+    mount(
+      <SegmentMeter
+        label="Where it went"
+        parts={[
+          { key: 'a', tint: 'blue', value: 30 },
+          { key: 'b', tint: 'teal', value: 70 },
+        ]}
+      />,
+    )
+    const bar = meter()
+    expect(bar.getAttribute('role')).toBe('img')
+    expect(bar.children).toHaveLength(2)
+    expect((bar.children[0] as HTMLElement).style.width).toBe('30%')
+    expect((bar.children[1] as HTMLElement).style.width).toBe('70%')
+  })
+
+  it('draws nothing filled for a distribution with no total', () => {
+    mount(<SegmentMeter label="Where it went" parts={[{ key: 'a', tint: 'blue', value: 0 }]} />)
+    expect(meter().children).toHaveLength(0)
+  })
 })
 
 describe('DayColumns', () => {
@@ -219,6 +241,171 @@ describe('DayColumns', () => {
     )
     expect(stacks[0]).toBe('0%')
     expect(stacks[1]).toBe('100%')
+  })
+
+  it('draws a day before coverage hatched, and its tip says so rather than $0', () => {
+    mount(
+      <DayColumns
+        buckets={[{ label: 'Mon', total: 0, parts: [0, 0], unknown: true }, ...BUCKETS.slice(1)]}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+      />,
+    )
+    press('Home')
+    expect(tip()?.textContent).toContain('No record yet')
+    expect(tip()?.textContent).not.toContain('$0.00')
+    const column = plot().children[0] as HTMLElement
+    expect((column.firstElementChild as HTMLElement).style.background).toContain('--hd-chart-heat-not-scanned')
+  })
+
+  it('marks today with a dashed outline in bars mode', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        today={2}
+      />,
+    )
+    const column = plot().children[2] as HTMLElement
+    expect((column.firstElementChild as HTMLElement).className).toContain('outline-dashed')
+  })
+
+  it('draws a dashed ghost line for the previous period and reads it in the tip', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        ghost={[5, 40, 8]}
+      />,
+    )
+    press('ArrowRight')
+    press('ArrowRight')
+    expect(tip()?.textContent).toContain('Previous')
+    expect(tip()?.textContent).toContain('$40.00')
+    const ghostPath = container.querySelector('svg path[stroke-dasharray]')
+    expect(ghostPath).not.toBeNull()
+  })
+
+  it('draws an area line rather than columns in line mode', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        mode="line"
+      />,
+    )
+    const line = container.querySelector('svg path[stroke="var(--hd-accent)"]')
+    expect(line).not.toBeNull()
+    // No stacked bar column in line mode.
+    expect(container.querySelector('.flex-col-reverse')).toBeNull()
+    // The filled area is the same run's own path, and has to be a path SVG
+    // can actually parse: two numbers glued together with no `L`/comma
+    // between them (a real bug this line-mode area had) renders nothing and
+    // logs a console error rather than throwing, so a plain "some path
+    // exists" assertion would not have caught it.
+    const area = line?.previousElementSibling as SVGPathElement | null
+    const d = area?.getAttribute('d') ?? ''
+    expect(d).toMatch(/^M[\d.]+,100L(?:[\d.]+,[\d.]+L)*[\d.]+,100Z$/)
+  })
+
+  it('draws a y-axis of three round ticks when given one', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(0)}`}
+        label="Spend per day"
+        axisTicks={[0, 25, 50]}
+      />,
+    )
+    const gutter = container.querySelector('[aria-hidden].flex.flex-col') as HTMLElement
+    expect(gutter?.textContent).toBe('$50$25$0')
+  })
+
+  it('places the tooltip inside the plot, not the y-axis gutter beside it', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        axisTicks={[0, 25, 50]}
+      />,
+    )
+    press('ArrowRight')
+    // The tip's `left: N%` is a fraction of the plot alone. Rendered as a
+    // descendant of the same `role="group"` box the columns live in — rather
+    // than the outer wrapper that also spans the gutter — is what keeps that
+    // fraction meaning "over this column" instead of "over some stretch of
+    // the gutter plus the plot" (review #1011, B4).
+    expect(plot().contains(tip())).toBe(true)
+  })
+
+  it('reads the ghost value under the cursor for every index, not just one', () => {
+    const ghost = [5, 40, 8]
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        ghost={ghost}
+      />,
+    )
+    press('Home')
+    expect(tip()?.textContent).toContain(`$${(ghost[0] as number).toFixed(2)}`)
+    press('ArrowRight')
+    expect(tip()?.textContent).toContain(`$${(ghost[1] as number).toFixed(2)}`)
+    press('ArrowRight')
+    expect(tip()?.textContent).toContain(`$${(ghost[2] as number).toFixed(2)}`)
+  })
+
+  it('shows a cursor mark on the line once the keyboard moves to a day', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        mode="line"
+      />,
+    )
+    // Bars dim every column but the active one; a line has no columns to
+    // dim, so without a mark of its own neither a pointer nor a keyboard
+    // reader can tell which day the tip beside it is for.
+    expect(container.querySelector('svg line')).toBeNull()
+    press('ArrowRight')
+    expect(container.querySelector('svg line')).not.toBeNull()
+  })
+
+  it('draws a point rather than nothing for a single known day between unknowns', () => {
+    mount(
+      <DayColumns
+        buckets={[
+          { label: 'Mon', total: 0, parts: [0], unknown: true },
+          { label: 'Tue', total: 20, parts: [20], unknown: false },
+          { label: 'Wed', total: 0, parts: [0], unknown: true },
+        ]}
+        series={[{ key: 'a', label: 'Alpha', tint: 'blue' }]}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        mode="line"
+      />,
+    )
+    const line = container.querySelector('svg path[stroke="var(--hd-accent)"]')
+    const d = line?.getAttribute('d') ?? ''
+    // `M x,y` alone has no length and paints nothing. A lone known day, with
+    // an unknown run on either side, still has to draw something — a
+    // zero-length segment back to itself, which the round linecap already
+    // on this stroke renders as a dot.
+    expect(d).toMatch(/^M[\d.]+,[\d.]+L[\d.]+,[\d.]+$/)
   })
 })
 

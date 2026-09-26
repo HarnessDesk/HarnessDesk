@@ -5673,6 +5673,7 @@ export class AppStore {
         keepExternalProfile: rawBrowser?.keepExternalProfile !== false,
       }
       const profile = readProfile(preferences['profile'])
+      const spendChartMode = preferences['spendChartMode'] === 'line' ? 'line' : 'bars'
       this.#patch({
         accountPrefs,
         profile,
@@ -5681,6 +5682,7 @@ export class AppStore {
         listPrefs,
         editorPrefs,
         browserPrefs,
+        spendChartMode,
         usageOff,
         noticePolicy,
         inbox,
@@ -6329,6 +6331,11 @@ export class AppStore {
     const browserPrefs = { ...this.#snapshot.browserPrefs, ...patch }
     this.#patch({ browserPrefs })
     void this.#writePreference({ browserPrefs }, 'The browser settings')
+  }
+
+  setSpendChartMode(spendChartMode: AppSnapshot['spendChartMode']): void {
+    this.#patch({ spendChartMode })
+    void this.#writePreference({ spendChartMode }, 'The spend chart view')
   }
 
   /**
