@@ -1007,8 +1007,13 @@ export class AcpRuntime implements AgentRuntime {
       // the build that gave it: an agent upgraded since and restarted without
       // the app kept getting none, and every board call its seats made
       // arrived with no caller token and was refused as unattributed. A build
-      // that already said no is not asked again on every restart.
-      if (this.#toolServerRefused && this.#initialized.agentInfo?.version !== this.#refusedBy) {
+      // that already said no is not asked again on every restart — except an
+      // agent that reports no version at all, which this launch's `undefined`
+      // can never be told apart from the refusing one's own `undefined` by
+      // comparison alone. Read that as "might have changed" rather than "the
+      // same build again": it is asked once more on this fresh launch, rather
+      // than never again until the app itself restarts.
+      if (this.#toolServerRefused && (this.#initialized.agentInfo?.version === undefined || this.#initialized.agentInfo?.version !== this.#refusedBy)) {
         this.#toolServerRefused = false
       }
       const declared = (this.#initialized._meta as { harnessdesk?: Record<string, unknown> } | undefined)
@@ -3706,8 +3711,15 @@ class AcpSession implements AgentSession {
         // An agent that reports output only as text blocks in `content` —
         // DeepSeek Harness's own server sends no rawOutput at all — has that
         // text kept as the result. Where rawOutput exists it stays the
-        // record, and the same output is not stored twice.
-        const texts = update.rawOutput === undefined ? textsInToolContent(update.content) : []
+        // record, and the same output is not stored twice. That is safe when
+        // both arrive on the same update; a *later* update carrying only text
+        // must not replace a structured result an earlier update on the same
+        // call already recorded (#961 review) — once `previous.result` holds
+        // a `json` part, a text-only update after it is read as nothing new
+        // about the result, never as a reason to overwrite the structured one
+        // with a plainer echo of it.
+        const previousHasJson = previous.result?.some((part) => part.type === 'json') ?? false
+        const texts = update.rawOutput === undefined && !previousHasJson ? textsInToolContent(update.content) : []
         const next: AgentItem = {
           ...previous,
           status,

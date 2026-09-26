@@ -1,4 +1,3 @@
-import * as gitService from '../git.js'
 import { within } from '../seat-reads.js'
 import { asText, browseDirectories, confine, sha256 } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
@@ -9,8 +8,14 @@ import type { MethodsUnder } from './context.js'
  * not a sandbox, and the confinement here is what makes that safe.
  */
 
-/** How long the most recent workspace's live `realpath` may take before its saved key answers instead (#939). */
-export const RECENT_REAL_PATH_TIMEOUT_MS = 1_000
+/**
+ * How long any one of the most recent workspace's four live reads — its git
+ * status, its `repoOf`, its `topLevel`, and its `realpath` — may take before
+ * a saved or empty answer stands in instead (#939, #948). Each shells out or
+ * hits the filesystem on `latest.path` alone, so a stalled mount under any
+ * one of them must cost that one row, at most, never the whole list.
+ */
+export const RECENT_LATEST_READ_TIMEOUT_MS = 1_000
 
 export const workspaceMethods = {
   'workspace/recent': async (ctx) => {
@@ -29,21 +34,33 @@ export const workspaceMethods = {
     // existed simply has none yet, which is the same "no comparison key"
     // state `ownPathOf` already tolerates.
     //
-    // The latest entry's own live resolve is bounded the same way, and its
-    // saved key answers first: a stalled mount must not hold up the list it
-    // heads, and freshness here is a nicety a slow filesystem forfeits, never
-    // something worth blocking on (#939).
+    // The latest entry's own four live reads — git status, `repoOf`,
+    // `topLevel` and `realPath` — are each bound the same way
+    // (`RECENT_LATEST_READ_TIMEOUT_MS`), and each answers with a saved or
+    // empty stand-in the moment its own bound is reached: a stalled mount
+    // must not hold up the list it heads, and freshness here is a nicety a
+    // slow filesystem forfeits, never something worth blocking on (#939,
+    // #948).
     const [latest, ...rest] = ctx.state.state.workspaces
     if (!latest) return []
     const [git, repo, checkoutRoot, resolved] = await Promise.all([
-      gitService.status(latest.path).catch(() => null),
-      ctx.workspaces.repoOf(latest.path),
-      ctx.workspaces.topLevel(latest.path).catch(() => null),
-      within(() => ctx.workspaces.realPath(latest.path), RECENT_REAL_PATH_TIMEOUT_MS),
+      within(() => ctx.workspaces.gitStatus(latest.path), RECENT_LATEST_READ_TIMEOUT_MS),
+      within(() => ctx.workspaces.repoOf(latest.path), RECENT_LATEST_READ_TIMEOUT_MS),
+      within(() => ctx.workspaces.topLevel(latest.path), RECENT_LATEST_READ_TIMEOUT_MS),
+      within(() => ctx.workspaces.realPath(latest.path), RECENT_LATEST_READ_TIMEOUT_MS),
     ])
+    const latestGit = git.settled === 'value' ? git.value : null
+    const latestRepo = repo.settled === 'value' ? repo.value : null
+    const latestCheckoutRoot = checkoutRoot.settled === 'value' ? checkoutRoot.value : null
     const latestReal = resolved.settled === 'value' ? resolved.value : (latest.realPath ?? latest.path)
     return [
-      { ...latest, git: git ? { branch: git.branch } : null, repo, checkoutRoot, realPath: latestReal },
+      {
+        ...latest,
+        git: latestGit ? { branch: latestGit.branch } : null,
+        repo: latestRepo,
+        checkoutRoot: latestCheckoutRoot,
+        realPath: latestReal,
+      },
       ...rest.map((entry) => ({ ...entry, git: null })),
     ]
   },

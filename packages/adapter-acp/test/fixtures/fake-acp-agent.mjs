@@ -451,6 +451,35 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  // #961 review P3: a call whose first update carries a structured
+  // `rawOutput`, and whose later, completing update carries only a plainer
+  // text echo of the same thing (no `rawOutput` at all) — the structured
+  // result must survive, not be overwritten by the later, plainer one.
+  if (text.includes('structured then text')) {
+    update(state.id, {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'tc-structured-then-text',
+      title: 'bash',
+      kind: 'other',
+      status: 'in_progress',
+      rawInput: { command: 'ls -a' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-structured-then-text',
+      status: 'in_progress',
+      rawOutput: { stdout: 'first, structured' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-structured-then-text',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: 'a later, plainer echo' } }],
+    })
+    say('done twice over.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   // The way Claude Code's bridge actually talks: one call announced twice —
   // the permission flow first, with a bare title, then the stream again with
   // the real input — and one call whose only notice is its completion.
@@ -810,8 +839,12 @@ const handlers = {
     reply(id, {
       protocolVersion: 1,
       // The process id as the version, so a test can tell a restart from a
-      // reconnect; FAKE_ACP_AGENT_VERSION overrides it.
-      agentInfo: { name: 'fake-acp-agent', version: process.env.FAKE_ACP_AGENT_VERSION ?? String(process.pid) },
+      // reconnect; FAKE_ACP_AGENT_VERSION overrides it, and
+      // FAKE_ACP_NO_AGENT_VERSION=1 plays an agent that reports none at all.
+      agentInfo:
+        process.env.FAKE_ACP_NO_AGENT_VERSION === '1'
+          ? { name: 'fake-acp-agent' }
+          : { name: 'fake-acp-agent', version: process.env.FAKE_ACP_AGENT_VERSION ?? String(process.pid) },
       agentCapabilities: {
         loadSession: Boolean(STORE) && !RESUME_ONLY,
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.

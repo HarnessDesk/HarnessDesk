@@ -2344,7 +2344,11 @@ export class FlowExecutions {
        inside its one turn (`why === 'turn-ended'`) is not this case: there is
        simply nothing to hand it yet, until that turn ends. */
     if (!seat || seat.closed) {
-      if (why !== 'turn-ended') await this.#stall(id, `The Seat for card #${card.id} is ${seat ? 'closed' : 'no longer recorded'}, so its card was not handed back${again}.`)
+      if (why !== 'turn-ended')
+        await this.#stall(
+          id,
+          `The Seat for card #${card.id} is ${seat ? 'closed' : 'no longer recorded'}, so its card was not handed back${again}. Seat the Agent again to pick it up.`,
+        )
       return
     }
     // Inside a turn is where a working Seat lives: there is nothing to hand it until that turn ends.

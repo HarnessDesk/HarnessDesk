@@ -19,6 +19,7 @@ import type {
   FindingPublishAction,
   FindingView,
   FlowSeat,
+  GitStatus,
   GoalId,
   GoalView,
   HostMethodName,
@@ -428,6 +429,8 @@ export interface HostContext {
     confineRoom(folder: string): Promise<void>
     /** Opens a folder, which becomes one of the open roots. A relative path is refused. */
     open(path: string): Promise<HostResult<'workspace/open'>>
+    /** A folder's git status, shelling out to `git` itself — `workspace/recent`'s only caller bounds this live read (#948). */
+    gitStatus(path: string): Promise<GitStatus | null>
     repoOf(cwd: string): Promise<RepoInfo | null>
     boardRootOf(cwd: string): Promise<string | null>
     /** Drops the folder→board cache and re-points the Agent roster's watch; call when the set of workspaces changed. */

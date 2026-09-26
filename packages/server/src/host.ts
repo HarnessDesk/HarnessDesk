@@ -3152,6 +3152,7 @@ export class Host {
         realPath: (path) => this.#realPath(path),
         confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
+        gitStatus: (path) => gitService.status(path),
         repoOf: (cwd) => this.#repoOf(cwd),
         boardRootOf: (cwd) => this.#boardRootOf(cwd),
         forgetBoardRoots: () => {

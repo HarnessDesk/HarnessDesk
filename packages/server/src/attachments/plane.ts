@@ -141,20 +141,24 @@ export async function receiptFrom(
   const reopen = options.reopen
   if (!reopen) return empty
   const seatKeys = options.seatKeys
-  /* This process has never handed this Seat any key at all — most tellingly,
-     right after a restart, whose fresh `AttachmentsPlane` starts every
-     Seat's ledger empty. There is nothing here to weigh the held session's
-     reported key against, and it would be just as wrong to trust that as
-     proof of nothing loaded as to trust it as proof of anything: a session
-     a hold kept alive outlasts a restart and can still hold everything its
-     Seat approved. Neither guess is provable, so this reopen fails closed —
-     the caller closes the session — rather than silently recording "nothing
-     loaded" for a Seat that was never actually asked (#939). A held session
-     proves what it loaded only by an actual reopen in a process that was
-     there to hand it a key in the first place. */
+  /* This process has never handed this Seat any key at all. That is not what
+     an ordinary restart of this desk leaves behind: this desk owns every
+     adapter's own process, so a real restart starts the agent fresh with the
+     ledger, never one without the other — there is no live session left over
+     from before it to still be held. What this actually guards is a session
+     an adapter kept alive independently of anything this process itself
+     prepared: an answer for a key this process never issued, on a Seat this
+     process is reading back for the first time. There is nothing here to
+     weigh that content against, and it would be just as wrong to trust it as
+     proof of nothing loaded as to trust it as proof of anything: neither
+     guess is provable, so this reopen fails closed — the caller closes the
+     session — rather than silently recording "nothing loaded" for a Seat
+     that was never actually asked (#939, #948). A held session proves what
+     it loaded only by an actual reopen in a process that was there to hand
+     it a key in the first place. */
   if (!seatKeys?.size) {
     throw new HeldBeyondFilterError(
-      'This desk has not reopened this conversation since it last restarted, so what the agent still holds cannot be checked against anything; it is being closed rather than assumed to hold nothing.',
+      'What this agent still holds cannot be checked against anything this desk remembers giving it. Reopen the Seat, or restart its session, to continue.',
     )
   }
   /* Only a session this Seat's own filter was handed to: its key is one this

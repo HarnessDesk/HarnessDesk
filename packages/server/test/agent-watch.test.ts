@@ -63,19 +63,30 @@ const settled = () => pause(LONGEST_SETTLE_MS + 200)
  * Calls `touch` once, then polls for `isHeard` without touching again — a
  * burst does not need a second nudge to settle, only time — and only tries a
  * fresh `touch` once a full settle window has passed with nothing heard.
- * Bounded overall. The proof that a watch is live, in place of a guess at how
- * long "it is probably listening by now" should be — the guess is exactly
- * what let a dead watch and a live one both pass a later check in silence.
+ * Bounded by a count of attempts, not by wall time (#972): a deadline fixed
+ * once, at the first call, is exactly wrong on a loaded machine — the process
+ * can lose several real seconds to being scheduled out before it ever gets to
+ * check `isHeard` even once, and a `Date.now()` compared against that stale
+ * deadline then reads as "timed out" for a watch that was live the whole
+ * time. Counting attempts instead means every one of them still runs to
+ * completion and is judged on what it actually observed, however long the
+ * scheduler made it take to get there — a live watch is caught the moment its
+ * event lands, at any real-time distance, and only a watch that stays
+ * provably silent for the full count fails. The run's own `--test-timeout`
+ * (120s, `script/verify.mjs`) is the backstop for a genuine hang, which is
+ * what names the test rather than this throwing a guess at "long enough".
+ * The proof that a watch is live, in place of a guess at how long "it is
+ * probably listening by now" should be — the guess is exactly what let a
+ * dead watch and a live one both pass a later check in silence.
  */
-const proveLive = async (isHeard: () => boolean, touch: () => Promise<void>, what: string, ms = 5_000): Promise<void> => {
-  const end = Date.now() + ms
-  for (;;) {
+const proveLive = async (isHeard: () => boolean, touch: () => Promise<void>, what: string, attempts = 60): Promise<void> => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     await touch()
-    const attemptEnd = Math.min(Date.now() + LONGEST_SETTLE_MS, end)
+    const attemptEnd = Date.now() + LONGEST_SETTLE_MS
     while (!isHeard() && Date.now() <= attemptEnd) await pause(20)
     if (isHeard()) return
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`)
   }
+  throw new Error(`timed out waiting for ${what}`)
 }
 
 /** `until`, for a check that has to read something to answer. */
@@ -313,7 +324,14 @@ test('a name that appears while the watch is unproven is found by the backoff ac
   t.after(() => watchInstance.dispose())
 
   await until(() => watchCalled, 'the ancestor watch to arm')
-  await pause(20)
+  // Nothing schedules anything further when a look finds the root missing
+  // (`noticeIfThere`'s own `.then` returns early), so there is no timer to
+  // synchronize this "still nothing" proof on — only real time, generous
+  // enough that a loaded machine's real `reach` (a `realpath` call) has time
+  // to land before the assertion reads it (`settled`, this file's own
+  // standard wait, well past `LONGEST_SETTLE_MS`, in place of a fixed 20ms
+  // guess that matched no timer in particular — #948).
+  await settled()
   assert.deepEqual(said, [], 'nothing to notice yet: the root the immediate re-check looked for is not there')
 
   // Several backoff steps in a row, each looking and finding nothing — the
@@ -322,15 +340,26 @@ test('a name that appears while the watch is unproven is found by the backoff ac
   // scheduled wait is, however many times it has doubled or capped by then.
   for (let step = 1; step <= 3; step++) {
     clock.advance(10_000)
-    await pause(20)
+    await settled()
     assert.deepEqual(said, [], `still nothing after backoff step ${step}: the root is not there yet`)
   }
 
   // The root appears only now — after checks that already came back empty —
   // and the quiet watcher above never reports it on its own.
   mkdirSync(root, { recursive: true })
+  // Advancing the clock synchronously reschedules the backoff's own next
+  // re-check (`#scheduleReady`, before its `reach` for this step has even
+  // resolved) — one new timer, immediately, whether or not this look finds
+  // anything. Only a *second* new timer proves this step's asynchronous
+  // `reach` actually landed and found the root: `#poke`'s notice settle
+  // timer, scheduled from inside that look's own `.then`, never before. A
+  // fixed pause here was a guess at how long that real `realpath` call takes
+  // and could match neither timer on a loaded machine (#948); counting past
+  // the one schedule `advance` itself always causes is what actually proves
+  // the look landed.
+  const scheduledBeforeFound = clock.scheduledCount()
   clock.advance(10_000)
-  await pause(20) // lets that step's own `reach` (finding the root this time) settle before its notice's settle timer exists to move past
+  await until(() => clock.scheduledCount() > scheduledBeforeFound + 1, "the step that finds the root to schedule its notice's settle timer")
   clock.advance(1_000)
   assert.ok(said.length > 0, 'a later backoff step must have found the root once it existed, with no event from the watcher at all')
 })
