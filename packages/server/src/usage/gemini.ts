@@ -172,6 +172,8 @@ export class GeminiMeter implements UsageMeter {
       lanes,
       credits: null,
       reached: spent?.id ?? null,
+      // A Code Assist sign-in's quota is a rolling per-model window.
+      billing: { kinds: ['windows'] },
       fetchedAt: this.#now(),
       staleAfterMs: STALE_AFTER_MS,
     }

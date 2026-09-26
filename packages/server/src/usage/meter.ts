@@ -1,4 +1,4 @@
-import type { UsageCredits, UsageLane, UsageSource } from '@harnessdesk/protocol'
+import type { UsageBilling, UsageCredits, UsageLane, UsageSource } from '@harnessdesk/protocol'
 
 /**
  * A source that can say what one account has left.
@@ -31,6 +31,8 @@ export interface MeterReading {
    * so they are shown and never decide whether the agent can run.
    */
   readonly unverified?: string
+  /** See `UsageBilling`; carried through to `UsageReport.billing` as-is. */
+  readonly billing?: UsageBilling
 }
 
 export interface UsageMeter {

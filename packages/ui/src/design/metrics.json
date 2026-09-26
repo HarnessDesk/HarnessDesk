@@ -639,6 +639,22 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
+  "message/bubble/variant/ghost": {
+    "h": 21,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "message/bubble/variant/secondary": {
+    "h": 41,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "10 16 10 16",
+    "radius": 16
+  },
   "readings/key-value/variant/default": {
     "h": 121,
     "text": 14,

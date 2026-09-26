@@ -62,6 +62,19 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-accent-foreground` | `rgb(255, 255, 255)` |
 | `--hd-accent-hover` | `rgb(38, 70, 214)` |
 | `--hd-accent-dim` | `rgba(52, 88, 240, 0.12)` |
+
+### The heatmap
+
+"When it ran"'s calendar grid — `design/ui/heat-grid.tsx` — reads a quantity, not a state, so it takes the brand rather than a judgement: the palette's identity hues are spoken for (which agent) and the state colours would make a busy day look like a warning. Five steps, level 0 through 4, each a deeper wash of the same accent so the ramp still reads as "more of this" against either theme's own card. The empty step is a muted fill, not the card itself: `--hd-card` is what `ChartCard` is drawn on, so a scanned zero in that colour was invisible — indistinguishable from a slot with no cell at all, which undid the whole point of drawing three kinds of nothing differently (review #990, item 1). The ramp mixes up from that same step, so 1 through 3 are still read against the fill a zero actually uses, not the card underneath it.
+
+| token | value |
+| --- | --- |
+| `--hd-chart-heat-0` | `rgb(245, 245, 245)` |
+| `--hd-chart-heat-1` | `color-mix(in srgb, rgb(52, 88, 240) 22%, rgb(245, 245, 245))` |
+| `--hd-chart-heat-2` | `color-mix(in srgb, rgb(52, 88, 240) 46%, rgb(245, 245, 245))` |
+| `--hd-chart-heat-3` | `color-mix(in srgb, rgb(52, 88, 240) 70%, rgb(245, 245, 245))` |
+| `--hd-chart-heat-4` | `rgb(52, 88, 240)` |
+| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(107, 107, 107) 45%, rgb(255, 255, 255)) 2px 3px )` |
 | `--hd-danger` | `rgb(228, 68, 62)` |
 | `--hd-danger-dim` | `rgba(228, 68, 62, 0.12)` |
 | `--hd-success` | `rgb(65, 189, 111)` |
@@ -794,6 +807,36 @@ One filled button per card. A banner that offers two equal-looking choices
 makes the user read both before they can ignore it.
 
 ## Patterns
+
+### `CardShell`
+
+`packages/ui/src/design/patterns/AgentCard.tsx`
+
+The card itself: the ink every band and the crest read, and the two data
+attributes a test or a stylesheet finds a card by.
+
+Not `AgentCard`'s alone — see `CardBand` below. `slot` is the card's own
+name (`agent-card`, `publication-card`); `kind` is which subject or
+reference it is, when the card has one.
+
+### `CardCrest`
+
+`packages/ui/src/design/patterns/AgentCard.tsx`
+
+The top of a card: a mark at rest, then a text column beside it.
+
+Not `AgentCard`'s alone — `Publication.tsx`'s forge card was redrawing this
+exact `flex items-start gap-2.5 px-3 pt-3 pb-2.5` by hand, down to the
+pixel, until this crest gave both a single place to read it from.
+
+### `CardCrestBody`
+
+`packages/ui/src/design/patterns/AgentCard.tsx`
+
+The text column beside a crest's mark, nudged down `pt-px` so its first
+line sits on the same baseline the mark reads at. The mark itself is not
+here — a presence dot rides on it in one card and not the other — so this
+wraps only the column, the same way in both.
 
 ### `CardBand`
 
@@ -1733,8 +1776,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 39 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
-| `singleAreaPrimitive` | 42 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
+| `screenAppearance` | 25 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
+| `singleAreaPrimitive` | 46 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |

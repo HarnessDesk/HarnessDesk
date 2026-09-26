@@ -70,6 +70,11 @@ export const mapRateLimits = (
     (window): window is UsageWindow => window !== null,
   ),
   reached: snapshot.rateLimitReachedType,
+  // Codex's plan is always a rolling window; a credits balance rides beside
+  // it only when the account actually carries one — see `docs/usage-dashboard.md`.
+  billing: {
+    kinds: snapshot.credits?.hasCredits || snapshot.credits?.unlimited ? ['windows', 'balance'] : ['windows'],
+  },
 })
 
 export const mapNotification = (

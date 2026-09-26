@@ -45,8 +45,8 @@ const cursorDatabase = (token: string | null): string => {
 }
 
 const SUMMARY = {
-  billingCycleStart: '2026-08-03T18:26:30.000Z',
-  billingCycleEnd: '2026-09-03T18:26:30.000Z',
+  billingCycleStart: '2026-08-01T00:00:00.000Z',
+  billingCycleEnd: '2026-09-01T00:00:00.000Z',
   membershipType: 'pro',
   isUnlimited: false,
   individualUsage: {
@@ -103,13 +103,14 @@ test('Cursor turns one plan into one lane, with its billing cycle and its balanc
   assert.equal(reading.plan, 'Pro')
   assert.equal(reading.lanes.length, 1)
   assert.equal(Math.round(reading.lanes[0]?.usedPercent ?? -1), 6)
-  assert.equal(reading.lanes[0]?.resetsAt, Date.parse('2026-09-03T18:26:30.000Z'))
+  assert.equal(reading.lanes[0]?.resetsAt, Date.parse('2026-09-01T00:00:00.000Z'))
   assert.deepEqual(
     reading.credits,
     { remaining: 36.08, used: 13.92, unit: 'USD', unlimited: false },
     'used and remaining come from the one object in this payload whose cents add up',
   )
   assert.equal(reading.reached, null)
+  assert.deepEqual(reading.billing, { kinds: ['allowance', 'metered'] }, 'on-demand is enabled in this fixture')
   assert.deepEqual(meter.watchPaths(), [], 'the editor rewrites its store constantly; watching it would be a poll')
 })
 
@@ -155,6 +156,7 @@ test('Copilot counts a quota it reports, and skips the slot it left empty', asyn
     'an unlimited quota is not a lane at 0%',
   )
   assert.equal(reading.lanes[0]?.resetsAt, Date.parse('2026-09-01T00:00:00Z'))
+  assert.deepEqual(reading.billing, { kinds: ['allowance'] })
 })
 
 test('a Copilot token is found wherever the plugin filed it', () => {
@@ -191,6 +193,21 @@ test('Gemini keeps the tightest bucket per model, and stays quiet without a lice
 
   const stale = new GeminiMeter({ credentialsPath: path, now: () => 10_000, fetch: answering(200, {}) })
   assert.equal(await stale.read(), null, 'an expired token is left for the CLI to refresh')
+})
+
+test('a Code Assist sign-in with a real quota is billed as rolling windows', async () => {
+  const path = join(scratch(), 'oauth_creds.json')
+  writeFileSync(path, JSON.stringify({ access_token: 'ya29.live', expiry_date: Date.now() + HOUR }))
+  const meter = new GeminiMeter({
+    credentialsPath: path,
+    fetch: answering(200, {
+      currentTier: { id: 'standard', name: 'Standard' },
+      buckets: [{ modelId: 'gemini-3-pro', tokenType: 'input', remainingFraction: 0.5, resetTime: '2026-08-24T00:00:00Z' }],
+    }),
+  })
+  const reading = await meter.read()
+  assert.ok(reading)
+  assert.deepEqual(reading.billing, { kinds: ['windows'] })
 })
 
 test('GeminiMeter reads a bare HOME on its own, not only through an explicit home option', () => {

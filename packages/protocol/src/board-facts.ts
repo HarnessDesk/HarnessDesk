@@ -27,6 +27,12 @@ export interface PlaceInput {
   readonly stranded: boolean
   readonly holderWaits: boolean
   readonly forPerson: boolean
+  /**
+   * The run that opened this card has stopped for its person
+   * (`FlowStep.stopped`): nothing moves the card on until they act, so it is
+   * theirs — drawn in Needs you, as the Goal's own header already reads it.
+   */
+  readonly runStopped: boolean
 }
 
 export const flowRoleOf = (intent: Intent, run: FlowRun | undefined): FlowRole | null => {
@@ -39,6 +45,8 @@ export const flowRoleOf = (intent: Intent, run: FlowRun | undefined): FlowRole |
 export interface FlowStep {
   readonly kind: FlowRole['kind']
   readonly outcomes: readonly string[]
+  /** Whether the run that opened it is stopped for a person (`stalled`), rather than running. */
+  readonly stopped: boolean
 }
 
 /**
@@ -54,7 +62,7 @@ export const flowStepOf = (
   executions: readonly FlowExecution[],
 ): FlowStep | null => {
   const legacy = flowRoleOf(intent, run)
-  if (legacy) return { kind: legacy.kind, outcomes: legacy.outcomes }
+  if (legacy) return { kind: legacy.kind, outcomes: legacy.outcomes, stopped: run?.state === 'stalled' }
   if (!intent.role) return null
   for (const execution of executions) {
     if (execution.state !== 'running' && execution.state !== 'stalled') continue
@@ -62,7 +70,7 @@ export const flowStepOf = (
     if (!execution.rounds.some((round) => round.role === intent.role && round.cards.includes(intent.id))) continue
     const role = execution.document.flow.roles.find((one) => one.id === intent.role)
     if (!role) continue
-    return { kind: role.kind, outcomes: role.kind === 'person' ? role.outcomes : [] }
+    return { kind: role.kind, outcomes: role.kind === 'person' ? role.outcomes : [], stopped: execution.state === 'stalled' }
   }
   return null
 }
@@ -117,19 +125,33 @@ const settled = (evidence: CardEvidence | undefined): Placement => {
   return { column: 'needs', why: 'nothing checked' }
 }
 
-export const placeCard = ({ intent, evidence, stranded, holderWaits, forPerson }: PlaceInput): Placement => {
+export const placeCard = ({ intent, evidence, stranded, holderWaits, forPerson, runStopped }: PlaceInput): Placement => {
   switch (intent.state) {
     case 'abandoned':
       return { column: 'aside', why: null }
     case 'blocked':
       return intent.blockedBy === 'hand' ? { column: 'needs', why: 'stopped' } : { column: 'todo', why: null }
     case 'open':
-      return forPerson ? { column: 'needs', why: 'needs your answer' } : { column: 'todo', why: null }
+      if (forPerson) return { column: 'needs', why: 'needs your answer' }
+      return runStopped ? { column: 'needs', why: 'run stopped' } : { column: 'todo', why: null }
     case 'claimed':
       if (stranded) return { column: 'needs', why: null }
       if (holderWaits) return { column: 'needs', why: 'waiting on you' }
+      if (runStopped) return { column: 'needs', why: 'run stopped' }
       return { column: 'working', why: null }
     case 'done':
+      /*
+       * A flow's person step is answered with its own outcome, never with
+       * evidence — a reviewer's "approve" has no check or PR to point at, and
+       * `settled` reading that as "nothing checked" would put a finished
+       * card back in Needs you, exactly where its still-unfinished siblings
+       * belong. `forPerson` is the same, already-validated signal `open` and
+       * `claimed` read: this card matched a live round addressed to a
+       * person, so its state is the last word on it. That holds whatever the
+       * run that opened it is doing now — running, stalled, or gone — which
+       * is why this checks it before, and instead of, `settled`.
+       */
+      if (forPerson) return { column: 'ready', why: null }
       return settled(evidence)
   }
 }

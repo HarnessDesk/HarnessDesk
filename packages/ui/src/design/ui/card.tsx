@@ -17,7 +17,10 @@ type CardProps<T extends React.ElementType = 'div'> = {
   as?: T
   variant?: 'default' | 'muted' | 'flush' | 'plate'
   radius?: 'sm' | 'default' | 'lg'
-  spacing?: 'default' | 'compact'
+  /** `flush` zeroes the gap and vertical padding `variant="flush"` also
+   *  carries, for a card whose surface is a visual variant on its own — a
+   *  dense row on `plate`, say — and whose spacing is flush regardless. */
+  spacing?: 'default' | 'compact' | 'flush'
 } & Omit<React.ComponentPropsWithoutRef<T>, 'as' | 'variant' | 'radius' | 'spacing'>
 
 const Card = <T extends React.ElementType = 'div'>({
@@ -44,6 +47,7 @@ const Card = <T extends React.ElementType = 'div'>({
         radius === 'sm' && 'rounded-(--hd-radius-sm)',
         radius === 'lg' && 'rounded-(--hd-radius-lg)',
         spacing === 'compact' && 'gap-2 p-3',
+        spacing === 'flush' && 'gap-0 py-0',
         className,
       )}
       {...props}

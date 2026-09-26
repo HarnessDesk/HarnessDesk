@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { AgentCard, type AgentCardSubject } from './AgentCard'
+import { AgentCard, CardCrest, CardCrestBody, CardShell, type AgentCardSubject } from './AgentCard'
 
 /**
  * The card's one structural rule, pinned.
@@ -229,4 +229,33 @@ it('draws an Agent band only for a conversation seated as one', () => {
   for (const words of ['Code reviewer', 'Read · asked', 'Reviews a change it did not write.', 'Built in', 'Seated on Claude · Opus 5 · High', 'Passed over Cursor — Cursor is signed out']) {
     expect(text()).toContain(words)
   }
+})
+
+it('stands on the shared shell and crest, the same anatomy the forge card composes', () => {
+  render(BARE)
+  const shell = container.querySelector<HTMLElement>('[data-slot="agent-card"]')
+  expect(shell?.className).toContain('text-(--hd-card-foreground)')
+  expect(shell?.dataset['kind']).toBe(BARE.kind)
+})
+
+it('CardShell, CardCrest and CardCrestBody draw the anatomy on their own, for a second card to compose', () => {
+  act(() =>
+    root.render(
+      <CardShell slot="publication-card" kind="pullRequest">
+        <CardCrest>
+          <CardCrestBody>hello</CardCrestBody>
+        </CardCrest>
+      </CardShell>,
+    ),
+  )
+  const shell = container.querySelector<HTMLElement>('[data-slot="publication-card"]')
+  expect(shell?.dataset['kind']).toBe('pullRequest')
+  expect(shell?.className).toContain('text-(--hd-card-foreground)')
+  const crest = shell?.firstElementChild as HTMLElement | null
+  expect(crest?.className).toContain('px-3')
+  expect(crest?.className).toContain('pt-3')
+  expect(crest?.className).toContain('pb-2.5')
+  const body = crest?.firstElementChild as HTMLElement | null
+  expect(body?.className).toContain('pt-px')
+  expect(body?.textContent).toBe('hello')
 })

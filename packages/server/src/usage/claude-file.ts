@@ -208,6 +208,13 @@ export class ClaudeFileMeter implements UsageMeter {
     if (lanes.length === 0) return null
 
     const account = file.oauthAccount?.emailAddress?.trim() || null
+    const credits =
+      extra?.is_enabled === true && typeof extra.monthly_limit === 'number'
+        ? {
+            remaining: Math.max(0, extra.monthly_limit - (extra.used_credits ?? 0)),
+            unit: extra.currency ?? 'USD',
+          }
+        : null
     return {
       account,
       plan: planFor(
@@ -215,14 +222,13 @@ export class ClaudeFileMeter implements UsageMeter {
         file.oauthAccount?.organizationType,
       ),
       lanes,
-      credits:
-        extra?.is_enabled === true && typeof extra.monthly_limit === 'number'
-          ? {
-              remaining: Math.max(0, extra.monthly_limit - (extra.used_credits ?? 0)),
-              unit: extra.currency ?? 'USD',
-            }
-          : null,
+      credits,
       reached: extra?.spend_limit_reached === true ? 'spend_limit_reached' : reachedFrom(lanes),
+      // A Claude Code plan is always the rolling windows above; extra usage
+      // is spend against its own monthly cap, not a prepaid balance, so it
+      // rides beside the windows as `metered` only when the account has
+      // actually turned it on.
+      billing: { kinds: credits ? ['windows', 'metered'] : ['windows'] },
       fetchedAt:
         typeof cached?.fetchedAtMs === 'number' && cached.fetchedAtMs > 0
           ? cached.fetchedAtMs

@@ -9,6 +9,7 @@ import type { FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/
 
 import type { GhInCheckout } from '../../src/evidence/forge.js'
 import { Host, StateStore } from '../../src/index.js'
+import type { QuestionTimers } from '../../src/host.js'
 import { makeRepo } from './evidence-desk.js'
 import { FakeRuntime } from './fake-runtime.js'
 import { silent } from './harness.js'
@@ -96,6 +97,8 @@ export interface DeskOptions {
   readonly onMain?: boolean
   /** Each runtime refuses a message while a turn is running, as a real agent's adapter does. */
   readonly refusesWhileBusy?: boolean
+  /** The timers an unattended Seat's question deadline runs on, so a test fires it when it says. */
+  readonly questionTimers?: QuestionTimers
 }
 
 export const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }, options: DeskOptions = {}): Promise<Desk> => {
@@ -125,6 +128,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     builtinAgents: tempDir('hd-flow-host-builtins-'),
     catalogRefreshMs: 0,
     evidence: { gh: gh.gh },
+    ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
   })
   const runtimes = [
     new FakeRuntime({ provider: 'vendor-a' }),
@@ -173,15 +177,29 @@ export const execution = async (d: Desk, run: string): Promise<FlowExecution> =>
  * step, not a whole second: what it waits for either arrives promptly or the
  * run is stuck, which the safety deadline and the dump say.
  *
- * The deadline sits under each case's own timeout (`E2E`), and that under
- * the suite's 120 s per file, so a stuck run fails its own case with where
- * the board and the run stood — never the whole file, silently, at 120 s.
- * Each case takes a few seconds alone; 32 of these files at once on one
- * machine took a case up to 85 s, which is what the margin is for.
+ * The deadline sits under each case's own timeout (`E2E`), so a stuck run
+ * fails its own case with where the board and the run stood — never the
+ * whole file, silently, at whatever the runner's own `--test-timeout` is.
+ * That is not node:test's own doing: measured on Node 22 (the review of
+ * #972 round 2), `--test-timeout` caps a test *file*'s cumulative time, not
+ * a single case's — a per-test default on newer Node, where the same run
+ * passes. A case's own longer `E2E` can only ever narrow that file-wide
+ * ceiling, never widen it: a file given a runner default lower than its
+ * own cases' combined need is cut there first, silently, before this
+ * deadline or the dump below it ever gets the chance. It holds here only
+ * because these four files run in their own invocation, at a flag sized
+ * for the worst one's cumulative total (`script/verify.mjs`,
+ * `.github/workflows/ci.yml`), separate from the rest of the suite's
+ * ordinary 120s. Each case takes a few seconds alone; 32 of these files at once
+ * on one machine once took a case up to 85 s, which is what the margin was
+ * sized for — but a busier desk than that measurement (several other
+ * sessions building and testing at once, load averages of 30-50) has since
+ * reached this deadline itself at 92-100 s, so the margin below is wider
+ * than that one measurement, not merely equal to it.
  */
-export const SAFETY_MS = 75_000
+export const SAFETY_MS = 200_000
 /** Every end-to-end case's own timeout: past the safety deadline, so the dump lands first. */
-export const E2E = { timeout: 100_000 } as const
+export const E2E = { timeout: 260_000 } as const
 const POLL_FLOOR_MS = 50
 const POLL_CEILING_MS = 500
 export const whenChanged = async <T>(d: Desk, read: () => Promise<T | null> | T | null, what: string): Promise<T> => {

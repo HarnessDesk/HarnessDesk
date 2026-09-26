@@ -136,7 +136,9 @@ export interface HostContext {
     set(value: import('@harnessdesk/protocol').LanePreferences): Promise<import('@harnessdesk/protocol').LanePreferences>
   }
   readonly laneEnvironment: {
+    /** The lane's six values for a checkout, whatever runtime asks; pass them through `laneEnvironmentFor`. */
     forCheckout(cwd: string): Readonly<Record<string, string>> | undefined
+    /** A durable Seat's lane values, already narrowed to what its runtime can take per session. */
     forSession(runtime: string, sessionId: string): Promise<Readonly<Record<string, string>> | undefined>
   }
   /**
@@ -347,6 +349,17 @@ export interface HostContext {
 
   readonly ceilings: {
     answerHeld(approvalId: string, decision: ApprovalDecision): boolean
+  }
+
+  readonly questions: {
+    /**
+     * Hears a person's answer to a question whose turn is already over — an
+     * unattended Seat's, stopped by its deadline — by handing it to the Seat
+     * in a turn of its own and letting its run go on. False when the question
+     * is not one of those, so the answer goes to the live turn as usual.
+     * Throws a sentence, the question kept, when it is and cannot be heard now.
+     */
+    answerStopped(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<boolean>
   }
 
   readonly queue: {

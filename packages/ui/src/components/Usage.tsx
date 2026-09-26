@@ -36,6 +36,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowPage } from './AppWindow'
 import { RuntimeMark } from './BrandIcons'
 import { InsightUsage } from './InsightUsage'
+import { UsageActivity } from './UsageActivity'
 import {
   AlertIcon,
   CheckIcon,
@@ -456,6 +457,9 @@ export const Usage = ({
             />
             <Ranked ledger={ledger} pivot={pivot} byId={byId} tintOf={agentTints} />
           </section>
+
+          <UsageActivity byId={byId} scope={scope} now={now} scanFinishedAt={snapshot.scan?.finishedAt} />
+
           <section className={styles.band} aria-label="Project usage">
             <BandHead name="Project usage" action={<Segmented label="Project usage view" options={[{ value: 'goal', label: 'By Goal' }, { value: 'agent', label: 'By Agent' }]} value={insightView} onChange={(next) => setInsightView(next as 'goal' | 'agent')} />} />
             <InsightUsage root={snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null} runtime={scope} view={insightView} onGoal={(goal) => store.openGoal(goal)} />

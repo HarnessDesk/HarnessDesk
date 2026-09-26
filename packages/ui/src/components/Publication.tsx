@@ -6,7 +6,7 @@ import { openExternal } from '../lib/desktop'
 import { useStore } from '../state/context'
 import { AgentHoverCard } from './AgentCards'
 import { GitHubMark } from './BrandIcons'
-import { Button, CardBand, CodeText, IconTile, KindGlyph, StatePill, Text, publicationVerb } from '../design'
+import { Button, CardBand, CardCrest, CardCrestBody, CardShell, CodeText, IconTile, KindGlyph, StatePill, Text, publicationVerb } from '../design'
 import { FrontDoor } from './FrontDoor'
 import styles from './Publication.module.css'
 
@@ -33,7 +33,10 @@ const figure = (n: number | null): string => (n === null ? '' : n.toLocaleString
  * Rendered only from this row's hover card (below): a publication reference is
  * a fact of this conversation, not a shared catalogue piece, so its anatomy
  * lives here rather than in `design/patterns/` — `StatePill` and `KindGlyph`,
- * which other screens also draw, stay behind in `PublicationCard.tsx`.
+ * which other screens also draw, stay behind in `PublicationCard.tsx`. The
+ * shell and crest are the one exception: `CardShell`/`CardCrest` are the same
+ * two the agent card stands on, so this card composes them rather than
+ * redrawing the anatomy a second time.
  */
 export const PublicationCard = ({ reference }: { reference: ForgeReference }) => {
   const facts: string[] = []
@@ -42,13 +45,13 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
   const sized = reference.additions !== null || reference.deletions !== null
 
   return (
-    <div className="text-(--hd-card-foreground)" data-slot="publication-card" data-kind={reference.kind}>
+    <CardShell slot="publication-card" kind={reference.kind}>
       {/* Crest: the forge's mark, the address, the title as the forge has it. */}
-      <div className="flex items-start gap-2.5 px-3 pt-3 pb-2.5">
+      <CardCrest>
         <IconTile>
           <GitHubMark size={16} />
         </IconTile>
-        <span className="min-w-0 flex-1 pt-px">
+        <CardCrestBody>
           <span className="flex items-center gap-1.5">
             <Text role="meta" className="min-w-0 truncate">
               <CodeText>{reference.repo} #{reference.number}</CodeText>
@@ -71,8 +74,8 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
               {reference.title}
             </Text>
           )}
-        </span>
-      </div>
+        </CardCrestBody>
+      </CardCrest>
 
       {(facts.length > 0 || sized) && (
         <CardBand className="flex items-center gap-2">
@@ -110,7 +113,7 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
           Copy link
         </Button>
       </CardBand>
-    </div>
+    </CardShell>
   )
 }
 

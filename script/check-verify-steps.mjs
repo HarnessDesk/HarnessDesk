@@ -54,6 +54,7 @@ export const DESCRIBED_AS = new Map([
   ['lockfile installs', /\blockfile\b/i],
   ['build', /(?:\bruns|,)\s+the build\b/i],
   ['node tests', /every test suite/i],
+  ['flow-host-evidence tests', /flow-host-evidence/i],
   ['gate tests', /gate scripts/i],
   ['ui typecheck', /UI typecheck/i],
   ['ui tests', /UI and desktop/i],

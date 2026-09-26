@@ -66,6 +66,7 @@ test('reads every lane the agent cached, with its scope and its severity', async
   const session = reading.lanes.find((lane) => lane.id === 'session')
   assert.equal(session?.windowMinutes, 300)
   assert.equal(session?.resetsAt, Date.parse(RESET))
+  assert.deepEqual(reading.billing, { kinds: ['windows'] }, 'no extra usage on this account: windows alone')
 })
 
 test('falls back to the two named windows, and never reports a lane twice', async () => {
@@ -115,6 +116,8 @@ test('extra usage earns a lane only once it is turned on', async () => {
   assert.equal(on?.lanes.length, 2)
   assert.equal(on?.lanes[1]?.id, 'extra-usage')
   assert.deepEqual(on?.credits, { remaining: 20, unit: 'USD' })
+  assert.deepEqual(off?.billing, { kinds: ['windows'] })
+  assert.deepEqual(on?.billing, { kinds: ['windows', 'metered'] }, 'extra usage turned on rides beside the windows')
 })
 
 test('an absent, unparseable, or empty file is silence, not an error', async () => {

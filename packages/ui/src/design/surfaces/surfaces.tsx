@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 
-import type { Session } from '@harnessdesk/protocol'
+import { activityOf, flowStepOf, placeCard, type FlowExecution, type FlowPolicy, type Intent, type Session } from '@harnessdesk/protocol'
 
 import { BrowserPane } from '../../components/BrowserPane'
 import { Composer } from '../../components/Composer'
@@ -19,6 +19,8 @@ import { dock, emptyWorkbench } from '../../state/workbench'
 import { PaneProvider } from '../../state/context'
 import type { AppStore } from '../../state/store'
 import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../preview/harness'
+import { PREVIEW_FLOW_CARD, sceneFlowExecution } from '../../preview/flow-fixture'
+import { PREVIEW_FLOW_GOAL } from '../../preview/goal-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
 import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
 import styles from './surfaces.module.css'
@@ -475,6 +477,119 @@ export const GitSurface = () => (
 )
 
 /**
+ * A reviewer's card that already answered, in the same round as the Seat the
+ * run is stopped on: it stays in Ready with its own outcome whatever the run
+ * is doing now — never swept into Needs you beside a teammate who has not
+ * answered yet (the fix for #996's placement rule doing exactly that).
+ */
+const APPROVED_REVIEW_CARD: Intent = {
+  id: 2,
+  title: 'Review the retry fix',
+  detail: null,
+  state: 'done',
+  role: 'approver',
+  outcome: 'approve',
+  files: [],
+  dependsOn: [],
+  claim: null,
+  blockedReason: null,
+  handoff: null,
+  note: 'Looks right — retries once, then surfaces the error.',
+  createdAt: 1_799_000_000_000,
+  updatedAt: 1_799_000_000_000,
+}
+
+/** The front-door Goal's board holding its Seat's card, under a run stopped on that Seat's question. */
+const questionStopStore = (): AppStore => {
+  const base = previewStore().getSnapshot()
+  const goal = PREVIEW_FLOW_GOAL.goal.id
+  const teams = new Map(base.teams)
+  const board = teams.get(goal)
+  const cards = [PREVIEW_FLOW_CARD, APPROVED_REVIEW_CARD]
+  if (board) teams.set(goal, { ...board, intents: cards })
+  /* A second, already-answered role on the same stalled run — the round that
+     opened it long done — so the catalogue proves the rule on the case that
+     broke it, not only on the one card `sceneFlowExecution` ships. */
+  const baseExecution = sceneFlowExecution('question')
+  // `FIX_DOCUMENT` is the 'agents'-format flow, whose roles are the simpler
+  // `FlowPolicyRole` this scene's added person role also is — never the
+  // legacy `FlowRole` the general `FlowExecution['document']` type also allows.
+  const baseFlow = baseExecution.document.flow as FlowPolicy
+  const execution: FlowExecution = {
+    ...baseExecution,
+    document: {
+      format: 'agents',
+      flow: {
+        ...baseFlow,
+        roles: [...baseFlow.roles, { id: 'approver', kind: 'person', outcomes: ['approve', 'reject'] }],
+      },
+    },
+    rounds: [
+      ...baseExecution.rounds,
+      { n: 2, role: 'approver', cards: [APPROVED_REVIEW_CARD.id], seats: [], evidence: [], state: 'running', cause: 'seed' },
+    ],
+  }
+  /* The Goal's activity derived as the host derives it — from the same card
+     placement the board draws — never written in: a header and a board that
+     disagreed would show here too. */
+  const placements = cards.map((card) => {
+    const step = flowStepOf(card, undefined, [execution])
+    return placeCard({
+      intent: card, evidence: undefined, stranded: false, holderWaits: false,
+      forPerson: step?.kind === 'person', runStopped: step?.stopped ?? false,
+    })
+  })
+  const activity = activityOf(PREVIEW_FLOW_GOAL.goal, {
+    needsYou: placements.some((one) => one.column === 'needs'), busy: false, liveFlow: true, cards, dependencies: [],
+  })
+  const goals = new Map(base.goals)
+  goals.set(goal, { ...PREVIEW_FLOW_GOAL, activity })
+  return previewStore({
+    teams,
+    goals,
+    flowExecutions: new Map([['preview-flow-run', execution]]),
+  })
+}
+
+const QUESTION_STOP_STORE = questionStopStore()
+
+/**
+ * The front-door Goal's run stalled on a round whose first Seat would not
+ * open: both of the round's cards wait unclaimed, and the room's live line
+ * carries the host's own reason — the refusal, the sibling held back, the way on.
+ */
+const seatRefusedStore = (): AppStore => {
+  const base = previewStore().getSnapshot()
+  const goal = PREVIEW_FLOW_GOAL.goal.id
+  const waiting = { ...PREVIEW_FLOW_CARD, state: 'open' as const, claim: null }
+  const cards = [waiting, { ...waiting, id: 2 }]
+  const teams = new Map(base.teams)
+  const board = teams.get(goal)
+  if (board) teams.set(goal, { ...board, intents: cards })
+  // Derived as the host derives it (`GoalPlane`), from the same placement the board draws.
+  const execution = sceneFlowExecution('seat-refused')
+  const placed = cards.map((card) => {
+    const step = flowStepOf(card, undefined, [execution])
+    return placeCard({
+      intent: card, evidence: undefined, stranded: false, holderWaits: false,
+      forPerson: step?.kind === 'person', runStopped: step?.stopped ?? false,
+    })
+  })
+  const activity = activityOf(PREVIEW_FLOW_GOAL.goal, {
+    needsYou: placed.some((one) => one.column === 'needs'), busy: false, liveFlow: true, cards, dependencies: [],
+  })
+  const goals = new Map(base.goals)
+  goals.set(goal, { ...PREVIEW_FLOW_GOAL, activity })
+  return previewStore({
+    teams,
+    goals,
+    flowExecutions: new Map([['preview-flow-run', execution]]),
+  })
+}
+
+const SEAT_REFUSED_STORE = seatRefusedStore()
+
+/**
  * A group project: the board and the room that belongs to it, together.
  *
  * Apart they are two panes; together they are the claim the layout exists to
@@ -482,16 +597,50 @@ export const GitSurface = () => (
  * press from the conversation where the work is happening.
  */
 export const GroupSurface = () => (
-  <Mount>
-    <div className={styles.pair}>
-      <Frame>
-        <TeamBoardPane room={PREVIEW_ROOM} />
-      </Frame>
-      <Frame>
-        <TeamRoomPane room={PREVIEW_ROOM} />
-      </Frame>
+  <>
+    <Mount>
+      <div className={styles.pair}>
+        <Frame>
+          <TeamBoardPane room={PREVIEW_ROOM} />
+        </Frame>
+        <Frame>
+          <TeamRoomPane room={PREVIEW_ROOM} />
+        </Frame>
+      </div>
+    </Mount>
+    {/* A Goal whose run stopped on its Seat's unanswered question: the room's
+        header says Needs you, and the board draws the Seat's card there and
+        counts it — one rule, so the two never disagree. A second card, a
+        reviewer who already answered on the same stalled run, stays in Ready
+        with its outcome: a finished card is never swept in beside one that
+        is not. */}
+    <div className={styles.headerCases}>
+      <div className={styles.headerCase} data-testid="group-run-stopped-on-a-question">
+        <span className={styles.headerCaseLabel}>A run stopped on its Seat’s unanswered question — a finished card stays finished</span>
+        <Mount with={QUESTION_STOP_STORE}>
+          <div className={styles.pair}>
+            <Frame>
+              <TeamBoardPane room={PREVIEW_FLOW_GOAL.goal.id} />
+            </Frame>
+            <Frame>
+              <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
+            </Frame>
+          </div>
+        </Mount>
+      </div>
+      <div className={styles.headerCase} data-testid="group-run-stalled-on-a-seat">
+        <span className={styles.headerCaseLabel}>A run stalled because one Seat of its round would not open</span>
+        {/* The room alone, at the width its conversation needs: the live
+            line is the tail of the room's chat, which a half-width frame
+            folds away behind the room's own rail. */}
+        <Mount with={SEAT_REFUSED_STORE}>
+          <Frame>
+            <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
+          </Frame>
+        </Mount>
+      </div>
     </div>
-  </Mount>
+  </>
 )
 
 /**

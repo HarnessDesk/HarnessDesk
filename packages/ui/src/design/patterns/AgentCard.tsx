@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 
 import { AlertIcon, InfoIcon, ShieldOffIcon } from '../../components/Icons'
 import { PopoverGroupLabel } from './Popover'
@@ -202,6 +202,51 @@ const CAUTION_ICON = {
 } as const
 
 /**
+ * The card itself: the ink every band and the crest read, and the two data
+ * attributes a test or a stylesheet finds a card by.
+ *
+ * Not `AgentCard`'s alone — see `CardBand` below. `slot` is the card's own
+ * name (`agent-card`, `publication-card`); `kind` is which subject or
+ * reference it is, when the card has one.
+ */
+export const CardShell = ({
+  slot,
+  kind,
+  children,
+}: {
+  slot: string
+  kind?: string
+  children: ReactNode
+}) => (
+  <div className="text-(--hd-card-foreground)" data-slot={slot} {...(kind ? { 'data-kind': kind } : {})}>
+    {children}
+  </div>
+)
+
+/**
+ * The top of a card: a mark at rest, then a text column beside it.
+ *
+ * Not `AgentCard`'s alone — `Publication.tsx`'s forge card was redrawing this
+ * exact `flex items-start gap-2.5 px-3 pt-3 pb-2.5` by hand, down to the
+ * pixel, until this crest gave both a single place to read it from.
+ */
+export const CardCrest = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <div className={`flex items-start gap-2.5 px-3 pt-3 pb-2.5${className ? ` ${className}` : ''}`}>
+    {children}
+  </div>
+)
+
+/**
+ * The text column beside a crest's mark, nudged down `pt-px` so its first
+ * line sits on the same baseline the mark reads at. The mark itself is not
+ * here — a presence dot rides on it in one card and not the other — so this
+ * wraps only the column, the same way in both.
+ */
+export const CardCrestBody = ({ className, ...props }: ComponentProps<'span'>) => (
+  <span className={`min-w-0 flex-1 pt-px${className ? ` ${className}` : ''}`} {...props} />
+)
+
+/**
  * A band, drawn only because its caller had something to put in it.
  *
  * Not `AgentCard`'s alone: `Publication.tsx`'s forge card is built on the same
@@ -245,9 +290,8 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
   const also = subject.also && subject.also !== subject.name ? subject.also : null
 
   return (
-    <div className="text-(--hd-card-foreground)" data-slot="agent-card" data-kind={subject.kind}>
-      {/* Crest */}
-      <div className="flex items-start gap-2.5 px-3 pt-3 pb-2.5">
+    <CardShell slot="agent-card" kind={subject.kind}>
+      <CardCrest>
         <span className="relative flex-none">
           <IconTile tint={subject.tint}>{subject.mark}</IconTile>
           {/* Working is a light, not a word — the same dot the rail draws, in
@@ -255,7 +299,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               reader gets a sentence rather than a colour. */}
           {subject.working && <Dot state="ready" variant="presence" ground="popover" aria-hidden />}
         </span>
-        <span className="min-w-0 flex-1 pt-px">
+        <CardCrestBody>
           {/* The whole of a name that does not fit.
               A card is 288px wide beside a 16px tile, so a long name truncates
               here as well as in the row it was opened from — and the row's own
@@ -287,8 +331,8 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               {identity}
             </span>
           )}
-        </span>
-      </div>
+        </CardCrestBody>
+      </CardCrest>
 
       {agent && (
         <CardBand label="Agent">
@@ -416,7 +460,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           ))}
         </div>
       )}
-    </div>
+    </CardShell>
   )
 }
 AgentCard.displayName = 'AgentCard'

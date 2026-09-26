@@ -103,6 +103,9 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
     saveUnheldCeilings: vi.fn(async () => {}),
     loadUnattendedCeilings: vi.fn(async () => 'refuse'),
     setUnattendedCeilings: vi.fn(async () => {}),
+    // How long an unattended question waits: a machine setting on the same page.
+    loadQuestionWait: vi.fn(async () => '5m'),
+    setQuestionWait: vi.fn(async () => true),
     // The Library page's own Agent filter roster read.
     loadAgents: vi.fn(async () => {}),
   } as unknown as AppStore
@@ -365,6 +368,7 @@ it('ordinary Permissions navigation preserves its controls without writing ceili
   expect(document.activeElement).not.toBe(document.body.querySelector('section[aria-label="Ceilings"]'))
   expect(store.savePolicyRules).not.toHaveBeenCalled()
   expect(store.saveUnheldCeilings).not.toHaveBeenCalled()
+  expect(store.setQuestionWait).not.toHaveBeenCalled()
 })
 
 it('takes a typed name back on the first Escape, and closes the window on the second', async () => {
