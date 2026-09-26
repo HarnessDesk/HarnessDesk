@@ -1,6 +1,5 @@
 /* The sidebar owns only placement. Visible roles come from the design system. */
 .sidebar {
-  --rail: var(--hd-bar-pad);
   --panel-max: 320px;
   display: flex;
   flex-direction: column;
@@ -21,7 +20,6 @@
 .groupCount,
 .groupPin,
 .roomIcon,
-.seatFigure,
 .accountMeta {
   flex: none;
 }
@@ -329,7 +327,6 @@
 }
 
 .accountName,
-.seatText,
 .youText {
   flex: 1;
   min-width: 0;
@@ -345,26 +342,8 @@
   flex-direction: column;
 }
 
-/* A seat is one line: the name, and — only where two share it — the tag
-   that tells them apart. The tag keeps its width up to half the line; the
-   name gives way first. */
-.seatText {
-  align-items: baseline;
-  gap: var(--hd-space-1-5);
-}
-
-.seatName {
-  flex: 0 1 auto;
-}
-
-.seatTag {
-  flex: none;
-  max-width: 50%;
-}
-
 .accountLabel,
 .youLabel,
-.seatName,
 .usageLaneName {
   min-width: 0;
   overflow: hidden;

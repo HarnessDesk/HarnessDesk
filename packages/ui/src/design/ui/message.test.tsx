@@ -26,6 +26,25 @@ describe('Message', () => {
     expect(markup).toContain('data-slot="message"')
     expect(markup).toMatch(/class="[^"]*\bblock\b/)
   })
+
+  it('carries no rhythm of its own until asked, whichever side it aligns to', () => {
+    expect(messageVariants({ align: 'end' })).not.toMatch(/py-/)
+    expect(messageVariants({ align: 'start' })).not.toMatch(/py-/)
+  })
+
+  it('gives the transcript’s own rhythm — 12px above a sent message, 4px below; 6px each way for an answer', () => {
+    const sent = messageVariants({ align: 'end', rhythm: 'transcript' })
+    expect(sent).toContain('py-(--hd-space-3)')
+    expect(sent).toContain('pb-(--hd-space-1)')
+    const answer = messageVariants({ align: 'start', rhythm: 'transcript' })
+    expect(answer).toContain('py-(--hd-space-1-5)')
+    expect(answer).not.toContain('py-(--hd-space-3)')
+  })
+
+  it('stamps no data-rhythm without the option — align alone never implies it', () => {
+    const markup = renderToStaticMarkup(<Message align="end">hi</Message>)
+    expect(markup).not.toMatch(/py-\(--hd-space-3\)/)
+  })
 })
 
 describe('MessageFooter', () => {

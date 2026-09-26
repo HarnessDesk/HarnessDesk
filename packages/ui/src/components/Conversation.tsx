@@ -42,10 +42,12 @@ import {
   Bar,
   Button,
   Chip,
+  ComposerDock,
   ConversationEmptyState,
   Menu,
   MenuItem,
   MenuLabel,
+  PaneColumn,
   Popover,
   PopoverGroupLabel,
   PopoverOption,
@@ -59,7 +61,7 @@ import {
   Submenu,
   Text,
   ToolPaneHeaderDivider,
-  dotTone,
+  useComposerHeightVar,
   type Tone,
 } from '../design'
 import { Badge } from '../design'
@@ -87,17 +89,6 @@ import { PlanMeters } from './PlanMeters'
 import { WindowControls } from './WindowControls'
 import { SaveAsAgentDialog } from './SaveAsAgent'
 import styles from './Conversation.module.css'
-
-/** Scroll padding: top clears the notice banner, sides set the reading column's
- *  gutter (matching what the scrollbar-gutter reserves), bottom clears the
- *  floating composer. No shared scroll or column part owns this exact mix —
- *  the notice inset and the composer's own measured height are this pane's,
- *  and TeamRoomPane already zeroes the first rather than duplicate it. */
-const SCROLL_PADDING = 'calc(8px + var(--hd-notice-inset, 0px)) 24px calc(var(--composer-h, 150px) + 16px)'
-/** The strip above the composer, inset to the same gutter ComposerDock uses —
- *  but ComposerDock also carries its own bottom padding for the composer box
- *  it wraps, which this strip must not add above it, so it stays its own. */
-const BARS_PADDING = '0 calc(24px + var(--hd-scrollbar-width, 8px))'
 
 /** An empty-state title, in the page role at its own weight. */
 const EmptyTitle = ({ children }: { children: ReactNode }) => (
@@ -671,20 +662,11 @@ export const Conversation = ({
 
   // The transcript scrolls behind the floating composer; its measured height
   // becomes the scroll padding, so the last message always clears it — even
-  // as the textarea grows.
-  const dockArea = useRef<HTMLDivElement>(null)
+  // as the textarea grows. `useComposerHeightVar` owns the observing and the
+  // `--composer-h` custom property it flows through; this pane only wires
+  // the two refs to its own markup.
   const conversationRoot = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const dock = dockArea.current
-    const rootElement = conversationRoot.current
-    if (!dock || !rootElement) return
-    const apply = (): void =>
-      rootElement.style.setProperty('--composer-h', `${dock.offsetHeight}px`)
-    apply()
-    const observer = new ResizeObserver(apply)
-    observer.observe(dock)
-    return () => observer.disconnect()
-  }, [])
+  const dockArea = useComposerHeightVar(conversationRoot)
 
   const jumpToBottom = useCallback(() => {
     const element = scroll.current
@@ -724,14 +706,11 @@ export const Conversation = ({
         {session && (
           <Chip
             tone={STATUS_PILL_TONE[status]}
+            dotTone={STATUS_TONE[status]}
+            dotPulse={status === 'running'}
             className={`hd-no-drag${status === 'idle' ? ` ${styles.statusIdle}` : ''}`}
             title={STATUS_LABEL[status]}
           >
-            {/* The dot disagrees with the pill on purpose while running: Chip's
-                own rule has a dot borrow its chip's ink so the two never
-                disagree, which this one live indicator must do anyway, so it
-                draws its own mark instead of the shared Dot. */}
-            <span className={`${styles.statusDot} h-[7px] rounded-full ${dotTone({ tone: STATUS_TONE[status] })} ${status === 'running' ? 'animate-[hd-pulse_var(--hd-duration-pulse)_ease-in-out_infinite]' : ''}`} />
             {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
           </Chip>
         )}
@@ -795,7 +774,15 @@ export const Conversation = ({
             <Text role="prose" ink="muted">Loading transcript…</Text>
           </div>
         ) : session && items.length > 0 ? (
-          <div className={styles.scroll} ref={scroll} onScroll={onScroll} onClick={onScrollClick} data-live-transcript style={{ padding: SCROLL_PADDING }}>
+          <PaneColumn
+            inset="reading"
+            clearComposer
+            className={styles.scroll}
+            ref={scroll}
+            onScroll={onScroll}
+            onClick={onScrollClick}
+            data-live-transcript
+          >
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,
@@ -841,7 +828,7 @@ export const Conversation = ({
                 </div>
               )
             })}
-          </div>
+          </PaneColumn>
         ) : session && session.itemsLoaded && session.updatedAt > session.createdAt ? (
           // An existing conversation whose messages could not be restored —
           // an agent that keeps no serving store, with no host copy either.
@@ -854,7 +841,7 @@ export const Conversation = ({
           // there were none. Nothing failed — nothing has happened yet — so
           // the pitch below is the honest answer, and `updatedAt` moving past
           // `createdAt` is what separates the two.
-          <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
+          <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
             <ConversationEmptyState>
               <EmptyTitle>Nothing to show</EmptyTitle>
               <EmptyBody>
@@ -863,11 +850,11 @@ export const Conversation = ({
                 same session.
               </EmptyBody>
             </ConversationEmptyState>
-          </div>
+          </PaneColumn>
         ) : (
-          <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
+          <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
             <ConversationEmpty onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
-          </div>
+          </PaneColumn>
         )}
 
         {!pinned && items.length > 0 && (
@@ -884,10 +871,10 @@ export const Conversation = ({
         )}
       </div>
 
-      {/* The fade this pane sits on is its own: no other screen holds a
-          scrolling transcript under a floating dock, so there is nowhere
-          else this gradient belongs yet. */}
-      <div className={`${styles.dockArea} pt-(--hd-space-4) bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]`} ref={dockArea}>
+      {/* `ComposerDock`'s `floating` fade: no other pane holds a scrolling
+          transcript under a dock that floats over it — the room's own
+          composer sits in flow below its stream instead. */}
+      <ComposerDock floating className={styles.dockArea} ref={dockArea}>
         {/* Stacked by lifetime, shortest first: the jobs strip goes when this
             turn does, the queue happens after it. That order puts the thing
             you can act on nearest the composer and the transcript's own
@@ -895,11 +882,11 @@ export const Conversation = ({
             outlives the turn — are not a strip any more: they have a panel,
             summoned from the ⋯ menu, and the header wears a chip while any
             are listed. */}
-        <div className={styles.bars} style={{ padding: BARS_PADDING }}>
+        <PaneColumn inset="bars" className={styles.bars}>
           <JobsBar />
           <GoalBar />
           <MessageQueue />
-        </div>
+        </PaneColumn>
         {/* The composer, or the reason there is not one. A conversation whose
             folder has been deleted cannot be added to by anybody — so the box
             that implies it can is replaced by the note saying so, rather than
@@ -909,7 +896,7 @@ export const Conversation = ({
         ) : (
           <Composer onChooseProject={onChooseProject} />
         )}
-      </div>
+      </ComposerDock>
       {removingWorktree && worktree && (
         <RemoveWorktree worktree={worktree} onClose={() => setRemovingWorktree(false)} />
       )}

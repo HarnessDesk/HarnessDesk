@@ -1,19 +1,38 @@
-import type * as React from 'react'
+import { forwardRef, type ComponentProps } from 'react'
 
 import { CrossIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
 
-/** The reading-column inset that keeps the composer aligned with the transcript. */
-const ComposerDock = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div
-    data-slot="composer-dock"
-    className={cn(
-      'shrink-0 px-[calc(var(--hd-space-6)+var(--hd-scrollbar-width,8px))] pb-(--hd-space-5)',
-      className,
-    )}
-    {...props}
-  />
+/**
+ * The reading-column inset that keeps the composer aligned with the
+ * transcript — or, `floating`, the fade and top clearance the one pane whose
+ * composer sits over scrolling content (rather than in flow below it) needs
+ * above the whole dock, bars strip included.
+ *
+ * The two are mutually exclusive rather than additive: `floating` wraps the
+ * outer dock (`Conversation.tsx`, around its bars strip and its composer
+ * together), the default wraps the composer shell alone one level inside it
+ * (here, and directly in `TeamRoomPane.tsx`) — and either giving the outer
+ * wrapper the inner's own `px`/`pb` too, or the inner wrapper a second fade,
+ * would double an inset the other side already pays.
+ */
+const ComposerDock = forwardRef<HTMLDivElement, ComponentProps<'div'> & { floating?: boolean }>(
+  ({ className, floating = false, ...props }, ref) => (
+    <div
+      ref={ref}
+      data-slot="composer-dock"
+      className={cn(
+        'shrink-0',
+        floating
+          ? 'pt-(--hd-space-4) bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]'
+          : 'px-[calc(var(--hd-space-6)+var(--hd-scrollbar-width,8px))] pb-(--hd-space-5)',
+        className,
+      )}
+      {...props}
+    />
+  ),
 )
+ComposerDock.displayName = 'ComposerDock'
 
 /**
  * The box you type into, wherever you are typing.

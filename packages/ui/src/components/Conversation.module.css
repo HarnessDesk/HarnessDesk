@@ -40,15 +40,9 @@
 
 /* Chip (design/patterns/Settings) now owns the pill's own shape and ground;
    `.statusIdle` below is only the phone-width fold's hook for the idle pill,
-   which carries no fact worth a colour of its own. */
-
-.statusDot {
-  width: 7px;
-}
-
-/* The dot's shape and colour (height, border-radius, background) are
-   composed on the element via Tailwind — see the comment beside it in
-   Conversation.tsx for why it is not the shared Dot. */
+   which carries no fact worth a colour of its own. The dot itself is the
+   shared `Dot`, given its own tone through Chip's `dotTone` — see the status
+   pill above, in Conversation.tsx. */
 
 .tasksChip {
   flex: none;

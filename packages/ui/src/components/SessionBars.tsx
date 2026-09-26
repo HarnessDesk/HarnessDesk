@@ -1,4 +1,4 @@
-import { Alert, Button, ChangeStats, Chip, CodeText, FileState, Spinner, Text, type Tone } from '../design'
+import { Alert, Button, ChangeStats, Chip, CodeText, FileState, PaneColumn, Spinner, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import { allItems, currentTurn, type FileChangeItem, type Session } from '@harnessdesk/protocol'
@@ -126,10 +126,10 @@ export const JobsBar = () => {
   if (running.length === 0) return null
 
   return (
-    // The column inset matching the conversation's own — several screens
-    // repeat this max-width-and-pad shape with no shared owner yet; giving
-    // it one is a bigger, cross-file decision than this finding alone.
-    <div className={`${styles.jobs} px-(--hd-space-3)`}>
+    // `PaneColumn`'s own inset, one of the four screens that shared this
+    // shape with no owner before it — this strip's own value nested inside
+    // the transcript's already-inset bars.
+    <PaneColumn inset="jobs" className={styles.jobs}>
       <Text as="div" role="meta">
         {running.length === 1 ? '1 command' : `${running.length} commands`} running in this turn
       </Text>
@@ -143,7 +143,7 @@ export const JobsBar = () => {
           <Text role="meta" numeric className={styles.jobElapsed}>{elapsed(item.startedAt, now)}</Text>
         </div>
       ))}
-    </div>
+    </PaneColumn>
   )
 }
 

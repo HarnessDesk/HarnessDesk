@@ -250,8 +250,11 @@
 }
 
 /* Inside a chip the dot borrows the chip's own ink, so the two never disagree
-   about what state they are showing. */
-.chip .dot {
+   about what state they are showing — unless the dot was given a tone of its
+   own on purpose (`Chip`'s `dotTone`), where `Dot` already carries its colour
+   as a class (`dotTone`, `design/ui/tone.ts`) and this rule steps aside for
+   it rather than repeating the same tone-to-colour map a second time. */
+.chip .dot:not([data-tone]) {
   background: currentColor;
 }
 

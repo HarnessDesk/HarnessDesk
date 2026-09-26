@@ -88,9 +88,30 @@ test('one foundation perturbation reaches unrelated surfaces, portals, and adapt
   // default that is the one current row, its other accounts not yet open.
   const accounts = popup.getByRole('group', { name: 'Claude Code' })
   await expect(accounts.getByRole('menuitem')).toHaveCount(2)
-  const folded = popup.locator('[role="menuitem"][aria-current="true"]')
+  // Scoped to the group with no heading (Cursor, folded) rather than the
+  // whole popup: a current row elsewhere in the menu must not trip this, and
+  // a folded row that moved under a heading must not slip past it (#995).
+  // `[class*="_group_"]` is `MenuAccountGroup`'s own outer element — the same
+  // CSS-module substring convention e2e/ui-system already reads elsewhere
+  // (e.g. code-block.spec.ts's `[class*="_rowTitle_"]`).
+  const unheadedGroup = popup.locator('[class*="_group_"]:not([data-heading])')
+  await expect(unheadedGroup).toHaveCount(1)
+  const folded = unheadedGroup.locator('[role="menuitem"][aria-current="true"]')
   await expect(folded).toHaveCount(1)
   await expect(folded).toHaveAttribute('aria-expanded', 'false')
+  // #993/#995: the name tag — two rows share the name "dev", and the tag
+  // (each account's own domain) is what MenuAccountRow draws to tell them
+  // apart, exactly as `tagOf` in components/Sidebar.tsx would.
+  const antigravity = popup.getByRole('group', { name: 'Antigravity' })
+  await expect(antigravity.getByRole('menuitem')).toHaveCount(2)
+  await expect(antigravity.locator('[data-identity="dev@example.com · Pro"]')).toContainText('example.com')
+  await expect(antigravity.locator('[data-identity="dev@acme.dev · Pro"]')).toContainText('acme.dev')
+  // #993/#995: the readiness word — a listed account-less row whose one fact
+  // is what is wrong ("Unavailable") draws it in the figure slot as a word,
+  // in prose type, not as a numeric reading.
+  const word = popup.getByRole('menuitem', { name: 'DeepSeek Unavailable' })
+  await expect(word).toBeVisible()
+  await expect(word.locator('[data-slot="text"][data-role="meta"]', { hasText: 'Unavailable' })).toHaveCount(1)
   await expect.poll(() => page.getByRole('menuitem', { name: 'Open workspace' }).evaluate(node => {
     let opacity = 1
     for (let element: Element | null = node; element; element = element.parentElement) opacity *= Number(getComputedStyle(element).opacity)
