@@ -73,7 +73,7 @@ import {
   type ToolCallVerb,
 } from '../lib/group-items'
 import { editOf } from '../lib/handoff'
-import { findTodos, type Todo } from '../lib/todos'
+import { findTodos, planOf, type Todo } from '../lib/todos'
 import { readToolResult } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
@@ -963,6 +963,17 @@ const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
  * `readToolResult`'s job, kept free of rendering so it can be run straight
  * over stored transcripts. This function only decides how each kind draws.
  */
+/** Whether a result part draws anything at all, by the same rules `resultPartView` follows. */
+const resultPartDraws = (part: ToolResultContent): boolean => {
+  if (part.type === 'text') return part.text.trim() !== ''
+  if (part.type === 'image') return true
+  if (typeof part.value === 'string') return part.value.trim() !== ''
+  const reading = readToolResult(part.value)
+  if (reading.kind === 'output') return reading.text.trim() !== ''
+  if (reading.kind === 'blocks') return reading.blocks.some((block) => block.type === 'image' || block.text.trim() !== '')
+  return true
+}
+
 const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
   // Nothing to show draws nothing, in any of a result's shapes (see the
   // `{output}` case below).
@@ -1120,6 +1131,13 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const Icon = plans ? PlanIcon : VERB_ICON[verb]
   const readsInFull =
     detail?.kind === 'read' && record !== null && Object.keys(record).every((key) => PATH_KEYS.includes(key))
+  const argsShown = !(recordsCommand || readsInFull) && typeof item.args === 'object' && item.args !== null
+    && (Array.isArray(item.args) || Object.keys(item.args).length > 0)
+  const resultsShown = !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed')
+    && (item.result ?? []).some(resultPartDraws)
+  /* A step with nothing to show under it does not offer to open: an opened
+     card with an empty body reads as something that failed to load. */
+  const bodyEmpty = !wire && !item.error && !change && !command && !argsShown && !resultsShown
 
   return (
     <Row
@@ -1146,6 +1164,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
       bareBody={Boolean(change) || Boolean(command) || recordsCommand}
     >
+      {bodyEmpty ? null : (<>
       {/* A plain wrapper, not `Text` itself: `Text` owns `data-role` for its
           own role, so a second meaning of the attribute has to sit outside it. */}
       {wire && (
@@ -1178,10 +1197,14 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
             // argument is the file the title already names.
             <ArgsView args={item.args} root={root} />
           )}
+          {/* A plan write that went through already shows the plan it wrote;
+              the agent's echo of it ("Updated todo list: …") says it twice. */}
           {commandOutput === undefined &&
+            !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed') &&
             item.result?.map((part, index) => resultPartView(part, String(index)))}
         </>
       )}
+      </>)}
     </Row>
   )
 }

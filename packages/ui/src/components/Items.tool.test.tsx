@@ -89,6 +89,19 @@ const diffText = (): string[] =>
   [...container.querySelectorAll('td[class*="_code_"]')].map((cell) => cell.childNodes[1]?.textContent ?? '')
 
 describe('an opened tool step', () => {
+  it('does not offer to open a step with nothing under it', () => {
+    open(call({ tool: 'read', args: { file_path: '/workspace/README.md' }, result: [{ type: 'json', value: { output: '', isError: false } }] }))
+    expect(container.textContent).toContain('README.md')
+    expect(container.querySelector('button[aria-expanded]')).toBeNull()
+    expect(container.querySelector('[data-slot="list-row-detail"]')).toBeNull()
+  })
+
+  it("shows a plan write's plan, not the agent's echo of it", () => {
+    open(call({ tool: 'todo_write', args: { todos: [{ content: 'Read', status: 'completed' }] }, result: [{ type: 'text', text: 'Updated todo list: 0 pending, 0 in progress, 1 completed.' }] }))
+    expect(container.textContent).toContain('Read')
+    expect(container.textContent).not.toContain('Updated todo list')
+  })
+
   it('draws nothing for a result with nothing in it, in any shape', () => {
     open(call({ tool: 'README.md', args: { file_path: 'README.md' }, result: [{ type: 'json', value: { output: '', isError: false } }] }))
     expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(0)
