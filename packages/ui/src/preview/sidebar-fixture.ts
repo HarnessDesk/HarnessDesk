@@ -219,7 +219,20 @@ export const previewLedger = (days: number, groupBy: string): unknown => {
       daily.push({ day, runtime: CURSOR, cost: 3.2 * wobble, tokens: 320_000 * wobble })
     }
   }
-  const totalCost = daily.reduce((sum, entry) => sum + entry.cost, 0)
+  // The same "22 of 30 days scanned" the coverage sentence already claims,
+  // now given a real boundary the money chart's own "no record yet" hatch
+  // can draw against — the money band's tests before this fixture existed
+  // never needed one, because the old chart drew every day the same way.
+  // `daily` is cut to the same boundary: a report that only claims to have
+  // scanned the last 22 days cannot also carry priced rows from before
+  // that, on pain of the exact contradiction review #1011 caught — bars
+  // drawn hatched while the header total that should exclude them did not.
+  const scannedDays = Math.min(days, 22)
+  const earliestDay = new Date(start)
+  earliestDay.setDate(earliestDay.getDate() - (scannedDays - 1))
+  const covered = daily.filter((entry) => entry.day >= earliestDay.getTime())
+
+  const totalCost = covered.reduce((sum, entry) => sum + entry.cost, 0)
   const byKey = new Map<string, { label: string; runtime: RuntimeId | null; cost: number; tokens: number }>()
   const put = (key: string, label: string, runtime: RuntimeId | null, cost: number, tokens: number): void => {
     const row = byKey.get(key) ?? { label, runtime, cost: 0, tokens: 0 }
@@ -227,7 +240,7 @@ export const previewLedger = (days: number, groupBy: string): unknown => {
     row.tokens += tokens
     byKey.set(key, row)
   }
-  for (const entry of daily) {
+  for (const entry of covered) {
     if (groupBy === 'runtime') put(String(entry.runtime), String(entry.runtime), entry.runtime, entry.cost, entry.tokens)
     else if (groupBy === 'model') {
       const model = entry.runtime === CODEX ? 'gpt-5.6-sol' : entry.runtime === CLAUDE ? 'claude-opus-5' : 'composer-2'
@@ -241,13 +254,21 @@ export const previewLedger = (days: number, groupBy: string): unknown => {
     days,
     currency: 'USD',
     totalCost,
-    totalTokens: daily.reduce((sum, entry) => sum + entry.tokens, 0),
+    totalTokens: covered.reduce((sum, entry) => sum + entry.tokens, 0),
     provenance: 'mixed',
-    coverage: { priced: 30_052, unpriced: 44, unmetered: 0, estimated: 0, daysCovered: Math.min(days, 22), daysRequested: days },
+    coverage: {
+      priced: 30_052,
+      unpriced: 44,
+      unmetered: 0,
+      estimated: 0,
+      daysCovered: scannedDays,
+      daysRequested: days,
+      earliestDay: earliestDay.getTime(),
+    },
     rows: [...byKey.entries()]
       .map(([key, row]) => ({ key, ...row, hasUnpriced: key.includes('composer') }))
       .sort((a, b) => b.cost - a.cost),
-    daily,
+    daily: covered,
     scannedAt: Date.now() - 20 * 60_000,
   }
 }
