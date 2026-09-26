@@ -9,7 +9,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **The account menu says less.** Every account is one line — its name and
   what is left — with the address and plan on hover rather than under every
-  name. Agents still waiting for a sign-in step behind **Add an account…**
+  name. An agent with several accounts shows its mark once, as a heading
+  with its accounts under it. Agents still waiting for a sign-in step behind **Add an account…**
   instead of filling the list, the **Local** tag on your profile is gone
   (every profile is local), and **Usage remaining** no longer takes a row to
   say "—" when nothing is metered. The current account is marked by its

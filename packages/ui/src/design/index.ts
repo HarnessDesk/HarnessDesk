@@ -135,6 +135,7 @@ export {
   ContextMenu,
   Menu,
   MenuItem,
+  MenuGroup,
   MenuLabel,
   MenuNote,
   MenuSeparator,

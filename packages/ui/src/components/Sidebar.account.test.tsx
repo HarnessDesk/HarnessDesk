@@ -50,6 +50,18 @@ const runtime = (id: string, name: string, brand: string): RuntimeInfo =>
   }) as unknown as RuntimeInfo
 
 const codex = runtime(CODEX, 'OpenAI Codex', 'codex')
+
+/** Another account of an agent: a runtime of its own, keyed to the agent. */
+const slotOf = (
+  agent: RuntimeInfo,
+  id: string,
+  gateway?: { name: string; endpoint: string },
+): RuntimeInfo =>
+  ({
+    ...agent,
+    id: runtimeId(id),
+    slot: { agent: agent.id, home: null, removable: true, canAdd: true, ...(gateway ? { gateway } : {}) },
+  }) as unknown as RuntimeInfo
 const claude = runtime(CLAUDE, 'Claude Code', 'claude')
 
 const signedIn = (label: string): AccountStatus => ({
@@ -124,7 +136,7 @@ const row = (): HTMLButtonElement => {
 }
 
 /** A seat's identity lives on its name's tooltip, not in its text. */
-const identityOf = (item: Element): string | null | undefined => item.querySelector('[title]')?.getAttribute('title')
+const identityOf = (item: Element): string | null | undefined => item.querySelector('[data-identity]')?.getAttribute('data-identity')
 
 const seatNamed = (identity: string): Element | undefined =>
   [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')].find((item) => identityOf(item) === identity)
@@ -679,7 +691,7 @@ it('marks the default by its filled row, not a tick, so every figure ends at the
 })
 
 it('tells two addresses with one local part on one agent apart by their domains', () => {
-  const second = runtime(runtimeId('codex-2'), 'OpenAI Codex', 'codex')
+  const second = slotOf(codex, 'codex-2')
   mount({
     runtimes: [codex, second, claude],
     accountsByRuntime: {
@@ -694,7 +706,20 @@ it('tells two addresses with one local part on one agent apart by their domains'
   if (!current) throw new Error('no current seat')
   click(current)
   const seats = [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')]
-  expect(seats.map((seat) => seat.textContent?.trim())).toEqual(['janeexample.com', 'janeacme.dev', 'Shane-Claude'])
+  // One heading for the agent, its two accounts under it, told apart by domain.
+  const group = document.querySelector('[role="group"][aria-label="OpenAI Codex"]')
+  expect(group).not.toBeNull()
+  expect([...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())).toEqual([
+    'janeexample.com',
+    'janeacme.dev',
+  ])
+  // Under the heading an account wears no mark of its own; the heading does.
+  expect(group?.querySelectorAll('[role="menuitem"] .brand-codex').length).toBe(0)
+  expect(group?.querySelectorAll('.brand-codex').length).toBe(1)
+  // An agent with one account is still one row, wearing its mark.
+  const claudeRow = seats.find((seat) => seat.textContent?.includes('Shane-Claude'))
+  expect(claudeRow?.closest('[role="group"]')).toBeNull()
+  expect(claudeRow?.querySelector('.brand-claude')).not.toBeNull()
 })
 
 it('says what is wrong with a seat that has no figure, in the figure’s place', () => {
@@ -719,4 +744,71 @@ it('keeps an agent that has not answered yet, without calling it signed out', ()
   )
   expect(codexSeat).toBeDefined()
   expect(codexSeat?.textContent).not.toContain('Needs sign-in')
+})
+
+const openPicker = (): Element[] => {
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  click(current)
+  return [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')]
+}
+
+it('keeps a mixed group apart: the agent with two accounts under its heading, the other on its own line', () => {
+  const second = slotOf(codex, 'codex-2')
+  mount({
+    runtimes: [codex, second, claude],
+    accountsByRuntime: {
+      [CODEX]: signedIn('jane@example.com'),
+      [second.id]: signedIn('jane@acme.dev'),
+      [CLAUDE]: signedIn('jane@example.com'),
+    },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [second.id]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
+    accountPrefs: {},
+  })
+  const seats = openPicker()
+  expect(seats.map((seat) => seat.textContent?.trim())).toEqual(['janeexample.com', 'janeacme.dev', 'jane'])
+})
+
+it('calls an account known only by its agent’s name after its gateway, under the heading', () => {
+  const proxy = slotOf(codex, 'codex-2', { name: 'Team proxy', endpoint: 'https://proxy.acme.dev' })
+  mount({
+    runtimes: [codex, proxy, claude],
+    accountsByRuntime: {
+      [CODEX]: signedIn('jane@example.com'),
+      [proxy.id]: { accounts: [{ kind: 'apiKey', label: 'API key', anonymous: true }], signInMethods: [] },
+      [CLAUDE]: signedIn('olivia@acme.dev'),
+    },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [proxy.id]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
+  })
+  const group = (openPicker(), document.querySelector('[role="group"][aria-label="OpenAI Codex"]'))
+  const names = [...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())
+  expect(names).toEqual(['jane', 'Team proxy'])
+})
+
+it('never tags a row with its own name again', () => {
+  const cursor = runtime(runtimeId('cursor'), 'Cursor', 'cursor')
+  const second = slotOf(cursor, 'cursor-2')
+  mount({
+    runtimes: [codex, claude, cursor, second],
+    accountsByRuntime: {
+      [CODEX]: signedIn('shane@example.com'),
+      [CLAUDE]: signedIn('olivia@acme.dev'),
+      [cursor.id]: signedIn('Jane-Cursor'),
+      [second.id]: signedIn('Jane-Cursor'),
+    },
+    healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' }, [cursor.id]: { state: 'ready' }, [second.id]: { state: 'ready' } },
+  })
+  openPicker()
+  const group = document.querySelector('[role="group"][aria-label="Cursor"]')
+  const names = [...(group?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())
+  expect(names).toEqual(['Jane-Cursor', 'Jane-Cursor'])
+})
+
+it('does not call an agent that has not answered signed out — not on its line, its tooltip, or its mark', () => {
+  mount({ accountsByRuntime: { [CLAUDE]: signedIn('olivia@acme.dev') } })
+  const codexSeat = openPicker().find((item) => item.textContent?.includes('OpenAI Codex'))
+  expect(codexSeat).toBeDefined()
+  expect(codexSeat && identityOf(codexSeat)).toBe('OpenAI Codex')
+  expect(codexSeat?.querySelector('[data-off]')).toBeNull()
 })

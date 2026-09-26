@@ -257,9 +257,13 @@ The menu behind the row opens on you, and pressing that row opens your
 profile. Then comes switching: **Run new sessions as** lists every account of
 every agent, one line each — its name, and the same figure the header strip
 shows — and the default is the filled row. The address and plan behind a name
-are on the name's tooltip and on the mark's card. Where two accounts share a
-name, a second word on the line tells them apart: the agent, when the agents
-differ, or else the address's domain. An agent that has answered that nobody
+are on the name's tooltip and on the mark's card. An agent with more than one
+account is a heading — its mark and its name, not a choice — with its
+accounts under it, each one line on the heading's name column; an account
+known only by the agent's name is called by its gateway instead. Where two
+accounts share a name, a second word on the line tells them apart: the agent,
+between two agents' single rows, or the address's domain under one heading.
+An agent that has answered that nobody
 is signed in is not listed (choosing it would start nothing) unless it is the
 default; it waits behind **Add an account**, whose chooser is where signing
 in happens. The menu-bar item still lists it, because there the row is itself

@@ -86,6 +86,27 @@
   padding: var(--hd-space-1-5) var(--hd-space-2);
 }
 
+/* A group's heading sits where an account row's contents do — the row's
+   inset, a 22px mark, the gap — with no box or ground of its own, because it
+   is not a choice. The rows under it step in by the mark and the gap, so
+   their names start on the heading's name and their fill says they belong
+   to it. */
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2-5);
+  margin: var(--hd-space-1-5) var(--hd-space-2);
+}
+
+.groupLabel {
+  min-width: 0;
+}
+
+.group > .row[data-layout='account'] {
+  margin-left: var(--hd-space-8);
+  width: calc(100% - var(--hd-space-8));
+}
+
 .row:hover,
 .row:focus-visible,
 .row[data-open],

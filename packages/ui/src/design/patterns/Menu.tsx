@@ -27,6 +27,7 @@ import {
 } from '../ui/dropdown-menu'
 import { SwitchShape } from '../ui/switch'
 import { useDismissOverlays } from './Popover'
+import { Text } from './Settings'
 
 import styles from './Menu.module.css'
 
@@ -209,6 +210,23 @@ export const MenuNote = ({ children }: { children: ReactNode }) => (
 
 export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => (
   <div className={styles.label} data-size={size}>{children}</div>
+)
+
+/**
+ * Several accounts of one owner, under one heading. The heading wears the
+ * owner's mark once and names it; it is not a choice, so it takes no hover
+ * and no press, and assistive tech hears it as the group's name. The
+ * `account` rows inside sit on the heading's name column and leave their own
+ * mark out — the heading already said whose they are.
+ */
+export const MenuGroup = ({ label, mark, children }: { label: string; mark: ReactNode; children: ReactNode }) => (
+  <div className={styles.group} role="group" aria-label={label}>
+    <div className={styles.groupHead} aria-hidden="true">
+      {mark}
+      <Text role="muted" truncate className={styles.groupLabel}>{label}</Text>
+    </div>
+    {children}
+  </div>
 )
 
 export const MenuSeparator = () => <div className={styles.separator} role="separator" />
