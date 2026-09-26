@@ -53,6 +53,38 @@ export const shouldRenderMap = ({
 
 const trim = (text: string): string => text.replace(/\s+/gu, ' ').trim()
 
+/**
+ * A message's markdown, gone — what is left is what the words say, not how
+ * they are marked up.
+ *
+ * A hover preview is scanned, not rendered, so the punctuation a renderer
+ * would have turned into emphasis is just noise here: `**caution**` reads as
+ * a title missing its warning, not as one. The input has already had its
+ * whitespace collapsed to one line (see `trim` above), so only a marker at
+ * the very front — a heading, a list item, a quote — is unambiguous; one
+ * further in used to sit at the start of its own line and cannot be told
+ * from a hyphen or a digit in running prose anymore.
+ *
+ * It stops at bold, code and link syntax and does not touch a lone `*` or
+ * `_`, for the reason `firstSentence` in `group-items.ts` gives: stripping
+ * either turns `run_tests` into `runtests` and a glob like
+ * `packages/**\/*.css` into `packages/*\/.css`, because the marker opens
+ * inside one word and closes inside another. A stray asterisk left in a
+ * preview costs a character; a corrupted path costs the reader the thing the
+ * preview was for.
+ */
+export const stripMarkdown = (text: string): string =>
+  text
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^(?:>|[-*+]|\d+[.)])\s+/, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/`([^`]+?)`/g, '$1')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+
 const promptText = (turn: Turn): string => {
   for (const item of turn.items) {
     if (item.type !== 'userMessage') continue
@@ -61,7 +93,7 @@ const promptText = (turn: Turn): string => {
       .filter(Boolean)
       .join(' ')
     const said = trim(words)
-    if (said) return said.slice(0, PREVIEW_MAX)
+    if (said) return stripMarkdown(said).slice(0, PREVIEW_MAX)
   }
   return ''
 }
@@ -74,7 +106,7 @@ const answerText = (turn: Turn): string => {
     if (words) said.push(words)
     if (said.join(' ').length >= PREVIEW_MAX) break
   }
-  return said.join(' ').slice(0, PREVIEW_MAX)
+  return stripMarkdown(said.join(' ')).slice(0, PREVIEW_MAX)
 }
 
 /**

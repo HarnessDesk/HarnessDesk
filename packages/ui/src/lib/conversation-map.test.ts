@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Turn } from '@harnessdesk/protocol'
 
-import { buildMarks, PREVIEW_MAX, RAIL_HYSTERESIS, railFit, shouldRenderMap } from './conversation-map'
+import { buildMarks, PREVIEW_MAX, RAIL_HYSTERESIS, railFit, shouldRenderMap, stripMarkdown } from './conversation-map'
 
 const turn = (id: string, items: Turn['items']): Turn =>
   ({ id, items, startedAt: 0 }) as unknown as Turn
@@ -47,6 +47,11 @@ describe('the conversation map', () => {
     expect(marks[0]?.preview).toBe('two lines')
   })
 
+  it('previews plain words, not the markdown that produced them', () => {
+    const marks = buildMarks([turn('t1', [asked('**caution**: run `npm test` first')])])
+    expect(marks[0]?.preview).toBe('caution: run npm test first')
+  })
+
   it('cuts a long message to the length a card can hold', () => {
     const long = 'x'.repeat(PREVIEW_MAX * 2)
     const marks = buildMarks([turn('t1', [asked(long), said(long)])])
@@ -65,6 +70,38 @@ describe('the conversation map', () => {
     expect(shouldRenderMap({ marks: 1, overflows: true })).toBe(false)
     // A transcript on one screen has nothing to navigate.
     expect(shouldRenderMap({ marks: 9, overflows: false })).toBe(false)
+  })
+})
+
+describe('stripMarkdown', () => {
+  it('drops a heading or list marker at the very front', () => {
+    expect(stripMarkdown('# Title')).toBe('Title')
+    expect(stripMarkdown('- first step')).toBe('first step')
+    expect(stripMarkdown('1. first step')).toBe('first step')
+    expect(stripMarkdown('> a quote')).toBe('a quote')
+  })
+
+  it('unwraps bold, strikethrough and code, keeping only the words', () => {
+    expect(stripMarkdown('this is **important**')).toBe('this is important')
+    expect(stripMarkdown('this is __important__')).toBe('this is important')
+    expect(stripMarkdown('~~old~~ new')).toBe('old new')
+    expect(stripMarkdown('run `pnpm test` now')).toBe('run pnpm test now')
+  })
+
+  it('keeps a link\'s words and drops its target', () => {
+    expect(stripMarkdown('see [the retry logic](./retry.ts) for it')).toBe('see the retry logic for it')
+    expect(stripMarkdown('![a diagram](./diagram.png)')).toBe('a diagram')
+  })
+
+  it('leaves a lone * or _ alone, so a glob or an identifier survives', () => {
+    // The same trade `firstSentence` in group-items.ts makes: stripping a
+    // single marker cannot tell "emphasis" from a name that just contains one.
+    expect(stripMarkdown('run_tests failed')).toBe('run_tests failed')
+    expect(stripMarkdown('packages/**/*.css matched')).toBe('packages/**/*.css matched')
+  })
+
+  it('is idempotent on text with no markdown at all', () => {
+    expect(stripMarkdown('why does checkout retry')).toBe('why does checkout retry')
   })
 })
 
