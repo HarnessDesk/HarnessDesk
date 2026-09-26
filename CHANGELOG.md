@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A signed-out agent's mark looks empty.** The seat's badge and the menu's
+  mark for an agent with no one signed in were meant to read as an empty seat
+  and never did; they now draw a dashed ring with no plate and a quieter
+  glyph, so an agent that cannot start a turn no longer looks like one that
+  can.
+
 - **A standing notice stays in its own pane.** The floating banner stack (a
   Library import offer, an account warning) used to span the whole workbench,
   so it could sit squarely over a room's Board row, cut through the top of

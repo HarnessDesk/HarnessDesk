@@ -1355,6 +1355,20 @@
   box-shadow: inset 0 0 0 1.5px var(--hd-tint-rose-edge);
 }
 
+/* An agent with no one signed in: the seat is there and empty. No plate and
+   a dashed ring — the drawing of an empty slot — with the glyph in the
+   quietest ink, so a mark that cannot start a turn never reads like one that
+   can. A shape and an ink rather than an opacity: the agents' glyphs draw in
+   currentColor, and an opacity would mix the mark into whatever it sits on.
+   Last, so it wins over a tint. */
+.avatar[data-off] {
+  background: transparent;
+  color: var(--hd-muted-foreground);
+  box-shadow: none;
+  outline: var(--hd-border-width) dashed var(--hd-border-strong);
+  outline-offset: calc(-1 * var(--hd-border-width));
+}
+
 .avatarLg {
   width: 44px;
   height: 44px;

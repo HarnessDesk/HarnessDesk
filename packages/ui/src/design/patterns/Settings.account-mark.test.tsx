@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { AccountMark } from './Settings'
+import css from './Settings.module.css?raw'
 
 /**
  * An account's mark. Pinned: drawn as a control — one ring of a picker — it
@@ -47,4 +48,17 @@ it('leaves a mark that is not a control as the plate alone', () => {
   const mark = render(<AccountMark>A</AccountMark>)
   expect(mark.tagName).toBe('SPAN')
   expect(getComputedStyle(mark).cursor).not.toBe('pointer')
+})
+
+it('draws a signed-out mark as an empty seat: no plate, a dashed ring, the quietest ink', () => {
+  const rule = css.match(/\.avatar\[data-off\]\s*\{([^}]*)\}/)?.[1] ?? ''
+  expect(rule).toMatch(/background:\s*transparent/)
+  expect(rule).toMatch(/color:\s*var\(--hd-muted-foreground\)/)
+  expect(rule).toMatch(/box-shadow:\s*none/)
+  expect(rule).toMatch(/outline:\s*var\(--hd-border-width\) dashed var\(--hd-border-strong\)/)
+  // After every tint, so an off mark never keeps an account's colour.
+  expect(css.lastIndexOf('.avatar[data-off]')).toBeGreaterThan(css.lastIndexOf('.avatar[data-tint='))
+  // And the attribute reaches the element.
+  const mark = render(<AccountMark data-off="">A</AccountMark>)
+  expect(mark.hasAttribute('data-off')).toBe(true)
 })
