@@ -59,8 +59,11 @@ test('UC2 keeps two lanes and carries the chosen revision', async (t) => {
   const rig = await goalRig(t)
   rig.providers.set('alpha', 'vendor-x')
   rig.providers.set('beta', 'vendor-y')
-  rig.heads.set('/repo/.lanes/1', { at: 'sha-attempt-1', dirty: false })
-  rig.heads.set('/repo/.lanes/2', { at: 'sha-attempt-2', dirty: false })
+  // Full commit ids: a review's revision is read back only when it is one.
+  const ATTEMPT_1 = '1'.repeat(40)
+  const ATTEMPT_2 = '2'.repeat(40)
+  rig.heads.set('/repo/.lanes/1', { at: ATTEMPT_1, dirty: false })
+  rig.heads.set('/repo/.lanes/2', { at: ATTEMPT_2, dirty: false })
 
   const run = await rig.start(UC2_FLOW, [agent('implementer', ['done'], 'alpha'), JUDGE_PRODUCES_REVIEW('judge', 'beta')])
   await rig.flows.flush()
@@ -88,11 +91,11 @@ test('UC2 keeps two lanes and carries the chosen revision', async (t) => {
   const judgeSession = judgeSeat.session
   const candidates = await rig.review.candidates(judgeCard.id, judgeSession)
   assert.equal(candidates.length, 2, 'both lanes offered, from their own predecessor subjects — not the judge’s own seat')
-  assert.deepEqual(candidates.map((one) => one.at).sort(), ['sha-attempt-1', 'sha-attempt-2'])
-  const picked = candidates.find((one) => one.at === 'sha-attempt-1')!
+  assert.deepEqual(candidates.map((one) => one.at).sort(), [ATTEMPT_1, ATTEMPT_2])
+  const picked = candidates.find((one) => one.at === ATTEMPT_1)!
   const record = await rig.review.record({ intent: judgeCard.id, candidate: picked.id, verdict: 'picked' }, judgeSession)
   assert.equal(record.fact.kind, 'review')
-  assert.equal(record.fact.kind === 'review' ? record.fact.at : null, 'sha-attempt-1')
+  assert.equal(record.fact.kind === 'review' ? record.fact.at : null, ATTEMPT_1)
   await rig.team.complete(judgeCard.id, { outcome: 'picked' }, judgeSession)
   await rig.flows.flush()
 

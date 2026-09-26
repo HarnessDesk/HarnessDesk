@@ -7,6 +7,23 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A review's `against` can no longer wedge a Goal's findings ledger forever.**
+  `record_review` used to accept any string in `against`, but the ledger's own
+  reader has always required each one to be a full commit id — so a candidate
+  id passed in by mistake produced a line the reader would silently skip on
+  every read, and the Findings tab and the Wrap dialog said "some evidence
+  records could not be read" with no way to tell which one or fix it.
+  Recording a review now refuses a bad `against` entry immediately, naming
+  its position and pointing at `git rev-parse` to get a real one, with the
+  exact rule the reader already enforces — an id copied upper case, or from a
+  SHA-256 repository, is accepted and stored the way the reader reads it; the
+  whole finished record is also checked against that same reader before it is
+  ever written, so no other field can drift either. And when an older,
+  already-unreadable line's card can still be told apart, the ledger notice
+  now says how many lines it is and which card's review to redo — always that
+  Goal's own card, never another Goal's whose card numbers happen to collide,
+  and never more than three named before it says how many more.
+
 - **A mixed race no longer stalls before the judge, and a race started from
   the generic Flow-start seeds two competitors, like `/race` always has.**
   In `comparison` (race and judge), the one rule that opened the judge round

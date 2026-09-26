@@ -908,7 +908,7 @@ test('a fan-out reviewer recording request-changes is accepted, and the run stop
 
 test('a fan-out reviewer’s request-changes is accepted through record_review as well, and still stops the run for a person', async (t) => {
   const rig = await goalRig(t)
-  rig.heads.set('/repo', { at: 'sha-build', dirty: false })
+  rig.heads.set('/repo', { at: 'b'.repeat(40), dirty: false })
   const run = await rig.start(FAN_OUT, FAN_OUT_AGENTS)
   await rig.flows.flush()
   await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
