@@ -939,6 +939,17 @@
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
 }
 
+/* A description turns the row's one line into two, and centring on the whole
+   box then centres the mark and the control on the gap between the lines
+   rather than on the title — the shadcn Card anatomy this row otherwise
+   follows keeps `CardAction`/`ItemActions` pinned to the top instead
+   (`self-start`) exactly for this reason. Without a description the row
+   still centres on its single line, which is already the title's line, so
+   nothing here changes it. */
+.row:has(.rowDesc) {
+  align-items: flex-start;
+}
+
 .row:last-child {
   border-bottom: none;
 }
@@ -1153,6 +1164,15 @@
   background: var(--hd-muted);
   color: var(--hd-secondary-foreground);
   box-shadow: inset 0 0 0 1px var(--hd-border);
+}
+
+/* The tile is taller than the title's own line, so once the row is pinned to
+   its top edge (above) the tile is pulled back up by half of what it is
+   bigger than that line — its own centre lands on the title's, the way
+   shadcn's `ItemMedia` nudges a lead onto a description block's first line
+   instead of the block's middle. */
+.row:has(.rowDesc) .rowMark {
+  margin-top: calc((var(--hd-line-sm) - 34px) / 2);
 }
 
 .rowChev {
@@ -1502,6 +1522,12 @@
   place-items: center;
   width: 16px;
   color: var(--hd-accent);
+}
+
+/* Onto the title's line for the same reason `.rowMark` is (above): a 16px
+   glyph is smaller than the line, so it drops rather than lifts. */
+.row:has(.rowDesc) .choiceMark {
+  margin-top: calc((var(--hd-line-sm) - 16px) / 2);
 }
 
 /* An empty row is a sentence about the card, not one more item in it: its
