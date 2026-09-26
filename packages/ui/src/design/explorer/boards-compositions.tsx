@@ -142,6 +142,7 @@ import {
   SummaryItem,
   SummaryList,
 } from '../ui'
+import { ConversationEmptyState } from '../patterns/ConversationEmptyState'
 import {
   Counts,
   GroupLine,
@@ -162,7 +163,7 @@ import {
   WorkbenchRail,
   WorkbenchScrim,
 } from '../patterns/DockPanel'
-import { CodeText, Row, Rows, SectionHead, Text } from '../patterns/Settings'
+import { CodeText, Row, Rows, SectionHead, Spinner, Text } from '../patterns/Settings'
 import { HeatGrid, HeatLegend, type HeatGridRow } from '../ui/heat-grid'
 import {
   agentLevels,
@@ -995,6 +996,25 @@ const EmptyBoard = () => (
             description="Search covers the name, the opening message and the folder."
           />
         </Rows>
+      </div>
+      {/* The conversation pane's own two shapes, exactly as Conversation.tsx
+          mounts them: a title over a sentence, and the loading row. */}
+      <div className="flex flex-col gap-1">
+        <Text role="meta">conversation pane — a column, and the loading row</Text>
+        <div className="flex h-48 rounded-(--hd-radius-lg) border border-(--hd-border)">
+          <ConversationEmptyState data-catalog-variant="column">
+            <Text as="div" role="page" weight="medium">What should we build?</Text>
+            <Text as="p" role="prose" className="m-0">
+              Describe what you want done in harnessdesk.
+            </Text>
+          </ConversationEmptyState>
+        </div>
+        <div className="flex h-32 rounded-(--hd-radius-lg) border border-(--hd-border)">
+          <ConversationEmptyState row data-catalog-variant="row">
+            <Spinner size="sm" tone="brand" />
+            <Text role="prose" ink="muted">Loading transcript…</Text>
+          </ConversationEmptyState>
+        </div>
       </div>
     </div>
     <Rule>
