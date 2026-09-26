@@ -223,7 +223,7 @@ import {
   type Zoom,
 } from './workbench'
 import { defaultArea, permits } from '../panels/views'
-import { applyLoginCompleted, startedLogin, type LoginState } from './login'
+import { applyLoginAwaitsCode, applyLoginCompleted, startedLogin, type LoginState } from './login'
 import { readCustomPresets, type AgentPreset } from './presets'
 import { Transport, transportUrl } from '../lib/transport'
 
@@ -1414,6 +1414,25 @@ export class AppStore {
     await this.transport
       .request('runtime/login/cancel', { runtime, loginId: pending.start.loginId })
       .catch(() => {})
+  }
+
+  /**
+   * Hands the sign-in in progress the code its browser page showed. The code
+   * is a secret, and passes through here without being kept: not in the
+   * snapshot, not in a notice. True once it reached the agent; whether it was
+   * right arrives as the flow's `account/loginCompleted`.
+   */
+  async submitLoginCode(runtime: RuntimeId, code: string): Promise<boolean> {
+    const pending = this.#snapshot.logins[runtime]
+    if (!pending || pending.outcome.type !== 'pending') return false
+    try {
+      await this.transport.request('runtime/login/code', { runtime, loginId: pending.start.loginId, code })
+      return true
+    } catch (error) {
+      // The host's refusal is a sentence about the code, never the code.
+      this.notice('error', describe(error))
+      return false
+    }
   }
 
   /** Clears a settled sign-in from view. Use `cancelLogin` for one still pending. */
@@ -6301,6 +6320,12 @@ export class AppStore {
         void this.loadAccounts()
         void this.refreshRuntime()
       }
+      return
+    }
+    if (event.type === 'account/loginAwaitsCode') {
+      const current = this.#snapshot.logins[event.runtime] ?? null
+      const login = applyLoginAwaitsCode(current, event)
+      if (login !== current) this.#setLogin(event.runtime, login)
       return
     }
     if (event.type === 'account/changed') {

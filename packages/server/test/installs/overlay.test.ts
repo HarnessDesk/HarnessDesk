@@ -128,3 +128,16 @@ test('a row the desk knows gets a reader for which vendor its models come from; 
   const stranger = knowledgeOverlay({ id: 'someone-else', name: 'Someone', command: 'someone' }, undefined, { env: {} })
   assert.equal(stranger.resolveProvider, undefined)
 })
+
+test("a Claude row's sign-in declares the prompt its command prints when it wants a pasted code", () => {
+  /* `claude auth login` prints its link, then `Paste code here if prompted > `,
+     and reads its input for the code a browser page shows when it cannot
+     reach the command's own callback (read from 2.1.258's source). The
+     prompt is declared on the row, not recognised by the adapter, so the
+     adapter keeps no agent's words of its own. */
+  const overlay = knowledgeOverlay({ id: 'claude-code', name: 'Claude Code', command: 'claude-acp' }, knownAgent('claude-code'))
+  assert.equal(overlay.account?.login?.pasteCode, 'Paste code here if prompted')
+  assert.deepEqual(overlay.account?.login?.args, ['auth', 'login'])
+  // A row that declares no prompt keeps its command's input closed.
+  assert.equal(knownAgent('cursor')?.auth.login?.pasteCode, undefined)
+})

@@ -1661,6 +1661,16 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /**
+   * The code a sign-in command asked to have pasted. ACP's own `authenticate`
+   * takes no input once sent, so only a flow the account commands started can
+   * take one — and only when its login spec declared the prompt.
+   */
+  async submitLoginCode(loginId: string, code: string): Promise<void> {
+    if (this.#acpLogins.has(loginId) || !this.#account) throw new Error('This sign-in does not take a pasted code.')
+    await this.#account.submitCode(loginId, code)
+  }
+
+  /**
    * Whether the agent answers ACP's own `logout`, which it says by putting
    * an `auth.logout` key in its capabilities. The one sign-out this adapter
    * can do without a CLI, and for Antigravity the only one there is: its

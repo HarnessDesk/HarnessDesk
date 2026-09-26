@@ -513,6 +513,7 @@ export const PRODUCT_SURFACES = [
   ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/panels/Workbench.tsx', false, 'packages/ui/src/app/App.tsx', 'PanelsSurface'],
   ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx', true],
   ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/components/BrowserPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ToolsSurface'],
+  ['surface.signin', 'signin', 'Sign-in waiting for a pasted code', 'packages/ui/src/components/SignIn.tsx', false, 'packages/ui/src/app/App.tsx', 'SignInSurface'],
 ] as const
 
 export const CATALOG_ENTRIES: readonly CatalogEntry[] = [

@@ -1065,6 +1065,70 @@ const SignOut = ({ runtime, lead }: { runtime: RuntimeId; lead?: ReactNode }) =>
 }
 
 /**
+ * The code a sign-in asked to have pasted into it.
+ *
+ * Some agents' sign-in commands take the result of the browser page two ways:
+ * the page hands it back by itself, or — when it cannot reach the command —
+ * shows a code and the command waits on its input for it. The desk runs the
+ * command in the background, so that input is this field. Offered from the
+ * moment the command asks, because the page decides which way it goes, and
+ * only the person looking at it knows.
+ *
+ * The code is a secret: a password field, never in the store, gone from this
+ * field the moment it is sent, whichever way the sending went.
+ */
+const PasteCode = ({ runtime, actions }: { runtime: RuntimeId; actions: ReactNode }) => {
+  const store = useStore()
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  const send = async (): Promise<void> => {
+    const code = value.trim()
+    if (!code || busy) return
+    setBusy(true)
+    setValue('')
+    const ok = await store.submitLoginCode(runtime, code)
+    setBusy(false)
+    setSent(ok)
+  }
+
+  return (
+    <div className={own.stack} data-slot="sign-in-paste-code">
+      <Field
+        label="Paste the authentication code"
+        hint={sent
+          ? 'Sent. This window updates once the agent accepts it.'
+          : 'From the browser page that just opened, if it shows one.'}
+      >
+        {(control) => (
+          <Input
+            {...control}
+            type="password"
+            variant="code"
+            value={value}
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="Authentication code"
+            onChange={(event) => setValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void send()
+            }}
+          />
+        )}
+      </Field>
+      <div className={own.row}>
+        <Button variant="default" className={own.grow} disabled={!value.trim() || busy} onClick={() => void send()}>
+          {busy ? 'Sending…' : 'Send code'}
+        </Button>
+        {actions}
+      </div>
+    </div>
+  )
+}
+
+/**
  * Waiting on the user, showing exactly what the runtime handed back.
  *
  * `alreadyAs` is the account this agent is already signed in as, and is set
@@ -1086,6 +1150,22 @@ const Pending = ({
 }) => {
   const store = useStore()
   const start = login.start
+  const actions = (
+    <>
+      {/* Only where there is a page to open. An agent that opened the
+          browser from inside its own `authenticate` never said which URL
+          it used, so the button would have nowhere to go (#749); the wait
+          and the cancel are the whole of what this flow offers then. */}
+      {start.url ? (
+        <Button variant="secondary" onClick={() => openExternal(start.url!)}>
+          {start.type === 'browser' ? 'Open the page again' : 'Open the page'}
+        </Button>
+      ) : null}
+      <Button variant="ghost" onClick={() => void store.cancelLogin(runtime)}>
+        Cancel
+      </Button>
+    </>
+  )
   return (
     <div className={own.stack}>
       <StatusSummary
@@ -1105,20 +1185,12 @@ const Pending = ({
         </CodeText>
       )}
 
-      <div className={own.row}>
-        {/* Only where there is a page to open. An agent that opened the
-            browser from inside its own `authenticate` never said which URL
-            it used, so the button would have nowhere to go (#749); the wait
-            and the cancel are the whole of what this flow offers then. */}
-        {start.url ? (
-          <Button variant="secondary" onClick={() => openExternal(start.url!)}>
-            {start.type === 'browser' ? 'Open the page again' : 'Open the page'}
-          </Button>
-        ) : null}
-        <Button variant="ghost" onClick={() => void store.cancelLogin(runtime)}>
-          Cancel
-        </Button>
-      </div>
+      {start.type === 'browser' && login.awaitingCode ? (
+        // The code's own verb leads the row the page's and the cancel's share.
+        <PasteCode runtime={runtime} actions={actions} />
+      ) : (
+        <div className={own.row}>{actions}</div>
+      )}
 
       {alreadyAs ? (
         <div className={own.aside}>

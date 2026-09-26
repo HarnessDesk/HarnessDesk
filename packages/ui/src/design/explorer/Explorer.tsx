@@ -33,6 +33,7 @@ const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ de
 const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
 const RailSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RailSurface })))
 const ToolsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ToolsSurface })))
+const SignInSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SignInSurface })))
 import { FOUNDATIONS, TOKEN_GROUPS, tokenVisual, useResolvedTokens } from './foundation'
 import styles from './explorer.module.css'
 
@@ -165,6 +166,13 @@ const SURFACES = [
     about:
       'The shipped browser, editor and terminal panes, in the frame they share. What differs between them is only what each tool genuinely is; the header, the mark, the subject line, the tab strip and whether the body pads or bleeds are one component. On this page the browser can only plan pages, the editor shows the real source of `lib/brands.ts`, and the terminal redraws a fixture\'s scrollback with no shell behind it — nothing new arrives, and typing goes nowhere.',
     render: ToolsSurface,
+  },
+  {
+    id: 'signin',
+    title: 'Sign in',
+    about:
+      'The shipped Sign in dialog on the sign-in preview\'s roster, open on Claude while its browser sign-in waits: the command asked for the code the page shows when it cannot finish by itself, so the card asks for it in a password field, beside the page and the cancel. The dialog\'s other states — a refusal, a key, a device code, an account connected — are scenes of `/preview.html`, not of this tab.',
+    render: SignInSurface,
   },
   {
     id: 'propagation',

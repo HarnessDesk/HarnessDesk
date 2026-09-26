@@ -700,6 +700,52 @@ test('sign-in is relayed to the runtime, and its outcome arrives as an event', a
   await client.until(() => client.events.some((event) => event.type === 'account/changed'))
 })
 
+test('a pasted sign-in code is relayed to the runtime, and never reaches the log', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-login-code-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const file = join(dir, 'host.log')
+  const logger = new Logger('test', { level: 'debug', console: false, file })
+  const harness = await start({ logger })
+  t.after(() => stop(harness))
+  // The socket's own logger too: a method that fails is logged there.
+  const server = await serve({ host: harness.host, logger, port: 0 })
+  t.after(() => server.close())
+  harness.runtime.signInDriveable = true
+  const client = await Client.connect(server)
+  t.after(() => client.close())
+  const code = 'pasted-code-5e1f#state-77aa'
+
+  const started = (await client.call('runtime/login', { runtime: FAKE_RUNTIME_ID, method: 'fake-browser' })) as {
+    loginId: string
+  }
+  assert.equal(await client.call('runtime/login/code', { runtime: FAKE_RUNTIME_ID, loginId: started.loginId, code }), null)
+  assert.deepEqual(harness.runtime.pasted, [[started.loginId, code]])
+
+  // Refused by the runtime: the refusal is its words, and neither the answer nor the log repeats the code.
+  harness.runtime.refusePaste = 'This sign-in is not waiting for a code.'
+  await assert.rejects(
+    () => client.call('runtime/login/code', { runtime: FAKE_RUNTIME_ID, loginId: started.loginId, code }),
+    (error: Error) => {
+      assert.match(error.message, /not waiting for a code/)
+      assert.ok(!error.message.includes(code))
+      return true
+    },
+  )
+  // Refused by the wire: a code that is not a string is named by its type, never its value.
+  await assert.rejects(
+    () => client.call('runtime/login/code', { runtime: FAKE_RUNTIME_ID, loginId: started.loginId, code: [code] }),
+    (error: Error) => {
+      assert.match(error.message, /code: expected string, got array/)
+      assert.ok(!error.message.includes(code))
+      return true
+    },
+  )
+  await logger.flush()
+  const logged = await readFile(file, 'utf8')
+  assert.match(logged, /method failed/, 'the failure was logged')
+  assert.ok(!logged.includes(code), 'the code never reached the log')
+})
+
 test('a runtime with no sign-in to drive is refused in its own words', async (t) => {
   const harness = await start()
   t.after(() => stop(harness))
@@ -707,8 +753,13 @@ test('a runtime with no sign-in to drive is refused in its own words', async (t)
   Object.defineProperty(harness.runtime, 'login', { value: undefined })
   Object.defineProperty(harness.runtime, 'logout', { value: undefined })
   Object.defineProperty(harness.runtime, 'cancelLogin', { value: undefined })
+  Object.defineProperty(harness.runtime, 'submitLoginCode', { value: undefined })
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
+  await assert.rejects(
+    () => client.call('runtime/login/code', { runtime: FAKE_RUNTIME_ID, loginId: 'x', code: 'c' }),
+    /does not take a pasted code/,
+  )
 
   // The refusal is phrased from the runtime's own presentation — the host has
   // no name of its own to put there.

@@ -19,13 +19,30 @@ export interface LoginState {
   readonly method: string
   readonly start: LoginStart
   readonly outcome: LoginOutcome
+  /**
+   * The sign-in has asked for a code to be pasted into it — the browser page
+   * shows one when it cannot hand the result back by itself. Whether it asked,
+   * never the code: that stays in the field it was typed into until it is sent.
+   */
+  readonly awaitingCode: boolean
 }
 
 export const startedLogin = (method: string, start: LoginStart): LoginState => ({
   method,
   start,
   outcome: { type: 'pending' },
+  awaitingCode: start.type === 'browser' && start.pasteCode === true,
 })
+
+/** Folds a later ask for a pasted code into the login it belongs to, and no other. */
+export const applyLoginAwaitsCode = (
+  login: LoginState | null,
+  event: Extract<AgentEvent, { type: 'account/loginAwaitsCode' }>,
+): LoginState | null => {
+  if (!login || login.outcome.type !== 'pending' || login.awaitingCode) return login
+  if (event.loginId !== login.start.loginId) return login
+  return { ...login, awaitingCode: true }
+}
 
 /**
  * Folds a completion into the login in progress.

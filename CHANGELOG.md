@@ -7,6 +7,13 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A sign-in that wants a pasted code asks for it.** When an agent's browser
+  sign-in cannot finish by itself, the page shows a code to paste back into
+  the agent's sign-in command — which the desk runs in the background, so the
+  sign-in used to wait forever. Sign in now shows a password field for that
+  code beside the page and Cancel, and hands the code to the command. The
+  code is never logged, kept or repeated in an error.
+
 - **A signed-out agent's mark looks empty.** The seat's badge and the menu's
   mark for an agent with no one signed in were meant to read as an empty seat
   and never did; they now draw a dashed ring with no plate and a quieter
