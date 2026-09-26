@@ -47,9 +47,6 @@ export const previewAccounts: Record<string, AccountStatus> = {
   [CLAUDE]: { signedIn: true, accounts: [account('shane@harnessdesk.app')] },
 } as unknown as Record<string, AccountStatus>
 
-const HOUR = 3_600_000
-const DAY = 24 * HOUR
-
 /**
  * One rolling allowance.
  *
@@ -171,7 +168,13 @@ export const previewLedger = (days: number, groupBy: string): unknown => {
   for (let index = days - 1; index >= 0; index -= 1) {
     // The oldest slice: nothing scanned yet, ever — not a quiet week.
     if (index >= days - notScannedCount) continue
-    const day = start - index * DAY
+    // Calendar stepping, not a fixed 86,400,000ms one — the exact DST bug
+    // `lib/heat.ts`'s own header documents: a fixed step drifts an hour off
+    // local midnight across a change, and this fixture's dates then miss the
+    // grid's local-midnight keys for months at a time (review #990, item 9).
+    const date = new Date(start)
+    date.setDate(date.getDate() - index)
+    const day = date.getTime()
     const weekend = [0, 6].includes(new Date(day).getDay())
     if (weekend && index % 3 !== 0) continue
     // A handful of ordinary weekday gaps, so a scanned year is not a solid
