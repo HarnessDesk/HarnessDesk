@@ -6,6 +6,7 @@ does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
+
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per
   conversation — "cannot pass a lane environment to a session" — so a
