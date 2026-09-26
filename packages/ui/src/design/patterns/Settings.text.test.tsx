@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import css from './Settings.module.css?raw'
-import { NoteList, PageHead, RowChoice, Text } from './Settings'
+import { NoteList, PageHead, Row, RowChoice, Text } from './Settings'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -35,7 +35,9 @@ it('sets PageHead and the page text role on the wordmark type', () => {
   expect(page?.className).toContain('text-(length:--hd-heading)')
   expect(page?.className).toContain('leading-(--hd-line-heading)')
   expect(page?.className).toContain('font-semibold')
-  expect(page?.className).toContain('tracking-[-0.01em]')
+  // The heading face and its tracking are tokens, so a foundation moves both.
+  expect(page?.className).toContain('font-(family-name:--hd-font-heading)')
+  expect(page?.className).toContain('tracking-(--hd-tracking-heading)')
   const typeClasses = (node: HTMLElement | null) => node?.className
     .split(' ')
     .filter(name => /^(?:text-\(length|leading-|font-|tracking-)/.test(name))
@@ -43,7 +45,8 @@ it('sets PageHead and the page text role on the wordmark type', () => {
   expect(css).toMatch(/\.pageTitle\s*{[^}]*font-size:\s*var\(--hd-heading\)/s)
   expect(css).toMatch(/\.pageTitle\s*{[^}]*line-height:\s*var\(--hd-line-heading\)/s)
   expect(css).toMatch(/\.pageTitle\s*{[^}]*font-weight:\s*var\(--hd-weight-semibold\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*letter-spacing:\s*-0\.01em/s)
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-family:\s*var\(--hd-font-heading\)/s)
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*letter-spacing:\s*var\(--hd-tracking-heading\)/s)
 })
 
 it('can preserve the end of a truncated path', () => {
@@ -56,7 +59,7 @@ it('can preserve the end of a truncated path', () => {
 
 it('lets a narrow choice deliver its consequence whole', () => {
   act(() => root.render(
-    <RowChoice title="Summary" desc="The goal, exchanges, files and tasks." wrapDesc selected onClick={() => {}} />,
+    <RowChoice title="Summary" desc="The goal, exchanges, files and tasks." selected onClick={() => {}} />,
   ))
   expect(container.querySelector('[data-wrap="true"]')?.textContent).toContain('files and tasks')
 })
@@ -112,4 +115,19 @@ it('lets the named text role carry list-item semantics', () => {
   const text = container.querySelector('[data-slot="text"]')
   expect(text?.tagName).toBe('LI')
   expect(text?.getAttribute('data-role')).toBe('value')
+})
+
+it('a description that is a name or a path gives way on one line; a sentence wraps', () => {
+  act(() => root.render(
+    <>
+      <Row title="Worktree" desc="~/code/HarnessDesk/.claude/worktrees/a-very-long-branch-name" truncateDesc />
+      <Row title="Backup" desc="Runtimes, your Agents and their seats on this Mac, in one file." />
+    </>,
+  ))
+  const [path, sentence] = [...container.querySelectorAll<HTMLElement>('[class*="rowDesc"]')]
+  expect(path?.hasAttribute('data-wrap')).toBe(false)
+  expect(path?.className).toMatch(/rowDescTruncate/)
+  expect(sentence?.getAttribute('data-wrap')).toBe('true')
+  expect(sentence?.className).not.toMatch(/rowDescTruncate/)
+  expect(css).toMatch(/\.rowDescTruncate\s*{[^}]*white-space:\s*nowrap/s)
 })

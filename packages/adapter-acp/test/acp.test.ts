@@ -155,6 +155,42 @@ test('a call whose output arrives only as content blocks keeps that output', asy
   }
 })
 
+test('a later update carrying only text does not replace an earlier structured result (#961 review)', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'structured then text please' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    const call = turn.items.find((item) => item.type === 'toolCall' && String(item.id).includes('tc-structured-then-text'))
+    assert.ok(call && call.type === 'toolCall')
+    assert.equal(call.status, 'completed')
+    assert.deepEqual(call.result, [{ type: 'json', value: { stdout: 'first, structured' } }], 'the structured result from the earlier update survives the later, text-only one')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a later update carrying only an image does not replace an earlier structured result, the same rule as text (#961 review)', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'structured then image please' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    const call = turn.items.find((item) => item.type === 'toolCall' && String(item.id).includes('tc-structured-then-image'))
+    assert.ok(call && call.type === 'toolCall')
+    assert.equal(call.status, 'completed')
+    assert.deepEqual(call.result, [{ type: 'json', value: { path: '/tmp/shot.png' } }], 'the structured result from the earlier update survives the later, image-only one')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('an agent that can say what the context is made of gets it read, defensively', async () => {
   const runtime = make()
   await runtime.start()
@@ -932,6 +968,46 @@ test('a restart asks again: an agent upgraded to accept the tool server gets it,
     const dumped = JSON.parse(await readFile(dump, 'utf8')) as { env?: { name: string; value: string }[] }[]
     const carried = dumped.at(-1)?.env?.find((entry) => entry.name === 'HD_TOOLS_CALLER')
     assert.equal(carried?.value, claim[0], "the session's bridge carries its own caller token")
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent that reports no version at all is still asked again on its next launch after refusing (#961 review)', async (t) => {
+  // The version comparison that spares a steady refuser a repeat question
+  // (above) has nothing to compare when the agent names no version at all:
+  // `undefined !== undefined` reads as "unchanged" and would leave it refused
+  // forever, never asked again until the whole app restarts — unlike a
+  // versioned agent, which a fresh launch's differing version already re-asks.
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-reask-noversion-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const refusing = join(dir, 'refusing')
+  await writeFile(refusing, '')
+  const runtime = new AcpRuntime({
+    id: 'versionless-upgraded',
+    name: 'Versionless Upgraded',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_REFUSE_TOOLS_WHILE: refusing, FAKE_ACP_NO_AGENT_VERSION: '1' },
+    toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} },
+  })
+  const settle = async (want: boolean): Promise<void> => {
+    const deadline = Date.now() + 5_000
+    while (runtime.info.capabilities.pluginTools !== want && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  }
+  await runtime.start()
+  try {
+    await settle(false)
+    assert.equal(runtime.info.capabilities.pluginTools, false, 'the versionless agent refused, and that was learned')
+
+    await rm(refusing)
+    const refreshed = await runtime.refreshCatalog()
+    assert.equal(refreshed.refreshed, true, 'nothing but the probe was open, so the agent restarted')
+    assert.equal(runtime.info.capabilities.pluginTools, true, 'a fresh launch is asked afresh even though it names no version to compare')
   } finally {
     await runtime.dispose()
   }

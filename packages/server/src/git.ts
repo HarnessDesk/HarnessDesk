@@ -10,10 +10,19 @@ import type { GitConclusion, GitFileStatus, GitStatus } from '@harnessdesk/proto
 
 const run = promisify(execFile)
 
-const git = async (root: string, args: string[]): Promise<string> => {
+/**
+ * `signal`, when given, is on top of the 20s timeout below, never instead of
+ * it: a caller bounding a read shorter than that (`workspace/recent`'s own
+ * bound, #948) kills this process the moment its own deadline fires, rather
+ * than leaving it to run for the full 20s regardless — `execFile` kills the
+ * child on either the timeout or an aborted signal, so the only change here
+ * is handing it one.
+ */
+const git = async (root: string, args: string[], signal?: AbortSignal): Promise<string> => {
   const { stdout } = await run('git', ['-C', root, ...args], {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
+    ...(signal ? { signal } : {}),
   })
   return stdout
 }
@@ -62,9 +71,9 @@ const CONCLUSIONS = [
  * revert while holding only part of it, so all three are reported alike and
  * `commitAll` treats them alike.
  */
-export const concluding = async (root: string): Promise<GitConclusion | null> => {
+export const concluding = async (root: string, signal?: AbortSignal): Promise<GitConclusion | null> => {
   const args = CONCLUSIONS.flatMap(([file]) => ['--git-path', file])
-  const printed = await git(root, ['rev-parse', ...args]).catch(() => '')
+  const printed = await git(root, ['rev-parse', ...args], signal).catch(() => '')
   const where = printed
     .split('\n')
     .map((line) => line.trim())
@@ -82,18 +91,18 @@ export const concluding = async (root: string): Promise<GitConclusion | null> =>
 }
 
 /** Returns null when `root` is not inside a repository, which is not an error. */
-export const status = async (root: string): Promise<GitStatus | null> => {
+export const status = async (root: string, signal?: AbortSignal): Promise<GitStatus | null> => {
   let top: string
   try {
-    top = (await git(root, ['rev-parse', '--show-toplevel'])).trim()
+    top = (await git(root, ['rev-parse', '--show-toplevel'], signal)).trim()
   } catch {
     return null
   }
 
   const [branch, porcelain, underway] = await Promise.all([
-    git(top, ['rev-parse', '--abbrev-ref', 'HEAD']).then((out) => out.trim()).catch(() => null),
-    git(top, ['status', '--porcelain=v1', '-z', '--untracked-files=normal']).catch(() => ''),
-    concluding(top),
+    git(top, ['rev-parse', '--abbrev-ref', 'HEAD'], signal).then((out) => out.trim()).catch(() => null),
+    git(top, ['status', '--porcelain=v1', '-z', '--untracked-files=normal'], signal).catch(() => ''),
+    concluding(top, signal),
   ])
 
   const files: GitFileStatus[] = []
@@ -120,7 +129,7 @@ export const status = async (root: string): Promise<GitStatus | null> => {
   let ahead = 0
   let behind = 0
   try {
-    const counts = await git(top, ['rev-list', '--left-right', '--count', '@{upstream}...HEAD'])
+    const counts = await git(top, ['rev-list', '--left-right', '--count', '@{upstream}...HEAD'], signal)
     const [behindText, aheadText] = counts.trim().split(/\s+/)
     behind = Number(behindText ?? 0)
     ahead = Number(aheadText ?? 0)

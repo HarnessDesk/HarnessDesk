@@ -126,6 +126,9 @@ export const JobsBar = () => {
   if (running.length === 0) return null
 
   return (
+    // The column inset matching the conversation's own — several screens
+    // repeat this max-width-and-pad shape with no shared owner yet; giving
+    // it one is a bigger, cross-file decision than this finding alone.
     <div className={`${styles.jobs} px-(--hd-space-3)`}>
       <Text as="div" role="meta">
         {running.length === 1 ? '1 command' : `${running.length} commands`} running in this turn

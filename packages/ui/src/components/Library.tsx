@@ -148,8 +148,8 @@ type Filter =
  * warning ink where the copy needs mending, the muted one everywhere else: a
  * problem is its icon, a copy no agent has read is the task list's pending
  * ring, a copy that loads is the readiness light, one not loaded yet the
- * neutral light. Only "switched off" — the neutral light struck through — is
- * drawn here.
+ * neutral light, and "switched off" is the same light struck through (the
+ * shared `Dot`'s `struck`).
  */
 const ReachMark = ({
   state,
@@ -167,14 +167,8 @@ const ReachMark = ({
   else if (state === 'reaches') mark = <Dot state="ready" />
   else if (state === 'unscanned') mark = <TodoPendingIcon size={10} />
   else if (state === 'stale') mark = <Dot />
-  else if (state === 'off') {
-    mark = (
-      <span className="relative inline-flex size-3 items-center justify-center">
-        <Dot />
-        <span className="absolute h-px w-3 bg-current" />
-      </span>
-    )
-  } else mark = '—'
+  else if (state === 'off') mark = <Dot struck />
+  else mark = '—'
   const warning = state === 'hollow' || state === 'rejected' || state === 'differs' || state === 'unscanned'
   return (
     <Text

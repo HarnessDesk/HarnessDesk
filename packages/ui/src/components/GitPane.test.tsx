@@ -16,6 +16,7 @@ import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { GitPane } from './GitPane'
 import gitPaneCss from './GitPane.module.css?raw'
 import gitPaneSource from './GitPane.tsx?raw'
+import tokensCss from '../design/foundation/tokens.css?raw'
 
 /**
  * The history pane against a scripted host. What is held: the pane asks for
@@ -257,7 +258,8 @@ it('keeps the windowed commit row borderless and marks the graph column edge', a
   expect(rows.every((row) => row.className.includes('border-0'))).toBe(true)
   expect(rows.every((row) => row.className.includes('cursor-default'))).toBe(true)
   expect(rows.every((row) => row.className.includes('select-none'))).toBe(true)
-  expect(rows.every((row) => row.style.paddingRight === 'var(--hd-space-3)')).toBe(true)
+  // The inset is the `table-row` button size's own now (#835), not an inline style.
+  expect(rows.every((row) => row.className.includes('pr-(--hd-space-3)'))).toBe(true)
   const head = container.querySelector('[role="row"]')
   expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
 })
@@ -1182,4 +1184,23 @@ it('keeps the open commit’s head on one line, while the other tool bars wrap',
   expect(at, 'the head has a rule of its own').toBeGreaterThan(-1)
   const rule = gitPaneCss.slice(at, gitPaneCss.indexOf('}', at)).replace(/\/\*[\s\S]*?\*\//g, '')
   expect(rule).toMatch(/flex-wrap:\s*nowrap/)
+})
+
+/**
+ * The row pitch is arithmetic (`top = index * ROW`) as well as a CSS height,
+ * and the graph's lanes are drawn to fill it exactly — so the literal in
+ * `GitPane.tsx` and the token that documents it in `tokens.css` (#835) have
+ * to read as one number, not two that happen to agree today.
+ */
+it('the row pitch and its named token cannot drift apart (#835)', () => {
+  // Exactly one declaration: a later interface or density block overriding
+  // the pitch would move the CSS row while ROW, and the list's arithmetic,
+  // stayed put.
+  const declarations = [...tokensCss.matchAll(/--hd-table-row-h:\s*([^;]+);/g)]
+  expect(declarations.map((match) => match[1]), 'tokens.css names the row pitch once, in px').toHaveLength(1)
+  const declared = /^(\d+)px$/.exec(declarations[0]![1]!.trim())
+  expect(declared, 'tokens.css names the row pitch').not.toBeNull()
+  const rowConst = gitPaneSource.match(/\bconst ROW = (\d+)\b/)
+  expect(rowConst, 'GitPane.tsx states ROW as a literal, documented against the token').not.toBeNull()
+  expect(Number(rowConst![1])).toBe(Number(declared![1]))
 })

@@ -485,19 +485,20 @@ test('a worktree is not brought home while a conversation in it is working', asy
  * `workspace/recent` still resolves the most recent workspace's `realPath`
  * live, and used to await it unbounded: a stalled mount held up the whole
  * list, not just its own row. It now races that resolve against a bound
- * (`RECENT_REAL_PATH_TIMEOUT_MS`) and answers with the saved key — the same
+ * (`RECENT_LATEST_READ_TIMEOUT_MS`) and answers with the saved key — the same
  * comparison key `#openWorkspace` already persisted onto the record — the
  * moment the live resolve misses it, rather than waiting on a filesystem call
  * that may never return (#939).
  */
 test('the most recent workspace answers with its saved key when its live realpath resolve never returns', { timeout: 5_000 }, async (t) => {
-  const { RECENT_REAL_PATH_TIMEOUT_MS } = await import('../src/methods/workspace.js')
+  const { RECENT_LATEST_READ_TIMEOUT_MS } = await import('../src/methods/workspace.js')
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const folder = tempDir('hd-methods-recent-stalled-')
   const latest = { path: folder, name: 'folder', lastOpenedAt: 1, realPath: `${folder}-saved-key` }
   const ctx = contextWith({
     state: { state: { workspaces: [latest] } },
     workspaces: {
+      gitStatus: async () => null,
       repoOf: async () => null,
       topLevel: async () => null,
       // A live resolve that never settles on its own — a stalled mount.
@@ -505,7 +506,39 @@ test('the most recent workspace answers with its saved key when its live realpat
     },
   })
   const settled = dispatch(ctx, 'workspace/recent', {})
-  t.mock.timers.tick(RECENT_REAL_PATH_TIMEOUT_MS)
+  t.mock.timers.tick(RECENT_LATEST_READ_TIMEOUT_MS)
   const recent = (await settled) as unknown as { path: string; realPath?: string }[]
   assert.equal(recent[0]?.realPath, latest.realPath, 'the saved key answers once the bound is reached')
+})
+
+/**
+ * The other three live reads `workspace/recent` makes of the most recent
+ * workspace — its git status, its `repoOf`, and its `topLevel` — used to be
+ * awaited unbounded, exactly like `realPath` before #939: any one of them
+ * stalled (a `git` shelled out to a dead mount, a `repoOf`/`topLevel` walk
+ * over the same) held up the whole list, not only its own field (#948). Each
+ * now races the same bound and answers with an empty stand-in the moment it
+ * is reached, independently of whether the other three ever settle.
+ */
+test('the most recent workspace answers with an empty git status, repo and checkout root when their live reads never return', { timeout: 5_000 }, async (t) => {
+  const { RECENT_LATEST_READ_TIMEOUT_MS } = await import('../src/methods/workspace.js')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const folder = tempDir('hd-methods-recent-stalled-fields-')
+  const latest = { path: folder, name: 'folder', lastOpenedAt: 1, realPath: folder }
+  const ctx = contextWith({
+    state: { state: { workspaces: [latest] } },
+    workspaces: {
+      // Every one of the three stalls on its own — none ever settles.
+      gitStatus: () => new Promise<null>(() => {}),
+      repoOf: () => new Promise<null>(() => {}),
+      topLevel: () => new Promise<null>(() => {}),
+      realPath: async () => folder,
+    },
+  })
+  const settled = dispatch(ctx, 'workspace/recent', {})
+  t.mock.timers.tick(RECENT_LATEST_READ_TIMEOUT_MS)
+  const recent = (await settled) as unknown as { path: string; git: unknown; repo: unknown; checkoutRoot: unknown }[]
+  assert.equal(recent[0]?.git, null, 'a stalled git status answers null once the bound is reached')
+  assert.equal(recent[0]?.repo, null, 'a stalled repoOf answers null once the bound is reached')
+  assert.equal(recent[0]?.checkoutRoot, null, 'a stalled topLevel answers null once the bound is reached')
 })

@@ -241,10 +241,12 @@ const plural = (count: number, one: string, many = `${one}s`): string =>
  * asks `toolCallVerb` — said "ran 44 commands, read 3 files". The header and
  * the thing it heads now read the same items the same way.
  *
- * `planWithNoToolCall` is `describeTurnWork`'s to say: a turn's own ACP
- * `plan` update has no item here at all — it is not a tool call, so there is
- * nothing for the loop below to count it as — and without this the fold's
- * receipt said nothing happened in a turn that only ever set its plan.
+ * A plan-shaped tool call in `work` is folded into "updated the plan" by the
+ * loop below, once, however many times the agent rewrote its list.
+ * `planWithNoToolCall` covers the other shape: a turn's own ACP `plan`
+ * update with no such call anywhere — it is not a tool call, so there is
+ * nothing here for the loop to find — and without it the fold's receipt
+ * said nothing happened in a turn that only ever set its plan.
  */
 const tally = (work: readonly AgentItem[], planWithNoToolCall: boolean): string[] => {
   const paths = new Set<string>()
@@ -252,6 +254,7 @@ const tally = (work: readonly AgentItem[], planWithNoToolCall: boolean): string[
   let read = 0
   let searched = 0
   let tools = 0
+  let planned = false
 
   for (const item of work) {
     /* A step still running is not yet a thing the turn did. `runsOf` in
@@ -274,6 +277,16 @@ const tally = (work: readonly AgentItem[], planWithNoToolCall: boolean): string[
         searched += 1
         break
       case 'toolCall':
+        // A call that writes the turn's task list is the plan changing, not
+        // a tool the reader needs counted: however often an agent rewrites
+        // its list, the receipt says so once. Read by `planOf` — the same
+        // reading the Tasks panel uses, so a list under some other key is a
+        // tool, and a cleared list is still the plan changing — and only
+        // when the write went through.
+        if (planOf(item.args) !== null) {
+          if (effectiveItemStatus(item) !== 'failed') planned = true
+          break
+        }
         // ACP flattens every step to a tool call; the arguments still say
         // what it was, and "ran 3 commands, read 2 files" is the receipt
         // where "called 5 tools" is a shrug.
@@ -310,7 +323,11 @@ const tally = (work: readonly AgentItem[], planWithNoToolCall: boolean): string[
   if (read > 0) parts.push(`read ${plural(read, 'file')}`)
   if (searched > 0) parts.push(`searched ${plural(searched, 'time')}`)
   if (tools > 0) parts.push(`called ${plural(tools, 'tool')}`)
-  if (planWithNoToolCall) parts.push('updated the plan')
+  // Either the loop above found a plan-shaped call to fold in, or
+  // `describeTurnWork` found none but the turn has a plan of its own —
+  // never both at once, since finding one here is exactly what makes the
+  // other false, but said once regardless of which one it was.
+  if (planned || planWithNoToolCall) parts.push('updated the plan')
   return parts
 }
 

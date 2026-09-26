@@ -2,6 +2,7 @@ import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import { floatingMotion } from './motion'
 
 /* Vendored from shadcn/ui (tooltip). The surface is the platform's own
  * tooltip ground rather than an inverted primary, so it matches the
@@ -38,7 +39,8 @@ const TooltipContent = ({
       <TooltipPrimitive.Popup
         data-slot="tooltip-content"
         className={cn(
-          'bg-(--hd-tooltip-fill) text-(--hd-tooltip-foreground) data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-fit max-w-72 origin-(--transform-origin) rounded-(--hd-radius-sm) px-2 py-1 text-xs text-balance',
+          floatingMotion,
+          'bg-(--hd-tooltip-fill) text-(--hd-tooltip-foreground) w-fit max-w-72 rounded-(--hd-radius-sm) px-2 py-1 text-xs text-balance',
           className,
         )}
         {...props}

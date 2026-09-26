@@ -3,6 +3,7 @@ import * as React from 'react'
 
 import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
+import { floatingMotion } from './motion'
 
 /* Vendored from shadcn/ui (popover); z-index from the app's layer names. */
 
@@ -55,7 +56,8 @@ const PopoverContent = ({
       <PopoverPrimitive.Popup
         data-slot="popover-content"
         className={cn(
-          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-72 origin-(--transform-origin) rounded-lg border p-4 shadow-md',
+          floatingMotion,
+          'bg-popover text-popover-foreground w-72 rounded-lg border p-4 shadow-md',
           SURFACE_FOCUS,
           className,
         )}

@@ -319,6 +319,14 @@
     "pad": "0 10 0 10",
     "radius": 8
   },
+  "button/button/size/table-row": {
+    "h": 26,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 0",
+    "radius": 8
+  },
   "button/button/size/xs": {
     "h": 20,
     "text": 12,

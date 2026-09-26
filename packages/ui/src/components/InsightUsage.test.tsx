@@ -102,7 +102,7 @@ it('wraps every unavailable source’s full failure sentence instead of clipping
   })
 
   // `data-wrap` is what the stylesheet keys on to let a sentence run to a
-  // second line instead of being ellipsised — see Row's `wrapDesc`.
+  // second line instead of being ellipsised — see Row's description, which wraps unless it is a name or a path (`truncateDesc`).
   const wrapped = [...container.querySelectorAll('[data-wrap]')]
   expect(wrapped.map((el) => el.textContent)).toEqual([longSentence, secondSentence])
 })

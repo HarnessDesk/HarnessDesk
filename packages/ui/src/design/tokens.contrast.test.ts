@@ -679,3 +679,28 @@ describe("an accent's light face outranks a palette's on source order alone, so 
     expect(declared).toEqual(real)
   })
 })
+
+describe('the accent reads as a word in both faces', () => {
+  const resolved = faces()
+  for (const face of ['light', 'dark'] as const) {
+    it(`as ink on every ground and on its own wash, and carries its own ink when filled (${face})`, () => {
+      const tokens = faceOf(resolved, face)
+      const accent = parse(tokens.get('--hd-accent') ?? '') as Rgb
+      expect(accent, `${face}: --hd-accent missing`).not.toBeNull()
+      const failures: string[] = []
+      for (const groundName of ['--hd-background', '--hd-card', '--hd-popover'] as const) {
+        const ground = parse(tokens.get(groundName) ?? '') as Rgb
+        const ratio = contrast(accent, ground)
+        if (ratio < AA) failures.push(`accent on ${groundName}: ${ratio.toFixed(2)}:1`)
+      }
+      const background = parse(tokens.get('--hd-background') ?? '') as Rgb
+      const wash = over(parse(tokens.get('--hd-accent-dim') ?? '') as Rgb, background)
+      const onWash = contrast(accent, wash)
+      if (onWash < AA) failures.push(`accent on its wash: ${onWash.toFixed(2)}:1`)
+      const foreground = parse(tokens.get('--hd-accent-foreground') ?? '') as Rgb
+      const filled = contrast(foreground, accent)
+      if (filled < AA) failures.push(`its ink on the accent: ${filled.toFixed(2)}:1`)
+      expect(failures, `${face}: the accent below ${AA}:1`).toEqual([])
+    })
+  }
+})

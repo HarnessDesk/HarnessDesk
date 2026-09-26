@@ -57,7 +57,7 @@
 }
 
 .dot[data-pulse] {
-  animation: dotPulse 1.6s ease-in-out infinite;
+  animation: dotPulse var(--hd-duration-pulse) ease-in-out infinite;
 }
 
 @keyframes dotPulse {
@@ -736,11 +736,34 @@
 
 /* --- a page of grouped cards -------------------------------------------- */
 
+/* The title block. A page's head closes on a hairline with a short cobalt
+   mark at its start — the rule under the title on a drawing sheet — so the
+   name of a place is set off from what is on it by one line, not by a box.
+   Its colours and measures are tokens (`--hd-title-rule*`), so a foundation
+   can retune the mark or drop it without touching this file. */
+.pageHead,
+.detailHead {
+  position: relative;
+  padding-bottom: var(--hd-title-rule-gap);
+  border-bottom: var(--hd-title-rule-width) solid var(--hd-title-rule);
+}
+
+.pageHead::after,
+.detailHead::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: calc(-1 * var(--hd-title-rule-width));
+  width: var(--hd-title-rule-mark-width);
+  height: var(--hd-title-rule-mark-height);
+  background: var(--hd-title-rule-mark);
+}
+
 .pageHead {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: var(--hd-space-6);
+  margin-bottom: calc(var(--hd-space-6) - var(--hd-title-rule-gap) - var(--hd-title-rule-width)); /* desk: 24 → 11, the title block's rule and the space above it take the rest */
 }
 
 .pageHeadText {
@@ -754,8 +777,9 @@
   margin: 0; /* desk: new — it is an h1 now, and keeps the box the div had */
   font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, a page title matches the wordmark rather than outsizing it */
   line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, a page title matches the wordmark rather than outsizing it */
+  font-family: var(--hd-font-heading);
   font-weight: var(--hd-weight-semibold); /* desk: --hd-weight-normal → --hd-weight-semibold, a page title matches the wordmark rather than outsizing it */
-  letter-spacing: -0.01em; /* desk: -0.02em → -0.01em, a page title matches the wordmark rather than outsizing it */
+  letter-spacing: var(--hd-tracking-heading);
 }
 
 /* One sentence, in the support size, on a reading measure. The blurb ran the
@@ -807,8 +831,31 @@
 .sectionHead[data-sticky] {
   align-items: center;
   min-height: var(--hd-control-h); /* desk: the band keeps the control-height box every head had */
-  padding: var(--usage-strip, 0) 0 var(--hd-space-2);
+  padding: 0 0 var(--hd-space-2); /* desk: the strip's height on top → 0, the ground above is drawn by ::before instead of standing as empty space at rest */
   background: var(--hd-card);
+}
+
+/* The ground a stuck head paints over the window's title strip, so rows that
+   scroll up under the strip do not show through it. It hangs above the head
+   rather than padding it, so at rest the head sits where the page's rhythm
+   puts it instead of behind a strip-high gap — and it is drawn only while
+   the head is stuck, or at rest it would cover the blurb above. The head is
+   a scroll-state container; its text box carries the cover, positioned
+   against the head. */
+.sectionHead[data-sticky] {
+  container-type: scroll-state;
+}
+
+@container scroll-state(stuck: top) {
+  .sectionHeadText::before {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 100%;
+    left: 0;
+    height: var(--usage-strip, 0);
+    background: var(--hd-card);
+  }
 }
 
 .sectionHeadText {
@@ -1013,19 +1060,18 @@
    plugin's page has room for the paragraph. */
 .rowDesc {
   margin-top: var(--hd-space-0-5); /* desk: 1 → 2, a step of the scale */
-  overflow: hidden;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
   color: var(--hd-secondary-foreground);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 
-.rowDescWrap {
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
+/* A name or a path gives way at its end, on one line. A sentence never does. */
+.rowDescTruncate {
+  overflow: hidden; /* desk: the opt-in flips — wrapping was the exception (.rowDescWrap), truncating is now (a name or a path) */
+  text-overflow: ellipsis; /* desk: as above, the opt-in flips to the one-line case */
+  white-space: nowrap; /* desk: as above — one line for a name or a path */
 }
 
 /* Beside the title the control keeps its own width, as before: the title
@@ -1138,7 +1184,7 @@
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--hd-space-4);
-  margin-bottom: var(--hd-space-6);
+  margin-bottom: calc(var(--hd-space-6) - var(--hd-title-rule-gap) - var(--hd-title-rule-width)); /* desk: 24 → 11, the title block's rule and the space above it take the rest */
 }
 
 .detailMark {
@@ -1171,8 +1217,9 @@
   min-width: 0; /* desk: auto → 0, the name wraps inside the head rather than widening it */
   font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, one title step for every page head (24 → 20) */
   line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, with the size (30 → 28) */
+  font-family: var(--hd-font-heading);
   font-weight: var(--hd-weight-semibold); /* desk: --hd-weight-normal → --hd-weight-semibold, the page title's weight */
-  letter-spacing: -0.01em; /* desk: -0.02em → -0.01em, the page title's tracking */
+  letter-spacing: var(--hd-tracking-heading);
 }
 
 /* The name is the h1 and the item that gives way first: it wraps. */
@@ -1372,6 +1419,13 @@
 .avatarSm {
   width: 22px;
   height: 22px;
+}
+
+/* The account's ring and nothing inside it: the colour that names this
+   account everywhere else, on a line whose agent a heading already drew. */
+.avatarDot {
+  width: 10px;
+  height: 10px;
 }
 
 /* A person's face (`Face`): the same plate, squared. A person is not an

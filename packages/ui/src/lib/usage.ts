@@ -477,7 +477,8 @@ export interface RunwaySummary {
   readonly total: number
   /** The soonest reset among the spent lanes, so the sentence can name it. */
   readonly nextReturn: number | null
-  readonly headline: string
+  /** What needs saying about every plan at once, or null when nothing does — a calm page says nothing rather than "Nothing is close to a limit". */
+  readonly headline: string | null
   readonly detail: string
 }
 
@@ -548,7 +549,7 @@ export const runway = (
           : low.length > 1
             ? `${low.length} agents are running low.`
             : metered.length > 0
-              ? 'Nothing is close to a limit.'
+              ? null
               : borrowed.length > 0
                 ? `No agent here reports its own plan usage — ${
                     borrowed.length === 1

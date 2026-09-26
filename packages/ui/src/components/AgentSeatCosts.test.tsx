@@ -129,7 +129,7 @@ it('wraps every unavailable source’s full failure sentence instead of clipping
   await act(async () => {})
 
   // `data-wrap` is what the stylesheet keys on to let a sentence run to a
-  // second line instead of being ellipsised — see Row's `wrapDesc`. The
+  // second line instead of being ellipsised — see Row's description, which wraps unless it is a name or a path (`truncateDesc`). The
   // empty-state row (no historical Seats, since `seats` is empty here) wraps
   // its own reason too, and sits first in the card.
   const wrapped = [...container.querySelectorAll('[data-wrap]')]

@@ -183,6 +183,26 @@ describe('describeTurnWork', () => {
     expect(described.trouble).toBe(false)
   })
 
+  test('rewriting the task list is the plan changing, said once, never a tool call', () => {
+    const todos = { todos: [{ content: 'Plan', status: 'completed' }, { content: 'Read', status: 'completed' }] }
+    const work = [
+      item('toolCall', 'p1', { tool: 'todo_write', args: todos, result: [{ type: 'json', value: { output: '', isError: false } }] }),
+      item('toolCall', 'x', { tool: 'lookup', args: { q: 'a' }, result: [] }),
+      item('toolCall', 'p2', { tool: 'todo_write', args: todos, result: [{ type: 'json', value: { output: '', isError: false } }] }),
+    ]
+    expect(describeTurnWork(done(work), work, started).receipt).toBe('called 1 tool, updated the plan')
+  })
+
+  test('a list under some other key is a tool, a cleared plan is still the plan, and a failed write is neither', () => {
+    const work = [
+      item('toolCall', 'i', { tool: 'triage', args: { issues: [{ title: 'Bug', status: 'open' }] }, result: [] }),
+      item('toolCall', 'c', { tool: 'todo_write', args: { todos: [] }, result: [] }),
+    ]
+    expect(describeTurnWork(done(work), work, started).receipt).toBe('called 1 tool, updated the plan')
+    const failed = [item('toolCall', 'f', { tool: 'todo_write', status: 'failed', args: { todos: [{ content: 'a', status: 'pending' }] }, result: [] })]
+    expect(describeTurnWork(done(failed), failed, started).receipt).not.toContain('updated the plan')
+  })
+
   test('a read dressed as a shell command is a read, not a command', () => {
     const work = [
       item('command', 'a', { actions: [{ type: 'read', command: 'sed', name: 'a', path: '/a' }] }),
@@ -255,13 +275,28 @@ describe('describeTurnWork', () => {
     expect(describeTurnWork(done(work, { plan }), work, started).receipt).toBe('ran 1 command, updated the plan')
   })
 
-  test('a matching plan tool call means the turn already accounts for its plan; the fold line adds nothing for it', () => {
-    // `planOf` finds the same call `turn.plan` mirrors — `TurnWork.tsx`'s own
-    // dedup reads it the same way — so `planWithNoToolCall` is false here,
-    // and the receipt is exactly what it would be with no `plan` at all.
+  test('a matching plan tool call already says "updated the plan"; turn.plan beside it says it once, not twice', () => {
+    // The loop inside `tally` finds `w` itself (`planned`), so
+    // `planWithNoToolCall` — computed against the whole turn, not just what
+    // `tally` sees — is false: the two flags cannot both fire for the same
+    // call, and the phrase appears exactly once either way.
     const write = item('toolCall', 'w', { tool: 'TodoWrite', args: { todos: [{ content: 'read the file', status: 'completed' }] } })
     const plan = [{ step: 'read the file', status: 'completed' as const }]
-    expect(describeTurnWork(done([write], { plan }), [write], started).receipt).toBe('called 1 tool')
+    const receipt = describeTurnWork(done([write], { plan }), [write], started).receipt
+    expect(receipt).toBe('updated the plan')
+    expect(receipt.match(/updated the plan/g)?.length).toBe(1)
+  })
+
+  test('a plan-shaped call and a turn.plan that has nothing to do with it: still said once', () => {
+    // Both flags could in principle disagree about *which* update to credit,
+    // but never about whether to say it at all — a plan-shaped call anywhere
+    // in the turn is enough, whatever `turn.plan` itself holds.
+    const write = item('toolCall', 'w', { tool: 'TodoWrite', args: { todos: [{ content: 'a', status: 'pending' }] } })
+    const other = item('toolCall', 'x', { tool: 'lookup', args: { q: 'a' } })
+    const plan = [{ step: 'a completely different plan', status: 'pending' as const }]
+    const receipt = describeTurnWork(done([write, other], { plan }), [write, other], started).receipt
+    expect(receipt).toBe('called 1 tool, updated the plan')
+    expect(receipt.match(/updated the plan/g)?.length).toBe(1)
   })
 
   test('a plan that never got anywhere — an empty one — says nothing extra', () => {

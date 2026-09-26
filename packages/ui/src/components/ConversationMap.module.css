@@ -53,8 +53,8 @@
   width: min(var(--cap, 100vw), calc(var(--hd-space-2) + var(--near, 0) * var(--reach, var(--hd-space-3)))); /* desk: the push is --reach (measured, at most --hd-space-3) and the dash stops at --cap in a tight pane */
   opacity: calc(0.35 + var(--near, 0) * 0.45);
   transition:
-    width 90ms cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 90ms cubic-bezier(0.4, 0, 0.2, 1);
+    width var(--hd-duration-fast) var(--hd-ease),
+    opacity var(--hd-duration-fast) var(--hd-ease);
 }
 
 /* What was asked stands a little longer than what came back, so the rail reads

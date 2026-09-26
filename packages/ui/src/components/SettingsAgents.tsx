@@ -326,7 +326,6 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
   return (
     <Row
       title={<Prose text={lead} />}
-      wrapDesc
       {...(detail || remediation
         ? {
             desc: (
@@ -430,7 +429,7 @@ const AgentRow = ({
           {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
         </span>
       }
-      {...(who ? { desc: who } : {})}
+      {...(who ? { desc: who, truncateDesc: true } : {})}
       control={
         /* The default's chip wears the agent's own state: a default that has
            crashed is not a green one (#131) — and it still names the state
@@ -676,6 +675,7 @@ const AgentAccounts = ({
               </span>
             }
             desc={entry.slot?.gateway?.endpoint}
+            truncateDesc
             control={
               <Button size="sm" variant="ghost" onClick={() => void store.removeAccount(entry.id)}>
                 Remove

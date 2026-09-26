@@ -2,6 +2,7 @@ import {
   DisclosureChevron,
   Separator,
   Text,
+  TurnWorkBody,
   TurnWorkHeader,
   TurnWorkHeaderLabel,
   TurnWorkLive,
@@ -137,7 +138,7 @@ export const TurnWork = ({
         <Separator render={<span />} className={styles.rule} />
       </TurnWorkHeader>
       {open && (
-        <div className={styles.body} data-register="light">
+        <TurnWorkBody reveal={choice === true} className={styles.body} data-register="light">
           {inlinePlan && <TodoListView todos={inlinePlan} />}
           <StepNameScope items={shown} root={root}>
             {groupItems(shown).map((node) =>
@@ -157,7 +158,7 @@ export const TurnWork = ({
                 a status rather than a record — faint, and moving. */}
             {running && activity && <TurnWorkLive>{activity}</TurnWorkLive>}
           </StepNameScope>
-        </div>
+        </TurnWorkBody>
       )}
       {!open && running && activity && <TurnWorkLive>{activity}</TurnWorkLive>}
     </section>

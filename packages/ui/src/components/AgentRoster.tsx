@@ -309,7 +309,6 @@ const AuthoringPendingSection = () => {
           <Row
             key={one.id}
             title={placeWords(one)}
-            wrapDesc
             desc={one.message}
             control={
               <span className="flex gap-(--hd-space-2)">

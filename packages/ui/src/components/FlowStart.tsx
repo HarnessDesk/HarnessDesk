@@ -273,7 +273,6 @@ export const FlowPreviewReport = ({
             <Row
               key={`${command.role}-${command.run}`}
               title={command.role}
-              wrapDesc
               desc={<CodeText as="code">{`${command.run} — in ${command.cwd}, ${command.timeout}s`}</CodeText>}
             />
           ))}
@@ -296,7 +295,6 @@ export const FlowPreviewReport = ({
               <Row
                 key={rule.id}
                 title={`${rule.on} → ${rule.then.role}`}
-                wrapDesc
                 desc={requires ? `${rule.then.title} — ${requires}` : rule.then.title}
                 control={guard?.unevidenced ? <Chip tone="warning">Unevidenced</Chip> : undefined}
               />
@@ -351,7 +349,6 @@ const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; rea
       <Row
         mark={winner ? <RuntimeMark runtime={markFor(winner, snapshot.runtimes)} size={16} /> : <BriefIcon size={16} />}
         title={`${name} — ${seat.role}${seat.isolate ? ', isolated' : ''}`}
-        wrapDesc
         desc={reason ?? undefined}
         control={seat.plan.ceiling ? <CeilingChip ceiling={seat.plan.ceiling} /> : <Text role="meta">Unavailable</Text>}
       />
@@ -368,7 +365,6 @@ const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; rea
             key={`${index}-${candidate.label}`}
             mark={<RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={14} />}
             title={candidate.label}
-            wrapDesc
             desc={words ?? undefined}
           />
         )
