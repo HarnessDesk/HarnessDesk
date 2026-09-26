@@ -244,31 +244,26 @@ a:hover {
 /*
  * How words break onto lines, said once for the whole app.
  *
- * Two answers, by what the words are.
+ * A title balances its lines, so a heading that must wrap splits into two
+ * halves rather than a full line over a stray word.
  *
- * Short text under a name — a title, a page's blurb, a description under a
- * row or a control, a confirm's body — is balanced: its lines come out even,
- * so a heading that must wrap splits into two halves and a two-line blurb
- * never leaves one word under a full line. `pretty` was tried here first and
- * measured: across 243 widths and texts it still left a single word alone 20
- * times ("…shows that / sign-in's." under the Dashboard's title), and
- * `balance` none. The engine balances at most six lines and wraps anything
- * longer normally, so a long description loses nothing.
- *
- * Prose — a paragraph, a list item, a message — is `pretty`: it keeps the
- * reading column's full measure and only reflows the last lines, which is the
- * right trade for text somebody reads down rather than glances at.
+ * Everything else read as a sentence — a paragraph, a list item, a page's
+ * blurb, a description, a confirm's body, a message — is `pretty`: it keeps
+ * the full measure and only reflows the last lines to avoid leaving a word
+ * alone. `balance` was tried on these too and rejected on sight: it evened
+ * a confirm's body into short lines and left half the dialog empty. A
+ * rare one-word last line is the lesser fault.
  *
  * Both are `:where()`, so a component that decides its own wrapping (a code
  * block, a truncated name) still wins without a fight. The bodies are named
  * rather than matched by a `-body` suffix: `text-wrap` inherits, and a code
- * block's or a table's body is neither.
+ * block's or a table's body is not prose.
  */
-:where(h1, h2, h3, [data-slot$='-title'], [data-slot$='-description'], [data-slot$='-blurb'], [data-slot='confirm-body']) {
+:where(h1, h2, h3, [data-slot$='-title']) {
   text-wrap: balance;
 }
 
-:where(p, li, dd, [data-slot='channel-body']) {
+:where(p, li, dd, [data-slot$='-description'], [data-slot$='-blurb'], [data-slot='confirm-body'], [data-slot='channel-body']) {
   text-wrap: pretty;
 }
 
