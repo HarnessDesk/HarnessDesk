@@ -108,11 +108,11 @@
 
 /* The radio, drawn as `design/ui/radio-group` draws it: a ring at rest, the
    accent with a knob when it is the answer. */
-/* Centred on the title's 18px line, not on the row. */
+/* Centred on the title's line (20px), not on the row: (20 - 16) / 2. */
 .radio {
   display: grid;
   place-items: center;
-  margin-top: var(--hd-space-px);
+  margin-top: var(--hd-space-0-5); /* desk: 1px → 2px, (20 - 16) / 2 for the line's own 4px-grid move to 20 */
   width: var(--hd-space-4);
   height: var(--hd-space-4);
   border: var(--hd-border-width) solid var(--hd-border-strong);

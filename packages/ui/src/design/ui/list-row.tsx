@@ -111,7 +111,14 @@ const ListRow = ({
        row looks different. */
     {...(selected ? { 'aria-current': 'true' as const } : {})}
     className={cn(
-      'flex items-center',
+      /* A lead centres on the row's FIRST text line, the way shadcn's Item
+         keeps its media centred only when the item is a single line and
+         pins it to the top the moment a description joins it. With only a
+         title the row's whole height IS the first line, so centring the row
+         still centres the lead on it; a subtitle or `meta` adds height below
+         that line, and centring the row then centred the lead 5–8px low. */
+      'flex',
+      subtitle != null || meta != null ? 'items-start' : 'items-center',
       as === 'button' && 'w-full text-left',
       size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : 'gap-3 px-4 py-2.5',
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
@@ -152,7 +159,21 @@ const ListRow = ({
     )}
     {...props}
   >
-    {lead != null && <span data-slot="list-row-lead" className="inline-flex shrink-0 items-center gap-2">{lead}</span>}
+    {lead != null && (
+      <span
+        data-slot="list-row-lead"
+        className={cn(
+          'inline-flex shrink-0 items-center gap-2',
+          /* Pinned to the row's top edge and dropped by half the gap between
+             the title's line and a 16–20px lead — the common IconTile and
+             Avatar sizes at this row's two densities — so the lead's own
+             centre lands on the title's centre instead of the taller block's. */
+          (subtitle != null || meta != null) && 'translate-y-(--hd-space-px)',
+        )}
+      >
+        {lead}
+      </span>
+    )}
     <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
         data-slot="list-row-title"

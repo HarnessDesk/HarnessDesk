@@ -77,9 +77,20 @@
 
 /* An account menu has two rows whose content is taller than the ordinary
    one-line action. Their padding is part of that anatomy, not the menu that
-   happens to contain them. */
+   happens to contain them.
+
+   The profile row's own 30px face already reaches the row floor
+   (`--hd-row-h`) a plain row only gets to by its `min-height`, so adding the
+   same vertical padding an ordinary row keeps made this one taller still —
+   panel padding (4px) plus this row's own 8px landed its centred name 18px
+   under the panel's top edge, against the last plain row's centred label
+   sitting 9-10px over the bottom one: the menu the seat opens, top-heavy by
+   design rather than by mistake. Dropping the vertical padding here (the
+   horizontal stays, so the face keeps its own breathing room) lets the face
+   set the row's height exactly the way a plain row's `min-height` already
+   does, and the two edges land the same. */
 .row[data-layout='profile'] {
-  padding: var(--hd-space-2);
+  padding: 0 var(--hd-space-2); /* desk: 8px all sides → 0 vertical, the 30px face sets the row's height the way a plain row's min-height already does */
 }
 
 .row[data-layout='account'] {

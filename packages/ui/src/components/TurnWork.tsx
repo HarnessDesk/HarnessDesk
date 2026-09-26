@@ -14,7 +14,7 @@ import type { AgentItem, Turn } from '@harnessdesk/protocol'
 import { groupItems, isSilentReasoning } from '../lib/group-items'
 import { planOf, turnPlan } from '../lib/todos'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
-import { ItemView, StepNameScope, TodoListView } from './Items'
+import { ItemView, PlanSteps, StepNameScope } from './Items'
 import { StepGroup } from './StepGroup'
 import styles from './TurnWork.module.css'
 
@@ -139,7 +139,7 @@ export const TurnWork = ({
       </TurnWorkHeader>
       {open && (
         <TurnWorkBody reveal={choice === true} className={styles.body} data-register="light">
-          {inlinePlan && <TodoListView todos={inlinePlan} />}
+          {inlinePlan && <PlanSteps todos={inlinePlan} />}
           <StepNameScope items={shown} root={root}>
             {groupItems(shown).map((node) =>
               node.kind === 'group' ? (

@@ -16,8 +16,8 @@
  *    are pills, and the ladder has a name for a pill, so neither computes its
  *    own half-height.
  *
- * 3. **Two lines.** `--hd-line` (21px) carries the 14px interface step and
- *    `--hd-line-sm` (18px) the 12–13px one.
+ * 3. **Two lines.** `--hd-line` (20px) carries the 14px interface step and
+ *    `--hd-line-sm` (20px) the 12–13px one.
  *
  * 4. **The hairline is a token.** 44 edges in this app are
  *    `inset 0 0 0 1px <border>` rather than a border, because it costs no
@@ -131,7 +131,7 @@
   gap: var(--hd-space-2);
   width: 100%;
  /* desk: 34 → 30, the app's rung for a one-line row */
- /* desk: 6px 10px → 4px 10px, so 21px of line lands on the rung */
+ /* desk: 6px 10px → 4px 10px, so 20px of line lands on the rung */
 
   text-align: left;
 
@@ -242,25 +242,6 @@
 }
 
 /* --- plan and todo list ------------------------------------------------- */
-
-/* The shared `[data-slot] ul,ol` reset (shadcn.css) only reaches a list
-   nested under a design part; the light register's own row is a bare div,
-   so this list still has to zero its own UA indent. */
-.list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-0-5); /* desk: 8px → 2px, the gap between rows now that a row's own gap to its mark moved to .listItem */
-}
-
-/* The mark sits on the label's first line, however many lines it wraps to. */
-.listItem {
-  display: flex; /* desk: inline-grid → flex, a mark-and-label row rather than one centred glyph */
-  align-items: first baseline;
-  gap: var(--hd-space-2);
-}
 
 /* --- message actions ---------------------------------------------------- */
 

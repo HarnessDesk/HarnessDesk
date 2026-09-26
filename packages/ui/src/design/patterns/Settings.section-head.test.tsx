@@ -50,3 +50,20 @@ it('keeps card labels distinct from an explicit page-section heading', () => {
   expect(css).not.toMatch(/\.sectionName\s*\{[^}]*font-size/s)
   expect(css).toMatch(/\.sectionName\[data-level='heading'\]\s*\{[^}]*font-size:\s*var\(--hd-text-lg\)[^}]*font-weight:\s*var\(--hd-weight-semibold\)/s)
 })
+
+/*
+ * A `SectionHead` sits above whatever body it names, which is a `Rows` card
+ * as often as it is a `Note` or a plain button (ProjectTriggers' own body,
+ * `.sectionHead`'s inset is earned by that card, and applying it whether or
+ * not the body is one put a Note-bodied head's label 17px right of a body
+ * that starts flush with the page. jsdom does not resolve `:has()` against
+ * layout, so this reads the rule's own selector rather than a computed
+ * style; `e2e/ui-system/page-grammar.spec.ts` measures the two cases live.
+ */
+it('earns its card inset only when a Rows card is the very next thing it names', () => {
+  expect(css).toMatch(/\.sectionHead:has\(\+ \[data-slot='rows'\]\)\s*\{[^}]*padding-inline:/s)
+  // The bare `.sectionHead` rule — the one every head gets — carries no
+  // inline padding of its own; only the conditional one does.
+  const bare = /\.sectionHead\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
+  expect(bare).not.toMatch(/padding-inline/)
+})

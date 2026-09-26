@@ -3,7 +3,7 @@
     "h": 50,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "6 6 6 6",
     "radius": 6
   },
@@ -11,7 +11,7 @@
     "h": 50,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "8 8 8 8",
     "radius": 6
   },
@@ -24,18 +24,18 @@
     "radius": 6
   },
   "adopted/card/size/compact": {
-    "h": 68,
+    "h": 66,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "12 12 12 12",
     "radius": 6
   },
   "adopted/card/size/default": {
-    "h": 146,
+    "h": 148,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "16 0 16 0",
     "radius": 10
   },
@@ -64,10 +64,10 @@
     "radius": 0
   },
   "adopted/table/variant/framed": {
-    "h": 51,
+    "h": 53,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
@@ -83,7 +83,7 @@
     "h": 32,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "4 8 4 8",
     "radius": 8
   },
@@ -99,7 +99,7 @@
     "h": 56,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "6 10 6 10",
     "radius": 8
   },
@@ -123,7 +123,7 @@
     "h": 32,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "4 8 4 8",
     "radius": 8
   },
@@ -131,7 +131,7 @@
     "h": 32,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "4 8 4 8",
     "radius": 8
   },
@@ -139,7 +139,7 @@
     "h": 32,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "4 8 4 8",
     "radius": 8
   },
@@ -179,7 +179,7 @@
     "h": 26,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "1 1 1 1",
     "radius": 6
   },
@@ -187,23 +187,23 @@
     "h": 26,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
   "banner/alert/variant/default": {
-    "h": 61,
+    "h": 60,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "10 12 10 12",
     "radius": 10
   },
   "banner/alert/variant/soft": {
-    "h": 61,
+    "h": 60,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "10 12 10 12",
     "radius": 10
   },
@@ -211,7 +211,7 @@
     "h": 24,
     "text": 12,
     "weight": "500",
-    "line": 21,
+    "line": 20,
     "pad": "0 8 0 8",
     "radius": 33554400
   },
@@ -272,10 +272,10 @@
     "radius": 8
   },
   "button/button/size/inline": {
-    "h": 31,
+    "h": 30,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "4 4 4 4",
     "radius": 6
   },
@@ -283,7 +283,7 @@
     "h": 29,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "0 8 0 8",
     "radius": 10
   },
@@ -296,18 +296,18 @@
     "radius": 8
   },
   "button/button/size/pattern": {
-    "h": 21,
+    "h": 20,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
   "button/button/size/row": {
-    "h": 29,
+    "h": 30,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "4 8 4 8",
     "radius": 10
   },
@@ -315,7 +315,7 @@
     "h": 28,
     "text": 12,
     "weight": "500",
-    "line": 21,
+    "line": 20,
     "pad": "0 10 0 10",
     "radius": 8
   },
@@ -483,7 +483,7 @@
     "h": 28,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
   },
@@ -491,7 +491,7 @@
     "h": 24,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 6 0 6",
     "radius": 8
   },
@@ -499,7 +499,7 @@
     "h": 30,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 10 0 10",
     "radius": 8
   },
@@ -507,7 +507,7 @@
     "h": 30,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 10 0 10",
     "radius": 8
   },
@@ -515,7 +515,7 @@
     "h": 30,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 10 0 10",
     "radius": 8
   },
@@ -523,7 +523,7 @@
     "h": 30,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 10 0 10",
     "radius": 8
   },
@@ -531,7 +531,7 @@
     "h": 30,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 10 0 10",
     "radius": 8
   },
@@ -539,7 +539,7 @@
     "h": 30,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 10 0 10",
     "radius": 8
   },
@@ -547,7 +547,7 @@
     "h": 24,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "0 28 0 10",
     "radius": 8
   },
@@ -555,7 +555,7 @@
     "h": 30,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "0 28 0 10",
     "radius": 8
   },
@@ -563,7 +563,7 @@
     "h": 30,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "0 28 0 10",
     "radius": 8
   },
@@ -571,7 +571,7 @@
     "h": 30,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "0 28 0 10",
     "radius": 8
   },
@@ -579,7 +579,7 @@
     "h": 20,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 33554400
   },
@@ -587,7 +587,7 @@
     "h": 18,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 33554400
   },
@@ -595,7 +595,7 @@
     "h": 26,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
   },
@@ -603,7 +603,7 @@
     "h": 32,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
   },
@@ -611,7 +611,7 @@
     "h": 26,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
   },
@@ -619,7 +619,7 @@
     "h": 26,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
   },
@@ -627,7 +627,7 @@
     "h": 26,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
   },
@@ -635,47 +635,47 @@
     "h": 24,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
   },
   "message/bubble/variant/ghost": {
-    "h": 21,
+    "h": 20,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
   "message/bubble/variant/secondary": {
-    "h": 41,
+    "h": 40,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "10 16 10 16",
     "radius": 16
   },
   "readings/key-value/variant/default": {
-    "h": 121,
+    "h": 116,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
   "readings/key-value/variant/panel": {
-    "h": 38,
+    "h": 42,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
   "readings/summary-card/variant/summary": {
-    "h": 273,
+    "h": 280,
     "text": 13,
     "weight": "400",
-    "line": 18,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 14
   },
@@ -696,42 +696,42 @@
     "radius": 0
   },
   "section/section/variant/card": {
-    "h": 88,
+    "h": 86,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 10
   },
   "section/section/variant/page": {
-    "h": 173,
+    "h": 185,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
   "section/section/variant/panel": {
-    "h": 111,
+    "h": 109,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "8 10 8 10",
     "radius": 0
   },
   "section/section/variant/plain": {
-    "h": 86,
+    "h": 84,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
   "section/section/variant/quiet": {
-    "h": 86,
+    "h": 84,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 10
   },
@@ -739,7 +739,7 @@
     "h": 102,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "16 16 16 16",
     "radius": 10
   },
@@ -747,7 +747,7 @@
     "h": 102,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
@@ -755,7 +755,7 @@
     "h": 102,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "16 16 16 16",
     "radius": 10
   },
@@ -763,7 +763,7 @@
     "h": 32,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 6
   },
@@ -771,7 +771,7 @@
     "h": 40,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 6
   },
@@ -779,7 +779,7 @@
     "h": 24,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 6
   },
@@ -787,7 +787,7 @@
     "h": 18,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 6
   },
@@ -795,7 +795,7 @@
     "h": 224,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 10
   },
@@ -803,7 +803,7 @@
     "h": 224,
     "text": 14,
     "weight": "400",
-    "line": 21,
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   }
