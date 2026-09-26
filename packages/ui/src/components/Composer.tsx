@@ -38,6 +38,7 @@ import {
   Text,
 } from '../design'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
+import { ComposerNoticeStack } from '../design'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
 import { contributionsHere, scopeHere } from '../lib/contributions'
 import { opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
@@ -936,8 +937,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       {/* What stops a turn here, and what an Agent in this conversation is
           waiting on you to decide — on the composer it is about, never over
           another pane. */}
-      <NoticeStripOutlet />
-      <ComposerNotices />
+      <ComposerNoticeStack>
+        <NoticeStripOutlet />
+        <ComposerNotices />
+      </ComposerNoticeStack>
       <ComposerShell
         className={`${styles.shell} ${styles.anchor}`}
         {...(dragging ? { 'data-dropping': '' } : {})}

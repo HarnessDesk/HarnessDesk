@@ -33,7 +33,8 @@ import {
 } from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
+import { ComposerNoticeStack, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
+import { NoticeStripOutlet } from './Notices'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 
 /**
@@ -498,6 +499,11 @@ export const RoomComposer = ({
         {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
       </TurnWorkLive>
     )}
+    {/* A dropped link, and whatever the person moved to the strip, over the
+        room's box as over a conversation's. */}
+    <ComposerNoticeStack>
+      <NoticeStripOutlet />
+    </ComposerNoticeStack>
     <ComposerShell className="relative">
       {mention && (
         <TriggerMenu

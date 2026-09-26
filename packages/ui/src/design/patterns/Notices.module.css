@@ -123,7 +123,22 @@
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-1-5);
+  max-width: var(--hd-column);
+  margin: 0 auto;
   padding-bottom: var(--hd-space-1-5);
+}
+
+/* Nothing to say: no room taken. */
+.composerStack:empty {
+  display: none;
+}
+
+/* Over a composer the strip is one more line in the stack, not a bar across
+   a pane: rounded like the notices beside it, with no rule under it. */
+.composerStack .strip {
+  border-bottom: 0;
+  border-radius: var(--hd-radius-lg);
+  padding-left: var(--hd-space-3);
 }
 
 .composer {

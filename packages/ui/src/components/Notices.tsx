@@ -7,7 +7,6 @@ import { sessionKey, type SessionId } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeAccount, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import {
   ComposerNotice,
-  ComposerNoticeStack,
   NoticeCard,
   NoticeStrip,
   showToast,
@@ -273,7 +272,7 @@ export const ComposerNotices = () => {
   )
   if ((place !== 'composer' || !standing) && asking.length === 0) return null
   return (
-    <ComposerNoticeStack>
+    <>
       {place === 'composer' && standing ? <ComposerNotice message={standing.message} onDismiss={standing.dismiss} onMute={standing.mute} /> : null}
       {asking.map((notice) => (
         <ComposerNotice
@@ -282,7 +281,7 @@ export const ComposerNotices = () => {
           onDismiss={() => store.dismissAgentNotice(notice.id)}
         />
       ))}
-    </ComposerNoticeStack>
+    </>
   )
 }
 
