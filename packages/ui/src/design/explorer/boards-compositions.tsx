@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { runtimeId, type LedgerDay, type LedgerReport } from '@harnessdesk/protocol'
+import { runtimeId, type LedgerDay, type LedgerReport, type PlanSuggestion, type UsageReport } from '@harnessdesk/protocol'
 
 import {
   AgentIcon,
@@ -178,6 +178,9 @@ import { DialogBoard, type Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
 import { Specimen } from './specimen'
 import styles from './explorer.module.css'
+import { PlanSection } from '../../components/SettingsAgents'
+import { Mount } from '../../preview/harness'
+import { emptySnapshot, type AppStore } from '../../state/store'
 
 /**
  * The composition layer, board by board.
@@ -1759,6 +1762,132 @@ const AdoptedBoard = () => {
   )
 }
 
+const planCardSnapshot = emptySnapshot()
+
+/**
+ * A minimal store for the Plan card alone: `readPlans` answers with exactly
+ * the suggestions each example wants to demonstrate, `setPlan`/`loadUsage`
+ * are inert since nothing on this board is meant to be clicked through, and
+ * `getSnapshot` is the same empty snapshot every other catalogue board reads
+ * off of. Real `~/.harnessdesk/plans.json` behaviour is `plan-store.ts`'s;
+ * this only has to look right.
+ */
+const planCardStore = (suggestions: readonly PlanSuggestion[]): AppStore =>
+  ({
+    subscribe: () => () => {},
+    getSnapshot: () => planCardSnapshot,
+    readPlans: async () => ({ entries: [], suggestions }),
+    setPlan: async () => ({}),
+    loadUsage: async () => {},
+  }) as unknown as AppStore
+
+const PLAN_CLAUDE_SUGGESTION: PlanSuggestion = {
+  runtime: runtimeId('claude'),
+  planMatch: 'Pro',
+  amount: 20,
+  currency: 'USD',
+  period: 'month',
+  sourceUrl: 'https://claude.com/pricing',
+  checkedAt: '2026-09-26',
+}
+
+/**
+ * The real `PlanSection` from Settings › Agents, mounted four times over —
+ * the four states `docs/usage-dashboard.md`'s pricing paragraph describes:
+ * a suggestion a click away, a plan with no suggestion to offer, a price the
+ * person already set, and the monthly budget row a key or metered account
+ * gets beside (or instead of) a price. No new control was written for this
+ * board; it is the same `Row`/`Rows`/`Button`/`Dialog` composition the
+ * screen ships, fed four different reports.
+ */
+const PlanCardBoard = () => (
+  <>
+    <Specimen
+      measure="page"
+      caption="The Plan card: a suggested price, a plan nothing suggests, a price you set, and a key account's own budget"
+    >
+      <div className={styles.stack} data-catalog-states="not-set-suggested not-set-plain set budget">
+        <div data-catalog-case="not-set-suggested">
+          <div className={styles.caseLabel}>Not set — a suggestion is offered</div>
+          <Mount with={planCardStore([PLAN_CLAUDE_SUGGESTION])}>
+            <PlanSection
+              runtime={runtimeId('claude')}
+              account="shane@harnessdesk.app"
+              isKey={false}
+              report={{
+                runtime: runtimeId('claude'),
+                account: 'shane@harnessdesk.app',
+                plan: 'Pro',
+                billing: { kinds: [] },
+              } as unknown as UsageReport}
+            />
+          </Mount>
+        </div>
+        <div data-catalog-case="not-set-plain">
+          <div className={styles.caseLabel}>Not set — no suggestion for this plan</div>
+          <Mount with={planCardStore([])}>
+            <PlanSection
+              runtime={runtimeId('claude')}
+              account="shane@harnessdesk.app"
+              isKey={false}
+              report={{
+                runtime: runtimeId('claude'),
+                account: 'shane@harnessdesk.app',
+                plan: 'Max 20x',
+                billing: { kinds: [] },
+              } as unknown as UsageReport}
+            />
+          </Mount>
+        </div>
+        <div data-catalog-case="set">
+          <div className={styles.caseLabel}>Set — &ldquo;you set this&rdquo;</div>
+          <Mount with={planCardStore([])}>
+            <PlanSection
+              runtime={runtimeId('claude')}
+              account="shane@harnessdesk.app"
+              isKey={false}
+              report={{
+                runtime: runtimeId('claude'),
+                account: 'shane@harnessdesk.app',
+                plan: 'Max 20x',
+                billing: {
+                  kinds: [],
+                  fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() },
+                },
+              } as unknown as UsageReport}
+            />
+          </Mount>
+        </div>
+        <div data-catalog-case="budget">
+          <div className={styles.caseLabel}>A key account&rsquo;s monthly budget</div>
+          <Mount with={planCardStore([])}>
+            <PlanSection
+              runtime={runtimeId('codex')}
+              account="API key"
+              isKey
+              report={{
+                runtime: runtimeId('codex'),
+                account: 'API key',
+                plan: null,
+                billing: {
+                  kinds: ['metered'],
+                  budget: { amount: 50, currency: 'USD', period: 'month', setAt: Date.now() },
+                },
+              } as unknown as UsageReport}
+            />
+          </Mount>
+        </div>
+      </div>
+    </Specimen>
+    <Rule>
+      Four states, one card: a suggestion is a click away when the vendor&rsquo;s own page gave an
+      unambiguous number; otherwise the row asks for one. A stored fee reads &ldquo;you set
+      this&rdquo; and a vendor-reported fee never would. A key or metered account gets a second row
+      for its own spending cap, unrelated to any plan limit &mdash; never bundled, never guessed.
+    </Rule>
+  </>
+)
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'stat',
@@ -1772,6 +1901,13 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Delta',
     about: 'A change, with its sign said in colour as well as in punctuation.',
     render: DeltaBoard,
+  },
+  {
+    id: 'plan-card',
+    title: 'Plan card',
+    about:
+      'A plan\'s price and a key or metered account\'s monthly budget, in every state the card can be in.',
+    render: PlanCardBoard,
   },
   {
     id: 'section',

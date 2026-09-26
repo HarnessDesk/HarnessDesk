@@ -1533,9 +1533,14 @@ class PreviewStore {
     // `plan-prices.ts`), so this is the "set, with nothing to suggest" case —
     // someone typed $200 themselves.
     [this.#planKey('claude', 'shane@harnessdesk.app'), { fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() } }],
+    // A key account's own spending cap, unrelated to any vendor limit — the
+    // "budget on a key account" case the Settings › Agents preview shows,
+    // on codex's second, key-flavoured account (see `signin-fixture.ts`).
+    [this.#planKey('codex', 'API key'), { budget: { amount: 50, currency: 'USD', period: 'month', setAt: Date.now() } }],
   ])
   readonly #planSuggestions: PlanSuggestion[] = [
     { runtime: runtimeId('claude'), planMatch: 'Pro', amount: 20, currency: 'USD', period: 'month', sourceUrl: 'https://claude.com/pricing', checkedAt: '2026-09-26' },
+    { runtime: runtimeId('codex'), planMatch: 'plus', amount: 20, currency: 'USD', period: 'month', sourceUrl: 'https://chatgpt.com/pricing', checkedAt: '2026-09-26' },
     { runtime: runtimeId('cursor'), planMatch: 'Pro', amount: 20, currency: 'USD', period: 'month', sourceUrl: 'https://cursor.com/docs/account/pricing', checkedAt: '2026-09-26' },
   ]
 

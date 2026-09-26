@@ -39,7 +39,13 @@ const RUNTIMES: readonly RuntimeInfo[] = [
 const oauth = (label: string, planType?: string) => ({ kind: 'oauth', label, email: label, ...(planType ? { planType } : {}) })
 
 const ACCOUNTS: Record<string, AccountStatus> = {
-  codex: { accounts: [oauth('shane@harnessdesk.app', 'Pro')], signInMethods: [] },
+  // Codex alone carries two identities at once here — the ChatGPT
+  // subscription and an API key beside it — which is exactly the case
+  // `Account`'s own doc comment describes, and the one place this fixture
+  // can show the Plan card's "budget on a key account" row without
+  // reassigning a runtime the Sign in dialog's own scenes already use for
+  // something else (`deepseek` illustrates "key only" with no account yet).
+  codex: { accounts: [oauth('shane@harnessdesk.app', 'Pro'), { kind: 'apiKey', label: 'API key' }], signInMethods: [] },
   claude: { accounts: [oauth('shane@harnessdesk.app', 'Max 20x')], signInMethods: [] },
   cursor: { accounts: [oauth('dev@example.com')], signInMethods: [] },
   deepseek: {
@@ -104,11 +110,32 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
   healthByRuntime: {},
   credentialProtection: 'macOS Keychain',
   // One lane spent on the first account, so the rail shows the limit tone.
+  // `plan` on the codex and claude reports is what Settings › Agents' Plan
+  // card reads to offer a suggestion or surface a stored fee (see
+  // `harness.tsx`'s `#plans`/`#planSuggestions`) — the first codex report's
+  // "plus" matches a suggestion (not set yet), the claude report's "Max 20x"
+  // has none (this account already set its own $200), and codex's second,
+  // key-flavoured account demonstrates the monthly-budget row a key account
+  // gets.
   usage: [{
     runtime: runtimeId('codex'),
     account: 'shane@harnessdesk.app',
+    plan: 'plus',
     lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10_080, resetsAt: Date.now() + 86_400_000 }],
     reached: { lane: 'weekly' },
+  }, {
+    runtime: runtimeId('claude'),
+    account: 'shane@harnessdesk.app',
+    plan: 'Max 20x',
+    lanes: [],
+    reached: null,
+  }, {
+    runtime: runtimeId('codex'),
+    account: 'API key',
+    plan: null,
+    lanes: [],
+    reached: null,
+    billing: { kinds: ['metered'] },
   }],
   logins: scene === 'code'
     ? {

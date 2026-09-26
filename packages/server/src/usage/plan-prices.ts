@@ -12,7 +12,9 @@ import { matchPlanSuggestion, type PlanSuggestion, type RuntimeId } from '@harne
  * A plan whose vendor page did not give an unambiguous single number for it
  * is left out rather than guessed: Claude's Max 5x and Max 20x share one
  * "From $100" card on `claude.com/pricing` with no per-tier figure, so
- * neither is listed here.
+ * neither is listed here, and ChatGPT Pro is the same "From $100" shape on
+ * `chatgpt.com/pricing` — one card, no per-seat number — so it is left out
+ * too.
  *
  * Kept as a TypeScript module rather than the plain data file the design
  * first reached for (`plan-prices.json`) because `tsc -b`'s output only ever
@@ -35,15 +37,6 @@ export const PLAN_SUGGESTIONS: readonly PlanSuggestion[] = [
     runtime: 'codex' as RuntimeId,
     planMatch: 'plus',
     amount: 20,
-    currency: 'USD',
-    period: 'month',
-    sourceUrl: 'https://chatgpt.com/pricing',
-    checkedAt: '2026-09-26',
-  },
-  {
-    runtime: 'codex' as RuntimeId,
-    planMatch: 'pro',
-    amount: 100,
     currency: 'USD',
     period: 'month',
     sourceUrl: 'https://chatgpt.com/pricing',

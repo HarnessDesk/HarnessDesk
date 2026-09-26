@@ -566,6 +566,25 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
   },
   ...CANONICAL_UI_MODULES.map(primitive),
   ...CANONICAL_PATTERN_MODULES.map(pattern),
+  {
+    // Manual, not `pattern()`-built: the real implementation is a section of
+    // the Settings › Agents screen, not a standalone file under
+    // `design/patterns`, and its four states are real report shapes rather
+    // than a CVA variant/size/state matrix — the same reason every
+    // `Product Surfaces` entry below sets its own `coverageExemption`.
+    id: 'pattern.plan-card',
+    category: 'Patterns' as const,
+    implementationPath: 'packages/ui/src/components/SettingsAgents.tsx',
+    purpose: 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price',
+    exampleId: 'plan-card',
+    variants: ['default'] as const,
+    sizes: ['default'] as const,
+    states: ['empty', 'derived', 'populated'] as const,
+    examples: ['packages/ui/src/design/explorer/boards-compositions.tsx'],
+    consumers: ['packages/ui/src/components/SettingsAgents.tsx'],
+    coverageExemption: 'pattern.plan-card has no component CVA contract; its four real states (suggested, plain, set, budgeted) are reviewed by SettingsAgents.plan.test.tsx and mounted side by side on the plan-card board.',
+    visual: true,
+  },
   ...PRODUCT_SURFACES.map(([id, exampleId, purpose, implementationPath, catalogOnly, consumer, surface]): CatalogEntry => ({
     id,
     category: 'Product Surfaces' as const,

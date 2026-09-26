@@ -304,7 +304,7 @@ const domainOf = (url: string): string => {
  * its `billing.fee`/`billing.budget` are drawn straight from
  * `usage/reports`, which already carries whatever this section just set.
  */
-const PlanSection = ({
+export const PlanSection = ({
   runtime,
   account,
   report,
