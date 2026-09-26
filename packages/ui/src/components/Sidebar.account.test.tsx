@@ -406,6 +406,14 @@ it('draws no empty seat on the badge before the default agent has answered', () 
   expect(seat.querySelector('[data-off]')).toBeNull()
 })
 
+it('keeps the readiness light neutral before the default agent has answered', () => {
+  mount({ accountsByRuntime: { [CODEX]: signedIn('shane@example.com') } })
+  const light = row().querySelector('[role="img"]')
+  // Neutral: no state, and a name that claims none.
+  expect(light?.hasAttribute('data-state')).toBe(false)
+  expect(light?.getAttribute('aria-label')).toBe('Claude')
+})
+
 it('opens the account’s card from the badge, and the card offers no switch to what already is the default', () => {
   vi.useFakeTimers()
   mount()
