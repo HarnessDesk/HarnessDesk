@@ -1,7 +1,9 @@
 import {
+  Chip,
   DisclosureChevron,
   Separator,
   Text,
+  TextMark,
   TurnWorkHeader,
   TurnWorkHeaderLabel,
   TurnWorkLive,
@@ -11,7 +13,10 @@ import { useEffect, useState } from 'react'
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
 import { groupItems, isSilentReasoning } from '../lib/group-items'
+import { isPlanTool } from '../lib/tool-names'
+import { findTodos, turnPlan, type Todo } from '../lib/todos'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
+import { TodoActiveIcon, TodoDoneIcon, TodoPendingIcon } from './Icons'
 import { ItemView, StepNameScope } from './Items'
 import { StepGroup } from './StepGroup'
 import styles from './TurnWork.module.css'
@@ -43,6 +48,28 @@ import styles from './TurnWork.module.css'
  * cannot take over the transcript.
  */
 
+/**
+ * A turn's own plan, drawn the same way a plan tool's arguments already are
+ * in `Items.tsx` — the same marks, the same list — because it is the same
+ * fact in a different envelope: ACP's `plan` update and a `TodoWrite` call
+ * both say "here is what this turn is working through."
+ */
+const TurnPlanView = ({ todos }: { todos: readonly Todo[] }) => (
+  // A `<div>`, not a `<ul>`: the marker and the indent a list style resets
+  // are the browser's own appearance, not this screen's to draw or undo.
+  <div className={styles.planList}>
+    {todos.map((todo, index) => (
+      <Text as="div" role="prose" key={index} className={styles.planItem}>
+        <TextMark role="prose">
+          {todo.done ? <TodoDoneIcon size={12} /> : todo.active ? <TodoActiveIcon size={12} /> : <TodoPendingIcon size={12} />}
+        </TextMark>
+        <Text role={todo.active ? 'subject' : 'prose'} done={todo.done}>{todo.label}</Text>
+        {todo.priority && <Chip size="sm" tone="neutral">{todo.priority}</Chip>}
+      </Text>
+    ))}
+  </div>
+)
+
 /** A clock that only ticks while something is running. */
 const useNow = (running: boolean): number => {
   const [now, setNow] = useState(() => Date.now())
@@ -71,9 +98,28 @@ export const TurnWork = ({
   const now = useNow(running)
   const [choice, setChoice] = useState<boolean | null>(null)
   const line = describeTurnWork(turn, work, now)
-  const open = choice ?? (running || line.informative)
 
-  if (work.length === 0 && !running) return null
+  /*
+   * ACP's own `plan` update, preferred over a plan tool call's arguments —
+   * `lib/todos.ts`'s `turnPlan` is the same function the Tasks panel reads,
+   * so the two can never show a different plan for the same turn.
+   *
+   * Drawn here only when nothing else in this turn already draws it: an
+   * agent whose `TodoWrite` (or equivalent) call is *also* mirrored as an
+   * ACP plan update already gets that checklist from the described step
+   * below, and a second copy from `turn.plan` would say the same list twice.
+   */
+  const plan = turnPlan(turn)
+  const planShownByAToolCall = work.some(
+    (item) => item.type === 'toolCall' && isPlanTool(item.tool) && findTodos(item.args) !== null,
+  )
+  const inlinePlan = plan && plan.length > 0 && !planShownByAToolCall ? plan : null
+  const open = choice ?? (running || line.informative || inlinePlan !== null)
+
+  // A turn with nothing else to show still has something to show when it is
+  // the plan itself — an ACP agent may send only that, with no tool call in
+  // the same turn to fold or describe.
+  if (work.length === 0 && !running && !inlinePlan) return null
 
   const activity = running ? liveActivity(work) : null
   // The live line already says "Thinking"; the quiet line under it would say
@@ -115,6 +161,7 @@ export const TurnWork = ({
       </TurnWorkHeader>
       {open && (
         <div className={styles.body} data-register="light">
+          {inlinePlan && <TurnPlanView todos={inlinePlan} />}
           <StepNameScope items={shown} root={root}>
             {groupItems(shown).map((node) =>
               node.kind === 'group' ? (

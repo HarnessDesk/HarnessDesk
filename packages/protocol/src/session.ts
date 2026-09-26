@@ -393,6 +393,8 @@ export type PlanStepStatus = 'pending' | 'inProgress' | 'completed'
 export interface PlanStep {
   readonly step: string
   readonly status: PlanStepStatus
+  /** ACP's own word for the step's urgency (`"high"`, `"medium"`, …), shown as the agent spelled it — never normalized, since agents do not agree on a scale. */
+  readonly priority?: string | null
 }
 
 export interface Turn {

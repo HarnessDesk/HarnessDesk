@@ -149,6 +149,72 @@ test('an agent that keeps its own name is the one asked, and nothing is written 
   }
 })
 
+test('a title the agent announces live never overwrites a name the user gave the conversation', async () => {
+  // ACP's `session_info_update` — and anything else a `nameHistory:false`
+  // runtime might announce live — is exactly this shape on the wire: the
+  // runtime pushing `session/title` itself, mid-conversation, rather than
+  // through `setTitle`. The host's own name has to win regardless of which
+  // one arrives second.
+  const rig = await start(false)
+  try {
+    const created = (await rig.client.call('session/create', {
+      runtime: 'fake',
+      options: { cwd: '/w' },
+    })) as { id: string }
+    // `session/list` reads a live session from `history`, the same as any
+    // other row — pushed here so the sidebar precedence check below has a
+    // row to read at all.
+    rig.runtime.history.push(summary(created.id))
+    await rig.client.call('session/setTitle', {
+      runtime: 'fake',
+      sessionId: created.id,
+      title: 'the name I chose',
+    })
+    rig.client.events.length = 0
+
+    rig.runtime.emit({ type: 'session/title', sessionId: sessionId(created.id), title: 'agent-chosen title' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    assert.deepEqual(
+      rig.client.events.filter((event) => event.type === 'session/title'),
+      [],
+      "the agent's own title never reached the open window",
+    )
+    assert.equal(
+      (await list(rig.client)).data.find((row) => row.id === created.id)?.title,
+      'the name I chose',
+      'the sidebar still wears the name the user gave it',
+    )
+  } finally {
+    await rig.close()
+  }
+})
+
+test('a title the agent announces live reaches the window when nobody has named the conversation', async () => {
+  // The control for the test above: the guard is specific to a name the user
+  // gave, not a blanket refusal to ever forward a live title.
+  const rig = await start(false)
+  try {
+    const created = (await rig.client.call('session/create', {
+      runtime: 'fake',
+      options: { cwd: '/w' },
+    })) as { id: string }
+    rig.client.events.length = 0
+
+    rig.runtime.emit({ type: 'session/title', sessionId: sessionId(created.id), title: 'agent-chosen title' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    assert.deepEqual(
+      rig.client.events
+        .filter((event) => event.type === 'session/title')
+        .map((event) => (event as { title: string | null }).title),
+      ['agent-chosen title'],
+    )
+  } finally {
+    await rig.close()
+  }
+})
+
 test('concurrent load calls both await reading and observe populated names', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-names-load-'))
   try {
