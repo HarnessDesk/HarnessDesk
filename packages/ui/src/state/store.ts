@@ -41,6 +41,9 @@ import {
   type SeatPlan,
   type LedgerQuery,
   type LedgerReport,
+  type PlanEntry,
+  type PlanRead,
+  type PlanSetInput,
   type RateLimits,
   type UsageReport,
   type RuntimeHealth,
@@ -1685,6 +1688,18 @@ export class AppStore {
       // A host that cannot answer leaves the last reading in place; the cards
       // show their own age, which is the honest thing to show.
     }
+  }
+
+  /** What a person has set for each account's plan fee/budget, plus the suggested public prices. */
+  async readPlans(): Promise<PlanRead> {
+    return this.transport.request('usage/plan/read', {}).catch(() => ({ entries: [], suggestions: [] }))
+  }
+
+  /** Sets — or, given `null`, clears — one account's fee and/or budget, then re-asks for reports so the change shows. */
+  async setPlan(input: PlanSetInput): Promise<PlanEntry> {
+    const entry = await this.transport.request('usage/plan/set', input)
+    await this.loadUsage()
+    return entry
   }
 
   /**

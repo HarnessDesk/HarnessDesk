@@ -118,6 +118,7 @@ const mount = async (usage: readonly UsageReport[]): Promise<AppStore> => {
     getSnapshot: () => snapshot,
     loadAccounts: vi.fn(async () => {}),
     limitsFor: vi.fn(async () => null),
+    readPlans: vi.fn(async () => ({ entries: [], suggestions: [] })),
     agentCatalog: vi.fn(async () => []),
     acpRegistry: vi.fn(async () => ({ agents: [], fetchedAt: 1 })),
     setAccountPrefs: vi.fn(),
