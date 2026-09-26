@@ -696,7 +696,7 @@
   border: none;
   border-radius: calc(var(--hd-radius-md) - 2px); /* desk: 4 → 6, with the track */
   background: none;
-  color: var(--hd-secondary-foreground); /* desk: was tertiary — an unchosen answer is still explanation, not a count (#ink-and-segmented) */
+  color: var(--hd-secondary-foreground); /* desk: was tertiary — an unchosen answer is still explanation, not a count (#988) */
   font-size: var(--hd-seg-text); /* desk: 13 → 12, the small rung's label */
   cursor: pointer;
 }

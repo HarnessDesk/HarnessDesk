@@ -8,20 +8,17 @@ import { cn } from '@/lib/utils'
 
 /*
  * Vendored from shadcn/ui (toggle-group, with toggle's variants inlined);
- * heights on the app's measure tokens, ring utilities dropped.
- *
- * `data-pressed:bg-(--hd-card) data-pressed:text-(--hd-foreground)
- * data-pressed:shadow-(--hd-shadow-sm)` is a departure from the registry,
- * which presses with `bg-accent`/`text-accent-foreground` — this app's own
- * quiet hover wash (`--accent` resolves to `--hd-hover`), not a raised
- * surface. `Segmented` (`design/patterns/Settings.tsx`) documents its own
- * look as "a filled track with the chosen answer lifted out of it", the same
- * shape `TabsTrigger`'s enclosed variant presses with (`design/ui/tabs.tsx`),
- * so the pressed segment gets the same three tokens: the card, its hairline
- * shadow, primary ink.
+ * heights on the app's measure tokens, ring utilities dropped. The pressed
+ * state stays the registry's own `bg-accent`/`text-accent-foreground` — this
+ * app's quiet hover wash (`--accent` resolves to `--hd-hover`), not a raised
+ * surface. `Segmented` (`design/patterns/Settings.tsx`) wants the chosen
+ * answer lifted out of its track instead, the same shape `TabsTrigger`'s
+ * enclosed variant presses with (`design/ui/tabs.tsx`) — it layers its own
+ * `data-pressed:` classes on the item (tailwind-merge drops these in favour
+ * of theirs) rather than changing what ships here.
  */
 const toggleVariants = cva(
-    'inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50 data-pressed:bg-(--hd-card) data-pressed:text-(--hd-foreground) data-pressed:shadow-(--hd-shadow-sm) [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none transition-colors whitespace-nowrap',
+    'inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50 data-pressed:bg-accent data-pressed:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none transition-colors whitespace-nowrap',
   {
     variants: {
       variant: {

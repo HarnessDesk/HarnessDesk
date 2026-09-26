@@ -74,13 +74,29 @@ it('lifts the chosen segment on the card, its own shadow, and primary ink — ne
   expect(chosen.className).not.toContain('data-pressed:text-accent-foreground')
 })
 
+it('carries the pattern\'s own hover class so an unchosen answer never dims on hover', () => {
+  const { chosen, unchosen } = draw()
+  // The className is static — chosen and unchosen render the same string —
+  // so both must carry it. The primitive's own `hover:text-muted-foreground`
+  // would otherwise lower an unchosen segment from secondary to tertiary ink
+  // on hover; tailwind-merge must drop it in favour of this one.
+  expect(chosen.className).toContain('hover:text-(--hd-foreground)')
+  expect(unchosen.className).toContain('hover:text-(--hd-foreground)')
+  expect(chosen.className).not.toContain('hover:text-muted-foreground')
+  expect(unchosen.className).not.toContain('hover:text-muted-foreground')
+})
+
 it('keeps an unchosen answer at secondary ink — explanation, not a count', () => {
   expect(css).toMatch(/\.segItem\s*\{[^}]*color:\s*var\(--hd-secondary-foreground\)/s)
   expect(css).not.toMatch(/\.segItem\s*\{[^}]*color:\s*var\(--hd-muted-foreground\)/s)
 })
 
 it('agrees with the Tailwind utilities on the same three tokens, so load order cannot put them out of sync', () => {
-  expect(css).toMatch(
-    /\.segItem\[data-pressed\]\s*\{[^}]*background:\s*var\(--hd-card\)[^}]*color:\s*var\(--hd-foreground\)[^}]*box-shadow:\s*var\(--hd-shadow-sm\)/s,
-  )
+  const block = css.match(/\.segItem\[data-pressed\]\s*\{([^}]*)\}/s)?.[1] ?? ''
+  // Three independent assertions, not one ordered regex: each token stands
+  // on its own, so reordering the declarations inside the rule can't fail
+  // this test for a reason that has nothing to do with the values.
+  expect(block).toMatch(/background:\s*var\(--hd-card\)/)
+  expect(block).toMatch(/color:\s*var\(--hd-foreground\)/)
+  expect(block).toMatch(/box-shadow:\s*var\(--hd-shadow-sm\)/)
 })
