@@ -84,7 +84,7 @@ it('the inbox marks a message read when it is opened, and says so when empty', a
   expect(items[0]?.querySelector('time')?.textContent).toBe('5m')
   await act(() => host.querySelector<HTMLButtonElement>('[title="Mark read"]')!.click())
   expect(onOpen).toHaveBeenCalledWith('offer')
-  await act(() => host.querySelector<HTMLButtonElement>('[role="tab"]:last-child')!.click())
+  await act(() => host.querySelector<HTMLButtonElement>('[aria-pressed]:last-child')!.click())
   expect(host.querySelectorAll('li')).toHaveLength(1)
   await act(() => root.render(<InboxList messages={[]} />))
   expect(host.textContent).toContain('Nothing kept yet')

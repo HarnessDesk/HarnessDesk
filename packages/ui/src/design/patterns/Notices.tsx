@@ -334,7 +334,10 @@ export const InboxList = ({
           ) : null}
           {message.action ? <ActionButton action={message.action} variant="outline" className={styles.inboxAction} /> : null}
         </div>
-        {message.read ? null : <span className={styles.unreadDot} aria-label="Unread" />}
+        {/* `role="img"` because a plain `span` carries no accessible name of
+            its own — an `aria-label` on one with no role is dropped by
+            assistive tech, which is what silently swallowed this dot. */}
+        {message.read ? null : <span className={styles.unreadDot} role="img" aria-label="Unread" />}
       </li>
     )
   }
@@ -343,9 +346,13 @@ export const InboxList = ({
       <div className={styles.inboxHead}>
         <span className={styles.inboxHeading}>Inbox</span>
         {messages.length > 0 ? (
-          <div className={styles.inboxTabs} role="tablist" aria-label="Show">
+          // A pair of toggles narrowing the one list below, not a set of
+          // panels — `role="tablist"` promised arrow-key navigation and a
+          // panel each `tab` points to, neither of which this ever had.
+          // `aria-pressed` says exactly what is true: which filter is on.
+          <div className={styles.inboxTabs} role="group" aria-label="Show">
             {(['all', 'unread'] as const).map((key) => (
-              <Button key={key} variant="ghost" size="xs" type="button" role="tab" aria-selected={only === key} className={styles.inboxTab} onClick={() => setOnly(key)}>
+              <Button key={key} variant="ghost" size="xs" type="button" aria-pressed={only === key} className={styles.inboxTab} onClick={() => setOnly(key)}>
                 {key === 'all' ? 'All' : 'Unread'}
                 {key === 'unread' && unread > 0 ? <span className={styles.tabCount}>{unread}</span> : null}
               </Button>
