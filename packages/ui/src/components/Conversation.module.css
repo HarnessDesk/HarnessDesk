@@ -25,7 +25,14 @@
    not a headline over it. */
 .title {
   flex: 1;
-  min-width: 0;
+  /* A floor so the ceiling chip beside it (or, narrower still, the plan
+     strip) cannot squeeze the one name in this row down past a few letters —
+     the fold beside it gives way first. 12ch measured 17px past the header's
+     own width at 340px with every other fold already spent; 9ch is the
+     widest floor that still fits there, which still keeps 11 of this pane's
+     own title, comfortably over the 10-character floor asked for. Layout
+     only: a minimum width, not a look. */
+  min-width: min(9ch, 40%); /* desk: 0 → min(9ch, 40%), the title's own floor */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -131,6 +138,10 @@
      this rule's favour regardless of load order. */
   .statusIdle[data-slot='chip'],
   .headerRuleWrap,
+  /* Same tie as the idle pill above: Tailwind's own `inline-flex` utility on
+     this span is a single class too, so a plain `.ceilingWrap` here can lose
+     to it on bundle order. `data-slot` is this span's own, not borrowed. */
+  .ceilingWrap[data-slot='ceiling-wrap'],
   .headerButtonWrap[data-folds] {
     display: none;
   }

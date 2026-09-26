@@ -710,7 +710,17 @@ export const Conversation = ({
         {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
           <WindowControls />
         )}
-        <HeaderTitle session={session} />        {session && <span className="hd-no-drag inline-flex flex-none"><HeaderCeiling session={session} /></span>}
+        <HeaderTitle session={session} />
+        {/* Folds at a phone's width, same as the idle status and the rule:
+            the title is the one name in this row and must win the space.
+            The ceiling itself is not lost — it is still read from the seat's
+            own card (AgentCards, opened from Settings › Agents or this
+            conversation's own ⋯ › Save as an Agent…). */}
+        {session && (
+          <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
+            <HeaderCeiling session={session} />
+          </span>
+        )}
         {session && (
           <Chip
             tone={STATUS_PILL_TONE[status]}
