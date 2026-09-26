@@ -57,6 +57,149 @@ test('a dash goes to the half of the turn it previewed', async ({ page }) => {
   }
 })
 
+/**
+ * The preview, driven rather than described.
+ *
+ * `lib/conversation-map.test.ts` proves the arithmetic — one mark is the
+ * peak, and its words carry no markdown. What only a browser can answer is
+ * whether that single peak becomes a single *card*, and whether the card the
+ * system's Tooltip draws actually stays inside the window it is drawn in.
+ */
+test('hovering between two marks opens exactly one preview, in plain words, cut at a whole line', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/preview.html')
+  await page.evaluate(async () => { await document.fonts.ready })
+  await page.waitForTimeout(600)
+  await overflow(page)
+
+  const rail = page.locator('nav[aria-label="Jump to a message"]')
+  const marks = rail.getByRole('button')
+  await expect(marks).toHaveCount(2)
+
+  // The preview page scrolls itself elsewhere once it has mounted; bring the
+  // rail back under the pointer before reaching for it.
+  await marks.first().scrollIntoViewIfNeeded()
+  const first = await marks.nth(0).boundingBox()
+  const second = await marks.nth(1).boundingBox()
+  if (!first || !second) throw new Error('no box for a mark')
+
+  // Nothing under the pointer at all: no card left over from a previous test.
+  await page.mouse.move(first.x - 40, first.y)
+  await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(0)
+
+  // Between the two dashes, closer to neither — the exact spot the old code
+  // opened two cards for, since both marks cleared the SNAP threshold at once.
+  const midX = first.x + first.width / 2
+  const midY = (first.y + first.height / 2 + second.y + second.height / 2) / 2
+  await page.mouse.move(midX, midY)
+  await page.waitForTimeout(150)
+
+  const tips = page.locator('[data-slot="tooltip-content"]')
+  await expect(tips).toHaveCount(1)
+
+  const tipBox = await tips.first().boundingBox()
+  if (!tipBox) throw new Error('no box for the open preview')
+  const viewport = page.viewportSize()
+  if (!viewport) throw new Error('no viewport')
+  expect(tipBox.x).toBeGreaterThanOrEqual(0)
+  expect(tipBox.y).toBeGreaterThanOrEqual(0)
+  expect(tipBox.x + tipBox.width).toBeLessThanOrEqual(viewport.width)
+  expect(tipBox.y + tipBox.height).toBeLessThanOrEqual(viewport.height)
+
+  const text = await tips.first().innerText()
+  expect(text).not.toMatch(/[*`]/)
+})
+
+test('a long preview is cut at a whole line, never through the middle of one', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/preview.html')
+  await page.evaluate(async () => { await document.fonts.ready })
+  await page.waitForTimeout(600)
+  await overflow(page)
+
+  const rail = page.locator('nav[aria-label="Jump to a message"]')
+  const marks = rail.getByRole('button')
+  // The answer: three paragraphs, backticks included, long enough that four
+  // lines at the card's width cannot hold it — the only mark worth asking the
+  // clamp question of.
+  await marks.nth(1).scrollIntoViewIfNeeded()
+  const box = await marks.nth(1).boundingBox()
+  if (!box) throw new Error('no box for the answer mark')
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 2)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+
+  await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(1)
+
+  // The clamp: the text element's own box, not the card's, stops the flow —
+  // and it stops on a whole line rather than showing half of a fifth one.
+  const clamp = await page.evaluate(() => {
+    const span = document.querySelector<HTMLElement>('[data-slot="tooltip-content"] [class*="previewText_"]')
+    if (!span) return null
+    const lineHeight = Number.parseFloat(getComputedStyle(span).lineHeight)
+    return { clientHeight: span.clientHeight, scrollHeight: span.scrollHeight, lineHeight }
+  })
+  if (!clamp) throw new Error('no clamped text element in the open preview')
+  expect(clamp.scrollHeight).toBeGreaterThan(clamp.clientHeight)
+  const remainder = clamp.clientHeight % clamp.lineHeight
+  expect(Math.min(remainder, clamp.lineHeight - remainder)).toBeLessThanOrEqual(1)
+})
+
+test('a mark near the bottom edge still gets a preview that stays on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/preview.html')
+  await page.evaluate(async () => { await document.fonts.ready })
+  await page.waitForTimeout(600)
+  await overflow(page)
+
+  // The preview page scrolls itself elsewhere once it has mounted; bring the
+  // rail back under the pointer before measuring anything from it.
+  const rail = page.locator('nav[aria-label="Jump to a message"]')
+  await rail.scrollIntoViewIfNeeded()
+
+  // The rail's own height comes from the pane around it, not the transcript's
+  // scroller (shrinking that, as `overflow()` does, still leaves the rail
+  // spanning the whole pane) — so pin the rail itself to a thin band right at
+  // the window's bottom edge, in a stylesheet rather than the element's own
+  // `style`, since the component rewrites that on every pointer move.
+  await page.evaluate(() => {
+    const nav = document.querySelector('nav[aria-label="Jump to a message"]') as HTMLElement
+    const wrapperHeight = (nav.parentElement as HTMLElement).getBoundingClientRect().height
+    const style = document.createElement('style')
+    style.textContent = `nav[aria-label="Jump to a message"] { top: ${wrapperHeight - 40}px !important; bottom: -30px !important; }`
+    document.head.append(style)
+  })
+  await page.waitForTimeout(150)
+
+  const marks = rail.getByRole('button')
+  const near = await marks.nth(1).boundingBox()
+  if (!near) throw new Error('no box for the lower mark')
+  expect(near.y + near.height).toBeGreaterThan(760) // genuinely at the edge, not a vacuous check
+
+  // A real cursor move can land on whatever the rail's new position now
+  // overlaps lower in the pane; dispatching straight at the rail reaches the
+  // same handler without depending on what else occupies that screen pixel.
+  await page.evaluate((clientY) => {
+    const nav = document.querySelector('nav[aria-label="Jump to a message"]') as HTMLElement
+    const box = nav.getBoundingClientRect()
+    nav.dispatchEvent(new PointerEvent('pointermove', { clientX: box.left + box.width / 2, clientY, bubbles: true }))
+  }, near.y + near.height / 2)
+  await page.waitForTimeout(150)
+
+  const tips = page.locator('[data-slot="tooltip-content"]')
+  await expect(tips).toHaveCount(1)
+  const tipBox = await tips.first().boundingBox()
+  if (!tipBox) throw new Error('no box for the open preview')
+  const viewport = page.viewportSize()
+  if (!viewport) throw new Error('no viewport')
+  // Uncorrected, a card centred on this mark would run off the bottom by a
+  // good 30px; the assertion below is only interesting because of that.
+  expect(near.y + near.height / 2 - tipBox.height / 2 + tipBox.height).toBeGreaterThan(viewport.height)
+  expect(tipBox.y).toBeGreaterThanOrEqual(0)
+  expect(tipBox.y + tipBox.height).toBeLessThanOrEqual(viewport.height)
+  expect(tipBox.x).toBeGreaterThanOrEqual(0)
+  expect(tipBox.x + tipBox.width).toBeLessThanOrEqual(viewport.width)
+})
+
 test('the rail keeps out of a transcript that has nowhere to go', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/preview.html')
@@ -144,9 +287,10 @@ for (const width of [640, 760, 1440]) {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await expect.poll(async () => (await read()).ticks[0]?.width).toBeGreaterThan(12)
 
-    // The words it offers sit inside the mark's button, so they are phrasing
-    // content: a span, never a div.
-    await expect(rail.locator('[data-slot="chart-tip"]')).toHaveCount(1)
+    // The card is the system's Tooltip, anchored to the mark rather than
+    // drawn inside its button — so exactly one is open, and the button
+    // itself still holds only the dash, never a div (it is phrasing content).
+    await expect(page.locator('[data-slot="tooltip-content"]')).toHaveCount(1)
     expect(await rail.locator('button div').count()).toBe(0)
 
     const pushed = await read()
