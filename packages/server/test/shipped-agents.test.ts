@@ -27,7 +27,7 @@ interface Shipped {
 const SHIPPED: Readonly<Record<string, Shipped>> = {
   'api-reviewer': { ceiling: 'read', answers: ['approve', 'request-changes'] },
   'code-reviewer': { ceiling: 'read', answers: ['approve', 'request-changes'] },
-  implementer: { ceiling: 'publish', answers: [] },
+  implementer: { ceiling: 'publish', answers: ['published', 'committed', 'disagree', 'agreed'] },
   judge: { ceiling: 'read', answers: ['picked', 'neither'] },
   'performance-reviewer': { ceiling: 'edit', answers: ['approve', 'request-changes'] },
   'requirements-analyst': { ceiling: 'edit', answers: ['agreed', 'disagree', 'met', 'not-met'] },
