@@ -120,9 +120,18 @@ export const readinessOf = (input: ReadinessInput): Readiness => {
   return 'ready'
 }
 
-/** The most urgent of several — what a summary row for a whole agent shows. */
+/**
+ * The most urgent of several — what a summary row for a whole agent shows.
+ *
+ * Seeded from the first state, not from `'ready'`: `unknown` outranks
+ * nothing, including the seed, so seeding from `'ready'` turned a lone
+ * `unknown` into `'ready'` — the one state `unknown` promises never to
+ * assert. An empty list still answers `'ready'`, as it always has: nothing
+ * to report is nothing standing in the way.
+ */
 export const worstReadiness = (states: readonly Readiness[]): Readiness => {
-  let worst: Readiness = 'ready'
+  if (states.length === 0) return 'ready'
+  let worst: Readiness = states[0]!
   for (const state of states) if (RANK[state] < RANK[worst]) worst = state
   return worst
 }

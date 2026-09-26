@@ -129,6 +129,13 @@ describe('worstReadiness', () => {
     expect(worstReadiness(['unknown', 'ready'])).toBe('ready')
     expect(worstReadiness(['unknown', 'signin'])).toBe('signin')
   })
+
+  it('does not turn a lone "not answered" into "ready"', () => {
+    // Seeding from 'ready' let 'unknown' (which ranks below it) never win,
+    // so a single unanswered account read as a fact it never asserted.
+    expect(worstReadiness(['unknown'])).toBe('unknown')
+    expect(worstReadiness(['unknown', 'unknown'])).toBe('unknown')
+  })
 })
 
 describe('isBlocking', () => {
