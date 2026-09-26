@@ -14,9 +14,11 @@ import styles from './SetupDesk.module.css'
  *
  * One row per agent on this machine, each with its state and its one next
  * move: a dead agent carries the real error and the fix, a signed-out one a
- * sign-in button, a healthy one the offer to use it instead. The last line
- * opens the add-agent page, because "install an agent HarnessDesk can see"
- * used to require knowing that `agents.json` exists.
+ * sign-in button, a healthy one the offer to use it instead, and one that has
+ * not answered `runtime/account` yet says so plainly and offers nothing —
+ * there is nothing to press until it does. The last line opens the
+ * add-agent page, because "install an agent HarnessDesk can see" used to
+ * require knowing that `agents.json` exists.
  */
 export const SetupDesk = ({
   onSignIn,
@@ -68,7 +70,9 @@ export const SetupDesk = ({
                 ? 'Signed out — a session sent to it would not start.'
                 : state === 'limit'
                   ? 'Its plan window is spent; it comes back when the window resets.'
-                  : (info.presentation.tagline ?? 'Ready.')
+                  : state === 'unknown'
+                    ? 'Has not answered yet whether it needs a sign-in.'
+                    : (info.presentation.tagline ?? 'Ready.')
           const which = whichOf(info)
           return (
             <ListRow

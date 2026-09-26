@@ -81,6 +81,10 @@ const spent = (id: string, backIn: number): UsageReport =>
 const account = (): AccountStatus =>
   ({ accounts: [{ kind: 'oauth', label: 'someone' }], signInMethods: [] }) as unknown as AccountStatus
 
+/** An agent that has answered and confirmed nobody is signed in. */
+const signedOut = (): AccountStatus =>
+  ({ accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] }) as unknown as AccountStatus
+
 const storeOf = (snapshot: AppSnapshot): AppStore =>
   ({ subscribe: () => () => {}, getSnapshot: () => snapshot }) as unknown as AppStore
 
@@ -181,6 +185,9 @@ it('says in the token whether anything else is in the way, without being opened'
   mount({
     runtimes: six,
     usage: [at('a', 70), spent('b', HOUR), spent('c', HOUR), spent('d', HOUR), at('e', 44)],
+    // f has answered and confirmed nobody is signed in — the fixture's point
+    // is a real "needs sign-in", not an unheard-from agent.
+    accountsByRuntime: { f: signedOut() } as AppSnapshot['accountsByRuntime'],
     ...conversationWith('a'),
   })
   const token = bars()[bars().length - 1]
@@ -219,6 +226,13 @@ it('opens the roster behind the token, named account by account', () => {
   mount({
     runtimes: six,
     usage: [at('a', 70), at('b', 51, { account: 'work' }), at('b', 12, { account: 'personal' })],
+    // c–f have all answered and confirmed nobody is signed in.
+    accountsByRuntime: {
+      c: signedOut(),
+      d: signedOut(),
+      e: signedOut(),
+      f: signedOut(),
+    } as AppSnapshot['accountsByRuntime'],
     ...conversationWith('a'),
   })
   const token = triggers()[triggers().length - 1]
@@ -255,7 +269,8 @@ it('names the agent this conversation uses when it has no account', () => {
   mount({
     runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')],
     usage: [],
-    accountsByRuntime: { b: account() } as AppSnapshot['accountsByRuntime'],
+    // a has answered and confirmed nobody is signed in.
+    accountsByRuntime: { a: signedOut(), b: account() } as AppSnapshot['accountsByRuntime'],
     ...conversationWith('a'),
   })
   expect(triggers().map((chip) => chip.textContent)).toEqual(['Agent A', '1'])
@@ -265,7 +280,12 @@ it('leaves another agent sign-in to the token, which is where a count belongs', 
   mount({
     runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B'), runtime('c', 'Agent C')],
     usage: [at('a', 55)],
-    accountsByRuntime: { a: account() } as AppSnapshot['accountsByRuntime'],
+    // b and c have both answered and confirmed nobody is signed in.
+    accountsByRuntime: {
+      a: account(),
+      b: signedOut(),
+      c: signedOut(),
+    } as AppSnapshot['accountsByRuntime'],
     ...conversationWith('a'),
   })
   expect(bars().map((bar) => bar.textContent)).toEqual(['55%', '2'])

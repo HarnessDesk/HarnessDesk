@@ -32,7 +32,7 @@ import {
   registrySentence,
 } from '../lib/acp-registry'
 import { describeLimits, formatReset } from '../lib/limits'
-import { readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
+import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
@@ -138,9 +138,13 @@ export const agentReadiness = (
     })
     .filter((state): state is Readiness => state !== null)
   if (answered.length > 0) return worstReadiness(answered)
-  // Nothing signed in anywhere. An agent that runs without an account is
-  // ready like that; every other one is waiting on a credential.
-  return siblings.some((entry) => entry.capabilities.account) ? 'signin' : 'ready'
+  // Nothing signed in anywhere — or not yet known which. An agent that runs
+  // without an account is ready like that; one still waiting on any sibling's
+  // `runtime/account` has not said it needs a credential, only that it has
+  // not answered; every other one is waiting on one.
+  const relevant = siblings.filter((entry) => entry.capabilities.account)
+  if (relevant.length === 0) return 'ready'
+  return relevant.every((entry) => view.accountsByRuntime[entry.id] !== undefined) ? 'signin' : 'unknown'
 }
 
 /**
@@ -1951,9 +1955,19 @@ export const RuntimesSection = ({
   /* Split by what each agent needs from you. The reason anyone opens this
      page is usually one agent of many that will not take a turn, and sorting
      by that answer makes it the first line rather than the search. The groups
-     are the status, so the page needs no status filter beside its search. */
+     are the status, so the page needs no status filter beside its search.
+     "Needs attention" is `isBlocking`, the same test the Runtimes nav dot
+     uses (`Settings.tsx`) — not "not literally ready" — because an agent
+     that has not answered `runtime/account` yet has not asked anyone for
+     anything: it may turn out to need a sign-in, or not, but it does not
+     belong beside a dead agent and a spent plan window before it says
+     which. Nor does it belong under a heading that says "Ready": `unknown`
+     promises never to assert that (`readiness.ts`'s own `worstReadiness`
+     comment), so it gets a heading of its own, named the same word every
+     other surface uses for it — never folded into either claim. */
   const sections = [
-    { name: 'Needs attention', agents: listed.filter(({ state }) => state !== 'ready') },
+    { name: 'Needs attention', agents: listed.filter(({ state }) => isBlocking(state)) },
+    { name: READINESS_LABEL.unknown, agents: listed.filter(({ state }) => state === 'unknown') },
     { name: 'Ready', agents: listed.filter(({ state }) => state === 'ready') },
   ].filter((section) => section.agents.length > 0)
 

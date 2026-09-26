@@ -78,6 +78,19 @@ const button = (label: string): HTMLButtonElement | undefined =>
 const signedIn = { accounts: [{ kind: 'chatgpt', label: 'user@example.com' }], signInMethods: [] as [] }
 const signedOut = { accounts: [], signInMethods: [] as [] }
 
+it('an agent that has not answered yet says so plainly and offers nothing', async () => {
+  // Absent from accountsByRuntime altogether: still loading, or a read that
+  // failed silently — not the same fact as a confirmed sign-out or a ready
+  // agent, and not a claim the tagline or "Ready." would make either.
+  await mount([runtime('codex', 'OpenAI Codex')], { codex: { state: 'ready' } }, {})
+
+  expect(container.textContent).toContain('Has not answered yet whether it needs a sign-in.')
+  expect(container.textContent).not.toContain("OpenAI Codex's tagline.")
+  expect(container.textContent).not.toContain('Ready.')
+  expect(button('Sign in')).toBeUndefined()
+  expect(button('Use this agent')).toBeUndefined()
+})
+
 it('a dead agent carries its real error and the fix', async () => {
   await mount(
     [runtime('dead', 'Dead Agent')],
