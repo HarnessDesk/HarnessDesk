@@ -1422,8 +1422,13 @@ export function closeRound(input: {
     reviewComplete: false,
     freshGuards: false,
     pendingException: series.some((one) => one.pending.length > 0),
+    plain: !round.reviews,
   })
-  const unreadable = ledger.unreadable > 0 ? 'Some findings could not be read, so the open findings cannot be counted. A person has to look.' : null
+  /* An unreadable ledger stops only the review series's own rounds. A plain
+     round — a debate, a build — raises and decides no findings, so its stop,
+     when there is one, names the run's own budget instead (#1014). What
+     could not be read is an evidence record, not necessarily a finding. */
+  const unreadable = round.reviews && ledger.unreadable > 0 ? 'Some evidence records could not be read, so the open findings cannot be counted. A person has to look.' : null
   const reason = unreadable ?? decision.reason
   return {
     ...state,

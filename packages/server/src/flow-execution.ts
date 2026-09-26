@@ -38,6 +38,7 @@ import {
   evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
 } from './flow-evidence.js'
 import { decideLoop, QUESTION_STOP } from './findings/rounds.js'
+import { reviewsIn } from './flow-policy.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
 import type { TriggerClosure } from './intake/consent.js'
@@ -628,7 +629,7 @@ export class FlowExecutions {
         const seat = this.#seatForCard(run, card).seat
         if (seat) slots[String(seat.id)] = `${round.role}:${index}:${bindings[index]?.agent.id ?? seat.seat.runtime}`
       }
-      return { ...round, reviews: bindings.some((binding) => binding.agent.produces.includes('review')) }
+      return { ...round, reviews: bindings.some(reviewsIn) }
     })
     const pendingFindings = Object.values(run.findingOps ?? {}).filter((entry) => entry.state === 'prepared').length
     const pinned = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.pinned]))
@@ -828,11 +829,19 @@ export class FlowExecutions {
     const decision = decideLoop({
       closed, limit, idle: state.idleRounds, idleLimit: state.budget.withoutProgress, newProgress: true,
       unresolvedRepairs: [], unresolved: 0, reviewComplete: false, freshGuards: false, pendingException: false,
+      plain: !this.#reviewsInRound(run, round),
     })
     await this.#put(this.#operation({
       ...run,
       findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason! } : null },
     }, `close:${round}`, { kind: 'round', state: 'finished', card: null, seat: null }))
+  }
+
+  /** Whether a round of this run is a review series's round: any of its Seats is there to review (`reviewsIn`). */
+  #reviewsInRound(run: StoredFlowExecution, n: number): boolean {
+    const round = run.rounds.find((one) => one.n === n)
+    const role = round && run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round.role) : undefined
+    return role?.kind === 'agent' && bindingsFor(run, role.id).some(reviewsIn)
   }
 
   /**
@@ -846,9 +855,11 @@ export class FlowExecutions {
   }
 
   /**
-   * Every open review round with several reviewers, blind or sighted: none of
-   * them may post to a forge, and the round's batch is released only once it
-   * closes. `blind` is the role's own policy — true unless it says false.
+   * Every open review round with several reviewers, blind or sighted, and
+   * every open plain round with several cards whose role says `blind: true`:
+   * none of them may post to a forge, and the round's batch is released only
+   * once it closes. `blind` is the role's own policy — for a review round
+   * true unless it says false.
    */
   embargoedRounds(goal: string): readonly { readonly run: string; readonly round: number; readonly blind: boolean; readonly cards: readonly number[]; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[] {
     const out: { run: string; round: number; blind: boolean; cards: readonly number[]; holders: { card: number; runtime: string; sessionId: string }[] }[] = []
@@ -857,7 +868,12 @@ export class FlowExecutions {
       for (const round of run.rounds) {
         if (round.state === 'closed' || round.cards.length < 2) continue
         const role = run.document.flow.roles.find((one) => one.id === round.role)
-        if (role?.kind !== 'agent' || !bindingsFor(run, role.id).some((binding) => binding.agent.produces.includes('review'))) continue
+        if (role?.kind !== 'agent') continue
+        /* A review round is blind unless its role says `blind: false`; a
+           plain round — a debate, a build — only when its role says
+           `blind: true` (#1014). */
+        const reviews = bindingsFor(run, role.id).some(reviewsIn)
+        if (!reviews && role.blind !== true) continue
         const holders = round.cards.flatMap((card) => {
           const seat = this.#seatForCard(run, card).seat
           return seat ? [{ card, runtime: seat.session.runtime, sessionId: seat.session.sessionId }] : []
@@ -1144,7 +1160,7 @@ export class FlowExecutions {
     // A card that judges is never judged: a reviewer's own checkout is not a
     // subject whatever its grant, exactly as `reviewBinding` offers it only
     // what it depends on.
-    return binding !== undefined && binding.grant !== 'read' && !binding.agent.produces.includes('review')
+    return binding !== undefined && binding.grant !== 'read' && !reviewsIn(binding)
   }
 
   /**
@@ -1223,7 +1239,7 @@ export class FlowExecutions {
     return result.reason ? { state: result.state, reason: result.reason } : { state: result.state }
   }
 
-  /** Whether this card's Agent binding declares `produces: review` — `complete_claim` alone cannot finish it then. */
+  /** Whether this card's Seat is there to review (`reviewsIn`) — `complete_claim` alone cannot finish it then. */
   requiresReview(goal: string, card: number): boolean {
     const run = this.#runOfCard(goal, card)
     if (!run || run.document.format !== 'agents') return false
@@ -1231,7 +1247,8 @@ export class FlowExecutions {
     const role = run.document.flow.roles.find((one) => one.id === round?.role)
     if (role?.kind !== 'agent') return false
     const index = round!.cards.indexOf(card)
-    return bindingsFor(run, role.id)[index]?.agent.produces.includes('review') ?? false
+    const binding = bindingsFor(run, role.id)[index]
+    return binding ? reviewsIn(binding) : false
   }
 
   /**
@@ -1298,7 +1315,7 @@ export class FlowExecutions {
       round: round.n,
       role: round.role,
       seat: String(seat.id),
-      reviews: binding?.agent.produces.includes('review') ?? false,
+      reviews: binding ? reviewsIn(binding) : false,
       writer: this.#writer(run, card),
       held: intent?.state === 'claimed' && intent.claim?.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId,
     }
@@ -1933,7 +1950,7 @@ export class FlowExecutions {
        before any of its Seats opens: a delta that cannot be read in full
        stops the run here, with nothing seated. */
     if (role.kind === 'agent' && run.findings && this.#reviewPackets && !this.#get(id).reviewPackets?.[String(round.n)] &&
-      bindings.some((binding) => binding.agent.produces.includes('review'))) {
+      bindings.some(reviewsIn)) {
       let packet: ReviewPacketPin | null
       try {
         packet = await this.#reviewPackets(id, round.n, round.role, (await this.#closure(this.#get(id), dependsOn)).subjects)

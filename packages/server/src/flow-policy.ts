@@ -1,9 +1,14 @@
 import {
   DEFAULT_FLOW_BUDGET,
   isCeilingLevel,
+  narrower,
+  reaches as ceilingReaches,
+  type AgentDefinition,
   type AgentEntry,
+  type CeilingLevel,
   type CompiledFlow,
   type FlowAgentRole,
+  type FlowBinding,
   type FlowBudget,
   type FlowCheck,
   type FlowDocument,
@@ -382,6 +387,24 @@ export const parseFlowPolicy = (source: string): { document: FlowDocument | null
   return { document: policy ? { format: 'agents', flow: policy } : null, problems }
 }
 
+/**
+ * Whether a Seat of this Agent, under this grant, may commit: the grant is
+ * capped by the Agent's own ceiling, and `edit` is the first level that
+ * commits (`read` changes nothing).
+ */
+const mayCommit = (agent: AgentDefinition, grant: CeilingLevel): boolean => ceilingReaches(narrower(agent.ceiling, grant), 'edit')
+
+/**
+ * Whether a Seat of this binding is there to review — what makes its round a
+ * review series's round, and its card one a finding is raised from. An Agent
+ * that produces reviews and nothing it writes always is. One that produces
+ * both diffs and reviews (a requirements analyst writes positions and later
+ * judges against them) reviews only where it may not commit: seated to
+ * commit, it is writing, and its round is a plain one (#1014).
+ */
+export const reviewsIn = (binding: Pick<FlowBinding, 'agent' | 'grant'>): boolean =>
+  binding.agent.produces.includes('review') && !(binding.agent.produces.includes('diff') && mayCommit(binding.agent, binding.grant))
+
 /** Resolve frozen Agent content for a v2 policy. Broken higher-precedence entries never fall back. */
 export const compileFlowPolicy = (document: FlowDocument, agents: readonly AgentEntry[]): CompiledFlow => {
   if (document.format === 'legacy') return { document, bindings: [], problems: [] }
@@ -404,6 +427,17 @@ export const compileFlowPolicy = (document: FlowDocument, agents: readonly Agent
         continue
       }
       bindings.push({ role: role.id, index: slot.index, agent: entry.definition, origin: entry.origin, digest: entry.digest, seats: slot.seat === null ? [] : [role.seats[slot.index] ?? role.seats[0]!], grant: role.grant })
+    }
+    /* Every Seat of a round is seated and handed its card at once, and a
+       round that is not isolated seats them all in the one working tree: two
+       that may commit there move each other's HEAD and land on each other's
+       work (#1014). Refused rather than isolated silently, so the file says
+       what runs. A Seat that may only read shares a tree safely, so it takes
+       two that may commit: one writer beside readers has the tree to itself. */
+    const committing = role.isolate ? 0 : bindings.filter((binding) => binding.role === role.id && mayCommit(binding.agent, binding.grant)).length
+    if (committing > 1) {
+      const which = committing === slots.length ? `The ${committing} Seats` : `${committing} of the ${slots.length} Seats`
+      problems.push(problem('error', `roles.${role.id}`, `${which} of "${role.id}" run at once in one working tree and may commit over each other's work, so add isolate: true, or lower its grant to read.`))
     }
   }
   const roleById = new Map(document.flow.roles.map((role) => [role.id, role]))

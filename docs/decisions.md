@@ -856,3 +856,38 @@ handed its card again instead, as any relaunch hands it.
 **The rule:** only unattended work is timed, by the person's own setting;
 an answer that comes late is delivered, never dropped and never read as a
 refusal.
+
+## Seats that may commit in one round are isolated by the file, never by the desk
+
+Every Seat of a round is seated and handed its card at once. Without
+`isolate: true` they all work in the one checkout, and two that may commit
+there — `edit` and above, after the Agent's own ceiling caps the grant — move
+each other's HEAD: each one's commits land on the other's branch, and nothing
+downstream can tell whose work is whose (#1014).
+
+The desk could isolate such a role on its own. It does not, because a flow file
+is what a person reads to know what runs: a round that quietly took worktrees,
+branches and ports the file never asked for would make the file a partial
+account of the run. So the dry run refuses the shape, in one sentence that names
+the role and both ways out — `isolate: true`, or a grant of `read` — and the
+start, which redeems only a fresh dry run, refuses it the same way. Only the
+width of one role counts, because a round opens exactly one role and the next
+opens only after it closes.
+
+The same issue fixed what a review round is. An Agent that produces both diffs
+and reviews — the requirements analyst, which writes positions and later
+accepts against them — reviews only where its ceiling cannot commit. Seated to
+commit, it is writing, and its round is a plain one: it opens no review series,
+owes no structured review, and is never stopped by a findings ledger it did not
+read.
+
+Blindness does not follow that line on its own. A review round stays blind by
+default, but making every plain round with several cards blind would hide
+ordinary parallel work from itself for no reason. So a plain round is blind
+only when its role says `blind: true`, which is what the analysts' first,
+independent positions ask for. It takes two Seats that may commit to be
+refused, because one writer beside readers has the tree to itself.
+
+**The rule:** refuse a committing shared tree with the fix named, never isolate
+behind the file's back; and a round belongs to the review series only when its
+Seats are there to judge.

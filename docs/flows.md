@@ -234,7 +234,8 @@ prints:
 - a trace of the loop against outcomes you supply, so both the approve path
   and the request-changes path are visible from one file;
 - **validation**: every role a rule names exists, every template's slot
-  resolves, no rule can never fire, and no loop lacks an exit.
+  resolves, no rule can never fire, no loop lacks an exit, and no round seats
+  two Seats that may commit in one working tree (see *Agents and Seats*).
 
 The last two are exact rather than sampled. Both quantifiers depend only on
 which outcomes are *present* in a round, so the space to search is the
@@ -536,6 +537,16 @@ Agent, and an explicit `count:` must agree with whichever list sets the
 round's width. A seat's actual ceiling is `narrower(Agent's own ceiling,
 this role's grant)`; an omitted `grant:` is `read`.
 
+Every Seat of a round is seated at once, and a round that is not
+`isolate: true` seats them all in the one working tree. When that ceiling lets
+them commit — `edit`, `publish` or `merge` — they move each other's HEAD and
+land commits on each other's branches, so the dry run, and with it the start,
+refuses a role without `isolate: true` in which two or more Seats may commit,
+naming the role and the two ways out: isolate it, or lower its grant to
+`read`. Nothing isolates it silently. Seats that may only read share a tree
+safely, so one writer beside reviewers that only read is fine, and a round
+opens exactly one role, so no two roles run at once.
+
 **Independence** (`independentOf: [build]`) is judged on the vendor behind
 each Seat, as the runtime's adapter reads it from the agent's own
 configuration — Codex's `config.toml`, profiles and project `.codex`,
@@ -608,8 +619,9 @@ changes stops the round before any command runs.
 **Evidence guards** read what the desk already observed, never a message or
 an agent's own claim. A guard judges *subjects*: the revisions of the
 nearest cards back along the finished round's dependencies whose grant lets
-them change files and whose Agent does not produce reviews — never a judge's
-or reviewer's own checkout, even one granted edit. A fact
+them change files and whose Seat is not there to review — never a judge's
+or reviewer's own checkout, even one granted edit. An Agent that produces both
+diffs and reviews is there to review only where its ceiling cannot commit. A fact
 speaks for a subject when it is filed on a card of that walk (the finished
 round's own, the rounds between, or the subject's own), names the subject's
 current revision, is fresh, and was observed on this desk. So
@@ -683,7 +695,10 @@ the desk resolves which Seat, which card and which revision from the calling
 conversation itself, never from anything the request names. A repair is a
 *claim* until a later review of the same finding confirms it — `repaired`
 without `confirmed` is never shown as "Verified" — and a confirmed finding
-never reopens; a regression is a new, linked finding instead.
+never reopens; a regression is a new, linked finding instead. A round
+reviews when its Agent produces reviews and, for an Agent that produces diffs
+too, its ceiling there cannot commit. Any other round is a plain one: it opens
+no review series, and a findings ledger it never read cannot stop it.
 
 **A review round with more than one card is blind until it closes.** No
 sibling reads another sibling's findings, its review, or anything it posted,
@@ -699,6 +714,13 @@ card has durably completed, the round's whole batch — every finding, every
 review, one comment each — is decided and journaled together, then sent one
 comment at a time; a person watching mid-round sees how many reviewers have
 finished, never a claim that the others agree.
+
+An Agent role's `blind:` key sets this. A review round is blind unless its role
+says `blind: false`, which lets siblings read each other's finished work while
+still holding their posting until the round closes. A plain round with more
+than one card, such as two analysts writing positions, is not blind by default,
+and becomes blind the same way when its role says `blind: true`: no sibling
+reads another's note, context package or messages until the round closes.
 
 **A later review of the same series is handed a delta, not a transcript**: the
 repairs claimed since its last review, what is still unresolved, and the exact
