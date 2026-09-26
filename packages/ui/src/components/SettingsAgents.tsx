@@ -510,12 +510,15 @@ const AgentAccounts = ({
   // would otherwise fall into `empties` and be offered a sign-in it does not
   // want. It is complete the moment it exists; it gets a row of its own.
   const gateways = siblings.filter((entry) => entry.slot?.gateway)
-  const empties = siblings.filter(
-    (entry) =>
-      entry !== info &&
-      !entry.slot?.gateway &&
-      (snapshot.accountsByRuntime[entry.id]?.accounts ?? []).length === 0,
-  )
+  // An extra slot is only "waiting to be signed in" once it has answered
+  // with no account. One that has not answered yet (#986) may be signed in
+  // already, so it gets a neutral row of its own rather than that claim.
+  const extras = siblings.filter((entry) => entry !== info && !entry.slot?.gateway)
+  const empties = extras.filter((entry) => {
+    const answer = snapshot.accountsByRuntime[entry.id]
+    return answer !== undefined && answer.accounts.length === 0
+  })
+  const pending = extras.filter((entry) => snapshot.accountsByRuntime[entry.id] === undefined)
   const canSignIn = (status?.signInMethods ?? []).some((method) => method.flow !== 'external')
   // A key has to be typed somewhere, so those methods hand off to the sign-in
   // page instead of being started from a button with nowhere to type.
@@ -694,6 +697,18 @@ const AgentAccounts = ({
         {/* A slot made but never signed into. Left visible on purpose: it is
             what an abandoned sign-in leaves behind, and hiding it would put
             the credential home on disk with nothing naming it. */}
+        {pending.map((entry) => (
+          <Row
+            key={entry.id}
+            title={READINESS_LABEL.unknown}
+            desc="It has not said yet who is signed in."
+            control={
+              <Button variant="secondary" size="sm" onClick={() => void store.removeAccount(entry.id)}>
+                Remove
+              </Button>
+            }
+          />
+        ))}
         {empties.map((entry) => (
           <Row
             key={entry.id}
@@ -719,6 +734,11 @@ const AgentAccounts = ({
              a true sentence about the wrong subject. The page's own "Why it
              will not start" says why, above; here it is only named. */
           <Row title="Unavailable" desc="Its accounts show once it starts." />
+        ) : rows.length === 0 && gateways.length === 0 && info.capabilities.account && status === undefined ? (
+          /* Not answered yet (#986): the agent has not said who is signed in,
+             so "Not signed in" would be a guess. Its accounts show once it
+             answers. */
+          <Row title={READINESS_LABEL.unknown} desc={`${info.presentation.name} has not said yet who is signed in.`} />
         ) : (
           rows.length === 0 &&
           gateways.length === 0 && (
@@ -1969,7 +1989,10 @@ export const RuntimesSection = ({
      comment), so it gets a heading of its own, named the same word every
      other surface uses for it — never folded into either claim. */
   const sections = [
-    { name: 'Needs attention', agents: listed.filter(({ state }) => isBlocking(state)) },
+    // Everything that is neither of the two quiet states needs attention —
+    // today exactly the blocking ones, and by construction any state added
+    // later, so no agent can fall off this page for want of a heading.
+    { name: 'Needs attention', agents: listed.filter(({ state }) => state !== 'unknown' && state !== 'ready') },
     { name: READINESS_LABEL.unknown, agents: listed.filter(({ state }) => state === 'unknown') },
     { name: 'Ready', agents: listed.filter(({ state }) => state === 'ready') },
   ].filter((section) => section.agents.length > 0)
