@@ -1371,7 +1371,11 @@ const Spend = ({
         <ChartCard className={styles.costHead}>
           <ChartHead>
             <div>
-              <ChartTitle>{headline}</ChartTitle>
+              {/* The window total is the band's headline, so it takes the
+                  same figure step as the Today / Last-7-days tiles beside
+                  it (review #1011, N6) — composed on `ChartTitle` itself
+                  rather than spelled out here as a raw utility. */}
+              <ChartTitle figure>{headline}</ChartTitle>
               <ChartHint>
                 Last {ledger?.days ?? range} days — {spendHint(ledger?.provenance)}
               </ChartHint>
@@ -1512,7 +1516,7 @@ export const rankedChange = (current: number | null, previous: number | null): n
   return ((current - previous) / previous) * 100
 }
 
-const Ranked = ({
+export const Ranked = ({
   ledger,
   wideLedger,
   pivot,
@@ -1571,8 +1575,8 @@ const Ranked = ({
         className={styles.distribution}
         label="Where it went, by share"
         parts={rows
-          .filter((row) => (row.cost ?? 0) > 0)
-          .map((row, index) => ({ key: row.key, tint: tintAt(index, row), value: row.cost ?? 0 }))}
+          .map((row, index) => ({ key: row.key, tint: tintAt(index, row), value: row.cost ?? 0 }))
+          .filter((part) => part.value > 0)}
       />
 
       <SurfaceCard className={styles.ranked}>
@@ -1585,7 +1589,7 @@ const Ranked = ({
               ? null
               : rankedChange(row.cost, previous?.complete ? (previous.totals.get(row.key as RuntimeId) ?? null) : null)
           return (
-            <CardContent key={row.key} className={styles.rank}>
+            <CardContent key={row.key} className={styles.rank} data-pivot={pivot}>
               <Text role="meta" className={styles.rankMark}>
                 {row.key === OTHER_KEY ? (
                   <SeriesDot tint={tintAt(index, row)} />
@@ -1601,7 +1605,11 @@ const Ranked = ({
               <Text role="subject" truncate title={label}>
                 {label}
               </Text>
-              {change !== null && <Delta value={Math.round(change)} better="down" />}
+              {pivot === 'runtime' && (
+                <span className={styles.rankChange}>
+                  {change !== null && <Delta value={Math.round(change)} better="down" />}
+                </span>
+              )}
               <Text role="muted" align="end" numeric>
                 {share === null ? '' : share < 1 ? '<1%' : `${Math.round(share)}%`}
               </Text>
