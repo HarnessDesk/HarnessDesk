@@ -142,6 +142,22 @@ describe('the three text inks clear AA on every surface ground', () => {
   }
 })
 
+/* A tooltip is a dark card in both themes; its text read the inverted label,
+   which goes near-black in dark (1.3:1 on the card) until it was pinned to
+   the static white. */
+describe('a tooltip is readable in both themes', () => {
+  const resolved = faces()
+  for (const face of ['light', 'dark'] as const) {
+    it(`clears AA on its own card (${face})`, () => {
+      const ink = parse(faceOf(resolved, face).get('--hd-tooltip-foreground') ?? '') as Rgb
+      const card = parse(faceOf(resolved, face).get('--hd-tooltip-fill') ?? '') as Rgb
+      expect(ink, `${face}: --hd-tooltip-foreground missing`).not.toBeNull()
+      expect(card, `${face}: --hd-tooltip-fill missing`).not.toBeNull()
+      expect(contrast(over(ink, card), card)).toBeGreaterThanOrEqual(AA)
+    })
+  }
+})
+
 describe('tinted text is readable', () => {
   const resolved = faces()
 
