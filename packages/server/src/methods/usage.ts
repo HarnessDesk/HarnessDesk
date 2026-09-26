@@ -1,10 +1,32 @@
-import type { MethodsUnder } from './context.js'
+import type { UsageReport } from '@harnessdesk/protocol'
+
+import { mergePlanIntoReport } from '../usage/plan-merge.js'
+import type { HostContext, MethodsUnder } from './context.js'
+
+/**
+ * Folds each report's stored plan fee/budget in, when the account has one.
+ * `report.account` is null for an agent with no signed-in identity to key on
+ * (a bare API key with no account label) — nothing is stored for those, so
+ * they pass through unchanged.
+ */
+const withPlans = async (ctx: HostContext, reports: readonly UsageReport[]): Promise<readonly UsageReport[]> =>
+  Promise.all(
+    reports.map(async (report) => {
+      if (report.account === null) return report
+      const stored = await ctx.plans.entryFor(report.runtime, report.account)
+      return mergePlanIntoReport(report, stored)
+    }),
+  )
 
 /** Plan usage across every metered runtime, and the token ledger behind it. */
 export const usageMethods = {
-  'usage/reports': (ctx) => ctx.usage().reports(),
+  'usage/reports': async (ctx) => withPlans(ctx, await ctx.usage().reports()),
 
-  'usage/refresh': (ctx, params) => ctx.usage().refresh(params.runtime),
+  'usage/refresh': async (ctx, params) => withPlans(ctx, await ctx.usage().refresh(params.runtime)),
+
+  'usage/plan/read': (ctx) => ctx.plans.read(),
+
+  'usage/plan/set': (ctx, params) => ctx.plans.set(params),
 
   'usage/ledger': async (ctx, params) => {
     const ledger = ctx.ledger()

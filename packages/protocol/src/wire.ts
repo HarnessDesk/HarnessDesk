@@ -112,6 +112,9 @@ import type { Intent, PersonNotice, Plan, TeamInbound, TeamPeerInfo, TeamState }
 import type {
   LedgerQuery,
   LedgerReport,
+  PlanEntry,
+  PlanRead,
+  PlanSetInput,
   ScanProgress,
   UsageReport,
 } from './usage.js'
@@ -874,6 +877,14 @@ export interface HostMethods {
   'usage/ledger': { params: LedgerQuery; result: LedgerReport }
   /** Starts a ledger scan if one is not already running; progress arrives as an event. */
   'usage/scan': { params: { readonly full?: boolean }; result: ScanProgress }
+  /**
+   * What a person has set for each account's plan fee and key budget, plus
+   * the suggested public prices a click could apply. Never applied on its
+   * own — `usage/plan/set` is the only thing that writes one.
+   */
+  'usage/plan/read': { params: Record<string, never>; result: PlanRead }
+  /** Sets — or, given `null`, clears — one account's fee and/or budget. `undefined` leaves a field as stored. */
+  'usage/plan/set': { params: PlanSetInput; result: PlanEntry }
   /** Source-qualified historical usage. These reads never mutate a receipt, Goal, or source corpus. */
   'insight/goal': { params: { readonly goal: GoalId }; result: InsightReport }
   'insight/usage': { params: InsightQuery; result: InsightReport }

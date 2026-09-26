@@ -851,6 +851,16 @@ const provenanceSeat: Validator<string> = (value, path = '') => {
   return text
 }
 
+const planFeeInputValidator = shape({
+  amount: isNumber,
+  currency: isString,
+  period: literalUnion('month', 'year'),
+})
+const planBudgetInputValidator = shape({
+  amount: isNumber,
+  currency: isString,
+})
+
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
   'provenance/status': shape({ root: provenanceOptionalRoot }),
@@ -886,6 +896,13 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     groupBy: literalUnion('runtime', 'model', 'project'),
   }),
   'usage/scan': shape({ full: optional(isBoolean) }),
+  'usage/plan/read': isObject,
+  'usage/plan/set': shape({
+    runtime: isString,
+    account: isString,
+    fee: optional((value: unknown, path = '') => (value === null ? null : planFeeInputValidator(value, path))),
+    budget: optional((value: unknown, path = '') => (value === null ? null : planBudgetInputValidator(value, path))),
+  }),
   'runtime/options': shape({ runtime: isString }),
   'runtime/refreshCatalog': shape({ runtime: isString }),
   'runtime/sessionDefaults': shape({

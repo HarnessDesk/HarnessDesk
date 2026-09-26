@@ -510,3 +510,93 @@ export const isBlocked = (report: UsageReport): boolean => {
   const remaining = lane ? remainingOf(lane) : null
   return remaining !== null && remaining <= 0
 }
+
+// -------------------------------------------------------------- plan prices
+
+/**
+ * What a person set for one account's plan, kept in `~/.harnessdesk/plans.json`.
+ *
+ * `fee` makes `UsageBilling.fee` real for a plan the vendor never prices
+ * itself — no rate is bundled here either: the amount is always what a person
+ * clicked to confirm, `source` is always `'user'` (a vendor-reported fee, if a
+ * reader ever has one, wins and keeps its own `'vendor'` source; this file
+ * never produces one). `budget` is a person's own spending cap, unrelated to
+ * any vendor limit, and is offered only for a key or metered account.
+ * `setAt` is when the person confirmed it, for the row's own history.
+ */
+export interface PlanFeeEntry {
+  readonly amount: number
+  readonly currency: string
+  readonly period: 'month' | 'year'
+  readonly source: 'user'
+  readonly setAt: number
+}
+
+export interface PlanBudgetEntry {
+  readonly amount: number
+  readonly currency: string
+  readonly period: 'month'
+  readonly setAt: number
+}
+
+/** One account's stored plan choices. Either field, or both, may be present. */
+export interface PlanEntry {
+  readonly fee?: PlanFeeEntry | null
+  readonly budget?: PlanBudgetEntry | null
+}
+
+/**
+ * A public price the person can confirm in one click — never applied on its
+ * own. `planMatch` compares against the report's own `plan` string
+ * case-insensitively; `sourceUrl` and `checkedAt` are what makes it an
+ * accountable suggestion rather than a bundled rate (`docs/usage-dashboard.md`,
+ * "No rates are bundled").
+ */
+export interface PlanSuggestion {
+  readonly runtime: RuntimeId
+  readonly planMatch: string
+  readonly amount: number
+  readonly currency: string
+  readonly period: 'month' | 'year'
+  readonly sourceUrl: string
+  /** ISO date the price was last verified against the vendor's page. */
+  readonly checkedAt: string
+}
+
+/** One stored account's row, named by the same key `usage/plan/set` takes. */
+export interface PlanAccountEntry {
+  readonly runtime: RuntimeId
+  readonly account: string
+  readonly entry: PlanEntry
+}
+
+export interface PlanRead {
+  readonly entries: readonly PlanAccountEntry[]
+  readonly suggestions: readonly PlanSuggestion[]
+}
+
+/**
+ * The one suggestion, among a list, whose runtime and plan string match —
+ * case-insensitively, since a vendor's own casing ("Pro" vs a report's own
+ * wording) is not what changes what the plan means. Shared by the host (which
+ * has the list) and the renderer (which has the report), so the two can never
+ * decide "does this suggestion apply" two different ways.
+ */
+export const matchPlanSuggestion = (
+  suggestions: readonly PlanSuggestion[],
+  runtime: RuntimeId,
+  plan: string | null,
+): PlanSuggestion | null => {
+  if (!plan) return null
+  const trimmed = plan.trim().toLowerCase()
+  if (trimmed === '') return null
+  return suggestions.find((row) => row.runtime === runtime && row.planMatch.trim().toLowerCase() === trimmed) ?? null
+}
+
+/** `undefined` leaves the field as stored; `null` clears it. */
+export interface PlanSetInput {
+  readonly runtime: RuntimeId
+  readonly account: string
+  readonly fee?: { readonly amount: number; readonly currency: string; readonly period: 'month' | 'year' } | null
+  readonly budget?: { readonly amount: number; readonly currency: string } | null
+}

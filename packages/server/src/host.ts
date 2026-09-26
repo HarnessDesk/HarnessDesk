@@ -110,6 +110,8 @@ import { CatalogRefresher } from './catalog-refresher.js'
 import { Ledger, defaultCorpora, type CorpusSpec, type RemoteEventsSource } from './ledger/index.js'
 import type { UsageMeter } from './usage/meter.js'
 import { UsageService } from './usage/service.js'
+import { PlanStore } from './usage/plan-store.js'
+import { PLAN_SUGGESTIONS } from './usage/plan-prices.js'
 import { CredentialBroker, plainCipher, type CredentialCipher } from './credentials.js'
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
@@ -741,6 +743,7 @@ export class Host {
   readonly #remoteSources: RemoteEventsSource[] = []
   #usage: UsageService | null = null
   #ledger: Ledger | null = null
+  #plans: PlanStore | null = null
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
   readonly #context: HostContext
 
@@ -1964,6 +1967,11 @@ export class Host {
     return this.#usage
   }
 
+  get #planStore(): PlanStore {
+    this.#plans ??= new PlanStore(join(this.#state.directory, 'plans.json'))
+    return this.#plans
+  }
+
   async start(): Promise<void> {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
@@ -3118,6 +3126,11 @@ export class Host {
       catalogs: this.#catalogs,
       usage: () => this.#usageService,
       ledger: () => this.#ledgerService,
+      plans: {
+        read: async () => ({ entries: await this.#planStore.read(), suggestions: PLAN_SUGGESTIONS }),
+        set: (input) => this.#planStore.set(input),
+        entryFor: (runtime, account) => this.#planStore.entryFor(runtime, account),
+      },
       insight: this.#insight,
       intake: this.#intake,
       libraryUsage: () => {
