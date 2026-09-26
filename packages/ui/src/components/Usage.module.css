@@ -194,6 +194,13 @@
   gap: var(--hd-space-4);
 }
 
+.costControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
 .periods {
   display: flex;
   flex-wrap: wrap;
@@ -257,16 +264,8 @@
   gap: var(--hd-space-2);
 }
 
-.wentRow {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--hd-space-6);
-}
-
-.wentDonut {
-  display: grid;
-  flex: none;
-  place-items: center;
+.distribution {
+  margin-bottom: var(--hd-space-4);
 }
 
 .ranked {
@@ -277,20 +276,12 @@
 
 .rank {
   display: grid;
-  grid-template-columns: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px;
+  grid-template-columns: 15px minmax(0, 1fr) 72px 44px 88px 92px;
   align-items: center;
   gap: var(--hd-space-3);
-}
-
-.rank[data-parts] {
-  grid-template-columns: 15px minmax(0, 1fr) 44px 88px 92px;
 }
 
 .rankMark {
   display: inline-grid;
   place-items: center;
-}
-
-.rankProgress {
-  min-width: 0;
 }
