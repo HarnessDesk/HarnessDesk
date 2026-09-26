@@ -907,6 +907,32 @@ it('calls an account-less row under a heading what it is, not the heading or the
   expect(current?.textContent).toBe('No accountNeeds sign-in')
 })
 
+it('keeps a signed-out default listed under its heading when the picker is open, drawn as what it is', () => {
+  // A second account of the default agent, answered and signed out, is the default.
+  const { second, snapshot } = twoCodex()
+  mount({
+    ...snapshot,
+    activeRuntime: second.id,
+    accountsByRuntime: { ...snapshot.accountsByRuntime, [second.id]: signedOut },
+  })
+  click(row())
+  const folded = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')
+  if (!folded) throw new Error('no current seat')
+  click(folded)
+  const group = groupNamed('OpenAI Codex')
+  const rows = [...(group?.querySelectorAll('[role="menuitem"]') ?? [])]
+  // Listed, though its agent's other signed-out seats would not be: it is the chair you are in.
+  expect(rows.map((one) => one.textContent?.trim())).toEqual(['jane', 'No accountNeeds sign-in'])
+  const current = rows.find((one) => one.hasAttribute('data-current'))
+  expect(current).toBe(folded)
+  // Under the heading: no mark of its own, and an untinted dot — no account, no colour.
+  expect(current?.querySelector('.brand-codex')).toBeNull()
+  expect(current?.querySelector('[data-tint]')).toBeNull()
+  expect(current?.querySelector('[aria-hidden="true"]')).not.toBeNull()
+  // The other account keeps its colour, so the difference is the account's, not the row's.
+  expect(rows[0]?.querySelector('[data-tint]')).not.toBeNull()
+})
+
 it('never tags a single row with its own name', () => {
   // An agent that keeps its own credential: listed with no account, named after itself.
   const cursor = { ...runtime(runtimeId('cursor'), 'Cursor', 'cursor'), capabilities: { account: false } } as RuntimeInfo
