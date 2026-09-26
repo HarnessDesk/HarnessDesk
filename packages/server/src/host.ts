@@ -123,7 +123,7 @@ import { EvidencePlane } from './evidence/plane.js'
 import { GhFindingForge, type GhApiRunner } from './findings/forge.js'
 import { FindingsPlane } from './findings/plane.js'
 import { gapOf, Publications, type FindingForgePort } from './findings/publication.js'
-import { QuestionDeadline } from './findings/rounds.js'
+import { QuestionDeadline, type QuestionPort } from './findings/rounds.js'
 import { ProvenancePlane } from './provenance/plane.js'
 import { AttachmentsPlane, receiptFrom, type AttachmentSubject as PlaneAttachmentSubject, type ReopenedSeat } from './attachments/plane.js'
 import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
@@ -362,6 +362,9 @@ export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throu
  * here: `capability/list` appends it and `context/resolve` answers it from
  * `Terminals.lastOutput()`. See docs/extending.md.
  */
+/** The timers an unattended Seat's question deadline is set and cleared on. */
+export type QuestionTimers = Pick<QuestionPort, 'setTimer' | 'clearTimer'>
+
 export interface HostOptions {
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
   readonly forge?: ForgePlaneOptions
@@ -431,6 +434,12 @@ export interface HostOptions {
   readonly seatReadDeadlineMs?: number
   /** How long a desk-tool action held for the person waits for an answer. */
   readonly heldWaitMs?: number
+  /**
+   * The timers an unattended Seat's question deadline runs on, for tests
+   * only: a suite fires the deadline when it says rather than twenty seconds
+   * later. Absent everywhere else, where unref'd timers are used.
+   */
+  readonly questionTimers?: QuestionTimers
   /**
    * How to give an agent one more account. Supplied by the wiring, because
    * only the wiring knows that a second Codex means a second process over a
@@ -1363,12 +1372,13 @@ export class Host {
     this.#flows.attachFindingsGate((run) => this.#findings.gate(run))
     this.#flows.attachReviewPackets((run, round, role, subjects) => this.#findings.packetFor(run, round, role, subjects))
     /* An unattended Seat's question: nobody is there to answer it, so after
-       twenty seconds its turn is interrupted once — what it already said is
-       kept — and its run stops for a person with the reason. It is never
-       answered on anyone's behalf. */
+       twenty seconds its run stops for a person with the reason, and then its
+       turn is interrupted once — what it already said is kept. It is never
+       answered on anyone's behalf; a person who answers it later is heard
+       (`#answerStoppedQuestion`). */
     this.#questions = new QuestionDeadline({
-      setTimer: (fire, ms) => { const timer = setTimeout(fire, ms); timer.unref?.(); return timer },
-      clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+      setTimer: options.questionTimers?.setTimer ?? ((fire, ms) => { const timer = setTimeout(fire, ms); timer.unref?.(); return timer }),
+      clearTimer: options.questionTimers?.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)),
       interrupt: async (key) => {
         const [runtime, sessionId] = splitQuestionKey(key)
         await this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live?.interrupt()
@@ -3116,6 +3126,9 @@ export class Host {
       ceilings: {
         answerHeld: (approvalId, decision) => this.#answerHeld(approvalId, decision),
       },
+      questions: {
+        answerStopped: (runtime, sessionId, approvalId, decision) => this.#answerStoppedQuestion(runtime, sessionId, approvalId, decision),
+      },
       queue: {
         push: (record) => this.#pushQueue(record),
         drain: (record) => this.#drain(record),
@@ -4265,6 +4278,47 @@ export class Host {
         : { outcome: 'decided', decision: { type: 'option', optionId: answer === 'allowed' ? HELD_ALLOW : HELD_REFUSE } },
     })
     return answer
+  }
+
+  /**
+   * A person's answer to a question its deadline already stopped. The turn
+   * that asked is over, and answering the agent's own request now would put
+   * the answer into a turn nobody is in: the Seat hears it instead in a turn
+   * of its own, handed over by its run (`Flows.answerQuestion`), and only
+   * once that is durable is the old request closed — cancelled, never
+   * answered in the stopped turn — and the question card withdrawn. An
+   * answer no run is waiting for any more is refused rather than sent into
+   * the turn that is over. Anything else is not this path's: a live
+   * question, a permission, a dismissal.
+   */
+  async #answerStoppedQuestion(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<boolean> {
+    if (decision.type !== 'answers') return false
+    if (!this.#questions.expired(questionKey(runtime, sessionId), approvalId)) return false
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    const approval = record?.approvals.get(approvalId)
+    if (!record || approval?.type !== 'userInput') return false
+    // An interrupt that never landed left its turn live: the answer goes into it, as it always could.
+    if (approval.turnId !== undefined && record.running.has(approval.turnId)) return false
+    const words = questionWords(approval, decision)
+    if (words === null) throw new Error('Choose an answer before sending it.')
+    /* Fail closed: the turn that asked is over, so an answer handed to the
+       agent's own request now would be heard by nobody. */
+    if (!await this.#flows.answerQuestion(runtime, sessionId, words)) {
+      throw new Error('The turn that asked this was stopped, and its run is no longer waiting on the answer. Say it in that conversation instead, or dismiss the question.')
+    }
+    await record.live?.respondToApproval(approval.id, { type: 'cancel' }).catch((error: unknown) => {
+      this.#logger.warn('a stopped question could not be closed with its agent', { runtime, sessionId, error: error instanceof Error ? error.message : String(error) })
+    })
+    // An agent that no longer held the request withdraws nothing: the desk's own copy is withdrawn here, and every window told.
+    if (record.approvals.has(approvalId)) {
+      this.#onEvent(record.runtime, {
+        type: 'approval/resolved',
+        sessionId: record.session.id,
+        approvalId: approval.id,
+        resolution: { outcome: 'decided', decision },
+      })
+    }
+    return true
   }
 
   #answerHeld(approvalId: string, decision: ApprovalDecision): boolean {
@@ -6470,6 +6524,27 @@ export const isDirectory = async (path: string): Promise<boolean> => {
 
 /** One conversation, as a question deadline keys it. */
 const questionKey = (runtime: string, sessionId: string): string => `${runtime}\u0000${sessionId}`
+
+/**
+ * A question and a person's answer to it, in words an agent can read: each
+ * choice by the label the agent offered, anything typed as it was typed.
+ * Null when nothing was chosen.
+ */
+const questionWords = (
+  approval: Extract<Approval, { type: 'userInput' }>,
+  decision: Extract<ApprovalDecision, { type: 'answers' }>,
+): { readonly question: string; readonly answer: string } | null => {
+  const asked = approval.questions.map((one) => {
+    const chosen = (decision.answers[one.id] ?? []).map((value) => value.trim()).filter(Boolean)
+      .map((value) => one.options.find((option) => option.id === value)?.label ?? value)
+    return { question: one.question, answer: chosen.join(', ') }
+  })
+  if (asked.every((one) => one.answer === '')) return null
+  return {
+    question: asked.map((one) => one.question).join('\n'),
+    answer: asked.length === 1 ? asked[0]!.answer : asked.map((one) => `${one.question} ${one.answer || '(no answer)'}`).join('\n'),
+  }
+}
 const splitQuestionKey = (key: string): [string, string] => {
   const at = key.indexOf('\u0000')
   return [key.slice(0, at), key.slice(at + 1)]

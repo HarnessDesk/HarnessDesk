@@ -228,6 +228,14 @@ export class QuestionDeadline {
     this.#waiting.delete(key)
   }
 
+  /**
+   * Whether this question outlived its deadline: its turn was interrupted and
+   * its run stopped on it, so an answer to it now has no turn to go into.
+   */
+  expired(key: string, question: string): boolean {
+    return this.#expired.has(`${key}\u0000${question}`)
+  }
+
   /** Clears every timer: the desk is closing. */
   close(): void {
     for (const waiting of this.#waiting.values()) this.#port.clearTimer(waiting.timer)
@@ -239,7 +247,11 @@ export class QuestionDeadline {
     if (!waiting || waiting.question !== question) return
     this.#waiting.delete(key)
     this.#expired.add(`${key}\u0000${question}`)
-    await this.#port.interrupt(key).catch(() => undefined)
+    /* The run stops first, durably, and only then is the turn interrupted:
+       the end of that turn is what re-arms a running run's Seat, and a turn
+       that ended before its run had stopped was handed its card straight
+       back — a Seat at work again on a run that says it is waiting for you. */
     await this.#port.stop(key, QUESTION_STOP).catch(() => undefined)
+    await this.#port.interrupt(key).catch(() => undefined)
   }
 }

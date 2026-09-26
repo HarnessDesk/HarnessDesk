@@ -848,7 +848,11 @@ read each becomes one named, durable wait, shown as Needs you on the Goal's
 own header and in the sidebar's room row — which also names where the Goal
 came from ("from PR #12," "from issue #7," "from a schedule") — and resolved
 through the same approval, message, question, person-card or trigger surface
-any other wait already uses. macOS notifications gain two kinds of their own,
+any other wait already uses. A Seat's question nobody answered within twenty
+seconds stops its run and then its turn; answered afterwards on that same
+question card, it is handed to the Seat in a turn of its own — reopened first,
+the way a relaunch reopens a Seat — and the run goes on. Until then the Seat's
+card sits in Needs you on the board, the same place the header reads. macOS notifications gain two kinds of their own,
 individually silenceable exactly like every other kind: unattended work that
 needs a person, and a trigger that was skipped. A wrapped Goal's receipt keeps
 that same origin and stop reason, frozen, so reading it back later never has

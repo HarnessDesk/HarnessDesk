@@ -589,6 +589,11 @@ export class Flows implements TeamFlows {
     return this.#executions?.stopForQuestion(runtime, sessionId, reason) ?? Promise.resolve(false)
   }
 
+  /** A person answered the question a Seat's run stopped on: the Seat is handed it and the run goes on. See `FlowExecutions.answerQuestion`. */
+  answerQuestion(runtime: string, sessionId: string, words: { readonly question: string; readonly answer: string }): Promise<boolean> {
+    return this.#executions?.answerQuestion(runtime, sessionId, words) ?? Promise.resolve(false)
+  }
+
   /** A candidate this process minted for this caller's card, still current. */
   heldCandidate(candidate: string, intent: number, scope: TeamCallScope): ReturnType<FlowReview['held']> {
     return this.#review?.held(candidate, intent, scope) ?? Promise.resolve(null)

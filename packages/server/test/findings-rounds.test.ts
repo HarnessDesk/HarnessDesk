@@ -144,12 +144,13 @@ test('unanswered question preserves partial output', async () => {
   const timers: { at: number; fire: () => void; cleared: boolean }[] = []
   const interrupts: string[] = []
   const stops: { key: string; reason: string }[] = []
+  const order: string[] = []
   const deadline = new QuestionDeadline({
     ms: 20_000,
     setTimer: (fire, ms) => { const timer = { at: now + ms, fire, cleared: false }; timers.push(timer); return timer },
     clearTimer: (timer) => { (timer as { cleared: boolean }).cleared = true },
-    interrupt: async (key) => { interrupts.push(key) },
-    stop: async (key, reason) => { stops.push({ key, reason }) },
+    interrupt: async (key) => { interrupts.push(key); order.push('interrupt') },
+    stop: async (key, reason) => { stops.push({ key, reason }); order.push('stop') },
   })
   const tick = (to: number): void => {
     now = to
@@ -164,6 +165,9 @@ test('unanswered question preserves partial output', async () => {
   assert.deepEqual(interrupts, ['alpha:s1'], 'one interrupt, however often the question was seen')
   assert.deepEqual(stops, [{ key: 'alpha:s1', reason: QUESTION_STOP }])
   assert.equal(QUESTION_STOP, 'asked a question nobody can answer')
+  assert.deepEqual(order, ['stop', 'interrupt'], 'the run stops before the turn ends, so the turn’s end cannot hand the card straight back')
+  assert.equal(deadline.expired('alpha:s1', 'approval-1'), true, 'the expired question is known as such')
+  assert.equal(deadline.expired('alpha:s1', 'approval-9'), false)
   tick(60_000)
   await settle()
   assert.deepEqual(interrupts, ['alpha:s1'], 'never a second one')

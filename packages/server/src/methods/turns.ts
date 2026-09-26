@@ -127,6 +127,8 @@ export const turnMethods = {
 
   'approval/respond': async (ctx, params) => {
     if (ctx.ceilings.answerHeld(params.approvalId, params.decision)) return null
+    // A question whose turn its deadline already stopped: the answer reopens the Seat rather than going into that turn.
+    if (await ctx.questions.answerStopped(params.runtime, params.sessionId, params.approvalId, params.decision)) return null
     await (await ctx.sessions.live(params)).respondToApproval(makeApprovalId(params.approvalId), params.decision)
     return null
   },
