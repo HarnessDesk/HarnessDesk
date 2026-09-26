@@ -2,7 +2,17 @@ import { describe, expect, it } from 'vitest'
 
 import { runtimeId, type AccountStatus, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
-import { isBlocking, readinessOf, worstReadiness } from './readiness'
+import { isBlocking, readinessOf, worstReadiness, type Readiness } from './readiness'
+
+// Keys of a full record, so a state added later is a compile error here.
+const STATES = Object.keys({
+  broken: true,
+  signin: true,
+  limit: true,
+  available: true,
+  ready: true,
+  unknown: true,
+} satisfies Record<Readiness, true>) as Readiness[]
 
 const account: AccountStatus = {
   accounts: [{ kind: 'chatgpt', label: 'olivia@acme.dev' }],
@@ -147,6 +157,23 @@ describe('isBlocking', () => {
 
   it('leaves an agent that has not answered yet quiet too', () => {
     expect(isBlocking('unknown')).toBe(false)
+  })
+
+  it('answers for every state', () => {
+    const answers = Object.fromEntries(STATES.map((state) => [state, isBlocking(state)]))
+    expect(answers).toEqual({ broken: true, signin: true, limit: true, available: false, ready: false, unknown: false })
+  })
+
+  // The nav dot asks `isBlocking(worstReadiness(...))` and the Runtimes page
+  // groups each agent by `isBlocking` — they agree only while every blocking
+  // state outranks every quiet one.
+  it('ranks every blocking state above every quiet one', () => {
+    for (const loud of STATES.filter(isBlocking)) {
+      for (const quiet of STATES.filter((state) => !isBlocking(state))) {
+        expect(worstReadiness([quiet, loud])).toBe(loud)
+        expect(worstReadiness([loud, quiet])).toBe(loud)
+      }
+    }
   })
 })
 

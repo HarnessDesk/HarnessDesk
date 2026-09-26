@@ -34,6 +34,7 @@ import {
 import { describeLimits, formatReset } from '../lib/limits'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
+import { shortPath } from '../lib/paths'
 import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
@@ -438,12 +439,15 @@ const AgentRow = ({
         /* The default's chip wears the agent's own state: a default that has
            crashed is not a green one (#131) — and it still names the state
            beside it, or an amber "Default" leaves why unsaid. A state chip
-           only where the state is not fine, and not beside a Sign in that
-           already says it. */
-        snapshot.activeRuntime === info.id || (state !== 'ready' && !signIn) ? (
+           only where the state is not fine, not beside a Sign in that
+           already says it, and not under a heading that already says it:
+           every agent in the "Not answered yet" group is exactly that, so a
+           chip repeating it on each row belongs to the group, as the lack of
+           one does under "Ready". */
+        snapshot.activeRuntime === info.id || (state !== 'ready' && state !== 'unknown' && !signIn) ? (
           <>
             {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
-            {state !== 'ready' && !signIn && <Chip state={state} />}
+            {state !== 'ready' && state !== 'unknown' && !signIn && <Chip state={state} />}
           </>
         ) : undefined
       }
@@ -497,6 +501,10 @@ const AgentAccounts = ({
   const snapshot = useSnapshot()
   const [addingGateway, setAddingGateway] = useState(false)
   const [adding, setAdding] = useState(false)
+  // An unanswered extra may be signed in already, and removing it signs it
+  // out and forgets its credential home — so it asks first, as an answered
+  // account's removal does on its own page.
+  const [removing, setRemoving] = useState<RuntimeInfo | null>(null)
   const status = snapshot.accountsByRuntime[info.id]
   // One flat list of rows across the agent's runtimes, each row remembering
   // which runtime it belongs to — that is what a sign-out or a removal needs.
@@ -507,12 +515,15 @@ const AgentAccounts = ({
   // would otherwise fall into `empties` and be offered a sign-in it does not
   // want. It is complete the moment it exists; it gets a row of its own.
   const gateways = siblings.filter((entry) => entry.slot?.gateway)
-  const empties = siblings.filter(
-    (entry) =>
-      entry !== info &&
-      !entry.slot?.gateway &&
-      (snapshot.accountsByRuntime[entry.id]?.accounts ?? []).length === 0,
-  )
+  // An extra slot is only "waiting to be signed in" once it has answered
+  // with no account. One that has not answered yet (#986) may be signed in
+  // already, so it gets a neutral row of its own rather than that claim.
+  const extras = siblings.filter((entry) => entry !== info && !entry.slot?.gateway)
+  const empties = extras.filter((entry) => {
+    const answer = snapshot.accountsByRuntime[entry.id]
+    return answer !== undefined && answer.accounts.length === 0
+  })
+  const pending = extras.filter((entry) => snapshot.accountsByRuntime[entry.id] === undefined)
   const canSignIn = (status?.signInMethods ?? []).some((method) => method.flow !== 'external')
   // A key has to be typed somewhere, so those methods hand off to the sign-in
   // page instead of being started from a button with nowhere to type.
@@ -688,6 +699,21 @@ const AgentAccounts = ({
           />
         ))}
 
+        {/* An extra account that has not answered yet. Its line is where its
+            credential lives — the one thing that tells two of them apart. */}
+        {pending.map((entry) => (
+          <Row
+            key={entry.id}
+            title={READINESS_LABEL.unknown}
+            {...(entry.slot?.home ? { desc: shortPath(entry.slot.home, snapshot.home) } : {})}
+            truncateDesc
+            control={
+              <Button variant="secondary" size="sm" onClick={() => setRemoving(entry)}>
+                Remove
+              </Button>
+            }
+          />
+        ))}
         {/* A slot made but never signed into. Left visible on purpose: it is
             what an abandoned sign-in leaves behind, and hiding it would put
             the credential home on disk with nothing naming it. */}
@@ -716,6 +742,10 @@ const AgentAccounts = ({
              a true sentence about the wrong subject. The page's own "Why it
              will not start" says why, above; here it is only named. */
           <Row title="Unavailable" desc="Its accounts show once it starts." />
+        ) : rows.length === 0 && gateways.length === 0 && info.capabilities.account && status === undefined ? (
+          /* Not answered yet (#986): the agent has not said who is signed in,
+             so "Not signed in" would be a guess. */
+          <Row title={READINESS_LABEL.unknown} desc="Its accounts show once it answers." />
         ) : (
           rows.length === 0 &&
           gateways.length === 0 && (
@@ -732,7 +762,14 @@ const AgentAccounts = ({
                  which is what it is. */
               desc={
                 info.capabilities.account ? (
-                  `${info.presentation.name} has no credential here yet, so a session sent to it would not start.`
+                  /* Whether a session would start is the whole agent's
+                     answer, and an extra account still answering may yet
+                     say yes — so only this account's absence is claimed. */
+                  pending.length > 0 ? (
+                    `${pending.length === 1 ? 'Another account has' : 'Other accounts have'} not answered yet.`
+                  ) : (
+                    `${info.presentation.name} has no credential here yet, so a session sent to it would not start.`
+                  )
                 ) : info.install?.signIn ? (
                   <Prose
                     text={`${info.presentation.name} keeps its own credential — HarnessDesk never sees it. ${
@@ -768,6 +805,23 @@ const AgentAccounts = ({
       </Rows>
 
       {addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
+      {removing && (
+        <ConfirmDialog
+          title={`Remove this ${info.presentation.name} account?`}
+          confirmLabel="Remove account"
+          tone="destructive"
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            const entry = removing
+            setRemoving(null)
+            void store.removeAccount(entry.id)
+          }}
+        >
+          {removing.slot?.home
+            ? `It may be signed in already. Its sign-in at ${shortPath(removing.slot.home, snapshot.home)} is forgotten; conversations stay with the agent.`
+            : 'It may be signed in already. Its sign-in is forgotten; conversations stay with the agent.'}
+        </ConfirmDialog>
+      )}
     </>
   )
 }
@@ -1966,9 +2020,15 @@ export const RuntimesSection = ({
      comment), so it gets a heading of its own, named the same word every
      other surface uses for it — never folded into either claim. */
   const sections = [
+    // The three partition every state, so no agent can fall off this page
+    // for want of a heading. `isBlocking` answers per state by an exhaustive
+    // table, so the compiler makes a state added later say whether it blocks,
+    // here and on the nav dot alike; one that does not lands under "Ready",
+    // so a new quiet state needs a heading of its own decided here.
+    // `agentReadiness` never answers `available`.
     { name: 'Needs attention', agents: listed.filter(({ state }) => isBlocking(state)) },
     { name: READINESS_LABEL.unknown, agents: listed.filter(({ state }) => state === 'unknown') },
-    { name: 'Ready', agents: listed.filter(({ state }) => state === 'ready') },
+    { name: 'Ready', agents: listed.filter(({ state }) => !isBlocking(state) && state !== 'unknown') },
   ].filter((section) => section.agents.length > 0)
 
   if (view.kind === 'add') {
