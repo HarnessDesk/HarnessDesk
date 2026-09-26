@@ -26,6 +26,7 @@ import {
   DropdownMenuSubTrigger,
 } from '../ui/dropdown-menu'
 import { SwitchShape } from '../ui/switch'
+import type { Tone } from '../ui/tone'
 import { useDismissOverlays } from './Popover'
 import { Text } from './Settings'
 
@@ -344,6 +345,81 @@ export const MenuItem = ({
     </DropdownMenuItem>
   )
 }
+
+/**
+ * The figure at an account row's trailing edge: what is left, or the one
+ * word that says why there is nothing to show. A reading is a metered
+ * percentage and draws numeric, tabular type; a word is a state — "Needs
+ * sign-in" — and draws as ordinary prose.
+ */
+export interface MenuAccountFigure {
+  readonly kind: 'reading' | 'word'
+  readonly text: string
+  readonly tone?: Tone
+}
+
+/**
+ * One account in the seat menu: a leading mark, the name and its identity,
+ * the tag that only exists to tell two same-named rows apart, and the
+ * trailing figure. `AccountFooter` (`components/Sidebar.tsx`) composes this
+ * from the running app, and the catalogue's Foundation propagation page
+ * composes the identical part from the same shape of props (#993) — the
+ * layout no longer exists twice.
+ *
+ * `mark` is handed over already built — an `AccountMark` wrapped in its own
+ * hover card, or a bare `size="dot"` mark under a heading — because the card
+ * is the app's own account-specific chrome and has no business in a part
+ * shared with the catalogue. `identity` is kept as `title` and
+ * `data-identity` on the name's own block, not the row's, exactly as the
+ * seat menu drew it before this moved.
+ *
+ * Every `MenuItem` prop a seat row still needs passes straight through:
+ * `current`, `expanded`, `keepOpen`, `onSelect`, and — set by the caller as
+ * ever, since it is a React reserved prop rather than one this component
+ * reads — `key`.
+ *
+ * The layout is the row's own and is kept to layout properties only (flex,
+ * gap, min/max-width, overflow, white-space): a pattern with one screen
+ * consumer is charged for anything else it draws itself (docs/design.md).
+ * Ink and type come from `Text`.
+ */
+export const MenuAccountRow = ({
+  mark,
+  name,
+  identity,
+  tag,
+  figure,
+  current,
+  expanded,
+  keepOpen,
+  onSelect,
+}: {
+  mark?: ReactNode
+  name: ReactNode
+  identity?: string
+  /** The word that tells two rows sharing a name apart — a domain, an address. */
+  tag?: ReactNode
+  figure?: MenuAccountFigure
+  current?: boolean
+  expanded?: boolean
+  keepOpen?: boolean
+  onSelect: () => void
+}) => (
+  <MenuItem layout="account" current={current} expanded={expanded} keepOpen={keepOpen} onSelect={onSelect}>
+    {mark}
+    <span className={styles.accountText} title={identity} data-identity={identity}>
+      <Text role="navigation" truncate className={styles.accountName}>{name}</Text>
+      {tag ? <Text role="meta" truncate className={styles.accountTag}>{tag}</Text> : null}
+    </span>
+    {figure ? (
+      figure.kind === 'reading' ? (
+        <Text role="muted" tone={figure.tone} numeric className={styles.accountFigure}>{figure.text}</Text>
+      ) : (
+        <Text role="meta" tone={figure.tone} className={styles.accountFigure}>{figure.text}</Text>
+      )
+    ) : null}
+  </MenuItem>
+)
 
 /** A switch stays open; Base UI supplies checkbox-menu keyboard semantics. */
 export const MenuToggle = ({

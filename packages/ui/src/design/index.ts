@@ -137,6 +137,7 @@ export {
   Menu,
   MenuItem,
   MenuAccountGroup,
+  MenuAccountRow,
   MenuLabel,
   MenuNote,
   MenuSeparator,
@@ -144,6 +145,7 @@ export {
   Submenu,
   useContextMenu,
   useMenuClose,
+  type MenuAccountFigure,
   type MenuPoint,
 } from './patterns/Menu'
 export {

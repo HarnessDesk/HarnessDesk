@@ -1228,6 +1228,34 @@ fall. The `account` rows under a heading step in so that, after an
 `AccountMark size="dot"` (the account's colour), their names start on the
 heading's name column; the heading already drew whose they are.
 
+### `MenuAccountRow`
+
+`packages/ui/src/design/patterns/Menu.tsx`
+
+One account in the seat menu: a leading mark, the name and its identity,
+the tag that only exists to tell two same-named rows apart, and the
+trailing figure. `AccountFooter` (`components/Sidebar.tsx`) composes this
+from the running app, and the catalogue's Foundation propagation page
+composes the identical part from the same shape of props (#993) — the
+layout no longer exists twice.
+
+`mark` is handed over already built — an `AccountMark` wrapped in its own
+hover card, or a bare `size="dot"` mark under a heading — because the card
+is the app's own account-specific chrome and has no business in a part
+shared with the catalogue. `identity` is kept as `title` and
+`data-identity` on the name's own block, not the row's, exactly as the
+seat menu drew it before this moved.
+
+Every `MenuItem` prop a seat row still needs passes straight through:
+`current`, `expanded`, `keepOpen`, `onSelect`, and — set by the caller as
+ever, since it is a React reserved prop rather than one this component
+reads — `key`.
+
+The layout is the row's own and is kept to layout properties only (flex,
+gap, min/max-width, overflow, white-space): a pattern with one screen
+consumer is charged for anything else it draws itself (docs/design.md).
+Ink and type come from `Text`.
+
 ### `MenuToggle`
 
 `packages/ui/src/design/patterns/Menu.tsx`
