@@ -303,6 +303,9 @@ export interface FoldedRows {
   readonly other: LedgerRow | null
 }
 
+/** `foldOther`'s synthetic row key, so a caller never hand-writes the literal. */
+export const OTHER_KEY = '__other__'
+
 export const foldOther = (rows: readonly LedgerRow[], limit = 6): FoldedRows => {
   if (rows.length <= limit) return { shown: rows, other: null }
   const shown = rows.slice(0, limit)
@@ -314,7 +317,7 @@ export const foldOther = (rows: readonly LedgerRow[], limit = 6): FoldedRows => 
     ? tail.reduce((total, row) => total + (row.tokens ?? 0), 0)
     : null
   const other: LedgerRow = {
-    key: '__other__',
+    key: OTHER_KEY,
     label: `Other · ${tail.length}`,
     runtime: null,
     tokens,
