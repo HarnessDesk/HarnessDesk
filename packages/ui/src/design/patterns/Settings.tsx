@@ -822,7 +822,7 @@ export const Rows = ({
     return <div className={cx(choiceListClass, className)} data-slot="choice-list" {...props}>{children}</div>
   }
   return (
-    <div className={cx(styles.rows, className)} {...(inDialog ? { 'data-context': 'dialog' } : {})} {...props}>
+    <div className={cx(styles.rows, className)} data-slot="rows" {...(inDialog ? { 'data-context': 'dialog' } : {})} {...props}>
       <RowsCardContext.Provider value>{children}</RowsCardContext.Provider>
     </div>
   )

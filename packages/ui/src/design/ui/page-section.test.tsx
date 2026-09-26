@@ -169,6 +169,28 @@ it('a SummaryList composes inside a Section with no margin of its own', () => {
   expect(classes(wrap).some((one) => /^-?m[tbyxlr]?-/.test(one))).toBe(false)
 })
 
+it('a section head\'s card inset is earned only over a Rows card, not a Note or a button body', () => {
+  const overRows = draw(
+    <Section title="Backup">
+      <div data-slot="rows">card</div>
+    </Section>,
+  )
+  const overNote = draw(
+    <Section title="Triggers">
+      <p>Read from the committed file. Nothing runs until you arm it.</p>
+    </Section>,
+  )
+  // The class is conditional (`has-[+…]`), present on both heads; only its
+  // own `:has()` decides whether it resolves to a padding, which jsdom does
+  // not lay out — `e2e/ui-system/page-grammar.spec.ts` measures that part in
+  // the real engine. This pins the selector the condition is keyed on.
+  const insetClass = 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-inset-card))]'
+  expect(classes(overRows.querySelector('[data-slot="section-head"]'))).toContain(insetClass)
+  expect(classes(overNote.querySelector('[data-slot="section-head"]'))).toContain(insetClass)
+  // The Note itself never grows the `rows` slot the class is keyed on.
+  expect(overNote.querySelector('[data-slot="rows"]')).toBeNull()
+})
+
 it('a SectionHead inside a titled Section heads a group of it: an h3, where alone it is an h2', () => {
   const page = draw(
     <div>

@@ -144,8 +144,14 @@ const Section = (props: SectionProps) => {
              edge while the card's border and `--hd-inset-card` put every row
              a border-width and a card-padding in — a `SectionAction`'s own
              `justify-self-end` line answers a different question (the card's
-             own header) and does not reach a page section's plain card. */
-          className="flex min-w-0 items-end gap-(--hd-space-3) px-[calc(var(--hd-border-width)+var(--hd-inset-card))]"
+             own header) and does not reach a page section's plain card.
+
+             Earned only when a `Rows` card is the very next thing the head
+             sits over (`has-[+…]` reads the next sibling): a section whose
+             body is a `Note` or a plain button — ProjectTriggers' own body,
+             say — has no such card to answer to, and the same inset put its
+             label 17px right of a body that starts flush with the page. */
+          className="flex min-w-0 items-end gap-(--hd-space-3) has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-inset-card))]"
         >
           <div className="flex min-w-0 flex-1 flex-col gap-(--hd-space-0-5)">
             <GroupLabel as="h2">{title}</GroupLabel>
