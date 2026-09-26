@@ -249,8 +249,10 @@ const goalShape = <T extends Record<string, unknown>>(
 }
 
 /**
- * A session's options with the one field only the host may set refused
- * outright, before any handler runs: `attachments` is a Seat's frozen,
+ * A session's options with the fields only the host may set refused
+ * outright, before any handler runs. `knownCwd` is the folder the host's own
+ * record gives a reopened Seat — a caller naming one would pick where a
+ * conversation opens, past the agent's listing. `attachments` is a Seat's frozen,
  * approved filter (phase 12), computed from trust and ceiling by the host
  * and never accepted from a client — present at all, even `null`, it is a
  * claim about what a conversation loads, so it is refused rather than
@@ -258,7 +260,9 @@ const goalShape = <T extends Record<string, unknown>>(
  */
 const withoutHostOnly = <T>(read: Validator<T>): Validator<T> => (value: unknown, path = '') => {
   const object = isObject(value, path)
-  if (Object.hasOwn(object, 'attachments')) throw new ValidationError(`${path}.attachments`, 'set by the host only')
+  for (const key of ['attachments', 'knownCwd']) {
+    if (Object.hasOwn(object, key)) throw new ValidationError(`${path}.${key}`, 'set by the host only')
+  }
   return read(value, path)
 }
 

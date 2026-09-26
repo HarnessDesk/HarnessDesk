@@ -406,6 +406,14 @@ it('draws no empty seat on the badge before the default agent has answered', () 
   expect(seat.querySelector('[data-off]')).toBeNull()
 })
 
+it('keeps the readiness light neutral before the default agent has answered', () => {
+  mount({ accountsByRuntime: { [CODEX]: signedIn('shane@example.com') } })
+  const light = row().querySelector('[role="img"]')
+  // Neutral: no state, and a name that claims none.
+  expect(light?.hasAttribute('data-state')).toBe(false)
+  expect(light?.getAttribute('aria-label')).toBe('Claude')
+})
+
 it('opens the account’s card from the badge, and the card offers no switch to what already is the default', () => {
   vi.useFakeTimers()
   mount()
@@ -897,6 +905,36 @@ it('calls an account-less row under a heading what it is, not the heading or the
   click(row())
   const current = document.querySelector('[role="menuitem"][data-current]')
   expect(current?.textContent).toBe('No accountNeeds sign-in')
+})
+
+it('keeps a signed-out default listed under its heading when the picker is open, drawn as what it is', () => {
+  // A second account of the default agent, answered and signed out, is the default;
+  // a third, signed out too, is not the default — and so is not listed.
+  const { second, snapshot } = twoCodex()
+  const third = slotOf(codex, 'codex-3')
+  mount({
+    ...snapshot,
+    runtimes: [...(snapshot.runtimes ?? []), third],
+    activeRuntime: second.id,
+    accountsByRuntime: { ...snapshot.accountsByRuntime, [second.id]: signedOut, [third.id]: signedOut },
+    healthByRuntime: { ...snapshot.healthByRuntime, [third.id]: { state: 'ready' } },
+  })
+  click(row())
+  const folded = document.querySelector<HTMLElement>('[role="menuitem"][data-current]')
+  if (!folded) throw new Error('no current seat')
+  click(folded)
+  const group = groupNamed('OpenAI Codex')
+  const rows = [...(group?.querySelectorAll('[role="menuitem"]') ?? [])]
+  // Listed, though its signed-out sibling is not: it is the chair you are in.
+  expect(rows.map((one) => one.textContent?.trim())).toEqual(['jane', 'No accountNeeds sign-in'])
+  const current = rows.find((one) => one.hasAttribute('data-current'))
+  expect(current).toBe(folded)
+  // Under the heading: no mark of its own, and an untinted dot — no account, no colour.
+  expect(current?.querySelector('.brand-codex')).toBeNull()
+  expect(current?.querySelector('[data-tint]')).toBeNull()
+  expect(current?.querySelector('[aria-hidden="true"]')).not.toBeNull()
+  // The other account keeps its colour, so the difference is the account's, not the row's.
+  expect(rows[0]?.querySelector('[data-tint]')).not.toBeNull()
 })
 
 it('never tags a single row with its own name', () => {
