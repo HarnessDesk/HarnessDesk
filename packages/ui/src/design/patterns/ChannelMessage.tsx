@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { BrandMark } from '../../components/BrandIcons'
 import type { Brand } from '../../lib/brands'
+import { Bubble, BubbleContent } from '../ui/bubble'
 import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
+import { Message, MessageFooter } from '../ui/message'
 import type { Tone } from '../ui/tone'
 import { Chip, CodeText, MetaList, Monogram, Text } from './Settings'
 import { TurnItem } from './TurnWork'
@@ -57,12 +59,17 @@ import { TurnItem } from './TurnWork'
  *                     member in — with a `Monogram` when there is no mark.
  *   The words         `Text` roles: the name is the subject, the attribution
  *                     is a `MetaList` of facts, an aside is meta.
- *   The trouble       a `Chip` in the tone the trouble is (usage.ts, `tone`).
+ *   The trouble       a `Chip` in the tone the trouble is (usage.ts, `tone`),
+ *                     on the same `MessageFooter` a message's time and
+ *                     actions stand on elsewhere.
  *   The quiet verbs   "Show more" and "Envelope" are the muted button.
  *
  * The measure is the caller's — `TeamRoomPane.module.css` sets it to
  * `--hd-column`, the transcript's — and the rows sit on its edges the way the
- * transcript's items do.
+ * transcript's items do. The words themselves stand in the transcript's own
+ * `Message`/`Bubble` box (design/ui/message.tsx, design/ui/bubble.tsx),
+ * unframed the way an answer's own prose is — a second screen for parts that
+ * would otherwise exist for the transcript alone.
  *
  * What stays here is what only a channel has: the clamp that folds a long
  * message, and the grid that keeps every row's words on one line after the
@@ -300,7 +307,12 @@ export const ChannelMessage = ({
         )}
       </div>
 
-      <div className="min-w-0">
+      {/* The content column shares its box with the transcript's own message
+          row (`Message`, design/ui/message.tsx) — the room's own grid keeps
+          its shape, so layout stays overridden to the block it always was;
+          only the box is shared, the second screen family this system's
+          parts were sized for. */}
+      <Message align="start" className="block min-w-0">
         {!grouped && (
           <div className="mb-px flex items-baseline gap-1.5">
             {wrap(<Text role="subject" truncate>{from}</Text>)}
@@ -330,19 +342,22 @@ export const ChannelMessage = ({
             `display: -webkit-box`, which flattens the very blocks — lists,
             fences, quotes — that a rendered body is made of. About eight lines;
             the "Show more" below opens the rest. */}
-        <div
-          ref={bodyRef}
-          data-slot="channel-body"
-          // Several screens (Items, FindingDetail, ProjectTriggers, the
-          // session tree) each clamp long content with their own "Show
-          // more", none sharing a part. Giving that role one owner is a
-          // wider decision than this message body alone.
-          className={`break-words ${body ? '' : 'whitespace-pre-wrap'} ${
-            expanded ? '' : 'max-h-48 overflow-hidden'
-          }`}
-        >
-          {body ?? text}
-        </div>
+        <Bubble variant="ghost">
+          <BubbleContent
+            ref={bodyRef}
+            variant="ghost"
+            data-slot="channel-body"
+            clampHeight={192}
+            expanded={expanded}
+            // Several screens (Items, FindingDetail, ProjectTriggers, the
+            // session tree) each clamp long content with their own "Show
+            // more", none sharing a part. Giving that role one owner is a
+            // wider decision than this message body alone.
+            className={`break-words ${body ? '' : 'whitespace-pre-wrap'}`}
+          >
+            {body ?? text}
+          </BubbleContent>
+        </Bubble>
         {(overflows || expanded) && (
           <Button
             variant="muted"
@@ -373,8 +388,11 @@ export const ChannelMessage = ({
           </div>
         )}
 
+        {/* A message's trouble, in the same footer the transcript's own
+            reads its time and actions from — status on the left, the one
+            action a held delivery offers on the right. */}
         {(state === 'held' || state === 'refused' || state === 'queued') && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <MessageFooter align="start" className="mt-1.5 flex-wrap gap-1.5">
             <Chip tone={troubleTone(state)}>{state}</Chip>
             {reason && (
               <Text role="meta" className="min-w-0 flex-1 basis-48">
@@ -386,7 +404,7 @@ export const ChannelMessage = ({
                 Deliver now
               </Button>
             )}
-          </div>
+          </MessageFooter>
         )}
 
         {refusedFirst && (
@@ -421,7 +439,7 @@ export const ChannelMessage = ({
             )}
           </>
         )}
-      </div>
+      </Message>
     </TurnItem>
   )
 }
