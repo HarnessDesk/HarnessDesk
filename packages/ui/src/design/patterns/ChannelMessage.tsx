@@ -382,7 +382,9 @@ export const ChannelMessage = ({
               size="xs"
               type="button"
               data-slot="channel-more"
-              className="mt-1"
+              /* `self-start`: MessageContent stretches its children, and a
+                 stretched toggle centres its word across the whole row. */
+              className="mt-1 self-start"
               aria-expanded={expanded}
               onClick={() => setExpanded((on) => !on)}
             >
