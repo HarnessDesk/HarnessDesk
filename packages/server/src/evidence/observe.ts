@@ -58,6 +58,16 @@ export interface Look {
    * is given.
    */
   readonly until?: Sha | null
+  /**
+   * A card no longer held with no `until` is never diffed, whether or not it
+   * already has a diff fact: it keeps whatever it last showed, or none at
+   * all — diffing it just this once, unbounded, is exactly how a stopped
+   * card ends up bounded forever to a wrong reading (issue #1035). Its pull
+   * request and checks are still looked at; only the diff step is skipped.
+   * Absent, or false, for every card whose diff is worth attempting — held,
+   * or stopped with a known `until`.
+   */
+  readonly skipDiff?: boolean
 }
 
 export class Observer {
@@ -107,7 +117,7 @@ export class Observer {
     if (!revision) return false
 
     const facts: Evidence[] = []
-    const diff = await diffOf(look.cwd, look.since ?? null, {
+    const diff = look.skipDiff ? null : await diffOf(look.cwd, look.since ?? null, {
       ...(look.upstream !== undefined ? { upstream: look.upstream } : {}),
       ...(look.until !== undefined ? { until: look.until } : {}),
     })

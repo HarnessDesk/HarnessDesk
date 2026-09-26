@@ -157,7 +157,7 @@ import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
 import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
-import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
+import { STOP_HEAD_TIMEOUT_MS, Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
@@ -846,8 +846,7 @@ export class Host {
             return this.#team.hasRoom(room) ? this.#team.stateFor(room) : null
           }
         },
-        cwdOf: (runtime, sessionId) =>
-          this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null,
+        cwdOf: (runtime, sessionId) => this.#sessionCwd(runtime, sessionId),
         push: (notification) => this.#push(notification),
         log: (message, details) => this.#logger.warn(message, details ?? {}),
         canMutateBoard: (goal) => {
@@ -1022,6 +1021,7 @@ export class Host {
         const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])
         return revision ? { head: revision.head, upstream } : null
       },
+      cwdOf: (runtime, sessionId) => this.#sessionCwd(runtime, sessionId),
       // A refused save is put back before the Goal's queue runs anything else.
       mutate: (snapshot, refused) => this.#goalSerial.run(async () => {
         try {
@@ -2585,6 +2585,11 @@ export class Host {
     }
   }
 
+  /** The folder a live session works in, straight off the registry; null when that session is not live. */
+  #sessionCwd(runtime: string, sessionId: string): string | null {
+    return this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null
+  }
+
   /** A Goal's cards as they stand: the Team's copy, the one writer, once it holds the board; the document until then. */
   #goalIntents(goal: string): readonly Intent[] {
     return this.#team.hasRoom(goal) ? this.#team.stateFor(goal).intents : this.#goalStore.read(goal).board.intents
@@ -2726,6 +2731,8 @@ export class Host {
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
         claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream },
+        // A live claim measures to HEAD, not to wherever it last stopped.
+        until: null,
         updatedAt: at,
         blockedBy: null,
         blockedReason: null,
@@ -2827,6 +2834,30 @@ export class Host {
       .map((intent) => ({ id: intent.id, ...unreviewed }))
     const receipt: GoalReceipt = setAside.length === 0 ? operation.receipt
       : { ...operation.receipt, cards: [...operation.receipt.cards, ...setAside] }
+    /*
+     * Every card still claimed loses its checkout the instant this wrap
+     * lands — there is no session left to ask afterwards — so where each
+     * stood is read now, bounded by the same timeout `Team`'s own stop
+     * capture uses, and written into the same save as the wrap itself rather
+     * than as a second write nobody could make once the Goal is read-only
+     * (issue #1035). A read that fails or times out records nothing for that
+     * card: it is left exactly as a card whose stop could not be read always
+     * is, never diffed unbounded to make up for it (`EvidencePlane#lookAround`).
+     */
+    const stops = new Map<number, string>()
+    await Promise.all(document.board.intents.map(async (intent) => {
+      if (!intent.claim) return
+      const cwd = this.#sessionCwd(intent.claim.runtime, intent.claim.sessionId)
+      if (!cwd) return
+      const timedOut = Symbol('wrap-stop-timeout')
+      let timer: ReturnType<typeof setTimeout>
+      const timeout = new Promise<typeof timedOut>((resolve) => {
+        timer = setTimeout(() => resolve(timedOut), STOP_HEAD_TIMEOUT_MS)
+      })
+      const revision = await Promise.race([revisionOf(cwd).catch(() => null), timeout])
+      clearTimeout(timer!)
+      if (revision !== timedOut && revision?.head) stops.set(intent.id, revision.head)
+    }))
     const board = {
       ...document.board,
       intents: document.board.intents.map((intent) => {
@@ -2837,6 +2868,7 @@ export class Host {
           claim: null,
           blockedBy: null,
           blockedReason: null,
+          ...(intent.claim && stops.has(intent.id) ? { until: stops.get(intent.id)! } : {}),
           ...(resolution.reason?.trim() ? { note: resolution.reason.trim() } : {}),
           updatedAt: at,
         }

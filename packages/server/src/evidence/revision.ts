@@ -252,7 +252,11 @@ const madeHere = async (cwd: string): Promise<ReadonlySet<string> | null> => {
  * way to HEAD, because its own work is still landing. A card that has
  * stopped is measured to `until` on every later look, whatever else has
  * since been committed on a checkout the next card goes on to share — so its
- * diff never picks up work it never touched.
+ * diff never picks up work it never touched. When `until` is given and
+ * `since..until` cannot be computed at all (history rewritten, an object
+ * gone), the answer is null, never a diff against the base branch instead:
+ * a bound that was asked for and could not be kept is not answered with a
+ * different question in the same shape.
  */
 export const diffOf = async (
   cwd: string,
@@ -291,6 +295,13 @@ export const diffOf = async (
     }
     return { files: files.size, added, removed, from: began, to: end }
   }
+  /* `until` was given, so a bound was asked for — this card has stopped,
+     never diffed against a live HEAD again. When the range to it cannot be
+     computed (history rewritten out from under it, an object gone), there is
+     no bound left to keep: falling back to a diff against the base branch
+     would be answering a different question with the same shape, silently.
+     No fact is better than a fact that looks like the one asked for. */
+  if (options.until !== undefined && options.until !== null) return null
   const base = await baseOf(cwd)
   if (!base) return null
   const from = (await gitOr(cwd, ['merge-base', base, revision.head]))?.trim() ?? ''

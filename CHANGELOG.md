@@ -14,14 +14,19 @@ move is real work and is not news to a person weighing an upgrade.
   committed, every earlier card that had already finished picked up that
   commit too. In UC5's "Pair build", four prose-only cards that never wrote
   anything all showed the contract card's own file changes once it landed.
-  The host now records where a card's own checkout stood the moment it
-  stopped being held — finished, released or abandoned — and a stopped
-  card's diff is bounded to that point, never to today's HEAD; a card still
-  claimed is unaffected and keeps measuring to HEAD as before, and an
-  isolated lane, where each card already has its own checkout, was never
-  affected either way. A card that had already finished before this change
-  keeps whatever it last showed, rather than being recomputed against a
-  branch that has since moved on. (#1035)
+  Every way a card's claim clears — finished, released, abandoned, blocked,
+  taken over, or a Goal wrapped away — now reads its checkout's HEAD once, at
+  that moment, and records it on the card itself as where it stopped; a diff
+  observed once the card is no longer held is bounded to that point, never to
+  HEAD as the checkout stands whenever a board happens to reopen, and a
+  bound that cannot be computed at all answers with no diff rather than a
+  different one. A card still claimed is unaffected and keeps measuring to
+  HEAD as before; an isolated lane, where each card already has its own
+  checkout, was never affected either way. A card with no recorded stop —
+  one that finished before this shipped, or whose checkout could not be read
+  in time — is never diffed unbounded to make up for that: it keeps whatever
+  it last showed, or none at all if it never had a diff, rather than being
+  measured against a branch that has since moved on. (#1035)
 
 - **A mixed race no longer stalls before the judge, and a race started from
   the generic Flow-start seeds two competitors, like `/race` always has.**

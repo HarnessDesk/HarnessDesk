@@ -355,6 +355,54 @@ test('an old finished card with no recorded stop is not re-diffed against later 
   await plane.close()
 })
 
+test('a card with a pull-request fact but no diff fact is never diffed against today’s HEAD', async () => {
+  const repo = await branchWithWork()
+  const project = await canonical(repo.dir)
+  const state = tempDir('hd-observe-state-')
+  let calls = 0
+  const gh: GhInCheckout = async () => {
+    calls += 1
+    return { stdout: JSON.stringify({ number: 5, state: 'OPEN', headRefOid: HEAD, url: null, statusCheckRollup: [] }), stderr: '', exitCode: 0 }
+  }
+  const plane = new EvidencePlane(
+    { dir: join(state, 'evidence'), seenFile: join(state, 'commands-seen.json'), gh },
+    {
+      board: (room) =>
+        room === 'room-1' ? ({ id: 'room-1', root: repo.dir, intents: [{ id: 1, state: 'done', claim: null }] } as unknown as TeamState) : null,
+      cwdOf: () => repo.dir,
+      push: () => {},
+      log: () => {},
+    },
+  )
+  // Only a pull-request fact was ever recorded for this card — no diff fact,
+  // and the intent itself carries no `until` (never captured, or lost before
+  // this existed): review round 2 of issue #1035, the case a `lastDiff.to`
+  // derivation could not tell apart from a card safe to diff once, unbounded.
+  await plane.store.append(project, 'evidence', [
+    {
+      type: 'evidence' as const,
+      record: {
+        id: 'pr-only',
+        fact: { kind: 'pr' as const, number: 5, head: HEAD, state: 'open' as const, url: null },
+        card: { board: 'room-1', id: 1 },
+        checkout: { cwd: repo.dir, branch: 'work' },
+        observedAt: 1,
+      },
+    },
+  ])
+  await writeFile(join(repo.dir, 'later.txt'), 'x\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'a later card')
+  await plane.board('room-1')
+  await until(() => (calls > 0 ? true : null), 'the look for the PR-only card')
+  assert.deepEqual(
+    await diffsOf(plane.store, project, 1),
+    [],
+    'never diffed unbounded just because it had no diff fact yet — its pull request was still checked',
+  )
+  await plane.close()
+})
+
 test('isolated lanes keep working unchanged: two cards in their own checkouts each settle with their own diff', async (t) => {
   const repo = await makeRepo()
   const project = await canonical(repo.dir)
