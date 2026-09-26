@@ -188,6 +188,15 @@ export const selectMainPage = (targets) =>
  * already has open would make this launch quit silently — and steal the focus
  * of their window on the way out.
  */
+/**
+ * A rig window is driven while nobody is looking at it, often covered or
+ * off-screen, and Chromium slows a window it thinks is backgrounded: its
+ * timers, and the resize observers a popup repositions by. The product must
+ * not pay for that (a hidden desk should rest), so the rig asks for a
+ * foreground clock on its own command line instead.
+ */
+const UNTHROTTLED = ['--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows']
+
 export const launchDesk = async ({ app, home, port = 0, userDataDir, logPath, executable, env = process.env }) => {
   const electron = executable ?? `${app}/packages/desktop/node_modules/.bin/electron`
   if (!existsSync(electron)) {
@@ -200,7 +209,7 @@ export const launchDesk = async ({ app, home, port = 0, userDataDir, logPath, ex
     electron,
     // Like smoke-packaged.mjs, a disposable profile must not prompt for or
     // read the developer's login Keychain after each ad-hoc-signed rebuild.
-    [...(executable ? ['--use-mock-keychain'] : ['.']), `--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`],
+    [...(executable ? ['--use-mock-keychain'] : ['.']), `--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`, ...UNTHROTTLED],
     {
       cwd: `${app}/packages/desktop`,
       env: {
