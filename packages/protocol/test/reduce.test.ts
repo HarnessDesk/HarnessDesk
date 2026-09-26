@@ -301,6 +301,18 @@ test('a read brings new turns and corrects settled ones', () => {
   assert.equal(allItems(merged).length, 2)
 })
 
+test('a read that starts at a reopen keeps the history held ahead of it', () => {
+  const said = (id: string) => ({ id: turnId(id), status: 'completed' as const, items: [{ id: itemId(`${id}-i`), type: 'assistantMessage' as const, text: id }] })
+  const held = readOf([said('t1'), said('t2')])
+  const read = { ...readOf([said('r1')]), partialHistory: true }
+  assert.deepEqual(mergeRead(held, read, () => false).turns.map((turn) => turn.id), ['t1', 't2', 'r1'])
+  // Without the mark a read is the record, and unwatched turns go.
+  assert.deepEqual(mergeRead(held, readOf([said('r1')]), () => false).turns.map((turn) => turn.id), ['r1'])
+  // Once the read shares a turn with us, only what precedes that is history.
+  const later = mergeRead(readOf([said('t1'), said('r1')]), { ...readOf([said('r1'), said('r2')]), partialHistory: true }, () => false)
+  assert.deepEqual(later.turns.map((turn) => turn.id), ['t1', 'r1', 'r2'])
+})
+
 test('a fuller read cannot turn a held notice back into a user message', () => {
   const opening = itemId('opening')
   const held = readOf([
