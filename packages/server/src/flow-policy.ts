@@ -410,9 +410,6 @@ const validatePolicy = (policy: FlowPolicy, problems: FlowProblem[]): void => {
     if (target?.kind === 'agent' && target.grant === 'merge' && (!rule.when?.evidence?.length || rule.when.every?.length || rule.when.any?.length)) {
       problems.push(problem('error', `rules[${index}]`, 'This merge step needs fresh evidence. Add an evidence guard before starting it.'))
     }
-    /* One list of files for a round of several cards gives every card the
-       same paths, and the board lets only one of them be claimed: the split
-       was never enforced, because there was none. Each card needs its own. */
   }
   const seed = byId.get(policy.seed.role)
   if (seed?.kind === 'agent' && seed.grant === 'merge') problems.push(problem('error', 'seed', 'This merge step needs fresh evidence. Add an evidence guard before starting it.'))
