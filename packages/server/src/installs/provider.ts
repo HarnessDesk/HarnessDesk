@@ -269,6 +269,12 @@ const isYamlMap = (value: unknown): value is Record<string, unknown> =>
  * read as a patch with no items, not a shape this reader fails to recognise.
  */
 const dshPatchItems = (text: string): readonly Record<string, unknown>[] | null => {
+  // DSH scaffolds every profile's patch as comments over a bare flow-style
+  // `[]`, which the flow-file parser refuses. That one shape is an empty
+  // list and nothing else; any other flow-style content still goes to the
+  // parser and is refused there.
+  const content = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '' && !line.startsWith('#'))
+  if (content.length === 1 && content[0] === '[]') return []
   let parsed: unknown
   try {
     parsed = parseYaml(text)
