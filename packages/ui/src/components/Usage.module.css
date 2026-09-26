@@ -277,11 +277,24 @@
 .rank {
   display: grid;
   /* The donut's own name column and the plain-table's second name column
-     collapse into one now that every pivot draws the same row shape; the new
-     72px column is the by-agent change chip, empty on the other two pivots. */
-  grid-template-columns: 15px minmax(0, 1fr) 72px 44px 88px 92px; /* desk: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px → 15px minmax(0, 1fr) 72px 44px 88px 92px, the ranked table's own columns collapsing to one shape for every pivot */
+     collapse into one now that every pivot draws the same row shape. The
+     by-agent change chip gets its own 72px track below, keyed on the pivot,
+     rather than reserved here — a model or a project pivot never has a chip
+     to show, and a track that is always empty is a dead gap, not a column. */
+  grid-template-columns: 15px minmax(0, 1fr) 44px 88px 92px; /* desk: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px → 15px minmax(0, 1fr) 44px 88px 92px, the ranked table's own columns collapsing to one shape for every pivot */
   align-items: center;
   gap: var(--hd-space-3);
+}
+
+.rank[data-pivot='runtime'] {
+  /* The by-agent pivot alone earns the chip column — see `Usage.tsx`, which
+     always emits the cell for this pivot (so a row with no previous total
+     still reserves its width) and never renders it for the other two. */
+  grid-template-columns: 15px minmax(0, 1fr) 72px 44px 88px 92px; /* desk: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px → 15px minmax(0, 1fr) 72px 44px 88px 92px, the by-agent pivot's own chip column */
+}
+
+.rankChange {
+  min-width: 0;
 }
 
 .rankMark {
