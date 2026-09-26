@@ -49,17 +49,3 @@
   flex-direction: column;
   gap: 2px;
 }
-
-/* The turn's own plan, drawn as a checklist: mark and label per step, gap
-   between rows the same as any other list of steps here. */
-.planList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-0-5);
-}
-
-.planItem {
-  display: flex;
-  align-items: first baseline;
-  gap: var(--hd-space-2);
-}

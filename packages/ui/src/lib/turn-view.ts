@@ -3,6 +3,7 @@ import type { AgentItem, FileChange, ItemStatus, Turn } from '@harnessdesk/proto
 import { elapsedSince, instant } from './clock'
 import { countFileChange } from './diff'
 import { readToolResult } from './tool-result'
+import { planOf } from './todos'
 import { describedTitle, editedPathOf, isDescribed, isSilentReasoning, toolCallVerb } from './group-items'
 
 /**
@@ -239,8 +240,13 @@ const plural = (count: number, one: string, many = `${one}s`): string =>
  * alone said "called 47 tools" for a Claude Code turn whose own body — which
  * asks `toolCallVerb` — said "ran 44 commands, read 3 files". The header and
  * the thing it heads now read the same items the same way.
+ *
+ * `planWithNoToolCall` is `describeTurnWork`'s to say: a turn's own ACP
+ * `plan` update has no item here at all — it is not a tool call, so there is
+ * nothing for the loop below to count it as — and without this the fold's
+ * receipt said nothing happened in a turn that only ever set its plan.
  */
-const tally = (work: readonly AgentItem[]): string[] => {
+const tally = (work: readonly AgentItem[], planWithNoToolCall: boolean): string[] => {
   const paths = new Set<string>()
   let ran = 0
   let read = 0
@@ -304,6 +310,7 @@ const tally = (work: readonly AgentItem[]): string[] => {
   if (read > 0) parts.push(`read ${plural(read, 'file')}`)
   if (searched > 0) parts.push(`searched ${plural(searched, 'time')}`)
   if (tools > 0) parts.push(`called ${plural(tools, 'tool')}`)
+  if (planWithNoToolCall) parts.push('updated the plan')
   return parts
 }
 
@@ -369,7 +376,12 @@ export const describeTurnWork = (
   // screen. This line is the folded case's answer to both: what a person
   // scrolling back is looking for, on the one line that stands for the turn.
   const rest = work.filter((item) => !isDescribed(item))
-  const counted = tally(rest)
+  // Checked against the whole turn, not `rest`: a plan tool call is already
+  // described and filtered out of it, and asking `rest` would have found no
+  // tool call there either way and said the plan twice.
+  const planWithNoToolCall =
+    (turn.plan?.length ?? 0) > 0 && !work.some((item) => item.type === 'toolCall' && planOf(item.args) !== null)
+  const counted = tally(rest, planWithNoToolCall)
   const parts = [...(said.length > 0 ? [said.join(' · ')] : []), ...(counted.length > 0 ? [counted.join(', ')] : [])]
   // An interrupted turn is asked one question above all others, and the items
   // answer it: nothing was written, or these files were.

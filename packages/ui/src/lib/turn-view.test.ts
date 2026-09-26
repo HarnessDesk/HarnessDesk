@@ -245,6 +245,30 @@ describe('describeTurnWork', () => {
     expect(describeGroup(three)).toBe('Edited 3 files')
   })
 
+  test("a turn's own ACP plan says so in the fold line, once, with no tool call to hang it on", () => {
+    // ACP's `plan` update is a session/update, never a tool call, so there is
+    // no item here for the loop to count — without `planWithNoToolCall` a
+    // turn that only ever set its plan folded to "Worked for 25s" and said
+    // nothing happened.
+    const work = [item('command', 'c1', { actions: [{ type: 'unknown', command: 'pnpm test' }] })]
+    const plan = [{ step: 'read the file', status: 'completed' as const }]
+    expect(describeTurnWork(done(work, { plan }), work, started).receipt).toBe('ran 1 command, updated the plan')
+  })
+
+  test('a matching plan tool call means the turn already accounts for its plan; the fold line adds nothing for it', () => {
+    // `planOf` finds the same call `turn.plan` mirrors — `TurnWork.tsx`'s own
+    // dedup reads it the same way — so `planWithNoToolCall` is false here,
+    // and the receipt is exactly what it would be with no `plan` at all.
+    const write = item('toolCall', 'w', { tool: 'TodoWrite', args: { todos: [{ content: 'read the file', status: 'completed' }] } })
+    const plan = [{ step: 'read the file', status: 'completed' as const }]
+    expect(describeTurnWork(done([write], { plan }), [write], started).receipt).toBe('called 1 tool')
+  })
+
+  test('a plan that never got anywhere — an empty one — says nothing extra', () => {
+    const work = [item('command', 'c1', { actions: [{ type: 'unknown', command: 'pnpm test' }] })]
+    expect(describeTurnWork(done(work, { plan: [] }), work, started).receipt).toBe('ran 1 command')
+  })
+
   test('a step still running is not yet something the turn did', () => {
     // `runsOf` in turn-summary.ts has always skipped one. Counting it here
     // put "ran 1 command" over a summary row that had nothing to show.

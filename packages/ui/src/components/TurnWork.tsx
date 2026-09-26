@@ -1,9 +1,7 @@
 import {
-  Chip,
   DisclosureChevron,
   Separator,
   Text,
-  TextMark,
   TurnWorkHeader,
   TurnWorkHeaderLabel,
   TurnWorkLive,
@@ -13,11 +11,9 @@ import { useEffect, useState } from 'react'
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
 import { groupItems, isSilentReasoning } from '../lib/group-items'
-import { isPlanTool } from '../lib/tool-names'
-import { findTodos, turnPlan, type Todo } from '../lib/todos'
+import { planOf, turnPlan } from '../lib/todos'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
-import { TodoActiveIcon, TodoDoneIcon, TodoPendingIcon } from './Icons'
-import { ItemView, StepNameScope } from './Items'
+import { ItemView, StepNameScope, TodoListView } from './Items'
 import { StepGroup } from './StepGroup'
 import styles from './TurnWork.module.css'
 
@@ -47,28 +43,6 @@ import styles from './TurnWork.module.css'
  * and each failed row keeps its output behind one more click so a long failure
  * cannot take over the transcript.
  */
-
-/**
- * A turn's own plan, drawn the same way a plan tool's arguments already are
- * in `Items.tsx` — the same marks, the same list — because it is the same
- * fact in a different envelope: ACP's `plan` update and a `TodoWrite` call
- * both say "here is what this turn is working through."
- */
-const TurnPlanView = ({ todos }: { todos: readonly Todo[] }) => (
-  // A `<div>`, not a `<ul>`: the marker and the indent a list style resets
-  // are the browser's own appearance, not this screen's to draw or undo.
-  <div className={styles.planList}>
-    {todos.map((todo, index) => (
-      <Text as="div" role="prose" key={index} className={styles.planItem}>
-        <TextMark role="prose">
-          {todo.done ? <TodoDoneIcon size={12} /> : todo.active ? <TodoActiveIcon size={12} /> : <TodoPendingIcon size={12} />}
-        </TextMark>
-        <Text role={todo.active ? 'subject' : 'prose'} done={todo.done}>{todo.label}</Text>
-        {todo.priority && <Chip size="sm" tone="neutral">{todo.priority}</Chip>}
-      </Text>
-    ))}
-  </div>
-)
 
 /** A clock that only ticks while something is running. */
 const useNow = (running: boolean): number => {
@@ -108,11 +82,14 @@ export const TurnWork = ({
    * agent whose `TodoWrite` (or equivalent) call is *also* mirrored as an
    * ACP plan update already gets that checklist from the described step
    * below, and a second copy from `turn.plan` would say the same list twice.
+   *
+   * `planOf(item.args) !== null` is the one reading of "this call wrote to
+   * the plan" — the same one `Items.tsx`'s own sentence for a plan tool
+   * call uses — so the two can never disagree about a call that cleared the
+   * plan (`{todos: []}`) or wrote it under a key the other would have missed.
    */
   const plan = turnPlan(turn)
-  const planShownByAToolCall = work.some(
-    (item) => item.type === 'toolCall' && isPlanTool(item.tool) && findTodos(item.args) !== null,
-  )
+  const planShownByAToolCall = work.some((item) => item.type === 'toolCall' && planOf(item.args) !== null)
   const inlinePlan = plan && plan.length > 0 && !planShownByAToolCall ? plan : null
   const open = choice ?? (running || line.informative || inlinePlan !== null)
 
@@ -161,7 +138,7 @@ export const TurnWork = ({
       </TurnWorkHeader>
       {open && (
         <div className={styles.body} data-register="light">
-          {inlinePlan && <TurnPlanView todos={inlinePlan} />}
+          {inlinePlan && <TodoListView todos={inlinePlan} />}
           <StepNameScope items={shown} root={root}>
             {groupItems(shown).map((node) =>
               node.kind === 'group' ? (
