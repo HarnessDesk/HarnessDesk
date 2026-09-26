@@ -582,7 +582,7 @@ that way is unknown.
 Codex's read is scoped to the configuration actually *in force* for the
 session that runs, merged across every layer it reads (its home
 `config.toml`, each sibling `<name>.config.toml`, and a project's own
-`.codex/config.toml`): the `profile` every layer names must agree, or the
+`<project>/.codex/config.toml`): the `profile` every layer names must agree, or the
 answer is unknown outright; once agreed (or none is set anywhere), that
 profile's `[profiles.<name>]` table and any root override are read from
 *every* layer that has one, not only the layer that happened to select it —
