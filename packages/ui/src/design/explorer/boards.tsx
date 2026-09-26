@@ -1125,7 +1125,7 @@ const MessageBoard = () => (
       {BUBBLE_CATALOG_VARIANTS.map((variant) => (
         <Case key={variant} label={`bubble: ${variant}`}>
           <Bubble variant={variant} data-catalog-variant={variant}>
-            <BubbleContent variant={variant}>
+            <BubbleContent>
               {variant === 'secondary' ? 'A short reply.' : 'An unframed answer, the full row.'}
             </BubbleContent>
           </Bubble>
@@ -1135,7 +1135,7 @@ const MessageBoard = () => (
         <Case key={align} label={`message align: ${align}`}>
           <Message align={align} data-catalog-align={align}>
             <Bubble variant={align === 'end' ? 'secondary' : 'ghost'}>
-              <BubbleContent variant={align === 'end' ? 'secondary' : 'ghost'}>
+              <BubbleContent>
                 {align === 'end' ? 'The current person, right-aligned.' : 'Everyone else, at the left.'}
               </BubbleContent>
             </Bubble>
@@ -1184,7 +1184,7 @@ const MessageBoard = () => (
           </MessageHeader>
           <MessageContent>
             <Bubble variant="secondary">
-              <BubbleContent variant="secondary">Looks right.</BubbleContent>
+              <BubbleContent>Looks right.</BubbleContent>
             </Bubble>
           </MessageContent>
         </Message>

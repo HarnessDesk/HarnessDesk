@@ -16,12 +16,16 @@ import { cn } from '@/lib/utils'
  * `destructive`); none is drawn here; the audit's own rule is the reason —
  * a variant earns its keep by a screen reaching for it, not by the catalogue
  * being complete in advance.
+ *
+ * `variant` is said once, on `Bubble`; `BubbleContent` reads it from context
+ * rather than taking its own copy of the same prop. A round asked for this —
+ * every caller was writing `<Bubble variant="ghost"><BubbleContent
+ * variant="ghost">`, the same word twice for one choice, with nothing
+ * stopping the two from disagreeing.
  */
 
-/* No shared gap: the one bubble with a second child (the user's own —
-   `BubbleContent` beside a "Show all" toggle) already spaces that toggle
-   itself, in the margin the toggle carried before this part existed. Adding
-   a flex `gap` here as well would double it under that one caller. */
+const BubbleVariantContext = React.createContext<'secondary' | 'ghost'>('secondary')
+
 const bubbleVariants = cva('flex flex-col', {
   variants: {
     variant: {
@@ -45,9 +49,21 @@ const bubbleVariants = cva('flex flex-col', {
 
 type BubbleProps = React.ComponentProps<'div'> & VariantProps<typeof bubbleVariants>
 
-const Bubble = ({ className, variant, ...props }: BubbleProps) => (
-  <div data-slot="bubble" data-variant={variant ?? 'secondary'} className={cn(bubbleVariants({ variant }), className)} {...props} />
-)
+/* Ref-forwarding pairs with `BubbleContent` below: a caller measuring the
+   content's own overflow may as well be able to reach the frame around it
+   the same way, and a part with a sibling that forwards its ref and one that
+   does not is the inconsistency a round of review found here. */
+const Bubble = React.forwardRef<HTMLDivElement, BubbleProps>(({ className, variant, children, ...props }, ref) => {
+  const resolved = variant ?? 'secondary'
+  return (
+    <BubbleVariantContext.Provider value={resolved}>
+      <div ref={ref} data-slot="bubble" data-variant={resolved} className={cn(bubbleVariants({ variant }), className)} {...props}>
+        {children}
+      </div>
+    </BubbleVariantContext.Provider>
+  )
+})
+Bubble.displayName = 'Bubble'
 
 const bubbleContentVariants = cva('min-w-0', {
   variants: {
@@ -62,37 +78,28 @@ const bubbleContentVariants = cva('min-w-0', {
   defaultVariants: { variant: 'secondary' },
 })
 
-type BubbleContentProps = React.ComponentProps<'div'> &
-  VariantProps<typeof bubbleContentVariants> & {
-    /**
-     * Fold past this many lines of the reading size, until `expanded` —
-     * the user bubble's own clamp. A screen keeps the overflow measurement
-     * and the "Show more" toggle itself; this is only the box's own height,
-     * so the two callers that clamp (a sent message, a room's own reply)
-     * are not left writing the same arbitrary Tailwind value by hand.
-     */
-    clampLines?: number
-    /** Fold at this pixel height instead — the room channel's own clamp, measured off the document's read size rather than a fixed count of lines. */
-    clampHeight?: number
-    expanded?: boolean
-  }
+type BubbleContentProps = React.ComponentProps<'div'> & {
+  /**
+   * Fold past this many lines of the reading size, until `expanded` — the
+   * clamp both callers use (the user's own message at twelve, the room's
+   * channel line at nine). A screen keeps the overflow measurement and the
+   * "Show more" toggle itself; this is only the box's own height, in lines
+   * rather than an arbitrary Tailwind pixel value written by hand.
+   */
+  clampLines?: number
+  expanded?: boolean
+}
 
-/* Ref-forwarding: the two screens that clamp measure their own overflow
-   (`scrollHeight` against the box `ResizeObserver` watches), which needs the
-   node itself, not a wrapper's opinion of it. */
 const BubbleContent = React.forwardRef<HTMLDivElement, BubbleContentProps>(
-  ({ className, variant, clampLines, clampHeight, expanded = false, style, ...props }, ref) => {
-    const clamp = !expanded && (clampLines != null || clampHeight != null)
+  ({ className, clampLines, expanded = false, style, ...props }, ref) => {
+    const variant = React.useContext(BubbleVariantContext)
+    const clamp = !expanded && clampLines != null
     return (
       <div
         ref={ref}
         data-slot="bubble-content"
         className={cn(bubbleContentVariants({ variant }), clamp && 'overflow-hidden', className)}
-        style={
-          clamp
-            ? { ...style, maxHeight: clampLines != null ? `calc(var(--hd-line) * ${clampLines})` : clampHeight }
-            : style
-        }
+        style={clamp ? { ...style, maxHeight: `calc(var(--hd-line) * ${clampLines})` } : style}
         {...props}
       />
     )

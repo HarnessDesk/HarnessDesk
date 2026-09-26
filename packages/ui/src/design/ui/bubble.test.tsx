@@ -33,11 +33,14 @@ describe('Bubble', () => {
 })
 
 describe('BubbleContent', () => {
-  it('keeps a sent message’s own line breaks, unlike a rendered answer', () => {
-    const markup = renderToStaticMarkup(<BubbleContent variant="secondary">a\nb</BubbleContent>)
+  it('reads its variant from the enclosing Bubble, said once rather than twice', () => {
+    const markup = renderToStaticMarkup(<Bubble variant="secondary"><BubbleContent>a{'\n'}b</BubbleContent></Bubble>)
     expect(markup).toContain('whitespace-pre-wrap')
-    const ghostMarkup = renderToStaticMarkup(<BubbleContent variant="ghost">a</BubbleContent>)
+    const ghostMarkup = renderToStaticMarkup(<Bubble variant="ghost"><BubbleContent>a</BubbleContent></Bubble>)
     expect(ghostMarkup).not.toContain('whitespace-pre-wrap')
+    // Outside any Bubble at all, the default reads the same as an explicit secondary.
+    const bare = renderToStaticMarkup(<BubbleContent>a</BubbleContent>)
+    expect(bare).toContain('whitespace-pre-wrap')
   })
 
   it('clamps to a line count until told it is expanded', () => {
@@ -50,8 +53,11 @@ describe('BubbleContent', () => {
     expect(open).not.toContain('max-height')
   })
 
-  it('clamps to a fixed pixel height for the room’s own measure', () => {
-    const clamped = renderToStaticMarkup(<BubbleContent clampHeight={192}>long</BubbleContent>)
-    expect(clamped).toContain('max-height:192px')
+  it('clamps to any whole line count, not only the user bubble’s own twelve', () => {
+    // The room's own clamp: 192px (max-h-48) is nine lines at the reading
+    // size, expressed the same unit Items' clamp is rather than a pixel
+    // count the audit's screen-appearance check cannot see.
+    const clamped = renderToStaticMarkup(<BubbleContent clampLines={9}>long</BubbleContent>)
+    expect(clamped).toContain('calc(var(--hd-line) * 9)')
   })
 })
