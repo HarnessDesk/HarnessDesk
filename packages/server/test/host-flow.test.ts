@@ -214,8 +214,26 @@ test('wrapped or restored Goal cannot dispatch', async (t) => {
   }
   assert.equal(board.intents.length, 1, 'the run’s one card is on the Goal')
   const choices = { summary: 'Stopped by hand.', cards: board.intents.map((card) => ({ id: card.id, resolution: 'dropped' as const, reason: 'The run was stopped.' })) }
-  const preview = await client.call('goal/preview', { goal, choices }) as WrapPreview
-  await client.call('goal/wrap', { goal, stamp: preview.stamp, choices })
+  // `goal/wrap` re-reads the Goal itself and refuses a stamp that no longer
+  // matches — by design, the same refusal a person clears by asking for a
+  // fresh receipt (`This Goal changed while you reviewed its receipt.`).
+  // What the stopped run's own turn left behind (a fact recorded, a lane
+  // released) can still be settling in the gap between one call and the
+  // next, so under load a preview and the wrap right after it can
+  // legitimately straddle a change neither call did anything wrong to miss.
+  // Retried here on that one refusal, with a fresh preview each time, rather
+  // than assumed never to happen — anything else still fails at once.
+  const staleStamp = 'This Goal changed while you reviewed its receipt. Review it again.'
+  const wrapDeadline = Date.now() + 5_000
+  for (;;) {
+    const preview = await client.call('goal/preview', { goal, choices }) as WrapPreview
+    try {
+      await client.call('goal/wrap', { goal, stamp: preview.stamp, choices })
+      break
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== staleStamp || Date.now() > wrapDeadline) throw error
+    }
+  }
   const sessions = harness.runtime.sessions.size
   const turns = client.events.filter((event) => event.type === 'turn/started').length
   const channel = (await client.call('team/state', { room: goal }) as TeamState).channel.length
