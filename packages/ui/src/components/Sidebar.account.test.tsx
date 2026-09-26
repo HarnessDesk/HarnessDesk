@@ -967,3 +967,29 @@ it('calls an account under a heading that has not answered an unknown account, n
   const names = [...(groupNamed('OpenAI Codex')?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())
   expect(names).toEqual(['jane', 'Unknown account'])
 })
+
+it('calls an unanswered account under a heading unknown even when its own health is broken', () => {
+  // Health `unavailable` outranks the account check in `readinessOf`, so
+  // this slot's state is `broken`, not `unknown` — but `runtime/account`
+  // never answered for it either, and that fact is not the state's to carry.
+  // A dead runtime whose own account read also failed is the ordinary case,
+  // not a rare one.
+  const { second, snapshot } = twoCodex()
+  const accounts = { ...snapshot.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)[second.id]
+  mount({
+    ...snapshot,
+    accountsByRuntime: accounts,
+    healthByRuntime: {
+      ...snapshot.healthByRuntime,
+      [second.id]: { state: 'unavailable', reason: 'crashed', message: 'Exited.' },
+    },
+  })
+  openPicker()
+  const names = [...(groupNamed('OpenAI Codex')?.querySelectorAll('[role="menuitem"]') ?? [])].map((seat) => seat.textContent?.trim())
+  // The broken slot still carries its own readiness word ("Unavailable") —
+  // that is a real fact readiness always draws — but its label is "Unknown
+  // account", never "No account".
+  expect(names).toEqual(['jane', 'Unknown accountUnavailable'])
+  expect(names.some((name) => name?.startsWith('No account'))).toBe(false)
+})

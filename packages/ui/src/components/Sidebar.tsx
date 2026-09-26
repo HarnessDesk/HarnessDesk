@@ -418,11 +418,17 @@ interface Seat {
   readonly account: Account | null
   readonly name: string
   readonly sub: string
-  /**
-   * Whether the agent has answered who is signed in lives in `state` itself
-   * now: `unknown` until it has, so `signin` is never readiness's guess.
-   */
   readonly state: Readiness
+  /**
+   * Whether `runtime/account` has answered for this agent — not the same
+   * fact as `state !== 'unknown'`. Broken health and `capabilities.account
+   * === false` both take precedence over the account check in `readinessOf`,
+   * so an agent that never answered can still read `broken` or `ready`. Only
+   * `signin` is now readiness's own guarantee that it answered; everywhere
+   * else that needs to tell "has not answered" apart from a real fact reads
+   * this instead of the state.
+   */
+  readonly answered: boolean
   /** What is left of the tightest window, or null when nothing is metered. */
   readonly figure: string | null
   readonly tone: 'good' | 'warn' | 'bad'
@@ -489,6 +495,7 @@ export const AccountFooter = ({
     })
     const accounts = status?.accounts ?? []
     const current = info.id === snapshot.activeRuntime
+    const answered = status !== null
 
     if (accounts.length === 0) {
       return [
@@ -497,11 +504,14 @@ export const AccountFooter = ({
           info,
           account: null,
           name: info.presentation.name,
-          // Until the agent answers, `state` is `unknown` rather than a
-          // guess at "Needs sign-in"; the tooltip names the agent instead of
-          // repeating that.
-          sub: state !== 'unknown' ? READINESS_LABEL[state] : info.presentation.name,
+          // `state` can be a real fact — broken health, or ready for an
+          // agent that runs without one — even before the account read
+          // answers, so `state !== 'unknown'` is not "has answered". Gate on
+          // the read itself: until it answers, the tooltip names the agent
+          // rather than a word for a question it has not asked yet.
+          sub: answered ? READINESS_LABEL[state] : info.presentation.name,
           state,
+          answered,
           figure: usage[0]
             ? (() => {
                 const lane = describeReport(usage[0] as UsageReport, { now: Date.now(), maxLanes: 1 }).hero
@@ -530,6 +540,7 @@ export const AccountFooter = ({
         name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
         sub: accountIdentity(account) || info.presentation.name,
         state,
+        answered: true,
         figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
         tone: view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const)),
         current,
@@ -582,7 +593,7 @@ export const AccountFooter = ({
   const labelOf = (seat: Seat): string =>
     groupOf(seat).length > 1 && seat.name === seat.info.presentation.name
       ? (seat.info.slot?.gateway?.name ??
-          (seat.account ? seat.sub : seat.state === 'unknown' ? 'Unknown account' : 'No account'))
+          (seat.account ? seat.sub : seat.answered ? 'No account' : 'Unknown account'))
       : seat.name
   // Two rows with one name get the word that differs, and only they do.
   // Across agents that is the agent — two single rows are two agents. Under
