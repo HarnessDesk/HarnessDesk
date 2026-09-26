@@ -946,6 +946,27 @@ export class FakeSession implements AgentSession {
     })
   }
 
+  /**
+   * Asks the person a question inside the running turn, as an agent's own
+   * question tool does, and settles when it is answered. Like a real agent
+   * adapter, an interrupt ends the turn and leaves the question outstanding.
+   */
+  askQuestion(id: ApprovalId, question: string, options: readonly { id: string; label: string }[]): Promise<ApprovalDecision> {
+    const approval: Approval = {
+      id,
+      sessionId: this.id,
+      ...(this.#activeTurn ? { turnId: this.#activeTurn } : {}),
+      requestedAt: Date.now(),
+      type: 'userInput',
+      tool: 'AskUserQuestion',
+      questions: [{ id: 'q', question, multiSelect: false, options: [...options] }],
+    }
+    return new Promise((resolve) => {
+      this.#pendingApproval = { id, resolve }
+      this.host.emit({ type: 'approval/requested', approval })
+    })
+  }
+
   async steer(input: readonly UserContent[]): Promise<void> {
     if (!this.#activeTurn) throw new Error('no turn is currently running')
     const first = input[0]

@@ -349,6 +349,17 @@ export interface HostContext {
     answerHeld(approvalId: string, decision: ApprovalDecision): boolean
   }
 
+  readonly questions: {
+    /**
+     * Hears a person's answer to a question whose turn is already over — an
+     * unattended Seat's, stopped by its deadline — by handing it to the Seat
+     * in a turn of its own and letting its run go on. False when the question
+     * is not one of those, so the answer goes to the live turn as usual.
+     * Throws a sentence, the question kept, when it is and cannot be heard now.
+     */
+    answerStopped(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<boolean>
+  }
+
   readonly queue: {
     /** Announces a conversation's queue as it now stands. */
     push(record: SessionRecord): void

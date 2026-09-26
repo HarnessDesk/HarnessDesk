@@ -827,6 +827,38 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
   expect(labels).toContain('Answer approve')
 })
 
+/**
+ * A run on a Goal that stopped for its person — its Seat asked a question
+ * nobody answered in time — holds its card until they act. The Goal's header
+ * says "Needs you" for it, so the board draws the card there and counts it,
+ * from the same rule the host reads for the Goal's activity. Once the run goes
+ * on — the question answered — the card is Working again, and the count says so.
+ */
+it('a card of a run stopped for its person needs you, and is working again once the run goes on', async () => {
+  const held = intent({ id: 1, state: 'claimed', role: 'fixer', title: 'Fix the retry', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })
+  const run = (state: 'stalled' | 'running') => ({
+    id: 'flow-run-1', goal: ROOM, version: 2, state, reason: state === 'stalled' ? 'Card #1: its Seat asked a question nobody can answer.' : null,
+    operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'fixer', kind: 'agent' }] } },
+    rounds: [{ n: 1, role: 'fixer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+  })
+  const withRun = (state: 'stalled' | 'running') => {
+    const { store } = rig([held])
+    const snapshot = { ...store.getSnapshot(), flowExecutions: new Map([['flow-run-1', run(state)]]) }
+    return { ...store, getSnapshot: () => snapshot } as unknown as AppStore
+  }
+
+  await render(withRun('stalled'))
+  expect(column('Needs you').textContent).toContain('Fix the retry')
+  expect(card('Fix the retry').textContent).toContain('run stopped')
+  expect(container.textContent).toContain('0 working · 1 need you')
+
+  await render(withRun('running'))
+  expect(column('Working').textContent).toContain('Fix the retry')
+  expect(card('Fix the retry').textContent).not.toContain('run stopped')
+  expect(container.textContent).toContain('1 working · 0 need you')
+})
+
 const observed = (checks: readonly string[], cards: BoardEvidence['cards']): BoardEvidence => ({
   room: ROOM,
   stamp: 1,

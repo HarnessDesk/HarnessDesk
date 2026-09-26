@@ -240,13 +240,17 @@ export class GoalPlane {
     }
     const run = this.port.flow(id)
     const executions = this.port.executions?.(id) ?? []
-    const placements = board.intents.map((intent) => placeCard({
-      intent,
-      evidence: evidence?.cards.find((card) => card.card === intent.id),
-      stranded: this.port.stranded(id, intent.id),
-      holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
-      forPerson: flowStepOf(intent, run, executions)?.kind === 'person',
-    }))
+    const placements = board.intents.map((intent) => {
+      const step = flowStepOf(intent, run, executions)
+      return placeCard({
+        intent,
+        evidence: evidence?.cards.find((card) => card.card === intent.id),
+        stranded: this.port.stranded(id, intent.id),
+        holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
+        forPerson: step?.kind === 'person',
+        runStopped: step?.stopped ?? false,
+      })
+    })
     const dependencies = this.store.list().map((one) => one.goal)
     const activity = document.restored ? null : activityOf(document.goal, {
       needsYou: this.port.held(id) || members.some((seat) => this.port.waits(seat.session)) ||
