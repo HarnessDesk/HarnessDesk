@@ -763,3 +763,219 @@ test('paths that differ only in case are one folder to the board, as on a case-i
   assert.match(said, /^Refused: #1 is not finished, because list 1 \(src\/UI\/\*\*\) and list 2 \(src\/ui\/\*\*\) overlap/)
   assert.equal(rig.board(run.goal).intents.find((card) => card.id === 1)?.state, 'claimed')
 })
+
+// -------------------------------------------------------------- #1034
+// One Agent playing two roles in the same flow, each with its own outcome
+// vocabulary (exactly UC1 and UC5's pattern): a role's card must never offer
+// or accept a word that belongs to *another* role's own rules. An outcome no
+// rule anywhere routes is not illegitimate, though — it is how a flow stops
+// for a person, exactly as it always has — so it stays a legitimate answer
+// unless it is specifically borrowed from a sibling role.
+
+const UC5_SHAPED = `
+version: 2
+name: UC5-shaped pair build
+roles:
+  proposal: { kind: agent, uses: [multi] }
+  contract: { kind: agent, uses: [multi] }
+  admit: { kind: person, outcomes: [admitted] }
+seed: { role: proposal, title: Propose }
+rules:
+  - { id: reconcile, on: proposal, when: { any: [disagree] }, then: { role: proposal, title: Reconcile } }
+  - { id: to-contract, on: proposal, when: { every: [agreed] }, then: { role: contract, title: Write the interface } }
+  - { id: to-admit, on: contract, when: { every: [published] }, then: { role: admit, title: Admit the split } }
+`
+// One Agent, four words across its whole life: two belong to `proposal`
+// (agreed, disagree), two to `contract` (published, committed) — except
+// `committed` is never named by any rule anywhere, so it stays a legitimate,
+// if unrouted, answer for both.
+const MULTI_ROLE_AGENT = [agent('multi', ['published', 'committed', 'disagree', 'agreed'])]
+
+test('agreed on a UC5-shaped contract card is refused, naming the words it actually accepts', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(UC5_SHAPED, MULTI_ROLE_AGENT)
+  await rig.flows.flush()
+
+  // `proposal`'s own rules read `agreed` and `disagree`; `published` belongs
+  // to `contract`'s rule elsewhere in this flow and is excluded, but
+  // `committed` — a word no rule anywhere routes — stays legitimate.
+  const proposalCard = rig.board(run.goal).intents.find((one) => one.id === 1)
+  assert.match(proposalCard?.detail ?? '', /Finish this with complete_claim and an outcome of exactly one of: committed, disagree, agreed\./)
+  assert.doesNotMatch(proposalCard?.detail ?? '', /published/)
+
+  await rig.team.complete(1, { outcome: 'agreed' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  // `contract`'s own rule reads `published`; `disagree` and `agreed` belong
+  // to `proposal` and are excluded, but `committed` still stays.
+  const contractCard = rig.board(run.goal).intents.find((one) => one.id === 2)
+  assert.match(contractCard?.detail ?? '', /Finish this with complete_claim and an outcome of exactly one of: published, committed\./)
+  assert.doesNotMatch(contractCard?.detail ?? '', /disagree|agreed/)
+  assert.match(rig.orderTexts.get('seat-2')!.at(-1)!, /exactly one of: published, committed\./)
+
+  // The bug in #1034: `agreed` is a real word this Agent may answer, but it
+  // is specifically `proposal`'s word, borrowed here from the same Agent's
+  // other role in this flow. It is refused here, by name, rather than
+  // silently accepted and dead-ending the run later with no pointer back at
+  // the wrong word.
+  const refused = await rig.team.complete(2, { outcome: 'agreed' }, rig.sessionOf('seat-2'))
+  assert.match(refused, /^Refused: "agreed" is not an answer this step accepts\. It accepts published, committed\./)
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === 2)?.state, 'claimed', 'the refused answer was never recorded')
+
+  // The word `contract` actually handles still works, and the run moves on.
+  const said = await rig.team.complete(2, { outcome: 'published' }, rig.sessionOf('seat-2'))
+  assert.doesNotMatch(said, /Refused/)
+  await rig.flows.flush()
+  assert.ok(rig.board(run.goal).intents.some((one) => one.role === 'admit'), 'the rule fired on the word it actually handles')
+})
+
+const FAN_OUT = `
+version: 2
+name: Fan-out review
+roles:
+  build: { kind: agent, uses: [builder], grant: edit, independentOf: [] }
+  review: { kind: agent, uses: [reviewer] }
+  ship: { kind: person, outcomes: [shipped] }
+seed: { role: build, title: Build it }
+rules:
+  - { id: to-review, on: build, then: { role: review, title: Review it } }
+  - { id: to-ship, on: review, when: { every: [approve] }, then: { role: ship, title: Ship it } }
+`
+const FAN_OUT_AGENTS = [agent('builder', ['done']), agent('reviewer', ['approve', 'request-changes'])]
+
+test('a fan-out reviewer recording request-changes is accepted, and the run stops for a person at once, naming the card and the word', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(FAN_OUT, FAN_OUT_AGENTS)
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  // `review`'s only rule reads `approve`; nothing elsewhere in this flow
+  // names `request-changes`, so it is unrouted rather than borrowed — and an
+  // unrouted word is exactly how a review round is meant to stop for a
+  // person, not a mistake to refuse.
+  const reviewCard = rig.board(run.goal).intents.find((one) => one.id === 2)
+  assert.match(reviewCard?.detail ?? '', /exactly one of: approve, request-changes\./)
+
+  const said = await rig.team.complete(2, { outcome: 'request-changes' }, rig.sessionOf('seat-2'))
+  assert.doesNotMatch(said, /Refused/, 'an unrouted word is still a legitimate answer, never refused')
+  await rig.flows.flush()
+
+  // Prompt and specific: settled the moment this round closed, naming the
+  // exact card and word — never a generic message rounds later.
+  const execution = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(execution.state, 'settled')
+  assert.equal(execution.reason, '"Review it" (#2) answered request-changes; no rule continues from it, so this waits for you')
+})
+
+test('a fan-out reviewer’s request-changes is accepted through record_review as well, and still stops the run for a person', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'sha-build', dirty: false })
+  const run = await rig.start(FAN_OUT, FAN_OUT_AGENTS)
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const reviewCard = rig.board(run.goal).intents.find((one) => one.id === 2)!
+  const reviewSession = rig.sessionOf('seat-2')
+
+  // The review path — `record_review`, bound through `reviewBinding` — reads
+  // the same scoped vocabulary as `complete_claim`. `request-changes` is
+  // unrouted, never borrowed from another role, so it is accepted there too.
+  const candidates = await rig.review.candidates(reviewCard.id, reviewSession)
+  assert.ok(candidates.length > 0, 'the build card’s clean head is offered as a candidate to review')
+  const record = await rig.review.record({ intent: reviewCard.id, candidate: candidates[0]!.id, verdict: 'request-changes' }, reviewSession)
+  assert.equal(record.fact.kind, 'review')
+
+  const said = await rig.team.complete(2, { outcome: 'request-changes' }, reviewSession)
+  assert.doesNotMatch(said, /Refused/)
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'settled', 'an unrouted word accepted through either path still stops the run for a person')
+})
+
+const ALIGNMENT_SHAPED = `
+version: 2
+name: Alignment-shaped
+roles:
+  propose: { kind: agent, uses: [multi] }
+  align: { kind: person, outcomes: [agreed, disagree] }
+  build: { kind: agent, uses: [multi] }
+seed: { role: propose, title: Propose the plan }
+rules:
+  - { id: to-align, on: propose, when: { every: [agreed] }, then: { role: align, title: Agree the plan } }
+  - { id: to-build, on: align, when: { every: [agreed] }, then: { role: build, title: Build the agreed plan } }
+`
+
+test('an analyst answering disagree in an alignment-shaped flow is accepted, not refused for a word no rule of its own reads', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(ALIGNMENT_SHAPED, MULTI_ROLE_AGENT)
+  await rig.flows.flush()
+
+  const said = await rig.team.complete(1, { outcome: 'disagree' }, rig.sessionOf('seat-1'))
+  assert.doesNotMatch(said, /Refused/)
+  await rig.flows.flush()
+  // `disagree` routes nowhere here (`propose`'s only rule reads `agreed`),
+  // so the round settles for a person rather than being refused outright.
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'settled')
+})
+
+const TERMINAL_ROLE = `
+version: 2
+name: Terminal role
+roles:
+  first: { kind: agent, uses: [multi] }
+  second: { kind: agent, uses: [multi] }
+seed: { role: first, title: Go }
+rules:
+  - { id: to-second, on: first, when: { every: [agreed] }, then: { role: second, title: Finish } }
+`
+
+test('a role no rule is "on" is a terminal step, and its card keeps its Agent’s whole declared vocabulary', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(TERMINAL_ROLE, MULTI_ROLE_AGENT)
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'agreed' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  // `second` is never named by any rule's `on`, so it is a terminal step:
+  // whatever it answers settles the run, and nothing narrows its vocabulary.
+  const secondCard = rig.board(run.goal).intents.find((one) => one.id === 2)
+  assert.match(secondCard?.detail ?? '', /Finish this with complete_claim and an outcome of exactly one of: published, committed, disagree, agreed\./)
+
+  const said = await rig.team.complete(2, { outcome: 'committed' }, rig.sessionOf('seat-2'))
+  assert.doesNotMatch(said, /Refused/, 'a terminal role’s card still accepts every word its Agent declares')
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'settled', 'settling here is the normal end of a terminal step, not a dead end')
+})
+
+const MIXED_RULE_SHAPE = `
+version: 2
+name: Mixed rule shape
+roles:
+  first: { kind: agent, uses: [multi] }
+  second: { kind: agent, uses: [multi] }
+seed: { role: first, title: Go }
+rules:
+  - { id: if-agreed, on: first, when: { every: [agreed] }, then: { role: second, title: Agreed path } }
+  - { id: otherwise, on: first, then: { role: second, title: Fallback path } }
+`
+
+test('a role with one restrictive rule and one rule with no "when" keeps its Agent’s whole declared vocabulary', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(MIXED_RULE_SHAPE, MULTI_ROLE_AGENT)
+  await rig.flows.flush()
+
+  // `first` has a restrictive rule (`every: [agreed]`) and a second rule
+  // with no `when` at all. That second rule alone already fires on any
+  // outcome, so nothing here is narrowed — the restrictive rule sitting
+  // beside it changes nothing.
+  const firstCard = rig.board(run.goal).intents.find((one) => one.id === 1)
+  assert.match(firstCard?.detail ?? '', /Finish this with complete_claim and an outcome of exactly one of: published, committed, disagree, agreed\./)
+
+  const said = await rig.team.complete(1, { outcome: 'committed' }, rig.sessionOf('seat-1'))
+  assert.doesNotMatch(said, /Refused/)
+  await rig.flows.flush()
+  const opened = rig.board(run.goal).intents.find((one) => one.role === 'second')
+  assert.ok(opened, 'the unconditional rule fired on a word its own restrictive rule never named')
+  assert.equal(opened?.title, 'Fallback path', 'the restrictive rule did not match, so file order fell through to the one that always does')
+})

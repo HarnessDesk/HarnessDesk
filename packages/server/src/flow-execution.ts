@@ -518,6 +518,47 @@ export const decide = async (
   return passed.length > 0 ? { kind: 'none', passed } : { kind: 'none' }
 }
 
+/** Every word named in a `when.every` or `when.any` of a rule matching `where`, deduped in the order first seen. */
+const wordsOf = (policy: FlowPolicy, where: (rule: FlowPolicyRule) => boolean): readonly string[] => {
+  const words: string[] = []
+  for (const rule of policy.rules) {
+    if (!where(rule)) continue
+    for (const word of [...(rule.when?.every ?? []), ...(rule.when?.any ?? [])]) if (!words.includes(word)) words.push(word)
+  }
+  return words
+}
+
+/**
+ * What a card of this role may actually answer, both said on the card and
+ * enforced by `refuseOutcome`: the Agent's declared `answers`, minus a word
+ * *another* role's rule branches on that no rule of this role's own also
+ * branches on.
+ *
+ * An outcome no rule anywhere routes is not illegitimate — it is how a flow
+ * stops for a person, exactly as a round that matches no rule always has —
+ * so a declared word stays legitimate unless it is specifically another
+ * role's word, one this role's own rules never read. That is the actual
+ * shape of the bug in #1034: one Agent playing two roles of the same flow,
+ * each with its own vocabulary, let a card of one role offer and accept
+ * words that belong to the *other* role's rules, because both were read off
+ * the Agent's single cross-role `answers` list.
+ *
+ * Two things keep the full list, unnarrowed: a role with no rule of its own
+ * at all (a terminal step, whose outcome settles the run rather than routing
+ * anywhere — nothing to compare against), and a role with a rule that names
+ * no restrictive `when` (absent, or naming neither `every` nor `any`) — since
+ * `decide` fires that rule on any outcome at all, every word this role's
+ * Agent could ever say already routes somewhere.
+ */
+export const roleAnswers = (policy: FlowPolicy, role: string, declared: readonly string[]): readonly string[] => {
+  const own = policy.rules.filter((rule) => rule.on === role)
+  if (own.length === 0) return declared
+  if (own.some((rule) => !rule.when || (!rule.when.every?.length && !rule.when.any?.length))) return declared
+  const ownWords = wordsOf(policy, (rule) => rule.on === role)
+  const borrowed = wordsOf(policy, (rule) => rule.on !== role)
+  return declared.filter((word) => ownWords.includes(word) || !borrowed.includes(word))
+}
+
 /** A check's `cwd` as the confined tree reads it: `.` and `./sub/` name the Goal checkout and `sub` inside it. */
 const insideRelative = (cwd: string): string => {
   const trimmed = cwd.replace(/^(\.\/)+/, '').replace(/\/+$/, '')
@@ -1188,8 +1229,10 @@ export class FlowExecutions {
     const round = run.rounds.find((one) => one.cards.includes(intent.id))!
     const role = run.document.flow.roles.find((one) => one.id === round.role)
     let answers: readonly string[] = []
-    if (role?.kind === 'agent') answers = bindingsFor(run, role.id)[round.cards.indexOf(intent.id)]?.agent.answers ?? []
-    else if (role?.kind === 'person') answers = role.outcomes
+    if (role?.kind === 'agent') {
+      const declared = bindingsFor(run, role.id)[round.cards.indexOf(intent.id)]?.agent.answers ?? []
+      answers = roleAnswers(policyOf(run), role.id, declared)
+    } else if (role?.kind === 'person') answers = role.outcomes
     if (answers.length === 0) return null
     if (outcome === null) return `Refused: #${intent.id} belongs to a flow, so it needs an outcome — one of ${answers.join(', ')}.`
     if (!answers.includes(outcome)) return `Refused: "${outcome}" is not an answer this step accepts. It accepts ${answers.join(', ')}. Nothing was recorded.`
@@ -1321,7 +1364,9 @@ export class FlowExecutions {
     if (!seat || seat.closed || seat.session.runtime !== caller.runtime || seat.session.sessionId !== caller.sessionId) return null
     const role = run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round.role) : undefined
     const index = round.cards.indexOf(card)
-    const answers = role?.kind === 'agent' ? (bindingsFor(run, role.id)[index]?.agent.answers ?? []) : []
+    const answers = role?.kind === 'agent'
+      ? roleAnswers(policyOf(run), role.id, bindingsFor(run, role.id)[index]?.agent.answers ?? [])
+      : []
     const board = this.#team.stateFor(goal)
     const deps = board.intents.find((one) => one.id === card)?.dependsOn ?? []
     // The same walk a guard makes, started from what this card depends on:
@@ -1976,7 +2021,7 @@ export class FlowExecutions {
         flow: policy.name, run: id, room: board.name, repo: board.root, role: role.id, round: round.n, n: index + 1, count: width,
         ...(before ? { from: before.role, answered: before.cards.length } : {}), vars: run.vars,
       })
-      const answers = role.kind === 'agent' ? bindings[index]!.agent.answers : role.kind === 'person' ? role.outcomes : []
+      const answers = role.kind === 'agent' ? roleAnswers(policy, role.id, bindings[index]!.agent.answers) : role.kind === 'person' ? role.outcomes : []
       const title = render(then.title, vars as Record<string, string>)
       const said = then.detail ? render(then.detail, vars as Record<string, string>) : null
       const refused = [title, said].find((one): one is Error => one instanceof Error)
@@ -2279,7 +2324,7 @@ export class FlowExecutions {
   }
 
   #cardOrder(run: StoredFlowExecution, card: Intent | undefined, binding: FlowBinding): string {
-    const answers = binding.agent.answers
+    const answers = roleAnswers(policyOf(run), binding.role, binding.agent.answers)
     const round = card ? run.rounds.find((one) => one.cards.includes(card.id)) : undefined
     const packet = round ? run.reviewPackets?.[String(round.n)]?.text ?? null : null
     return [
@@ -2563,9 +2608,15 @@ export class FlowExecutions {
       }
     }
     if (found.decision.kind === 'none') {
-      const answered = this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id)).map((card) => card.outcome ?? 'nothing').join(', ')
+      // Led by the card's own title, not only its role: an outcome no rule
+      // routes is not a mistake to hunt down — it is how this flow stops for
+      // a person — so the reason points straight at the card, by name, and
+      // the word that did it.
+      const cards = this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id))
+      const answered = cards.map((card) => `"${card.title}" (#${card.id}) answered ${card.outcome ?? 'nothing'}`).join(', ')
+      const from = cards.length > 1 ? 'them' : 'it'
       const why = (found.decision.passed ?? []).map((one) => `${one.rule} did not apply: ${one.reason}`).join('; ')
-      await this.#finish(id, 'settled', `${last.role} answered ${answered}, and no rule takes it further${why ? ` — ${why}` : ''}`)
+      await this.#finish(id, 'settled', `${answered}; no rule continues from ${from}, so this waits for you${why ? ` — ${why}` : ''}`)
       return
     }
     await this.#open(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: found.decision.evidence }, found.completed)
