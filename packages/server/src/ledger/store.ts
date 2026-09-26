@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type StatementSync } from 'node:sqlite'
 
 /**
  * The ledger's store.
@@ -163,43 +163,49 @@ export class LedgerStore {
     return { path: row.path, size: row.size, mtime: row.mtime, offset: row.offset, tail }
   }
 
+  #insertRowStatement(): StatementSync {
+    return this.#db.prepare(`
+      INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(file, day, runtime, model, project, vendored) DO UPDATE SET
+        input = input + excluded.input,
+        output = output + excluded.output,
+        cacheRead = cacheRead + excluded.cacheRead,
+        cacheWrite = cacheWrite + excluded.cacheWrite,
+        reasoning = reasoning + excluded.reasoning,
+        requests = requests + excluded.requests,
+        vendorCost = CASE
+          WHEN vendorCost IS NULL AND excluded.vendorCost IS NULL THEN NULL
+          ELSE COALESCE(vendorCost, 0) + COALESCE(excluded.vendorCost, 0)
+        END
+    `)
+  }
+
+  #insertRow(statement: StatementSync, row: UsageRow): void {
+    statement.run(
+      row.file,
+      row.day,
+      row.runtime,
+      row.model,
+      row.project,
+      row.input,
+      row.output,
+      row.cacheRead,
+      row.cacheWrite,
+      row.reasoning,
+      row.requests,
+      row.vendorCost ?? null,
+      row.vendorCost === null || row.vendorCost === undefined ? 0 : 1,
+    )
+  }
+
   /** One file's new rows, folded in atomically with its cursor. */
   commit(cursor: FileCursor, rows: readonly UsageRow[], scannedAt: number, replace: boolean): void {
     this.#db.exec('BEGIN IMMEDIATE')
     try {
       if (replace) this.#db.prepare('DELETE FROM usage WHERE file = ?').run(cursor.path)
-      const add = this.#db.prepare(`
-        INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(file, day, runtime, model, project, vendored) DO UPDATE SET
-          input = input + excluded.input,
-          output = output + excluded.output,
-          cacheRead = cacheRead + excluded.cacheRead,
-          cacheWrite = cacheWrite + excluded.cacheWrite,
-          reasoning = reasoning + excluded.reasoning,
-          requests = requests + excluded.requests,
-          vendorCost = CASE
-            WHEN vendorCost IS NULL AND excluded.vendorCost IS NULL THEN NULL
-            ELSE COALESCE(vendorCost, 0) + COALESCE(excluded.vendorCost, 0)
-          END
-      `)
-      for (const row of rows) {
-        add.run(
-          row.file,
-          row.day,
-          row.runtime,
-          row.model,
-          row.project,
-          row.input,
-          row.output,
-          row.cacheRead,
-          row.cacheWrite,
-          row.reasoning,
-          row.requests,
-          row.vendorCost ?? null,
-          row.vendorCost === null || row.vendorCost === undefined ? 0 : 1,
-        )
-      }
+      const add = this.#insertRowStatement()
+      for (const row of rows) this.#insertRow(add, row)
       this.#db
         .prepare(
           `INSERT INTO files (path, size, mtime, offset, tail, scannedAt) VALUES (?, ?, ?, ?, ?, ?)
@@ -207,6 +213,28 @@ export class LedgerStore {
              offset = excluded.offset, tail = excluded.tail, scannedAt = excluded.scannedAt`,
         )
         .run(cursor.path, cursor.size, cursor.mtime, cursor.offset, JSON.stringify(cursor.tail), scannedAt)
+      this.#db.exec('COMMIT')
+    } catch (error) {
+      this.#db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  /**
+   * A remote source's re-sync: replaces every row it holds for `[from, to)`
+   * with `rows`, and nothing outside that window. Unlike `commit`'s
+   * whole-file replace, a remote source is read incrementally and never
+   * re-fetches its own beginning, so wiping the whole file on every sync
+   * would throw away every day before the current window. A day the remote
+   * source no longer reports — deleted upstream — disappears here exactly
+   * because it is not in `rows`; nothing carries it forward.
+   */
+  replaceWindow(file: string, from: number, to: number, rows: readonly UsageRow[]): void {
+    this.#db.exec('BEGIN IMMEDIATE')
+    try {
+      this.#db.prepare('DELETE FROM usage WHERE file = ? AND day >= ? AND day < ?').run(file, from, to)
+      const add = this.#insertRowStatement()
+      for (const row of rows) this.#insertRow(add, row)
       this.#db.exec('COMMIT')
     } catch (error) {
       this.#db.exec('ROLLBACK')
