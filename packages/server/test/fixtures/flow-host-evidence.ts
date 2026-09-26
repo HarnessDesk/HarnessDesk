@@ -308,12 +308,19 @@ export const settled = async (d: Desk, run: string): Promise<FlowExecution> =>
 
 export const TASK = { task: 'Make the attempt file say something useful' }
 
-/** The shipped comparison, its check command pointed at this scratch repository's own test: a person's `pnpm verify` is theirs. */
+/**
+ * The shipped comparison, its check command pointed at this scratch
+ * repository's own test: a person's `pnpm verify` is theirs. The file itself
+ * now seeds two competitors (issue #1032), so this always overrides that
+ * line to the count a test actually wants — including back down to one —
+ * rather than only ever adding one.
+ */
 export const comparison = async (d: Desk, count: number): Promise<string> => {
   const text = await shipped(d, 'comparison')
   assert.match(text, /run: "pnpm verify"/)
   const pointed = text.replace('run: "pnpm verify"', 'run: "test -s attempt.txt"')
-  return count === 1 ? pointed : pointed.replace('    isolate: true\n', `    count: ${count}\n    isolate: true\n`)
+  const withoutCount = pointed.replace(/^ {4}count: \d+\n/m, '')
+  return withoutCount.replace('    isolate: true\n', `    count: ${count}\n    isolate: true\n`)
 }
 
 /*

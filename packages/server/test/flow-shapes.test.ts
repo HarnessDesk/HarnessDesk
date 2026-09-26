@@ -148,3 +148,39 @@ test('the design’s pair build (UC5) compiles against the shipped Agents, its d
   assert.equal(build?.then.split, 'contract', 'each dev card owns its own part of the agreed split')
   assert.equal(build?.then.files, undefined, 'never one list shared by both')
 })
+
+/*
+ * Issue #1032, gap 2: starting `comparison` from the generic Flow-start
+ * dialog reads this same file, unmodified — no `/race`-style seat
+ * substitution happens for it. The file itself now declares `count: 2` for
+ * its `competitor` role, so any entry point that reads it as shipped opens
+ * two competitor cards, not one — `/race` still has its own value: swapping
+ * in two distinct, explicit seats for the one it declares by default.
+ */
+test('comparison seeds two competitor cards from the file itself, so a generic Flow-start opens two — not only /race', async () => {
+  const agents = await agentsOf()
+  const source = await readFile(join(builtinFlowRoot(), 'comparison.yml'), 'utf8')
+  const compiled = compileShape(source, agents)
+  const competitors = compiled.bindings.filter((one) => one.role === 'competitor')
+  assert.equal(competitors.length, 2, 'the file’s own seed opens two competitor cards, whatever started it')
+})
+
+/*
+ * Issue #1032, gap 1, in the design spec's own walk-through: `to-judge` reads
+ * `any: published`, not `every: published`, so a round where only one
+ * competitor published still reaches the judge instead of stalling before it.
+ */
+test('the design’s race and judge (UC2) compiles against the shipped Agents, and lets the judge decide once every competitor has finished and at least one published', async () => {
+  const spec = await readFile(join(builtinFlowRoot(), '..', '..', '..', 'docs', 'superpowers', 'specs', '2026-09-17-agents-and-goals-design.md'), 'utf8')
+  const section = spec.slice(spec.indexOf('### UC2'), spec.indexOf('### UC3'))
+  const source = /```yaml\n([\s\S]*?)```/.exec(section)?.[1]
+  assert.ok(source, 'UC2 carries its flow')
+  const compiled = compileShape(source!, await agentsOf())
+  assert.equal(compiled.document.format, 'agents')
+  const flow = compiled.document.format === 'agents' ? compiled.document.flow : null
+  const toJudge = flow?.rules.find((rule) => rule.then.role === 'judge')
+  assert.deepEqual(toJudge?.when?.any, ['published'], 'a mixed result — one published, one did not — still opens the judge round')
+  assert.equal(toJudge?.when?.every, undefined, 'never `every`, which is exactly the guard that stalled #1032')
+  const competitors = compiled.bindings.filter((one) => one.role === 'competitor')
+  assert.equal(competitors.length, 2, 'the two explicit seats already seed two competitors, from any entry point')
+})
