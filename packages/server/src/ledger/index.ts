@@ -381,7 +381,7 @@ export class Ledger {
       const from = Number.isFinite(lastDay) && lastDay > 0 ? stepDay(lastDay, -1) : stepDay(startOfDay(now), -REMOTE_INITIAL_DAYS)
 
       try {
-        const result = await source.sync({ from, to })
+        const result = await source.sync({ from, to }, file)
         if (!result) {
           this.#log('a remote usage source could not be read; its rows stand as they were', { source: source.runtime })
           continue
@@ -396,7 +396,12 @@ export class Ledger {
   }
 
   async #doScan(full: boolean): Promise<void> {
-    await this.#syncRemote()
+    // Kicked off alongside the local scan, never awaited before it starts: a
+    // cold 90-day Cursor sync (up to 200 pages x 15s) would otherwise delay
+    // every local corpus's own progress for a source that isn't even the one
+    // most scans are waiting on. The hourly throttle inside `#syncRemote`
+    // still applies; only its own timing decides whether it does anything.
+    const remoteSync = this.#syncRemote()
     const startedAt = this.#now()
     let targets: ScanTarget[] = []
     let discoveryFailures = 0
@@ -414,6 +419,7 @@ export class Ledger {
         }))
       }
     } catch (error) {
+      await remoteSync
       this.#report({
         ...IDLE,
         startedAt,
@@ -486,6 +492,7 @@ export class Ledger {
       }
     }
 
+    await remoteSync
     this.#store.setMeta('scannedAt', String(this.#now()))
     this.#report({
       running: false,
