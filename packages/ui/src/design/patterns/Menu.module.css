@@ -90,7 +90,7 @@
    set the row's height exactly the way a plain row's `min-height` already
    does, and the two edges land the same. */
 .row[data-layout='profile'] {
-  padding: 0 var(--hd-space-2);
+  padding: 0 var(--hd-space-2); /* desk: 8px all sides → 0 vertical, the 30px face sets the row's height the way a plain row's min-height already does */
 }
 
 .row[data-layout='account'] {
