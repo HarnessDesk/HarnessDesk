@@ -151,6 +151,16 @@ export type LoginStart =
        * link it has not got.
        */
       readonly url?: string
+      /**
+       * The sign-in command has asked for a code to be pasted into it: a
+       * browser page that cannot hand the result back on its own shows the
+       * code instead, and the command waits on its input for it. Set when the
+       * ask came before the flow was handed out; one that comes later arrives
+       * as `account/loginAwaitsCode`, and so does a second ask after the
+       * command refused a code. Either way the code goes back through
+       * `submitLoginCode`.
+       */
+      readonly pasteCode?: boolean
     }
   | {
       readonly type: 'deviceCode'
@@ -1044,6 +1054,14 @@ export interface AgentRuntime {
   login?(method: string): Promise<LoginStart>
   /** Abandons a sign-in in progress. Unknown ids are not an error. */
   cancelLogin?(loginId: string): Promise<void>
+  /**
+   * Hands a sign-in the code it asked to have pasted (`pasteCode` on its
+   * start, or `account/loginAwaitsCode`). Resolves once the code is
+   * delivered, not once it is accepted: that is the flow's
+   * `account/loginCompleted`. The code is a secret — an implementation never
+   * logs, keeps or repeats it, and no error it throws contains it.
+   */
+  submitLoginCode?(loginId: string, code: string): Promise<void>
   logout?(): Promise<void>
   getRateLimits(): Promise<RateLimits | null>
 

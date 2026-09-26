@@ -74,7 +74,7 @@ const ACCOUNTS: Record<string, AccountStatus> = {
   opencode: { accounts: [{ kind: 'agent', label: 'Signed in', anonymous: true }], signInMethods: [] },
 } as unknown as Record<string, AccountStatus>
 
-export const SIGN_IN_SCENES = ['refused', 'key only', 'browser and key', 'code', 'connected'] as const
+export const SIGN_IN_SCENES = ['refused', 'key only', 'browser and key', 'code', 'paste code', 'connected'] as const
 export type SignInScene = (typeof SIGN_IN_SCENES)[number]
 
 /** Which agent each scene opens on. */
@@ -83,13 +83,24 @@ export const SIGN_IN_SELECTED: Record<SignInScene, RuntimeId> = {
   'key only': runtimeId('deepseek'),
   'browser and key': runtimeId('gemini'),
   code: runtimeId('devin'),
+  'paste code': runtimeId('claude'),
   connected: runtimeId('claude'),
 }
+
+/**
+ * Claude signing in again, its command having asked for the code a browser
+ * page shows when the page cannot hand the result back by itself — the field
+ * the desk puts where the command's input would be.
+ */
+const PASTE_CODE_ACCOUNTS: Record<string, AccountStatus> = {
+  ...ACCOUNTS,
+  claude: { accounts: [], signInMethods: [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' }] },
+} as unknown as Record<string, AccountStatus>
 
 export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
   runtimes: RUNTIMES,
   activeRuntime: runtimeId('codex'),
-  accountsByRuntime: ACCOUNTS,
+  accountsByRuntime: scene === 'paste code' ? PASTE_CODE_ACCOUNTS : ACCOUNTS,
   healthByRuntime: {},
   credentialProtection: 'macOS Keychain',
   // One lane spent on the first account, so the rail shows the limit tone.
@@ -105,9 +116,21 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
           method: 'device',
           start: { type: 'deviceCode', loginId: 'l1', url: 'https://example.com/device', code: 'WDJB-MJHT' },
           outcome: { type: 'pending' },
+          awaitingCode: false,
+          codeRefusals: 0,
         },
       }
-    : {},
+    : scene === 'paste code'
+      ? {
+          [runtimeId('claude')]: {
+            method: 'cli-browser',
+            start: { type: 'browser', loginId: 'l2', url: 'https://example.com/oauth/authorize', pasteCode: true },
+            outcome: { type: 'pending' },
+            awaitingCode: true,
+            codeRefusals: 0,
+          },
+        }
+      : {},
 } as unknown as Partial<AppSnapshot>)
 
 /**
