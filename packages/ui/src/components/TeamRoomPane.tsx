@@ -87,6 +87,7 @@ import {
   MenuItem,
   NavigationGroupHeader,
   Note,
+  PaneColumn,
   PaneSurface,
   Popover,
   ProgressRing,
@@ -2250,15 +2251,11 @@ const Room = ({
      */
     <>
       <div className={styles.streamWrap}>
-        <div
+        <PaneColumn
           ref={stream}
+          inset="stream"
           data-slot="room-stream"
-          // The column inset the transcript's own scroll box carries too
-          // (`SessionBars`' `JobsBar` names the same shape) — several screens
-          // repeat it with no shared owner yet, and giving it one, with the
-          // scrollbar and composer accounting each carries, is a bigger
-          // cross-file decision than this finding alone.
-          className={`${styles.stream} py-2 px-6`}
+          className={styles.stream}
           onScroll={(event) => {
             const box = event.currentTarget
             const near = box.scrollHeight - box.scrollTop - box.clientHeight < 64
@@ -2300,7 +2297,7 @@ const Room = ({
               />
             )}
           </div>
-        </div>
+        </PaneColumn>
         {behind.rows > 0 && (
           /* "messages" only when that is all they are. A batch with a claim or
              a completion in it takes the plainer word, because a signal is not

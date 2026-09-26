@@ -14,6 +14,7 @@ import {
   Separator,
   Text,
   buttonVariants,
+  paneColumnInsetClassName,
   useContextMenu,
   type Tone,
 } from '../design'
@@ -263,7 +264,9 @@ const SessionRow = ({
               // The rail's own indent, only wanted here: the other consumer
               // (`TeamBoardPane`) lays this card out with no inset at all,
               // so the inset belongs to this row, not the shared card.
-              className={`${styles.statusTarget} px-(--rail)`}
+              // `PaneColumn`'s own column-inset shape, composed as a class
+              // name because this prop is the hover trigger's own surface.
+              className={`${styles.statusTarget} ${paneColumnInsetClassName({ inset: 'rail' })}`}
               actions={[
                 ...(snapshot.activeSessionKey === key
                   ? []
