@@ -484,6 +484,23 @@ it('lists what needs you first, with its Sign in on its own line', async () => {
   expect(signInAgent).toHaveBeenCalledWith('gamma')
 })
 
+it('reads an agent that has not answered yet as Ready, not Needs attention, with a neutral chip', async () => {
+  // Gamma absent from accountsByRuntime altogether: still loading, or a read
+  // that failed silently — it has not asked anyone for anything yet, unlike
+  // a confirmed sign-out, so it does not belong beside a dead agent or a
+  // spent plan window under "Needs attention".
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>).gamma
+  await mountList({ accountsByRuntime: accounts })
+
+  expect(grouped()).toEqual({ Ready: ['Alpha', 'Beta', 'Gamma'] })
+  const chips = [...line('Gamma').querySelectorAll('[class*=chip]')].map((node) => node.textContent)
+  expect(chips).toContain('Not answered yet')
+  expect(chips).not.toContain('Needs sign-in')
+  // No Sign in either: readiness has not said one is needed.
+  expect(line('Gamma').closest('[data-slot="row-folding"]')?.querySelector('[data-slot="row-action"] button')).toBeFalsy()
+})
+
 it("a line opens its agent's page, where the accounts under it are", async () => {
   await mountList()
   expect(document.body.textContent).not.toContain('grace@example.com')

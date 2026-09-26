@@ -32,7 +32,7 @@ import {
   registrySentence,
 } from '../lib/acp-registry'
 import { describeLimits, formatReset } from '../lib/limits'
-import { readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
+import { isBlocking, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
@@ -1955,10 +1955,15 @@ export const RuntimesSection = ({
   /* Split by what each agent needs from you. The reason anyone opens this
      page is usually one agent of many that will not take a turn, and sorting
      by that answer makes it the first line rather than the search. The groups
-     are the status, so the page needs no status filter beside its search. */
+     are the status, so the page needs no status filter beside its search.
+     The split is `isBlocking`, the same test the Runtimes nav dot uses
+     (`Settings.tsx`) — not "not literally ready" — because an agent that has
+     not answered `runtime/account` yet has not asked anyone for anything: it
+     may turn out to need a sign-in, or not, but it does not belong beside a
+     dead agent and a spent plan window before it says which. */
   const sections = [
-    { name: 'Needs attention', agents: listed.filter(({ state }) => state !== 'ready') },
-    { name: 'Ready', agents: listed.filter(({ state }) => state === 'ready') },
+    { name: 'Needs attention', agents: listed.filter(({ state }) => isBlocking(state)) },
+    { name: 'Ready', agents: listed.filter(({ state }) => !isBlocking(state)) },
   ].filter((section) => section.agents.length > 0)
 
   if (view.kind === 'add') {

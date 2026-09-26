@@ -13,9 +13,15 @@ move is real work and is not news to a person weighing an upgrade.
   menu bar and the header strip claimed a sign-in was needed for however long
   that took, even though the footer and the seat menu already stayed neutral
   about the same agent. Readiness now has a state for not knowing yet, and
-  every surface draws it the same quiet way: the menu bar, the header strip,
-  the Dashboard's "has nothing to report" card, and the seat menu, whose five
-  hand-written checks for this collapse into the one state. (#986)
+  every surface draws it the same quiet way: the menu bar's row says "Not
+  answered yet" rather than offering a sign-in it cannot back up, the header
+  strip stops naming it in its "needs sign-in" count, the Dashboard's "has
+  nothing to report" card no longer appears for it, the seat menu's five
+  hand-written checks for this collapse into the one state, Settings ›
+  Agents wears a neutral "Not answered yet" chip and no longer files the
+  agent under "Needs attention" for a question it has not asked yet, and the
+  whole-desk survey (the empty pane's "now what?") says so instead of a
+  tagline or a bare "Ready." (#986)
 
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per

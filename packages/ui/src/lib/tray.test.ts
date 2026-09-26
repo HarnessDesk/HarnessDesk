@@ -101,8 +101,7 @@ describe('describeTray', () => {
       accountsByRuntime: { claude: signedIn } as never,
       usage: [report('claude', [lane({ id: 'weekly', usedPercent: 10 })])],
     })
-    expect(summary.agents[1]).toMatchObject({ id: 'codex', needsSignIn: false })
-    expect(summary.agents[1]?.detail).not.toBe('Needs sign-in')
+    expect(summary.agents[1]).toMatchObject({ id: 'codex', needsSignIn: false, detail: 'Not answered yet' })
   })
 
   it('names the account when two agents share a display name, as the strip does', () => {
