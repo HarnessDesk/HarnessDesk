@@ -259,7 +259,18 @@ describe('stackDaily marking "no record yet"', () => {
     // not null, and treated the same honest way a ledger with real history
     // going all the way back would be.
     const series = stackDaily(report(2, [{ day: TODAY, runtime: CODEX, cost: 1 }]), NOON)
-    expect(series.days.map((day) => day.unknown)).toEqual([true, true])
+    expect(series.days.map((day) => day.unknown)).toEqual([false, false])
+  })
+
+  it('never hatches a day that actually carries spend', () => {
+    // A day with a bucket is never "no record yet", whatever earliestDay
+    // says — the ledger's own rows are the strongest evidence there is.
+    const earliest = TODAY
+    const series = stackDaily(
+      report(2, [{ day: TODAY - DAY, runtime: CODEX, cost: 1 }], earliest),
+      NOON,
+    )
+    expect(series.days.map((day) => day.unknown)).toEqual([false, false])
   })
 })
 
@@ -293,6 +304,21 @@ describe('previousPeriod', () => {
     const wide = stackDaily(report(14, daily(0, 14, (index) => (index < 7 ? 0 : 10))), NOON)
     const previous = previousPeriod(wide, 7, 70)
     expect(previous.total).toBe(0)
+    expect(previous.change).toBeNull()
+  })
+
+  it('is not complete when the older half starts before coverage.earliestDay', () => {
+    // Only the seven most recent days are covered — the older half wide()
+    // asks for has no rows at all, and every one of its days is "no record
+    // yet" rather than an honest, comparable zero.
+    const wide = stackDaily(
+      report(14, daily(0, 7, () => 10), TODAY - 6 * DAY),
+      NOON,
+    )
+    const previous = previousPeriod(wide, 7, 70)
+    expect(previous.daily.every((day) => day.unknown)).toBe(true)
+    expect(previous.complete).toBe(false)
+    // No header delta for a period the chart itself calls "no record yet".
     expect(previous.change).toBeNull()
   })
 })
@@ -354,6 +380,20 @@ describe('previousByRuntime', () => {
     expect(previous.totals.get(CLAUDE)).toBe(14)
     expect(previous.totals.get(CODEX)).toBe(0)
   })
+
+  it('is not complete when the older half starts before coverage.earliestDay', () => {
+    // Same shape as the previousPeriod case above: a young account whose
+    // covered history does not reach into the older half at all. The chip
+    // this feeds must not read a real total off "no record yet" days.
+    const daily14 = Array.from({ length: 7 }, (_, index) => ({
+      day: TODAY - (6 - index) * DAY,
+      runtime: CODEX,
+      cost: 9,
+    }))
+    const wide = stackDaily(report(14, daily14, TODAY - 6 * DAY), NOON)
+    const previous = previousByRuntime(wide, 7)
+    expect(previous.complete).toBe(false)
+  })
 })
 
 describe('alignGhost', () => {
@@ -380,12 +420,24 @@ describe('alignGhost', () => {
     // the earlier three have nothing to compare against.
     expect(alignGhost(5, previousDays)).toEqual([null, null, null, 1, 2])
   })
+
+  it('draws a gap, not a real value, for a previous day before coverage', () => {
+    // A day the ledger calls "no record yet" is not an honest zero — the
+    // ghost line has to break there the same way the value line does.
+    const previousDays = [1, 2, 3, 4, 5].map((cost, index) => ({
+      day: TODAY - (4 - index) * DAY,
+      total: cost,
+      tokens: 0,
+      parts: [cost],
+      unknown: index < 2,
+    }))
+    expect(alignGhost(5, previousDays)).toEqual([null, null, 3, 4, 5])
+  })
 })
 
 describe('niceCeiling and axisTicks', () => {
   it('rounds up to 1, 2, 5 or 10 times a power of ten', () => {
     expect(niceCeiling(0)).toBe(0)
-    expect(niceCeiling(1)).toBe(1)
     expect(niceCeiling(63)).toBe(100)
     expect(niceCeiling(42)).toBe(50)
     expect(niceCeiling(21)).toBe(50)
@@ -394,6 +446,20 @@ describe('niceCeiling and axisTicks', () => {
 
   it('gives an axis 0, a midpoint and a round ceiling', () => {
     expect(axisTicks(63)).toEqual([0, 50, 100])
+  })
+
+  it('never lets an exactly round peak be the axis top', () => {
+    // A bar allowed to touch the frame reads as clipped — every rung of the
+    // ladder needs its own headroom, not just the one at $1/$10/$100.
+    expect(niceCeiling(1)).toBe(2)
+    expect(niceCeiling(100)).toBe(200)
+    expect(niceCeiling(200)).toBe(500)
+    expect(niceCeiling(500)).toBe(1000)
+  })
+
+  it('floors a sub-cent peak at a sensible ceiling instead of $0.01 / $0.00', () => {
+    expect(niceCeiling(0.004)).toBe(0.02)
+    expect(axisTicks(0.004)).toEqual([0, 0.01, 0.02])
   })
 })
 
