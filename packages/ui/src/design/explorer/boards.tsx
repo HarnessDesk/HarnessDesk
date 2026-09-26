@@ -32,6 +32,8 @@ import {
   Banner,
   BannerAction,
   ActionError,
+  Bubble,
+  BubbleContent,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -74,6 +76,9 @@ import {
   RowChoice,
   Rows,
   Lightbox,
+  Message,
+  MessageContent,
+  MessageFooter,
   MetaList,
   Monogram,
   NavigationGroupHeader,
@@ -155,6 +160,16 @@ const SWITCH_CATALOG_ON = ['true', 'false'] as const
 const TOGGLE_GROUP_CATALOG_VARIANTS = ['default', 'outline'] as const
 const TOGGLE_GROUP_CATALOG_SIZES = ['default', 'sm', 'lg'] as const
 const TOGGLE_GROUP_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
+const BUBBLE_CATALOG_VARIANTS = ['secondary', 'ghost'] as const
+const BUBBLE_CATALOG_SIZES = ['default'] as const
+const BUBBLE_CATALOG_STATES = ['default', 'expanded', 'collapsed'] as const
+const MESSAGE_CATALOG_ALIGN = ['start', 'end'] as const
+/* Same values as `MESSAGE_CATALOG_ALIGN` — the manifest's own axis name for
+   `Message` ("variants") and the CVA contract's ("align") are different
+   words for the row's one choice, so the coverage check wants both spelled. */
+const MESSAGE_CATALOG_VARIANTS = ['start', 'end'] as const
+const MESSAGE_CATALOG_SIZES = ['default'] as const
+const MESSAGE_CATALOG_STATES = ['default'] as const
 
 const ButtonBoard = () => (
   <>
@@ -974,6 +989,50 @@ const CATALOGUE_EMPTY_RESULTS = [
   { id: 'catalogue-empty-read', type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: { file_path: '/workspace/README.md' }, result: emptyResult },
 ] as unknown as AgentItem[]
 
+/** A short sent message — the bubble sized to its own words. */
+const CATALOGUE_USER_SHORT = {
+  id: 'catalogue-user-short',
+  type: 'userMessage',
+  content: [{ type: 'text', text: 'Does the gate need the renderer in CI too?' }],
+  startedAt: Date.now() - 60_000,
+} as unknown as AgentItem
+
+/** Past the fold: the twelve-line clamp and its "Show all" toggle, measured
+ * rather than guessed, so the catalogue proves the same behaviour a screen
+ * gets rather than a drawing of it. */
+const CATALOGUE_USER_LONG = {
+  id: 'catalogue-user-long',
+  type: 'userMessage',
+  content: [{
+    type: 'text',
+    text: Array.from({ length: 18 }, (_, index) => `Line ${index + 1} of a message long enough to fold.`).join('\n'),
+  }],
+  startedAt: Date.now() - 30_000,
+} as unknown as AgentItem
+
+/** An attachment beside the words — the lightbox opens from the same tile a screen gets. */
+const CATALOGUE_USER_IMAGE = {
+  id: 'catalogue-user-image',
+  type: 'userMessage',
+  content: [
+    { type: 'text', text: 'Here is the state after the fix.' },
+    {
+      type: 'image',
+      name: 'Before-and-after.svg',
+      url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIj48cmVjdCB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgZmlsbD0iIzViOGRlZiIvPjxjaXJjbGUgY3g9IjE2MCIgY3k9IjkwIiByPSI0NiIgZmlsbD0iI2ZmZmZmZiIgZmlsbC1vcGFjaXR5PSIwLjg1Ii8+PC9zdmc+',
+    },
+  ],
+  startedAt: Date.now() - 15_000,
+} as unknown as AgentItem
+
+/** The far side: full width, unframed, a Markdown answer. */
+const CATALOGUE_ASSISTANT_ANSWER = {
+  id: 'catalogue-assistant-answer',
+  type: 'assistantMessage',
+  phase: 'final',
+  text: 'Ready to look at the change — the gate now runs the same build CI does, so a broken bundle fails locally instead of only in review.',
+} as unknown as AgentItem
+
 /** DeepSeek over its own ACP server: its three everyday tools, with real output. */
 const CATALOGUE_DSH_TURN = [
   { id: 'catalogue-dsh-plan', type: 'toolCall', tool: 'todo_write', source: { kind: 'builtin' }, status: 'completed', args: { todos: [{ content: 'List the folder', status: 'completed' }, { content: 'Read the README', status: 'completed' }] }, result: [{ type: 'text', text: 'Updated todo list: 0 pending, 0 in progress, 2 completed.' }] },
@@ -1054,6 +1113,97 @@ const CodeBoard = () => (
       A command and what it printed are one exact record, so they share one
       plate and one code register. Prose keeps its horizontal scroll because a
       source line is not a shell command and should not be reflowed.
+    </p>
+  </div>
+)
+
+/**
+ * The transcript's own two message parts: `Message`, the row and its
+ * alignment, and `Bubble`, what the words stand on. The rows below are the
+ * real `ItemView` — the same component the transcript mounts, not a drawing
+ * of it — so the clamp's "Show all" is measured here exactly as it is there.
+ */
+const MessageBoard = () => (
+  <div className={styles.stack}>
+    <div
+      className={styles.matrix}
+      data-catalog-variants={MESSAGE_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={[...BUBBLE_CATALOG_SIZES, ...MESSAGE_CATALOG_SIZES].join(' ')}
+      data-catalog-states={[...BUBBLE_CATALOG_STATES, ...MESSAGE_CATALOG_STATES].join(' ')}
+    >
+      {BUBBLE_CATALOG_VARIANTS.map((variant) => (
+        <Case key={variant} label={`bubble: ${variant}`}>
+          <Bubble variant={variant} data-catalog-variant={variant}>
+            <BubbleContent>
+              {variant === 'secondary' ? 'A short reply.' : 'An unframed answer, the full row.'}
+            </BubbleContent>
+          </Bubble>
+        </Case>
+      ))}
+      {MESSAGE_CATALOG_ALIGN.map((align) => (
+        <Case key={align} label={`message align: ${align}`}>
+          <Message align={align} data-catalog-align={align}>
+            <Bubble variant={align === 'end' ? 'secondary' : 'ghost'}>
+              <BubbleContent>
+                {align === 'end' ? 'The current person, right-aligned.' : 'Everyone else, at the left.'}
+              </BubbleContent>
+            </Bubble>
+          </Message>
+        </Case>
+      ))}
+    </div>
+    <Case label="a sent message — end-aligned, sized to its own words">
+      <div className="w-full" data-testid="message-user-short">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_USER_SHORT} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="a long sent message — clamped past twelve lines, with the toggle">
+      <div className="w-full" data-testid="message-user-long">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_USER_LONG} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="a sent message with an image">
+      <div className="w-full" data-testid="message-user-image">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_USER_IMAGE} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="an answer — start-aligned, unframed, the full row">
+      <div className="w-full" data-testid="message-assistant-answer">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_ASSISTANT_ANSWER} root="/workspace" />
+          <MessageFooter align="start">
+            <CopyButton text="Ready to look at the change." label="Copy this message" />
+            <Text as="span" role="meta" numeric>10:41 AM</Text>
+          </MessageFooter>
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="content composed directly — the surface and a footer, without a screen's own row">
+      <div className="w-full" data-testid="message-content-direct">
+        <Message align="end">
+          <MessageContent className="items-end">
+            <Bubble variant="secondary">
+              <BubbleContent>Looks right.</BubbleContent>
+            </Bubble>
+            <MessageFooter align="end">
+              <Text as="span" role="meta" numeric>10:41 AM</Text>
+            </MessageFooter>
+          </MessageContent>
+        </Message>
+      </div>
+    </Case>
+    <p className={styles.rule}>
+      <code>Bubble</code> has two variants because two screens reach for one each:{' '}
+      <code>secondary</code> is the current person&rsquo;s own words, filled and capped at two
+      thirds of the column; <code>ghost</code> is everyone else&rsquo;s, unframed and the full
+      row, because rendered prose is a document rather than a chip. The room&rsquo;s
+      own channel line (the Channel board) stands on the same two parts.
     </p>
   </div>
 )
@@ -1408,6 +1558,12 @@ export const BOARDS: Board[] = [
     title: 'CodeBlock',
     about: 'A command and its output, kept together as one exact record.',
     render: CodeBoard,
+  },
+  {
+    id: 'message',
+    title: 'Message · Bubble',
+    about: 'A sent message and an answer, and what each one stands on: sized to its words, or the full row.',
+    render: MessageBoard,
   },
   {
     id: 'channel',
