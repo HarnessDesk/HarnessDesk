@@ -15,6 +15,7 @@ import { runtimeId, type LedgerDay,
 
 import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
 import { safeLedgerDiagnostic } from './diagnostics.js'
+import type { RemoteEventsSource } from './remote.js'
 import { listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
 import { INSIGHT_BYTE_LIMIT, INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError, InsightSourceChangedError, type UsageDetail, type UsageSample } from './insight.js'
@@ -36,6 +37,8 @@ import { INSIGHT_BYTE_LIMIT, INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededEr
 export interface LedgerOptions {
   readonly stateDir: string
   readonly corpora: readonly CorpusSpec[]
+  /** Sources that live on a server rather than in a file — see `remote.ts`. */
+  readonly remoteSources?: readonly RemoteEventsSource[]
   readonly databasePath?: string
   readonly onProgress?: (progress: ScanProgress) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
@@ -51,12 +54,31 @@ export interface LedgerOptions {
 }
 
 const DAY = 86_400_000
+const HOUR = 3_600_000
 
 const startOfDay = (at: number): number => {
   const date = new Date(at)
   date.setHours(0, 0, 0, 0)
   return date.getTime()
 }
+
+/** `day` stepped by whole local days — calendar arithmetic, since a DST day is 23 or 25 hours, never a fixed 86,400,000ms. */
+const stepDay = (day: number, days: number): number => {
+  const date = new Date(day)
+  date.setDate(date.getDate() + days)
+  return date.getTime()
+}
+
+/**
+ * How far back a remote source's *first* sync reaches, absent any earlier
+ * one to resume from. Ninety days rather than the account's own billing
+ * cycle: the cycle boundary is a second network call away and this ledger
+ * already bounds an Insight read to the same ninety days
+ * (`INSIGHT_BYTE_LIMIT`'s sibling rule, `Ledger.readInsight`), so a remote
+ * source's history starts no further back than everything else here can
+ * already promise to explain.
+ */
+const REMOTE_INITIAL_DAYS = 90
 
 const IDLE: ScanProgress = {
   running: false,
@@ -330,7 +352,51 @@ export class Ledger {
     return this.#progress
   }
 
+  /**
+   * Every configured remote source, each at most once an hour and each
+   * resuming from the day after its last successful sync (minus one day,
+   * for events Cursor files a little after the fact). A source that fails —
+   * signed out, a short read, the page cap, an envelope it cannot make sense
+   * of — is left exactly as it was; nothing here ever publishes a partial
+   * window as if it were complete.
+   */
+  async #syncRemote(): Promise<void> {
+    for (const source of this.#options.remoteSources ?? []) {
+      let file: string | null
+      try {
+        file = await source.resolveFile()
+      } catch {
+        file = null
+      }
+      if (file === null) continue // signed out, or its credential could not be read
+
+      const now = this.#now()
+      const syncedKey = `remote:${file}:syncedAt`
+      const lastSyncedAt = Number(this.#store.meta(syncedKey) ?? '')
+      if (Number.isFinite(lastSyncedAt) && now - lastSyncedAt < HOUR) continue
+
+      const dayKey = `remote:${file}:day`
+      const lastDay = Number(this.#store.meta(dayKey) ?? '')
+      const to = stepDay(startOfDay(now), 1) // tomorrow's local midnight: today is included, in progress or not
+      const from = Number.isFinite(lastDay) && lastDay > 0 ? stepDay(lastDay, -1) : stepDay(startOfDay(now), -REMOTE_INITIAL_DAYS)
+
+      try {
+        const result = await source.sync({ from, to })
+        if (!result) {
+          this.#log('a remote usage source could not be read; its rows stand as they were', { source: source.runtime })
+          continue
+        }
+        this.#store.replaceWindow(file, from, to, result.rows)
+        this.#store.setMeta(dayKey, String(to))
+        this.#store.setMeta(syncedKey, String(now))
+      } catch (error) {
+        this.#log('a remote usage source failed', { source: source.runtime, error })
+      }
+    }
+  }
+
   async #doScan(full: boolean): Promise<void> {
+    await this.#syncRemote()
     const startedAt = this.#now()
     let targets: ScanTarget[] = []
     let discoveryFailures = 0
@@ -702,5 +768,6 @@ const projectPath = (path: string): string => {
 }
 
 export { Pricing } from './pricing.js'
+export type { RemoteEventsSource } from './remote.js'
 export { corpusRoot, defaultCorpora, type CorpusKind, type CorpusSpec } from './scan.js'
 export { LedgerStore } from './store.js'
