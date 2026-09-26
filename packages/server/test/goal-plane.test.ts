@@ -362,6 +362,39 @@ test('a person step of a run on the Goal makes the Goal need its person', async 
 })
 
 /*
+ * The other half of the same rule: an unanswered card is the person's own
+ * step only while the run that addressed it to them is still asking
+ * (`running` or `stalled`). Once that run settles or stops, nothing is
+ * asking any more — answering the card would do nothing, so it must not
+ * make the Goal read as needing its person, and must not be counted among
+ * its person-step waits (`host.ts`'s `#triggerWaits`, which reads this same
+ * `flowStepOf`).
+ */
+test('an open person step needs its person only while the run that opened it is live', async () => {
+  const proof = await rig()
+  const document = proof.store.read('g1')
+  await proof.store.save({
+    ...document,
+    board: { ...document.board, nextIntent: 3, intents: [intent(2, { state: 'open', role: 'close' })] },
+    goal: { ...document.goal, revision: 1 },
+  }, 0)
+  const executionWith = (state: FlowExecution['state']): FlowExecution => ({
+    version: 2, id: 'flow-1', goal: 'g1', state, reason: null, operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'close', kind: 'person', outcomes: ['closed'] }] } },
+    rounds: [{ n: 2, role: 'close', cards: [2], seats: [], evidence: [], state: 'running', cause: 'after:1:to-close' }],
+  }) as unknown as FlowExecution
+
+  proof.port.executions = () => [executionWith('settled')]
+  assert.notEqual((await proof.plane.view('g1')).activity, 'needs-you', 'a settled run is asking nothing more of its unanswered card')
+
+  proof.port.executions = () => [executionWith('stopped')]
+  assert.notEqual((await proof.plane.view('g1')).activity, 'needs-you', 'a stopped run is asking nothing more of its unanswered card')
+
+  proof.port.executions = () => [executionWith('running')]
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'a live run still asks its person')
+})
+
+/*
  * A finished card must stay finished whatever its run is doing now: the
  * placement rule #996 shared between the board and this Goal's own activity
  * once swept an already-answered reviewer into Needs you alongside a

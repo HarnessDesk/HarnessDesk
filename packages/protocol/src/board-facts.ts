@@ -28,6 +28,15 @@ export interface PlaceInput {
   readonly holderWaits: boolean
   readonly forPerson: boolean
   /**
+   * The run that addressed this card to its person is still asking
+   * (`FlowStep.live`) — `running` or `stalled`, never `settled` or
+   * `stopped`. An unanswered card (`open` or `claimed`) is only the
+   * person's own step while this holds; a finished (`done`) card keeps its
+   * role whatever this is, since nothing further can undo an answer already
+   * given.
+   */
+  readonly live: boolean
+  /**
    * The run that opened this card has stopped for its person
    * (`FlowStep.stopped`): nothing moves the card on until they act, so it is
    * theirs — drawn in Needs you, as the Goal's own header already reads it.
@@ -47,6 +56,12 @@ export interface FlowStep {
   readonly outcomes: readonly string[]
   /** Whether the run that opened it is stopped for a person (`stalled`), rather than running. */
   readonly stopped: boolean
+  /**
+   * Whether the run that opened this card is still asking anything of
+   * anyone — `running` or `stalled` — as opposed to `settled` or `stopped`
+   * for good. See `PlaceInput.live`.
+   */
+  readonly live: boolean
 }
 
 /**
@@ -58,12 +73,20 @@ export interface FlowStep {
  *
  * A round's card keeps its role for as long as the Goal does, whatever the
  * run that opened it is doing now: `running`, `stalled`, `settled` or
- * `stopped` are all read the same way here. A flow settling is the ordinary
- * way one ends, and settling must not erase which of its cards was the
- * person's own decision — otherwise the very card that just finished it
- * falls back to being read as an unchecked diff (`placeCard`'s `settled`
- * evidence path, which has no fact for "a person answered this") and lands
- * back in Needs you for good (#1022).
+ * `stopped` are all read the same way here, and `kind`/`outcomes`/`stopped`
+ * never depend on which. A flow settling is the ordinary way one ends, and
+ * settling must not erase which of its cards was the person's own decision
+ * — otherwise the very card that just finished it falls back to being read
+ * as an unchecked diff (`placeCard`'s `settled` evidence path, which has no
+ * fact for "a person answered this") and lands back in Needs you for good
+ * (#1022).
+ *
+ * `live` is the other half: a card nobody has answered yet (`open` or
+ * `claimed`) is only the person's *open* step while the run that opened it
+ * is still asking — `running` or `stalled`. Once it `settled` or `stopped`,
+ * nothing is asking any more, so an unanswered card is no longer theirs to
+ * answer and answering it would do nothing; a `done` card is unaffected,
+ * since it already carries the answer it was given.
  */
 export const flowStepOf = (
   intent: Intent,
@@ -71,14 +94,26 @@ export const flowStepOf = (
   executions: readonly FlowExecution[],
 ): FlowStep | null => {
   const legacy = flowRoleOf(intent, run)
-  if (legacy) return { kind: legacy.kind, outcomes: legacy.outcomes, stopped: run?.state === 'stalled' }
+  if (legacy) {
+    return {
+      kind: legacy.kind,
+      outcomes: legacy.outcomes,
+      stopped: run?.state === 'stalled',
+      live: run?.state === 'running' || run?.state === 'stalled',
+    }
+  }
   if (!intent.role) return null
   for (const execution of executions) {
     if (execution.document.format !== 'agents') continue
     if (!execution.rounds.some((round) => round.role === intent.role && round.cards.includes(intent.id))) continue
     const role = execution.document.flow.roles.find((one) => one.id === intent.role)
     if (!role) continue
-    return { kind: role.kind, outcomes: role.kind === 'person' ? role.outcomes : [], stopped: execution.state === 'stalled' }
+    return {
+      kind: role.kind,
+      outcomes: role.kind === 'person' ? role.outcomes : [],
+      stopped: execution.state === 'stalled',
+      live: execution.state === 'running' || execution.state === 'stalled',
+    }
   }
   return null
 }
@@ -133,16 +168,22 @@ const settled = (evidence: CardEvidence | undefined): Placement => {
   return { column: 'needs', why: 'nothing checked' }
 }
 
-export const placeCard = ({ intent, evidence, stranded, holderWaits, forPerson, runStopped }: PlaceInput): Placement => {
+export const placeCard = ({ intent, evidence, stranded, holderWaits, forPerson, live, runStopped }: PlaceInput): Placement => {
   switch (intent.state) {
     case 'abandoned':
       return { column: 'aside', why: null }
     case 'blocked':
       return intent.blockedBy === 'hand' ? { column: 'needs', why: 'stopped' } : { column: 'todo', why: null }
     case 'open':
-      if (forPerson) return { column: 'needs', why: 'needs your answer' }
+      // Unanswered: it is the person's step only while the run that opened
+      // it is still live. A settled or stopped run is asking nothing more.
+      if (forPerson && live) return { column: 'needs', why: 'needs your answer' }
       return runStopped ? { column: 'needs', why: 'run stopped' } : { column: 'todo', why: null }
     case 'claimed':
+      // Also unanswered: same `live` requirement, though nothing here reads
+      // `forPerson` directly — a claimed card falls through to the same
+      // stranded/holderWaits/runStopped reading whether or not it is a
+      // person's step.
       if (stranded) return { column: 'needs', why: null }
       if (holderWaits) return { column: 'needs', why: 'waiting on you' }
       if (runStopped) return { column: 'needs', why: 'run stopped' }
@@ -153,11 +194,11 @@ export const placeCard = ({ intent, evidence, stranded, holderWaits, forPerson, 
        * evidence — a reviewer's "approve" has no check or PR to point at, and
        * `settled` reading that as "nothing checked" would put a finished
        * card back in Needs you, exactly where its still-unfinished siblings
-       * belong. `forPerson` is the same, already-validated signal `open` and
-       * `claimed` read: this card matched a live round addressed to a
-       * person, so its state is the last word on it. That holds whatever the
-       * run that opened it is doing now — running, stalled, or gone — which
-       * is why this checks it before, and instead of, `settled`.
+       * belong. `forPerson` is the same signal `open` and `claimed` read,
+       * but unlike them this does not also require `live`: a `done` card's
+       * state is the last word on it whatever the run that opened it is
+       * doing now — running, stalled, settled or gone (#1022) — which is why
+       * this checks it before, and instead of, `settled`.
        */
       if (forPerson) return { column: 'ready', why: null }
       return settled(evidence)
