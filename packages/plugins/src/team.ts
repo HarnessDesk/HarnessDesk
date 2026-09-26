@@ -428,7 +428,7 @@ export const teamPlugin: HarnessPlugin = {
             against: {
               type: 'array',
               items: text,
-              description: 'Revisions this verdict was judged against, if any — a requirement, a base.',
+              description: 'Revisions this verdict was judged against, if any — a requirement, a base. Each is a full commit id (run `git rev-parse <rev>` to get one), never a branch name or a candidate id.',
             },
           },
           required: ['intent', 'candidate', 'verdict'],

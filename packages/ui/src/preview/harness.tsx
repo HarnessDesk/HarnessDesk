@@ -1216,6 +1216,7 @@ class PreviewStore {
 
   // --- the dials -----------------------------------------------------------
   setTheme = (theme: AppSnapshot['theme']): void => this.patch({ theme })
+  setSpendChartMode = (spendChartMode: AppSnapshot['spendChartMode']): void => this.patch({ spendChartMode })
   setPalette = (palette: AppSnapshot['palette']): void => this.patch({ palette })
   setAccent = (accent: AppSnapshot['accent']): void => this.patch({ accent })
   setCorners = (corners: AppSnapshot['corners']): void => this.patch({ corners })

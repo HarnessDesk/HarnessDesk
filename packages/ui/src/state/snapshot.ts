@@ -741,6 +741,14 @@ export interface AppSnapshot {
     /** Whether that browser's profile — its logins — survives a restart. */
     readonly keepExternalProfile: boolean
   }
+  /**
+   * "What it cost"'s own Bars/Line toggle. A standing answer like
+   * `editorPrefs`, not this window's state: a person who switches to Line
+   * means it for the next time they open the Dashboard, not only for this
+   * session, so it is written through the same host preference the
+   * dashboard is silent about until `preferencesLoaded` says otherwise.
+   */
+  readonly spendChartMode: 'bars' | 'line'
   readonly fatal: AgentError | null
 }
 
@@ -868,6 +876,7 @@ const EMPTY: AppSnapshot = {
     externalBinary: '',
     keepExternalProfile: true,
   },
+  spendChartMode: 'bars',
   fatal: null,
 }
 

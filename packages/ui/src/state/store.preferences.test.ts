@@ -66,6 +66,25 @@ it('reports every preference, not just one of them', async () => {
   expect(messages()[2]).toContain('The browser settings could not be saved')
 })
 
+it('remembers the spend chart Bars/Line choice the same way every other preference is kept', async () => {
+  expect(store.getSnapshot().spendChartMode).toBe('bars')
+  store.setSpendChartMode('line')
+  expect(store.getSnapshot().spendChartMode).toBe('line')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  // The write landed: no failure notice, the same control this file runs on
+  // `setTheme` above.
+  expect(messages()).toEqual([])
+})
+
+it('says so when the spend chart mode cannot be saved, without losing the choice on screen', async () => {
+  refuse = true
+  store.setSpendChartMode('line')
+  await vi.waitFor(() => expect(messages()).toHaveLength(1))
+
+  expect(messages()[0]).toContain('The spend chart view could not be saved')
+  expect(store.getSnapshot().spendChartMode).toBe('line')
+})
+
 it('reads and writes what happens when a ceiling cannot be held, as the host reads it', async () => {
   const answers: unknown[] = [
     {},

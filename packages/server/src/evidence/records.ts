@@ -60,7 +60,8 @@ const ID_LIMIT = 200
 /** The most candidates one Seat may have passed over, checks one CI run may report, and revisions a review may name. */
 const PASSED_OVER_LIMIT = 64
 const CI_LIMIT = 500
-const AGAINST_LIMIT = 64
+/** The most revisions a review may name `against` — the one limit a write-time refusal and `lineOf`'s read-time skip both hold to. */
+export const AGAINST_LIMIT = 64
 
 /** The opening of a Seat: everything its record says but how it ended. */
 export type SeatOpening = Omit<SeatRecord, 'closed'>
@@ -360,6 +361,34 @@ export const evidenceRecordOf = (value: unknown): EvidenceRecord | null => {
     // Phase 8: which trigger firing observed it, or none.
     (value['intake'] === undefined || value['intake'] === null || intakeFits(value['intake'], value))
   return ok ? (value as unknown as EvidenceRecord) : null
+}
+
+/** A card an unreadable line named, and which Goal it belongs to — the two evidence needs to name it safely. */
+export interface CardHint {
+  readonly board: string
+  readonly id: number
+}
+
+/**
+ * The card an evidence line names, read as loosely as a person hunting for a
+ * bad line needs — never the validation `evidenceRecordOf` requires. A line
+ * `lineOf` refuses whole (a UUID where `against` wants a SHA, a field over
+ * its limit) still shaped its outer envelope and its `card`, so a person can
+ * be told which card's review to redo instead of only how many lines were
+ * skipped. The evidence file holds every Goal of a project, and card numbers
+ * restart at #1 in each one, so the board is part of the hint too — naming a
+ * card without it could name a different Goal's card by coincidence of
+ * number. Null when even that much cannot be read, or when the line names no
+ * board at all.
+ */
+export const cardHintOf = (value: unknown): CardHint | null => {
+  if (!isRecord(value) || value['type'] !== 'evidence') return null
+  const record = value['record']
+  if (!isRecord(record)) return null
+  const card = record['card']
+  return isRecord(card) && isFilled(card['board']) && isCount(card['id'])
+    ? { board: card['board'] as string, id: card['id'] as number }
+    : null
 }
 
 /**

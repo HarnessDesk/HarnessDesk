@@ -30,6 +30,42 @@ move is real work and is not news to a person weighing an upgrade.
   releasing a card can now wait up to 10 s for a slow git to report where the
   card stopped. (#1035, #1042)
 
+- **"What it cost" draws a line as well as bars, against its own past.** A
+  Bars/Line toggle beside the range control is remembered per user. Either
+  view now carries a dashed line for the previous period of the same length,
+  aligned day by day, an emphasised mark on today, and a hatch for a day
+  before the ledger's own coverage — never an empty, priced day. The total
+  above the chart carries its own change against that previous period.
+  "Where it went" replaces the doughnut and its separate table with one thin
+  distribution bar and the ranked rows beneath it in the same colours; rows
+  past six fold into "Other · N", and the by-agent view alone carries a
+  change chip, since only an agent's identity survives between periods
+  honestly.
+
+- **Cursor's work now shows in what it cost and where it went, from every
+  machine on the account.** Cursor keeps no local transcript, so it used to
+  contribute nothing to the ledger. Its own per-request usage events —
+  account-wide, covering every machine signed in — now sync in, so the
+  Dashboard can show its tokens, its requests, and Value at the tokens' own
+  list-price estimate.
+
+- **A review's `against` can no longer wedge a Goal's findings ledger forever.**
+  `record_review` used to accept any string in `against`, but the ledger's own
+  reader has always required each one to be a full commit id — so a candidate
+  id passed in by mistake produced a line the reader would silently skip on
+  every read, and the Findings tab and the Wrap dialog said "some evidence
+  records could not be read" with no way to tell which one or fix it.
+  Recording a review now refuses a bad `against` entry immediately, naming
+  its position and pointing at `git rev-parse` to get a real one, with the
+  exact rule the reader already enforces — an id copied upper case, or from a
+  SHA-256 repository, is accepted and stored the way the reader reads it; the
+  whole finished record is also checked against that same reader before it is
+  ever written, so no other field can drift either. And when an older,
+  already-unreadable line's card can still be told apart, the ledger notice
+  now says how many lines it is and which card's review to redo — always that
+  Goal's own card, never another Goal's whose card numbers happen to collide,
+  and never more than three named before it says how many more.
+
 - **A mixed race no longer stalls before the judge, and a race started from
   the generic Flow-start seeds two competitors, like `/race` always has.**
   In `comparison` (race and judge), the one rule that opened the judge round
