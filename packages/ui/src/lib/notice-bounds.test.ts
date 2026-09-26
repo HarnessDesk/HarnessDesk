@@ -170,3 +170,16 @@ describe('noticePlacement', () => {
     expect(placement.top).toBe(NOTICE_FLOOR)
   })
 })
+
+describe('the pane yield keeps the header still (#968)', () => {
+  it('moves what follows the same bars the stack is placed below, and those bars only', async () => {
+    const { default: css } = await import('../styles/app.css?raw')
+    const rule = /\[data-notice-yield\] > \* > :is\(([^)]*)\) \+ \*/.exec(css)
+    expect(rule, 'the yield rule that moves a pane body').not.toBeNull()
+    const inRule = rule![1]!
+      .split(',')
+      .map((part) => part.trim().replace(/'/g, '"'))
+      .filter(Boolean)
+    expect(inRule.sort()).toEqual(NOTICE_BAR_SELECTOR.split(', ').sort())
+  })
+})

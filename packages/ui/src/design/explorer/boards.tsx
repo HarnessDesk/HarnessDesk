@@ -794,6 +794,21 @@ const CATALOGUE_RUNTIME_ERROR_RESULT = {
   result: [{ type: 'json', value: { output: 'connection refused', isError: true } }],
 } as unknown as AgentItem
 
+/** A runtime that answers every call with an empty `{output, isError}` pair. */
+const emptyResult = [{ type: 'json', value: { output: '', isError: false } }]
+const CATALOGUE_EMPTY_RESULTS = [
+  { id: 'catalogue-empty-plan', type: 'toolCall', tool: 'todo_write', source: { kind: 'builtin' }, status: 'completed', args: { todos: [{ content: 'List the folder', status: 'completed' }, { content: 'Read the README', status: 'completed' }] }, result: emptyResult },
+  { id: 'catalogue-empty-shell', type: 'toolCall', tool: 'ls -a', source: { kind: 'builtin' }, status: 'completed', args: { command: 'ls -a', description: 'List the folder' }, result: emptyResult },
+  { id: 'catalogue-empty-read', type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: { file_path: '/workspace/README.md' }, result: emptyResult },
+] as unknown as AgentItem[]
+
+/** DeepSeek over its own ACP server: its three everyday tools, with real output. */
+const CATALOGUE_DSH_TURN = [
+  { id: 'catalogue-dsh-plan', type: 'toolCall', tool: 'todo_write', source: { kind: 'builtin' }, status: 'completed', args: { todos: [{ content: 'List the folder', status: 'completed' }, { content: 'Read the README', status: 'completed' }] }, result: [{ type: 'text', text: 'Updated todo list: 0 pending, 0 in progress, 2 completed.' }] },
+  { id: 'catalogue-dsh-bash', type: 'toolCall', tool: 'bash', source: { kind: 'builtin' }, status: 'completed', args: { command: 'ls -a', description: 'List the folder' }, result: [{ type: 'text', text: '.\n..\nREADME.md\npackages' }] },
+  { id: 'catalogue-dsh-read', type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: { file_path: '/workspace/README.md' }, result: [{ type: 'text', text: '# Workspace\n\nA small example project.' }] },
+] as unknown as AgentItem[]
+
 const CodeBoard = () => (
   <div className={styles.stack}>
     <Case label="command, output, and failure">
@@ -846,6 +861,20 @@ const CodeBoard = () => (
       <div className="w-full" data-testid="runtime-error-result-sample" data-register="light">
         <StoreProvider store={catalogueStore}>
           <ItemView item={CATALOGUE_RUNTIME_ERROR_RESULT} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="DeepSeek's own tools, with their output">
+      <div className="w-full flex flex-col" data-testid="dsh-turn-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          {CATALOGUE_DSH_TURN.map((item) => <ItemView key={item.id} item={item} root="/workspace" />)}
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="a runtime whose results come back empty">
+      <div className="w-full flex flex-col" data-testid="empty-results-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          {CATALOGUE_EMPTY_RESULTS.map((item) => <ItemView key={item.id} item={item} root="/workspace" />)}
         </StoreProvider>
       </div>
     </Case>
