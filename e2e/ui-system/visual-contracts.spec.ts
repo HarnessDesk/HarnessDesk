@@ -232,3 +232,19 @@ test('a tool row outside the work fold keeps the app\'s one-line rung', async ({
   expect(height).toBeGreaterThanOrEqual(24)
   expect(height).toBeLessThanOrEqual(32)
 })
+
+test('the account marks case shows every size and the empty seat as the app draws it', async ({ page }) => {
+  await page.goto('/design.html?view=row')
+  const sizes = page.locator('[data-catalog-case="account-mark-sizes"]')
+  await expect(sizes).toBeVisible()
+  // sm, default and lg, tinted and plain, then the tinted and plain dot.
+  const widths = await sizes.locator(':scope > span').evaluateAll(marks => marks.map(mark => Math.round(mark.getBoundingClientRect().width)))
+  expect(widths).toEqual([22, 22, 30, 30, 44, 44, 10, 10])
+  // The empty seat: no plate and a dashed ring, drawn by the real rule in a real engine.
+  const off = page.locator('[data-catalog-case="account-mark-off"] [data-off]')
+  const look = await off.evaluate(node => {
+    const style = getComputedStyle(node)
+    return { background: style.backgroundColor, outline: style.outlineStyle, shadow: style.boxShadow }
+  })
+  expect(look).toEqual({ background: 'rgba(0, 0, 0, 0)', outline: 'dashed', shadow: 'none' })
+})
