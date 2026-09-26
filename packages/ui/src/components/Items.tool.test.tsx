@@ -102,6 +102,19 @@ describe('an opened tool step', () => {
     expect(container.textContent).not.toContain('Updated todo list')
   })
 
+  /*
+   * `planOf` answers `null` for "not a plan" and `[]` for "a plan write that
+   * left nothing in it" (every step cancelled, or the plan cleared
+   * outright) — and `[]` is truthy in JavaScript, so the args view's own
+   * `if (argTodos)` used to open a `Checklist` card with no rows in it for
+   * exactly this call, rather than saying what happened.
+   */
+  it('says the plan was cleared rather than opening an empty checklist', () => {
+    open(call({ tool: 'todo_write', args: { todos: [] } }))
+    expect(container.textContent).toContain('Cleared the plan')
+    expect(container.querySelector('[data-slot="checklist"]')).toBeNull()
+  })
+
   it('draws nothing for a result with nothing in it, in any shape', () => {
     open(call({ tool: 'README.md', args: { file_path: 'README.md' }, result: [{ type: 'json', value: { output: '', isError: false } }] }))
     expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(0)
