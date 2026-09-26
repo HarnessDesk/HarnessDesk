@@ -298,3 +298,41 @@ test('stop closes the socket even while a bridge is still connected — a quit n
   bridge.destroy()
   await rm(dir, { recursive: true, force: true })
 })
+
+/**
+ * A bridge that introduces itself with no caller token was not offered by any
+ * conversation: something composed it into an agent's own configuration. Its
+ * board calls will be refused as unattributed, so the backend is told — with
+ * the agent the bridge says spawned it — and says so once.
+ */
+test('server/info from a bridge with no token tells the backend which agent composed it', async () => {
+  const dir = await mkdtemp(join(socketHome(), 'hd-gateway-'))
+  const socketPath = join(dir, 'tools.sock')
+  const told: (string | undefined)[] = []
+  const gateway = new ToolGateway(socketPath, {
+    listTools: () => [],
+    invokeByName: async (): Promise<ToolResult> => ({ ok: true, content: [] }),
+    tokenless: (agent) => told.push(agent),
+  })
+  gateway.start()
+  const ask = (params: Record<string, string>): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const socket = connect(socketPath, () => {
+        socket.write(`${JSON.stringify({ id: 1, method: 'server/info', params })}\n`)
+      })
+      socket.on('data', () => {
+        socket.end()
+        resolve()
+      })
+      socket.on('error', reject)
+    })
+  try {
+    await ask({ caller: 'minted-for-a-session' })
+    await ask({ agent: 'rig-agent' })
+    await ask({})
+    assert.deepEqual(told, ['rig-agent', undefined], 'only the bridges without a token')
+  } finally {
+    await gateway.stop()
+    await rm(dir, { recursive: true, force: true })
+  }
+})

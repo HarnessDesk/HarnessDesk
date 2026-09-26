@@ -97,7 +97,21 @@ export const toolBridgeEntry = (entry = defaultToolBridgeEntry()): string | null
 export const agentEnvironment = (
   socketPath: string,
   agentEnv: Readonly<Record<string, string>> | undefined,
-): Readonly<Record<string, string>> => ({ HD_TOOLS_SOCKET: socketPath, ...agentEnv })
+  agent?: string,
+): Readonly<Record<string, string>> => ({
+  HD_TOOLS_SOCKET: socketPath,
+  // Which agent a composition-spawned bridge came from. It is said only by a
+  // bridge no conversation offered — one with no caller token — so the desk
+  // can point at the agent whose configuration still carries it.
+  ...(agent ? { HD_TOOLS_AGENT: agent } : {}),
+  ...agentEnv,
+})
+
+/** What the desk says, once per agent, about a tool server its own configuration composed. */
+export const TOKENLESS_BRIDGE_NOTICE =
+  "This agent's own configuration starts a HarnessDesk tool server of its own. Each conversation " +
+  'already brings one, so remove that entry: its calls cannot say which conversation made them, ' +
+  'and the board refuses them.'
 
 export interface BootstrapOptions {
   readonly logLevel?: 'debug' | 'info' | 'warn' | 'error'
@@ -304,6 +318,15 @@ export const createDefaultHost = (
       if (runtime !== undefined && host.runtimeInfo(runtime)?.capabilities.instructions) return ''
       return host.forgePlane.instructions()
     },
+    // Said once per agent per launch: the entry stays until the person removes it.
+    tokenless: (agent) => {
+      if (agent === undefined || tokenlessWarned.has(agent)) return
+      const runtime = acpRuntimes.get(agent)
+      if (!runtime) return
+      tokenlessWarned.add(agent)
+      logger.warn('a tool bridge started from an agent configuration, not a conversation', { agent })
+      runtime.emit({ type: 'notice', level: 'warning', message: TOKENLESS_BRIDGE_NOTICE })
+    },
     invokeByName: (namespace, name, args, caller) =>
       invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
         logger.debug(message, details),
@@ -364,10 +387,14 @@ export const createDefaultHost = (
     registryVersion: (id) => acpRegistry.currentVersion(id),
     log: (message, details) => logger.child('installs').info(message, details),
   })
+  // The latest runtime built for each agent, so a notice about one of them —
+  // a tool server its own configuration composed — reaches its window.
+  const acpRuntimes = new Map<string, AcpRuntime>()
+  const tokenlessWarned = new Set<string>()
   const buildAcpRuntime = (agent: AcpAgentConfig): AcpRuntime => {
     const executable = installs.executableSpecFor(agent)
     const log = logger.child(agent.id)
-    return new AcpRuntime({
+    const built = new AcpRuntime({
       ...agent,
       // Today's name for a row still carrying a retired one, who the agent is
       // signed in as, and where it keeps usage it puts none of on the wire.
@@ -379,7 +406,7 @@ export const createDefaultHost = (
       // template's is what they would say today. See `templateBrandFor`.
       ...(agent.brand ? {} : templateBrandFor(agent.id) ? { brand: templateBrandFor(agent.id) } : {}),
       ...(executable ? { executable } : {}),
-      env: agentEnvironment(socketPath, agent.env),
+      env: agentEnvironment(socketPath, agent.env, agent.id),
       ...(toolServer
         ? { toolServer: { ...toolServer, onOpen: claimOpen(agent.id), onSession: claimCaller(agent.id) } }
         : {}),
@@ -389,6 +416,8 @@ export const createDefaultHost = (
       resolveLaunch: (occasion) => installs.launchFor(agent, occasion),
       resolveExecutable: (spec) => installs.executableFor(agent, spec),
     })
+    acpRuntimes.set(agent.id, built)
+    return built
   }
   const agents = new AgentDirectory({
     store: agentRegistry,

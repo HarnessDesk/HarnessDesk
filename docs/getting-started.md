@@ -48,172 +48,46 @@ Details in [runtimes.md](runtimes.md) and [interface.md](interface.md).
 
 ### DeepSeek Harness
 
-DSH boots a **profile** — an ordered stack of plugin-bundle patch layers — so
-the agent HarnessDesk registers is a profile that composes an ACP server, and
-the plugins you install into that profile come with it.
+Add **DeepSeek** from the agent catalogue, or put `{ "id": "dsh", "template":
+"dsh" }` in `agents.json`. It runs DeepSeek Harness's own ACP server,
+`dsh --profile acp`, so it needs nothing but `dsh` on your PATH
+(`npm install -g @deepseek-ai/dsh`) and a DeepSeek key, which DSH keeps in its
+own `~/.dsh/.credentials.yaml`.
 
-The ACP server is **[`@harnessdesk/dsh-acp`](https://github.com/HarnessDesk/dsh-acp)**,
-which lives in its own repository. Ours is a Cordis plugin that maps DSH's
-event stream onto the full ACP vocabulary.
-
-DSH ships one of its own, and since **0.1.2-alpha.1** it is a real server
-rather than the old `dsh-acp-demo` example — thoughts, generic tool lifecycle,
-model and effort as config options, per-session MCP servers and context usage
-all reach the wire. It is still the wrong one for this app, and it says so
-first: it is built for automation "rather than the DSH user interface… never
-private DSH presentation data", and its own limitations refuse replaying past
-transcripts, plans, titles and task lists. Its responses carry no token usage or
-cost breakdown, so a turn's tokens, cost and cache figures would be blank
-everywhere HarnessDesk shows them. Ours keeps those, replays a conversation when
-you reopen it, and reopens it on the model it was having.
-
-**On DeepSeek Harness `0.1.2-rc.1` and later** the composition is the shipped
-`acp` profile with DSH's own server switched off and ours in its place. The
-example spine (`@deepseek-ai/dsh-agent-spine-demo`) that earlier versions of
-this page mounted no longer exists — rc.1 removed `packages/examples` — and a
-profile that names it fails to boot with "no agent factory registered". The
-base bundle already mounts the agent loop, persistence, titles, the token meter
-and the session projections, so the overlay is short; `dsh-acp` ships it as
-[`profile/harnessdesk.patch.yml`](https://github.com/HarnessDesk/dsh-acp/blob/main/profile/harnessdesk.patch.yml):
-
-```yaml
-- id: acp
-  disabled: true
-- id: acp-app-startup
-  disabled: true
-- insert:
-    - id: harnessdesk-acp
-      name: '@harnessdesk/dsh-acp'
-      config:
-        provider: deepseek-official
-        model: deepseek-flash
-        models: [deepseek-flash, deepseek-v4-pro]
-```
-
-Link the package into the profile once (`ln -s <dsh-acp-checkout>
-$DSH_HOME/profiles/acp/node_modules/@harnessdesk/dsh-acp`, or `dsh plugin
---profile acp add @harnessdesk/dsh-acp` once it is published) and register the
-agent in `~/.harnessdesk/agents.json`:
-
-```json
-{ "id": "dsh", "name": "DeepSeek", "brand": "deepseek",
-  "command": "dsh",
-  "args": ["--profile", "acp", "--patch", "<path>/harnessdesk.patch.yml"],
-  "env": { "NODE_PATH": "$DSH_HOME/profiles/node_modules" } }
-```
-
-`NODE_PATH` lets the adapter reach the harness's own packages for the
-model-selection coupling. This was driven end to end against rc.1 built from
-source on 2026-09-05: boot, session listing, model switch, close, replaying
-past conversations, and the reopened conversation continuing on the model it had
-chosen.
-
-DeepSeek's official `@deepseek-ai/dsh-acp` remains the automation-only bridge.
-HarnessDesk uses `@harnessdesk/dsh-acp` for renderer-facing sessions; the
-official bridge is used only by the adapter's opt-in automation compatibility
-probe. The picker labels these routes **DeepSeek V4.1 Flash** and
-**DeepSeek V4 Pro**; the legacy `deepseek-v4-flash` identifier remains
-readable in historical session logs but is not a new-session choice.
-
-**On earlier versions** (up to `0.1.1`), mount it beside the example spine:
-
-```yaml
-- id: spine
-  name: '@deepseek-ai/dsh-agent-spine-demo'
-  config: { provider: deepseek-official, model: deepseek-v4-pro }
-
-- id: acp
-  name: '@harnessdesk/dsh-acp'
-  config:
-    provider: deepseek-official
-    model: deepseek-v4-pro
-    models: [deepseek-flash, deepseek-v4-pro]
-
-# The session store. Without it a DeepSeek conversation lives only as long as
-# the process: the sidebar is empty on the next launch and nothing can be
-# reopened, because there is nothing to reopen from. With it, `dsh-acp` 0.5.1
-# and later support listing, resuming, replaying full transcripts — rather than
-# only restoring context — and closing conversations. The adapter declares those
-# capabilities from what is mounted, so a profile without this section honestly
-# offers none of them rather than failing later.
-- id: persistence
-  name: '@deepseek-ai/dsh-session-persistence-jsonl'
-  config:
-    root: !!js "process.env.DSH_HOME ? process.env.DSH_HOME + '/sessions' : (process.env.HOME + '/.dsh/sessions')"
-    compression: zstd
-
-- id: checkpoint
-  name: '@deepseek-ai/dsh-session-checkpoint-policy'
-
-# Titles. The service folds conversation titles out of the log; the
-# first-prompt provider names a conversation with the cheap flash route.
-# HarnessDesk reads the title from the session list, so without these a stored
-# conversation lists as its opening ask rather than a name.
-- id: session-title
-  name: '@deepseek-ai/dsh-session-title'
-  config:
-    fallbackMaxWords: 5
-    fallbackMaxBytes: 40
-    maxTitleBytes: 80
-
-- id: session-title-llm
-  name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
-  config:
-    provider: deepseek-official
-    model: deepseek-flash
-
-# HarnessDesk's plugin tools. The bridge finds the tool gateway through the
-# HD_TOOLS_SOCKET the host sets in the agent's environment; outside
-# HarnessDesk it finds no socket and the client degrades without failing.
-- id: harnessdesk-tools
-  name: '@deepseek-ai/dsh-mcp-client'
-  config:
-    transport: stdio
-    serverName: harnessdesk
-    command: node
-    args:
-      - <harnessdesk>/packages/mcp-tools/dist/src/main.js
-```
-
-```json
-{ "id": "dsh", "name": "DeepSeek", "brand": "deepseek",
-  "command": "node",
-  "args": ["<dsh-acp-checkout>/dist/bin.js",
-           "--config", "~/.dsh/profiles/harnessdesk/cordis.yml"],
-  "cwd": "<dsh-checkout>",
-  "env": { "NODE_PATH": "~/.dsh/profiles/harnessdesk/node_modules" } }
-```
-
-`<dsh-checkout>` is wherever you cloned
-[deepseek-harness](https://github.com/deepseek-ai/deepseek-harness); it is not
-vendored in this repository, and nothing here builds against it.
-
-Your DSH plugins keep running in DSH's own process, under DSH's own services;
-HarnessDesk shows them rather than rebuilding them. Why ACP rather than a
-native adapter, and why DSH plugins are not loadable here, is
+DSH boots a **profile** — an ordered stack of plugin-bundle patch layers — and
+`acp` is the one it ships for this. Plugins you install into that profile come
+with it, running in DSH's own process under DSH's own services; HarnessDesk
+shows them rather than rebuilding them. Why ACP rather than a native adapter is
 [the DSH decision](decisions.md#deepseek-harness-joins-over-acp-and-its-plugins-stay-in-its-own-profile).
 
-**Built and tested end to end on 2026-08-23** — DSH ran a real turn inside
-HarnessDesk and wrote a working Snake game. Three things the build taught:
+What it does and does not carry, measured on DSH `0.1.7-rc.2` on 2026-09-25:
 
-- **The published packages are incomplete.** `dsh-acp-demo@0.0.1-rc.1` needs
-  `@deepseek-ai/dsh-workspace-context` and `dsh-acp@0.0.1-rc.1` needs
-  `@deepseek-ai/dsh-type-meta`; neither is on npm. Until a complete publish
-  lands, DSH runs from your own source checkout — which is what the entry
-  above points at.
-- **The composition must live in the profile directory.** Cordis resolves a
-  plugin name relative to the config file, not through `NODE_PATH`, so a
-  config in `~/.dsh/profiles/<name>/` sees everything `dsh plugin add`
-  installed there and a config anywhere else does not.
-- **DSH does not receive dynamic plugin tools over ACP, and says so.** The
-  harness connects MCP servers at composition time, one
-  `@deepseek-ai/dsh-mcp-client` entry per server in `cordis.yml` (or via the
-  patch layer above), so nothing on the ACP wire can add one to a harness that
-  is already composed. `@harnessdesk/dsh-acp` 0.3.0 refuses dynamic session tool
-  registration naming the parameter; the ACP adapter learns that from the
-  agent's own answer, retries without the session tool bridge, and logs that
-  session plugin tools are unavailable to that agent. The session still opens.
-  DSH's own tools and composition-mounted tools are unaffected.
+- **HarnessDesk's plugin tools arrive per session.** Since `0.1.2-alpha.1` the
+  server mounts the `mcpServers` a `session/new` or `session/resume` offers on
+  that session's own agent, so each DeepSeek conversation gets its own tool
+  bridge carrying its own caller token, and a DeepSeek seat's board calls —
+  `complete_claim` and the rest — are attributed to that seat. Remove any
+  `@deepseek-ai/dsh-mcp-client` entry for HarnessDesk left in your
+  composition from an older setup. Each session's own server takes
+  precedence over it, so attribution holds, but it still starts one bridge
+  per DSH process that no call should reach, and one that did would carry no
+  caller token and be refused. The app says so when it finds one.
+- **Messages and reasoning arrive whole**, one update per committed message
+  rather than streamed token by token. Tool calls, context usage, and model and
+  reasoning effort as session options all reach the wire.
+- **A reopened conversation resumes rather than replays.** The server offers
+  `session/resume` and no `session/load`, so the agent gets its context back
+  and the wire carries none of the past. The conversation you see is the one
+  HarnessDesk recorded: its earlier turns are kept ahead of the new ones and
+  never overwritten. Turns taken outside HarnessDesk are not shown.
+- **No plans or titles on the wire.** The Tasks panel reads the plan from
+  DSH's `todo_write` calls instead; a conversation is named by its opening ask.
+
+Our own server, [`@harnessdesk/dsh-acp`](https://github.com/HarnessDesk/dsh-acp),
+still exists for a desk pinned to a DSH before `0.1.7`: it streams, replays and
+carries plans and titles, and from `0.6.0` takes per-session tool servers too.
+On `0.1.7-rc.2` it no longer reads the harness's message events, so assistant
+text and reasoning never reach the wire; do not pair it with a current DSH.
 
 ## Build and run
 
@@ -303,10 +177,10 @@ the other**), not by shortcut.
 
 Twelve ship built in: git, files, search, task list, team, checkpoints,
 guardrails, web, browser, iOS simulator, Android and tests. Their tools reach
-every agent — Codex as dynamic tools, Claude Code through an MCP server, Cursor
-through a generated plugin directory, and DeepSeek Harness through a
-`dsh-mcp-client` entry in its own composition (see
-[browser-control.md](browser-control.md) for the entry to add). Settings ›
+every agent — Codex as dynamic tools, Claude Code and DeepSeek Harness through
+an MCP server offered with each conversation, and Cursor through a generated
+plugin directory. If your DSH composition still has a `dsh-mcp-client` entry
+for HarnessDesk from an older setup, remove it. Settings ›
 Plugins shows each one's state, what it contributes, what it was granted, and
 its configuration.
 

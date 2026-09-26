@@ -331,6 +331,16 @@ export class TranscriptStore {
     if (session.turns.length === 0 && stored.turns.length > 0) {
       return { ...session, turns: stored.turns, ...(session.usage ? {} : stored.usage != null ? { usage: stored.usage } : {}) }
     }
+    // A read that begins at a reopen that replayed nothing is silent about
+    // the turns before it; the stored ones ahead of the first turn it shares
+    // stand in for them, so a reply after the reopen never shortens the
+    // conversation the desk kept.
+    if (session.partialHistory) {
+      const readIds = new Set(session.turns.map((turn) => turn.id))
+      const firstShared = stored.turns.findIndex((turn) => readIds.has(turn.id))
+      const earlier = stored.turns.slice(0, firstShared === -1 ? stored.turns.length : firstShared)
+      if (earlier.length > 0) session = { ...session, turns: [...earlier, ...session.turns] }
+    }
     const pairs = pairTurns(session.turns, stored.turns)
     // Where each item the read knows about lives. A stored turn that would
     // bring an item some other read turn already shows is a split the

@@ -13,6 +13,19 @@ move is real work and is not news to a person weighing an upgrade.
   glyph, so an agent that cannot start a turn no longer looks like one that
   can.
 
+- **DeepSeek seats finish their cards.** A DeepSeek conversation's board
+  calls — finishing a card, claiming one — were refused as unattributed,
+  because the only way it reached HarnessDesk's tools was one tool server
+  shared by every DeepSeek conversation, which cannot say which one is
+  calling. DeepSeek is now in the agent catalogue, on DeepSeek Harness's own
+  ACP server (`dsh --profile acp`), which takes HarnessDesk's tools per
+  conversation, so each seat's calls are its own. Its model picker names each
+  model rather than printing its route, a reopened conversation resumes
+  instead of failing, and its steps read as sentences — "Read README.md",
+  "Updated the plan", the command it ran — with the matching glyph and no raw
+  tool name under them. An agent upgraded to take the tools is offered them
+  on its next restart, not only after the app restarts.
+
 - **A standing notice stays in its own pane.** The floating banner stack (a
   Library import offer, an account warning) used to span the whole workbench,
   so it could sit squarely over a room's Board row, cut through the top of

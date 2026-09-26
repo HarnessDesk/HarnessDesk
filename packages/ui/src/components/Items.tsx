@@ -66,6 +66,7 @@ import {
   isSilentReasoning,
   PATH_KEYS,
   reasoningBody,
+  SHELL_TOOLS,
   reasoningHeadline,
   shellCommandOf as toolCallCommandOf,
   toolCallVerb,
@@ -76,6 +77,8 @@ import { findTodos, type Todo } from '../lib/todos'
 import { readToolResult } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
+  bareToolName,
+  isPlanTool,
   shellCommandOf,
   shortestUniquePathLabels,
   toolSentence,
@@ -1036,7 +1039,6 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const described = describedTitle(item)
   const verb = toolCallVerb(item)
   // Null when the adapter's "tool name" was already the sentence above.
-  const wire = wireNameOf(item.tool)
   const record =
     typeof item.args === 'object' && item.args !== null && !Array.isArray(item.args)
       ? (item.args as Record<string, unknown>)
@@ -1058,7 +1060,10 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const pattern = [record?.['pattern'], record?.['query']].find(
     (value): value is string => typeof value === 'string' && value.trim().length > 0,
   )
+  // A plan tool is said as the plan it set, whatever the agent calls it.
+  const plans = isPlanTool(item.tool) && findTodos(item.args) !== null
   const detail: ToolSentenceDetail | undefined = (() => {
+    if (plans) return { kind: 'plan' }
     switch (verb) {
       case 'read':
         return target ? { kind: 'read', target } : undefined
@@ -1080,6 +1085,17 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
     }
   })()
   const said = toolSentence(item.tool, sentences, detail)
+  // An identifier that only repeats the sentence's own verb — an agent's
+  // bare `read` under "Read README.md", its `bash` under the command, its
+  // plan tool under "Updated the plan" — is dropped. Any other name stays,
+  // because a person writes a permission rule against it: a plugin's
+  // `read_file` or `search_text` keeps its row.
+  const bare = bareToolName(item.tool).toLowerCase()
+  const saysOnlyTheVerb =
+    detail?.kind === 'plan' ||
+    (detail?.kind === 'read' && bare === 'read') ||
+    (detail?.kind === 'command' && SHELL_TOOLS.test(bare) && /^[a-z]+$/.test(bare))
+  const wire = saysOnlyTheVerb ? null : wireNameOf(item.tool)
   // An MCP tool's server is the one word that says whose tool ran.
   const label = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
   // A call the lookup has no grammar for carries no object in its sentence,
@@ -1088,7 +1104,9 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const headline = argument && !label.includes(argument.split('/').pop() ?? argument) ? argument : null
   const change = verb === 'fileChange' ? editOf(item) : null
   const counts = change ? countFileChange(change) : null
-  const Icon = VERB_ICON[verb]
+  const Icon = plans ? PlanIcon : VERB_ICON[verb]
+  const readsInFull =
+    detail?.kind === 'read' && record !== null && Object.keys(record).every((key) => PATH_KEYS.includes(key))
 
   return (
     <Row
@@ -1136,10 +1154,11 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               panel's business, so neither is repeated here as a field. */}
           {command ? (
             <CodeBlock command={shellCommandOf(command)} output={commandOutput} onCopyError={copyFailed} />
-          ) : recordsCommand ? null : (
+          ) : recordsCommand || readsInFull ? null : (
             // A result that is its own command record already opens onto the
             // command it ran; its arguments would only say it again, with the
-            // absolute folder it ran in beside it.
+            // absolute folder it ran in beside it. So would a read whose only
+            // argument is the file the title already names.
             <ArgsView args={item.args} root={root} />
           )}
           {commandOutput === undefined &&
