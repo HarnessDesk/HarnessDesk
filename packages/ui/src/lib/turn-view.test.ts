@@ -183,6 +183,26 @@ describe('describeTurnWork', () => {
     expect(described.trouble).toBe(false)
   })
 
+  test('rewriting the task list is the plan changing, said once, never a tool call', () => {
+    const todos = { todos: [{ content: 'Plan', status: 'completed' }, { content: 'Read', status: 'completed' }] }
+    const work = [
+      item('toolCall', 'p1', { tool: 'todo_write', args: todos, result: [{ type: 'json', value: { output: '', isError: false } }] }),
+      item('toolCall', 'x', { tool: 'lookup', args: { q: 'a' }, result: [] }),
+      item('toolCall', 'p2', { tool: 'todo_write', args: todos, result: [{ type: 'json', value: { output: '', isError: false } }] }),
+    ]
+    expect(describeTurnWork(done(work), work, started).receipt).toBe('called 1 tool, updated the plan')
+  })
+
+  test('a list under some other key is a tool, a cleared plan is still the plan, and a failed write is neither', () => {
+    const work = [
+      item('toolCall', 'i', { tool: 'triage', args: { issues: [{ title: 'Bug', status: 'open' }] }, result: [] }),
+      item('toolCall', 'c', { tool: 'todo_write', args: { todos: [] }, result: [] }),
+    ]
+    expect(describeTurnWork(done(work), work, started).receipt).toBe('called 1 tool, updated the plan')
+    const failed = [item('toolCall', 'f', { tool: 'todo_write', status: 'failed', args: { todos: [{ content: 'a', status: 'pending' }] }, result: [] })]
+    expect(describeTurnWork(done(failed), failed, started).receipt).not.toContain('updated the plan')
+  })
+
   test('a read dressed as a shell command is a read, not a command', () => {
     const work = [
       item('command', 'a', { actions: [{ type: 'read', command: 'sed', name: 'a', path: '/a' }] }),
