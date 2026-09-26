@@ -1,4 +1,4 @@
-import type { Flow, FlowProblem } from '@harnessdesk/protocol'
+import type { AgentRuntime, Flow, FlowProblem, ModelInfo } from '@harnessdesk/protocol'
 
 import { CHANGED_PREVIEW } from '../flow-preview.js'
 import { sourceDigest } from '../flow-execution.js'
@@ -167,8 +167,48 @@ export const flowMethods = {
 } satisfies MethodsUnder<'flow/'>
 
 /**
- * Seats this desk cannot actually open: an agent it does not have, or a model
- * that agent does not offer.
+ * Refuses a seat's named effort against one model's own reasoning levels, in
+ * the runtime's labels — "Extra high", never the wire id "xhigh" a person
+ * never typed and would not recognize.
+ *
+ * Read from the same catalogue the model check just read, not a session's
+ * answer, so nothing here has to open a conversation to know a level does
+ * not exist (`unavailableSeats` below). What genuinely cannot be known before
+ * a session exists is left alone rather than guessed at: **a model whose own
+ * entry names no levels at all**, or whose levels are only a session-wide
+ * fallback (`reasoningLevelsShared`) — an empty list is not "this model has
+ * none," and a shared list is not "this model's own," since a generic ACP
+ * agent may report every model's levels as whatever the *current* session's
+ * model happens to declare, which says nothing true about a model nothing
+ * has yet selected. `#1013`'s seat-open refusal is the backstop for exactly
+ * that case, so a mismatch this dry run could not see is still never seated
+ * silently. `default` is never refused either: it asks for whatever a model
+ * already runs at, and both Cursor and ACP drop it from a model's own levels
+ * precisely because it is not one of them.
+ */
+const checkEffort = (
+  problems: FlowProblem[],
+  at: string,
+  runtime: AgentRuntime,
+  model: ModelInfo,
+  effort: string | null | undefined,
+): void => {
+  if (!effort || effort === 'default' || model.reasoningLevels.length === 0 || model.reasoningLevelsShared) return
+  if (model.reasoningLevels.some((level) => level.id === effort)) return
+  // The level asked for is not one of this model's own, so it has no label
+  // of the model's giving — said as written, the way a person typed it.
+  const offered = model.reasoningLevels.map((level) => level.label).join(', ')
+  problems.push({
+    level: 'error',
+    at,
+    text: `${runtime.info.presentation.name}'s ${model.displayName} does not offer "${effort}" effort — it offers ${offered}`,
+  })
+}
+
+/**
+ * Seats this desk cannot actually open: an agent it does not have, a model
+ * that agent does not offer, or a model offered without the effort a seat
+ * names (`checkEffort` above).
  *
  * `flow.ts` is pure and cannot ask a runtime anything, so this is the half of
  * validation that needs the desk. It belongs in the dry run because that is
@@ -176,11 +216,6 @@ export const flowMethods = {
  * catches is otherwise found at seating — which is late, even though nothing
  * is spent: a flow that opens three of four seats and then stops is a room
  * somebody has to clean up.
- *
- * Effort is deliberately not checked here. A runtime declares its efforts per
- * *session*, so asking would mean opening one, and a dry run that opens a
- * conversation is not a dry run. The start path refuses it by name with the
- * choices listed, before any seat is opened.
  */
 const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProblem[]> => {
   const problems: FlowProblem[] = []
@@ -212,10 +247,25 @@ const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProbl
         })
         continue
       }
-      if (!seat.model) continue
+      // A seat naming neither a model nor an effort has nothing here to check
+      // — asking anyway would read the catalogue for nothing, and on ACP that
+      // opens the probe session a dry run must never open (#1013).
+      if (!seat.model && !seat.effort) continue
       const models = await runtime.listModels().catch(() => [])
       if (models.length === 0) continue
-      if (models.some((one) => one.id === seat.model)) continue
+      if (!seat.model) {
+        // No model named: an effort is judged against whichever one this
+        // runtime marks as its default, the model a bare `runtime/effort`
+        // would actually run on.
+        const byDefault = models.find((one) => one.isDefault)
+        if (byDefault) checkEffort(problems, at, runtime, byDefault, seat.effort)
+        continue
+      }
+      const found = models.find((one) => one.id === seat.model)
+      if (found) {
+        checkEffort(problems, at, runtime, found, seat.effort)
+        continue
+      }
       /* The compact form splits the effort off after a `/`, so a model id
          that contains one is read as a model and an effort. Say so, rather
          than "no such model": the author wrote a real id and the grammar
