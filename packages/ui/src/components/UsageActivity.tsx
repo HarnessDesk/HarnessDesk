@@ -173,7 +173,7 @@ export const UsageActivity = ({
     view === 'year'
       ? WEEKDAY_NAMES.map((name, weekday) => ({
           key: name,
-          header: weekday % 2 === 0 ? <span>{name.slice(0, 3)}</span> : undefined,
+          header: weekday % 2 === 0 ? <Text role="meta">{name.slice(0, 3)}</Text> : undefined,
           cells: year.weeks.map((week) => {
             const cell = week[weekday]
             return cell ? toGridCell(cell) : null

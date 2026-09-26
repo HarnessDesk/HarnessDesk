@@ -188,3 +188,12 @@ export {
 export { AgentCard, CardBand, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'
+export {
+  HeatGrid,
+  HeatLegend,
+  type HeatGridCell,
+  type HeatGridColumnLabel,
+  type HeatGridRow,
+  type HeatGridTooltip,
+  type HeatGridTooltipRow,
+} from './patterns/HeatGrid'

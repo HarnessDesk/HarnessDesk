@@ -51,22 +51,21 @@
   outline-offset: 1px;
 }
 
+/* Type and ink are the caller's `Text` — a header is whatever the caller
+   passed (a weekday abbreviation, an agent's name), and this class is only
+   the slot it sits in. `margin`, not `padding`: there is nothing here for a
+   padding to sit inside, and margin is the layout side of the boundary. */
 .header {
   display: flex;
   align-items: center;
-  padding-right: var(--hd-space-2);
-  color: var(--hd-muted-foreground);
-  font-size: var(--hd-text-xs);
-  line-height: 1;
+  margin-right: var(--hd-space-2);
   white-space: nowrap;
 }
 
 .monthLabel {
-  color: var(--hd-muted-foreground);
-  font-size: var(--hd-text-xs);
-  line-height: 1;
+  display: block;
   align-self: end;
-  padding-bottom: var(--hd-space-1);
+  margin-bottom: var(--hd-space-1);
 }
 
 .scroller {
@@ -75,14 +74,12 @@
 }
 
 /* The legend: the same five levels and the not-scanned hatch the grid itself
-   draws, so a caller never owns a coloured swatch of its own. */
+   draws, so a caller never owns a coloured swatch of its own. Type and ink
+   are `Text role="meta"`, applied where this class is used. */
 .legend {
   display: inline-flex;
   align-items: center;
   gap: var(--hd-space-1);
-  color: var(--hd-muted-foreground);
-  font-size: var(--hd-text-xs);
-  line-height: 1;
 }
 
 .legendGap {

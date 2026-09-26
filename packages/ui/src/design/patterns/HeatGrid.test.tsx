@@ -2,7 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { HeatGrid, type HeatGridCell, type HeatGridRow } from './heat-grid'
+import { HeatGrid, type HeatGridCell, type HeatGridRow } from './HeatGrid'
 
 /**
  * The behaviour a screenshot cannot check: the grid is one tab stop, arrow

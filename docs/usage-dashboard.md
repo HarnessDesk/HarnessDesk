@@ -615,7 +615,7 @@ warning, neither of which this band is claiming. Five tokens,
 `--hd-chart-heat-not-scanned` for the hatch — `design/foundation/tokens.css`,
 never a literal in the component.
 
-**The grid itself is `design/ui/heat-grid.tsx`.** One tab stop, and arrow
+**The grid itself is `design/patterns/HeatGrid.tsx`.** One tab stop, and arrow
 keys walk a cursor over the two axes: `ArrowLeft`/`ArrowRight` move a column
 and `ArrowUp`/`ArrowDown` move a row, whatever a row and a column mean to the
 caller — a week and a weekday in Year, a day and an agent in By agent.

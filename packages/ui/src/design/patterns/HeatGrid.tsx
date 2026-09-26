@@ -1,9 +1,10 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
-import { ChartTip, ChartTipRow } from './chart'
-import type { Tint } from './tone'
-import styles from './heat-grid.module.css'
+import { ChartHint, ChartTip, ChartTipRow, ChartTitle } from '../ui/chart'
+import type { Tint } from '../ui/tone'
+import { Text } from './Settings'
+import styles from './HeatGrid.module.css'
 
 /**
  * A calendar heatmap: rows and columns of level-0..4 cells, one tab stop,
@@ -145,21 +146,17 @@ export const HeatGrid = ({
         // cursor; `at` still owns that half through the tip's own inline
         // `translate`, which is why only `top`/`bottom` are overridden here.
         <ChartTip at={at} className="bottom-auto top-0">
-          <div className="mb-1 font-medium">{shown.tooltip.title}</div>
+          <ChartTitle>{shown.tooltip.title}</ChartTitle>
           {shown.tooltip.note ? (
-            <div className="text-(--hd-muted-foreground)">{shown.tooltip.note}</div>
+            <ChartHint>{shown.tooltip.note}</ChartHint>
           ) : (
             <>
               {shown.tooltip.rows?.map((row) => (
                 <ChartTipRow key={row.key} tint={row.tint} label={row.label} value={row.value} />
               ))}
-              {!!shown.tooltip.more && <div className="text-(--hd-muted-foreground)">{`+${shown.tooltip.more} more`}</div>}
+              {!!shown.tooltip.more && <ChartHint>{`+${shown.tooltip.more} more`}</ChartHint>}
               {shown.tooltip.footer && (
-                <ChartTipRow
-                  className="border-(--hd-border) mt-1 border-t pt-1"
-                  label={shown.tooltip.footer.label}
-                  value={shown.tooltip.footer.value}
-                />
+                <ChartTipRow divider label={shown.tooltip.footer.label} value={shown.tooltip.footer.value} />
               )}
             </>
           )}
@@ -221,7 +218,7 @@ export const HeatGrid = ({
                   className={styles.monthLabel}
                   style={{ gridColumn: entry.index + 1 + headerCol, gridRow: 1 }}
                 >
-                  {entry.label}
+                  <Text role="meta">{entry.label}</Text>
                 </span>
               ))}
             </>
@@ -266,7 +263,7 @@ export const HeatLegend = ({
   leastLabel?: string
   mostLabel?: string
 }) => (
-  <span className={cn(styles.legend, className)}>
+  <Text role="meta" as="span" className={cn(styles.legend, className)}>
     {leastLabel}
     {([0, 1, 2, 3, 4] as const).map((level) => (
       <span key={level} data-level={level} title={levelTitle(level)} className={styles.swatch} />
@@ -274,5 +271,5 @@ export const HeatLegend = ({
     {mostLabel}
     <span data-state="not-scanned" title={notScannedLabel} className={cn(styles.swatch, styles.legendGap)} />
     {notScannedLabel}
-  </span>
+  </Text>
 )
