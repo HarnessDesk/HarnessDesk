@@ -287,18 +287,21 @@ export interface LedgerRow {
    * kept only so a caller can show "of which N reasoning" without minting a
    * second total that would double-count if added in.
    *
-   * Four of the five scanners also normalise `input` to exclude the cache
+   * Five of the six scanners also normalise `input` to exclude the cache
    * before it is stored: Codex subtracts `cached_input_tokens` out of
    * `input_tokens`, Claude's `input_tokens` already excludes both cache
    * fields on arrival, Gemini/Qwen subtract `cached` from `prompt` before
-   * adding the tool-use tokens back in, and OpenCode does the same (see
+   * adding the tool-use tokens back in, OpenCode does the same (see
    * `fromGeminiCounts` and the Codex/Claude/OpenCode scans in
-   * `ledger/scan.ts`). For those four, a cache-hit rate is always
+   * `ledger/scan.ts`), and Cursor's own usage events carry `inputTokens`
+   * disjoint from both cache counters already — confirmed against the real
+   * endpoint (`usage/cursor-events.ts`), the same shape as Claude's rather
+   * than Codex's. For those five, a cache-hit rate is always
    * `cacheRead / (input + cacheRead)` — the share of the *input* side that
    * came from cache — never `cacheRead / tokens`, which would dilute it with
    * output that was never a cache candidate.
    *
-   * Cline is the fifth, and the odd one out: its `input` is stored exactly
+   * Cline is the sixth, and the odd one out: its `input` is stored exactly
    * as Cline's own database records it, and whether that figure already
    * includes cache reads has not been measured here, so a cache-hit rate for
    * the `cline` runtime is not defined yet.

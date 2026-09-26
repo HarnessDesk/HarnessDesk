@@ -84,7 +84,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   'resize-handle': 'packages/ui/src/components/Panes.tsx',
   separator: 'packages/ui/src/components/Channel.tsx',
   'sortable-list': 'packages/ui/src/components/MessageQueue.tsx',
-  spark: 'packages/ui/src/components/Usage.tsx',
+  spark: 'packages/ui/src/components/ConversationMap.tsx',
   switch: 'packages/ui/src/components/PluginsSection.tsx',
   tabs: 'packages/ui/src/components/Extensions.tsx',
   textarea: 'packages/ui/src/components/AddWork.tsx',

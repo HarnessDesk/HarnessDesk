@@ -1133,6 +1133,19 @@ const CHART_DAYS = [18, 24, 0, 0, 31, 44, 29, 52, 38, 0, 41, 63, 47, 35].map((to
 }))
 
 /**
+ * The same fourteen days, with the first two before the ledger's own
+ * coverage — hatched rather than a priced zero — and a dashed ghost line for
+ * the fourteen days before that, aligned by day index rather than calendar
+ * day (`lib/ledger.ts`'s `alignGhost`).
+ */
+const CHART_DAYS_WITH_GAP = CHART_DAYS.map((bucket, index) => ({
+  ...bucket,
+  unknown: index < 2,
+}))
+const CHART_GHOST = [12, 19, 9, 6, 27, 39, 24, 46, 33, 8, 36, 55, 41, 30]
+const CHART_TICKS: readonly [number, number, number] = [0, 32, 63]
+
+/**
  * "When it ran"'s own board — the same `HeatGrid`/`HeatLegend` the Dashboard
  * mounts, fed hand-built ledgers rather than a live store: this page loads
  * with no store at all (`main.tsx`), the same boundary that keeps every
@@ -1223,6 +1236,19 @@ const ChartKitBoard = () => {
           <SegmentMeter percent={null} label="Never reported" />
         </div>
       </Case>
+      <Case label="a distribution — one continuous share, not a budget">
+        <div className="w-full">
+          <SegmentMeter
+            label="Where it went, by share"
+            parts={[
+              { key: 'claude', tint: 'blue', value: 46 },
+              { key: 'codex', tint: 'teal', value: 28 },
+              { key: 'cursor', tint: 'violet', value: 17 },
+              { key: 'other', tint: 'orange', value: 9 },
+            ]}
+          />
+        </div>
+      </Case>
       <Case label="will it last — actual against an even burn">
         <div className="w-full">
           <BurnDown
@@ -1275,6 +1301,62 @@ const ChartKitBoard = () => {
       </Case>
     </div>
     <div className={styles.matrix}>
+      <Case label="bars — a ghost line for the previous period, and two days before coverage">
+        <ChartFrame className="w-full">
+          <ChartCard>
+            <ChartHead>
+              <div>
+                <ChartTitle>$465</ChartTitle>
+                <ChartHint>Last 14 days — hover or use ← → to read a day.</ChartHint>
+              </div>
+            </ChartHead>
+            <div className="mt-3">
+              <DayColumns
+                buckets={CHART_DAYS_WITH_GAP}
+                series={CHART_SERIES}
+                format={(value) => `$${value.toFixed(2)}`}
+                label="Spend per day"
+                ghost={CHART_GHOST}
+                today={CHART_DAYS_WITH_GAP.length - 1}
+                axisTicks={CHART_TICKS}
+              />
+              <ChartAxis start="Aug 24" end="Sep 6" />
+              <ChartKeys>
+                {CHART_SERIES.map((entry) => (
+                  <ChartKey key={entry.key} tint={entry.tint} label={entry.label} />
+                ))}
+              </ChartKeys>
+            </div>
+          </ChartCard>
+        </ChartFrame>
+      </Case>
+      <Case label="line — the same window, one area line and its ghost">
+        <ChartFrame className="w-full">
+          <ChartCard>
+            <ChartHead>
+              <div>
+                <ChartTitle>$465</ChartTitle>
+                <ChartHint>Last 14 days, as a line rather than stacked columns.</ChartHint>
+              </div>
+            </ChartHead>
+            <div className="mt-3">
+              <DayColumns
+                buckets={CHART_DAYS_WITH_GAP}
+                series={CHART_SERIES}
+                format={(value) => `$${value.toFixed(2)}`}
+                label="Spend per day"
+                mode="line"
+                ghost={CHART_GHOST}
+                today={CHART_DAYS_WITH_GAP.length - 1}
+                axisTicks={CHART_TICKS}
+              />
+              <ChartAxis start="Aug 24" end="Sep 6" />
+            </div>
+          </ChartCard>
+        </ChartFrame>
+      </Case>
+    </div>
+    <div className={styles.matrix}>
       <Case label="a calendar heatmap — no data, one day, a not-scanned stretch">
         <div className="flex flex-col gap-3">
           <HeatGrid label="No data" rows={heatNoData.rows} columns={heatNoData.columns} minCellPx={5} />
@@ -1307,6 +1389,18 @@ const ChartKitBoard = () => {
       <em>tint</em> because &ldquo;which agent&rdquo; identifies and does not judge. Two rules the
       marks hold that no token can: a meter fills with what is <em>left</em>, and a figure nobody
       reported is drawn hollow rather than as zero.
+    </Rule>
+    <Rule>
+      <code>DayColumns</code> draws either shape from the same props: stacked bars, or one accent
+      area line, both able to carry a dashed ghost line for the previous period (index-aligned,
+      broken rather than bridged across a gap the ledger cannot answer for), an emphasised marker
+      on today, and the same hatch the calendar heatmap uses for a day before its own coverage —
+      never an empty, priced day. An optional three-tick y-axis scales either mode to a round
+      ceiling instead of the tallest bar, so a bar is never drawn touching the frame as though it
+      were clipped. <code>SegmentMeter</code>'s <code>parts</code> mode is the same 10px bar drawn
+      as a continuous <em>distribution</em> — &ldquo;which slice is biggest&rdquo; — rather than a
+      countable budget: the Dashboard's &ldquo;Where it went&rdquo; reading, in place of a doughnut
+      whose slice count this kit's own rule already limits.
     </Rule>
     <Rule>
       The calendar heatmap — <code>design/ui/heat-grid.tsx</code>, mounted as the Dashboard's

@@ -59,7 +59,7 @@ import type { EditorPlane } from '../editor-plane.js'
 import type { EvidencePlane } from '../evidence/plane.js'
 import type { ProvenancePlane } from '../provenance/plane.js'
 import type { ExtensionHost, HostOptions, ModelRouteRecord, OpenedSeat } from '../host.js'
-import type { CorpusSpec, Ledger } from '../ledger/index.js'
+import type { CorpusSpec, Ledger, RemoteEventsSource } from '../ledger/index.js'
 import type { LibraryUsageReader } from '../library-usage.js'
 import type { Logger } from '../log.js'
 import type { SessionNames } from '../names.js'
@@ -258,7 +258,7 @@ export interface HostContext {
     register(runtime: AgentRuntime): void
     unregister(id: RuntimeId): Promise<void>
     start(runtime: AgentRuntime): Promise<void>
-    bindUsage(runtime: RuntimeId, binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string }): void
+    bindUsage(runtime: RuntimeId, binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string; remote?: RemoteEventsSource }): void
   }
 
   readonly sessions: {
