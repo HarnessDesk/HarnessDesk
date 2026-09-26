@@ -1413,6 +1413,18 @@ const ChannelBoard = () => (
       </div>
     </Case>
 
+    <Case label="a long message, folded past nine lines">
+      <div className={styles.channel} data-testid="channel-long-sample">
+        <ChannelMessage
+          from="Reviewer"
+          brand="claudecode"
+          tint="teal"
+          at="03:35 PM"
+          state="delivered"
+          text={Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of a review long enough to fold.`).join('\n')}
+        />
+      </div>
+    </Case>
     <Case label="a notice, and a message with its envelope">
       <div className={styles.channel}>
         <ChannelNotice
