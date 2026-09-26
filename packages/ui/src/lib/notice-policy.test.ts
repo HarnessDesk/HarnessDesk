@@ -56,7 +56,7 @@ describe('a condition', () => {
 
   it('stops offering once it has actually been silenced', () => {
     const policy = withMuted(
-      { records: { 'usage:pace': { count: 5, at: NOW } }, muted: [], seen: [], surfaces: {} },
+      { records: { 'usage:pace': { count: 5, at: NOW } }, muted: [], seen: [], surfaces: {}, kept: [] },
       'usage:pace',
       true,
     )
@@ -85,7 +85,7 @@ describe('an offer', () => {
   it('is never given a second door on the banner itself', () => {
     // It has already been answered for good; asking again in a menu would be
     // asking the same question twice in one click.
-    const policy = { records: { 'import:offer': { count: 3, at: NOW } }, muted: [], seen: [], surfaces: {} }
+    const policy = { records: { 'import:offer': { count: 3, at: NOW } }, muted: [], seen: [], surfaces: {}, kept: [] }
     expect(offersMute(policy, offer)).toBe(false)
   })
 })
@@ -95,7 +95,7 @@ describe('something happening right now', () => {
     const policy = afterDismiss(emptyNoticePolicy(), link, NOW)
     expect(policy).toEqual(emptyNoticePolicy())
     expect(isSilenced(policy, link)).toBe(false)
-    expect(offersMute({ records: { link: { count: 9, at: NOW } }, muted: [], seen: [], surfaces: {} }, link)).toBe(false)
+    expect(offersMute({ records: { link: { count: 9, at: NOW } }, muted: [], seen: [], surfaces: {}, kept: [] }, link)).toBe(false)
   })
 
   it('has no row to turn off, because a dropped link must always be able to speak', () => {
@@ -131,6 +131,7 @@ describe('what is written down', () => {
       muted: ['usage:pace'],
       seen: ['a'],
       surfaces: {},
+      kept: [],
       records: { 'usage:pace': { count: 2, at: NOW } },
     })
   })
