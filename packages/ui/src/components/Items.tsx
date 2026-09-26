@@ -61,6 +61,8 @@ import {
   TextMark,
   TurnItem,
   type LightboxImage,
+  Checklist,
+  ChecklistItem,
 } from '../design'
 import { instant } from '../lib/clock'
 import { openExternal } from '../lib/desktop'
@@ -78,7 +80,7 @@ import {
   type ToolCallVerb,
 } from '../lib/group-items'
 import { editOf } from '../lib/handoff'
-import { findTodos, planOf, type Todo } from '../lib/todos'
+import { findTodos, planOf, todoState, type Todo } from '../lib/todos'
 import { readToolResult } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
@@ -107,9 +109,6 @@ import {
   SearchIcon,
   SparkIcon,
   TerminalIcon,
-  TodoActiveIcon,
-  TodoDoneIcon,
-  TodoPendingIcon,
   ToolIcon,
 } from './Icons'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
@@ -492,11 +491,10 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
   const [preview, setPreview] = useState<number | null>(null)
 
   return (
-    /* No shared part owns a message row's own vertical rhythm — `TurnItem`
-       gives every transcript item the same 4px, and the user row's 12px
-       above / 4px below is this row's alone. Restored as the utility it was
-       rather than invented as a new one. */
-    <Message align="end" className="py-(--hd-space-3) pb-(--hd-space-1)">
+    /* `Message`'s own transcript rhythm: 12px above, 4px below — an explicit
+       option rather than something `align="end"` did silently, since the
+       room's `ChannelMessage` also aligns "start" and keeps a different look. */
+    <Message align="end" rhythm="transcript">
       {(injections.length > 0 || (item.context?.length ?? 0) > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
           {injections.map((injection, index) => (
@@ -672,10 +670,9 @@ const AssistantMessage = ({
   item: AssistantMessageItem
   streaming: boolean
 }) => (
-  /* No shared part owns a message row's own vertical rhythm (see the same
-     note on UserMessage above); this row's 6px above and below is restored
-     as the utility it was. */
-  <Message align="start" className="py-(--hd-space-1-5)">
+  /* Same rhythm option as `UserMessage` above: 6px each way, this row's own
+     value for the transcript's answer. */
+  <Message align="start" rhythm="transcript">
     <Bubble variant="ghost">
       <Text as="div" role="prose" {...(item.phase === 'commentary' ? { ink: 'secondary' as const } : {})}>
         <Markdown text={item.text} />
@@ -913,28 +910,22 @@ const findDiff = (value: unknown): string | null => {
 }
 
 /**
- * A plan's steps, drawn the way the Tasks panel draws them: the step's mark
- * set in its line (`TextMark`), a finished one struck and stepped back
- * (`Text done`), and the one in progress at the subject weight. A step's own
- * priority — ACP's, not every source has one — sits in a chip on the same
- * line rather than a second one under it (rule 9).
- *
- * Exported so a turn's own ACP plan, which carries no tool call of its own
- * to hang this off, still draws as the same list — one definition of what a
- * checklist looks like, whichever kind of update set it.
+ * A plan's steps, as the design system's one plan list — the same Checklist
+ * the Tasks panel and a turn's own ACP plan draw. A step's priority (ACP's;
+ * not every source has one) sits in a chip on the step's own line (rule 9).
  */
-export const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
-  <ul className={styles.list}>
+export const PlanSteps = ({ todos }: { todos: readonly Todo[] }) => (
+  <Checklist>
     {todos.map((todo, index) => (
-      <Text as="li" role="prose" key={index} className={styles.listItem}>
-        <TextMark role="prose">
-          {todo.done ? <TodoDoneIcon size={12} /> : todo.active ? <TodoActiveIcon size={12} /> : <TodoPendingIcon size={12} />}
-        </TextMark>
-        <Text role={todo.active ? 'subject' : 'prose'} done={todo.done}>{todo.label}</Text>
-        {todo.priority && <Chip tone="neutral" size="sm">{todo.priority}</Chip>}
-      </Text>
+      <ChecklistItem
+        key={index}
+        state={todoState(todo)}
+        {...(todo.priority ? { after: <Chip tone="neutral" size="sm">{todo.priority}</Chip> } : {})}
+      >
+        {todo.label}
+      </ChecklistItem>
     ))}
-  </ul>
+  </Checklist>
 )
 
 /** The one argument worth showing beside a call's title, shortened to the repo. */
@@ -960,8 +951,16 @@ const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) {
     return args === null || args === undefined ? null : <CodeBlock output={JSON.stringify(args, null, 2)} />
   }
-  const argTodos = findTodos(args)
-  if (argTodos) return <TodoListView todos={argTodos} />
+  // The same test the receipt and the grouping use for "is a plan write".
+  // `planOf` answers `null` for "not a plan" and `[]` for "a plan write with
+  // nothing left in it" — an all-cancelled or explicitly cleared plan — and
+  // an empty array is truthy in JS, so a plain `if (argTodos)` opened a
+  // Checklist card with no rows in it for exactly that call.
+  const argTodos = planOf(args)
+  if (argTodos !== null) {
+    if (argTodos.length > 0) return <PlanSteps todos={argTodos} />
+    return <Note ink="muted">Cleared the plan.</Note>
+  }
   const entries = Object.entries(args as Record<string, unknown>)
   if (entries.length === 0) return null
   return (
@@ -1043,7 +1042,7 @@ const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
     return <CodeBlock key={key} output={stripAnsi(reading.text)} />
   }
   const todos = findTodos(part.value)
-  if (todos) return <TodoListView key={key} todos={todos} />
+  if (todos) return <PlanSteps key={key} todos={todos} />
   const diff = findDiff(part.value)
   if (diff) return <DiffView key={key} diff={diff} inline />
   // Structured output is output: the same plate as a text result.
@@ -1340,14 +1339,13 @@ const Plan = ({ item }: { item: PlanItem }) => {
   return (
     <Row icon={<PlanIcon size={14} />} title="Plan" defaultOpen>
       {/* The same list as a tool's todo list, every step still to do. */}
-      <ol className={styles.list}>
+      <Checklist ordered>
         {steps.map((step, index) => (
-          <Text as="li" role="prose" key={index} className={styles.listItem} data-status="pending">
-            <TextMark role="prose"><TodoPendingIcon size={12} /></TextMark>
-            <Text role="prose">{step}</Text>
-          </Text>
+          <ChecklistItem key={index} state="pending">
+            {step}
+          </ChecklistItem>
         ))}
-      </ol>
+      </Checklist>
     </Row>
   )
 }

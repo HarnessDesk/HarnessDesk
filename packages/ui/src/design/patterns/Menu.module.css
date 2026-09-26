@@ -77,9 +77,20 @@
 
 /* An account menu has two rows whose content is taller than the ordinary
    one-line action. Their padding is part of that anatomy, not the menu that
-   happens to contain them. */
+   happens to contain them.
+
+   The profile row's own 30px face already reaches the row floor
+   (`--hd-row-h`) a plain row only gets to by its `min-height`, so adding the
+   same vertical padding an ordinary row keeps made this one taller still —
+   panel padding (4px) plus this row's own 8px landed its centred name 18px
+   under the panel's top edge, against the last plain row's centred label
+   sitting 9-10px over the bottom one: the menu the seat opens, top-heavy by
+   design rather than by mistake. Dropping the vertical padding here (the
+   horizontal stays, so the face keeps its own breathing room) lets the face
+   set the row's height exactly the way a plain row's `min-height` already
+   does, and the two edges land the same. */
 .row[data-layout='profile'] {
-  padding: var(--hd-space-2);
+  padding: 0 var(--hd-space-2); /* desk: 8px all sides → 0 vertical, the 30px face sets the row's height the way a plain row's min-height already does */
 }
 
 .row[data-layout='account'] {
@@ -111,6 +122,33 @@
 .group[data-heading] > .row[data-layout='account'] {
   margin-left: var(--hd-space-3);
   width: calc(100% - var(--hd-space-3));
+}
+
+/* An account row is one line: the name, and — only where two share it — the
+   tag that tells them apart. The tag keeps its width up to half the line;
+   the name gives way first, and the figure holds the trailing edge. */
+.accountText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-1-5);
+}
+
+.accountName {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.accountTag {
+  flex: none;
+  max-width: 50%;
+}
+
+.accountFigure {
+  flex: none;
 }
 
 .row:hover,

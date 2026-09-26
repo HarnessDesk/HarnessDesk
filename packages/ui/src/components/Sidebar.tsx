@@ -19,6 +19,7 @@ import {
   Menu,
   MenuItem,
   MenuAccountGroup,
+  MenuAccountRow,
   MenuLabel,
   MenuNote,
   MenuSeparator,
@@ -30,6 +31,7 @@ import {
   Search,
   Text,
   buttonVariants,
+  type MenuAccountFigure,
   type Tone,
 } from '../design'
 import { accountKey, accountName, accountIdentity, agentKey, tintOf, type AccountPrefs } from '../lib/accounts'
@@ -248,7 +250,7 @@ export const Sidebar = ({
         </div>
         <SessionListControls />
         <Button
-          variant="muted" size="icon-sm" className={styles.iconButton}
+          variant="muted" size="icon-sm" edge="end" edgeGlyph={13} className={styles.iconButton}
           onClick={onBrowseFolders}
           title="Open a project folder"
           aria-label="Open a project folder"
@@ -712,96 +714,88 @@ export const AccountFooter = ({
             {groups.map((all) => {
               const group = accountsOpen || !here ? all : all.filter((seat) => seat.current)
               if (group.length === 0) return null
-              const renderSeat = (seat: Seat, child: boolean) => (
-                <MenuItem
-                  key={seat.key}
-                  layout="account"
-                  current={seat.current}
-                  expanded={seat.current && chairs.length > 1 ? accountsOpen : undefined}
-                  keepOpen={seat.current && chairs.length > 1}
-                  onSelect={() => {
-                    if (seat.current && chairs.length > 1) {
-                      setAccountsOpen((value) => !value)
-                      setUsageOpen(false)
-                      return
-                    }
-                    void store.selectRuntime(seat.info.id)
-                  }}
-                >
-                  {/* The seat's own mark is the trigger, and — like every other
-                      one — it is out of the tab order. An earlier version of
-                      this comment claimed the card opened on keyboard focus
-                      here; review checked, and it does not. It could not: the
-                      trigger is `tabIndex={-1}`, and its parent is a
-                      `role="menuitem"` that owns the arrow keys. Making the span
-                      focusable would put a second stop inside a menu item, which
-                      is worse than the card being pointer-only. The seat's own
-                      press still does the thing the card's verb does. */}
-                  {!child && (
-                    <AccountHoverCard
-                      info={seat.info}
-                      account={seat.account}
-                      side="right"
-                      align="start"
-                      className={styles.seatTrigger}
-                      /* The same verbs as the badge's card on the row below: two
-                         cards for one account that offered different things were
-                         the whole of the complaint. The sidebar's Dashboard opens
-                         the dashboard on everything; this opens it on this seat. */
-                      onOpenUsage={onOpenUsage}
-                    >
-                      <AccountMark
-                        size="sm"
-                        {...(seat.account
-                          ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
-                          : seat.state === 'signin' && seat.known
-                            ? { 'data-off': '' }
-                            : {})}
-                      >
-                        <RuntimeMark runtime={seat.info} size={13} />
-                      </AccountMark>
-                    </AccountHoverCard>
-                  )}
-                  {/* One line a seat. The name is the account's own — yours, or
-                      the address it was signed in with — so the identity under
-                      it only said it again. It is the name's tooltip (not the
-                      row's, which would sit over the mark's card) and whole on
-                      the card. The name gives way before the tag: the tag is
-                      the word that tells two rows apart. An account under its
-                      agent's heading wears no mark and no card — the heading
-                      carries the mark, and a card on the name would open at
-                      every rest on the list — only its colour, the ring it
-                      wears everywhere else, drawn small. */}
-                  {child && (
+              // The seat's own mark is the trigger, and — like every other one —
+              // it is out of the tab order. An earlier version of this comment
+              // claimed the card opened on keyboard focus here; review checked,
+              // and it does not. It could not: the trigger is `tabIndex={-1}`,
+              // and its parent is a `role="menuitem"` that owns the arrow keys.
+              // Making the span focusable would put a second stop inside a menu
+              // item, which is worse than the card being pointer-only. The
+              // seat's own press still does the thing the card's verb does.
+              //
+              // An account under its agent's heading wears no mark and no card
+              // — the heading carries the mark, and a card on the name would
+              // open at every rest on the list — only its colour, the ring it
+              // wears everywhere else, drawn small.
+              const renderSeat = (seat: Seat, child: boolean) => {
+                const mark = child ? (
+                  <AccountMark
+                    size="dot"
+                    aria-hidden="true"
+                    {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}
+                  >
+                    {null}
+                  </AccountMark>
+                ) : (
+                  <AccountHoverCard
+                    info={seat.info}
+                    account={seat.account}
+                    side="right"
+                    align="start"
+                    className={styles.seatTrigger}
+                    /* The same verbs as the badge's card on the row below: two
+                       cards for one account that offered different things were
+                       the whole of the complaint. The sidebar's Dashboard opens
+                       the dashboard on everything; this opens it on this seat. */
+                    onOpenUsage={onOpenUsage}
+                  >
                     <AccountMark
-                      size="dot"
-                      aria-hidden="true"
-                      {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}
+                      size="sm"
+                      {...(seat.account
+                        ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
+                        : seat.state === 'signin' && seat.known
+                          ? { 'data-off': '' }
+                          : {})}
                     >
-                      {null}
+                      <RuntimeMark runtime={seat.info} size={13} />
                     </AccountMark>
-                  )}
-                  <span className={styles.seatText} title={seat.sub} data-identity={seat.sub}>
-                    <Text role="navigation" truncate className={styles.seatName}>{labelOf(seat)}</Text>
-                    {(() => {
-                      const tag = tagOf(seat)
-                      return tag ? <Text role="meta" truncate className={styles.seatTag}>{tag}</Text> : null
-                    })()}
-                  </span>
-                  {/* What is left, where it is measured; otherwise the one word
-                      that is wrong. A ready seat with nothing metered says
-                      nothing. */}
-                  {seat.figure ? (
-                    <Text role="muted" tone={usageReadingTone(seat.tone)} numeric className={styles.seatFigure}>
-                      {seat.figure}
-                    </Text>
-                  ) : seat.state !== 'ready' && seat.state !== 'available' && (seat.known || seat.state !== 'signin') ? (
-                    <Text role="meta" tone={readinessTone(seat.state)} className={styles.seatFigure}>
-                      {READINESS_LABEL[seat.state]}
-                    </Text>
-                  ) : null}
-                </MenuItem>
-              )
+                  </AccountHoverCard>
+                )
+                // What is left, where it is measured; otherwise the one word
+                // that is wrong. A ready seat with nothing metered says nothing.
+                const figure: MenuAccountFigure | undefined = seat.figure
+                  ? { kind: 'reading', text: seat.figure, tone: usageReadingTone(seat.tone) }
+                  : seat.state !== 'ready' && seat.state !== 'available' && (seat.known || seat.state !== 'signin')
+                    ? { kind: 'word', text: READINESS_LABEL[seat.state], tone: readinessTone(seat.state) }
+                    : undefined
+                return (
+                  <MenuAccountRow
+                    key={seat.key}
+                    mark={mark}
+                    // The name is the account's own — yours, or the address it
+                    // was signed in with — so the identity under it only said
+                    // it again. It is the name's tooltip (not the row's, which
+                    // would sit over the mark's card) and whole on the card.
+                    // The name gives way before the tag: the tag is the word
+                    // that tells two rows apart.
+                    name={labelOf(seat)}
+                    identity={seat.sub}
+                    tag={tagOf(seat)}
+                    figure={figure}
+                    current={seat.current}
+                    expanded={seat.current && chairs.length > 1 ? accountsOpen : undefined}
+                    keepOpen={seat.current && chairs.length > 1}
+                    onSelect={() => {
+                      if (seat.current && chairs.length > 1) {
+                        setAccountsOpen((value) => !value)
+                        setUsageOpen(false)
+                        return
+                      }
+                      void store.selectRuntime(seat.info.id)
+                    }}
+                  />
+                )
+              }
               if (all.length === 1) return renderSeat(group[0]!, false)
               // Folded to the default alone, the group keeps its place (and
               // the row its focus) but draws no heading: one row, its mark.

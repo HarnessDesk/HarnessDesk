@@ -290,8 +290,8 @@ body {
      a size and its line are one decision, so they are named together and a
      surface picks the pair. */
   --hd-line-xs: 16px;
-  --hd-line-sm: 18px;
-  --hd-line: 21px;
+  --hd-line-sm: 20px; /* desk: 18 → 20, onto the 4px grid so a lead centres on a whole pixel */
+  --hd-line: 20px; /* desk: 21 → 20, onto the 4px grid; the 16px step above it already was */
   --hd-line-lg: 24px;
   --hd-line-heading: 28px;
   --hd-line-title: 30px;
@@ -415,6 +415,9 @@ body {
   --hd-bar-gap: var(--hd-space-1-5);
   /* Where a boxed control's edge sits. */
   --hd-bar-pad: var(--hd-space-2);
+  /* The sidebar's own row indent — `PaneColumn`'s `rail` inset, and what the
+     rail shares with the bar's own edge above. */
+  --hd-rail-inset: var(--hd-bar-pad);
   /* And where a label lands once a control has been composed: that inset, the
      control's own padding, and the hairline it reserves whether or not it
      paints one. A thing with no box of its own — a wordmark, a page title, a
@@ -1091,7 +1094,25 @@ body {
    * unchanged everywhere, and Studio's four declarations are what make six
    * cards one card.
    */
-  --hd-card-padding: var(--hd-space-4);
+  /* The inset tiers: one padding per density, used whole on every slot of a
+     surface — header, body, footer, divider gutter all read the same tier,
+     the way shadcn's Card keeps one `px-6` for every slot rather than a
+     header at one inset and a body at another. Four tiers, matched to what
+     is inside the surface rather than to the surface's size: `dense` is a
+     menu item inside its panel's own padding, `row` a settings or list row,
+     `card` the app's one card shape, `dialog` a modal's edge. Vertical
+     insets on a surface built from these are symmetric — top equals bottom —
+     because an off-centre panel reads as a bug even when nobody can say
+     which side is wrong. */
+  --hd-inset-dense: var(--hd-space-2);
+  --hd-inset-row: var(--hd-space-3);
+  --hd-inset-card: var(--hd-space-4);
+  --hd-inset-dialog: var(--hd-space-6);
+
+  /* `--hd-card-padding` is the card tier by another name, kept so the
+     hundred call sites already reading it move with the tier rather than
+     forking a second value. New work reads `--hd-inset-card` directly. */
+  --hd-card-padding: var(--hd-inset-card);
   --hd-card-gap: var(--hd-space-3);
 
   /* The readiness chip: a pill, because it reports a state rather than

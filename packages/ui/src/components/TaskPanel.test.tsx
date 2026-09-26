@@ -7,6 +7,7 @@ import { sessionKey, type RuntimeId, type Session } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TaskPanel } from './TaskPanel'
+import checklistCss from '../design/patterns/Checklist.module.css?raw'
 
 /**
  * The sidebar's Tasks panel, through the DOM.
@@ -132,7 +133,10 @@ describe('TaskPanel', () => {
     )
     expect(text()).toContain('Tasks · 1/3')
     expect(text()).toContain('write the spec')
-    expect(text()).toContain('in progress')
+    // The state is the mark, named for a screen reader, not a word in a column.
+    const items = [...container.querySelectorAll('li')]
+    expect(items.map((item) => item.getAttribute('data-state'))).toEqual(['done', 'active', 'pending'])
+    expect(items[1]?.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('In progress')
   })
 
   it('strikes a finished task through as done text, with its mark on the label\'s first line', () => {
@@ -141,13 +145,24 @@ describe('TaskPanel', () => {
       's1',
     )
     const items = [...container.querySelectorAll('li')]
-    const label = (item: Element | undefined) => item?.querySelector('button [data-slot="text"][data-role="value"]')
-    expect(label(items[0])?.hasAttribute('data-done')).toBe(true)
-    expect(label(items[1])?.hasAttribute('data-done')).toBe(false)
-    // The row itself is no longer the thing struck through.
-    expect(items[0]?.querySelector('button')?.hasAttribute('data-done')).toBe(false)
-    const mark = items[0]?.querySelector('[data-mark]')
-    expect(mark?.getAttribute('data-role')).toBe('value')
+    expect(items[0]?.getAttribute('data-state')).toBe('done')
+    expect(items[1]?.getAttribute('data-state')).toBe('pending')
+    // The mark is its own slot beside the words, not part of the button.
+    expect(items[0]?.querySelector('button [role="img"]')).toBeNull()
+    expect(items[0]?.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('Done')
+
+    /*
+     * The reword label is a `Button`, which a browser will not draw an
+     * ancestor's `text-decoration` or inherit its colour through — jsdom
+     * does not compute CSS module rules at all, so the strike itself has to
+     * be read from the label carrying the state a real browser keys the
+     * rule on, and the rule's own text has to be read from the sheet rather
+     * than from a computed style neither engine can produce here.
+     */
+    const label = items[0]?.querySelector('[data-slot="button"]')
+    expect(label?.getAttribute('data-state')).toBe('done')
+    expect(items[1]?.querySelector('[data-slot="button"]')?.getAttribute('data-state')).toBe('pending')
+    expect(checklistCss).toMatch(/\.item\[data-state='done'\]\s*\.body\s*\[data-slot='button'\]\s*\{[^}]*text-decoration:\s*line-through/s)
   })
 
   it('is the *other* session’s plan when the other session is the one on screen', () => {

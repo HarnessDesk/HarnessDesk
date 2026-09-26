@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { Button, Chip, Note, Row, Rows, Section, Switch } from '../design'
 import { captureForRoot, captureWords } from '../lib/provenance'
@@ -37,24 +37,50 @@ export const ProjectProvenance = ({ root }: { readonly root: string }) => {
     catch { if (activeRoot.current === root) setProblem(enabled === undefined ? 'Capture could not be retried.' : 'The capture preference could not be saved.') }
     finally { if (activeRoot.current === root) setBusy(false) }
   }
-  // Retrying is the section's own action, at its heading's end, rather than
-  // a lone button left hanging over whatever card comes next.
-  const retry = snapshot.status === 'open' && !knownNonGit && !loading && !failed && health
-    ? <Button variant="outline" size="sm" disabled={busy || !health.enabled} onClick={() => void change()}>Retry capture</Button>
-    : undefined
-  return <Section title="Provenance" {...(retry ? { action: retry } : {})}>
-    {snapshot.status !== 'open' ? <Note>Capture status is unavailable while disconnected.</Note>
-      : knownNonGit ? <><Rows><Row title="Capture on this machine" control={<Switch checked={false} disabled aria-label="Capture provenance on this machine" />} /></Rows><Note>This folder has no Git history to capture.</Note></>
-      : loading ? <Note>Reading capture status…</Note>
-      : failed ? <><Note>Capture status could not be read.</Note><Button variant="secondary" onClick={refresh}>Retry status</Button></>
-      : !health ? <><Rows><Row title="Capture on this machine" control={<Switch checked={false} disabled aria-label="Capture provenance on this machine" />} /></Rows><Note>{knownNonGit ? 'This folder has no Git history to capture.' : 'Capture is unavailable for this folder.'}</Note></>
-      : <><Rows>
-        <Row title="Capture on this machine" desc="Keep links from changes to the Seats and conversations that produced them." control={<Switch checked={health.enabled} disabled={busy} aria-label="Capture provenance on this machine" onCheckedChange={(enabled) => void change(enabled)} />} />
-        <Row title={captureWords(health).label} desc={`${health.reason} ${health.nextStep}`} control={<Chip tone={captureWords(health).tone} label={captureWords(health).label} />} />
+  const open = snapshot.status === 'open'
+  // Two rows and nothing around them: the setting, then how it is going.
+  // The state's word is the status row's title, said once — never a title
+  // and a chip repeating each other — with the host's reason under it and
+  // the one thing to do about it on the row's end.
+  const status = (tone: 'success' | 'warning' | 'neutral' | 'danger', label: string, desc: string, action?: ReactNode) => (
+    <Row title={<Chip tone={tone} label={label} />} desc={desc} {...(action ? { control: action } : {})} />
+  )
+  const statusRow = !open
+    ? status('neutral', 'Offline', 'Capture status is unavailable while disconnected.')
+    : knownNonGit
+      ? status('neutral', 'No history', 'This folder has no Git history to capture.')
+      : loading
+        ? status('neutral', 'Checking', 'Reading capture status…')
+        : failed
+          ? status('danger', 'Unknown', 'Capture status could not be read.', <Button variant="outline" size="sm" onClick={refresh}>Retry status</Button>)
+          : !health
+            ? status('neutral', 'Unavailable', 'Capture is unavailable for this folder.')
+            : status(
+                captureWords(health).tone,
+                captureWords(health).label,
+                [
+                  health.reason,
+                  health.enabled ? health.nextStep : 'Turn capture on before retrying.',
+                  health.pending > 0 ? `${health.pending} commits are waiting for capture.` : '',
+                  health.gaps > 0 ? 'Some historical transitions are unavailable. Retrying cannot recreate history Git no longer has.' : '',
+                ].filter(Boolean).join(' '),
+                <Button variant="outline" size="sm" disabled={busy || !health.enabled} onClick={() => void change()}>Retry capture</Button>,
+              )
+  // The switch is only offered once the state it would change is known.
+  const settled = open && !loading && !failed
+  return (
+    <Section title="Provenance">
+      <Rows>
+        <Row
+          title="Capture on this machine"
+          desc="Links each change to the Seat and conversation that produced it."
+          {...(settled
+            ? { control: <Switch checked={health?.enabled ?? false} disabled={!health || busy} aria-label="Capture provenance on this machine" onCheckedChange={(enabled) => void change(enabled)} /> }
+            : {})}
+        />
+        {statusRow}
       </Rows>
-      {health.pending > 0 && <Note>{`${health.pending} commits are waiting for capture.`}</Note>}
-      {health.gaps > 0 && <Note>Some historical transitions are unavailable. Retrying cannot recreate history Git no longer has.</Note>}
-      {problem && <Note>{problem}</Note>}
-      {!health.enabled && <Note>Turn capture on before retrying.</Note>}</>}
-  </Section>
+      {problem ? <Note>{problem}</Note> : null}
+    </Section>
+  )
 }

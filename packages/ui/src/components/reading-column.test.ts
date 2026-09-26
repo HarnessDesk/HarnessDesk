@@ -7,6 +7,7 @@ import roomCss from './TeamRoomPane.module.css?raw'
 import conversationTsx from './Conversation.tsx?raw'
 import roomTsx from './TeamRoomPane.tsx?raw'
 import composerSystem from '../design/ui/composer.tsx?raw'
+import paneColumnTsx from '../design/patterns/PaneColumn.tsx?raw'
 
 /**
  * One measure, in both places a person reads a conversation.
@@ -119,7 +120,25 @@ it.each([
  */
 
 it('the transcript’s bars are inset by the gutter its stream reserves (inline)', () => {
-  expect(conversationTsx).toMatch(/var\(--hd-scrollbar-width/)
+  // Composed, not spelled: the transcript's scroll box asks `PaneColumn` for
+  // `reading`, and its bars strip for `bars` — only `bars` needs the gutter
+  // compensation asserted below, since it is not itself a scroll box.
+  expect(conversationTsx).toMatch(/<PaneColumn\s[^>]*inset="reading"/)
+  expect(conversationTsx).toMatch(/<PaneColumn\s[^>]*inset="bars"/)
+  expect(paneColumnTsx).toMatch(/bars: 'calc\(var\(--hd-space-6\) \+ var\(--hd-scrollbar-width, 8px\)\)'/)
+})
+
+/**
+ * The regression #1016's review caught: `reading` is the transcript's own
+ * scroll box too, and that box already reserves the gutter physically
+ * (`scrollbar-gutter: stable both-edges`, asserted above). Adding the same
+ * `--hd-scrollbar-width` a second time into `reading`'s own padding — as
+ * `bars` correctly does, being no scroll box itself — double-counted it,
+ * narrowing the transcript 16px against the composer under it below the
+ * column's own cap. `reading` must stay the one flat value.
+ */
+it('the reading column does not double the gutter its own scroll box already reserves', () => {
+  expect(paneColumnTsx).toMatch(/reading: 'var\(--hd-space-6\)',/)
 })
 
 it('the room’s composer and its tail are inset by the gutter its stream reserves', () => {
@@ -146,6 +165,7 @@ it('the transcript’s composer is inset by the gutter its stream reserves', () 
 it('every read of the scrollbar gutter carries its own fallback', () => {
   for (const [what, css] of [
     ['design/ui/composer.tsx', composerSystem],
+    ['design/patterns/PaneColumn.tsx', paneColumnTsx],
     ['Conversation.module.css', conversationCss],
     ['TeamRoomPane.module.css', roomCss],
   ] as const) {

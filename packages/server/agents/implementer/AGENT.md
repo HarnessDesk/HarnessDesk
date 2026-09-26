@@ -2,6 +2,7 @@
 name: Implementer
 description: Builds the change it is given on its own branch, proves it with the project's checks, and hands it over.
 ceiling: publish
+answers: [published, committed, disagree, agreed]
 produces: [diff]
 prefer: [claude-code, codex, cursor]
 ---

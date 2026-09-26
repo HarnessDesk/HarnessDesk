@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
@@ -16,6 +16,8 @@ import { emptySnapshot, type AppStore } from '../../state/store'
 import {
   AccountMark,
   ComposerNotice,
+  Checklist,
+  ChecklistItem,
   ComposerNoticeStack,
   InboxPanel,
   InboxList,
@@ -84,6 +86,7 @@ import {
   NavigationGroupHeader,
   Note,
   NoteList,
+  PaneColumn,
   PopoverSurface,
   RefusedAction,
   SectionHead,
@@ -170,6 +173,17 @@ const MESSAGE_CATALOG_ALIGN = ['start', 'end'] as const
 const MESSAGE_CATALOG_VARIANTS = ['start', 'end'] as const
 const MESSAGE_CATALOG_SIZES = ['default'] as const
 const MESSAGE_CATALOG_STATES = ['default'] as const
+/** The transcript's own vertical rhythm — the one named `rhythm` value. */
+const MESSAGE_CATALOG_RHYTHM = ['transcript'] as const
+/** `PaneColumn`'s own shapes: the reading column both the transcript's scroll
+ *  box and the room's stream share, the bars strip above the transcript's
+ *  composer, the sidebar's rail, and the jobs strip nested in the bars. */
+const PANECOLUMN_CATALOG_INSET = ['reading', 'bars', 'rail', 'jobs'] as const
+/** `PaneColumn` has no variant, size or state of its own — `inset` carries
+ *  the whole contract — so these three match the manifest's own `['default']`. */
+const PANECOLUMN_CATALOG_VARIANTS = ['default'] as const
+const PANECOLUMN_CATALOG_SIZES = ['default'] as const
+const PANECOLUMN_CATALOG_STATES = ['default'] as const
 
 const ButtonBoard = () => (
   <>
@@ -244,6 +258,14 @@ const StateBoard = () => (
         <Chip tone="warning">Warning</Chip>
         <Chip tone="danger">Danger</Chip>
         <Chip tone="info">Info</Chip>
+      </Case>
+      <Case label="chip with its own dot tone">
+        {/* The conversation header's status pill: neutral while running, and
+            the one moving mark — the dot alone — brand and pulsing, so the
+            pill does not shout through most of a turn. */}
+        <Chip tone="neutral" dotTone="brand" dotPulse>Running</Chip>
+        <Chip tone="warning" dotTone="warning">Waiting on you</Chip>
+        <Chip tone="danger" dotTone="danger">Failed</Chip>
       </Case>
       <Case label="outline tag">
         <Chip tone="neutral" size="sm" variant="outline" emphasis>Loaded first</Chip>
@@ -630,6 +652,34 @@ const NOTICE_INBOX: InboxMessage[] = [
   { id: 'i2', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 is ready.', at: NOTICE_NOW - 2 * 3_600_000 },
   { id: 'i3', from: 'Checkout hardening', title: 'Goal finished', body: 'Checkout hardening closed its last card.', at: NOTICE_NOW - 26 * 3_600_000, read: true },
 ]
+
+/* The plan list the Tasks panel and the transcript both draw: every state a
+   step can be in, a long step that wraps under its first line, and a
+   priority chip on the step's own line. */
+const ChecklistBoard = () => (
+  <div className={styles.stack}>
+    <Case label="every state, and a long step wrapping under its first line">
+      <div style={{ width: 'calc(var(--hd-space-16) * 4)' }}>
+        <Checklist label="Tasks">
+          <ChecklistItem state="done">Inspect fetchJson and list the inputs it accepts</ChecklistItem>
+          <ChecklistItem state="active">Define validation rules: a URL string, non-empty, and http or https only</ChecklistItem>
+          <ChecklistItem state="pending" after={<Chip size="sm" tone="neutral">high</Chip>}>
+            Implement validation in fetchHelper.js with clear error messages
+          </ChecklistItem>
+          <ChecklistItem state="pending">Add tests for invalid inputs and the happy path</ChecklistItem>
+        </Checklist>
+      </div>
+    </Case>
+    <Case label="all done">
+      <div style={{ width: 'calc(var(--hd-space-16) * 4)' }}>
+        <Checklist>
+          <ChecklistItem state="done">Explore the repo</ChecklistItem>
+          <ChecklistItem state="done">Ship it</ChecklistItem>
+        </Checklist>
+      </div>
+    </Case>
+  </div>
+)
 
 const NOTICE_ASK: NoticeMessage = {
   id: 'ask',
@@ -1117,6 +1167,98 @@ const CodeBoard = () => (
   </div>
 )
 
+/** A line of text or a rail row, standing in for real content — the same
+ *  plain-rectangle convention this board already draws other rows in. */
+const messageRows = (
+  <>
+    <div className="h-3 w-4/5 rounded-full bg-(--hd-muted)" />
+    <div className="h-3 w-3/5 rounded-full bg-(--hd-muted)" />
+    <div className="h-3 w-2/3 rounded-full bg-(--hd-muted)" />
+  </>
+)
+const railRows = (
+  <>
+    <div className="h-4 w-full rounded-(--hd-radius-sm) bg-(--hd-muted)" />
+    <div className="h-4 w-full rounded-(--hd-radius-sm) bg-(--hd-muted)" />
+    <div className="h-4 w-full rounded-(--hd-radius-sm) bg-(--hd-muted)" />
+  </>
+)
+
+/**
+ * `PaneColumn`'s own inset, made visible rather than asserted: the outer box
+ * is the pane's edge, the inner bordered box is where its content actually
+ * starts, and the gap between the two — read back from `getComputedStyle`,
+ * not typed here — is the padding `PaneColumn` adds. A moved token shows up
+ * in this number the day it moves, rather than in a caption nobody edited.
+ */
+const PaneColumnDemo = (props: {
+  inset: (typeof PANECOLUMN_CATALOG_INSET)[number]
+  /** Only meaningful (and only ever passed) alongside `inset="reading"` —
+   *  `PaneColumn` itself is what actually holds the two apart by type. */
+  clearComposer?: boolean
+  rows: React.ReactNode
+  /** Unused here — `PaneColumn` below already carries its own. Accepted so
+   *  the coverage scan (`ui-catalog.mjs`) finds the attribute in the map
+   *  that renders this case, not only inside this component's own body. */
+  'data-catalog-inset'?: string
+}) => {
+  const { inset, rows } = props
+  const clearComposer = props.inset === 'reading' && (props.clearComposer ?? false)
+  const column = useRef<HTMLDivElement>(null)
+  const [meta, setMeta] = useState('')
+  useEffect(() => {
+    const el = column.current
+    if (!el) return
+    const read = (): void => {
+      const style = getComputedStyle(el)
+      const inline = Math.round(parseFloat(style.paddingLeft))
+      const top = Math.round(parseFloat(style.paddingTop))
+      const bottom = Math.round(parseFloat(style.paddingBottom))
+      const vertical = clearComposer
+        ? `bottom clears the composer (${bottom}px)`
+        : top > 0
+          ? `block ${top}px`
+          : null
+      setMeta([`inline ${inline}px`, vertical].filter(Boolean).join(' · '))
+    }
+    read()
+    const observer = new ResizeObserver(read)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [clearComposer])
+
+  return (
+    <div className="flex w-60 flex-col gap-(--hd-space-1)">
+      <div
+        className="relative overflow-hidden rounded-(--hd-radius-md) border border-(--hd-border) bg-(--hd-card)"
+        style={{ height: clearComposer ? 132 : 104, '--composer-h': '28px' } as React.CSSProperties}
+      >
+        {props.inset === 'reading' ? (
+          <PaneColumn ref={column} inset="reading" clearComposer={props.clearComposer} data-catalog-inset={inset} className="h-full">
+            <div className="flex h-full flex-col justify-center gap-(--hd-space-1-5) rounded-(--hd-radius-sm) border border-(--hd-border-heavy) p-(--hd-space-1-5)">
+              {rows}
+            </div>
+          </PaneColumn>
+        ) : (
+          <PaneColumn ref={column} inset={props.inset} data-catalog-inset={inset} className="h-full">
+            <div className="flex h-full flex-col justify-center gap-(--hd-space-1-5) rounded-(--hd-radius-sm) border border-(--hd-border-heavy) p-(--hd-space-1-5)">
+              {rows}
+            </div>
+          </PaneColumn>
+        )}
+        {clearComposer && (
+          <div className="absolute inset-x-0 bottom-0 h-7 border-t border-(--hd-border) bg-(--hd-muted)" />
+        )}
+      </div>
+      {/* The case's own caption line, below the pane box rather than over
+          it — a case whose frame it would otherwise sit across. */}
+      <Text as="div" role="meta" numeric className="text-(--hd-muted-foreground)">
+        {meta}
+      </Text>
+    </div>
+  )
+}
+
 /**
  * The transcript's own two message parts: `Message`, the row and its
  * alignment, and `Bubble`, what the words stand on. The rows below are the
@@ -1147,6 +1289,20 @@ const MessageBoard = () => (
               <BubbleContent>
                 {align === 'end' ? 'The current person, right-aligned.' : 'Everyone else, at the left.'}
               </BubbleContent>
+            </Bubble>
+          </Message>
+        </Case>
+      ))}
+      {MESSAGE_CATALOG_RHYTHM.map((rhythm) => (
+        <Case key={rhythm} label={`message rhythm: ${rhythm}`}>
+          <Message align="end" rhythm={rhythm} data-catalog-rhythm={rhythm}>
+            <Bubble variant="secondary">
+              <BubbleContent>Sent, spaced at the transcript's own rhythm.</BubbleContent>
+            </Bubble>
+          </Message>
+          <Message align="start" rhythm={rhythm} data-catalog-rhythm={rhythm}>
+            <Bubble variant="ghost">
+              <BubbleContent>Answered, at its own six px each way.</BubbleContent>
             </Bubble>
           </Message>
         </Case>
@@ -1204,6 +1360,33 @@ const MessageBoard = () => (
       thirds of the column; <code>ghost</code> is everyone else&rsquo;s, unframed and the full
       row, because rendered prose is a document rather than a chip. The room&rsquo;s
       own channel line (the Channel board) stands on the same two parts.
+    </p>
+    <div
+      className={styles.matrix}
+      data-catalog-variants={PANECOLUMN_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={PANECOLUMN_CATALOG_SIZES.join(' ')}
+      data-catalog-states={PANECOLUMN_CATALOG_STATES.join(' ')}
+    >
+      {PANECOLUMN_CATALOG_INSET.map((inset) => (
+        <Case key={inset} label={`pane column: ${inset}`}>
+          <PaneColumnDemo inset={inset} data-catalog-inset={inset} rows={inset === 'rail' ? railRows : messageRows} />
+        </Case>
+      ))}
+      <Case label="pane column: reading, clearing a composer">
+        <PaneColumnDemo inset="reading" clearComposer rows={messageRows} />
+      </Case>
+    </div>
+    <p className={styles.rule}>
+      <code>PaneColumn</code> is the inline-and-bottom inset a scrolling pane's own
+      reading column keeps. <code>reading</code> is that column itself — the
+      transcript's own scroll box, which also clears its floating composer, and the
+      room's stream, which does not — one inset, since a non-scrolling sibling's
+      `scrollbar-gutter` reservation already supplies the rest for either. <code>bars</code>
+      differs for a stated reason: the strip above the transcript's composer is not
+      itself a scroll box, so it adds that gutter back explicitly. <code>rail</code> is
+      the sidebar's own row indent, and <code>jobs</code> a smaller strip nested inside
+      <code>bars</code>. The small number in the corner of each is read off the
+      rendered box's own computed style, not written here.
     </p>
   </div>
 )
@@ -1551,6 +1734,12 @@ export const BOARDS: Board[] = [
     title: 'Face',
     about: 'A person, drawn: the face they chose, or the house mark.',
     render: FaceBoard,
+  },
+  {
+    id: 'checklist',
+    title: 'Checklist',
+    about: 'An agent\u2019s plan, in the Tasks panel and the transcript: the mark says the state, centred on the step\u2019s first line.',
+    render: ChecklistBoard,
   },
   {
     id: 'notices',

@@ -18,6 +18,13 @@ import { cn } from '@/lib/utils'
  * assistant, an agent, another sender in a room — `end` is the current
  * person's own words. Both read left to right; only the row's own edge moves.
  *
+ * `rhythm` is the other: `transcript` gives the row the vertical air the
+ * conversation's own transcript reads at — 12px above a sent message and 4px
+ * below it, 6px each way for an answer — as an explicit option rather than
+ * silently by `align`, because the room's `ChannelMessage` stands on
+ * `align="start"` too and must keep its own look. Absent, a row carries none
+ * of its own; a caller outside the transcript spaces itself.
+ *
  * The registry's `MessageHeader` (a name above the bubble) is not here. Only
  * one screen would ever call it — the transcript has no header, alignment
  * alone says who spoke — and a part with one caller, kept only to round out
@@ -31,17 +38,24 @@ const messageVariants = cva('flex w-full min-w-0 flex-col gap-(--hd-space-1-5)',
       start: 'items-start',
       end: 'items-end',
     },
+    rhythm: {
+      transcript: '',
+    },
   },
+  compoundVariants: [
+    { align: 'end', rhythm: 'transcript', class: 'py-(--hd-space-3) pb-(--hd-space-1)' },
+    { align: 'start', rhythm: 'transcript', class: 'py-(--hd-space-1-5)' },
+  ],
   defaultVariants: { align: 'start' },
 })
 
 type MessageProps = React.ComponentProps<'div'> & VariantProps<typeof messageVariants>
 
-const Message = ({ className, align, ...props }: MessageProps) => (
+const Message = ({ className, align, rhythm, ...props }: MessageProps) => (
   <div
     data-slot="message"
     data-align={align ?? 'start'}
-    className={cn(messageVariants({ align }), className)}
+    className={cn(messageVariants({ align, rhythm }), className)}
     {...props}
   />
 )
