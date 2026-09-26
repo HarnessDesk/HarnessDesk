@@ -77,7 +77,6 @@ import {
   Message,
   MessageContent,
   MessageFooter,
-  MessageHeader,
   MetaList,
   Monogram,
   NavigationGroupHeader,
@@ -1175,17 +1174,16 @@ const MessageBoard = () => (
         </StoreProvider>
       </div>
     </Case>
-    <Case label="header and content, composed directly — a screen with a name to show">
-      <div className="w-full" data-testid="message-header-content">
-        <Message align="start">
-          <MessageHeader>
-            <Text role="subject">Reviewer</Text>
-            <Text role="meta" ink="secondary">codex</Text>
-          </MessageHeader>
-          <MessageContent>
+    <Case label="content composed directly — the surface and a footer, without a screen's own row">
+      <div className="w-full" data-testid="message-content-direct">
+        <Message align="end">
+          <MessageContent className="items-end">
             <Bubble variant="secondary">
               <BubbleContent>Looks right.</BubbleContent>
             </Bubble>
+            <MessageFooter align="end">
+              <Text as="span" role="meta" numeric>10:41 AM</Text>
+            </MessageFooter>
           </MessageContent>
         </Message>
       </div>

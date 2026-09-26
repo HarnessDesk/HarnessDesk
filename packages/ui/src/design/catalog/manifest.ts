@@ -450,7 +450,7 @@ export const CANONICAL_UI_MODULES = [
   ['label', 'field', 'Native form label'],
   ['list-row', 'list', 'Generic selectable list row'],
   ['marker', 'adopted', 'Status marker'],
-  ['message', 'message', 'Chat message part: row, alignment, header and footer'],
+  ['message', 'message', 'Chat message part: row, alignment, content and footer'],
   ['native-select', 'control', 'Native finite-choice select'],
   ['popover', 'propagation', 'Base UI anchored popup parts'],
   ['progress', 'readings', 'Progress and usage meter'],
