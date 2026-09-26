@@ -226,12 +226,14 @@ const StateBoard = () => (
         <Dot state="signin" />
         <Dot state="limit" />
         <Dot state="broken" />
+        <Dot state="unknown" />
         <Dot state="signin" pulse />
       </Case>
       <Case label="chip">
         <Chip state="ready" />
         <Chip state="available" />
         <Chip state="signin" />
+        <Chip state="unknown" />
       </Case>
       <Case label="chip, said better">
         <Chip state="limit" label="Out of weekly credit until Thursday" />
@@ -308,7 +310,7 @@ const StateBoard = () => (
       </Case>
     </div>
     <p className={styles.rule}>
-      Readiness keeps its five states and dot. A toned chip judges any other compact fact; a tinted
+      Readiness keeps its six states and dot. A toned chip judges any other compact fact; a tinted
       chip identifies one. The emphatic brand form marks the current item. Stale crosses out what is
       no longer current, while unknown says the fact cannot be determined. Pull requests and checks
       take their label and tone from one <code>stateTone</code> map.

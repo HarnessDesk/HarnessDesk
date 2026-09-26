@@ -1,7 +1,7 @@
 /*
  * The vocabulary every settings surface is built from.
  *
- * One dot with five states, one row anatomy, one control set. A surface that
+ * One dot with six states, one row anatomy, one control set. A surface that
  * needs a switch reaches for `.toggle` here rather than growing its own, which
  * is how two pages that look alike stay alike after someone edits one of them.
  *

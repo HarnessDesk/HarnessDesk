@@ -7,6 +7,16 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An agent that has not answered yet no longer reads as signed out.**
+  Readiness used to have one guess for both "nobody is signed in" and "still
+  loading, or the read failed" — so while an account was on its way in, the
+  menu bar and the header strip claimed a sign-in was needed for however long
+  that took, even though the footer and the seat menu already stayed neutral
+  about the same agent. Readiness now has a state for not knowing yet, and
+  every surface draws it the same quiet way: the menu bar, the header strip,
+  the Dashboard's "has nothing to report" card, and the seat menu, whose five
+  hand-written checks for this collapse into the one state. (#986)
+
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per
   conversation — "cannot pass a lane environment to a session" — so a

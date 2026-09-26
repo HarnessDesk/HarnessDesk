@@ -50,6 +50,14 @@ describe('readinessOf', () => {
     expect(readinessOf({ registered: true, health: { state: 'ready' }, account: noAccount })).toBe('signin')
   })
 
+  it('says it has not answered yet rather than guessing a sign-in is needed', () => {
+    // No account object at all — still loading, or a read that failed and
+    // left nothing behind — is not the same fact as one that came back with
+    // an empty list. Before this both read `signin`.
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: null })).toBe('unknown')
+    expect(readinessOf({ registered: true, health: { state: 'ready' }, account: undefined })).toBe('unknown')
+  })
+
   it('reads a spent window from the agent, not from a failure', () => {
     expect(
       readinessOf({
@@ -116,6 +124,11 @@ describe('worstReadiness', () => {
   it('lets a broken agent outrank everything', () => {
     expect(worstReadiness(['signin', 'broken', 'limit'])).toBe('broken')
   })
+
+  it('never lets not-having-answered hide an answer that did arrive', () => {
+    expect(worstReadiness(['unknown', 'ready'])).toBe('ready')
+    expect(worstReadiness(['unknown', 'signin'])).toBe('signin')
+  })
 })
 
 describe('isBlocking', () => {
@@ -123,6 +136,10 @@ describe('isBlocking', () => {
     expect(isBlocking('available')).toBe(false)
     expect(isBlocking('ready')).toBe(false)
     expect(isBlocking('signin')).toBe(true)
+  })
+
+  it('leaves an agent that has not answered yet quiet too', () => {
+    expect(isBlocking('unknown')).toBe(false)
   })
 })
 

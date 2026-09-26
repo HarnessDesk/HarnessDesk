@@ -138,9 +138,13 @@ export const agentReadiness = (
     })
     .filter((state): state is Readiness => state !== null)
   if (answered.length > 0) return worstReadiness(answered)
-  // Nothing signed in anywhere. An agent that runs without an account is
-  // ready like that; every other one is waiting on a credential.
-  return siblings.some((entry) => entry.capabilities.account) ? 'signin' : 'ready'
+  // Nothing signed in anywhere — or not yet known which. An agent that runs
+  // without an account is ready like that; one still waiting on any sibling's
+  // `runtime/account` has not said it needs a credential, only that it has
+  // not answered; every other one is waiting on one.
+  const relevant = siblings.filter((entry) => entry.capabilities.account)
+  if (relevant.length === 0) return 'ready'
+  return relevant.every((entry) => view.accountsByRuntime[entry.id] !== undefined) ? 'signin' : 'unknown'
 }
 
 /**

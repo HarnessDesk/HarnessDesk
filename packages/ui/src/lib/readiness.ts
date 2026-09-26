@@ -9,13 +9,21 @@ import { isBlocked, workingAccount } from './usage'
  * Before this, each surface answered a different question about the same
  * agent: settings said who you were signed in as, the dashboard said what you
  * had spent, the header said what was left — and none of them said whether a
- * turn sent right now would start. These five states say exactly that, and
+ * turn sent right now would start. These six states say exactly that, and
  * they are the only states any surface may draw.
  *
+ * `unknown` is not a guess at any of the other five: an agent that has not
+ * yet answered who is signed in — still loading, or a read that failed and
+ * left no account behind — is not the same fact as one that answered "nobody
+ * is signed in", and drawing it as `signin` before this claimed a sign-in was
+ * needed for however long the read took. A surface draws `unknown` neutrally,
+ * with no claim about sign-in one way or the other.
+ *
  * The order below is the order of urgency, and `worst` relies on it: an agent
- * that is both signed in and out of credit is out of credit.
+ * that is both signed in and out of credit is out of credit. `unknown` sits
+ * last — the state that asserts nothing outranks nothing.
  */
-export type Readiness = 'ready' | 'signin' | 'limit' | 'broken' | 'available'
+export type Readiness = 'ready' | 'signin' | 'limit' | 'broken' | 'available' | 'unknown'
 
 /** Rank for `worst`: a smaller number outranks a larger one. */
 const RANK: Readonly<Record<Readiness, number>> = {
@@ -24,6 +32,7 @@ const RANK: Readonly<Record<Readiness, number>> = {
   limit: 2,
   available: 3,
   ready: 4,
+  unknown: 5,
 }
 
 /** What each state is called, everywhere it is named rather than drawn. */
@@ -33,11 +42,13 @@ export const READINESS_LABEL: Readonly<Record<Readiness, string>> = {
   limit: 'Limit reached',
   broken: 'Unavailable',
   available: 'Not added',
+  unknown: 'Not answered yet',
 }
 
 /**
  * The one thing to do about it, in the imperative. Empty for `ready`, which is
- * the state that asks nothing of anyone.
+ * the state that asks nothing of anyone — and for `unknown`, which has
+ * nothing to ask until it becomes one of the other five.
  */
 export const READINESS_ACTION: Readonly<Record<Readiness, string>> = {
   ready: '',
@@ -45,6 +56,7 @@ export const READINESS_ACTION: Readonly<Record<Readiness, string>> = {
   limit: 'Wait, or use another agent',
   broken: 'Fix, with the command',
   available: 'Add',
+  unknown: '',
 }
 
 export interface ReadinessInput {
@@ -82,6 +94,14 @@ export interface ReadinessInput {
  * request — `limit` is the agent's own report, because a 429 from a proxy is
  * not the same fact as a plan window that is over.
  *
+ * The credential check itself has two outcomes, not one: `input.account` null
+ * or undefined is *no answer yet* — `unknown` — while an account that has
+ * answered with an empty list is the answer "nobody is signed in" —
+ * `signin`. Both used to read the same, because a caller who had not heard
+ * back yet passed the same `null` a definite empty answer would, and every
+ * surface guessed `signin` for as long as the read took (or forever, if it
+ * had failed silently).
+ *
  * `limit` is an *account-wide* fact, so it is `isBlocked` that decides it and
  * never `reached` on its own: a spent model-scoped window is a limit you can
  * step around, and an agent whose Fable weekly is empty still answers on every
@@ -91,7 +111,10 @@ export interface ReadinessInput {
 export const readinessOf = (input: ReadinessInput): Readiness => {
   if (!input.registered) return 'available'
   if (input.health?.state === 'unavailable') return 'broken'
-  if (input.accounts !== false && (!input.account || input.account.accounts.length === 0)) return 'signin'
+  if (input.accounts !== false) {
+    if (!input.account) return 'unknown'
+    if (input.account.accounts.length === 0) return 'signin'
+  }
   const decided = workingAccount(input.usage ?? [])
   if (decided !== null && isBlocked(decided)) return 'limit'
   return 'ready'
@@ -106,7 +129,8 @@ export const worstReadiness = (states: readonly Readiness[]): Readiness => {
 
 /**
  * Whether this state should pull the eye. `available` is a fact about the
- * registry rather than a problem with your setup, so it stays quiet.
+ * registry rather than a problem with your setup, so it stays quiet —
+ * and `unknown` has not said there is a problem at all.
  */
 export const isBlocking = (state: Readiness): boolean =>
   state === 'signin' || state === 'limit' || state === 'broken'

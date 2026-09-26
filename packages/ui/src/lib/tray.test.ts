@@ -44,6 +44,7 @@ const report = (id: string, lanes: readonly UsageLane[], over: Partial<UsageRepo
   }) as unknown as UsageReport
 
 const signedIn = { accounts: [{ id: 'me' }], signInMethods: [] } as unknown as AccountStatus
+const signedOut = { accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] } as unknown as AccountStatus
 
 const tray = (over: Partial<Parameters<typeof describeTray>[0]> = {}) =>
   describeTray({
@@ -81,12 +82,27 @@ describe('describeTray', () => {
   })
 
   it('names the state when there is no figure, rather than an empty row', () => {
+    // Codex has answered — signed out, not merely unheard from — so the row
+    // says the real thing rather than staying quiet.
+    const summary = tray({
+      runtimes: [runtime('claude', 'Claude Code'), runtime('codex', 'OpenAI Codex')],
+      accountsByRuntime: { claude: signedIn, codex: signedOut } as never,
+      usage: [report('claude', [lane({ id: 'weekly', usedPercent: 10 })])],
+    })
+    expect(summary.agents[1]).toMatchObject({ id: 'codex', detail: 'Needs sign-in', needsSignIn: true })
+  })
+
+  it('does not call an agent needing sign-in before it has answered who is signed in', () => {
+    // Codex is absent from accountsByRuntime altogether: still loading, or a
+    // read that failed silently — not the same fact as a confirmed sign-out,
+    // and the menu bar must not claim it is.
     const summary = tray({
       runtimes: [runtime('claude', 'Claude Code'), runtime('codex', 'OpenAI Codex')],
       accountsByRuntime: { claude: signedIn } as never,
       usage: [report('claude', [lane({ id: 'weekly', usedPercent: 10 })])],
     })
-    expect(summary.agents[1]).toMatchObject({ id: 'codex', detail: 'Needs sign-in', needsSignIn: true })
+    expect(summary.agents[1]).toMatchObject({ id: 'codex', needsSignIn: false })
+    expect(summary.agents[1]?.detail).not.toBe('Needs sign-in')
   })
 
   it('names the account when two agents share a display name, as the strip does', () => {

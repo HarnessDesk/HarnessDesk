@@ -134,6 +134,7 @@ export type ChipProps = ChipBaseProps & (
 const READINESS_TONE: Record<Readiness, Tone> = {
   ready: 'success',
   available: 'neutral',
+  unknown: 'neutral',
   signin: 'brand',
   limit: 'warning',
   broken: 'danger',
