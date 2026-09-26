@@ -114,7 +114,7 @@ export const WindowNav = ({
 
 export const WindowGroup = ({ label, children }: { label: string; children: ReactNode }) => (
   <div className={styles.winGroup}>
-    <NavigationGroupHeader label={label} />
+    <NavigationGroupHeader label={label} inset="nav" />
     {children}
   </div>
 )

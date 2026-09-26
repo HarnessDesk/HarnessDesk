@@ -756,18 +756,28 @@ export const TextMark = ({
 export const NavigationGroupHeader = ({
   label,
   filtering = false,
+  inset = 'bar',
   className,
   children,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
   label: ReactNode
   filtering?: boolean
+  /**
+   * Which row's left column this header's label answers to. `'bar'` — the
+   * default — is the sidebar's, whose own filter bar carries a padding this
+   * header adds back in (`--hd-bar-ink`). A rail with no bar of its own,
+   * such as the app window's nav, reads `'nav'` instead: the row's own
+   * `--hd-nav-inset`, the same number `Button size="navigation"` uses.
+   */
+  inset?: 'bar' | 'nav'
   children?: ReactNode
 }) => (
   <div
     {...props}
     data-slot="navigation-group-header"
     {...(filtering ? { 'data-filtering': '' } : {})}
+    {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}
     className={cx(styles.navigationGroupHeader, className)}
   >
     <GroupLabel className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</GroupLabel>
