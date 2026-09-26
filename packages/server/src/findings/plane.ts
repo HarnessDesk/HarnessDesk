@@ -34,7 +34,7 @@ import type {
 import {
   evidenceRecordOf, FINDING_TEXT_LIMIT, FINDING_TITLE_LIMIT, isRelativePath, isSha, mintId, type StoredLine,
 } from '../evidence/records.js'
-import type { StoreRead } from '../evidence/store.js'
+import type { CardHint, StoreRead } from '../evidence/store.js'
 import type { FindingsGate, FlowSubject } from '../flow-evidence.js'
 import type { FindingRunSnapshot, ReviewPacketPin, RunDecisionOps } from '../flow-execution.js'
 import type { GoalDocument } from '../goals/store.js'
@@ -352,24 +352,39 @@ const hashOf = (meaning: string): string => createHash('sha256').update(meaning)
 interface Ledger {
   readonly records: readonly EvidenceRecord[]
   readonly views: readonly FindingView[]
-  /** Lines this build could not read: a ledger with any is never read as holding nothing. */
+  /** Lines this build could not read, across every Goal of the project: a ledger with any is never read as holding nothing. */
   readonly unreadable: number
-  /** Which cards named an unreadable line, when that much of it could still be read. Sorted, never longer than `unreadable`. */
-  readonly unreadableCards: readonly number[]
+  /**
+   * Which cards named an unreadable line, when that much of it could still
+   * be read — every Goal of the project, not only the one being shown. Card
+   * numbers restart at #1 in each Goal, so a card is never named without the
+   * Goal it belongs to; `unreadableNote` is what filters this down to one.
+   */
+  readonly unreadableCards: readonly CardHint[]
 }
 
+/** At most this many cards are named before the notice falls back to "and N more". */
+const NAMED_CARD_LIMIT = 3
+
 /**
- * How many evidence records could not be read, and which cards they named
- * when that much survived — read-only, never a repair: the append-only log
- * is not rewritten by naming what is wrong with a line in it. Used wherever
- * a ledger's own unreadable lines are the reason a view or a receipt is
- * incomplete, so a person can go straight to the card whose review to redo,
- * instead of only being told that something, somewhere, could not be read.
+ * How many evidence records could not be read, and which of this Goal's own
+ * cards they named when that much survived — read-only, never a repair: the
+ * append-only log is not rewritten by naming what is wrong with a line in
+ * it. The count is project-wide (an unreadable line elsewhere in the same
+ * project still means this ledger cannot be shown as complete), but a named
+ * card is always this Goal's own: the evidence file holds every Goal of a
+ * project, and card numbers restart at #1 in each, so naming one without
+ * knowing which Goal it belongs to could point a person at someone else's
+ * card. A line whose own Goal could not be told apart is counted but never
+ * named.
  */
-const unreadableNote = (ledger: Ledger, suffix: string): string => {
+const unreadableNote = (ledger: Ledger, goal: string, suffix: string): string => {
   const n = ledger.unreadable
-  const cards = ledger.unreadableCards.length > 0
-    ? ` (on card${ledger.unreadableCards.length > 1 ? 's' : ''} ${ledger.unreadableCards.map((id) => `#${id}`).join(', ')})`
+  const named = ledger.unreadableCards.filter((one) => one.board === goal)
+  const shown = named.slice(0, NAMED_CARD_LIMIT)
+  const more = named.length - shown.length
+  const cards = shown.length > 0
+    ? ` (on card${named.length > 1 ? 's' : ''} ${shown.map((one) => `#${one.id}`).join(', ')}${more > 0 ? `, and ${more} more` : ''})`
     : ''
   return `${n} evidence record${n === 1 ? '' : 's'} could not be read${cards}, so ${suffix} A person has to look.`
 }
@@ -812,7 +827,7 @@ export class FindingsPlane {
     // admitted set until its own first round closes, and a row that still said "Blocking" there would
     // disagree with this same page's own totals below.
     const rows = selected.map((view) => ({ ...view, activeBlocking: activeBlocking(view) }))
-    const problem = ledger.unreadable > 0 ? unreadableNote(ledger, 'this ledger cannot be shown as complete.') : null
+    const problem = ledger.unreadable > 0 ? unreadableNote(ledger, input.goal, 'this ledger cannot be shown as complete.') : null
     const totals = problem !== null ? null : {
       all: owned.length,
       open: owned.filter((one) => !isResolved(one)).length,
@@ -985,7 +1000,7 @@ export class FindingsPlane {
     const overrides = this.#port.flows.overridesOfGoal?.(goal) ?? []
     return {
       receipt: { version: 1, evidence: findings.flatMap((one) => one.evidence), findings, overrides },
-      gaps: ledger.unreadable > 0 ? [unreadableNote(ledger, 'this receipt’s findings may be incomplete.')] : [],
+      gaps: ledger.unreadable > 0 ? [unreadableNote(ledger, goal, 'this receipt’s findings may be incomplete.')] : [],
     }
   }
 

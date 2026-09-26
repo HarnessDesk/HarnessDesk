@@ -10,28 +10,38 @@ import {
   type SeatId,
 } from '@harnessdesk/protocol'
 
-import { AGAINST_LIMIT, isSha, mintId } from './evidence/records.js'
+import { AGAINST_LIMIT, evidenceRecordOf, isSha, mintId } from './evidence/records.js'
 import type { TeamCallScope } from './team.js'
 
 /**
- * A review's `against` list, checked by the exact rule `lineOf`'s `review`
- * case enforces when it reads one back — the same predicate (`isSha`) and
- * the same limit (`AGAINST_LIMIT`), imported from where the reader keeps
- * them, so a write-time refusal here and a read-time skip there can never
- * drift apart. What this refuses can never become a line the reader would
- * silently skip forever (#1029).
+ * A review's `against` list, checked and normalized by the exact rule
+ * `lineOf`'s `review` case enforces when it reads one back — the same
+ * predicate (`isSha`) and the same limit (`AGAINST_LIMIT`), imported from
+ * where the reader keeps them, so a write-time refusal here and a read-time
+ * skip there can never drift apart. `isSha` accepts either a SHA-1 (40 hex
+ * characters) or a SHA-256 (64) repository's id — this names no fixed length
+ * — and reads it lower case, exactly as git prints one, so an id copied from
+ * a tool that prints it upper case is lowered before the check and stored
+ * that way, rather than refused for a difference that carries no meaning.
+ * What this refuses can never become a line the reader would silently skip
+ * forever (#1029).
  */
-const checkAgainst = (against: readonly string[] | undefined): void => {
-  if (against === undefined) return
+const normalizedAgainst = (against: readonly string[] | undefined): readonly string[] | undefined => {
+  if (against === undefined) return undefined
   if (against.length > AGAINST_LIMIT) {
     throw new Error(`against must name at most ${AGAINST_LIMIT} revisions; got ${against.length}.`)
   }
-  for (let i = 0; i < against.length; i++) {
-    if (!isSha(against[i])) {
-      throw new Error(`against[${i}] must be a full commit id, 40 hex characters; got a value that is not one.`)
+  return against.map((value, i) => {
+    const lower = typeof value === 'string' ? value.toLowerCase() : value
+    if (!isSha(lower)) {
+      throw new Error(`against[${i}] must be a full commit id (run \`git rev-parse <rev>\` to get one); got a value that is not one.`)
     }
-  }
+    return lower
+  })
 }
+
+/** What `record` says when the reader would refuse some other field of an otherwise-built review — never a bad `against`, which is already refused by name before this is reached. */
+const UNREADABLE_REVIEW = 'This review could not be recorded in a form the ledger reads.'
 
 /**
  * Evidence guards: what a finished round's rule may read to decide whether to
@@ -553,7 +563,7 @@ export class FlowReview implements FlowReviewPort {
    * operation's own journal makes a repeated step a no-op.
    */
   async record(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord> {
-    checkAgainst(input.against)
+    const against = normalizedAgainst(input.against)
     this.#sweep()
     const bound = await this.#port.bindingFor(input.intent, scope)
     if (!bound) throw new Error('You do not hold this card, so no review can be recorded against it.')
@@ -571,7 +581,7 @@ export class FlowReview implements FlowReviewPort {
       id: mintId(),
       fact: {
         kind: 'review', verdict: input.verdict, by: bound.seat, at: held.candidate.at,
-        ...(input.against?.length ? { against: input.against } : {}),
+        ...(against?.length ? { against } : {}),
       },
       card: { board: bound.goal, id: input.intent },
       checkout: { cwd: held.checkout.cwd, branch: held.checkout.branch },
@@ -580,6 +590,12 @@ export class FlowReview implements FlowReviewPort {
       observedAt: this.#port.now(),
       posted: null,
     }
+    // A last check of the whole record, through the reader's own gate: `against` is already refused
+    // by name above, but nothing else here — `verdict`, `at`, the checkout — has its own write-time
+    // check, so this is what stands between a drift in any of them and a line the reader would skip
+    // forever. A generic refusal, never the specific `against` sentence, since that field is already
+    // sound by the time this runs.
+    if (evidenceRecordOf(JSON.parse(JSON.stringify(record))) === null) throw new Error(UNREADABLE_REVIEW)
     const outcome = await this.#port.append(bound.goal, record)
     if (outcome.outcome === 'conflict') {
       throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')

@@ -175,6 +175,46 @@ test('an unreadable line whose card survives is named in the ledger notice (#102
   assert.match(gaps[0]!, /^1 evidence record could not be read \(on card #7\), so this receipt.s findings may be incomplete\. A person has to look\.$/)
 })
 
+test('the notice never names another Goal’s card, even when their numbers collide (review finding)', async () => {
+  const { plane, store, file } = await rig()
+  await store.append(ROOT, 'evidence', [{ type: 'evidence', record: raise(1) }])
+  // Card numbers restart at #1 in each Goal, and the evidence file holds every Goal of the project —
+  // so a bad line on a different Goal's card #3 must never be read as this Goal's own card #3.
+  const badHere = {
+    id: 'bad-g1', fact: { kind: 'review', verdict: 'approve', by: 'seat-reviewer', at: 'a'.repeat(40), against: ['not-a-sha'] },
+    card: { board: 'g1', id: 3 }, checkout: null, seat: null, round: null, observedAt: 2, posted: null,
+  }
+  const badElsewhere = {
+    id: 'bad-g2', fact: { kind: 'review', verdict: 'approve', by: 'seat-reviewer', at: 'a'.repeat(40), against: ['also-not-a-sha'] },
+    card: { board: 'g2', id: 3 }, checkout: null, seat: null, round: null, observedAt: 3, posted: null,
+  }
+  await appendFile(
+    file,
+    `${JSON.stringify({ v: 1, type: 'evidence', record: badHere })}\n${JSON.stringify({ v: 1, type: 'evidence', record: badElsewhere })}\n`,
+  )
+
+  const page = await plane.list({ goal: 'g1' })
+  // Both lines are unreadable (the count is project-wide), but only this Goal's own card is named.
+  assert.match(page.problem ?? '', /^2 evidence records could not be read \(on card #3\), so this ledger cannot be shown as complete\. A person has to look\.$/)
+})
+
+test('the ledger notice names at most three cards, then says how many more', async () => {
+  const { plane, store, file } = await rig()
+  await store.append(ROOT, 'evidence', [{ type: 'evidence', record: raise(1) }])
+  const bad = (id: number) => ({
+    id: `bad-${id}`, fact: { kind: 'review', verdict: 'approve', by: 'seat-reviewer', at: 'a'.repeat(40), against: ['not-a-sha'] },
+    card: { board: 'g1', id }, checkout: null, seat: null, round: null, observedAt: id, posted: null,
+  })
+  const text = [1, 2, 3, 4, 5].map((id) => `${JSON.stringify({ v: 1, type: 'evidence', record: bad(id) })}\n`).join('')
+  await appendFile(file, text)
+
+  const page = await plane.list({ goal: 'g1' })
+  assert.match(
+    page.problem ?? '',
+    /^5 evidence records could not be read \(on cards #1, #2, #3, and 2 more\), so this ledger cannot be shown as complete\. A person has to look\.$/,
+  )
+})
+
 test('a Seat’s own scoped read cannot carry a person’s cursor', async () => {
   const { plane } = await rig()
   await assert.rejects(

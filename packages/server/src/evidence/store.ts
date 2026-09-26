@@ -3,9 +3,9 @@ import { mkdir, open, readdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
 import { errnoOf, NOTHING_YET } from '../errno.js'
-import { cardHintOf, LINE_LIMIT, lineOf, lineText, type StoreFile, type StoredLine } from './records.js'
+import { cardHintOf, LINE_LIMIT, lineOf, lineText, type CardHint, type StoreFile, type StoredLine } from './records.js'
 
-export type { StoreFile } from './records.js'
+export type { CardHint, StoreFile } from './records.js'
 
 /**
  * The evidence store: what the desk observed, and every Seat it kept.
@@ -45,8 +45,8 @@ export type { StoreFile } from './records.js'
 export interface StoreRead {
   readonly lines: readonly StoredLine[]
   readonly skipped: number
-  /** Which cards a skipped `evidence` line named, when its envelope was readable that far. Empty on the `seats` file. */
-  readonly unreadableCards: readonly number[]
+  /** Which cards a skipped `evidence` line named, and which Goal each belongs to, when its envelope was readable that far. Empty on the `seats` file. */
+  readonly unreadableCards: readonly CardHint[]
 }
 
 /** What `merge` did with each line it was given. */
@@ -303,7 +303,7 @@ export class EvidenceStore {
     }
     const lines: StoredLine[] = []
     let skipped = 0
-    const unreadableCards = new Set<number>()
+    const unreadableCards = new Map<string, CardHint>()
     for (const text of raw.split('\n')) {
       if (text.trim() === '') continue
       if (Buffer.byteLength(text) > LINE_LIMIT) {
@@ -323,12 +323,13 @@ export class EvidenceStore {
         continue
       }
       skipped += 1
-      const card = cardHintOf(parsed)
-      if (card !== null) unreadableCards.add(card)
+      const hint = cardHintOf(parsed)
+      if (hint !== null) unreadableCards.set(`${hint.board}\u0000${hint.id}`, hint)
     }
     if (skipped > 0) {
       this.#log('some evidence records could not be read and were skipped', { project, file, skipped })
     }
-    return { lines, skipped, unreadableCards: [...unreadableCards].sort((a, b) => a - b) }
+    const sorted = [...unreadableCards.values()].sort((a, b) => (a.board === b.board ? a.id - b.id : a.board < b.board ? -1 : 1))
+    return { lines, skipped, unreadableCards: sorted }
   }
 }

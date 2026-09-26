@@ -14,10 +14,15 @@ move is real work and is not news to a person weighing an upgrade.
   every read, and the Findings tab and the Wrap dialog said "some evidence
   records could not be read" with no way to tell which one or fix it.
   Recording a review now refuses a bad `against` entry immediately, naming
-  its position, with the exact rule the reader already enforces — so it can
-  never again write a line the reader would skip. And when an older,
+  its position and pointing at `git rev-parse` to get a real one, with the
+  exact rule the reader already enforces — an id copied upper case, or from a
+  SHA-256 repository, is accepted and stored the way the reader reads it; the
+  whole finished record is also checked against that same reader before it is
+  ever written, so no other field can drift either. And when an older,
   already-unreadable line's card can still be told apart, the ledger notice
-  now says how many lines it is and which card's review to redo.
+  now says how many lines it is and which card's review to redo — always that
+  Goal's own card, never another Goal's whose card numbers happen to collide,
+  and never more than three named before it says how many more.
 
 - **An independent judge seats on an ordinary desk again.** Two things still
   made a provider read as unknown on a real machine, so a role
