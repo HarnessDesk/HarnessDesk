@@ -537,21 +537,28 @@ Agent, and an explicit `count:` must agree with whichever list sets the
 round's width. A seat's actual ceiling is `narrower(Agent's own ceiling,
 this role's grant)`; an omitted `grant:` is `read`.
 
-**A card's own vocabulary is this role's, never the Agent's whole one.** The
+**A card never offers or accepts a word that belongs to another role.** The
 card's displayed instruction and what `complete_claim` actually accepts are
-read fresh from this role's own rules — every word named in a `when.every` or
-`when.any` whose `on` is this role, intersected with what the Agent actually
-declares — never the Agent's full cross-role `answers`. An Agent playing two
-roles of the same flow with two different vocabularies (UC1's
-`requirements-analyst` as both `analyst` and `acceptance`; UC5's `implementer`
-as both `proposal` and `contract`) never lets one role's card offer or accept
-the other's words: a plausible but wrong word is refused by name, at the
-moment it is answered, instead of dead-ending the run rounds later with a
-generic "no rule takes it further". Two things widen this back to the Agent's
-full list: a role no rule is ever `on`, which is a terminal step whose outcome
-settles the run rather than routing anywhere, and a rule that names no `when`
-at all (or one naming neither `every` nor `any`), which fires on any outcome
-and so leaves every word the Agent declares legitimate there.
+the Agent's declared `answers`, minus a word that a rule of some *other* role
+in this flow branches on (a `when.every` or `when.any`) and no rule of this
+role's own also branches on. An outcome no rule anywhere routes is not
+illegitimate — it is how a round always ends when nothing claims it, and that
+is exactly how a flow stops for a person — so a declared word stays a
+legitimate answer unless it is specifically borrowed from a sibling role. An
+Agent playing two roles of the same flow with two different vocabularies
+(UC1's `requirements-analyst` as both `analyst` and `acceptance`; UC5's
+`implementer` as both `proposal` and `contract`) never lets one role's card
+offer or accept the other's words: a plausible but wrong word is refused by
+name, at the moment it is answered, instead of silently passing and only
+surfacing later as a generic "no rule takes it further". Two things keep the
+full declared list, unnarrowed: a role no rule is ever `on` (a terminal step
+whose outcome settles the run rather than routing anywhere — nothing to
+compare it against), and a role with a rule that names no `when` at all (or
+one naming neither `every` nor `any`), since that rule alone already fires on
+any outcome, so every word the Agent could ever say already routes somewhere.
+And when a round does close on a word no rule takes anywhere, the run settles
+at once, naming the exact card and word — never a wait for a later ceiling to
+notice.
 
 Every Seat of a round is seated at once, and a round that is not
 `isolate: true` seats them all in the one working tree. When that ceiling lets

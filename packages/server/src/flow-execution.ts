@@ -518,42 +518,45 @@ export const decide = async (
   return passed.length > 0 ? { kind: 'none', passed } : { kind: 'none' }
 }
 
-/**
- * The outcome words a role's own rules actually branch on: every word named
- * in `when.every` or `when.any` of a rule whose `on` is this role, deduped in
- * the order first seen. `null` when this role's rules place no restriction at
- * all — it has no rule of its own (a terminal step, whose outcome settles the
- * run rather than routing anywhere) or one of its rules has no restrictive
- * `when` (absent, or naming neither `every` nor `any`), which `decide` fires
- * on any outcome at all — so every word the role's Agent ever declares stays
- * a legitimate answer there. Read fresh from the flow's own rules rather than
- * cached, so a role a run plays in one flow never inherits the vocabulary of
- * a sibling role the same Agent plays elsewhere (#1034).
- */
-export const handledWords = (policy: FlowPolicy, role: string): readonly string[] | null => {
-  const rules = policy.rules.filter((rule) => rule.on === role)
-  if (rules.length === 0) return null
+/** Every word named in a `when.every` or `when.any` of a rule matching `where`, deduped in the order first seen. */
+const wordsOf = (policy: FlowPolicy, where: (rule: FlowPolicyRule) => boolean): readonly string[] => {
   const words: string[] = []
-  for (const rule of rules) {
-    if (!rule.when || (!rule.when.every?.length && !rule.when.any?.length)) return null
-    for (const word of [...(rule.when.every ?? []), ...(rule.when.any ?? [])]) if (!words.includes(word)) words.push(word)
+  for (const rule of policy.rules) {
+    if (!where(rule)) continue
+    for (const word of [...(rule.when?.every ?? []), ...(rule.when?.any ?? [])]) if (!words.includes(word)) words.push(word)
   }
   return words
 }
 
 /**
  * What a card of this role may actually answer, both said on the card and
- * enforced by `refuseOutcome`: the Agent's declared `answers`, narrowed to
- * the words `handledWords` says this role's own rules branch on — or the
- * full declared list, unnarrowed, when that is `null` (a terminal role, or a
- * rule that fires on any outcome). A handled word the declared list omits
- * never appears either way; `compileFlowPolicy` already refuses a flow whose
- * rule names a word its bound Agent cannot answer, so a compiled, running
- * flow never reaches that gap.
+ * enforced by `refuseOutcome`: the Agent's declared `answers`, minus a word
+ * *another* role's rule branches on that no rule of this role's own also
+ * branches on.
+ *
+ * An outcome no rule anywhere routes is not illegitimate — it is how a flow
+ * stops for a person, exactly as a round that matches no rule always has —
+ * so a declared word stays legitimate unless it is specifically another
+ * role's word, one this role's own rules never read. That is the actual
+ * shape of the bug in #1034: one Agent playing two roles of the same flow,
+ * each with its own vocabulary, let a card of one role offer and accept
+ * words that belong to the *other* role's rules, because both were read off
+ * the Agent's single cross-role `answers` list.
+ *
+ * Two things keep the full list, unnarrowed: a role with no rule of its own
+ * at all (a terminal step, whose outcome settles the run rather than routing
+ * anywhere — nothing to compare against), and a role with a rule that names
+ * no restrictive `when` (absent, or naming neither `every` nor `any`) — since
+ * `decide` fires that rule on any outcome at all, every word this role's
+ * Agent could ever say already routes somewhere.
  */
 export const roleAnswers = (policy: FlowPolicy, role: string, declared: readonly string[]): readonly string[] => {
-  const handled = handledWords(policy, role)
-  return handled === null ? declared : declared.filter((word) => handled.includes(word))
+  const own = policy.rules.filter((rule) => rule.on === role)
+  if (own.length === 0) return declared
+  if (own.some((rule) => !rule.when || (!rule.when.every?.length && !rule.when.any?.length))) return declared
+  const ownWords = wordsOf(policy, (rule) => rule.on === role)
+  const borrowed = wordsOf(policy, (rule) => rule.on !== role)
+  return declared.filter((word) => ownWords.includes(word) || !borrowed.includes(word))
 }
 
 /** A check's `cwd` as the confined tree reads it: `.` and `./sub/` name the Goal checkout and `sub` inside it. */
@@ -2605,9 +2608,15 @@ export class FlowExecutions {
       }
     }
     if (found.decision.kind === 'none') {
-      const answered = this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id)).map((card) => card.outcome ?? 'nothing').join(', ')
+      // Named by card, not only by role: an outcome no rule routes is not a
+      // mistake to hunt down — it is how this flow stops for a person — so
+      // the reason points straight at the card and the word that did it.
+      const answered = this.#team.stateFor(run.goal).intents
+        .filter((card) => last.cards.includes(card.id))
+        .map((card) => `#${card.id} answered ${card.outcome ?? 'nothing'}`)
+        .join('; ')
       const why = (found.decision.passed ?? []).map((one) => `${one.rule} did not apply: ${one.reason}`).join('; ')
-      await this.#finish(id, 'settled', `${last.role} answered ${answered}, and no rule takes it further${why ? ` — ${why}` : ''}`)
+      await this.#finish(id, 'settled', `${answered}; no rule continues from it, so this waits for you${why ? ` — ${why}` : ''}`)
       return
     }
     await this.#open(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: found.decision.evidence }, found.completed)

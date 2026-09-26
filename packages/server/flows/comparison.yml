@@ -25,7 +25,7 @@ roles:
     independentOf: [competitor]
   referee:
     kind: person
-    outcomes: [merged, dropped]
+    outcomes: [merged]
 seed: { role: competitor, title: "{{task}}" }
 rules:
   - id: to-verify
@@ -35,10 +35,6 @@ rules:
     on: verify
     when: { every: [pass] }
     then: { role: judge, title: "Pick the better attempt" }
-  - id: no-winner
-    on: judge
-    when: { any: [neither] }
-    then: { role: referee, title: "Neither attempt was worth merging" }
   - id: to-referee
     on: judge
     when: { every: [picked], evidence: [{ review: picked }] }
