@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+
+import type { Session } from '@harnessdesk/protocol'
 
 import { BrowserPane } from '../../components/BrowserPane'
 import { Composer } from '../../components/Composer'
@@ -15,7 +17,7 @@ import { Workbench } from '../../panels/Workbench'
 import { dock, emptyWorkbench } from '../../state/workbench'
 import { PaneProvider } from '../../state/context'
 import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../preview/harness'
-import { PREVIEW_ROOT } from '../../preview/sidebar-fixture'
+import { denseTurns, PREVIEW_ROOT, previewSession } from '../../preview/sidebar-fixture'
 import styles from './surfaces.module.css'
 
 /**
@@ -83,6 +85,105 @@ export const ConversationSurface = () => (
     </Frame>
   </Mount>
 )
+
+/**
+ * A store of its own — `ConversationSurface`'s one turn never overflows, so
+ * the rail it mounts stays hidden, and the shared default store cannot be
+ * patched in place without moving that tab's own conversation out from under
+ * it. `denseTurns` is the same fixture `?dense` gives the browser spec: 14
+ * exchanges, long enough on their own to overflow a page-height frame without
+ * any help.
+ */
+const denseSession = { ...previewSession, turns: denseTurns } as unknown as Session
+
+/**
+ * The conversation map at the pitch a real transcript reads at.
+ *
+ * `ConversationSurface`, above, has one exchange — two marks, the rail's
+ * loosest case. Here there are fourteen: enough for the ~8px ruler the rail
+ * only becomes once a transcript is actually long, rather than the wide
+ * chip-like dashes two marks alone would still draw at this same width.
+ */
+export const ConversationMapDenseSurface = () => (
+  <div data-testid="conversation-map-dense">
+    <Mount with={previewStore({ sessions: new Map([[PREVIEW_SESSION_KEY, denseSession]]) })}>
+      <Frame height="page">
+        <PaneProvider
+          scope={{
+            paneId: 'design-map-dense' as never,
+            view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+            sessionKey: PREVIEW_SESSION_KEY,
+          }}
+        >
+          <Conversation
+            onChooseProject={() => {}}
+            onSignIn={() => {}}
+            onOpenUsage={() => {}}
+            onOpenRuntimes={() => {}}
+          />
+        </PaneProvider>
+      </Frame>
+    </Mount>
+  </div>
+)
+
+/**
+ * The same dense transcript with the rail's own preview already open.
+ *
+ * Not a hover stood in by hand: a real `.focus()` right after mount, which
+ * the rail already treats as the keyboard's — a script-driven focus with no
+ * pointer interaction just before it matches `:focus-visible` the same way
+ * Tab does — so this is a state the rail genuinely has, caught rather than
+ * staged. Press Escape to close it, or Up/Down to move it, the same as
+ * anywhere else the rail shows up.
+ */
+export const ConversationMapPreviewOpenSurface = () => {
+  const scope = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // The rail draws nothing until its own effect has measured the scroller
+    // and found it overflows, a tick or two after this one mounts — so the
+    // nav is not there to focus yet on the first pass. A short-lived
+    // observer catches it the moment it is.
+    const found = scope.current?.querySelector<HTMLElement>('nav[aria-label="Jump to a message"]')
+    if (found) {
+      found.focus()
+      return
+    }
+    const node = scope.current
+    if (!node) return
+    const observer = new MutationObserver(() => {
+      const rail = node.querySelector<HTMLElement>('nav[aria-label="Jump to a message"]')
+      if (rail) {
+        rail.focus()
+        observer.disconnect()
+      }
+    })
+    observer.observe(node, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <div ref={scope} data-testid="conversation-map-preview-open">
+      <Mount with={previewStore({ sessions: new Map([[PREVIEW_SESSION_KEY, denseSession]]) })}>
+        <Frame height="page">
+          <PaneProvider
+            scope={{
+              paneId: 'design-map-preview' as never,
+              view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+              sessionKey: PREVIEW_SESSION_KEY,
+            }}
+          >
+            <Conversation
+              onChooseProject={() => {}}
+              onSignIn={() => {}}
+              onOpenUsage={() => {}}
+              onOpenRuntimes={() => {}}
+            />
+          </PaneProvider>
+        </Frame>
+      </Mount>
+    </div>
+  )
+}
 
 /**
  * The composer alone, at the width the conversation column gives it.
