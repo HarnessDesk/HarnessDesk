@@ -158,6 +158,14 @@ const createWindow = async (url) => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // A menu that grows after it opens repositions itself by watching its
+      // own box (`Popover.tsx`). That watch rides the same rendering clock
+      // Chromium slows for a window it considers backgrounded — measured
+      // here as a menu that occasionally never got the memo and stayed put.
+      // Nothing in this app should read the window's focus as "nobody is
+      // looking": a covered window is still a window whose next glance has
+      // to be right.
+      backgroundThrottling: false,
       // The browser pane is a <webview>: the one place the app shows a page
       // it did not write. Guests get no preload and no Node (enforced again
       // in will-attach-webview below) and their own session partition.
