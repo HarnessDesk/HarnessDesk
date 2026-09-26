@@ -1097,13 +1097,10 @@ export const TeamRoomPane = ({
         </ToolPaneNotice>
       )}
 
-      {/* `data-notice-yield` used to be applied here directly (#913), so the
-          rail, the reading side and Board's own header row all moved together
-          under a standing notice instead of the rail dropping onto a reading
-          side that never did. `Panes.tsx` now composes the same contract for
-          whatever a pane mounts, room included, so this element inherits an
-          already-zeroed `--hd-notice-inset` and a second copy here would only
-          ever read 0px — the pane host's version is the one doing the work. */}
+      {/* No inset reserved here, on purpose: a standing notice for the room
+          lives inside `RoomComposer`'s own strip, below, over its composer —
+          not above the rail or the reading side, which is why nothing in this
+          split has to make room for one. */}
       <div className={styles.split}>
         <aside className={styles.rail}>
           {/* The work before the chatter: a reader arriving at a group project

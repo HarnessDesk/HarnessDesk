@@ -6,6 +6,7 @@ import type {
   EvidenceRecord,
   ExtensionEvent,
   FindingReadInput,
+  PersonNoticeInput,
   FindingView,
   HookInvocation,
   HookVerdict,
@@ -64,7 +65,10 @@ import type {
 // 8 adds `forge/publicationAllowed` — `{ scope }`, answered `{ ok: true }` or
 // `{ ok: false, reason }` — the embargo every forge mutation asks before it
 // writes, on the same trusted invocation as the other forge verbs.
-export const EXTENSION_PROTOCOL_VERSION = 8
+// 9 adds `team/notify` — `{ scope, where, title, body?, task? }` — a message
+// from the calling conversation's Agent to the person, delivered by the host
+// to the inbox or that conversation's composer under the person's setting.
+export const EXTENSION_PROTOCOL_VERSION = 9
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -393,6 +397,7 @@ export interface ChildToHostMethods {
   'team/decideFinding': { params: { readonly scope: TeamCallScope; readonly input: DecideFindingInput }; result: FindingView }
   /** This conversation's Goal's findings, bounded, for the card it holds. */
   'team/listFindings': { params: { readonly scope: TeamCallScope; readonly input: FindingReadInput }; result: readonly FindingView[] }
+  'team/notify': { params: { readonly scope: TeamCallScope } & PersonNoticeInput; result: string }
 }
 
 /**

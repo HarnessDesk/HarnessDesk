@@ -23,6 +23,7 @@ import { SupervisedExtensionHost } from '../src/index.js'
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url))
 
 const baseEngine = (): Omit<TeamEngine, 'reviewCandidates' | 'recordReview'> => ({
+  notify: async () => "",
   board: async () => 'x',
   addIntent: async () => 'x',
   claim: async () => 'x',

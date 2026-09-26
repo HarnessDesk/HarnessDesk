@@ -293,6 +293,8 @@ export interface ShellActions {
   readonly openRuntimes: () => void
   /** Opens the Agents window — the left-menu screen, never Settings — on one Agent, or the overview. */
   readonly openAgents: (focus?: string) => void
+  /** Opens the Library on what the other agents on this machine could share. */
+  readonly reviewImports: () => void
 }
 
 const NONE: ShellActions = {
@@ -301,6 +303,7 @@ const NONE: ShellActions = {
   openUsage: () => undefined,
   openRuntimes: () => undefined,
   openAgents: () => undefined,
+  reviewImports: () => undefined,
 }
 
 const ShellContext = createContext<ShellActions>(NONE)

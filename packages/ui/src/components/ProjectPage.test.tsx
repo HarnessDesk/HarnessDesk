@@ -152,6 +152,7 @@ const mount = (node: React.ReactNode) => {
             openUsage: () => {},
             openRuntimes: () => {},
             openAgents,
+            reviewImports: () => {},
           }}
         >
           {node}
@@ -276,7 +277,7 @@ it('asking for “Triggers on this Mac” while a project is open returns to the
   act(() => {
     root.render(
       <StoreProvider store={{ ...store, triggerPreferences: vi.fn(async () => ({ revision: 1, paused: false, dailyUsd: 20, day: '2026-09-24', chargedUsd: 0, reservedUsd: 0 })) } as unknown as AppStore}>
-        <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {} }}>
+        <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
           <WorkspacesSection focus="triggers" />
         </ShellProvider>
       </StoreProvider>,

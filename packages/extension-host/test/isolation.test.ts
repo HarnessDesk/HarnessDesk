@@ -331,6 +331,7 @@ test('a team call rides its own invocation or is refused: the child cannot imper
   // call goes through, the forged scope is refused before any engine sees it.
   const statusCalls: unknown[] = []
   const engine: TeamEngine = {
+    notify: async () => "",
     board: async () => 'x',
     addIntent: async () => 'x',
     claim: async () => 'x',
@@ -386,6 +387,7 @@ test('a child member wait remains invocation-bound and cancellation aborts the h
   let pending = 0
   let seenInvocation = ''
   const engine: TeamEngine = {
+    notify: async () => "",
     board: async () => 'x', addIntent: async () => 'x', claim: async () => 'x', claimNext: async () => 'x',
     awaitWork: async () => 'x', conflicts: async () => 'x', complete: async () => 'x', release: async () => 'x',
     handoff: async () => 'x', status: async () => 'x', send: async () => 'x',
@@ -444,6 +446,7 @@ test('a child member wait remains invocation-bound and cancellation aborts the h
 test('a plugin without the grant cannot ride a granted sibling’s armed scope', async () => {
   const statusCalls: unknown[] = []
   const engine: TeamEngine = {
+    notify: async () => "",
     board: async () => 'x',
     addIntent: async () => 'x',
     claim: async () => 'x',
@@ -574,6 +577,7 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
   const seats: unknown[] = []
   const identities: unknown[] = []
   const team: TeamEngine = {
+    notify: async () => "",
     board: async (callScope) => {
       boards.push(callScope)
       return 'board'
