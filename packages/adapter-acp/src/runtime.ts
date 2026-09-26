@@ -59,6 +59,7 @@ import {
   findOption,
   peelUserContent,
   refuseOptionValue,
+  OptionRefusedError,
   SessionFolderGoneError,
   SessionGoneError,
   openingOf,
@@ -1528,19 +1529,24 @@ export class AcpRuntime implements AgentRuntime {
     const currentModelId = result.models?.currentModelId ?? (modelOption ? String(modelOption.currentValue) : null)
     const isDefault = (modelId: string): boolean =>
       this.#catalogDefault === null ? modelId === currentModelId : modelId === this.#catalogDefault
-    const catalog = models.map(
-      (model): ModelInfo => ({
+    const catalog = models.map((model): ModelInfo => {
+      const own = levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption))
+      return {
         id: model.modelId,
         displayName: model.name,
         ...(model.description ? { description: model.description } : {}),
-        reasoningLevels: levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption)) ?? shared,
+        reasoningLevels: own ?? shared,
+        // `own` is null exactly when this model's levels came from the
+        // session-wide fallback, not the model's own declaration — the one
+        // case a caller must not refuse a candidate's effort against (#1013).
+        ...(own === null ? { reasoningLevelsShared: true } : {}),
         supportsImages: this.info.capabilities.imageInput,
         ...(model._meta?.harnessdesk?.thinking
           ? { thinking: model._meta.harnessdesk.thinking }
           : {}),
         ...(isDefault(model.modelId) ? { isDefault: true } : {}),
-      }),
-    )
+      }
+    })
     if (this.#catalogDefault === null) this.#catalogDefault = currentModelId
     if (JSON.stringify(catalog) === JSON.stringify(this.#catalog)) return
     this.#catalog = catalog
@@ -1923,10 +1929,11 @@ export class AcpRuntime implements AgentRuntime {
         continue
       }
       if (rankOptionId(id) < 2) {
-        throw new Error(
-          option
-            ? refusal
-            : `${this.#config.name} has no session option named ${JSON.stringify(id)}.`,
+        throw new OptionRefusedError(
+          option ? refusal : `${this.#config.name} has no session option named ${JSON.stringify(id)}.`,
+          id,
+          value,
+          !option,
         )
       }
       this.#config.logger?.debug?.('draft pick dropped', { option: id, reason: refusal })
@@ -3332,9 +3339,11 @@ class AcpSession implements AgentSession {
    */
   async setOption(id: string, value: OptionValue): Promise<void> {
     const option = findOption(this.options(), id)
-    if (!option) throw new Error(`${this.#host.agentName} has no session option named ${JSON.stringify(id)}.`)
+    if (!option) {
+      throw new OptionRefusedError(`${this.#host.agentName} has no session option named ${JSON.stringify(id)}.`, id, value, true)
+    }
     const refusal = refuseOptionValue(option, value)
-    if (refusal) throw new Error(refusal)
+    if (refusal) throw new OptionRefusedError(refusal, id, value, false)
     if (id === 'mode' && this.#modes) {
       await this.#host.connection.request('session/set_mode', {
         sessionId: this.id,

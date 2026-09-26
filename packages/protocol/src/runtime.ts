@@ -32,6 +32,20 @@ export interface ModelInfo {
   readonly description?: string
   /** The runtime's own names for its reasoning levels, if the model has any. */
   readonly reasoningLevels: readonly { readonly id: string; readonly label: string }[]
+  /**
+   * True when `reasoningLevels` is not this model's own declaration but a
+   * session-wide fallback the adapter read for whatever model a probe
+   * happened to have open — a generic ACP agent that declares one effort
+   * control for the current session, not one per model. That list is real,
+   * but it is only known to be true of the model the probe was actually on;
+   * copied onto every other model in the same catalogue read, it can as
+   * easily be wrong as right. Absent (or false) means these levels came from
+   * the model's own entry and can be trusted to refuse a candidate that names
+   * one it does not have — set, a caller must treat them as unknown for that
+   * purpose, the same as an empty list, never as proof a level is missing
+   * (#1013).
+   */
+  readonly reasoningLevelsShared?: boolean
   readonly supportsImages: boolean
   /**
    * Whether the model reasons before it answers, when that is a property of
