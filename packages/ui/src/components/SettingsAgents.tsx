@@ -34,6 +34,7 @@ import {
 import { describeLimits, formatReset } from '../lib/limits'
 import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
+import { shortPath } from '../lib/paths'
 import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
@@ -704,7 +705,7 @@ const AgentAccounts = ({
           <Row
             key={entry.id}
             title={READINESS_LABEL.unknown}
-            {...(entry.slot?.home ? { desc: entry.slot.home } : {})}
+            {...(entry.slot?.home ? { desc: shortPath(entry.slot.home, snapshot.home) } : {})}
             truncateDesc
             control={
               <Button variant="secondary" size="sm" onClick={() => setRemoving(entry)}>
@@ -765,7 +766,7 @@ const AgentAccounts = ({
                      answer, and an extra account still answering may yet
                      say yes — so only this account's absence is claimed. */
                   pending.length > 0 ? (
-                    `No credential on this account. ${pending.length === 1 ? 'Another has' : 'Others have'} not answered yet.`
+                    `${pending.length === 1 ? 'Another account has' : 'Other accounts have'} not answered yet.`
                   ) : (
                     `${info.presentation.name} has no credential here yet, so a session sent to it would not start.`
                   )
@@ -816,7 +817,9 @@ const AgentAccounts = ({
             void store.removeAccount(entry.id)
           }}
         >
-          It may be signed in already. Its sign-in is forgotten; conversations stay with the agent.
+          {removing.slot?.home
+            ? `It may be signed in already. Its sign-in at ${shortPath(removing.slot.home, snapshot.home)} is forgotten; conversations stay with the agent.`
+            : 'It may be signed in already. Its sign-in is forgotten; conversations stay with the agent.'}
         </ConfirmDialog>
       )}
     </>
@@ -2018,9 +2021,11 @@ export const RuntimesSection = ({
      other surface uses for it — never folded into either claim. */
   const sections = [
     // The three partition every state, so no agent can fall off this page
-    // for want of a heading; `isBlocking` answers per state by an exhaustive
-    // table, so a state added later is placed by the compiler, here and on
-    // the nav dot alike. `agentReadiness` never answers `available`.
+    // for want of a heading. `isBlocking` answers per state by an exhaustive
+    // table, so the compiler makes a state added later say whether it blocks,
+    // here and on the nav dot alike; one that does not lands under "Ready",
+    // so a new quiet state needs a heading of its own decided here.
+    // `agentReadiness` never answers `available`.
     { name: 'Needs attention', agents: listed.filter(({ state }) => isBlocking(state)) },
     { name: READINESS_LABEL.unknown, agents: listed.filter(({ state }) => state === 'unknown') },
     { name: 'Ready', agents: listed.filter(({ state }) => !isBlocking(state) && state !== 'unknown') },
