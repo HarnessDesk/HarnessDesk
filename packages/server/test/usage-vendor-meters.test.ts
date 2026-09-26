@@ -45,8 +45,8 @@ const cursorDatabase = (token: string | null): string => {
 }
 
 const SUMMARY = {
-  billingCycleStart: '2026-08-03T18:26:30.000Z',
-  billingCycleEnd: '2026-09-03T18:26:30.000Z',
+  billingCycleStart: '2026-08-01T00:00:00.000Z',
+  billingCycleEnd: '2026-09-01T00:00:00.000Z',
   membershipType: 'pro',
   isUnlimited: false,
   individualUsage: {
@@ -103,7 +103,7 @@ test('Cursor turns one plan into one lane, with its billing cycle and its balanc
   assert.equal(reading.plan, 'Pro')
   assert.equal(reading.lanes.length, 1)
   assert.equal(Math.round(reading.lanes[0]?.usedPercent ?? -1), 6)
-  assert.equal(reading.lanes[0]?.resetsAt, Date.parse('2026-09-03T18:26:30.000Z'))
+  assert.equal(reading.lanes[0]?.resetsAt, Date.parse('2026-09-01T00:00:00.000Z'))
   assert.deepEqual(
     reading.credits,
     { remaining: 36.08, used: 13.92, unit: 'USD', unlimited: false },
