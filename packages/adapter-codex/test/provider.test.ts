@@ -101,6 +101,73 @@ test('a header or assignment this scanner cannot fully parse answers unknown, ne
 })
 
 /*
+ * Opus review of #1028, round 3, P3: normalising a header's dots by blindly
+ * collapsing "\s*\.\s*" everywhere also ate the spaces sitting inside a
+ * quoted segment's own text, so `[profiles."a . b"]` normalized to
+ * `profiles."a.b"` while `profile = "a . b"` (only ever dequoted, never
+ * touched by header normalisation) stayed "a . b" — the two names no
+ * longer matched, the table's own override went unlooked-at, and the
+ * answer was "openai". Separately, a key captured from quotes that carries
+ * a backslash escape this scanner does not decode is a second way the same
+ * kind of override hides: the raw text never equals "model_provider" even
+ * where a real TOML reader would decode it to exactly that.
+ */
+test('a quoted header’s own spacing, and an escaped quoted key, no longer hide a selected override', async (t) => {
+  const dottedName = folder(t, 'codex-provider-home-')
+  writeFileSync(join(dottedName, 'config.toml'), 'profile = "a . b"\n[profiles."a . b"]\nmodel_provider = "ollama"\n')
+  assert.equal(await codexProvider(dottedName, {}), null, 'the selected profile name and the table it names must still match after normalising')
+
+  const escapedKey = folder(t, 'codex-provider-home-')
+  writeFileSync(join(escapedKey, 'config.toml'), 'profile = "x"\n[profiles.x]\n"model\\u005fprovider" = "ollama"\n')
+  assert.equal(await codexProvider(escapedKey, {}), null, 'a backslash in a quoted key is not decoded, so it is not read as a plain match either')
+})
+
+/*
+ * Opus review of #1028, round 3, P2: any line that was not a clean
+ * `key = value` on its own answered unknown outright, so a multi-line array
+ * — common as an `[mcp_servers.*]` table's own `args` — made the whole
+ * file unknown even with an otherwise plain OpenAI configuration, bringing
+ * back #1019's dead end on a real machine. The fix follows a bracketed
+ * value to its own closing bracket across as many lines as it takes,
+ * counting nesting and ignoring brackets inside quotes, and only refuses
+ * when a key this scanner tracks (`profile`, `model_provider`, a
+ * `*base_url` key) is the one holding an array — a shape none of them is
+ * ever written in.
+ */
+test('a multi-line array next to a plain OpenAI profile is read past, not refused', async (t) => {
+  const home = folder(t, 'codex-provider-home-')
+  writeFileSync(join(home, 'config.toml'), [
+    'model = "gpt-5.5"',
+    '[mcp_servers.docs]',
+    'command = "docs"',
+    'args = [',
+    '  "--foo",',
+    '  "--bar",',
+    ']',
+  ].join('\n'))
+  assert.equal(await codexProvider(home, {}), 'openai', 'a multi-line args array in an unrelated table is not a reason to refuse')
+
+  const nested = folder(t, 'codex-provider-home-')
+  writeFileSync(join(nested, 'config.toml'), [
+    '[mcp_servers.docs]',
+    'env = [',
+    '  { NAME = "docs" },',
+    ']',
+  ].join('\n'))
+  assert.equal(await codexProvider(nested, {}), 'openai', 'an inline table nested inside the array is still just skipped over')
+})
+
+test('an array on a tracked key, or one that never closes, stays unknown', async (t) => {
+  const trackedKey = folder(t, 'codex-provider-home-')
+  writeFileSync(join(trackedKey, 'config.toml'), 'profile = [\n  "x",\n]\n')
+  assert.equal(await codexProvider(trackedKey, {}), null, 'profile is never an array; a shape none of these keys is written in is not trusted')
+
+  const unbalanced = folder(t, 'codex-provider-home-')
+  writeFileSync(join(unbalanced, 'config.toml'), '[mcp_servers.docs]\nargs = [\n  "--foo",\n')
+  assert.equal(await codexProvider(unbalanced, {}), null, 'an array that never closes is unknown, not skipped past')
+})
+
+/*
  * Opus review of #1028: each config layer used to be judged on its own, so a
  * `profile` selected in one file and the table it selects defined in another
  * never met — both files, read alone, said "openai".

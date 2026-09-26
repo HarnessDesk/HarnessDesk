@@ -48,6 +48,23 @@ move is real work and is not news to a person weighing an upgrade.
   choice made per conversation, not something a runtime- or project-level
   check can answer honestly, so guessing was refused rather than risked.
 
+  A further review found five more gaps in these same two readers. DeepSeek's
+  patch files are now parsed with the same strict YAML this desk reads a flow
+  with, rather than a scanner that only understood a plain block-style list —
+  a flow-style item, a quoted key, an indented list or a JSON-style patch all
+  used to pass straight through unread, still answering DeepSeek's own API.
+  The row's own launch arguments are checked too: only `--profile acp`, DSH's
+  own template, is read as the `acp` profile now; anything else — another
+  flag, a different profile — could load an overlay these two files never
+  mention, and answers unknown. On Codex's side, normalising a header's
+  dotted path no longer eats the spaces inside a quoted profile name
+  (`[profiles."a . b"]` no longer loses track of which table `profile = "a .
+  b"` selects), a quoted key carrying a backslash escape this scanner does
+  not decode is no longer read as a plain, unmatched key, and a multi-line
+  array — common as an `[mcp_servers.*]` table's own `args` — is now followed
+  to its own closing bracket instead of making an otherwise plain
+  configuration unknown.
+
   When independence still cannot be proven because an earlier card's own
   provider could not be read, the stall names the agent that held that card,
   by number and by its own presentation name where the desk has one. What it

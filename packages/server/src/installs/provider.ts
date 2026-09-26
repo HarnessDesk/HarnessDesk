@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 
 import { ConfinedTree } from '../confined-tree.js'
+import { parseYaml, YamlError } from '../yaml.js'
 import type { KnownAgent } from './known-agents.js'
 
 /**
@@ -38,6 +39,13 @@ export interface ProviderContext {
   readonly home?: string
   /** Claude Code's managed settings file; null reads none. Defaults to this platform's. */
   readonly managed?: string | null
+  /**
+   * The row's own launch arguments, when the caller has them (`knowledgeOverlay`
+   * passes the row's `args`). A reader that only knows what profile or mode a
+   * flag selects — DSH's `--profile acp` — needs these to see a flag the
+   * files it reads would never mention; see `dshProvider`.
+   */
+  readonly args?: readonly string[]
 }
 
 export type ProviderReader = (cwd?: string) => Promise<string | null>
@@ -211,6 +219,10 @@ const geminiProvider = async (context: ProviderContext, cwd?: string): Promise<s
  * in `known-agents.ts`, and `codexProvider` for the same reasoning about a
  * profile nothing selects):
  *
+ * - the row's own launch arguments are exactly `--profile acp`, DSH's own
+ *   template — anything else, including the same flag with more after it,
+ *   could load a profile or an overlay these two files never speak for, and
+ *   this reader has no way to tell what that would do;
  * - `DEEPSEEK_BASE_URL` is not set in the environment it starts with;
  * - no layer's `llm-deepseek`, `llm-deepseek-account` or
  *   `llm-deepseek-api-key` entry sets `baseURL` outside `api.deepseek.com`;
@@ -236,68 +248,77 @@ const DSH_BASE_URL_ENV = 'DEEPSEEK_BASE_URL'
 const DSH_HOST = 'api.deepseek.com'
 const DSH_DEFAULT_PROVIDER = 'deepseek-official'
 const DSH_ENTRY_IDS = new Set(['llm-deepseek', 'llm-deepseek-account', 'llm-deepseek-api-key'])
+/**
+ * The arguments DSH's own known-agent entry launches with (`known-agents.ts`'s
+ * `dsh` entry keeps its own `acp.args` empty on purpose, so a person's own
+ * profile flag is never silently replaced — see `service.ts`'s
+ * `launchFor`). This is what `dshProvider` checks a row's own args against:
+ * anything else could select a profile this reader never looked at.
+ */
+const DSH_ACP_ARGS: readonly string[] = ['--profile', 'acp']
 
-/** Splits a patch file's top-level YAML list into its items' own lines, cruder than a YAML parser: no nesting, no anchors. */
-const yamlListItems = (text: string): string[][] => {
-  const items: string[][] = []
-  let current: string[] | null = null
-  for (const raw of text.split(/\r?\n/)) {
-    if (/^-(\s|$)/.test(raw)) {
-      current = []
-      items.push(current)
-    }
-    current?.push(raw)
+const isYamlMap = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * The parsed top-level list of a patch file's items, each held to the shape
+ * this reader actually understands — a list of maps. `null` for anything
+ * else: a parse failure (`YamlError`, refused by `parseYaml`'s own strict
+ * subset), a document that isn't a list, or a list holding something other
+ * than a map. An empty file parses to `null` from `parseYaml` itself and is
+ * read as a patch with no items, not a shape this reader fails to recognise.
+ */
+const dshPatchItems = (text: string): readonly Record<string, unknown>[] | null => {
+  let parsed: unknown
+  try {
+    parsed = parseYaml(text)
+  } catch (error) {
+    if (error instanceof YamlError) return null
+    throw error
   }
-  return items
+  if (parsed === null) return []
+  if (!Array.isArray(parsed) || !parsed.every(isYamlMap)) return null
+  return parsed as Record<string, unknown>[]
 }
 
-/** Strips a trailing `# comment` and a single layer of surrounding quotes. */
-const dequoteYaml = (raw: string): string => {
-  const value = raw.trim().replace(/\s*#.*$/, '').trim()
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1)
-  return value
-}
-
-/** The first `key: value` line's value in a block, dequoted; null when the key is absent. */
-const yamlValue = (block: readonly string[], key: string): string | null => {
-  const pattern = new RegExp(`^-?\\s*${key}:\\s*(.+?)\\s*$`)
-  for (const line of block) {
-    const match = pattern.exec(line)
-    if (match) return dequoteYaml(match[1]!)
-  }
-  return null
-}
-
-/** Whether any line of a block names this key at all — used where the mere presence of a key, not its value, is what counts. */
-const yamlHasKey = (block: readonly string[], key: string): boolean =>
-  block.some((line) => new RegExp(`^-?\\s*${key}:`).test(line))
-
-/** The item whose `id:` line matches, or undefined. */
-const yamlItemById = (items: readonly (readonly string[])[], id: string): readonly string[] | undefined =>
-  items.find((item) => yamlValue(item, 'id') === id)
+/** The item whose `id` is this one, or undefined. */
+const yamlItemById = (items: readonly Record<string, unknown>[], id: string): Record<string, unknown> | undefined =>
+  items.find((item) => item['id'] === id)
 
 /**
  * Whether one patch layer's text could point DSH's default session anywhere
  * but DeepSeek's own API — every condition documented above `dshProvider`,
- * checked against this layer alone (the caller checks all of them together).
+ * checked against this layer alone (the caller checks all of them
+ * together). Any doubt along the way — a parse failure, a shape this reader
+ * does not recognise, a value of the wrong type — answers `true`: it could
+ * override, so the caller treats it exactly like one that does.
  */
 const dshLayerOverrides = (text: string): boolean => {
-  const items = yamlListItems(text)
-  if (items.some((item) => yamlHasKey(item, 'insert'))) return true
+  const items = dshPatchItems(text)
+  if (items === null) return true
+  if (items.some((item) => Object.prototype.hasOwnProperty.call(item, 'insert'))) return true
 
   const piAi = yamlItemById(items, 'llm-pi-ai')
-  if (piAi && yamlHasKey(piAi, 'config')) return true
+  if (piAi && Object.prototype.hasOwnProperty.call(piAi, 'config')) return true
 
   const defaultModel = yamlItemById(items, 'agent-default-model')
-  if (defaultModel) {
-    const provider = yamlValue(defaultModel, 'provider')
-    if (provider !== null && provider !== DSH_DEFAULT_PROVIDER) return true
+  if (defaultModel && Object.prototype.hasOwnProperty.call(defaultModel, 'config')) {
+    const config = defaultModel['config']
+    if (!isYamlMap(config)) return true
+    if (Object.prototype.hasOwnProperty.call(config, 'provider')) {
+      const provider = config['provider']
+      if (typeof provider !== 'string' || provider !== DSH_DEFAULT_PROVIDER) return true
+    }
   }
 
   for (const id of DSH_ENTRY_IDS) {
     const item = yamlItemById(items, id)
-    const baseUrl = item && yamlValue(item, 'baseURL')
-    if (!baseUrl) continue
+    if (!item || !Object.prototype.hasOwnProperty.call(item, 'config')) continue
+    const config = item['config']
+    if (!isYamlMap(config)) return true
+    if (!Object.prototype.hasOwnProperty.call(config, 'baseURL')) continue
+    const baseUrl = config['baseURL']
+    if (typeof baseUrl !== 'string') return true
     try {
       if (new URL(baseUrl).hostname !== DSH_HOST) return true
     } catch {
@@ -314,9 +335,18 @@ const expandDshHome = (path: string, home: string): string => {
   return path
 }
 
+/** Whether two argument lists are exactly the same, in order. */
+const sameArgs = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((value, at) => value === b[at])
+
 const dshProvider = async (context: ProviderContext): Promise<string | null> => {
   const env = context.env ?? process.env
   if ((env[DSH_BASE_URL_ENV] ?? '').trim() !== '') return null
+  // This reader only ever looks at the `acp` profile's own files. A row
+  // launched with anything else on the command line — another flag, or a
+  // different profile altogether — could load an overlay these files never
+  // mention, so anything but the template's own args is unknown outright.
+  if (context.args === undefined || !sameArgs(context.args, DSH_ACP_ARGS)) return null
   const osHome = context.home ?? homedir()
   const configured = env['DSH_HOME']?.trim()
   const dshHome = configured ? expandDshHome(configured, osHome) : join(osHome, '.dsh')

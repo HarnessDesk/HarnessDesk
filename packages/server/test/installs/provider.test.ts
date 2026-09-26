@@ -144,6 +144,31 @@ test('an insert anywhere in a patch layer makes the provider unknown', async (t)
 })
 
 /*
+ * Opus review of #1028, round 3, P1: the old reader split a patch file's
+ * top-level list by scanning for lines starting with "-" at column zero,
+ * cruder than any real YAML parser — so a shape written any other way, even
+ * a perfectly valid one, sailed past every check above and answered
+ * "deepseek". The fix parses each layer with the server's own strict
+ * `parseYaml`; any `YamlError` and any shape it does not recognise (not a
+ * list, not a list of maps) now answers unknown outright, same as a real
+ * structural override the parser lets it see clearly.
+ */
+test('a patch layer’s shape, not just a line scanner’s idea of one, decides the answer — every one of these was “deepseek” before', async (t) => {
+  const cases: readonly [string, string][] = [
+    ['a flow-style list item', '- { id: agent-default-model, config: { provider: other } }\n'],
+    ['a bare top-level flow map, not a list at all', 'config: { provider: other }\n'],
+    ['a quoted "provider" key', '- id: agent-default-model\n  config:\n    "provider": other\n'],
+    ['an indented top-level list', '  - id: agent-default-model\n    config:\n      provider: other\n'],
+    ['a JSON-style patch', '[{"id": "agent-default-model", "config": {"provider": "other"}}]\n'],
+    ['a bare top-level flow map naming baseURL', 'config: { baseURL: "https://proxy.example.com/v1" }\n'],
+  ]
+  for (const [what, text] of cases) {
+    const home = tree(t, { 'cordis.patch.yml': text })
+    assert.equal(await readDsh({ DSH_HOME: home }), null, what)
+  }
+})
+
+/*
  * Opus review of #1028, P2: DSH itself expands a `~`-prefixed DSH_HOME and
  * resolves a relative one against its own working directory; the old reader
  * joined the raw string, found nothing, and answered "deepseek".
@@ -167,6 +192,33 @@ test('DSH_HOME’s tilde form is expanded the way DSH expands it, and a still-re
     null,
     'a still-relative DSH_HOME cannot be resolved here, so it is unknown, never the default',
   )
+})
+
+/*
+ * Opus review of #1028, round 3, P2: the reader only ever looked at the
+ * `acp` profile's own two files and never saw the row's own launch
+ * arguments, so a row started with anything past `--profile acp` — another
+ * overlay, a different profile — loaded configuration this reader never
+ * checked, and still answered "deepseek".
+ */
+test('a row launched with anything but the acp profile’s own arguments is unknown, even with clean config files', async (t) => {
+  const home = tree(t, {})
+  const extra = knowledgeOverlay(
+    { id: 'dsh', name: 'DeepSeek', command: 'dsh', args: ['--profile', 'acp', '--patch', 'x.yml'] },
+    knownAgent('dsh'),
+    { env: { DSH_HOME: home } },
+  )
+  assert.equal(await extra.resolveProvider?.(), null, 'an overlay this reader never checks might redirect the default session')
+
+  const otherProfile = knowledgeOverlay(
+    { id: 'dsh', name: 'DeepSeek', command: 'dsh', args: ['--profile', 'work'] },
+    knownAgent('dsh'),
+    { env: { DSH_HOME: home } },
+  )
+  assert.equal(await otherProfile.resolveProvider?.(), null, 'a profile these two files never speak for')
+
+  const noArgs = knowledgeOverlay({ id: 'dsh', name: 'DeepSeek', command: 'dsh' }, knownAgent('dsh'), { env: { DSH_HOME: home } })
+  assert.equal(await noArgs.resolveProvider?.(), null, 'no args at all means this reader cannot tell what actually launches')
 })
 
 test('an agent with no reader is unknown, whatever it is called', () => {

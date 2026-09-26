@@ -643,7 +643,14 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
     brand: 'deepseek',
     tagline: "DeepSeek's agent harness, speaking ACP directly.",
     cli: { commands: ['dsh'] },
-    acp: { args: ['--profile', 'acp'] },
+    // Empty on purpose: `--profile acp` is the template's own default
+    // (`agent-registry.ts`'s `dsh` template sets it on a fresh row), but
+    // `known.acp.args` is what `InstallService.launchFor` corrects a row's
+    // own args against — a non-empty base here would replace a person's own
+    // `--profile <custom>` with `acp` every time the agent starts. Leaving
+    // it empty means `extendedArgs` never has a base to fall back to, so a
+    // row's own args survive byte-identical (#1028's review, P1).
+    acp: { args: [] },
     publish: {
       npm: '@deepseek-ai/dsh',
       installCommand: 'npm install -g @deepseek-ai/dsh',

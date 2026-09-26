@@ -139,6 +139,8 @@ const dequote = (raw: string): string => {
 /** A bare or quoted path segment, dot-separated — `profiles.x`, `model_providers."x y"` — the only header shape this scanner fully understands. */
 const SEGMENT = '(?:[A-Za-z0-9_-]+|"[^"]*"|\'[^\']*\')'
 const HEADER = new RegExp(`^\\[\\s*(${SEGMENT}(?:\\s*\\.\\s*${SEGMENT})*)\\s*\\]$`)
+/** Matches one segment at a time, in order — used to rebuild a header's dotted path without disturbing a quoted segment's own contents (see `parseLayer`). */
+const SEGMENT_TOKEN = new RegExp(SEGMENT, 'g')
 
 /** A `[profiles.<id>]` or `[model_providers.<id>]` table header; any other header, or none, otherwise. */
 type Section = 'root' | 'other' | { readonly kind: 'profile' | 'provider'; readonly id: string }
@@ -163,12 +165,56 @@ interface Layer {
 }
 
 /**
+ * Advances a `[`/`{` … `]`/`}` nesting count across one line's text, a quote
+ * at a time so a bracket character inside a string is never counted: `"`
+ * opens a run where `\"` does not close it, `'` opens one with no escapes.
+ * `false` means a stray close appeared with nothing open — a shape this
+ * scanner does not trust enough to keep going.
+ */
+interface BracketState {
+  depth: number
+  quote: '"' | "'" | null
+}
+
+const scanBrackets = (text: string, state: BracketState): boolean => {
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!
+    if (state.quote) {
+      if (state.quote === '"' && char === '\\') {
+        index += 1
+        continue
+      }
+      if (char === state.quote) state.quote = null
+      continue
+    }
+    if (char === '"' || char === "'") {
+      state.quote = char
+      continue
+    }
+    if (char === '[' || char === '{') state.depth += 1
+    else if (char === ']' || char === '}') {
+      if (state.depth === 0) return false
+      state.depth -= 1
+    }
+  }
+  return true
+}
+
+/**
  * Parses one file's text into its root selector, its root overrides, and
  * its named `[profiles.*]`/`[model_providers.*]` tables — `'unknown'` the
  * moment anything is seen that this scanner cannot fully account for: a
  * multi-line string anywhere, a header it cannot parse cleanly (comments
  * and whitespace around a dot aside), a line that is not a clean
- * `key = value` assignment, or a value that could be an inline table.
+ * `key = value` assignment, a key captured from quotes that contains a
+ * backslash (an escape this scanner does not decode, so the key it truly
+ * names is not this scanner's to guess), or a value that could be an inline
+ * table. A bracketed array left open at the end of a line is followed to its
+ * closing bracket across as many following lines as it takes — common as an
+ * `[mcp_servers.*]` table's own `args` — but only when nothing tracked here
+ * (`profile`, `model_provider`, a `*base_url` key) is the one holding it;
+ * such a key is never expected to hold an array, so one that does stays
+ * unknown rather than guessed at.
  */
 const parseLayer = (text: string): Layer | 'unknown' => {
   if (/"""|'''/.test(text)) return 'unknown'
@@ -180,20 +226,43 @@ const parseLayer = (text: string): Layer | 'unknown' => {
   const profileLines = new Map<string, string[]>()
   const providerLines = new Map<string, string[]>()
 
-  for (const raw of text.split(/\r?\n/)) {
+  const rows = text.split(/\r?\n/)
+  for (let at = 0; at < rows.length; at += 1) {
+    const raw = rows[at]!
     const line = stripComment(raw).trim()
     if (!line) continue
     if (line.startsWith('[')) {
       const header = HEADER.exec(line)
       if (!header) return 'unknown'
-      current = sectionFor(header[1]!.replace(/\s*\.\s*/g, '.'))
+      // Rebuilt from the segments the header itself matched, in order — not
+      // a blind whitespace-collapse, which used to eat the spaces inside a
+      // quoted segment's own text along with the ones around a real dot.
+      const segments = header[1]!.match(SEGMENT_TOKEN) ?? []
+      current = sectionFor(segments.join('.'))
       continue
     }
     const assignment = ASSIGNMENT.exec(line)
     if (!assignment) return 'unknown'
     const key = (assignment[1] ?? assignment[2] ?? assignment[3])!
+    if (key.includes('\\')) return 'unknown'
     const value = assignment[4]!.trim()
     if (value.includes('{')) return 'unknown'
+    const tracked = current === 'root'
+      ? key === 'profile' || key === 'model_provider' || isBaseUrlKey(key)
+      : current !== 'other' && (key === 'model_provider' || isBaseUrlKey(key))
+    if (value.startsWith('[')) {
+      const state: BracketState = { depth: 0, quote: null }
+      let balanced = scanBrackets(value, state)
+      let end = at
+      while (balanced && state.depth > 0 && end + 1 < rows.length) {
+        end += 1
+        balanced = scanBrackets(stripComment(rows[end]!), state)
+      }
+      if (!balanced || state.depth !== 0 || state.quote !== null) return 'unknown'
+      if (tracked) return 'unknown'
+      at = end
+      continue
+    }
     if (current === 'root') {
       if (key === 'profile') profile = dequote(value)
       else if (key === 'model_provider') rootProvider = dequote(value)

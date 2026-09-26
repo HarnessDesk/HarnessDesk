@@ -572,18 +572,33 @@ around with an unselected profile or provider table — a local Ollama setup
 for occasional use, say — no longer makes every session on that Codex
 unknown; only what is actually selected does. The scanner is deliberately
 cruder than a TOML parser, but never *silently* cruder: a header it cannot
-fully parse (a trailing comment and whitespace around a dot are normalized;
-nothing else is), a dotted key, an inline table, or a multi-line string
+fully parse (a trailing comment and whitespace around a dot are normalized —
+only outside a quoted segment's own text, so `[profiles."a . b"]` still
+means the profile literally named `a . b` — a key captured from quotes that
+carries a backslash is not, since this scanner does not decode the escape it
+could be hiding), a dotted key, an inline table, or a multi-line string
 anywhere in the file — each of which could hide a real header or key from a
 line-based scan — answers unknown rather than being skipped or guessed at. A
-Codex launch's own `-c` override counts the same way when it names
+bracketed array left open at the end of a line is followed to its own
+closing bracket across as many lines as it takes instead — common as an
+`[mcp_servers.*]` table's own `args` — unless the key holding it is one this
+reader tracks (`profile`, `model_provider`, a `*base_url` key), which is
+never a shape any of them is legitimately written in and so stays unknown
+too. A Codex launch's own `-c` override counts the same way when it names
 `model_provider`, `base_url`, or `profile`, since a profile switch from the
 command line is exactly as much a redirection as one written in the file.
 
 DeepSeek Harness always starts on its `acp` profile, so only that profile's
-own patch and the home-level patch that outranks it are read; a patch aimed
-at one of DSH's other profiles is inert the same way. Within those two
-layers, DeepSeek's own API is answered only when every one of these holds:
+own patch and the home-level patch that outranks it are read — and only when
+the row is actually launched with `--profile acp` and nothing past it; any
+other argument could select a different profile or load an overlay these two
+files never speak for, so the row's own args are unknown rather than
+assumed. A patch aimed at one of DSH's other profiles is inert the same way.
+Each patch is read with the same strict YAML this desk reads a flow with
+(`packages/server/src/yaml.ts`): a shape it refuses, or a list holding
+anything but maps, is unknown outright, never guessed at from whatever a
+looser scan could make of the lines. Within those two layers, DeepSeek's own
+API is answered only when every one of these holds:
 no `llm-deepseek`, `llm-deepseek-account` or `llm-deepseek-api-key` entry
 sets a `baseURL` outside `api.deepseek.com`; no `agent-default-model` entry
 names a `provider` other than the vendor default, `deepseek-official`; no
