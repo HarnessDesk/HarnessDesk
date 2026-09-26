@@ -77,19 +77,21 @@ export const PropagationPage = () => {
               <MenuSeparator />
               {/* Several accounts of one agent, under its heading: each nested
                   row wears the account's colour alone (`AccountMark
-                  size="dot"`), a name, and what is left of its usage. */}
+                  size="dot"`), its name — the address before the @, whole on
+                  hover — and what is left of its usage, as the seat menu
+                  draws them. */}
               <MenuAccountGroup
                 label="Claude Code"
                 mark={<AccountMark size="sm"><RuntimeMark runtime={CLAUDE_RUNTIME} size={13} /></AccountMark>}
               >
                 <MenuItem layout="account" onSelect={() => undefined}>
                   <AccountMark size="dot" aria-hidden="true" data-tint="blue">{null}</AccountMark>
-                  <Text role="row" className="min-w-0 flex-1 truncate">dev@example.com</Text>
+                  <Text role="navigation" truncate className="min-w-0 flex-1" title="dev@example.com">dev</Text>
                   <Text role="muted" numeric>78%</Text>
                 </MenuItem>
                 <MenuItem layout="account" onSelect={() => undefined}>
                   <AccountMark size="dot" aria-hidden="true" data-tint="violet">{null}</AccountMark>
-                  <Text role="row" className="min-w-0 flex-1 truncate">alex@example.com</Text>
+                  <Text role="navigation" truncate className="min-w-0 flex-1" title="alex@example.com">alex</Text>
                   <Text role="muted" numeric>42%</Text>
                 </MenuItem>
               </MenuAccountGroup>
@@ -101,8 +103,8 @@ export const PropagationPage = () => {
                 mark={<AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>}
               >
                 <MenuItem layout="account" onSelect={() => undefined}>
-                  <AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
-                  <Text role="row" className="min-w-0 flex-1 truncate">jane@example.com</Text>
+                  <AccountMark size="sm" data-tint="rose"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
+                  <Text role="navigation" truncate className="min-w-0 flex-1" title="jane@example.com">jane</Text>
                 </MenuItem>
               </MenuAccountGroup>
             </Menu>
