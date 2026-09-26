@@ -908,16 +908,18 @@ export const rightPanelDrawn = (workbench: Workbench): boolean =>
   dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
 
 /**
- * The area the desk's floating notices ride (#896): the one being read at
- * full size, never one a zoom or an overlay has taken off the screen.
+ * The area the strip above the panes rides (`NoticeStripOutlet`): the one
+ * being read at full size, never one a zoom or an overlay has taken off the
+ * screen.
  *
  * The main area, normally — where, inside the split tree, the expanded pane
- * if there is one and the first pane otherwise hosts them. A dock zoomed to
- * take the room takes the notices with it, since the main area it would
+ * if there is one and the first pane otherwise hosts it. A dock zoomed to
+ * take the room takes the strip with it, since the main area it would
  * otherwise have ridden has no box; so does a right panel a narrow window
  * lays over the whole main area. `null` is a zoomed sidebar, which is no
- * place for a desk-wide card: the stack then falls back to the whole
- * content area, and its placement keeps it clear of every toolbar there.
+ * place for a desk-wide strip: `NoticeStripOutlet`'s own fallback then
+ * carries a composer-bound notice instead, and nothing stands in for one
+ * that belongs on the strip until the sidebar is unzoomed.
  */
 export const noticeArea = (workbench: Workbench, narrow: boolean): 'main' | 'right' | 'bottom' | null => {
   const zoom = workbench.zoom

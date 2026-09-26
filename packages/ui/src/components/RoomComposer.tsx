@@ -34,7 +34,7 @@ import {
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
 import { ComposerNoticeStack, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
-import { NoticeStripOutlet } from './Notices'
+import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 
 /**
@@ -499,10 +499,13 @@ export const RoomComposer = ({
         {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
       </TurnWorkLive>
     )}
-    {/* A dropped link, and whatever the person moved to the strip, over the
-        room's box as over a conversation's. */}
+    {/* A dropped link, whatever the person moved to the strip, and — same as
+        a conversation's own composer — what stops a turn here and what an
+        Agent in this room is waiting on someone to decide, over the room's
+        box as over a conversation's. */}
     <ComposerNoticeStack>
       <NoticeStripOutlet />
+      <ComposerNotices />
     </ComposerNoticeStack>
     <ComposerShell className="relative">
       {mention && (

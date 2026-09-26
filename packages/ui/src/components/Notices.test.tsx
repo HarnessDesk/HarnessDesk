@@ -186,7 +186,7 @@ it('says it again when the window turns over, because that much is new', () => {
 
 it('offers to stop showing a kind the reader has put away twice', () => {
   // Two windows already dismissed; this is the third sighting.
-  const twice = { records: { 'usage:pace': { count: 2, at: Date.now() } }, muted: [], seen: [], surfaces: {} }
+  const twice = { records: { 'usage:pace': { count: 2, at: Date.now() } }, muted: [], seen: [], surfaces: {}, kept: [] }
   const store = mount({ usage: [racing('a')], noticePolicy: twice })
 
   act(() => dismiss()?.click())
@@ -202,7 +202,7 @@ it('offers to stop showing a kind the reader has put away twice', () => {
 
 it('keeps a silenced kind away in a window it has never been dismissed in', () => {
   // No `seen` key for this window at all — the mute is what holds it.
-  mount({ usage: [racing('a')], noticePolicy: { muted: ['usage:pace'], records: {}, seen: [], surfaces: {} } })
+  mount({ usage: [racing('a')], noticePolicy: { muted: ['usage:pace'], records: {}, seen: [], surfaces: {}, kept: [] } })
   expect(container.textContent).not.toContain('will run out before it refills')
 })
 
@@ -215,7 +215,7 @@ it('leaves the plain × alone until it has been earned', () => {
 it('never offers to silence a dropped connection', () => {
   const store = mount({
     status: 'reconnecting',
-    noticePolicy: { records: { link: { count: 9, at: Date.now() } }, muted: [], seen: [], surfaces: {} },
+    noticePolicy: { records: { link: { count: 9, at: Date.now() } }, muted: [], seen: [], surfaces: {}, kept: [] },
   })
   expect(container.textContent).toContain('Reconnecting to HarnessDesk')
 

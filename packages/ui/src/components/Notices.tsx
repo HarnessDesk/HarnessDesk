@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { RuntimeMark } from './BrandIcons'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -18,7 +18,7 @@ import {
 } from '../design'
 import { describeLimits } from '../lib/limits'
 import { conditionFor } from '../lib/usage-alerts'
-import { isSilenced, offersMute, surfaceFor, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
+import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell } from '../panels/views'
 import { useImportOffer } from './ImportOffer'
 
@@ -87,6 +87,15 @@ interface Notice extends NoticeIdentity {
   readonly title: string
   readonly body?: ReactNode
   readonly action?: NoticeAct
+  /**
+   * The words of `body`, when `body` is not itself already a string.
+   *
+   * The inbox stores plain text, never React elements, so a notice whose body
+   * carries markup (a `<code>` run naming a command) has to say the same
+   * thing in words as well — dropping it silently is how the sign-in
+   * instruction went missing from the kept copy.
+   */
+  readonly inboxBody?: string
 }
 
 /** The identity of a notice, without what it looks like. */
@@ -109,6 +118,8 @@ const identify = (notice: Notice): NoticeIdentity => ({
 interface Standing {
   readonly message: NoticeMessage
   readonly identity: NoticeIdentity
+  /** The plain-text form of `message.body`, for the inbox copy (see `Notice.inboxBody`). */
+  readonly inboxBody?: string
   readonly dismiss: () => void
   readonly mute?: () => void
 }
@@ -163,6 +174,7 @@ const useStanding = (): Standing | null => {
         ) : (
           'Sessions cannot start until an account is connected.'
         ),
+        ...(!driveable && command ? { inboxBody: `Run ${command} in a terminal to connect an account.` } : {}),
       }
     }
     // What the agent this conversation talks to is up against, and somewhere
@@ -226,6 +238,7 @@ const useStanding = (): Standing | null => {
       ...(notice.action ? { action: notice.action } : {}),
     },
     identity,
+    ...(notice.inboxBody !== undefined ? { inboxBody: notice.inboxBody } : {}),
     dismiss: () => {
       if (notice.lifetime === 'session') setPutAway(notice.key)
       else store.dismissStanding(identity)
@@ -239,21 +252,111 @@ const placeOf = (policy: NoticePolicy, standing: Standing): NoticeSurface | null
   standing.identity.kind === 'link' ? 'strip' : surfaceFor(policy, standing.identity.kind)
 
 /**
+ * Which outlets of one kind are on screen right now, so two things a global
+ * condition would otherwise draw twice can agree on which one actually does.
+ *
+ * `ComposerNotices` mounts wherever a composer does — a conversation's own,
+ * or a room's — and a mount is registered here the moment it exists, whether
+ * or not it currently has anything to show: the strip's fallback (below)
+ * cares that a composer surface *exists*, not that it is presently drawn.
+ * `NoticeStripOutlet` mounts once per pane that needs a strip and once more
+ * inside a room's composer, and a split can show both at once; only the
+ * first one registered — the "leader" — actually renders the shared,
+ * pane-independent messages (a standing condition, the import offer), so a
+ * dropped link is said once, not once per outlet that happens to be mounted.
+ *
+ * Plain mutable state, read straight off at render time — not a
+ * `useSyncExternalStore` the registry pushes updates through. A message here
+ * is drawn or withheld beside a `useSnapshot()` read that already re-renders
+ * on every relevant change (the standing condition, the notice policy, the
+ * workbench layout), so this only ever has to be *correct by the next one of
+ * those*, not independently reactive — a bar a coordination flag this rarely
+ * wrong does not clear, and a store that pushed its own updates would add a
+ * render of its own for every mount and unmount, which is exactly what once
+ * pushed `NoticeStripOutlet` and `ComposerNotices` mounting together past the
+ * ceiling `TeamRoomPane`'s "does not spin" test holds the app to.
+ */
+const makeOutletRegistry = () => {
+  const ids: string[] = []
+  return {
+    mount: (id: string): void => {
+      if (!ids.includes(id)) ids.push(id)
+    },
+    unmount: (id: string): void => {
+      const at = ids.indexOf(id)
+      if (at !== -1) ids.splice(at, 1)
+    },
+    leader: (): string | null => ids[0] ?? null,
+    count: (): number => ids.length,
+  }
+}
+
+const composerOutlets = makeOutletRegistry()
+const stripOutlets = makeOutletRegistry()
+
+/**
+ * Registers this component instance as one mount of the given outlet kind for
+ * as long as it stays mounted.
+ *
+ * Registered from the render itself, guarded so one commit registers once,
+ * rather than from an effect — the read this feeds (`leader`/`count`, below)
+ * happens in that same render, so the registration has to already be in
+ * place for it, not one render behind.
+ */
+const useOutletRegistration = (registry: ReturnType<typeof makeOutletRegistry>): string => {
+  const id = useId()
+  const mounted = useRef(false)
+  if (!mounted.current) {
+    mounted.current = true
+    registry.mount(id)
+  }
+  useEffect(
+    () => () => {
+      registry.unmount(id)
+      mounted.current = false
+    },
+    [registry, id],
+  )
+  return id
+}
+
+/** Whether this mount is the one, among every outlet of this kind on screen, that should draw the shared messages. */
+const useIsLeaderOutlet = (registry: ReturnType<typeof makeOutletRegistry>): boolean => {
+  const id = useOutletRegistration(registry)
+  return registry.leader() === id
+}
+
+/** Whether a composer surface of either kind is mounted anywhere right now. */
+const useComposerMounted = (): boolean => composerOutlets.count() > 0
+
+/**
  * Keeps, once, a notice whose kind the person moved to "Inbox only". Keyed by
  * the notice's own key, so the same condition is one kept message however
  * often the window draws it, and it is not made unread again by redrawing.
+ *
+ * "Already kept" is answered from the notice policy's own `kept` list, never
+ * from whether the inbox still holds the entry: the inbox is exactly the
+ * thing a person can clear or read, and a policy read back from *that* would
+ * put the message right back, unread, on the render after "Clear" — the same
+ * standing condition being true is not news a second time. The key leaves
+ * `kept` only when the occurrence itself does, which shows up as a new key.
+ *
+ * `bodyText` carries the plain words for the inbox row when the message's own
+ * body is markup (`NoticeMessage.body` is a `ReactNode`, and the inbox stores
+ * a string) — see `Notice.inboxBody`.
  */
-const useKeptOnce = (message: NoticeMessage | null, kind: string | null, place: NoticeSurface | null): void => {
+const useKeptOnce = (message: NoticeMessage | null, kind: string | null, place: NoticeSurface | null, bodyText?: string): void => {
   const store = useStore()
-  const inbox = useSnapshot().inbox
+  const policy = useSnapshot().noticePolicy
   const id = message?.id ?? null
   const title = typeof message?.title === 'string' ? message.title : null
-  const body = typeof message?.body === 'string' ? message.body : undefined
+  const body = bodyText ?? (typeof message?.body === 'string' ? message.body : undefined)
   const tone = message?.tone ?? 'neutral'
-  const already = id !== null && inbox.some((entry) => entry.id === id)
+  const already = id !== null && wasKept(policy, id)
   useEffect(() => {
     if (place !== 'inbox' || id === null || title === null || already) return
     store.keep({ id, ...(kind ? { kind } : {}), tone, title, ...(body ? { body } : {}), at: Date.now() })
+    store.markNoticeKept(id)
   }, [place, id, title, body, tone, kind, already, store])
 }
 
@@ -265,9 +368,14 @@ const useKeptOnce = (message: NoticeMessage | null, kind: string | null, place: 
 export const ComposerNotices = () => {
   const store = useStore()
   const snapshot = useSnapshot()
+  // Registered on every mount, whether or not there is anything to show right
+  // now: the strip's fallback below asks whether a composer surface *exists*
+  // on screen, which is true the whole time a conversation's or a room's
+  // composer is, not only on the renders where it happens to hold a message.
+  useOutletRegistration(composerOutlets)
   const standing = useStanding()
   const place = standing ? placeOf(snapshot.noticePolicy, standing) : null
-  useKeptOnce(standing?.message ?? null, standing?.identity.kind ?? null, place)
+  useKeptOnce(standing?.message ?? null, standing?.identity.kind ?? null, place, standing?.inboxBody)
   const active = snapshot.activeSessionKey
   const asking = snapshot.agentNotices.filter(
     (notice) => active !== null && sessionKey(notice.from.runtime, notice.from.sessionId as SessionId) === active,
@@ -301,17 +409,31 @@ export const NoticeStripOutlet = () => {
   const snapshot = useSnapshot()
   const standing = useStanding()
   const offer = useImportOffer()
+  // A split can mount this outlet more than once at a time — a room's
+  // composer draws its own beside a pane that needs one for lack of a header
+  // — and every mount would otherwise mirror the same global condition. Only
+  // the leader draws; the rest stay silent so the message is said once.
+  const isLeader = useIsLeaderOutlet(stripOutlets)
+  const composerMounted = useComposerMounted()
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
-  if (standing && placeOf(snapshot.noticePolicy, standing) === 'strip') {
-    messages.push(standing.message)
-    dismissals.set(standing.message.id, standing.dismiss)
+  if (standing) {
+    const place = placeOf(snapshot.noticePolicy, standing)
+    // A kind that belongs on the composer still has to reach someone: when no
+    // composer of either kind is on screen to carry it — a board-only layout,
+    // a folder that is gone where the composer would be, a zoomed dock, the
+    // narrow window's overlay — the strip is the fallback rather than the
+    // message going unseen.
+    if (place === 'strip' || (place === 'composer' && !composerMounted)) {
+      messages.push(standing.message)
+      dismissals.set(standing.message.id, standing.dismiss)
+    }
   }
   if (offer && surfaceFor(snapshot.noticePolicy, 'import:offer') === 'strip') {
     messages.push(offer.message)
     dismissals.set(offer.message.id, offer.dismiss)
   }
-  if (messages.length === 0) return null
+  if (!isLeader || messages.length === 0) return null
   return (
     <NoticeStrip
       messages={messages}

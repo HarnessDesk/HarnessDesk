@@ -56,15 +56,15 @@ const needsStrip = (view: PaneNode['view']): boolean =>
   view.kind !== 'conversation' && views.get(view.kind)?.ownsChrome !== true
 
 /**
- * The pane the app's floating notice stack rides (#896) while the main area
- * hosts it (`noticeArea`): the expanded pane when one has taken the split's
- * room — the only pane then on screen — and otherwise the split tree's own
- * first leaf, one level down at a time. Never whichever pane happens to have
- * focus, which a click into a docked browser pane would otherwise hand the
- * marker to, moving the overlap it exists to prevent onto the conversation
- * instead of removing it. The same leaf a fresh split's own first half
- * already is, so opening a second pane beside the primary one never moves
- * the marker at all.
+ * The pane the strip above the panes rides (`NoticeStripOutlet`, below) while
+ * the main area hosts it (`noticeArea`): the expanded pane when one has taken
+ * the split's room — the only pane then on screen — and otherwise the split
+ * tree's own first leaf, one level down at a time. Never whichever pane
+ * happens to have focus, which a click into a docked browser pane would
+ * otherwise hand the marker to, moving the overlap it exists to prevent onto
+ * the conversation instead of removing it. The same leaf a fresh split's own
+ * first half already is, so opening a second pane beside the primary one
+ * never moves the marker at all.
  */
 const primaryPaneId = (node: LayoutNode): string => (node.kind === 'pane' ? node.id : primaryPaneId(node.first))
 
