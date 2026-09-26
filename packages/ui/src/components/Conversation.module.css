@@ -31,19 +31,17 @@
   white-space: nowrap;
 }
 
-.status {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
+/* Chip (design/patterns/Settings) now owns the pill's own shape and ground;
+   `.statusIdle` below is only the phone-width fold's hook for the idle pill,
+   which carries no fact worth a colour of its own. */
 
 .statusDot {
   width: 7px;
 }
 
-/* Status appearance (color, background, height, border-radius, padding)
-   composed on the elements via Tailwind. */
+/* The dot's shape and colour (height, border-radius, background) are
+   composed on the element via Tailwind — see the comment beside it in
+   Conversation.tsx for why it is not the shared Dot. */
 
 .tasksChip {
   flex: none;
@@ -73,11 +71,11 @@
   display: none;
 }
 
-/* The line between what the header says and what it does. */
-.headerRule {
-  flex: none;
-  width: 1px;
-  margin: 0 var(--hd-space-1); /* desk: canonical One UI System scale */
+/* ToolPaneHeaderDivider (design/ui/tool-pane) now draws the line between what
+   the header says and what it does; this wraps it only so the fold below can
+   hide it, since the shared marker takes no className of its own. */
+.headerRuleWrap {
+  display: contents;
 }
 
 .headerButton {
@@ -125,8 +123,8 @@
    door to a view folds into ⋯ › View. The header marks the doors that have a
    ⋯ to fold into (`data-folds`); a draft has none, and keeps its browser. */
 @container hd-header (max-width: 400px) {
-  .status[data-status='idle'],
-  .headerRule,
+  .statusIdle,
+  .headerRuleWrap,
   .headerButtonWrap[data-folds] {
     display: none;
   }

@@ -41,6 +41,7 @@ import { worktreeBranch } from '../lib/worktree-branch'
 import {
   Bar,
   Button,
+  Chip,
   ConversationEmptyState,
   Menu,
   MenuItem,
@@ -57,8 +58,8 @@ import {
   Spinner,
   Submenu,
   Text,
+  ToolPaneHeaderDivider,
   dotTone,
-  softTone,
   type Tone,
 } from '../design'
 import { Badge } from '../design'
@@ -89,8 +90,13 @@ import styles from './Conversation.module.css'
 
 /** Scroll padding: top clears the notice banner, sides set the reading column's
  *  gutter (matching what the scrollbar-gutter reserves), bottom clears the
- *  floating composer. Composed here because padding is in the appearance family. */
+ *  floating composer. No shared scroll or column part owns this exact mix —
+ *  the notice inset and the composer's own measured height are this pane's,
+ *  and TeamRoomPane already zeroes the first rather than duplicate it. */
 const SCROLL_PADDING = 'calc(8px + var(--hd-notice-inset, 0px)) 24px calc(var(--composer-h, 150px) + 16px)'
+/** The strip above the composer, inset to the same gutter ComposerDock uses —
+ *  but ComposerDock also carries its own bottom padding for the composer box
+ *  it wraps, which this strip must not add above it, so it stays its own. */
 const BARS_PADDING = '0 calc(24px + var(--hd-scrollbar-width, 8px))'
 
 /** An empty-state title, in the page role at its own weight. */
@@ -647,14 +653,18 @@ export const Conversation = ({
         )}
         <HeaderTitle session={session} />        {session && <span className="hd-no-drag inline-flex flex-none"><HeaderCeiling session={session} /></span>}
         {session && (
-          <span
-            className={`${styles.status} h-[22px] px-(--hd-space-2) rounded-(--hd-radius-md) text-base hd-no-drag ${softTone({ tone: STATUS_PILL_TONE[status] })}`}
-            data-status={status}
+          <Chip
+            tone={STATUS_PILL_TONE[status]}
+            className={`hd-no-drag${status === 'idle' ? ` ${styles.statusIdle}` : ''}`}
             title={STATUS_LABEL[status]}
           >
+            {/* The dot disagrees with the pill on purpose while running: Chip's
+                own rule has a dot borrow its chip's ink so the two never
+                disagree, which this one live indicator must do anyway, so it
+                draws its own mark instead of the shared Dot. */}
             <span className={`${styles.statusDot} h-[7px] rounded-full ${dotTone({ tone: STATUS_TONE[status] })} ${status === 'running' ? 'animate-[hd-pulse_var(--hd-duration-pulse)_ease-in-out_infinite]' : ''}`} />
             {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
-          </span>
+          </Chip>
         )}
         {session && <TasksChip />}
         <div className="hd-no-drag">
@@ -673,9 +683,15 @@ export const Conversation = ({
             status rather than with the buttons that do something. */}
         <PlanMeters onOpen={onOpenUsage} onSignIn={onSignIn} />
         {/* Everything to the left of this states a fact; everything to the
-            right does something. Without the rule they ran together as one
-            undifferentiated row of chrome. */}
-        {pane && <span className={`${styles.headerRule} h-[18px] bg-(--hd-border-strong)`} />}
+            right does something — the tool header's own divider, drawn for
+            the same reason between a tool's controls and its panel's. Wrapped
+            only so the phone-width fold below can hide it: the shared marker
+            takes no className of its own. */}
+        {pane && (
+          <span className={styles.headerRuleWrap}>
+            <ToolPaneHeaderDivider />
+          </span>
+        )}
         {/* A door to a view folds into ⋯ › View at a phone's width — where
             there is a ⋯ to fold into. A draft has none, so its browser button
             stays: folded, it was a door closed with nothing in its place. */}
@@ -701,6 +717,10 @@ export const Conversation = ({
             scroller and must not scroll with what it pictures. */}
         {session && <ConversationMap turns={session.turns} scroll={scroll} />}
         {loading && items.length === 0 ? (
+          // Shares its padding with ConversationEmptyState's, but not its
+          // shape: that pattern stacks a title over a sentence, and a spinner
+          // beside its word is a row, not a column — forcing one onto the
+          // other would flip which way this reads while it is loading.
           <div className={`${styles.loading} p-10`}>
             <Spinner size="sm" tone="brand" />
             <Text role="prose" ink="muted">Loading transcript…</Text>
@@ -795,6 +815,9 @@ export const Conversation = ({
         )}
       </div>
 
+      {/* The fade this pane sits on is its own: no other screen holds a
+          scrolling transcript under a floating dock, so there is nowhere
+          else this gradient belongs yet. */}
       <div className={`${styles.dockArea} pt-(--hd-space-4) bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]`} ref={dockArea}>
         {/* Stacked by lifetime, shortest first: the jobs strip goes when this
             turn does, the queue happens after it. That order puts the thing
