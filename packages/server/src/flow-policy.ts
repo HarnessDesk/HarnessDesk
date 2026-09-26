@@ -44,7 +44,7 @@ const CHECK_FIELDS = new Set(['kind', 'check', 'run', 'exits', 'otherwise', 'tim
 const CHECK_VALUE_FIELDS = new Set(['run', 'exits', 'otherwise', 'timeout', 'cwd'])
 const PERSON_FIELDS = new Set(['kind', 'outcomes'])
 const RULE_FIELDS = new Set(['id', 'on', 'when', 'then'])
-const THEN_FIELDS = new Set(['role', 'title', 'detail', 'files'])
+const THEN_FIELDS = new Set(['role', 'title', 'detail', 'files', 'split'])
 const WHEN_FIELDS = new Set(['every', 'any', 'evidence'])
 
 export interface SlotInput {
@@ -122,7 +122,17 @@ const readThen = (value: unknown, at: string, problems: FlowProblem[]): FlowThen
   if (!title) problems.push(problem('error', `${at}.title`, 'a card needs a title'))
   if (!role || !title) return null
   const files = words(record['files'], `${at}.files`, problems)
-  return { role, title, ...(asText(record['detail']) ? { detail: asText(record['detail'])! } : {}), ...(files.length > 0 ? { files } : {}) }
+  const split = record['split'] === undefined ? undefined : asText(record['split'])?.trim()
+  if (record['split'] !== undefined && !split) problems.push(problem('error', `${at}.split`, 'split names the role whose finished card recorded the split'))
+  if (split && files.length > 0) {
+    problems.push(problem('error', `${at}.split`, 'a round takes its files from files or from split, not both'))
+  }
+  return {
+    role, title,
+    ...(asText(record['detail']) ? { detail: asText(record['detail'])! } : {}),
+    ...(files.length > 0 ? { files } : {}),
+    ...(split ? { split } : {}),
+  }
 }
 
 const readCheck = (record: Record<string, unknown>, at: string, problems: FlowProblem[]): FlowCheck | null => {
@@ -317,6 +327,20 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
   return problems.some((one) => one.level === 'error') ? null : policy
 }
 
+/**
+ * One list of files for a round of several cards gives every card the same
+ * paths, and the board lets only one of them be claimed: the split was never
+ * enforced, because there was none. Each card needs its own part.
+ */
+const sharedFiles = (then: FlowThen, target: FlowPolicyRole | undefined, at: string, problems: FlowProblem[]): void => {
+  if (target?.kind !== 'agent' || !then.files?.length) return
+  let width = 1
+  try { width = expandSlots({ uses: target.uses, seats: target.seats.map(seatSpec), ...(target.count === undefined ? {} : { count: target.count }) }).length } catch { /* reported with the role */ }
+  if (width > 1) {
+    problems.push(problem('error', at, `all ${width} cards of "${target.id}" would own the same paths, and two cards whose paths overlap are never both worked — give each card its own part with split: naming the role that agrees it`))
+  }
+}
+
 const validatePolicy = (policy: FlowPolicy, problems: FlowProblem[]): void => {
   const byId = new Map(policy.roles.map((role) => [role.id, role]))
   const edges = new Map<string, Set<string>>()
@@ -351,6 +375,19 @@ const validatePolicy = (policy: FlowPolicy, problems: FlowProblem[]): void => {
     if (target?.kind === 'agent' && target.grant === 'merge' && (!rule.when?.evidence?.length || rule.when.every?.length || rule.when.any?.length)) {
       problems.push(problem('error', `rules[${index}]`, 'This merge step needs fresh evidence. Add an evidence guard before starting it.'))
     }
+    /* One list of files for a round of several cards gives every card the
+       same paths, and the board lets only one of them be claimed: the split
+       was never enforced, because there was none. Each card needs its own. */
+    sharedFiles(rule.then, target, `rules[${index}].then.files`, problems)
+    const source = rule.then.split
+    if (source !== undefined) {
+      if (byId.get(source)?.kind !== 'agent') problems.push(problem('error', `rules[${index}].then.split`, `"${source}" is not an Agent role, so it cannot agree a split`))
+      else if (!reaches(source, rule.on)) problems.push(problem('error', `rules[${index}].then.split`, `"${source}" never finishes before this rule, so no split of its would be recorded yet`))
+    }
+  }
+  sharedFiles(policy.seed, byId.get(policy.seed.role), 'seed.files', problems)
+  if (policy.seed.split !== undefined) {
+    problems.push(problem('error', 'seed.split', 'the seed opens the first round, so no round before it can have agreed a split'))
   }
   const seed = byId.get(policy.seed.role)
   if (seed?.kind === 'agent' && seed.grant === 'merge') problems.push(problem('error', 'seed', 'This merge step needs fresh evidence. Add an evidence guard before starting it.'))
@@ -467,7 +504,7 @@ const scalar = (value: string): string => JSON.stringify(value)
 const seatValue = (seat: FlowSeat): string => seatWritesCompactly(seat)
   ? scalar(seatSpec(seat))
   : `{ ${[`runtime: ${scalar(seat.runtime)}`, ...(seat.model ? [`model: ${scalar(seat.model)}`] : []), ...(seat.effort ? [`effort: ${scalar(seat.effort)}`] : []), ...(seat.thinking ? ['thinking: true'] : [])].join(', ')} }`
-const thenValue = (then: FlowThen): string => `{ role: ${scalar(then.role)}, title: ${scalar(then.title)}${then.detail ? `, detail: ${scalar(then.detail)}` : ''}${then.files?.length ? `, files: [${then.files.map(scalar).join(', ')}]` : ''} }`
+const thenValue = (then: FlowThen): string => `{ role: ${scalar(then.role)}, title: ${scalar(then.title)}${then.detail ? `, detail: ${scalar(then.detail)}` : ''}${then.files?.length ? `, files: [${then.files.map(scalar).join(', ')}]` : ''}${then.split ? `, split: ${scalar(then.split)}` : ''} }`
 
 /** A deliberately normalized serializer. The conversion preview shows formatting loss before it writes. */
 export const serializeFlowPolicy = (policy: FlowPolicy): string => {

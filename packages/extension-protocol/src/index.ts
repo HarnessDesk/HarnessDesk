@@ -347,6 +347,8 @@ export interface ChildToHostMethods {
       readonly handoff?: string
       /** The one word a rule branches on. */
       readonly outcome?: string
+      /** One list of path patterns per card of a later round, in card order. */
+      readonly split?: readonly (readonly string[])[]
     }
     result: string
   }

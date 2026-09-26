@@ -29,6 +29,8 @@ export interface AssignmentPort {
   seats(): readonly SeatRecord[]
   known(runtime: string, session: string): Promise<{ project: string; busy: boolean } | null>
   claimable(goal: string, card: number, session: SessionPointer): boolean
+  /** Why this card is not claimable when its files overlap a live claim: the paths and the card holding them. */
+  overlap?(goal: string, card: number, session: SessionPointer): string | null
   commit(goal: string, card: number, session: SessionPointer): Promise<SeatRecord>
   /**
    * Whether this already-live conversation's attachment loading was ever
@@ -70,6 +72,8 @@ export class Assignments {
         throw new Error('This conversation already holds a Seat. Release it before assigning it elsewhere.')
       }
       if (!this.port.claimable(id, card, session)) {
+        const overlap = this.port.overlap?.(id, card, session) ?? null
+        if (overlap) throw new Error(`Refused: ${overlap}`)
         throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
       }
       if (this.port.attachmentsObserved && !(await this.port.attachmentsObserved(session))) {

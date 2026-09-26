@@ -1476,6 +1476,7 @@ export class Host {
         return project ? { project, busy: isBusy(held) } : null
       },
       claimable: (goal: string, card: number, session) => this.#goalClaimable(goal, card, session.runtime, session.sessionId),
+      overlap: (goal: string, card: number, session) => this.#team.refuseOverlap(goal, this.#goalIntents(goal), card, session.runtime, session.sessionId),
       // A truly plain conversation (never kept as any Agent's Seat) has
       // nothing to adopt falsely — `opening` below hands it `agent: null`
       // either way, so it is not "loose" in the sense this check exists for.
@@ -2603,6 +2604,8 @@ export class Host {
       return dependency !== undefined && dependency.state !== 'done'
     })
     if (waits) return false
+    // A card whose paths overlap a live claim is not claimable, exactly as `claim` refuses it for an agent.
+    if (this.#team.refuseOverlap(goal, intents, card, runtime, sessionId) !== null) return false
     return !intents.some((one) =>
       one.id !== card && one.state === 'claimed' && one.claim?.runtime === runtime && one.claim.sessionId === sessionId,
     )
@@ -2706,6 +2709,10 @@ export class Host {
       if (!current) throw new Error('Choose an existing card.')
       if (current.state === 'claimed' && current.claim?.runtime === runtime && current.claim.sessionId === sessionId) return intents
       if (!this.#claimableIn(intents, goal, card, runtime, sessionId)) {
+        /* A file conflict says which paths, and which card holds them: the
+           person reading the stalled run has to know what to untangle. */
+        const overlap = this.#team.refuseOverlap(goal, intents, card, runtime, sessionId)
+        if (overlap) throw new Error(`Refused: ${overlap}`)
         throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
       }
       const at = Date.now()

@@ -547,6 +547,22 @@ naming the role and the two ways out: isolate it, or lower its grant to
 safely, so one writer beside reviewers that only read is fine, and a round
 opens exactly one role, so no two roles run at once.
 
+**Files and splits.** A rule's `then` may name the paths its card owns while
+claimed, `files: [src/api/**]`, and claiming a card claims them: the board
+refuses a claim — an agent's, the host's own for an opening Seat, or a
+person's assignment — whose paths overlap a live one, naming the paths and the
+card that holds them. One list suits a round of one card only; on a round of
+more, every card would own the same paths and only one could ever be claimed,
+so the dry run refuses it. Several cards each take their own part of a split
+the agents agreed: `then: { role: dev, title: "Build part {{n}}", split: contract }`
+gives card n the n-th list the latest `contract` round recorded. The
+`contract` card is told to finish with `complete_claim`'s `split` — one list
+of path patterns per `dev` card, in card order — and a split whose lists
+overlap is refused as it is recorded. When no usable split is there (none
+recorded, two different ones, or the wrong number of lists), the round stops
+before any card opens and says which, rather than seating every card on the
+same paths.
+
 **Independence** (`independentOf: [build]`) is judged on the vendor behind
 each Seat, as the runtime's adapter reads it from the agent's own
 configuration — Codex's `config.toml`, profiles and project `.codex`,

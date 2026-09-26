@@ -207,6 +207,8 @@ export interface HarnessContext {
          * belonging to a flow is held to the outcomes its role declared.
          */
         readonly outcome?: string
+        /** One list of path patterns per card of a later round, in card order. */
+        readonly split?: readonly (readonly string[])[]
       },
       scope?: ScopeQuery,
     ): Promise<string>

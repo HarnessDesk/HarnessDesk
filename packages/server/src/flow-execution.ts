@@ -43,7 +43,7 @@ import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
 import type { TriggerClosure } from './intake/consent.js'
 import { effectiveBudget } from './intake/definition.js'
-import type { Team } from './team.js'
+import { readSplit, type Team } from './team.js'
 
 /**
  * A flow run as execution state on one Goal.
@@ -391,6 +391,36 @@ const policyOf = (run: StoredFlowExecution): FlowPolicy => {
 
 const bindingsFor = (run: StoredFlowExecution, role: string): FlowBinding[] =>
   run.compiled.bindings.filter((binding) => binding.role === role).sort((a, b) => a.index - b.index)
+
+/**
+ * The files each card of a round owns, taken from the split the latest round
+ * of `source` agreed — card n owns list n — or the sentence that stops the
+ * round before any card of it exists. The agents agree the split; the board
+ * then holds each card to its own part. There is no fallback: a round that
+ * cannot tell its cards' parts apart would hand them all the same paths,
+ * which is the agreement going unenforced.
+ */
+export const agreedSplit = (
+  rounds: readonly FlowRoundState[], before: number, source: string, target: string, width: number, intents: readonly Intent[],
+): readonly (readonly string[])[] | string => {
+  const next = `Next: wrap this Goal, which stops this run, and start the flow again in a new Goal; the "${source}" card has to finish with complete_claim's split — one list of paths for each "${target}" card, in card order, no two overlapping.`
+  const stop = (why: string): string => `The ${width} "${target}" cards were not opened: ${why}, so each card cannot be held to its own files.\n${next}`
+  const from = [...rounds].reverse().find((one) => one.role === source && one.n < before)
+  if (!from) return stop(`no "${source}" round has run yet to agree a split`)
+  const recorded = from.cards.map((card) => intents.find((one) => one.id === card)).filter((card): card is Intent => Boolean(card?.split?.length))
+  if (recorded.length === 0) {
+    const cards = from.cards.map((card) => `#${card}`).join(', ')
+    return stop(`the "${source}" round (card${from.cards.length === 1 ? '' : 's'} ${cards || 'none'}) finished without recording a split of the files`)
+  }
+  const distinct = new Set(recorded.map((card) => JSON.stringify(card.split)))
+  if (distinct.size > 1) return stop(`cards ${recorded.map((card) => `#${card.id}`).join(' and ')} of the "${source}" round recorded different splits`)
+  const read = readSplit(recorded[0]!.split!)
+  if ('refused' in read) return stop(`the split card #${recorded[0]!.id} recorded is not usable: ${read.refused}`)
+  if (read.lists.length !== width) {
+    return stop(`card #${recorded[0]!.id} split the files ${read.lists.length} way${read.lists.length === 1 ? '' : 's'}, and "${target}" opens ${width} card${width === 1 ? '' : 's'}`)
+  }
+  return read.lists
+}
 
 /** A revision under judgment: see the invariant at `FlowSubject` in `flow-evidence.ts`. */
 export type FlowSubjectLike = FlowSubject
@@ -1898,6 +1928,25 @@ export class FlowExecutions {
     }
     const board = this.#team.stateFor(run.goal)
     const before = run.rounds.find((one) => one.n === round.n - 1)
+    /* Each card's own part of an agreed split, read from what the agreeing
+       card recorded, before any card exists: with no usable split the round
+       stops here, rather than handing every card the same paths. */
+    let parts: readonly (readonly string[])[] | null = null
+    if (then.split !== undefined) {
+      const agreed = agreedSplit(run.rounds, round.n, then.split, role.id, width, board.intents)
+      if (typeof agreed === 'string') {
+        await this.#stall(id, agreed)
+        return this.#get(id).rounds.find((one) => one.n === round.n)!
+      }
+      parts = agreed
+    }
+    /* A round whose card agrees a later round's split is told so, and how to
+       record it: an agreement in prose is one nothing can hold anybody to. */
+    const splitting = [...new Set(policy.rules.filter((rule) => rule.then.split === role.id).map((rule) => rule.then.role))]
+    const asksSplit = splitting.map((target) => {
+      const cards = bindingsFor(run, target).length
+      return `Finish this with complete_claim's split as well: the agreed split of files for the "${target}" round, one list of path patterns for each of its ${cards} card${cards === 1 ? '' : 's'}, in card order, no two overlapping. Each of those cards will own only its own list.`
+    })
     const cards: number[] = []
     const render = (template: string, vars: Readonly<Record<string, string>>): string | Error => {
       try {
@@ -1922,11 +1971,13 @@ export class FlowExecutions {
       const detail = [
         said as string | null,
         answers.length > 0 && role.kind !== 'check' ? `Finish this with complete_claim and an outcome of exactly one of: ${answers.join(', ')}.` : null,
+        ...asksSplit,
       ].filter((one): one is string => Boolean(one)).join('\n\n')
+      const files = parts ? parts[index]! : then.files ?? []
       const card = this.#team.addIntentForFlow(run.goal, {
         title: title as string,
         ...(detail ? { detail } : {}),
-        ...(then.files?.length ? { files: then.files } : {}),
+        ...(files.length ? { files } : {}),
         ...(dependsOn.length ? { dependsOn } : {}),
         role: role.id,
         dispatch: `${id}:${round.n}:${index}`,
