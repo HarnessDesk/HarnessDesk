@@ -121,8 +121,10 @@ a:hover {
    for one — draws its own ring on whichever part is actually current, and
    the document's ring on the outer control itself would then frame the part
    that has nothing to do with where the position is, at whatever size the
-   whole control happens to be. */
-:focus-visible:not([data-focus-ring='inline']) {
+   whole control happens to be. The exclusion sits in `:where()` so the rule
+   keeps the plain `:focus-visible` specificity every surface's own
+   `outline: none` was written against. */
+:focus-visible:where(:not([data-focus-ring='inline'])) {
   outline: var(--hd-ring-width) solid var(--hd-ring-muted);
   outline-offset: var(--hd-ring-offset);
 }
