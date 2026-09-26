@@ -34,9 +34,10 @@ const inputVariants = cva(
         default: 'h-(--hd-field-h)',
         compact: 'h-6 px-1.5 data-[icon=leading]:pl-6',
         bare: 'h-7 px-0',
-        // An input standing in for a list row (an inline rename): exactly the
-        // row's own height, so the row does not jump when editing starts.
-        row: 'h-(--hd-nav-h) px-1.5',
+        // An input standing in for a navigation row (an inline rename): the
+        // row's own box — its floor, its block padding at each density and its
+        // type step — so the row does not jump when editing starts.
+        row: 'h-auto min-h-(--hd-nav-h) px-1.5 py-1 data-[density=comfortable]:py-2 text-(length:--hd-text-sm) leading-(--hd-line-sm)',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

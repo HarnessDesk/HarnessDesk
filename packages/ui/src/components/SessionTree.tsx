@@ -214,10 +214,11 @@ const SessionRow = ({
     <div className={styles.rowWrap} {...(menu.at ? { 'data-menu-open': '' } : {})} onContextMenu={menu.open}>
       {renaming ? (
         // The rename box stands in for the row itself: the rail's own inset, and
-        // an input exactly the row's height.
+        // an input with the row's own box at the row's density.
         <PaneColumn inset="rail">
           <Input
             variant="quiet" controlSize="row" className={styles.renameInput}
+            data-density={snapshot.listPrefs.density}
             value={draft}
             autoFocus
             onChange={(event) => setDraft(event.target.value)}

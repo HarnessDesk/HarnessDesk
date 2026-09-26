@@ -1430,6 +1430,11 @@ it('renames an inactive session without opening it or changing active session (#
   const input = container.querySelector<HTMLInputElement>('input')
   expect(input).toBeDefined()
   expect(input?.value).toBe('Inactive Conversation')
+  // It stands in for the row: the row's own box, at the row's own density.
+  const row = [...container.querySelectorAll<HTMLButtonElement>('button[data-density]')][0]
+  expect(input?.dataset.size).toBe('row')
+  expect(input?.dataset.density).toBe(snapshot.listPrefs.density)
+  expect(input?.dataset.density).toBe(row?.dataset.density)
 
   // Change input and press Enter
   act(() => {
