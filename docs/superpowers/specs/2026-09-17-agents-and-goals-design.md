@@ -699,7 +699,7 @@ inputs:
 
 roles:
   scout:      { uses: researcher, grant: edit }
-  analyst:    { uses: requirements-analyst, count: 2, grant: edit }
+  analyst:    { uses: requirements-analyst, count: 2, isolate: true, grant: edit }
   editor:     { uses: requirements-editor, grant: publish }
   dev:        { uses: implementer, grant: publish, isolate: true }
   gate:       { kind: check, run: pnpm verify }
@@ -742,7 +742,11 @@ The trace, channel by channel:
 6. **Package, and a tightening grant.** `dev` gets `publish` and an isolated
    worktree. `scout` and `analyst` get `edit`, enough to commit what they wrote
    and no more; `tester` and `acceptance` keep the default `read`, because a
-   verdict writes nothing.
+   verdict writes nothing. The two analysts are `isolate: true` as well: they
+   write at the same time, and two Seats that may commit never share one working
+   tree — the dry run refuses that shape rather than isolating it silently. The
+   same `requirements-analyst` Agent reviews only where it cannot commit, so the
+   debate rounds are plain rounds and `acceptance` is the review.
 7. **Evidence, not an opinion.** `gate` is a `check` role: the desk runs
    `pnpm verify` and writes `check` evidence at the dev head. It seats nobody.
 8. **Evidence with `against`.** Each `acceptance` card is a **fresh Seat of the

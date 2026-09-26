@@ -7,6 +7,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Two Seats that may commit no longer share one working tree.** A flow
+  role that seats more than one card at a time — `count: 2`, or a list of
+  Agents or seats — with a grant that lets them commit (`edit`, `publish` or
+  `merge`) and without `isolate: true` ran every card in the same checkout,
+  where each one's commits and branch changes landed on the other's work. The
+  dry run, and so the start, now refuses that shape and names the role and the
+  fix: add `isolate: true`, or lower its grant to `read`. A role that may only
+  read is unaffected. And a debate round of an Agent that both writes and
+  reviews is no longer taken for a review round, so it is never stopped with
+  "Some findings could not be read"; a review round that does stop on an
+  unreadable ledger now says it was evidence records that could not be read.
+
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per
   conversation — "cannot pass a lane environment to a session" — so a
