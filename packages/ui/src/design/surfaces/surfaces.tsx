@@ -16,7 +16,7 @@ import { dock, emptyWorkbench } from '../../state/workbench'
 import { PaneProvider } from '../../state/context'
 import type { AppStore } from '../../state/store'
 import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../preview/harness'
-import { PREVIEW_ROOT } from '../../preview/sidebar-fixture'
+import { PREVIEW_ROOT, previewHistory } from '../../preview/sidebar-fixture'
 import styles from './surfaces.module.css'
 
 /**
@@ -266,6 +266,54 @@ export const ComposerSurface = () => (
  */
 export const RailSurface = () => (
   <Mount>
+    <Frame height="page">
+      <div className={`${styles.beside} h-full`}>
+        <Sidebar
+          onOpenSettings={() => {}}
+          onOpenPlugins={() => {}}
+          onOpenAgents={() => {}}
+          onOpenUsage={() => {}}
+          onBrowseFolders={() => {}}
+          onSignIn={() => {}}
+          onSearch={() => {}}
+        />
+        <div className={styles.work} />
+      </div>
+    </Frame>
+  </Mount>
+)
+
+/**
+ * A flow's Seats in the left bar: three of one role, one per agent, all
+ * titled by the role — and one of them in a folder that has since gone.
+ *
+ * The role is the title every Seat of it carries, so at the default compact
+ * density nothing but the agent tells the three rows apart. That name is a
+ * word, so it is a chip on the title's own line, drawn only where rows from
+ * more than one agent share a title — the untouched rows below show none.
+ * The third Seat's worktree was deleted, so its row also wears the gone-folder
+ * mark on the right rail. Seeded on a store of its own so the shared fixture
+ * the other surfaces and `/preview.html` read is left as it is.
+ */
+const seatOf = (from: number, id: string, runtime: string) => ({
+  ...previewHistory[from]!,
+  id: id as never,
+  runtime: runtime as never,
+  title: 'Code reviewer',
+})
+const seatsHistory = [
+  seatOf(0, 'seat-review-alpha', 'codex'),
+  seatOf(1, 'seat-review-beta', 'claude'),
+  seatOf(2, 'seat-review-gamma', 'cursor'),
+  ...previewHistory.slice(5, 7),
+]
+const seatRowsStore = previewStore({
+  history: seatsHistory,
+  foldersGone: new Map([[previewHistory[2]!.cwd, 'This folder no longer exists.']]),
+})
+
+export const SeatRowsSurface = () => (
+  <Mount with={seatRowsStore}>
     <Frame height="page">
       <div className={`${styles.beside} h-full`}>
         <Sidebar

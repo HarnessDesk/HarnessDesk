@@ -22,6 +22,10 @@
       "implementationPath": "packages/ui/src/components/Sidebar.tsx"
     },
     {
+      "id": "surface.seat-rows",
+      "implementationPath": "packages/ui/src/components/SessionTree.tsx"
+    },
+    {
       "id": "surface.git",
       "implementationPath": "packages/ui/src/components/GitPane.tsx"
     },
