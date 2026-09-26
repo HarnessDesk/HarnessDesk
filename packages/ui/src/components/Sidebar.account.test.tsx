@@ -909,7 +909,7 @@ it('calls an account-less row under a heading what it is, not the heading or the
 
 it('keeps a signed-out default listed under its heading when the picker is open, drawn as what it is', () => {
   // A second account of the default agent, answered and signed out, is the default;
-  // a third, signed out too, is not — and so waits behind Add an account.
+  // a third, signed out too, is not the default — and so is not listed.
   const { second, snapshot } = twoCodex()
   const third = slotOf(codex, 'codex-3')
   mount({

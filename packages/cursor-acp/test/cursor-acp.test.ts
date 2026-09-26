@@ -1349,23 +1349,28 @@ test('a Stop while a turn waits for a start seat ends it, and nothing is spawned
     // a further moment with no second spawn is what "waiting" means.
     const spawnedBy = Date.now() + 15_000
     while (spawnsIn(log).length < 1 && Date.now() < spawnedBy) await pause(25)
-    await pause(300)
+    // Long enough that a wrong second spawn, slowed by load, would be seen.
+    await pause(1000)
     assert.equal(spawnsIn(log).length, 1, 'the second is waiting behind the first')
     await second.interrupt()
     // "At once" means before the only seat comes free. The first turn holds it
     // until the hold file below is written — after this completion — or until
-    // the fake's own 20 s cap. So the bound here only has to sit below that
-    // cap: a Stop that waited for the seat completes after it, and fails here.
-    // A tight wall-clock bound only measured the machine's load (#972).
+    // the fake's own 20 s cap, counted from its spawn. So the bound here only
+    // has to sit well below that cap: at 10 s, starting over a second after
+    // the spawn, a Stop that waited for the seat still fails here even with
+    // several seconds of interrupt latency, while a correct one has 10 s of
+    // room on a loaded machine. A tight wall-clock bound only measured the
+    // machine's load (#972).
     const stopped = completedTurn(
-      await tape.until((event) => event.type === 'turn/completed' && String(event.sessionId) === String(second.id), 15_000),
+      await tape.until((event) => event.type === 'turn/completed' && String(event.sessionId) === String(second.id), 10_000),
     )
     assert.equal(stopped.status, 'interrupted')
     // The first finishes and hands its seat on — to nobody, because the
     // second turn is over. Nothing is spawned for it.
     writeFileSync(hold, 'go')
-    await tape.until((event) => event.type === 'turn/completed' && String(event.sessionId) === String(first.id))
-    await pause(400)
+    await tape.until((event) => event.type === 'turn/completed' && String(event.sessionId) === String(first.id), 15_000)
+    // As before the Stop: long enough to see a wrong spawn slowed by load.
+    await pause(1000)
     assert.equal(spawnsIn(log).length, 1, 'no process was started for the stopped turn')
   } finally {
     await runtime.dispose()
