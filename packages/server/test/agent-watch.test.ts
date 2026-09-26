@@ -60,31 +60,33 @@ const LONGEST_SETTLE_MS = 400
 const settled = () => pause(LONGEST_SETTLE_MS + 200)
 
 /**
- * How long a watch gets to prove itself live before the test gives up. It is
- * a ceiling, not a wait: `proveLive` returns the moment the watch reports.
- * Five seconds was measured too short on a machine running several full
- * verifies at once — FSEvents delivered late and a live watch read as a dead
- * one (#972) — and a longer ceiling costs a passing run nothing.
- */
-const PROVE_LIVE_MS = 20_000
-
-/**
  * Calls `touch` once, then polls for `isHeard` without touching again — a
  * burst does not need a second nudge to settle, only time — and only tries a
  * fresh `touch` once a full settle window has passed with nothing heard.
- * Bounded overall. The proof that a watch is live, in place of a guess at how
- * long "it is probably listening by now" should be — the guess is exactly
- * what let a dead watch and a live one both pass a later check in silence.
+ * Bounded by a count of attempts, not by wall time (#972): a deadline fixed
+ * once, at the first call, is exactly wrong on a loaded machine — the process
+ * can lose several real seconds to being scheduled out before it ever gets to
+ * check `isHeard` even once, and a `Date.now()` compared against that stale
+ * deadline then reads as "timed out" for a watch that was live the whole
+ * time. Counting attempts instead means every one of them still runs to
+ * completion and is judged on what it actually observed, however long the
+ * scheduler made it take to get there — a live watch is caught the moment its
+ * event lands, at any real-time distance, and only a watch that stays
+ * provably silent for the full count fails. The run's own `--test-timeout`
+ * (120s, `script/verify.mjs`) is the backstop for a genuine hang, which is
+ * what names the test rather than this throwing a guess at "long enough".
+ * The proof that a watch is live, in place of a guess at how long "it is
+ * probably listening by now" should be — the guess is exactly what let a
+ * dead watch and a live one both pass a later check in silence.
  */
-const proveLive = async (isHeard: () => boolean, touch: () => Promise<void>, what: string, ms = PROVE_LIVE_MS): Promise<void> => {
-  const end = Date.now() + ms
-  for (;;) {
+const proveLive = async (isHeard: () => boolean, touch: () => Promise<void>, what: string, attempts = 60): Promise<void> => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     await touch()
-    const attemptEnd = Math.min(Date.now() + LONGEST_SETTLE_MS, end)
+    const attemptEnd = Date.now() + LONGEST_SETTLE_MS
     while (!isHeard() && Date.now() <= attemptEnd) await pause(20)
     if (isHeard()) return
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`)
   }
+  throw new Error(`timed out waiting for ${what}`)
 }
 
 /** `until`, for a check that has to read something to answer. */
@@ -153,13 +155,27 @@ const fakeClock = (): Clock & {
   readonly pendingCount: () => number
   /** Every `setTimeout` this clock has ever been asked to schedule, cancelled or not — never decremented. */
   readonly scheduledCount: () => number
+  /**
+   * How many *distinct* delays `AgentWatch` schedules — a settle, a rescan, a
+   * retry and a backoff re-check are never the same number twice in a row for
+   * the same key — mean `scheduledCount` climbing is not by itself proof
+   * *which* timer just went in: `#refollow`'s own downstream `#follow` can
+   * schedule one of its own in the same span a settle timer does (review of
+   * #947's agent-watch test). This counts, per delay in milliseconds, how
+   * many times a timer with exactly that delay has ever been scheduled — so a
+   * wait for "the settle timer" can require the settle delay's own count to
+   * have climbed, not merely that *some* count did.
+   */
+  readonly scheduledWithDelay: (ms: number) => number
 } => {
   let now = 0
   let scheduled = 0
+  const byDelay = new Map<number, number>()
   const pending = new Set<{ readonly due: number; readonly callback: () => void; readonly unref: () => void }>()
   return {
     setTimeout: (callback, ms) => {
       scheduled += 1
+      byDelay.set(ms, (byDelay.get(ms) ?? 0) + 1)
       const timer = { due: now + ms, callback, unref: () => {} }
       pending.add(timer)
       return timer
@@ -185,6 +201,7 @@ const fakeClock = (): Clock & {
     // one to be scheduled — `pendingCount` alone cannot tell those apart, and
     // its net count is exactly the thing under test where cancellation is.
     scheduledCount: () => scheduled,
+    scheduledWithDelay: (ms) => byDelay.get(ms) ?? 0,
   }
 }
 
@@ -322,7 +339,14 @@ test('a name that appears while the watch is unproven is found by the backoff ac
   t.after(() => watchInstance.dispose())
 
   await until(() => watchCalled, 'the ancestor watch to arm')
-  await pause(20)
+  // Nothing schedules anything further when a look finds the root missing
+  // (`noticeIfThere`'s own `.then` returns early), so there is no timer to
+  // synchronize this "still nothing" proof on — only real time, generous
+  // enough that a loaded machine's real `reach` (a `realpath` call) has time
+  // to land before the assertion reads it (`settled`, this file's own
+  // standard wait, well past `LONGEST_SETTLE_MS`, in place of a fixed 20ms
+  // guess that matched no timer in particular — #948).
+  await settled()
   assert.deepEqual(said, [], 'nothing to notice yet: the root the immediate re-check looked for is not there')
 
   // Several backoff steps in a row, each looking and finding nothing — the
@@ -331,15 +355,26 @@ test('a name that appears while the watch is unproven is found by the backoff ac
   // scheduled wait is, however many times it has doubled or capped by then.
   for (let step = 1; step <= 3; step++) {
     clock.advance(10_000)
-    await pause(20)
+    await settled()
     assert.deepEqual(said, [], `still nothing after backoff step ${step}: the root is not there yet`)
   }
 
   // The root appears only now — after checks that already came back empty —
   // and the quiet watcher above never reports it on its own.
   mkdirSync(root, { recursive: true })
+  // Advancing the clock synchronously reschedules the backoff's own next
+  // re-check (`#scheduleReady`, before its `reach` for this step has even
+  // resolved) — one new timer, immediately, whether or not this look finds
+  // anything. Only a *second* new timer proves this step's asynchronous
+  // `reach` actually landed and found the root: `#poke`'s notice settle
+  // timer, scheduled from inside that look's own `.then`, never before. A
+  // fixed pause here was a guess at how long that real `realpath` call takes
+  // and could match neither timer on a loaded machine (#948); counting past
+  // the one schedule `advance` itself always causes is what actually proves
+  // the look landed.
+  const scheduledBeforeFound = clock.scheduledCount()
   clock.advance(10_000)
-  await pause(20) // lets that step's own `reach` (finding the root this time) settle before its notice's settle timer exists to move past
+  await until(() => clock.scheduledCount() > scheduledBeforeFound + 1, "the step that finds the root to schedule its notice's settle timer")
   clock.advance(1_000)
   assert.ok(said.length > 0, 'a later backoff step must have found the root once it existed, with no event from the watcher at all')
 })
@@ -380,7 +415,8 @@ test('a watcher’s own event — even one naming nothing the walk-up is waiting
   // notion of "first event proves it live") does on unfixed code, and why
   // this fails there rather than on a real future event happening to name
   // the right thing.
-  const scheduledBefore = clock.scheduledCount()
+  const settleMs = 30
+  const settlesScheduledBefore = clock.scheduledWithDelay(settleMs)
   mkdirSync(root, { recursive: true })
   box.listener?.('change', 'unrelated.txt')
   // That proof's own look at the filesystem (`reach`, a real `realpath`) is
@@ -388,11 +424,13 @@ test('a watcher’s own event — even one naming nothing the walk-up is waiting
   // a guess at how long it takes — it is the settle timer it schedules once
   // that look lands (`#poke`), on a real-time poll bounded generously, never
   // a fixed pause a loaded machine could outrun before it fires (#938).
-  // `scheduledCount`, not `pendingCount`: the walk-up's own backoff re-check
-  // is already pending from the arm above, so "something is pending" is true
-  // before this event even fires — what proves the look actually landed is a
-  // *new* timer beyond that one, not merely a nonempty pending set.
-  await until(() => clock.scheduledCount() > scheduledBefore, 'the notice’s settle timer to be scheduled')
+  // Counted by its own delay (`settleMs`), not `scheduledCount()` overall
+  // (review of #947's own agent-watch test): `#refollow`'s downstream
+  // `#follow` can schedule a timer of its own in the same span this look's
+  // `#poke` does, and a bare "some new timer landed" check could pass on
+  // that one instead — proving nothing about whether the *settle* timer this
+  // assertion is about to fire actually exists yet.
+  await until(() => clock.scheduledWithDelay(settleMs) > settlesScheduledBefore, 'the notice’s settle timer to be scheduled')
   clock.advance(1_000) // fires that settle timer
   assert.ok(said.length > 0, 'the event that first proved the watcher live must have triggered one last look, finding the root that was already there')
   said.length = 0
