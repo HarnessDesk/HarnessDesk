@@ -474,7 +474,7 @@ describe('a user bubble', () => {
   const said = (text: string): AgentItem =>
     ({ id: 'u1', type: 'userMessage', content: [{ type: 'text', text }] }) as unknown as AgentItem
 
-  const bubble = (): string => byClass('bubble')[0]?.textContent ?? ''
+  const bubble = (): string => container.querySelector('[data-slot="bubble"]')?.textContent ?? ''
 
   /** One rule for a quotation: every markdown mark stays exactly as written. */
   it('leaves markdown and line breaks exactly as typed', () => {

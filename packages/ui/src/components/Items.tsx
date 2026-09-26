@@ -34,6 +34,8 @@ import type {
 import { stripAnsi } from '../lib/ansi'
 import {
   ActionError,
+  Bubble,
+  BubbleContent,
   Button,
   Card,
   CardViewport,
@@ -49,6 +51,9 @@ import {
   KeyValueRow,
   Lightbox,
   ListRowDetail,
+  Message,
+  MessageContent,
+  MessageFooter,
   Note,
   Separator,
   Spinner,
@@ -366,7 +371,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
   const when = sentAt(at)
   const copyFailed = useCopyFailed()
   return (
-    <div className={styles.userFooter}>
+    <MessageFooter align="end" className="gap-(--hd-space-0-5)">
       {when && <Text as="span" role="meta" numeric className="mr-(--hd-space-1-5)">{when}</Text>}
       <CopyButton text={text} label="Copy this message" onError={copyFailed} />
       <Button
@@ -379,7 +384,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
       >
         <PencilIcon size={13} />
       </Button>
-    </div>
+    </MessageFooter>
   )
 }
 
@@ -459,16 +464,21 @@ const UserText = ({ text }: { text: string }) => {
   }, [expanded, text])
 
   return (
-    <div className={`${styles.bubble} py-(--hd-space-2-5) px-(--hd-space-4) rounded-(--hd-radius-xl) bg-(--hd-muted) text-base leading-(--hd-line)`}>
-      <div ref={body} className={`${styles.bubbleText} ${!expanded ? 'max-h-[calc(var(--hd-line)*12)] overflow-hidden' : ''}`}>
+    <Bubble variant="secondary">
+      <BubbleContent ref={body} clampLines={12} expanded={expanded}>
         {linkedText(text)}
-      </div>
+      </BubbleContent>
       {overflowed && (
-        <Button variant="quiet" size="sm" className={`${styles.bubbleToggle} mt-(--hd-space-1)`} onClick={() => setExpanded((value) => !value)}>
+        <Button
+          variant="quiet" size="sm"
+          className={`${styles.bubbleToggle} mt-(--hd-space-1)`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
           {expanded ? 'Show less' : 'Show all'}
         </Button>
       )}
-    </div>
+    </Bubble>
   )
 }
 
@@ -488,7 +498,7 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
        gives every transcript item the same 4px, and the user row's 12px
        above / 4px below is this row's alone. Restored as the utility it was
        rather than invented as a new one. */
-    <div className={`${styles.userRow} py-(--hd-space-3) pb-(--hd-space-1)`}>
+    <Message align="end" className="py-(--hd-space-3) pb-(--hd-space-1)">
       {(injections.length > 0 || (item.context?.length ?? 0) > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
           {injections.map((injection, index) => (
@@ -566,9 +576,17 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
           })}
         </div>
       )}
-      {text.length > 0 && <UserText text={text} />}
-      {text.length > 0 && <UserMessageFooter text={text} at={item.startedAt ?? sentAt} />}
-    </div>
+      {text.length > 0 && (
+        // The surface and its footer, in the same MessageContent the room's
+        // own body and trouble line stand in — genuine structure, not a
+        // second box. `items-end` keeps both pinned to the row's own right
+        // edge; the gap replaces the row's own, so the rhythm holds.
+        <MessageContent className="items-end gap-(--hd-space-1-5)">
+          <UserText text={text} />
+          <UserMessageFooter text={text} at={item.startedAt ?? sentAt} />
+        </MessageContent>
+      )}
+    </Message>
   )
 }
 
@@ -659,18 +677,22 @@ const AssistantMessage = ({
   /* No shared part owns a message row's own vertical rhythm (see the same
      note on UserMessage above); this row's 6px above and below is restored
      as the utility it was. */
-  <Text as="div" role="prose" className="py-(--hd-space-1-5)" {...(item.phase === 'commentary' ? { ink: 'secondary' as const } : {})}>
-    <Markdown text={item.text} />
-    {/* Still writing: the system's running mark, the one the inspector's
-        running rows and the header's status wear. */}
-    {streaming && (
-      <span className={styles.caret} aria-label="Still writing">
-        <Dot state="signin" pulse />
-      </span>
-    )}
-    {/* No actions here: they sit once at the end of the turn (TurnTail), for
-        the whole answer, rather than under every paragraph of it. */}
-  </Text>
+  <Message align="start" className="py-(--hd-space-1-5)">
+    <Bubble variant="ghost">
+      <Text as="div" role="prose" {...(item.phase === 'commentary' ? { ink: 'secondary' as const } : {})}>
+        <Markdown text={item.text} />
+        {/* Still writing: the system's running mark, the one the inspector's
+            running rows and the header's status wear. */}
+        {streaming && (
+          <span className={styles.caret} aria-label="Still writing">
+            <Dot state="signin" pulse />
+          </span>
+        )}
+        {/* No actions here: they sit once at the end of the turn (TurnTail), for
+            the whole answer, rather than under every paragraph of it. */}
+      </Text>
+    </Bubble>
+  </Message>
 )
 
 const Reasoning = ({ item }: { item: ReasoningItem }) => {

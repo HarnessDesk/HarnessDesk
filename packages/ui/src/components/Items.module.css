@@ -44,30 +44,9 @@
 
 /* --- user bubble -------------------------------------------------------- */
 
-.userRow {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--hd-space-1-5);
-}
-
-.userFooter {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-0-5);
-}
-
-.bubble {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  max-width: 66.6667%; /* desk: 75% → two thirds of the reading column */
-}
-
-.bubbleText {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
+/* desk: .userRow, .userFooter, .bubble and .bubbleText moved to the shared
+   Message/Bubble parts (design/ui/message.tsx, design/ui/bubble.tsx) — the
+   row and the box are generic now, not this screen's own declarations. */
 
 .bubbleToggle {
   align-self: flex-end;
