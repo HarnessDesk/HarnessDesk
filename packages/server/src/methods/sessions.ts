@@ -94,7 +94,6 @@ export const sessionMethods = {
     if (typeof routeId === 'string') {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
-    let live: AgentSession
     // A Seat that froze attachments reopens on that filter, revalidated —
     // never on the runtime's defaults. A conversation already live here kept
     // the filter it opened with, and is handed back as it is.
@@ -106,37 +105,70 @@ export const sessionMethods = {
     // running turn. A conversation already live here kept its filter.
     const sessionId = makeSessionId(params.sessionId)
     const scoped = !ctx.registry.get(runtime.info.id, sessionId)?.live && ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false)
+    const resolve = async (): Promise<AgentSession> => {
+      if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId })
+      const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
+      return runtime.resumeSession(sessionId, { ...options, ...(environment ? { environment } : {}) })
+    }
+    let live: AgentSession
     try {
-      if (scoped) {
-        live = await ctx.sessions.live({ runtime: runtime.info.id, sessionId })
-      } else {
-        const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
-        live = await runtime.resumeSession(sessionId, {
-          ...options,
-          ...(environment ? { environment } : {}),
-        })
-      }
+      live = await resolve()
     } catch (error) {
       // A conversation held by another writer is not a failure to explain
       // but a place to be sent; it keeps its own sentence and its code.
       if (isSessionBusy(error)) {
         throw await ctx.sessions.busyElsewhere(runtime, makeSessionId(params.sessionId), error)
       }
-      // The same sentence a reopen gives, because it is the same event to
-      // the person reading it: the agent's own words alone ("Session not
-      // found") name neither the agent nor what was being attempted.
-      //
-      // The *code* survives with it, the way `#reattach` has always kept it.
-      // Flattening every refusal to a plain `Error` here threw away the one
-      // thing a caller cannot recover by reading English — and this is the
-      // path the app opens a conversation on, so `sessionGone` reached the
-      // renderer from a restart and never from a click (#127).
-      const sentence = ctx.sessions.cannotReopen(runtime, error)
-      throw isFolderGone(error)
-        ? new SessionFolderGoneError(sentence, folderGoneOf(error))
-        : isSessionGone(error)
-          ? new SessionGoneError(sentence)
-          : new Error(sentence)
+      /*
+       * A flow's Seat is not always in the agent's own listing yet.
+       *
+       * Measured on the real, signed-in Google Antigravity: a Seat still
+       * inside its first turn was refused with "does not list conversation
+       * …, so the folder it worked in is not known" — even though this desk
+       * opened that exact conversation, in that exact folder, and kept its
+       * own durable record of it (`evidence.seats`). Retried once, on that
+       * record alone: never on anything the agent itself reports, which is
+       * the risk `#cwdOf`'s own listing-only rule exists to avoid.
+       */
+      const knownCwd =
+        !scoped && error instanceof Error && isSessionGone(error) && /does not list conversation/.test(error.message)
+          ? ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd
+          : undefined
+      const retried = knownCwd
+        ? await (async (): Promise<AgentSession | null> => {
+            try {
+              const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
+              return await runtime.resumeSession(sessionId, {
+                ...options,
+                cwd: knownCwd,
+                ...(environment ? { environment } : {}),
+              })
+            } catch {
+              // Falls through to the same refusal the first attempt gave —
+              // naming the seat's own known folder is a better error than
+              // the listing's, but this is not the place to invent a third.
+              return null
+            }
+          })()
+        : null
+      if (!retried) {
+        // The same sentence a reopen gives, because it is the same event to
+        // the person reading it: the agent's own words alone ("Session not
+        // found") name neither the agent nor what was being attempted.
+        //
+        // The *code* survives with it, the way `#reattach` has always kept
+        // it. Flattening every refusal to a plain `Error` here threw away
+        // the one thing a caller cannot recover by reading English — and
+        // this is the path the app opens a conversation on, so `sessionGone`
+        // reached the renderer from a restart and never from a click (#127).
+        const sentence = ctx.sessions.cannotReopen(runtime, error)
+        throw isFolderGone(error)
+          ? new SessionFolderGoneError(sentence, folderGoneOf(error))
+          : isSessionGone(error)
+            ? new SessionGoneError(sentence)
+            : new Error(sentence)
+      }
+      live = retried
     }
     // Resume returns metadata only; the transcript comes from a full read so
     // the user sees their history immediately rather than an empty pane.

@@ -2309,7 +2309,19 @@ export class AcpRuntime implements AgentRuntime {
       // before its response returns, so the session must exist — in replay mode,
       // folding updates into history turns without emitting live events — from
       // the moment the request is sent.
-      const cwd = await this.#cwdOf(id)
+      //
+      // A caller that already knows the folder — the host, opening a flow's
+      // Seat from its own durable record — is trusted over asking the agent.
+      // `#cwdOf` exists for a caller with no such record of its own (a plain
+      // reopen from the sidebar): there, the agent's listing is the only word
+      // to ask, and asking anything else would be exactly the open-root risk
+      // its own comment describes. A Seat's conversation is not always in that
+      // listing yet — Google Antigravity was measured not answering `session/
+      // list` with a just-opened Seat still inside its first turn — and this
+      // process itself already knows that folder from when it opened the
+      // conversation, on this exact worktree, so asking the agent again over
+      // its own risk was never the fix; passing what is already known is.
+      const cwd = options.cwd ?? (await this.#cwdOf(id))
       // A stored session names the folder it ran in, and loading it starts the
       // agent there. Once that folder is deleted the spawn fails deep inside the
       // agent and comes back as a bare "Internal error" that names nothing —

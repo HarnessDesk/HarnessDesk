@@ -2290,6 +2290,42 @@ test('where an agent keeps a listing, the listing is the one word asked, over th
   )
 })
 
+test('resumeSession honors a caller-supplied cwd over asking the agent to list it (#uc3)', async (t) => {
+  // Measured on the real, signed-in Google Antigravity binary: a flow's
+  // freshly opened Seat, still inside its first turn, was not yet answered
+  // back by the agent's own `session/list` — "Antigravity does not list
+  // conversation …, so the folder it worked in is not known" — even though
+  // this same process had just opened that exact conversation in that exact
+  // folder. The host now passes what it already knows (a Seat's own durable
+  // record) rather than asking the agent to repeat it back.
+  let hiddenAt = ''
+  const { runtime, opened } = await storedAgent(
+    t,
+    (dir) => {
+      hiddenAt = folderIn(dir, 'hidden')
+      return { hidden: { cwd: hiddenAt } }
+    },
+    { FAKE_ACP_UNLISTED: 'hidden' },
+  )
+
+  // Without the cwd this process already knows, the cold resume has nothing
+  // to ask but the agent's own listing, and refuses by name.
+  await assert.rejects(() => runtime.resumeSession(sessionId('hidden')), (error: Error) => {
+    assert.match(error.message, /does not list conversation/)
+    return true
+  })
+
+  // With it, the resume never needs the listing at all — the agent still
+  // serves `session/load` for it, exactly as Antigravity's own turn was
+  // doing the whole time this id was missing from its listing.
+  const resumed = await runtime.resumeSession(sessionId('hidden'), { cwd: hiddenAt })
+  assert.equal(resumed.settings().cwd, hiddenAt)
+  assert.deepEqual(
+    opened().filter((open) => open.method === 'session/load'),
+    [{ method: 'session/load', sessionId: 'hidden', cwd: hiddenAt }],
+  )
+})
+
 test('only a conversation handed out, in a folder named in full, is remembered, and only until it is deleted', async (t) => {
   let refusedAt = ''
   let deletedAt = ''

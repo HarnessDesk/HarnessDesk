@@ -302,6 +302,23 @@ const SessionRow = ({
                   </span>
                 )}
               </span>
+              {/*
+                 * Which agent, earned at any density.
+                 *
+                 * A flow's several seats of one role — three "Code reviewer"
+                 * cards, one per vendor — share the exact same title, and
+                 * nothing else on the row says which is which: measured with
+                 * Claude Code, DeepSeek and Antigravity all seated as
+                 * "Code reviewer" in the same room, indistinguishable in the
+                 * sidebar. That is a fact a row cannot be read without, not a
+                 * paraphrase compact density is right to fold away — rule 9's
+                 * own carve-out for a name a title cannot carry.
+                 */}
+              {!need && snapshot.listPrefs.density !== 'comfortable' && snapshot.runtimes.length > 1 && (
+                <span className={styles.rowMeta}>
+                  <Text role="meta" className={styles.rowMetaItem}>{agentName}</Text>
+                </span>
+              )}
               {!need && snapshot.listPrefs.density === 'comfortable' && (
                 <span className={styles.rowMeta}>
                   {snapshot.runtimes.length > 1 && (

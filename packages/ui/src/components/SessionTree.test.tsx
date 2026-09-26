@@ -150,6 +150,67 @@ it('a conversation with work still running in the background wears a green glyph
   expect(row('Quiet one').title).not.toContain('background')
 })
 
+it('two flow seats of one role, on different runtimes, read apart even at compact density (#uc3)', () => {
+  // Measured on UC3's own review flow: three seats — Claude Code, DeepSeek,
+  // Antigravity — all opened as "Code reviewer" (the role's own title, the
+  // same for every seat of it), and at the app's default compact density the
+  // sidebar drew three identical rows with nothing on any of them to tell a
+  // person which vendor was which.
+  const claude = {
+    id: 'claude-code',
+    name: 'Claude',
+    capabilities: {},
+    presentation: { name: 'Claude' },
+  } as unknown as RuntimeInfo
+  const dsh = {
+    id: 'dsh',
+    name: 'DeepSeek',
+    capabilities: {},
+    presentation: { name: 'DeepSeek' },
+  } as unknown as RuntimeInfo
+  const seatOf = (id: string, runtime: RuntimeInfo): SessionSummary =>
+    ({
+      id,
+      runtime: runtime.id,
+      title: 'Code reviewer',
+      preview: null,
+      cwd: '/repo',
+      status: { type: 'notLoaded' },
+      createdAt: 1,
+      updatedAt: 2,
+      archived: false,
+    }) as unknown as SessionSummary
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: claude.id,
+    runtimes: [claude, dsh],
+    history: [seatOf('session-1', claude), seatOf('session-2', dsh)],
+  } as AppSnapshot
+  // The app's own default — nothing here picks "comfortable".
+  expect(snapshot.listPrefs.density).toBe('compact')
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} />
+      </StoreProvider>,
+    )
+  })
+
+  const rows = [...container.querySelectorAll('button')].filter((button) =>
+    button.textContent?.includes('Code reviewer'),
+  )
+  expect(rows).toHaveLength(2)
+  expect(rows[0]!.textContent).toContain('Claude')
+  expect(rows[1]!.textContent).toContain('DeepSeek')
+  expect(rows[0]!.textContent).not.toBe(rows[1]!.textContent)
+})
+
 /**
  * Rooms in the tree.
  *

@@ -1942,7 +1942,9 @@ export class AppStore {
       this.#ensureHistorySummary(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
       this.#setSession(live)
-      // A conversation that reopened is the only evidence its folder is back.
+      // A conversation that reopened is the only evidence its refusal — gone
+      // folder or not — no longer holds.
+      this.#lastResumeRefusal.delete(key)
       if (this.#snapshot.foldersGone.has(live.cwd)) {
         const left = new Map(this.#snapshot.foldersGone)
         left.delete(live.cwd)
@@ -2015,7 +2017,15 @@ export class AppStore {
            once for the **folder** rather than once per conversation, which is
            the whole of the original complaint: one deleted worktree, three
            members, three identical toasts. */
-        this.#backgroundNotice('error', describe(error))
+        const text = describe(error)
+        // Said once per conversation for as long as it keeps failing the same
+        // way — cleared above the moment it reopens — rather than once per
+        // retry: a Seat's rail polling a conversation the agent does not list
+        // yet stacked this sentence once per poll otherwise.
+        if (this.#lastResumeRefusal.get(key) !== text) {
+          this.#lastResumeRefusal.set(key, text)
+          this.#backgroundNotice('error', text)
+        }
       }
     } finally {
       this.#setLoading(key, false)
@@ -2206,6 +2216,22 @@ export class AppStore {
    * agent, one Enter from going to the very agent being left.
    */
   #parkedHandoff: DraftHandoff | null = null
+
+  /**
+   * The last reopen refusal toasted for a conversation that is not a gone
+   * folder — a Seat's own conversation, say, that the agent does not list yet.
+   *
+   * A gone folder gets a durable fact keyed on the folder (`foldersGone`),
+   * which is what stops the identical-toast pile-up for it. This refusal has
+   * nowhere as stable to live — the folder is fine, only the agent's word
+   * about this one conversation is stale — so it is deduped here instead: one
+   * toast per distinct message per conversation, cleared the moment that
+   * conversation actually reopens, so a later, genuinely new failure still
+   * gets its own. Without this, a room's rail retrying a Seat's still-loading
+   * conversation stacked the same sentence once per retry (measured: three
+   * identical toasts for one Antigravity Seat still inside its first turn).
+   */
+  #lastResumeRefusal = new Map<SessionKey, string>()
 
   /** The packet a hand-off chip becomes when the draft is sent. */
   async handoffPacket(handoff: DraftHandoff): Promise<string | null> {
