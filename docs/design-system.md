@@ -1283,6 +1283,50 @@ and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
 Nothing in the body needs spacing of its own. A `flush` body is a list and
 is not a form, so it keeps the page's parts.
 
+### `NoticeCard`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The card at the foot of the sidebar. It holds every waiting message but
+shows one, so the column never grows a stack; the pager says how many.
+
+### `ComposerNotice`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+A message about the conversation it sits over, fastened to the top of that
+conversation's composer — the control it is about. Tinted by tone, one
+line, one action as a link.
+
+### `NoticeStrip`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+One slim line above a pane, one message at a time.
+
+### `InboxButton`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The inbox's trigger: a bell, and how many are unread. Unread has its own
+tint (`data-unread`), never the readiness dot's colours — that dot says
+whether a turn can start, and a message waiting is a different fact.
+
+### `InboxList`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The inbox itself: messages kept until they are cleared, newest first,
+unread ones marked. What it is drawn inside — a menu's fold, a popover — is
+the caller's; this is the list and its two verbs.
+
+### `showToast`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+A result, said as a toast: the same message shape, through the registry's
+Sonner so every toast in the app looks the same.
+
 ### `useDismissOverlays`
 
 `packages/ui/src/design/patterns/Popover.tsx`

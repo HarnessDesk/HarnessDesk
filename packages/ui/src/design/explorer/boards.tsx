@@ -4,12 +4,20 @@ import type { AgentItem } from '@harnessdesk/protocol'
 
 import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
+import { Toaster } from '../ui/toast'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
+  ComposerNotice,
+  InboxButton,
+  InboxList,
+  NoticeCard,
+  NoticeStrip,
+  showToast,
+  type NoticeMessage,
   Alert,
   AlertContent,
   AlertDescription,
@@ -544,6 +552,66 @@ const FaceBoard = () => (
     </p>
   </>
 )
+
+/* The notice surfaces, each with the message it is for. The words are the
+   desk's own situations, so the board reads as the app would. */
+const NOTICE_NOW = 30 * 60_000
+const NOTICE_CARD: NoticeMessage[] = [
+  { id: 'update', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 and one agent update are ready.', action: { label: 'Relaunch', onSelect: () => {}, shortcut: '⌘R' } },
+  { id: 'offer', title: 'Skills and servers to share', body: 'Your other agents have some this machine could use. Nothing is copied until you confirm.', action: { label: 'Review in Library', onSelect: () => {} } },
+]
+const NOTICE_STRIP: NoticeMessage[] = [
+  { id: 'pace', tone: 'warning', title: 'Claude Code is on course to run out in 51m.', action: { label: 'Switch agent', onSelect: () => {} } },
+  { id: 'signin', tone: 'danger', title: 'Cursor is not signed in.', action: { label: 'Sign in', onSelect: () => {} } },
+]
+const NOTICE_INBOX: NoticeMessage[] = [
+  { id: 'i1', tone: 'warning', title: 'On course to run out', body: 'Claude Code will run out in 51m, before the window resets.', action: { label: 'Switch agent', onSelect: () => {} }, at: NOTICE_NOW - 4 * 60_000 },
+  { id: 'i2', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 is ready.', at: NOTICE_NOW - 2 * 3_600_000 },
+  { id: 'i3', title: 'Goal finished', body: 'Checkout hardening closed its last card.', at: NOTICE_NOW - 26 * 3_600_000, read: true },
+]
+
+const NoticesBoard = () => {
+  const [inbox, setInbox] = useState(NOTICE_INBOX)
+  const unread = inbox.filter((message) => !message.read).length
+  return (
+    <div className={styles.stack}>
+      <Case label="card: the foot of the sidebar, one at a time">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={NOTICE_CARD} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="composer: fastened to the composer it blocks">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
+          <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
+        </div>
+      </Case>
+      <Case label="strip: one slim line above a pane">
+        <NoticeStrip messages={NOTICE_STRIP} onDismiss={() => {}} />
+      </Case>
+      <Case label="inbox: kept until cleared; the bell tints only while something is unread">
+        <div className="flex items-start gap-(--hd-space-4)">
+          <InboxButton unread={unread} />
+          <div style={{ width: 'calc(var(--hd-space-16) * 5.5)' }} className="rounded-(--hd-radius-lg) border border-(--hd-border) bg-(--hd-card)">
+            <InboxList
+              messages={inbox}
+              now={NOTICE_NOW}
+              onOpen={(id) => setInbox((all) => all.map((message) => (message.id === id ? { ...message, read: true } : message)))}
+              onMarkAllRead={() => setInbox((all) => all.map((message) => ({ ...message, read: true })))}
+              onClear={() => setInbox([])}
+            />
+          </div>
+        </div>
+      </Case>
+      <Case label="toast: the result of what was just done">
+        <Button variant="secondary" type="button" onClick={() => showToast({ title: 'Backup saved to your Desktop.', action: { label: 'Show', onSelect: () => {} } })}>
+          Show a toast
+        </Button>
+        <Toaster />
+      </Case>
+    </div>
+  )
+}
 
 const BannerBoard = () => (
   <>
@@ -1217,6 +1285,13 @@ export const BOARDS: Board[] = [
     title: 'Face',
     about: 'A person, drawn: the face they chose, or the house mark.',
     render: FaceBoard,
+  },
+  {
+    id: 'notices',
+    title: 'Notices',
+    about:
+      'Where a message goes, chosen by what it is about: a card at the sidebar\u2019s foot for something to do when convenient, a notice on the composer it blocks, a slim strip, the inbox for what is worth keeping, a toast for a result. One message shape for all five.',
+    render: NoticesBoard,
   },
   {
     id: 'banner',
