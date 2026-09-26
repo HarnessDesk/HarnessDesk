@@ -123,7 +123,8 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/design.html?view=code')
     // The catalogue starts light and has its own switch for dark.
     if (theme === 'dark') {
-      await page.getByRole('button', { name: 'dark', exact: true }).click()
+      // The theme switch is a Segmented control now, like the other knobs — its options are radios.
+      await page.getByRole('radio', { name: 'dark', exact: true }).click()
       await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
     }
 

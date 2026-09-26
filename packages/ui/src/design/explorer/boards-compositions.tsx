@@ -241,7 +241,7 @@ const Rule = ({ children }: { children: React.ReactNode }) => (
 
 const StatBoard = () => (
   <>
-    <Specimen wide caption="Stat rows: variants, alignment, and a dashboard's own numbers">
+    <Specimen measure="wide" caption="Stat rows: variants, alignment, and a dashboard's own numbers">
     <div
       className={styles.stack}
       style={{ maxWidth: 'none' }}
@@ -833,7 +833,7 @@ const ToolPaneBoard = () => {
 
 const FieldBoard = () => (
   <>
-    <Specimen caption="InputGroup addons, and Field wiring a hint or an error to its control">
+    <Specimen measure="page" caption="InputGroup addons, and Field wiring a hint or an error to its control">
     <div
       className={styles.stack}
       style={{ maxWidth: 420 }}
@@ -901,7 +901,7 @@ const StepperBoard = () => {
   const [current, setCurrent] = useState(1)
   return (
     <>
-      <Specimen caption="Stepper, horizontal and vertical, driven by one current step">
+      <Specimen measure="page" caption="Stepper, horizontal and vertical, driven by one current step">
       <div className={styles.stack} style={{ maxWidth: 560 }}>
         <Stepper steps={SETUP_STEPS} current={current} />
         <div className={styles.caseBody}>

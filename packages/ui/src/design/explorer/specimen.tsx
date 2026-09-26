@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { Card } from '..'
+import { Card, Text } from '..'
 import styles from './explorer.module.css'
 
 /**
@@ -22,27 +22,38 @@ import styles from './explorer.module.css'
 export const Specimen = ({
   caption,
   note,
-  wide = false,
+  measure = 'fit',
   children,
   className,
 }: {
   caption: string
   note?: ReactNode
-  /** The canvas fits its content by default — a settings mock stays the
-      width a settings page reads at, rather than stretching a narrow column
-      across the whole page. A board proving a *row's* own spacing (Stat's
-      dashboard line) sets this instead, so the canvas fills the column and
-      the spacing is the thing being shown. */
-  wide?: boolean
+  /**
+   * How the canvas is sized:
+   *
+   *   fit    shrinks to its content — a chip-sized example (a few Face
+   *          tiles) stays that size instead of stretching a plate across
+   *          whatever is left of the page. The default.
+   *   page   the app's own reading measure, `--hd-column` — for a mock of a
+   *          whole settings/detail page (Rows, PageHead, Field, Stepper,
+   *          Banner), which reads at the width a real page gives it, not
+   *          squeezed to its narrowest row.
+   *   wide   fills the column — for a board proving a *row's* own spacing
+   *          (Stat's dashboard line), where the spacing is the thing being
+   *          shown.
+   */
+  measure?: 'fit' | 'page' | 'wide'
   children: ReactNode
   className?: string
 }) => (
   <figure className={className ? `${styles.specimen} ${className}` : styles.specimen}>
-    <figcaption className={styles.specimenCaption}>
-      {caption}
-      {note != null && <span className={styles.specimenNote}>{note}</span>}
+    <figcaption>
+      <Text as="div" role="meta" className={styles.specimenCaption}>
+        {caption}
+        {note != null && <span className={styles.specimenNote}>{note}</span>}
+      </Text>
     </figcaption>
-    <Card variant="plate" className={styles.specimenCanvas} data-wide={wide || undefined}>
+    <Card variant="plate" className={styles.specimenCanvas} data-measure={measure}>
       {children}
     </Card>
   </figure>

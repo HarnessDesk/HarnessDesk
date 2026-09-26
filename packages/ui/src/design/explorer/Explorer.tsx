@@ -365,18 +365,18 @@ export const Explorer = () => {
               options={FOUNDATIONS.map((one) => ({ value: one.id, label: one.title }))}
             />
           </div>
-          <div className={styles.switch}>
+          <div className={styles.dial}>
             <span className={styles.switchLabel}>Theme</span>
-            {(['light', 'dark', 'system'] as const).map((one) => (
-              <Button
-                key={one}
-                size="sm"
-                variant={theme === one ? 'default' : 'ghost'}
-                onClick={() => setTheme(one)}
-              >
-                {one}
-              </Button>
-            ))}
+            <Segmented
+              label="Theme"
+              value={theme}
+              onChange={setTheme}
+              options={[
+                { value: 'light', label: 'light' },
+                { value: 'dark', label: 'dark' },
+                { value: 'system', label: 'system' },
+              ]}
+            />
           </div>
         </div>
         <div className={styles.body}>
@@ -459,22 +459,22 @@ const FoundationBoard = () => {
                 const visual = tokenVisual(token.name, group.kind, token.value)
                 return (
                   <div key={token.name} className={styles.token}>
-                    {visual === 'color' && (
-                      <span className={styles.swatch} style={{ background: token.value }} />
-                    )}
-                    {visual === 'space' && (
-                      <span className={styles.spaceTrack}>
+                    <span className={styles.tokenSlot}>
+                      {visual === 'color' && (
+                        <span className={styles.swatch} style={{ background: token.value }} />
+                      )}
+                      {visual === 'space' && (
                         <span className={styles.spaceBar} style={{ width: token.value }} />
-                      </span>
-                    )}
-                    {visual === 'radius' && (
-                      <span className={styles.radiusSample} style={{ borderRadius: token.value }} />
-                    )}
-                    {visual === 'shadow' && (
-                      <span className={styles.shadowSample} style={{ boxShadow: token.value }} />
-                    )}
+                      )}
+                      {visual === 'radius' && (
+                        <span className={styles.radiusSample} style={{ borderRadius: token.value }} />
+                      )}
+                      {visual === 'shadow' && (
+                        <span className={styles.shadowSample} style={{ boxShadow: token.value }} />
+                      )}
+                    </span>
                     <span className={styles.tokenName}>{token.name}</span>
-                    <span className={styles.tokenValue}>{token.value}</span>
+                    <span className={styles.tokenValue} title={token.value}>{token.value}</span>
                   </div>
                 )
               })}

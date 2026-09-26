@@ -377,7 +377,7 @@ const RowBoard = () => {
   const [picked, setPicked] = useState(false)
   return (
     <>
-      <Specimen caption="A settings page, assembled from Row, RowButton and RowChoice">
+      <Specimen measure="page" caption="A settings page, assembled from Row, RowButton and RowChoice">
       <div className={styles.stack}>
         <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
         <PageHead
@@ -459,7 +459,7 @@ const RowBoard = () => {
 
 const HeadBoard = () => (
   <>
-    <Specimen caption="An Agents page, and one row drilled into">
+    <Specimen measure="page" caption="An Agents page, and one row drilled into">
     <div className={styles.stack}>
       <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
       <PageHead
@@ -532,7 +532,7 @@ const FaceBoard = () => (
 
 const BannerBoard = () => (
   <>
-    <Specimen caption="Alert tones and variants, ActionError, a patch card, and every Banner">
+    <Specimen measure="page" caption="Alert tones and variants, ActionError, a patch card, and every Banner">
     <div
       className={styles.stack}
       data-catalog-variants={ALERT_CATALOG_VARIANTS.join(' ')}

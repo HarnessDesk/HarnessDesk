@@ -195,12 +195,13 @@ export const tokenVisual = (
   return 'size'
 }
 
+const CLEAN_TOKENS_CSS = tokensCss.replace(/\/\*[\s\S]*?\*\//g, '')
+
 /** The names the token file declares, in source order. */
 const declaredNames = (): string[] => {
   const names: string[] = []
   const seen = new Set<string>()
-  const clean = tokensCss.replace(/\/\*[\s\S]*?\*\//g, '')
-  for (const match of clean.matchAll(/(--[A-Za-z0-9-]+)\s*:/g)) {
+  for (const match of CLEAN_TOKENS_CSS.matchAll(/(--[A-Za-z0-9-]+)\s*:/g)) {
     const name = match[1]
     if (name && !seen.has(name)) {
       seen.add(name)
@@ -211,21 +212,80 @@ const declaredNames = (): string[] => {
 }
 
 /**
+ * Each token's first declared value, verbatim, in source order.
+ *
+ * A handful of tokens — `--hd-card-fill`, `--hd-card-border`,
+ * `--hd-card-divider`, `--hd-card-radius` — are declared only inside the
+ * Studio interface's block, so under Desk `getComputedStyle` has never heard
+ * of them: nothing sets them on `body` at all, live or otherwise. This is
+ * the fallback for exactly that case — the same declaration a reader would
+ * find by opening `tokens.css`, not a second source of truth for a token the
+ * document actually has an answer for.
+ */
+const declaredRawValues = (): Map<string, string> => {
+  const values = new Map<string, string>()
+  for (const match of CLEAN_TOKENS_CSS.matchAll(/(--[A-Za-z0-9-]+)\s*:\s*([^;]+);/g)) {
+    const [, name, value] = match
+    if (name && value && !values.has(name)) values.set(name, value.trim())
+  }
+  return values
+}
+
+/** A value that is nothing but a reference to one other token — `var(--x)`,
+ *  optionally with a fallback. Anything else (a `color-mix()`, a literal, a
+ *  `calc()`) is returned as itself: it already reads at a glance, and it is
+ *  a real CSS value a `background`/`border-radius`/`box-shadow` can use
+ *  directly, `var()`s and all — only the *display* value needs unwrapping. */
+const BARE_VAR_REF = /^var\(\s*(--[A-Za-z0-9-]+)\s*(?:,\s*([\s\S]+))?\)$/
+
+/**
+ * One token's value, resolved the way the app itself would resolve it: ask
+ * the live document first, and only when nothing there has ever heard of the
+ * token — the Desk/Studio case above — follow its declared text, one
+ * `var()` hop at a time, until something answers or the chain runs out.
+ * `seen` guards the one thing a hand-written cascade can do that a browser's
+ * own would refuse: name itself in its own fallback.
+ */
+const resolveTokenValue = (
+  name: string,
+  computed: CSSStyleDeclaration,
+  raw: Map<string, string>,
+  seen: Set<string> = new Set(),
+): string => {
+  const live = computed.getPropertyValue(name).trim()
+  if (live !== '') return live
+  if (seen.has(name)) return ''
+  seen.add(name)
+  const declared = raw.get(name)
+  if (declared == null) return ''
+  const ref = BARE_VAR_REF.exec(declared)
+  if (ref?.[1] != null) {
+    const inner = resolveTokenValue(ref[1], computed, raw, seen)
+    if (inner !== '') return inner
+    if (ref[2] != null) return ref[2].trim()
+  }
+  return declared
+}
+
+/**
  * What each token resolves to *right now*, asked of the browser.
  *
- * Not parsed, not cached, not written down anywhere: `getComputedStyle` is
- * the same machinery that paints the app, so what this shows and what the app
- * does cannot disagree.
+ * Mostly `getComputedStyle` — the same machinery that paints the app, so
+ * what this shows and what the app does cannot disagree — with the
+ * declared-text fallback above for the tokens the current interface has not
+ * set on `body` at all. Every token gets a value one way or the other: this
+ * board's one rule is that a row never shows nothing.
  */
 export const useResolvedTokens = (): { name: string; value: string }[] => {
   const [tokens, setTokens] = useState<{ name: string; value: string }[]>([])
   useEffect(() => {
     const read = () => {
       const computed = getComputedStyle(document.body)
+      const raw = declaredRawValues()
       setTokens(
         declaredNames().map((name) => ({
           name,
-          value: computed.getPropertyValue(name).trim(),
+          value: resolveTokenValue(name, computed, raw),
         })),
       )
     }

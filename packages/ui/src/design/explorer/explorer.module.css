@@ -110,27 +110,17 @@
 
 /* Every control in it stays clickable; only the gaps drag. */
 .bar button,
-.bar .switch,
 .bar .dial {
   -webkit-app-region: no-drag;
 }
 
-.switch {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-1);
-  padding: var(--hd-space-0-5);
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-muted);
-}
-
-/* A dial that composes the canonical `Segmented` control already draws its
-   own track, so it only needs the label beside it — a second muted pill
-   around a control that is already one would double the frame. */
+/* A dial composes the canonical `Segmented` control, which already draws its
+   own track, so it only needs the label beside it — every knob in the bar is
+   one of these now, Theme included, so all five look the same. */
 .dial {
   display: flex;
   align-items: center;
-  gap: var(--hd-space-1-5);
+  gap: var(--hd-space-1-5); /* desk: --hd-space-1 → --hd-space-1-5, one dial rule now stands in for the deleted .switch pill everywhere in the bar */
 }
 
 .switchLabel {
@@ -219,11 +209,11 @@
   margin: 0 0 var(--hd-space-5);
 }
 
+/* The type is `Text` role `meta`'s own (sans, muted); only the block's own
+   margin is said here. */
 .specimenCaption {
+  display: block;
   margin-bottom: var(--hd-space-2);
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
 }
 
 .specimenNote {
@@ -231,18 +221,27 @@
   color: var(--hd-tertiary-foreground);
 }
 
-/* Fits its content by default: a narrow settings mock reads at the width a
-   settings page actually gives it, rather than stretching across whatever is
-   left of the page and leaving the difference blank inside its own frame.
-   `data-wide` opts out for the boards that are demonstrating a row's own
-   spacing rather than a fixed-width screen. */
+/* `data-measure` decides what the plate is sized against: `fit` shrinks to
+   its content (a chip-sized example, the default), `page` caps at the app's
+   own reading measure — `--hd-column`, the width `AppWindow` gives a real
+   settings/detail page — so a settings-page mock reads at the width a
+   settings page actually gets rather than the width its narrowest row
+   happens to need, and `wide` fills the column for a board proving a row's
+   own spacing. */
 .specimenCanvas {
-  width: fit-content;
-  max-width: 100%;
   padding: var(--hd-space-5);
 }
 
-.specimenCanvas[data-wide] {
+.specimenCanvas[data-measure='fit'] {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.specimenCanvas[data-measure='page'] {
+  width: min(100%, var(--hd-column));
+}
+
+.specimenCanvas[data-measure='wide'] {
   width: 100%;
 }
 
@@ -268,6 +267,18 @@
   background: var(--hd-hover);
 }
 
+/* Every row's visual sample, colour swatch, bar, tile or sample card alike,
+   stands in the same fixed slot — so a row with nothing to draw (a plain
+   size) leaves it empty rather than pulling its name back to the row's own
+   edge, and every name in every group starts at one x. Drawn inline before,
+   each sample's own width pushed the name sideways by a different amount. */
+.tokenSlot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  width: 72px;
+}
+
 /* A colour token: the fill, on a hairline it always has — `--hd-border`
    alone reads as almost no edge at all against a white or near-white fill,
    which is exactly the swatch that most needs one. `border-strong` is what
@@ -280,18 +291,8 @@
   border-radius: var(--hd-radius-sm);
 }
 
-/* A space token: a track the same width for every row, so the bar's length
-   says the value and the name after it still starts at one x. Drawn inline
-   before, the bar's own width pushed the name sideways by the amount it was
-   demonstrating. */
-.spaceTrack {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  width: 72px;
-}
-
 .spaceBar {
+  flex-shrink: 0;
   height: var(--hd-space-3);
   max-width: 100%;
   background: var(--hd-primary);
@@ -314,7 +315,6 @@
   flex-shrink: 0;
   width: var(--hd-space-6);
   height: var(--hd-space-5);
-  margin: 0 var(--hd-space-1);
   border-radius: var(--hd-radius-sm);
   background: var(--hd-card);
 }
@@ -323,11 +323,23 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+/* Most values are short — a length, a weight, an `rgb()`. A handful are not:
+   a token the current interface has never set falls back to its declared
+   text (see `foundation.ts`), which can be a whole `color-mix()` expression.
+   That value still has to fit its own row rather than running into the next
+   column, so it shrinks and ellipsises like the name does — the full text is
+   still there in the title tooltip. */
 .tokenValue {
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 55%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--hd-muted-foreground);
 }
 
