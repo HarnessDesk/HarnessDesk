@@ -141,20 +141,21 @@ export async function receiptFrom(
   const reopen = options.reopen
   if (!reopen) return empty
   const seatKeys = options.seatKeys
-  /* This process has never handed this Seat any key at all — most tellingly,
-     right after a restart, whose fresh `AttachmentsPlane` starts every
-     Seat's ledger empty. There is nothing here to weigh the held session's
-     reported key against, and it would be just as wrong to trust that as
-     proof of nothing loaded as to trust it as proof of anything: a session
-     a hold kept alive outlasts a restart and can still hold everything its
-     Seat approved. Neither guess is provable, so this reopen fails closed —
-     the caller closes the session — rather than silently recording "nothing
-     loaded" for a Seat that was never actually asked (#939). A held session
-     proves what it loaded only by an actual reopen in a process that was
-     there to hand it a key in the first place. */
+  /* `seatKeys` is this process's own record of every key it has itself
+     handed this Seat — nothing else ever adds to it, and nothing here reads
+     it as a guess at what the agent's own state actually is. It is empty
+     exactly when this process has not itself recorded an open or a reopen
+     for this Seat before now: the first time this exact process is ever
+     asked about it, whatever came before. Whatever the runtime answers for a
+     held session in that state is unprovable either way here — trusted as
+     "nothing loaded" it could be hiding real content; trusted as loaded it
+     could be inventing content nobody approved — so this reopen fails closed
+     rather than guess, and the caller closes the session (#939, #948). A
+     held session proves what it loaded only by an actual reopen in a process
+     that was there to hand it a key in the first place. */
   if (!seatKeys?.size) {
     throw new HeldBeyondFilterError(
-      'This desk has not reopened this conversation since it last restarted, so what the agent still holds cannot be checked against anything; it is being closed rather than assumed to hold nothing.',
+      'What this agent still holds cannot be checked against anything this desk remembers giving it. Reopen the Seat, or restart its session, to continue.',
     )
   }
   /* Only a session this Seat's own filter was handed to: its key is one this

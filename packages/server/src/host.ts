@@ -3148,10 +3148,11 @@ export class Host {
         fileRoots: (mode) => this.#fileRoots(mode),
         confineGitRoot: (root) => this.#confineGitRoot(root),
         confineProvenanceRoot: (root) => this.#confineProvenanceRoot(root),
-        topLevel: (path) => gitOps.topLevel(path),
+        topLevel: (path, signal) => gitOps.topLevel(path, signal),
         realPath: (path) => this.#realPath(path),
         confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
+        gitStatus: (path, signal) => gitService.status(path, signal),
         repoOf: (cwd) => this.#repoOf(cwd),
         boardRootOf: (cwd) => this.#boardRootOf(cwd),
         forgetBoardRoots: () => {
@@ -5371,6 +5372,19 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    // A runtime that keeps no name of its own — ACP's whole family — has the
+    // user's name for a conversation in `SessionNames`, never in the runtime
+    // itself; `#named` applies that same rule to a listed row. A live title
+    // the agent announces after that must not undo the person's choice, so
+    // it never reaches the registry or a window at all: dropped here, before
+    // `registry.apply` would otherwise write it over the name that was kept.
+    if (
+      event.type === 'session/title' &&
+      !this.#runtimes.get(runtime)?.info.capabilities.nameHistory &&
+      this.#names.nameOf(runtime, event.sessionId) !== null
+    ) {
+      return
+    }
     this.#noteDelegation(runtime, event)
     if (event.type === 'turn/started') {
       const key = String(sessionKey(runtime, event.sessionId))

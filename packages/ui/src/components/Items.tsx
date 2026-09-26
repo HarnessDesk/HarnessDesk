@@ -78,7 +78,6 @@ import { readToolResult } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
   bareToolName,
-  isPlanTool,
   shellCommandOf,
   shortestUniquePathLabels,
   toolSentence,
@@ -896,9 +895,15 @@ const findDiff = (value: unknown): string | null => {
 /**
  * A plan's steps, drawn the way the Tasks panel draws them: the step's mark
  * set in its line (`TextMark`), a finished one struck and stepped back
- * (`Text done`), and the one in progress at the subject weight.
+ * (`Text done`), and the one in progress at the subject weight. A step's own
+ * priority — ACP's, not every source has one — sits in a chip on the same
+ * line rather than a second one under it (rule 9).
+ *
+ * Exported so a turn's own ACP plan, which carries no tool call of its own
+ * to hang this off, still draws as the same list — one definition of what a
+ * checklist looks like, whichever kind of update set it.
  */
-const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
+export const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
   <ul className={styles.list}>
     {todos.map((todo, index) => (
       <Text as="li" role="prose" key={index} className={styles.listItem}>
@@ -906,6 +911,7 @@ const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
           {todo.done ? <TodoDoneIcon size={12} /> : todo.active ? <TodoActiveIcon size={12} /> : <TodoPendingIcon size={12} />}
         </TextMark>
         <Text role={todo.active ? 'subject' : 'prose'} done={todo.done}>{todo.label}</Text>
+        {todo.priority && <Chip tone="neutral" size="sm">{todo.priority}</Chip>}
       </Text>
     ))}
   </ul>
@@ -1084,8 +1090,11 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const pattern = [record?.['pattern'], record?.['query']].find(
     (value): value is string => typeof value === 'string' && value.trim().length > 0,
   )
-  // A plan tool is said as the plan it set, whatever the agent calls it.
-  const plans = isPlanTool(item.tool) && findTodos(item.args) !== null
+  // A plan tool is said as the plan it set, whatever the agent calls it —
+  // `planOf`, the one reading of "did this call write to the plan", so this
+  // sentence and the Tasks panel can never disagree about a call that
+  // cleared the plan (`{todos: []}`) or wrote it under a different key.
+  const plans = planOf(item.args) !== null
   const detail: ToolSentenceDetail | undefined = (() => {
     if (plans) return { kind: 'plan' }
     switch (verb) {

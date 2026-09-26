@@ -451,6 +451,63 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  // #961 review P3: a call whose first update carries a structured
+  // `rawOutput`, and whose later, completing update carries only a plainer
+  // text echo of the same thing (no `rawOutput` at all) — the structured
+  // result must survive, not be overwritten by the later, plainer one.
+  if (text.includes('structured then text')) {
+    update(state.id, {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'tc-structured-then-text',
+      title: 'bash',
+      kind: 'other',
+      status: 'in_progress',
+      rawInput: { command: 'ls -a' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-structured-then-text',
+      status: 'in_progress',
+      rawOutput: { stdout: 'first, structured' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-structured-then-text',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: 'a later, plainer echo' } }],
+    })
+    say('done twice over.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  // The same rule, for an image instead of text: a later, completing update
+  // carries only a screenshot (no `rawOutput` at all) — the earlier update's
+  // structured result must survive that too.
+  if (text.includes('structured then image')) {
+    update(state.id, {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'tc-structured-then-image',
+      title: 'screenshot',
+      kind: 'other',
+      status: 'in_progress',
+      rawInput: { command: 'screenshot' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-structured-then-image',
+      status: 'in_progress',
+      rawOutput: { path: '/tmp/shot.png' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-structured-then-image',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' } }],
+    })
+    say('captured.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   // The way Claude Code's bridge actually talks: one call announced twice —
   // the permission flow first, with a bare title, then the stream again with
   // the real input — and one call whose only notice is its completion.
@@ -484,6 +541,42 @@ const runPrompt = async (id, params) => {
       rawOutput: { text: 'late but here' },
     })
     say('did both.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text === 'rename to blank') {
+    // Whitespace is not a name — the client must not read this as the agent
+    // clearing a title it never gave.
+    update(state.id, { sessionUpdate: 'session_info_update', title: '   ' })
+    say('tried to blank it.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text.startsWith('rename to ')) {
+    // DSH's own fork, and the RFD any ACP agent may follow: a title, learned
+    // mid-conversation rather than only the next time `session/list` is read.
+    update(state.id, { sessionUpdate: 'session_info_update', title: text.slice('rename to '.length).trim() })
+    say('renamed.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text === 'plan with priority') {
+    // A mix worth testing in one update: a well-formed entry with a
+    // priority, one with none, and two an honest client must throw away — a
+    // blank label and a status this client has never heard of. Schema-light
+    // on purpose (see the adapter's own file), because a plan update is
+    // exactly where an ACP agent of "varying fidelity" is likeliest to send
+    // something half-shaped.
+    update(state.id, {
+      sessionUpdate: 'plan',
+      entries: [
+        { content: 'ship the fix', status: 'in_progress', priority: 'high' },
+        { content: 'write the tests', status: 'pending' },
+        { content: '   ', status: 'pending' },
+        { content: 'not a real status', status: 'blocked' },
+      ],
+    })
+    say('planned.')
     return reply(id, { stopReason: 'end_turn' })
   }
 
@@ -810,8 +903,12 @@ const handlers = {
     reply(id, {
       protocolVersion: 1,
       // The process id as the version, so a test can tell a restart from a
-      // reconnect; FAKE_ACP_AGENT_VERSION overrides it.
-      agentInfo: { name: 'fake-acp-agent', version: process.env.FAKE_ACP_AGENT_VERSION ?? String(process.pid) },
+      // reconnect; FAKE_ACP_AGENT_VERSION overrides it, and
+      // FAKE_ACP_NO_AGENT_VERSION=1 plays an agent that reports none at all.
+      agentInfo:
+        process.env.FAKE_ACP_NO_AGENT_VERSION === '1'
+          ? { name: 'fake-acp-agent' }
+          : { name: 'fake-acp-agent', version: process.env.FAKE_ACP_AGENT_VERSION ?? String(process.pid) },
       agentCapabilities: {
         loadSession: Boolean(STORE) && !RESUME_ONLY,
         // FAKE_ACP_NO_IMAGES=1 plays an agent that cannot look at pictures.

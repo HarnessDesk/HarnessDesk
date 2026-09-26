@@ -19,6 +19,7 @@ import type {
   FindingPublishAction,
   FindingView,
   FlowSeat,
+  GitStatus,
   GoalId,
   GoalView,
   HostMethodName,
@@ -404,8 +405,14 @@ export interface HostContext {
     confineGitRoot(root: string): Promise<string>
     /** The canonical project of an open linked checkout, confined for provenance controls. */
     confineProvenanceRoot(root: string): Promise<string>
-    /** The top of the checkout a folder is in — a linked worktree's own — or null outside git. */
-    topLevel(path: string): Promise<string | null>
+    /**
+     * The top of the checkout a folder is in — a linked worktree's own — or
+     * null outside git. `signal`, when given, kills the underlying `git`
+     * process the moment it fires, rather than leaving it running for its own
+     * full timeout after a caller has already stopped waiting on it
+     * (`workspace/recent`'s bound, #948).
+     */
+    topLevel(path: string, signal?: AbortSignal): Promise<string | null>
     /**
      * `path`, with every symlink in it resolved — the same comparison key
      * `#openWorkspace` (host.ts) puts on `WorkspaceEntry.realPath` (#907), and
@@ -428,6 +435,13 @@ export interface HostContext {
     confineRoom(folder: string): Promise<void>
     /** Opens a folder, which becomes one of the open roots. A relative path is refused. */
     open(path: string): Promise<HostResult<'workspace/open'>>
+    /**
+     * A folder's git status, shelling out to `git` itself. `signal`, when
+     * given, kills that process the moment it fires, rather than leaving it
+     * running for its own full timeout after `workspace/recent` — this
+     * method's only caller — has already stopped waiting on it (#948).
+     */
+    gitStatus(path: string, signal?: AbortSignal): Promise<GitStatus | null>
     repoOf(cwd: string): Promise<RepoInfo | null>
     boardRootOf(cwd: string): Promise<string | null>
     /** Drops the folder→board cache and re-points the Agent roster's watch; call when the set of workspaces changed. */

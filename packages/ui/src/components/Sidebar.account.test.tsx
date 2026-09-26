@@ -398,6 +398,14 @@ it('dims the badge and colours the dot when the default has no account', () => {
   expect(seat.getAttribute('title')).toBe('New sessions run as Claude')
 })
 
+it('draws no empty seat on the badge before the default agent has answered', () => {
+  // Accounts not loaded yet: readiness guesses signin, but nothing says nobody is signed in.
+  mount({ accountsByRuntime: { [CODEX]: signedIn('shane@example.com') } })
+  const seat = row()
+  expect(seat.querySelector('.brand-claude')).not.toBeNull()
+  expect(seat.querySelector('[data-off]')).toBeNull()
+})
+
 it('opens the account’s card from the badge, and the card offers no switch to what already is the default', () => {
   vi.useFakeTimers()
   mount()

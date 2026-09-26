@@ -17,8 +17,13 @@ import type { FileChange, Turn } from '@harnessdesk/protocol'
 
 const run = promisify(execFile)
 
-const git = async (root: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await run('git', ['-C', root, ...args], { timeout: 20_000, maxBuffer: 32 * 1024 * 1024 })
+/** `signal`, on top of the 20s timeout, kills this process early rather than leaving it to run the full 20s (`topLevel`, #948). */
+const git = async (root: string, args: readonly string[], signal?: AbortSignal): Promise<string> => {
+  const { stdout } = await run('git', ['-C', root, ...args], {
+    timeout: 20_000,
+    maxBuffer: 32 * 1024 * 1024,
+    ...(signal ? { signal } : {}),
+  })
   return stdout
 }
 
@@ -355,9 +360,9 @@ export const checkout = async (
 }
 
 /** Where the repository root is, for a folder that may be inside one. */
-export const topLevel = async (root: string): Promise<string | null> => {
+export const topLevel = async (root: string, signal?: AbortSignal): Promise<string | null> => {
   try {
-    return (await git(root, ['rev-parse', '--show-toplevel'])).trim()
+    return (await git(root, ['rev-parse', '--show-toplevel'], signal)).trim()
   } catch {
     return null
   }
