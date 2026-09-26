@@ -248,7 +248,7 @@ export const Sidebar = ({
         </div>
         <SessionListControls />
         <Button
-          variant="muted" size="icon-sm" className={styles.iconButton}
+          variant="muted" size="icon-sm" edge="end" edgeGlyph={13} className={styles.iconButton}
           onClick={onBrowseFolders}
           title="Open a project folder"
           aria-label="Open a project folder"

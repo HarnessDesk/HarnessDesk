@@ -241,16 +241,38 @@ const buttonVariants = (props: NonNullable<Parameters<typeof boxedVariants>[0]> 
  * defect the spacing census calls "trailing ghost glyphs off column". The fix
  * is not a new inset; it is admitting the box is allowed to hang past the
  * inset by half of what it is bigger than its own glyph, so the glyph itself
- * lands where a row's last word would. `(box − 16px) / 2`, 16px being the
- * glyph every icon button in the app is drawn at
- * (`components/Icons.tsx`'s own default) — negative because the box is
- * always the larger term for every icon size this system has.
+ * lands where a row's last word would. `(box − glyph) / 2`, negative because
+ * the box is always the larger term for every icon size this system has.
+ *
+ * The glyph is a parameter rather than a constant: `components/Icons.tsx`
+ * defaults every icon to 16px, but a `size="icon-sm"` button just as often
+ * carries a 12–14px glyph the caller chose for that dense a context (the
+ * sidebar's own trailing buttons are 13 and 12), and assuming 16 there left
+ * the fix 1–2px short of the column instead of on it.
  */
-const EDGE_PULL = {
-  icon: 'calc((var(--hd-btn-h) - 16px) / -2)',
-  'icon-sm': 'calc((var(--hd-btn-h-sm) - 16px) / -2)',
-  'icon-xs': 'calc((var(--hd-icon-target) - 16px) / -2)',
+const BTN_BOX = {
+  icon: 'var(--hd-btn-h)',
+  'icon-sm': 'var(--hd-btn-h-sm)',
+  'icon-xs': 'var(--hd-icon-target)',
 } as const
+
+const edgePull = (size: keyof typeof BTN_BOX, glyph: number): string =>
+  `calc((${BTN_BOX[size]} - ${glyph}px) / -2)`
+
+/**
+ * The same pull, for a trigger `Button` never renders — `Popover`'s
+ * `triggerClassName` builds its own element from `buttonVariants` rather
+ * than mounting a `Button`, so a caller there cannot pass `edge` as a prop
+ * and needs the class and the custom property it sets on directly.
+ */
+const buttonEdge = (
+  size: keyof typeof BTN_BOX,
+  edge: 'start' | 'end',
+  glyph = 16,
+): { className: string; style: CSSProperties } => ({
+  className: edge === 'end' ? 'me-(--hd-edge-pull)' : 'ms-(--hd-edge-pull)',
+  style: { '--hd-edge-pull': edgePull(size, glyph) } as CSSProperties,
+})
 
 type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   className?: string
@@ -266,6 +288,8 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
    * inset without help.
    */
   edge?: 'start' | 'end'
+  /** The glyph's own size, when it is not the icon facade's 16px default — read off whatever `size` prop the child icon was actually given. Only meaningful with `edge`. */
+  edgeGlyph?: number
   /** Selection rows may keep the platform cursor while retaining button semantics. */
   cursor?: 'default' | 'pointer'
   /** A quiet row may brighten its inherited label on hover without changing warning ink. */
@@ -292,11 +316,14 @@ const Button = ({
   quietHover = false,
   swatch,
   edge,
+  edgeGlyph = 16,
   style,
   type,
   render,
   ...props
-}: ButtonProps) => (
+}: ButtonProps) => {
+  const edgeSize = edge && size && size in BTN_BOX ? (size as keyof typeof BTN_BOX) : undefined
+  return (
   <ButtonPrimitive
     data-slot="button"
     data-variant={variant}
@@ -308,7 +335,7 @@ const Button = ({
       cursor === 'default' && 'cursor-default',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
       swatch !== undefined && 'bg-(--swatch) bg-clip-border hover:bg-(--swatch)',
-      edge && size && size in EDGE_PULL && (edge === 'end' ? 'me-(--hd-edge-pull)' : 'ms-(--hd-edge-pull)'),
+      edgeSize && (edge === 'end' ? 'me-(--hd-edge-pull)' : 'ms-(--hd-edge-pull)'),
     )}
     style={
       typeof style === 'function'
@@ -316,7 +343,7 @@ const Button = ({
         : ({
             ...style,
             ...(swatch !== undefined ? { '--swatch': swatch } : {}),
-            ...(edge && size && size in EDGE_PULL ? { '--hd-edge-pull': EDGE_PULL[size as keyof typeof EDGE_PULL] } : {}),
+            ...(edgeSize ? { '--hd-edge-pull': edgePull(edgeSize, edgeGlyph) } : {}),
           } as CSSProperties)
     }
     /* A bare <button> submits the form around it; nothing in this app means
@@ -326,6 +353,7 @@ const Button = ({
     {...(render ? { render } : { type: type ?? 'button' })}
     {...props}
   />
-)
+  )
+}
 
-export { Button, buttonVariants, type ButtonProps }
+export { Button, buttonVariants, buttonEdge, type ButtonProps }

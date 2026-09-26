@@ -73,7 +73,7 @@ export {
   type TextProps,
   type TextRole,
 } from './patterns/Settings'
-export { Button, buttonVariants } from './ui/button'
+export { Button, buttonVariants, buttonEdge } from './ui/button'
 export { DisclosureChevron } from './ui/disclosure-chevron'
 export { Input } from './ui/input'
 export { Textarea } from './ui/textarea'

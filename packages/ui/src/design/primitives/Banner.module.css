@@ -193,22 +193,18 @@
   cursor: default;
 }
 
+/* The box — 28px, `icon-sm`'s own — comes from the `size` prop now, along
+   with the `edge="end"` pull that lands the cross on the title's column
+   instead of the button's invisible hit target (Banner.tsx). This sheet only
+   says the things the size doesn't: the round shape and the muted ink. */
 .dismiss {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
   border-radius: 50%;
   background: none;
   color: var(--hd-muted-foreground);
-  cursor: pointer;
-  /* Its 28px hit target is taller than the title's line, so pulling the
-     whole button up by half the difference lands its own centre — and the
-     glyph inside it — on the title's centre, the way a smaller lead is
-     pushed down onto the same line. */
+  /* Its hit target is taller than the title's line, so pulling the whole
+     button up by half the difference lands its own centre — and the glyph
+     inside it — on the title's centre, the way a smaller lead is pushed
+     down onto the same line. */
   margin-top: calc((var(--hd-line) - 28px) / 2);
 }
 
@@ -218,8 +214,6 @@
 }
 
 .banner[data-compact] .dismiss {
-  width: 24px;
-  height: 24px;
   margin-top: calc((var(--hd-line) - 24px) / 2);
 }
 

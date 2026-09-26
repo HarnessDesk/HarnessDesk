@@ -4,6 +4,7 @@ import type * as React from 'react'
 import { cn } from '@/lib/utils'
 import { MoreIcon, PaperclipIcon, PlusIcon, ReviewIcon } from '@/components/Icons'
 import { AvatarStack, type StackMember } from './avatar-stack'
+import { buttonEdge } from './button'
 import { EmptyState } from './empty-state'
 import { dotTint, softTone, softTint, type Tint, type Tone } from './tone'
 
@@ -182,7 +183,15 @@ const BoardColumn = ({
           onClick={onAdd}
           title={addLabel}
           aria-label={addLabel}
-          className="inline-flex size-(--hd-icon-target) shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5"
+          className={cn(
+            'inline-flex size-(--hd-icon-target) shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5',
+            /* Only the header's actual last item earns the pull onto the
+               column's own inset — with `actions` after it, the + is not
+               that item, and pulling it too would crowd it into `actions`
+               instead of the gap the two currently share. */
+            !actions && buttonEdge('icon-xs', 'end', 14).className,
+          )}
+          style={!actions ? buttonEdge('icon-xs', 'end', 14).style : undefined}
         >
           <PlusIcon />
         </button>
@@ -521,7 +530,7 @@ const BoardCard = ({
  * purpose fails silently is worse than one that does not exist.
  */
 const BoardMenuButton = forwardRef<HTMLButtonElement, React.ComponentProps<'button'>>(
-  ({ className, ...props }, ref) => (
+  ({ className, style, ...props }, ref) => (
     <button
       ref={ref}
       type="button"
@@ -529,10 +538,16 @@ const BoardMenuButton = forwardRef<HTMLButtonElement, React.ComponentProps<'butt
       className={cn(
         /* `--hd-icon-target`, not `size-5`: this was 20px, four under the floor
            the system declares, on the one control a card's whole menu hangs
-           from. The corner of a card is empty, so it grows into nothing. */
+           from. The corner of a card is empty, so it grows into nothing.
+           This box is always the trailing thing wherever it lands — a
+           column's header or a card's foot — so it always earns the pull
+           that lands its own ⋮ (14px, `[&_svg]:size-3.5`) on the column
+           rather than the box's invisible 5px of clearance either side. */
         'inline-flex size-(--hd-icon-target) shrink-0 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3.5',
+        buttonEdge('icon-xs', 'end', 14).className,
         className,
       )}
+      style={{ ...buttonEdge('icon-xs', 'end', 14).style, ...style }}
       {...props}
     >
       <MoreIcon />

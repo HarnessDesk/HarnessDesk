@@ -516,7 +516,16 @@
 
 .searchClear {
   position: absolute;
-  right: var(--hd-space-1);
+  /* `edge` on `Button` pulls a box past an inset with a negative *margin*,
+     which an absolutely positioned element resolves the wrong way — a
+     negative margin-inline-end here would push the box's own border edge
+     *past* `right`'s edge rather than pull it back, so the fix has to be
+     said in `right` itself. Same formula, aimed at the leading icon's own
+     10px inset (`.search > svg`'s `left`) for a field symmetric on both
+     sides: `right` puts the box that far in, less half of what the box is
+     bigger than its 12px glyph, so the glyph itself lands there instead of
+     the button's invisible hit target. */
+  right: calc(var(--hd-space-2-5) - (var(--hd-btn-h-sm) - 12px) / 2);
   top: 50%;
   transform: translateY(-50%);
 }
