@@ -81,6 +81,32 @@ test('a thinner read is filled in from the turns the host recorded', async () =>
   })
 })
 
+/**
+ * `enrich` is read through the instant a turn ends, while its write is only
+ * *scheduled* — `record`'s own settle timer, or the zero-delay one a
+ * completed turn takes (`packages/server/src/host.ts`'s `turn/completed`
+ * handling) — not yet done. A backend that has not caught up to its own turn
+ * yet (the fake runtime; Cursor; a lossy ACP replay) answers with nothing for
+ * it, so a read landing in that gap must still be filled in from what was
+ * just recorded — deliberately no `flush()` here, since a flush is the one
+ * thing production never does before a read.
+ */
+test('enrich sees a turn recorded moments ago, before its scheduled write has landed', async () => {
+  await withStore(async (store) => {
+    const full = session([turn('t1', [item('u', 'userMessage'), item('a', 'assistantMessage')])])
+    store.record(full, { now: true })
+    // No `store.flush()`: the write behind this turn is only scheduled.
+    const cold = session([])
+    const enriched = await store.enrich(cold)
+    assert.equal(enriched.turns.length, 1, 'the just-recorded turn must be visible before its write lands')
+    assert.equal(
+      enriched.turns[0]?.items.some((entry) => entry.type === 'assistantMessage'),
+      true,
+      'the Seat’s answer must be visible before its write lands',
+    )
+  })
+})
+
 test('flush keeps pending Insight context during shutdown', async () => {
   await withStore(async (store, dir) => {
     store.record(session([turn('t1', [item('u', 'userMessage')])]), {

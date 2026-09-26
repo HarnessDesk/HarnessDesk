@@ -268,6 +268,34 @@ export class TranscriptStore {
     await next
   }
 
+  /**
+   * Waits for this session's own write to be reflected before it is read
+   * back. A write only *scheduled* — `record`'s settle timer, or the
+   * zero-delay one a completed turn takes — is flushed right now instead of
+   * waited out; a write already under way is awaited in place. Called by
+   * `enrich`, the one place every read of a finished session's transcript
+   * passes through (`session/read`, a cold hand-off read, a Goal's answer for
+   * its wrap preview and its wrap), so a read landing in the gap between a
+   * turn ending and its write landing sees the turn anyway, instead of a
+   * backend that has not caught up to its own turn yet — the fake runtime,
+   * Cursor, a lossy ACP replay — reading as if the Seat never answered.
+   *
+   * Never unbounded: `#write` always settles, even when the write itself
+   * fails (logged there, never thrown), so there is nothing here for a
+   * failing disk to hang a read on.
+   */
+  async #settle(runtime: RuntimeId, id: SessionId): Promise<void> {
+    const key = keyOf(runtime, id)
+    const pending = this.#pending.get(key)
+    if (pending) {
+      clearTimeout(pending.timer)
+      this.#pending.delete(key)
+      await this.#write(pending.session, pending.insight)
+      return
+    }
+    await this.#writes.get(key)?.catch(() => {})
+  }
+
   async #read(runtime: RuntimeId, id: SessionId): Promise<Stored | null> {
     try {
       const raw = await readFile(this.#pathOf(runtime, id), 'utf8')
@@ -322,6 +350,7 @@ export class TranscriptStore {
    * none; nothing else about the session changes.
    */
   async enrich(session: Session): Promise<Session> {
+    await this.#settle(session.runtime, session.id)
     const stored = await this.#read(session.runtime, session.id)
     if (!stored) return session
     // A backend that answers with no turns at all — an ACP agent restarted
