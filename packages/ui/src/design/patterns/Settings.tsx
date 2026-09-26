@@ -2,6 +2,7 @@ import { Button } from '../ui/button'
 import { Children, createContext, createElement, isValidElement, useContext, useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
+import { type Tint as AccountTint } from '../../lib/accounts'
 import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, FilterIcon, SearchIcon, StaleIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
@@ -1329,10 +1330,12 @@ export const AccountMark = ({
   className,
   children,
   ...props
-}: HTMLAttributes<HTMLElement> & {
+}: Omit<HTMLAttributes<HTMLElement>, 'data-tint'> & {
   as?: 'span' | 'button'
   /** `dot` is the account's colour alone, for a line whose owner is already drawn. */
   size?: 'sm' | 'lg' | 'dot'
+  /** One of the accounts' own tints — never a design-system tint at large: #991 once shipped teal and orange, neither of which is a tint an account can wear. */
+  'data-tint'?: AccountTint
   children: ReactNode
 }) => createElement(as, {
   ...props,
