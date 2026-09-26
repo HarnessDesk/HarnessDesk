@@ -302,3 +302,35 @@ test('Codex’s own home config linked to a device is unknown, and not read', as
     assert.equal(await promptly(() => codexProvider(home, {})), null, `${device} is not a configuration file`)
   }
 })
+
+/*
+ * Found re-walking UC2 after #1028: an MCP server's env commonly holds a JSON
+ * blob as one quoted string, and a `{` anywhere in a value used to make the
+ * whole configuration unknown, which left the judge unseatable on a real desk.
+ */
+test('a `{` inside one whole quoted string is text, not an inline table', async (t) => {
+  const plain = 'model = "gpt-5.5"\n[mcp_servers.repl.env]\n'
+  const kept: readonly string[] = [
+    `SERVICES = '{"docs":{"url":"https://docs.example.com"}}'`,
+    'SERVICES = "{\\"docs\\": 1}"',
+    'SERVICES = "ends in a backslash \\\\"',
+  ]
+  for (const line of kept) {
+    const home = folder(t, 'codex-provider-string-')
+    writeFileSync(join(home, 'config.toml'), plain + line + '\n')
+    assert.equal(await codexProvider(home, {}), 'openai', line)
+  }
+  const refused: readonly string[] = [
+    'SERVICES = { docs = 1 }',
+    `SERVICES = '{"a":1}' x`,
+    'SERVICES = "{ unclosed',
+    'SERVICES = "an escaped last quote \\"',
+    `SERVICES = 'it's'`,
+    'SERVICES = bare{',
+  ]
+  for (const line of refused) {
+    const home = folder(t, 'codex-provider-string-')
+    writeFileSync(join(home, 'config.toml'), plain + line + '\n')
+    assert.equal(await codexProvider(home, {}), null, line)
+  }
+})

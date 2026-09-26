@@ -129,6 +129,28 @@ const stripComment = (line: string): string => {
   return line
 }
 
+/**
+ * Whether this value is exactly one single-line string and nothing after it:
+ * a literal `'…'` (which cannot hold a `'`) or a basic `"…"` whose escapes are
+ * skipped, closed by the value's last character.
+ */
+const isOneString = (value: string): boolean => {
+  const quote = value[0]
+  if (value.length < 2 || value[value.length - 1] !== quote) return false
+  if (quote === "'") return !value.slice(1, -1).includes("'")
+  let at = 1
+  while (at < value.length - 1) {
+    if (value[at] === '\\') {
+      at += 2
+      continue
+    }
+    if (value[at] === '"') return false
+    at += 1
+  }
+  // An escape that swallowed the last quote leaves the string unclosed.
+  return at === value.length - 1
+}
+
 /** Strips a trailing `# comment` already removed by `stripComment`, and one layer of surrounding quotes. */
 const dequote = (raw: string): string => {
   const value = raw.trim()
@@ -246,7 +268,12 @@ const parseLayer = (text: string): Layer | 'unknown' => {
     const key = (assignment[1] ?? assignment[2] ?? assignment[3])!
     if (key.includes('\\')) return 'unknown'
     const value = assignment[4]!.trim()
-    if (value.includes('{')) return 'unknown'
+    // A `{` is only an inline table outside a string: a value that is one
+    // whole quoted string may carry any text (a JSON blob in an MCP server's
+    // env is common), and anything else holding a `{` stays unknown.
+    if (value.startsWith('"') || value.startsWith("'")) {
+      if (!isOneString(value)) return 'unknown'
+    } else if (value.includes('{')) return 'unknown'
     const tracked = current === 'root'
       ? key === 'profile' || key === 'model_provider' || isBaseUrlKey(key)
       : current !== 'other' && (key === 'model_provider' || isBaseUrlKey(key))

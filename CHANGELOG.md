@@ -7,6 +7,15 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An independent judge seats on an ordinary desk again.** Two things still
+  made a provider read as unknown on a real machine, so a role
+  `independentOf` a Codex or DeepSeek competitor could not seat. Codex's
+  configuration was given up on whenever any value held a `{`, including a
+  JSON blob in one quoted string, which an MCP server's env commonly carries.
+  A fresh DeepSeek install's own patch file, comments over an empty `[]`,
+  was refused as unreadable. Both now read as they are. A real inline table,
+  or any other shape the reader cannot fully account for, is still unknown.
+
 - **An agent that has not answered yet no longer reads as signed out.**
   Readiness used to have one guess for both "nobody is signed in" and "still
   loading, or the read failed" — so while an account was on its way in, the
