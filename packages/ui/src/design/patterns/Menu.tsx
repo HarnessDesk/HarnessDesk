@@ -27,6 +27,7 @@ import {
 } from '../ui/dropdown-menu'
 import { SwitchShape } from '../ui/switch'
 import { useDismissOverlays } from './Popover'
+import { Text } from './Settings'
 
 import styles from './Menu.module.css'
 
@@ -211,6 +212,49 @@ export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode;
   <div className={styles.label} data-size={size}>{children}</div>
 )
 
+/**
+ * Several accounts of one agent, under one heading. `heading={false}` keeps
+ * the group — so a row does not change parent, and lose focus, when the
+ * heading comes and goes — but draws no heading and steps nothing in: one
+ * account of the agent on show, as one row wearing its own mark.
+ *
+ * The heading wears the agent's mark once and names it; it is not a choice,
+ * so it takes no hover and no press, and it is the group's accessible name —
+ * `aria-labelledby`, the wiring the vendored group label would give. Plain
+ * elements rather than `DropdownMenuGroup`/`DropdownMenuLabel`: one screen
+ * composes this, and the audit's single-area primitive ceiling may only
+ * fall. The `account` rows under a heading step in so that, after an
+ * `AccountMark size="dot"` (the account's colour), their names start on the
+ * heading's name column; the heading already drew whose they are.
+ */
+export const MenuAccountGroup = ({
+  label,
+  mark,
+  heading = true,
+  children,
+}: {
+  label: string
+  mark: ReactNode
+  heading?: boolean
+  children: ReactNode
+}) => {
+  const id = useId()
+  return (
+    <div
+      className={styles.group}
+      {...(heading ? { role: 'group', 'aria-labelledby': id, 'data-heading': '' } : {})}
+    >
+      {heading && (
+        <div className={styles.groupHead} id={id}>
+          <span aria-hidden="true" className={styles.groupMark}>{mark}</span>
+          <Text role="muted" truncate className={styles.groupLabel}>{label}</Text>
+        </div>
+      )}
+      {children}
+    </div>
+  )
+}
+
 export const MenuSeparator = () => <div className={styles.separator} role="separator" />
 
 export const MenuItem = ({
@@ -265,7 +309,7 @@ export const MenuItem = ({
       role={selected === undefined ? 'menuitem' : 'menuitemradio'}
       {...(selected === undefined ? {} : { 'aria-checked': selected })}
       {...(danger ? { 'data-danger': '' } : {})}
-      {...(current ? { 'data-current': '' } : {})}
+      {...(current ? { 'data-current': '', 'aria-current': true } : {})}
       {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
       {...(reason ? { 'aria-describedby': reasonId } : {})}
       data-layout={layout}
