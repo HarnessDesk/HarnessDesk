@@ -237,13 +237,28 @@ export const previewLedger = (days: number, groupBy: string): unknown => {
       put(`${HOME}/site`, 'harnessdesk-site', entry.runtime, entry.cost * 0.2, entry.tokens * 0.2)
     }
   }
+  // The same "22 of 30 days scanned" the coverage sentence already claims,
+  // now given a real boundary the money chart's own "no record yet" hatch
+  // can draw against — the money band's tests before this fixture existed
+  // never needed one, because the old chart drew every day the same way.
+  const scannedDays = Math.min(days, 22)
+  const earliestDay = new Date(start)
+  earliestDay.setDate(earliestDay.getDate() - (scannedDays - 1))
   return {
     days,
     currency: 'USD',
     totalCost,
     totalTokens: daily.reduce((sum, entry) => sum + entry.tokens, 0),
     provenance: 'mixed',
-    coverage: { priced: 30_052, unpriced: 44, unmetered: 0, estimated: 0, daysCovered: Math.min(days, 22), daysRequested: days },
+    coverage: {
+      priced: 30_052,
+      unpriced: 44,
+      unmetered: 0,
+      estimated: 0,
+      daysCovered: scannedDays,
+      daysRequested: days,
+      earliestDay: earliestDay.getTime(),
+    },
     rows: [...byKey.entries()]
       .map(([key, row]) => ({ key, ...row, hasUnpriced: key.includes('composer') }))
       .sort((a, b) => b.cost - a.cost),

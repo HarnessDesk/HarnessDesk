@@ -301,9 +301,18 @@ describe('DayColumns', () => {
         mode="line"
       />,
     )
-    expect(container.querySelector('svg path[stroke="var(--hd-accent)"]')).not.toBeNull()
+    const line = container.querySelector('svg path[stroke="var(--hd-accent)"]')
+    expect(line).not.toBeNull()
     // No stacked bar column in line mode.
     expect(container.querySelector('.flex-col-reverse')).toBeNull()
+    // The filled area is the same run's own path, and has to be a path SVG
+    // can actually parse: two numbers glued together with no `L`/comma
+    // between them (a real bug this line-mode area had) renders nothing and
+    // logs a console error rather than throwing, so a plain "some path
+    // exists" assertion would not have caught it.
+    const area = line?.previousElementSibling as SVGPathElement | null
+    const d = area?.getAttribute('d') ?? ''
+    expect(d).toMatch(/^M[\d.]+,100L(?:[\d.]+,[\d.]+L)*[\d.]+,100Z$/)
   })
 
   it('draws a y-axis of three round ticks when given one', () => {

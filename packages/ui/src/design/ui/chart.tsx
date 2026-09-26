@@ -695,7 +695,9 @@ const DayColumns = ({
     if (indices.length === 0) return ''
     const first = indices[0] as number
     const last = indices[indices.length - 1] as number
-    return `M${plotX(first).toFixed(2)},100${lineOf(indices, valueAt).slice(1)}L${plotX(last).toFixed(2)},100Z`
+    // Baseline up to the first point, the line itself (its own leading `M`
+    // dropped for `L`), then back down to the baseline and closed.
+    return `M${plotX(first).toFixed(2)},100L${lineOf(indices, valueAt).slice(1)}L${plotX(last).toFixed(2)},100Z`
   }
   const valueRuns = mode === 'line' ? runsWhere((index) => !buckets[index]?.unknown) : []
   const ghostRuns = ghost ? runsWhere((index) => !buckets[index]?.unknown && ghost[index] != null) : []
