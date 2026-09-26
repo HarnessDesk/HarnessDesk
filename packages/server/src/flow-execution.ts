@@ -403,7 +403,7 @@ const bindingsFor = (run: StoredFlowExecution, role: string): FlowBinding[] =>
 export const agreedSplit = (
   rounds: readonly FlowRoundState[], before: number, source: string, target: string, width: number, intents: readonly Intent[],
 ): readonly (readonly string[])[] | string => {
-  const next = `Next: wrap this Goal, which stops this run, and start the flow again in a new Goal; the "${source}" card has to finish with complete_claim's split — one list of paths for each "${target}" card, in card order, no two overlapping.`
+  const next = `Next: wrap this Goal, which stops this run, and start the flow again in a new Goal; the "${source}" card has to record its split of the files when it finishes — one list of paths for each "${target}" card, in card order, no two overlapping.`
   const stop = (why: string): string => `The ${width} "${target}" cards were not opened: ${why}, so each card cannot be held to its own files.\n${next}`
   const from = [...rounds].reverse().find((one) => one.role === source && one.n < before)
   if (!from) return stop(`no "${source}" round has run yet to agree a split`)
@@ -2051,7 +2051,13 @@ export class FlowExecutions {
     const openedNow: string[] = []
     const fail = async (reason: string): Promise<false> => {
       const run = this.#get(id)
-      await this.#release(run.goal, openedNow, run.intake !== undefined)
+      /* A Seat this attempt opened has been handed nothing yet, but it is
+         still in its brief's turn, and a busy Seat refuses a release: left
+         open, it would hold its card and pick it up through `await_work`
+         while the run stands stalled — the sibling of a refused card working
+         anyway (#1015). So its turn is interrupted first, whoever started the
+         run. */
+      await this.#release(run.goal, openedNow, true)
       await this.#stall(id, reason)
       return false
     }

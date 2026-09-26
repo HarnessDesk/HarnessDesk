@@ -405,6 +405,12 @@ seed: { role: verify, title: Verify }
 })
 
 test('a round of several cards takes its files from an agreed split, never one shared list (#1015)', () => {
+  // Judged when compiled — the dry run and the start — so a saved run's own source still parses.
+  const errors = (text: string): readonly string[] => {
+    const parsed = parseFlowPolicy(text)
+    assert.deepEqual(parsed.problems, [], 'the text itself parses')
+    return compileFlowPolicy(parsed.document!, [agent('writer')]).problems.map((one) => `${one.at}: ${one.text}`)
+  }
   const flow = (then: string, seed = '{ role: contract, title: Agree }') => `
 version: 2
 name: Pair
@@ -419,7 +425,7 @@ rules:
   assert.deepEqual(errors(flow('{ role: dev, title: Build, files: [src/**] }')), [
     'rules[0].then.files: all 2 cards of "dev" would own the same paths, and two cards whose paths overlap are never both worked — give each card its own part with split: naming the role that agrees it',
   ])
-  assert.deepEqual(errors(flow('{ role: dev, title: Build, split: contract, files: [src/**] }')).slice(0, 1), [
+  assert.deepEqual(errors(flow('{ role: dev, title: Build, split: contract, files: [src/**] }')), [
     'rules[0].then.split: a round takes its files from files or from split, not both',
   ])
   assert.deepEqual(errors(flow('{ role: dev, title: Build, split: person }')), [

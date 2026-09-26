@@ -917,10 +917,17 @@ Where a flow asks for a split and none is usable — the agreeing card recorded
 none, two cards recorded different ones, or it has the wrong number of lists —
 the round stops before any card of it exists, and says which. There is no
 fallback to a shared list: that is exactly the agreement going unenforced. For
-the same reason a flat `files:` on a round of more than one card is refused at
-dry run. And the host's claim for an opening Seat, and a person's assignment,
-now ask the same file rule an agent's claim does, naming the paths and the card
-that holds them.
+the same reason the dry run, and with it the start, refuses a flat `files:` on
+a round of more than one card. That rule, and the checks on `split`, belong to
+the compiler, as #1024's did: recovery re-parses every saved run's text on
+launch, and a parse refusal would block a run saved before this rule with a
+false "could not be read". And the host's claim for an opening Seat, and a
+person's assignment, now ask the same file rule an agent's claim does, naming
+the paths and the card that holds them. Paths are compared case-folded, since
+on a case-insensitive volume two spellings are one folder, and folding can only
+find more overlap. A round refused at a claim interrupts and lets go of the
+Seats it already opened, whoever started the run: a Seat left in its first
+turn would pick up its claimed card while the run stood stalled.
 
 **The rule:** the agents agree the split and record it as data; the board
 holds each card to its own part; a split nobody recorded stops the round

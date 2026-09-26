@@ -124,9 +124,6 @@ const readThen = (value: unknown, at: string, problems: FlowProblem[]): FlowThen
   const files = words(record['files'], `${at}.files`, problems)
   const split = record['split'] === undefined ? undefined : asText(record['split'])?.trim()
   if (record['split'] !== undefined && !split) problems.push(problem('error', `${at}.split`, 'split names the role whose finished card recorded the split'))
-  if (split && files.length > 0) {
-    problems.push(problem('error', `${at}.split`, 'a round takes its files from files or from split, not both'))
-  }
   return {
     role, title,
     ...(asText(record['detail']) ? { detail: asText(record['detail'])! } : {}),
@@ -328,17 +325,55 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
 }
 
 /**
+ * How each round's cards come to own their files (#1015), judged when a flow
+ * is compiled — the dry run and the start — never when its text is parsed:
+ * a run saved before these rules re-parses its own source on every launch,
+ * and a parse refusal would block its Goal with a false "could not be read".
+ *
  * One list of files for a round of several cards gives every card the same
  * paths, and the board lets only one of them be claimed: the split was never
- * enforced, because there was none. Each card needs its own part.
+ * enforced, because there was none. Each card needs its own part, from a
+ * split an earlier round of an Agent role agreed.
  */
-const sharedFiles = (then: FlowThen, target: FlowPolicyRole | undefined, at: string, problems: FlowProblem[]): void => {
-  if (target?.kind !== 'agent' || !then.files?.length) return
-  let width = 1
-  try { width = expandSlots({ uses: target.uses, seats: target.seats.map(seatSpec), ...(target.count === undefined ? {} : { count: target.count }) }).length } catch { /* reported with the role */ }
-  if (width > 1) {
-    problems.push(problem('error', at, `all ${width} cards of "${target.id}" would own the same paths, and two cards whose paths overlap are never both worked — give each card its own part with split: naming the role that agrees it`))
+const fileProblems = (policy: FlowPolicy, problems: FlowProblem[]): void => {
+  const byId = new Map(policy.roles.map((role) => [role.id, role]))
+  const edges = new Map<string, Set<string>>()
+  for (const rule of policy.rules) edges.set(rule.on, (edges.get(rule.on) ?? new Set<string>()).add(rule.then.role))
+  const reaches = (from: string, target: string): boolean => {
+    const seen = new Set<string>()
+    const walk = (role: string): boolean => {
+      if (role === target) return true
+      if (seen.has(role)) return false
+      seen.add(role)
+      return [...(edges.get(role) ?? [])].some(walk)
+    }
+    return walk(from)
   }
+  const check = (then: FlowThen, at: string, seed: boolean): void => {
+    if (then.files?.length && then.split !== undefined) {
+      problems.push(problem('error', `${at}.split`, 'a round takes its files from files or from split, not both'))
+      return
+    }
+    const target = byId.get(then.role)
+    if (target?.kind === 'agent' && then.files?.length) {
+      let width = 1
+      try { width = expandSlots({ uses: target.uses, seats: target.seats.map(seatSpec), ...(target.count === undefined ? {} : { count: target.count }) }).length } catch { /* reported with the role */ }
+      if (width > 1) {
+        problems.push(problem('error', `${at}.files`, `all ${width} cards of "${target.id}" would own the same paths, and two cards whose paths overlap are never both worked — give each card its own part with split: naming the role that agrees it`))
+      }
+    }
+    const source = then.split
+    if (source === undefined) return
+    if (seed) problems.push(problem('error', `${at}.split`, 'the seed opens the first round, so no round before it can have agreed a split'))
+    else if (byId.get(source)?.kind !== 'agent') problems.push(problem('error', `${at}.split`, `"${source}" is not an Agent role, so it cannot agree a split`))
+  }
+  for (const [index, rule] of policy.rules.entries()) {
+    check(rule.then, `rules[${index}].then`, false)
+    if (rule.then.split !== undefined && byId.get(rule.then.split)?.kind === 'agent' && !reaches(rule.then.split, rule.on)) {
+      problems.push(problem('error', `rules[${index}].then.split`, `"${rule.then.split}" never finishes before this rule, so no split of its would be recorded yet`))
+    }
+  }
+  check(policy.seed, 'seed', true)
 }
 
 const validatePolicy = (policy: FlowPolicy, problems: FlowProblem[]): void => {
@@ -378,16 +413,6 @@ const validatePolicy = (policy: FlowPolicy, problems: FlowProblem[]): void => {
     /* One list of files for a round of several cards gives every card the
        same paths, and the board lets only one of them be claimed: the split
        was never enforced, because there was none. Each card needs its own. */
-    sharedFiles(rule.then, target, `rules[${index}].then.files`, problems)
-    const source = rule.then.split
-    if (source !== undefined) {
-      if (byId.get(source)?.kind !== 'agent') problems.push(problem('error', `rules[${index}].then.split`, `"${source}" is not an Agent role, so it cannot agree a split`))
-      else if (!reaches(source, rule.on)) problems.push(problem('error', `rules[${index}].then.split`, `"${source}" never finishes before this rule, so no split of its would be recorded yet`))
-    }
-  }
-  sharedFiles(policy.seed, byId.get(policy.seed.role), 'seed.files', problems)
-  if (policy.seed.split !== undefined) {
-    problems.push(problem('error', 'seed.split', 'the seed opens the first round, so no round before it can have agreed a split'))
   }
   const seed = byId.get(policy.seed.role)
   if (seed?.kind === 'agent' && seed.grant === 'merge') problems.push(problem('error', 'seed', 'This merge step needs fresh evidence. Add an evidence guard before starting it.'))
@@ -446,6 +471,7 @@ export const reviewsIn = (binding: Pick<FlowBinding, 'agent' | 'grant'>): boolea
 export const compileFlowPolicy = (document: FlowDocument, agents: readonly AgentEntry[]): CompiledFlow => {
   if (document.format === 'legacy') return { document, bindings: [], problems: [] }
   const problems: FlowProblem[] = []
+  fileProblems(document.flow, problems)
   const bindings: CompiledFlow['bindings'][number][] = []
   const entries = new Map<string, AgentEntry>()
   for (const entry of agents) if (!entries.has(entry.id)) entries.set(entry.id, entry)

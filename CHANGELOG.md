@@ -15,10 +15,12 @@ move is real work and is not news to a person weighing an upgrade.
   paths per card — and a rule's `split: <role>` gives each card of the next
   round its own list. A split whose parts overlap is refused as it is
   recorded; a round with no usable split stops before any card opens and says
-  why; and a flat `files:` on a round of more than one card is refused at dry
-  run. Any claim whose paths overlap a live one — including the one made for a
-  Seat as it opens, and a person's assignment — is refused with the paths and
-  the card holding them.
+  why; and the dry run, and so the start, refuses a flat `files:` on a round of
+  more than one card (a run already saved with that shape still restores and
+  keeps running). Any claim whose paths overlap a live one — including the one
+  made for a Seat as it opens, and a person's assignment — is refused with the
+  paths and the card holding them, and a Seat the refused round had already
+  opened is stopped and let go rather than left holding its card.
 
 - **Two Seats that may commit no longer share one working tree.** A flow
   role that seats more than one card at a time — `count: 2`, or a list of

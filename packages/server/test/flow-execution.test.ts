@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import type { TeamEntry, TeamSignal } from '@harnessdesk/protocol'
 
 import { BRIEF_CHANGED, INDEPENDENT } from '../src/flow-execution.js'
+import { overlaps } from '../src/team.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
 const addedSignal = (channel: readonly TeamEntry[]): TeamSignal | undefined =>
@@ -622,6 +623,8 @@ test('a split round whose agreeing card recorded no split stops, opening no card
   const now = rig.flows.executionsFor(run.goal)[0]!
   assert.equal(now.state, 'stalled')
   assert.match(now.reason ?? '', /The 2 "dev" cards were not opened: the "contract" round \(card #1\) finished without recording a split of the files, so each card cannot be held to its own files\./)
+  assert.match(now.reason ?? '', /the "contract" card has to record its split of the files when it finishes/)
+  assert.doesNotMatch(now.reason ?? '', /complete_claim/, 'a person reads this, not a tool name')
   assert.equal(rig.board(run.goal).intents.length, 1, 'no card was opened with a shared list')
   assert.deepEqual(opens(rig.events), ['open:seat-1'])
 })
@@ -672,5 +675,17 @@ test('a split whose parts overlap is refused as it is recorded, and the card sta
   await rig.flows.flush()
   const said = await rig.team.complete(1, { outcome: 'done', split: [['src/**'], ['src/ui/app.ts']] }, rig.sessionOf('seat-1'))
   assert.match(said, /^Refused: #1 is not finished, because list 1 \(src\/\*\*\) and list 2 \(src\/ui\/app\.ts\) overlap/)
+  assert.equal(rig.board(run.goal).intents.find((card) => card.id === 1)?.state, 'claimed')
+})
+
+test('paths that differ only in case are one folder to the board, as on a case-insensitive volume', async (t) => {
+  assert.equal(overlaps('src/UI/**', 'src/ui/button.ts'), true)
+  assert.equal(overlaps('Docs/API.md', 'docs/api.md'), true)
+  assert.equal(overlaps('src/ui/**', 'src/api/**'), false)
+  const rig = await goalRig(t)
+  const run = await rig.start(PAIR, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const said = await rig.team.complete(1, { outcome: 'done', split: [['src/UI/**'], ['src/ui/**']] }, rig.sessionOf('seat-1'))
+  assert.match(said, /^Refused: #1 is not finished, because list 1 \(src\/UI\/\*\*\) and list 2 \(src\/ui\/\*\*\) overlap/)
   assert.equal(rig.board(run.goal).intents.find((card) => card.id === 1)?.state, 'claimed')
 })

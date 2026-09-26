@@ -641,9 +641,16 @@ const leadOf = (pattern: string): PatternLead => {
   return { raw, lead, isGlob: true }
 }
 
+/*
+ * Compared case-folded. On a case-insensitive volume — the default on macOS
+ * and Windows — `src/UI` and `src/ui` are one folder, and reading them as two
+ * would let two claims own it at once. Folding can only ever find more
+ * overlap, never less, which is the safe side for a rule that keeps agents
+ * apart.
+ */
 export const overlaps = (a: string, b: string): boolean => {
-  const first = leadOf(a)
-  const second = leadOf(b)
+  const first = leadOf(a.toLowerCase())
+  const second = leadOf(b.toLowerCase())
   if (first.lead === '' || second.lead === '') return true
   if (first.lead === second.lead) return true
   if (first.lead.startsWith(`${second.lead}/`) || second.lead.startsWith(`${first.lead}/`)) return true

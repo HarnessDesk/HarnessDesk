@@ -553,7 +553,9 @@ refuses a claim — an agent's, the host's own for an opening Seat, or a
 person's assignment — whose paths overlap a live one, naming the paths and the
 card that holds them. One list suits a round of one card only; on a round of
 more, every card would own the same paths and only one could ever be claimed,
-so the dry run refuses it. Several cards each take their own part of a split
+so the dry run, and with it the start, refuses it. These are the compiler's
+rules, not the parser's: a run saved before them re-reads its own text on
+every launch, and still restores. Several cards each take their own part of a split
 the agents agreed: `then: { role: dev, title: "Build part {{n}}", split: contract }`
 gives card n the n-th list the latest `contract` round recorded. The
 `contract` card is told to finish with `complete_claim`'s `split` — one list
@@ -561,7 +563,8 @@ of path patterns per `dev` card, in card order — and a split whose lists
 overlap is refused as it is recorded. When no usable split is there (none
 recorded, two different ones, or the wrong number of lists), the round stops
 before any card opens and says which, rather than seating every card on the
-same paths.
+same paths. A round refused at a card's claim lets go of the Seats it already
+opened, interrupting their first turn, so no sibling is left holding its card.
 
 **Independence** (`independentOf: [build]`) is judged on the vendor behind
 each Seat, as the runtime's adapter reads it from the agent's own
