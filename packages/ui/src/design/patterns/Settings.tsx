@@ -9,7 +9,7 @@ import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
+import { dotTone as dotToneClass, inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import { GroupLabel } from '../ui/group-label'
 import { useInPageSection } from '../ui/section'
 import { ChoiceRow, choiceListClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
@@ -64,7 +64,7 @@ export const Dot = ({
   const light = (
     <span
       {...props}
-      className={cx(styles.dot, className)}
+      className={cx(styles.dot, tone && dotToneClass({ tone }), className)}
       data-slot="dot"
       {...(state ? { 'data-state': state } : tone ? { 'data-tone': tone } : {})}
       data-variant={variant}

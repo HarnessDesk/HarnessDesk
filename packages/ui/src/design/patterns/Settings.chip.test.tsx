@@ -55,7 +55,11 @@ it('gives its dot a tone apart from the pill, on purpose', () => {
   expect(dot.getAttribute('data-tone')).toBe('brand')
   expect(dot.hasAttribute('data-state')).toBe(false)
   expect(dot.hasAttribute('data-pulse')).toBe(true)
-  expect(css).toMatch(/\.dot\[data-slot='dot'\]\[data-tone='brand'\]\s*\{[^}]*background:\s*var\(--hd-primary\)/s)
+  // Its colour is a class (`dotTone`, design/ui/tone.ts) rather than a second
+  // tone-to-colour map in this sheet — only the `currentColor` rule steps
+  // aside for a toned dot, which this asserts by its absence from the class.
+  expect(dot.className).toContain('bg-(--hd-primary)')
+  expect(css).toMatch(/\.chip \.dot:not\(\[data-tone\]\)\s*\{[^}]*background:\s*currentColor/s)
 })
 
 it('draws no dot at all without dotTone or a readiness state', () => {

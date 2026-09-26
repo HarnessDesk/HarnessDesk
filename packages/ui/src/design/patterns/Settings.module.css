@@ -240,37 +240,12 @@
 }
 
 /* Inside a chip the dot borrows the chip's own ink, so the two never disagree
-   about what state they are showing. */
-.chip .dot {
+   about what state they are showing — unless the dot was given a tone of its
+   own on purpose (`Chip`'s `dotTone`), where `Dot` already carries its colour
+   as a class (`dotTone`, `design/ui/tone.ts`) and this rule steps aside for
+   it rather than repeating the same tone-to-colour map a second time. */
+.chip .dot:not([data-tone]) {
   background: currentColor;
-}
-
-/* `dotTone`: a dot given a tone of its own beats the rule above on purpose.
-   Equal specificity would leave the winner to whichever sheet the bundler
-   places last, so the extra `data-slot` attribute is there to settle it
-   regardless of load order. */
-.dot[data-slot='dot'][data-tone='neutral'] {
-  background: var(--hd-muted-foreground);
-}
-
-.dot[data-slot='dot'][data-tone='brand'] {
-  background: var(--hd-primary);
-}
-
-.dot[data-slot='dot'][data-tone='success'] {
-  background: var(--hd-success);
-}
-
-.dot[data-slot='dot'][data-tone='warning'] {
-  background: var(--hd-warning);
-}
-
-.dot[data-slot='dot'][data-tone='danger'] {
-  background: var(--hd-danger);
-}
-
-.dot[data-slot='dot'][data-tone='info'] {
-  background: var(--hd-tint-sky-ink);
 }
 
 /* Stale is marked rather than struck: the history glyph in front, and — for
