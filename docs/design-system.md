@@ -165,8 +165,8 @@ Four steps carry the interface and a fifth names the app; 14px is the default an
 | `--hd-title` | `24px` |
 | `--hd-display` | `36px` |
 | `--hd-line-xs` | `16px` |
-| `--hd-line-sm` | `18px` |
-| `--hd-line` | `21px` |
+| `--hd-line-sm` | `20px` |
+| `--hd-line` | `20px` |
 | `--hd-line-lg` | `24px` |
 | `--hd-line-heading` | `28px` |
 | `--hd-line-title` | `30px` |
@@ -347,6 +347,10 @@ A block of related settings on a page. The reference's account-settings cards ar
 
 | token | value |
 | --- | --- |
+| `--hd-inset-dense` | `8px` |
+| `--hd-inset-row` | `12px` |
+| `--hd-inset-card` | `16px` |
+| `--hd-inset-dialog` | `24px` |
 | `--hd-card-padding` | `16px` |
 | `--hd-card-gap` | `12px` |
 | `--hd-seg-pad` | `2px` |
@@ -1294,8 +1298,9 @@ shows one, so the column never grows a stack; the pager says how many.
 `packages/ui/src/design/patterns/Notices.tsx`
 
 A message about the conversation it sits over, fastened to the top of that
-conversation's composer — the control it is about. Tinted by tone, one
-line, one action as a link.
+conversation's composer — the control it is about. A calm bar the
+composer's own width: the tone is in the tile, the words wrap, and the
+action sits at the right as a small button.
 
 ### `ComposerNoticeStack`
 
@@ -1309,28 +1314,24 @@ The composer notices, stacked over the composer they are about.
 
 One slim line above a pane, one message at a time.
 
-### `InboxButton`
-
-`packages/ui/src/design/patterns/Notices.tsx`
-
-The inbox's trigger: a bell, and how many are unread. Unread has its own
-tint (`data-unread`), never the readiness dot's colours — that dot says
-whether a turn can start, and a message waiting is a different fact.
-
-### `UnreadMark`
-
-`packages/ui/src/design/patterns/Notices.tsx`
-
-How many kept messages are unread, beside whatever opens the inbox — the
-seat's row, say. Its own tint, never the readiness dot's colours.
-
 ### `InboxList`
 
 `packages/ui/src/design/patterns/Notices.tsx`
 
-The inbox itself: messages kept until they are cleared, newest first,
-unread ones marked. What it is drawn inside — a menu's fold, a popover — is
-the caller's; this is the list and its two verbs.
+The inbox: messages kept until they are cleared, newest first, under
+"Today" and "Earlier". Each is a flat row — the sender's tile, the title
+with its time at the right, who and why under it, at most one thing to do.
+The whole row is one press: it marks the message read and, when the
+message has a place (`go`), goes there. Unread rows carry a dot and the
+heavier title; "Unread" narrows the list to them. New rows rise in.
+
+### `InboxPanel`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The bell and the inbox behind it. The bell carries the unread count in its
+own tint; the inbox opens beside it as a panel of its own, wide enough for
+a card to read in two lines, rather than folding into a menu.
 
 ### `showToast`
 
