@@ -1,15 +1,20 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 /**
  * The two shapes the transcript's message parts draw: a sent message is a
- * plate sized to its own words, capped well under the reading column and
- * pinned to the right edge; an answer is unframed prose that takes the whole
- * row. Measured in the real engine — a `max-w-[66.6667%]` utility, or a
- * `Message` with the wrong side's `items-*`, compiles fine and lays out wrong,
- * and jsdom does not lay anything out at all.
+ * plate capped at two thirds of the reading column (`Bubble`'s own
+ * `max-w-[66.6667%]`) and pinned to the right edge; an answer is unframed
+ * prose that takes the whole row. Measured in the real engine, through the
+ * real transcript row (`ItemView` → `UserMessage`/`AssistantMessage`) rather
+ * than a hand-built fixture — a loose bound (anything under 80%, say) would
+ * pass even if the cap moved or vanished, so the assertion is the cap
+ * itself, tight enough that only that cap can satisfy it.
  */
 
-const mount = async (page: import('@playwright/test').Page) => {
+const LONG_SENTENCE =
+  'One long run of words with no line break the sender typed, long enough that wrapping is forced only by the bubble’s own maximum width rather than by anything in the text, so the measured width is genuinely the cap and not merely whatever the sentence happened to need.'
+
+const mount = async (page: Page) => {
   await page.route('**/src/preview/main.tsx*', async route => {
     const response = await route.fetch()
     const source = await response.text()
@@ -19,26 +24,40 @@ const mount = async (page: import('@playwright/test').Page) => {
       response,
       body: `${source}
         import factsReact from ${JSON.stringify(reactUrl)};
-        import { Message, Bubble, BubbleContent } from '/src/design/index.ts';
-        const host = document.createElement('div');
-        host.setAttribute('data-testid', 'message-fixture');
-        host.style.width = '736px';
-        document.body.append(host);
-        const h = factsReact.createElement;
-        createRoot(host).render(
-          h('div', null,
-            h(Message, { align: 'end' },
-              h(Bubble, { variant: 'secondary' },
-                h(BubbleContent, { variant: 'secondary' }, 'Does the gate need the renderer in CI too?'),
-              ),
+        import { ItemView } from '/src/components/Items.tsx';
+        // StoreProvider and emptySnapshot are already imported by the preview
+        // harness above, sharing this module scope — importing either again
+        // under the same name is a duplicate-declaration error.
+        (() => {
+          // The harness's own default scene is already mounted onto #root by
+          // the code above (this script is appended after it) — hidden so it
+          // does not paint under the fixture this rig mounts of its own.
+          const defaultRoot = document.getElementById('root');
+          if (defaultRoot) defaultRoot.style.display = 'none';
+          const host = document.createElement('div');
+          host.setAttribute('data-testid', 'message-fixture');
+          host.style.width = '736px';
+          document.body.append(host);
+          const snapshot = { ...emptySnapshot(), status: 'open' };
+          const fixtureStore = {
+            subscribe: () => () => {},
+            getSnapshot: () => snapshot,
+            notice: () => {},
+          };
+          const h = factsReact.createElement;
+          createRoot(host).render(
+            h(StoreProvider, { store: fixtureStore },
+              h(ItemView, {
+                item: { id: 'w-long', type: 'userMessage', content: [{ type: 'text', text: ${JSON.stringify(LONG_SENTENCE)} }] },
+                root: '/workspace',
+              }),
+              h(ItemView, {
+                item: { id: 'w-answer', type: 'assistantMessage', phase: 'final', text: 'Ready to look at the change.' },
+                root: '/workspace',
+              }),
             ),
-            h(Message, { align: 'start' },
-              h(Bubble, { variant: 'ghost' },
-                h(BubbleContent, { variant: 'ghost' }, 'Ready to look at the change — one moment.'),
-              ),
-            ),
-          ),
-        );
+          );
+        })();
       `,
     })
   })
@@ -46,7 +65,7 @@ const mount = async (page: import('@playwright/test').Page) => {
   await page.evaluate(async () => { await document.fonts.ready })
 }
 
-test('a sent message stays under 80% of the column and pinned to its right edge', async ({ page }) => {
+test('a sent message’s bubble caps at two thirds of the column, not eighty percent', async ({ page }) => {
   await mount(page)
   const host = page.getByTestId('message-fixture')
   const laid = await host.evaluate((node) => {
@@ -55,7 +74,10 @@ test('a sent message stays under 80% of the column and pinned to its right edge'
     const rect = bubble.getBoundingClientRect()
     return { hostWidth: box.width, hostRight: box.right, bubbleWidth: rect.width, bubbleRight: rect.right }
   })
-  expect(laid.bubbleWidth).toBeLessThanOrEqual(laid.hostWidth * 0.8)
+  // The real cap, read from the source: two thirds of the row, not "under 80%"
+  // — a bound loose enough to pass at any cap, or none, proves nothing.
+  const cap = laid.hostWidth * (2 / 3)
+  expect(Math.abs(laid.bubbleWidth - cap)).toBeLessThanOrEqual(2)
   // Right-aligned: its own right edge meets the row's, not floating short of it.
   expect(Math.abs(laid.bubbleRight - laid.hostRight)).toBeLessThanOrEqual(1)
 })
