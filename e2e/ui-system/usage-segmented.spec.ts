@@ -271,15 +271,20 @@ for (const [look, theme] of [
     })
     await testInfo.attach('dashboard-reading-layout', { body: JSON.stringify(measurement, null, 2), contentType: 'application/json' })
 
-    // The sticky heading's words start one spacing step above the pre-fix
-    // position, which returns the first card to the measured pre-conversion band.
-    expect.soft(measurement.blurbToHeading).toBeGreaterThanOrEqual(54)
-    expect.soft(measurement.blurbToHeading).toBeLessThanOrEqual(56)
+    // At rest the first band sits in the page's rhythm under the blurb. It
+    // used to stand 55px down, behind a strip-high padding the sticky head
+    // carried to cover the title strip once stuck — empty space at rest. The
+    // head now paints that cover above itself instead (its ::before).
+    expect.soft(measurement.blurbToHeading).toBeGreaterThanOrEqual(20)
+    expect.soft(measurement.blurbToHeading).toBeLessThanOrEqual(34)
     expect(measurement.headingToCard).toBeGreaterThan(0)
 
-    const sticky = await firstBand.evaluate(node => {
+    const sticky = await firstBand.evaluate(async node => {
       const page = node.closest<HTMLElement>('[data-slot="app-window-page"]')!
       page.scrollTop = page.scrollHeight
+      // The cover over the title strip is drawn once the head is stuck, a
+      // scroll-state query the engine settles on the next frames.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
       const words = document.createRange()
       words.selectNodeContents(node)
       const text = words.getBoundingClientRect()
@@ -289,15 +294,21 @@ for (const [look, theme] of [
         textTop: text.top,
         pageTop: pageBox.top,
         offset: text.top - pageBox.top,
+        // The strip is `max(26px, the title bar)`; once stuck, its resolved
+        // height is the cover the head's text box hangs above the head.
+        strip: parseFloat(getComputedStyle(node.closest('[data-sticky]')!.querySelector('[class*="sectionHeadText"]')!, '::before').height),
       }
     })
     await testInfo.attach('dashboard-sticky-layout', { body: JSON.stringify(sticky, null, 2), contentType: 'application/json' })
     // Scrolling the page must leave the first sticky band's words in the page
-    // viewport: Desk reserves its 26px title strip, while Studio reaches the
-    // page edge. A static heading would be above both after this full scroll.
+    // viewport, right under the title strip. A static heading would be above
+    // it after this full scroll.
     expect(sticky.scrollTop).toBeGreaterThan(0)
-    expect(sticky.offset).toBeGreaterThanOrEqual(0)
-    expect(sticky.offset).toBeLessThanOrEqual(27)
+    // Stuck, the words stop right under the title strip — never under it,
+    // and no further down than one space step (Studio's page pads a little
+    // deeper than Desk's).
+    expect(sticky.offset).toBeGreaterThanOrEqual(sticky.strip)
+    expect(sticky.offset).toBeLessThanOrEqual(sticky.strip + 4)
     expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
     expect(measurement.figures.find(figure => figure.reading === '10%')?.color).toBe(measurement.warning)
     for (const reading of ['78%']) {

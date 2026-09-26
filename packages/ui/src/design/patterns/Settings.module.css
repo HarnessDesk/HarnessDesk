@@ -831,8 +831,31 @@
 .sectionHead[data-sticky] {
   align-items: center;
   min-height: var(--hd-control-h); /* desk: the band keeps the control-height box every head had */
-  padding: var(--usage-strip, 0) 0 var(--hd-space-2);
+  padding: 0 0 var(--hd-space-2); /* desk: the strip's height on top → 0, the ground above is drawn by ::before instead of standing as empty space at rest */
   background: var(--hd-card);
+}
+
+/* The ground a stuck head paints over the window's title strip, so rows that
+   scroll up under the strip do not show through it. It hangs above the head
+   rather than padding it, so at rest the head sits where the page's rhythm
+   puts it instead of behind a strip-high gap — and it is drawn only while
+   the head is stuck, or at rest it would cover the blurb above. The head is
+   a scroll-state container; its text box carries the cover, positioned
+   against the head. */
+.sectionHead[data-sticky] {
+  container-type: scroll-state;
+}
+
+@container scroll-state(stuck: top) {
+  .sectionHeadText::before {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 100%;
+    left: 0;
+    height: var(--usage-strip, 0);
+    background: var(--hd-card);
+  }
 }
 
 .sectionHeadText {

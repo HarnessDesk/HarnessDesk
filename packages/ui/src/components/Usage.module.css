@@ -16,11 +16,7 @@
   --usage-strip: max(26px, var(--hd-titlebar-height));
   display: flex;
   flex-direction: column;
-  gap: calc(var(--usage-strip) + var(--hd-space-1-5));
-  /* The shared sticky heading introduced 16px below the pre-conversion band;
-     lifting this screen's layout restores the measured card position without
-     changing the shared PageHead or SectionHead rhythm. */
-  margin-top: calc(-1 * var(--hd-space-4));
+  gap: var(--hd-space-8); /* desk: strip + 6 → 32, the page's one section rhythm now that a band head carries no strip-high padding */
 }
 
 .band {
@@ -31,13 +27,11 @@
 
 .bandHead {
   position: sticky;
-  top: calc(-1 * var(--usage-strip));
+  /* The page pads its top by max(24px, the title bar); a stuck head stops
+     right under the strip instead, so it rises by the difference. */
+  top: calc(var(--usage-strip) - max(var(--hd-space-6), var(--hd-titlebar-height))); /* desk: -strip → strip − the page's top padding, the head stops under the title strip */
   z-index: 1;
-  margin: calc(-1 * var(--usage-strip)) 0 0;
-}
-
-.firstBandHead {
-  top: calc(-1 * var(--usage-strip) - var(--hd-space-4) - var(--hd-space-1));
+  margin: 0; /* desk: -strip → 0, no padding to pull back any more */
 }
 
 .cards {
