@@ -2344,10 +2344,16 @@ export class FlowExecutions {
        inside its one turn (`why === 'turn-ended'`) is not this case: there is
        simply nothing to hand it yet, until that turn ends. */
     if (!seat || seat.closed) {
+      // A card a flow bound to one Seat is that Seat's alone (`#goalClaimable`,
+      // host.ts): once its Seat is gone, nothing — not seating the Agent
+      // again under a new Seat, not `goal/assign` reassigning the card to a
+      // different session — can hand this run's own card back to it, and
+      // `reArm` itself never looks at a run again once it has stalled. A new
+      // run is the only way forward, not a resume this run has no path for.
       if (why !== 'turn-ended')
         await this.#stall(
           id,
-          `The Seat for card #${card.id} is ${seat ? 'closed' : 'no longer recorded'}, so its card was not handed back${again}. Seat the Agent again to pick it up.`,
+          `The Seat for card #${card.id} is ${seat ? 'closed' : 'no longer recorded'}, so its card was not handed back${again}. This run cannot continue; start a new one to pick up the work.`,
         )
       return
     }

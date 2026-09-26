@@ -480,6 +480,34 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  // The same rule, for an image instead of text: a later, completing update
+  // carries only a screenshot (no `rawOutput` at all) — the earlier update's
+  // structured result must survive that too.
+  if (text.includes('structured then image')) {
+    update(state.id, {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'tc-structured-then-image',
+      title: 'screenshot',
+      kind: 'other',
+      status: 'in_progress',
+      rawInput: { command: 'screenshot' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-structured-then-image',
+      status: 'in_progress',
+      rawOutput: { path: '/tmp/shot.png' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-structured-then-image',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' } }],
+    })
+    say('captured.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   // The way Claude Code's bridge actually talks: one call announced twice —
   // the permission flow first, with a bare title, then the stream again with
   // the real input — and one call whose only notice is its completion.

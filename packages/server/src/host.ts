@@ -3148,11 +3148,11 @@ export class Host {
         fileRoots: (mode) => this.#fileRoots(mode),
         confineGitRoot: (root) => this.#confineGitRoot(root),
         confineProvenanceRoot: (root) => this.#confineProvenanceRoot(root),
-        topLevel: (path) => gitOps.topLevel(path),
+        topLevel: (path, signal) => gitOps.topLevel(path, signal),
         realPath: (path) => this.#realPath(path),
         confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
-        gitStatus: (path) => gitService.status(path),
+        gitStatus: (path, signal) => gitService.status(path, signal),
         repoOf: (cwd) => this.#repoOf(cwd),
         boardRootOf: (cwd) => this.#boardRootOf(cwd),
         forgetBoardRoots: () => {

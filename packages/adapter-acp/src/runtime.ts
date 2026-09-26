@@ -3704,22 +3704,24 @@ class AcpSession implements AgentSession {
             : (turn.items[index] as Extract<AgentItem, { type: 'toolCall' }>)
         const status =
           update.status === 'completed' ? 'completed' : update.status === 'failed' ? 'failed' : 'inProgress'
-        // A picture in the tool's content — a screenshot, a Read of a PNG —
-        // becomes an image part the transcript can draw. The raw copy keeps
-        // everything else but not the same megabytes twice.
-        const images = imagesInToolContent(update.content)
         // An agent that reports output only as text blocks in `content` —
         // DeepSeek Harness's own server sends no rawOutput at all — has that
-        // text kept as the result. Where rawOutput exists it stays the
-        // record, and the same output is not stored twice. That is safe when
-        // both arrive on the same update; a *later* update carrying only text
-        // must not replace a structured result an earlier update on the same
-        // call already recorded (#961 review) — once `previous.result` holds
-        // a `json` part, a text-only update after it is read as nothing new
+        // text kept as the result, and a picture among those blocks — a
+        // screenshot, a Read of a PNG — becomes an image part the transcript
+        // can draw, the raw copy keeping everything else but not the same
+        // megabytes twice. Where rawOutput exists on the *same* update it
+        // stays the record and neither is read from `content` again — but a
+        // *later* update carrying only text, only images, or both, with no
+        // rawOutput of its own, must not replace a structured result an
+        // earlier update on the same call already recorded (#961 review):
+        // once `previous.result` holds a `json` part, an update after it with
+        // nothing of its own to add to that record is read as nothing new
         // about the result, never as a reason to overwrite the structured one
-        // with a plainer echo of it.
+        // with a plainer echo of it — for an image exactly as for text.
         const previousHasJson = previous.result?.some((part) => part.type === 'json') ?? false
-        const texts = update.rawOutput === undefined && !previousHasJson ? textsInToolContent(update.content) : []
+        const carriesNothingNew = update.rawOutput === undefined && previousHasJson
+        const texts = carriesNothingNew ? [] : textsInToolContent(update.content)
+        const images = carriesNothingNew ? [] : imagesInToolContent(update.content)
         const next: AgentItem = {
           ...previous,
           status,

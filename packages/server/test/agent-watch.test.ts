@@ -155,13 +155,27 @@ const fakeClock = (): Clock & {
   readonly pendingCount: () => number
   /** Every `setTimeout` this clock has ever been asked to schedule, cancelled or not — never decremented. */
   readonly scheduledCount: () => number
+  /**
+   * How many *distinct* delays `AgentWatch` schedules — a settle, a rescan, a
+   * retry and a backoff re-check are never the same number twice in a row for
+   * the same key — mean `scheduledCount` climbing is not by itself proof
+   * *which* timer just went in: `#refollow`'s own downstream `#follow` can
+   * schedule one of its own in the same span a settle timer does (review of
+   * #947's agent-watch test). This counts, per delay in milliseconds, how
+   * many times a timer with exactly that delay has ever been scheduled — so a
+   * wait for "the settle timer" can require the settle delay's own count to
+   * have climbed, not merely that *some* count did.
+   */
+  readonly scheduledWithDelay: (ms: number) => number
 } => {
   let now = 0
   let scheduled = 0
+  const byDelay = new Map<number, number>()
   const pending = new Set<{ readonly due: number; readonly callback: () => void; readonly unref: () => void }>()
   return {
     setTimeout: (callback, ms) => {
       scheduled += 1
+      byDelay.set(ms, (byDelay.get(ms) ?? 0) + 1)
       const timer = { due: now + ms, callback, unref: () => {} }
       pending.add(timer)
       return timer
@@ -187,6 +201,7 @@ const fakeClock = (): Clock & {
     // one to be scheduled — `pendingCount` alone cannot tell those apart, and
     // its net count is exactly the thing under test where cancellation is.
     scheduledCount: () => scheduled,
+    scheduledWithDelay: (ms) => byDelay.get(ms) ?? 0,
   }
 }
 
@@ -400,7 +415,8 @@ test('a watcher’s own event — even one naming nothing the walk-up is waiting
   // notion of "first event proves it live") does on unfixed code, and why
   // this fails there rather than on a real future event happening to name
   // the right thing.
-  const scheduledBefore = clock.scheduledCount()
+  const settleMs = 30
+  const settlesScheduledBefore = clock.scheduledWithDelay(settleMs)
   mkdirSync(root, { recursive: true })
   box.listener?.('change', 'unrelated.txt')
   // That proof's own look at the filesystem (`reach`, a real `realpath`) is
@@ -408,11 +424,13 @@ test('a watcher’s own event — even one naming nothing the walk-up is waiting
   // a guess at how long it takes — it is the settle timer it schedules once
   // that look lands (`#poke`), on a real-time poll bounded generously, never
   // a fixed pause a loaded machine could outrun before it fires (#938).
-  // `scheduledCount`, not `pendingCount`: the walk-up's own backoff re-check
-  // is already pending from the arm above, so "something is pending" is true
-  // before this event even fires — what proves the look actually landed is a
-  // *new* timer beyond that one, not merely a nonempty pending set.
-  await until(() => clock.scheduledCount() > scheduledBefore, 'the notice’s settle timer to be scheduled')
+  // Counted by its own delay (`settleMs`), not `scheduledCount()` overall
+  // (review of #947's own agent-watch test): `#refollow`'s downstream
+  // `#follow` can schedule a timer of its own in the same span this look's
+  // `#poke` does, and a bare "some new timer landed" check could pass on
+  // that one instead — proving nothing about whether the *settle* timer this
+  // assertion is about to fire actually exists yet.
+  await until(() => clock.scheduledWithDelay(settleMs) > settlesScheduledBefore, 'the notice’s settle timer to be scheduled')
   clock.advance(1_000) // fires that settle timer
   assert.ok(said.length > 0, 'the event that first proved the watcher live must have triggered one last look, finding the root that was already there')
   said.length = 0

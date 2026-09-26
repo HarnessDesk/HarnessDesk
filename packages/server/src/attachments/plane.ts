@@ -141,21 +141,18 @@ export async function receiptFrom(
   const reopen = options.reopen
   if (!reopen) return empty
   const seatKeys = options.seatKeys
-  /* This process has never handed this Seat any key at all. That is not what
-     an ordinary restart of this desk leaves behind: this desk owns every
-     adapter's own process, so a real restart starts the agent fresh with the
-     ledger, never one without the other — there is no live session left over
-     from before it to still be held. What this actually guards is a session
-     an adapter kept alive independently of anything this process itself
-     prepared: an answer for a key this process never issued, on a Seat this
-     process is reading back for the first time. There is nothing here to
-     weigh that content against, and it would be just as wrong to trust it as
-     proof of nothing loaded as to trust it as proof of anything: neither
-     guess is provable, so this reopen fails closed — the caller closes the
-     session — rather than silently recording "nothing loaded" for a Seat
-     that was never actually asked (#939, #948). A held session proves what
-     it loaded only by an actual reopen in a process that was there to hand
-     it a key in the first place. */
+  /* `seatKeys` is this process's own record of every key it has itself
+     handed this Seat — nothing else ever adds to it, and nothing here reads
+     it as a guess at what the agent's own state actually is. It is empty
+     exactly when this process has not itself recorded an open or a reopen
+     for this Seat before now: the first time this exact process is ever
+     asked about it, whatever came before. Whatever the runtime answers for a
+     held session in that state is unprovable either way here — trusted as
+     "nothing loaded" it could be hiding real content; trusted as loaded it
+     could be inventing content nobody approved — so this reopen fails closed
+     rather than guess, and the caller closes the session (#939, #948). A
+     held session proves what it loaded only by an actual reopen in a process
+     that was there to hand it a key in the first place. */
   if (!seatKeys?.size) {
     throw new HeldBeyondFilterError(
       'What this agent still holds cannot be checked against anything this desk remembers giving it. Reopen the Seat, or restart its session, to continue.',

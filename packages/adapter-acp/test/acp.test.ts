@@ -173,6 +173,24 @@ test('a later update carrying only text does not replace an earlier structured r
   }
 })
 
+test('a later update carrying only an image does not replace an earlier structured result, the same rule as text (#961 review)', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'structured then image please' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    const call = turn.items.find((item) => item.type === 'toolCall' && String(item.id).includes('tc-structured-then-image'))
+    assert.ok(call && call.type === 'toolCall')
+    assert.equal(call.status, 'completed')
+    assert.deepEqual(call.result, [{ type: 'json', value: { path: '/tmp/shot.png' } }], 'the structured result from the earlier update survives the later, image-only one')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('an agent that can say what the context is made of gets it read, defensively', async () => {
   const runtime = make()
   await runtime.start()
