@@ -28,6 +28,7 @@ const place = (over: Partial<PlaceInput> = {}) =>
     stranded: false,
     holderWaits: false,
     forPerson: false,
+    runStopped: false,
     ...over,
   })
 
@@ -156,9 +157,27 @@ describe('a card a Goal’s run addressed to the person', () => {
 
   it('is a person step with its declared words, only when one of that run’s rounds opened it', () => {
     const card = intent({ id: 2, state: 'open', role: 'close' })
-    expect(flowStepOf(card, undefined, [execution([2])])).toEqual({ kind: 'person', outcomes: ['closed'] })
+    expect(flowStepOf(card, undefined, [execution([2])])).toEqual({ kind: 'person', outcomes: ['closed'], stopped: false })
     expect(flowStepOf(card, undefined, [execution([5])])).toBeNull()
     expect(flowStepOf(card, undefined, [execution([2], 'settled')])).toBeNull()
     expect(flowStepOf(card, undefined, [])).toBeNull()
+  })
+
+  /*
+   * A run stopped for its person — a Seat's question nobody answered in time,
+   * say — holds its unfinished cards until they act. The header already reads
+   * "Needs you" for it; the board draws those cards there too, so the two
+   * never disagree about the same Goal. Once the run goes on, they are Working.
+   */
+  it('a card of a run stopped for its person Needs you, and is Working again once the run goes on', () => {
+    const card = intent({ id: 2, state: 'claimed', role: 'close', claim: HELD })
+    const stopped = flowStepOf(card, undefined, [execution([2], 'stalled')])
+    expect(stopped?.stopped).toBe(true)
+    expect(place({ intent: card, runStopped: stopped?.stopped ?? false })).toEqual({ column: 'needs', why: 'run stopped' })
+    const going = flowStepOf(card, undefined, [execution([2], 'running')])
+    expect(place({ intent: card, runStopped: going?.stopped ?? false })).toEqual({ column: 'working', why: null })
+    // Not yet taken, it is still the person's; a finished one keeps its evidence verdict.
+    expect(place({ intent: intent({ id: 2, state: 'open', role: 'close' }), runStopped: true })).toEqual({ column: 'needs', why: 'run stopped' })
+    expect(place({ intent: intent({ state: 'abandoned' }), runStopped: true })).toEqual({ column: 'aside', why: null })
   })
 })

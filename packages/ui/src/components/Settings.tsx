@@ -74,6 +74,7 @@ import { RuntimesSection, agentReadiness } from './SettingsAgents'
 import { PluginsSection } from './PluginsSection'
 import { ExtensionsSection } from './Extensions'
 import { CeilingsSection } from './SettingsCeilings'
+import { QuestionWaitSection } from './SettingsQuestionWait'
 import { RemoveWorktree } from './RemoveWorktree'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
@@ -659,6 +660,8 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
       />
 
       <CeilingsSection focus={focus} />
+
+      <QuestionWaitSection />
 
       {groups.length > 0 && (
         <Section title="Approvals" description="What a new session starts with. An agent that decides this per conversation says so.">

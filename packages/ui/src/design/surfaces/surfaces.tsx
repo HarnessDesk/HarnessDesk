@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 
-import type { Session } from '@harnessdesk/protocol'
+import { activityOf, flowStepOf, placeCard, type Session } from '@harnessdesk/protocol'
 
 import { BrowserPane } from '../../components/BrowserPane'
 import { Composer } from '../../components/Composer'
@@ -19,6 +19,8 @@ import { dock, emptyWorkbench } from '../../state/workbench'
 import { PaneProvider } from '../../state/context'
 import type { AppStore } from '../../state/store'
 import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../preview/harness'
+import { PREVIEW_FLOW_CARD, sceneFlowExecution } from '../../preview/flow-fixture'
+import { PREVIEW_FLOW_GOAL } from '../../preview/goal-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
 import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
 import styles from './surfaces.module.css'
@@ -474,6 +476,36 @@ export const GitSurface = () => (
   </Mount>
 )
 
+/** The front-door Goal's board holding its Seat's card, under a run stopped on that Seat's question. */
+const questionStopStore = (): AppStore => {
+  const base = previewStore().getSnapshot()
+  const goal = PREVIEW_FLOW_GOAL.goal.id
+  const teams = new Map(base.teams)
+  const board = teams.get(goal)
+  if (board) teams.set(goal, { ...board, intents: [PREVIEW_FLOW_CARD] })
+  /* The Goal's activity derived as the host derives it — from the same card
+     placement the board draws — never written in: a header and a board that
+     disagreed would show here too. */
+  const execution = sceneFlowExecution('question')
+  const step = flowStepOf(PREVIEW_FLOW_CARD, undefined, [execution])
+  const placed = placeCard({
+    intent: PREVIEW_FLOW_CARD, evidence: undefined, stranded: false, holderWaits: false,
+    forPerson: step?.kind === 'person', runStopped: step?.stopped ?? false,
+  })
+  const activity = activityOf(PREVIEW_FLOW_GOAL.goal, {
+    needsYou: placed.column === 'needs', busy: false, liveFlow: true, cards: [PREVIEW_FLOW_CARD], dependencies: [],
+  })
+  const goals = new Map(base.goals)
+  goals.set(goal, { ...PREVIEW_FLOW_GOAL, activity })
+  return previewStore({
+    teams,
+    goals,
+    flowExecutions: new Map([['preview-flow-run', execution]]),
+  })
+}
+
+const QUESTION_STOP_STORE = questionStopStore()
+
 /**
  * A group project: the board and the room that belongs to it, together.
  *
@@ -482,16 +514,36 @@ export const GitSurface = () => (
  * press from the conversation where the work is happening.
  */
 export const GroupSurface = () => (
-  <Mount>
-    <div className={styles.pair}>
-      <Frame>
-        <TeamBoardPane room={PREVIEW_ROOM} />
-      </Frame>
-      <Frame>
-        <TeamRoomPane room={PREVIEW_ROOM} />
-      </Frame>
+  <>
+    <Mount>
+      <div className={styles.pair}>
+        <Frame>
+          <TeamBoardPane room={PREVIEW_ROOM} />
+        </Frame>
+        <Frame>
+          <TeamRoomPane room={PREVIEW_ROOM} />
+        </Frame>
+      </div>
+    </Mount>
+    {/* A Goal whose run stopped on its Seat's unanswered question: the room's
+        header says Needs you, and the board draws the Seat's card there and
+        counts it — one rule, so the two never disagree. */}
+    <div className={styles.headerCases}>
+      <div className={styles.headerCase} data-testid="group-run-stopped-on-a-question">
+        <span className={styles.headerCaseLabel}>A run stopped on its Seat’s unanswered question</span>
+        <Mount with={QUESTION_STOP_STORE}>
+          <div className={styles.pair}>
+            <Frame>
+              <TeamBoardPane room={PREVIEW_FLOW_GOAL.goal.id} />
+            </Frame>
+            <Frame>
+              <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
+            </Frame>
+          </div>
+        </Mount>
+      </div>
     </div>
-  </Mount>
+  </>
 )
 
 /**

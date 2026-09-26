@@ -1,4 +1,4 @@
-import type { CompiledFlow, FlowEntry, FlowExecution, FlowPreview, FlowPreviewSeat, FlowStartTarget, FlowUpdatePreview, SeatPlan } from '@harnessdesk/protocol'
+import { runtimeId, type CompiledFlow, type FlowEntry, type FlowExecution, type FlowPreview, type FlowPreviewSeat, type FlowStartTarget, type FlowUpdatePreview, type Intent, type SeatPlan } from '@harnessdesk/protocol'
 
 import { PREVIEW_ROOT } from './sidebar-fixture'
 
@@ -191,7 +191,7 @@ const FLOW_EXECUTION = (over: Partial<FlowExecution> = {}): FlowExecution => ({
   ...over,
 })
 
-export const FLOW_EXECUTION_SCENES = ['pinned', 'stopped', 'diff', 'working-diff'] as const
+export const FLOW_EXECUTION_SCENES = ['pinned', 'stopped', 'question', 'diff', 'working-diff'] as const
 export type FlowExecutionScene = (typeof FLOW_EXECUTION_SCENES)[number]
 
 /** What the "flow scene" Dial in the preview harness stages for `goal-flow`'s own reserved run. */
@@ -199,8 +199,33 @@ export const sceneFlowExecution = (scene: FlowExecutionScene): FlowExecution => 
   if (scene === 'pinned') return FLOW_EXECUTION({ target: FLOW_TARGETS.branch })
   if (scene === 'diff') return FLOW_EXECUTION({ target: FLOW_TARGETS.diff })
   if (scene === 'working-diff') return FLOW_EXECUTION({ target: FLOW_TARGETS['working-diff'] })
+  // Stopped for its person on its Seat's unanswered question: the host's exact sentence (`questionStall`, flow-execution.ts).
+  if (scene === 'question') {
+    return FLOW_EXECUTION({ target: FLOW_TARGETS.branch, state: 'stalled', reason: 'Card #1: its Seat asked a question nobody can answer. Its answer so far is kept.' })
+  }
   // A person's own stop, never a service's: the host's exact default
   // sentence (`packages/server/src/flow-execution.ts`), read lowercase and
   // shown by `TeamRoomPane`'s own `sentence()` as "The person stopped this flow."
   return FLOW_EXECUTION({ target: FLOW_TARGETS.branch, state: 'stopped', reason: 'the person stopped this flow' })
+}
+
+/**
+ * The front-door run's own card, held by the preview's Seat: what its board
+ * draws. Working while the run goes on; in Needs you while the run is stopped
+ * on the question that Seat asked.
+ */
+export const PREVIEW_FLOW_CARD: Intent = {
+  id: 1,
+  title: 'Retry the checkout call on a 502',
+  detail: null,
+  state: 'claimed',
+  role: 'fixer',
+  files: [],
+  dependsOn: [],
+  claim: { runtime: runtimeId('codex'), sessionId: 's1', at: 1_799_000_000_000 },
+  blockedReason: null,
+  handoff: null,
+  note: null,
+  createdAt: 1_799_000_000_000,
+  updatedAt: 1_799_000_000_000,
 }

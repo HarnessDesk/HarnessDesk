@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import type { TeamActor, TriggerStopReason } from '@harnessdesk/protocol'
+import { DEFAULT_QUESTION_WAIT, questionWaitSentence, type QuestionWait, type TeamActor, type TriggerStopReason } from '@harnessdesk/protocol'
 
 import type { AttentionInput } from './attention.js'
 
@@ -47,6 +47,8 @@ export interface HostWaits {
   readonly approvals: readonly { readonly id: string; readonly seat: string; readonly what: string; readonly held: boolean }[]
   /** Questions a runtime asked a Seat's conversation: nobody is there to answer them. */
   readonly questions: readonly { readonly id: string; readonly seat: string; readonly what: string }[]
+  /** How long this machine lets such a question wait (`QUESTION_WAIT_PREFERENCE`); the default when absent. */
+  readonly questionWait?: QuestionWait
   /** Cards a flow addressed to a person, not yet done — before any Seat exists too. */
   readonly steps: readonly { readonly card: number; readonly title: string }[]
   /** Members a Seat waits for, by their Agent or seat label. */
@@ -94,7 +96,7 @@ export function goalWaits(input: GoalWaitInput): AttentionInput[] {
   for (const question of host.questions) {
     out.push({
       ...base, key: `question:${goal}:${question.id}`, kind: 'question', waitingOn: YOU, action: 'open-goal',
-      sentence: `${question.seat} asked a question nobody is here to answer: ${question.what} Its turn stops after twenty seconds, and what it said is kept.`,
+      sentence: `${question.seat} asked a question nobody is here to answer: ${question.what} ${questionWaitSentence(host.questionWait ?? DEFAULT_QUESTION_WAIT)}`,
     })
   }
   for (const step of host.steps) {
