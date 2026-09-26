@@ -281,9 +281,13 @@ const dshPatchItems = (text: string): readonly Record<string, unknown>[] | null 
   return parsed as Record<string, unknown>[]
 }
 
-/** The item whose `id` is this one, or undefined. */
-const yamlItemById = (items: readonly Record<string, unknown>[], id: string): Record<string, unknown> | undefined =>
-  items.find((item) => item['id'] === id)
+/**
+ * Every item whose `id` is this one. DSH applies every patch in order and the
+ * later one wins, so a reader that checked only the first could pass a later
+ * override it never looked at.
+ */
+const yamlItemsById = (items: readonly Record<string, unknown>[], id: string): Record<string, unknown>[] =>
+  items.filter((item) => item['id'] === id)
 
 /**
  * Whether one patch layer's text could point DSH's default session anywhere
@@ -298,11 +302,12 @@ const dshLayerOverrides = (text: string): boolean => {
   if (items === null) return true
   if (items.some((item) => Object.prototype.hasOwnProperty.call(item, 'insert'))) return true
 
-  const piAi = yamlItemById(items, 'llm-pi-ai')
-  if (piAi && Object.prototype.hasOwnProperty.call(piAi, 'config')) return true
+  for (const piAi of yamlItemsById(items, 'llm-pi-ai')) {
+    if (Object.prototype.hasOwnProperty.call(piAi, 'config')) return true
+  }
 
-  const defaultModel = yamlItemById(items, 'agent-default-model')
-  if (defaultModel && Object.prototype.hasOwnProperty.call(defaultModel, 'config')) {
+  for (const defaultModel of yamlItemsById(items, 'agent-default-model')) {
+    if (!Object.prototype.hasOwnProperty.call(defaultModel, 'config')) continue
     const config = defaultModel['config']
     if (!isYamlMap(config)) return true
     if (Object.prototype.hasOwnProperty.call(config, 'provider')) {
@@ -312,17 +317,18 @@ const dshLayerOverrides = (text: string): boolean => {
   }
 
   for (const id of DSH_ENTRY_IDS) {
-    const item = yamlItemById(items, id)
-    if (!item || !Object.prototype.hasOwnProperty.call(item, 'config')) continue
-    const config = item['config']
-    if (!isYamlMap(config)) return true
-    if (!Object.prototype.hasOwnProperty.call(config, 'baseURL')) continue
-    const baseUrl = config['baseURL']
-    if (typeof baseUrl !== 'string') return true
-    try {
-      if (new URL(baseUrl).hostname !== DSH_HOST) return true
-    } catch {
-      return true
+    for (const item of yamlItemsById(items, id)) {
+      if (!Object.prototype.hasOwnProperty.call(item, 'config')) continue
+      const config = item['config']
+      if (!isYamlMap(config)) return true
+      if (!Object.prototype.hasOwnProperty.call(config, 'baseURL')) continue
+      const baseUrl = config['baseURL']
+      if (typeof baseUrl !== 'string') return true
+      try {
+        if (new URL(baseUrl).hostname !== DSH_HOST) return true
+      } catch {
+        return true
+      }
     }
   }
   return false

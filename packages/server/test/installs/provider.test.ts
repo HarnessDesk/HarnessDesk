@@ -138,6 +138,17 @@ test('an agent-default-model provider other than the vendor default makes the pr
   assert.equal(await readDsh({ DSH_HOME: official }), 'deepseek', 'naming the vendor default itself is no override')
 })
 
+/*
+ * Opus review of #1028, round 4, P1: only the first item with an id was read,
+ * but DSH applies every patch in order and the later one wins.
+ */
+test('a later patch item with the same id is read too, since the later one is the one DSH applies', async (t) => {
+  const model = tree(t, { 'cordis.patch.yml': '- id: agent-default-model\n  config:\n    provider: deepseek-official\n- id: agent-default-model\n  config:\n    provider: other\n' })
+  assert.equal(await readDsh({ DSH_HOME: model }), null)
+  const route = tree(t, { 'cordis.patch.yml': '- id: llm-deepseek\n  config:\n    baseURL: https://api.deepseek.com\n- id: llm-deepseek\n  config:\n    baseURL: https://elsewhere.example.com/v1\n' })
+  assert.equal(await readDsh({ DSH_HOME: route }), null)
+})
+
 test('an insert anywhere in a patch layer makes the provider unknown', async (t) => {
   const home = tree(t, { 'cordis.patch.yml': '- id: llm-deepseek\n  insert:\n    - id: some-new-plugin\n      name: "@x/plugin"\n' })
   assert.equal(await readDsh({ DSH_HOME: home }), null, 'an inserted plugin can add any capability, including a different default provider')
