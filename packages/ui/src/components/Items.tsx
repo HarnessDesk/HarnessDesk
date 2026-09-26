@@ -34,6 +34,7 @@ import type {
 import { stripAnsi } from '../lib/ansi'
 import {
   ActionError,
+  AttachmentMedia,
   Bubble,
   BubbleContent,
   Button,
@@ -524,7 +525,18 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
               aria-label={`View ${image.name}`}
               onClick={() => setPreview(position)}
             >
-              <img className={`${styles.imageThumb} ${singleImage ? 'h-auto max-h-[280px]' : 'h-full'}`} src={image.url} alt={image.name} loading="lazy" draggable={false} />
+              {singleImage
+                ? (
+                  <AttachmentMedia
+                    variant="thumbnail"
+                    className={styles.imageThumb}
+                    src={image.url}
+                    alt={image.name}
+                    loading="lazy"
+                    draggable={false}
+                  />
+                )
+                : <img className={`${styles.imageThumb} h-full`} src={image.url} alt={image.name} loading="lazy" draggable={false} />}
             </Button>
           ))}
         </div>

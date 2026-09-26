@@ -108,28 +108,64 @@ const Attachment = ({
   </div>
 )
 
-/** The thumbnail or the file glyph. `image` lets an `<img>` fill it. */
+/**
+ * The thumbnail or the file glyph. `image` lets an `<img>` fill it.
+ *
+ * `thumbnail` is the third shape: no card chrome around it, because it is the
+ * picture itself standing as its own trigger (a transcript's lone image, the
+ * lightbox it opens) rather than a file riding inside an `Attachment` card.
+ * It renders the `<img>` directly — an `AttachmentMedia` with nothing to wrap
+ * would just be a span in the way — and contributes only the one thing such
+ * a picture needs from the system: `--hd-image-max-height`, so the ceiling
+ * that keeps one photo from becoming a wall of it is named once, not copied
+ * wherever a bare thumbnail is drawn.
+ */
 const AttachmentMedia = ({
   className,
   variant = 'icon',
   children,
+  src,
+  alt,
+  loading,
+  draggable,
   ...props
-}: React.ComponentProps<'span'> & { variant?: 'icon' | 'image' }) => (
-  <span
-    data-slot="attachment-media"
-    data-variant={variant}
-    className={cn(
-      'flex shrink-0 items-center justify-center overflow-hidden rounded-(--hd-radius-sm) bg-(--hd-muted) text-(--hd-muted-foreground)',
-      variant === 'image'
-        ? 'size-9 group-data-[orientation=vertical]/attachment:h-16 group-data-[orientation=vertical]/attachment:w-full group-data-[orientation=tile]/attachment:size-full group-data-[orientation=tile]/attachment:rounded-(--hd-radius-lg) [&_img]:size-full [&_img]:object-cover'
-        : 'size-8 [&_svg]:size-4',
-      className,
-    )}
-    {...props}
-  >
-    {children ?? <FileIcon aria-hidden />}
-  </span>
-)
+}: React.ComponentProps<'span'> & {
+  variant?: 'icon' | 'image' | 'thumbnail'
+  src?: string
+  alt?: string
+  loading?: 'lazy' | 'eager'
+  draggable?: boolean
+}) => {
+  if (variant === 'thumbnail') {
+    return (
+      <img
+        data-slot="attachment-media"
+        data-variant="thumbnail"
+        className={cn('h-auto max-h-(--hd-image-max-height)', className)}
+        src={src}
+        alt={alt}
+        loading={loading}
+        draggable={draggable}
+      />
+    )
+  }
+  return (
+    <span
+      data-slot="attachment-media"
+      data-variant={variant}
+      className={cn(
+        'flex shrink-0 items-center justify-center overflow-hidden rounded-(--hd-radius-sm) bg-(--hd-muted) text-(--hd-muted-foreground)',
+        variant === 'image'
+          ? 'size-9 group-data-[orientation=vertical]/attachment:h-16 group-data-[orientation=vertical]/attachment:w-full group-data-[orientation=tile]/attachment:size-full group-data-[orientation=tile]/attachment:rounded-(--hd-radius-lg) [&_img]:size-full [&_img]:object-cover'
+          : 'size-8 [&_svg]:size-4',
+        className,
+      )}
+      {...props}
+    >
+      {children ?? <FileIcon aria-hidden />}
+    </span>
+  )
+}
 
 const AttachmentContent = ({ className, ...props }: React.ComponentProps<'span'>) => (
   <span

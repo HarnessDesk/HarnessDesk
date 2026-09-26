@@ -1547,6 +1547,19 @@ const AdoptedBoard = () => {
           ))}
         </AttachmentGroup>
 
+        {/* `thumbnail`: no card chrome, the picture as its own trigger — the
+            transcript's lone image and the lightbox it opens. `--hd-image-max-height`
+            is the only thing this variant contributes. */}
+        <div className={styles.caseLabel} style={{ marginTop: 'var(--hd-space-3)' }}>
+          attachment media &mdash; thumbnail variant, capped by --hd-image-max-height
+        </div>
+        <AttachmentMedia
+          variant="thumbnail"
+          data-catalog-variant="thumbnail"
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='300'%3E%3Crect width='800' height='300' fill='%23888'/%3E%3C/svg%3E"
+          alt="Sample photo, wider than it is tall"
+        />
+
         <div className={styles.caseLabel} style={{ marginTop: 'var(--hd-space-3)' }}>
           data-table &mdash; press a heading, tick a row
         </div>
