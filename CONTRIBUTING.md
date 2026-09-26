@@ -29,8 +29,8 @@ pnpm verify
 Run it bare — never piped into anything, because a pipe eats the exit code
 and a red run reads green. It is the whole pre-commit gate: the lockfile
 install, the build, every test suite (Node packages, gate scripts, UI and
-desktop) plus the flow-host-evidence end-to-end files in their own run, at a
-wider per-file timeout than the rest (Node 22 caps `--test-timeout` per file,
+desktop) plus the flow-host-evidence and the intake end-to-end files in runs
+of their own, at a wider per-file timeout than the rest (Node 22 caps `--test-timeout` per file,
 cumulatively, where these legitimately run long; it is a per-test default on
 newer Node), the UI typecheck, the layering rules, the half-applied-fixes check, a tracked-secrets scan, the
 reachable-methods check, the third-party notices check, the design-system

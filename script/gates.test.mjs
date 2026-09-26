@@ -2860,22 +2860,25 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
   // the other still fails here rather than silently narrowing what runs.
   const { top, dist, tests } = distSegments(TEST_GLOB)
   const shape = `${top}/*/${dist}/${tests}`
-  // The one package these four files live under, literally — not `*` — so
+  // The one package these files live under, literally — not `*` — so
   // this is specific to the carved-out sub-glob and cannot be satisfied by
   // the exclusion clause alone, which names the same files without that
   // prefix (`! -name 'flow-host-evidence-*.test.js'`, no directory in it).
-  const carveOut = `${top}/server/${dist}/${tests}/flow-host-evidence-*.test.js`
-  for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
-    const text = fs.readFileSync(path.join(repo, file), 'utf8')
-    assert.ok(text.includes(shape), `${file} reads dist by the same directory shape prune-dist.mjs writes (${shape})`)
-    assert.ok(
-      text.includes(carveOut),
-      `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
-    )
-    assert.ok(
-      text.includes("! -name 'flow-host-evidence-*.test.js'") || text.includes('! -name "flow-host-evidence-*.test.js"'),
-      `${file} excludes those same files from the rest by name, so nothing here runs them twice`,
-    )
+  // The intake end-to-end files were split out the same way (#1003).
+  for (const name of ['flow-host-evidence-*.test.js', 'intake-*.test.js']) {
+    const carveOut = `${top}/server/${dist}/${tests}/${name}`
+    for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
+      const text = fs.readFileSync(path.join(repo, file), 'utf8')
+      assert.ok(text.includes(shape), `${file} reads dist by the same directory shape prune-dist.mjs writes (${shape})`)
+      assert.ok(
+        text.includes(carveOut),
+        `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
+      )
+      assert.ok(
+        text.includes(`! -name '${name}'`) || text.includes(`! -name "${name}"`),
+        `${file} excludes those same files from the rest by name, so nothing here runs them twice`,
+      )
+    }
   }
 })
 
