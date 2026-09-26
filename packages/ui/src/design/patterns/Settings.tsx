@@ -529,7 +529,18 @@ export const Segmented = <T extends string>({
       <ToggleGroupItem
         key={option.value}
         value={option.value}
-        className={styles.segItem}
+        /*
+         * The lifted chosen state lives here, not in the vendored primitive:
+         * `design/ui/toggle-group.tsx` stays on the registry's own
+         * `bg-accent`/`text-accent-foreground` press (this app's quiet hover
+         * wash), so the segment's own three tokens — the card, its hairline
+         * shadow, primary ink — ride on this item, where tailwind-merge
+         * resolves them against the primitive's. The same merge drops the
+         * primitive's `hover:text-muted-foreground`, which would otherwise
+         * dim an unchosen segment's label on hover from secondary ink down
+         * to tertiary.
+         */
+        className={`${styles.segItem} hover:text-(--hd-foreground) data-pressed:bg-(--hd-card) data-pressed:text-(--hd-foreground) data-pressed:shadow-(--hd-shadow-sm)`}
       >
         {option.label}
       </ToggleGroupItem>

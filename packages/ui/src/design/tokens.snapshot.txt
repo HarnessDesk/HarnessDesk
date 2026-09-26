@@ -179,7 +179,7 @@
 --hd-scrollbar-inset = 2px
 --hd-scrollbar-inset-hover = 1px
 --hd-scrollbar-width = 8px
---hd-secondary-foreground = rgb(100, 100, 100)
+--hd-secondary-foreground = rgb(71, 71, 71)
 --hd-seg-pad = 2px
 --hd-seg-text = 12px
 --hd-seg-trim = calc(2px * 2)
@@ -344,7 +344,7 @@
 --hdp-alias-label-primary-bluish = rgb(0, 58, 100)
 --hdp-alias-label-primary-dimmed = rgb(24, 24, 24)
 --hdp-alias-label-primary-inverted = rgb(255, 255, 255)
---hdp-alias-label-secondary = rgb(100, 100, 100)
+--hdp-alias-label-secondary = rgb(71, 71, 71)
 --hdp-alias-label-tertiary = rgb(107, 107, 107)
 --hdp-alias-markdown-citation = rgb(237, 237, 237)
 --hdp-alias-markdown-code-block = rgb(249, 249, 249)
@@ -1111,7 +1111,7 @@
 --hd-scrollbar-inset = 2px
 --hd-scrollbar-inset-hover = 1px
 --hd-scrollbar-width = 8px
---hd-secondary-foreground = rgb(100, 100, 100)
+--hd-secondary-foreground = rgb(71, 71, 71)
 --hd-seg-pad = 2px
 --hd-seg-text = 12px
 --hd-seg-trim = calc(2px * 2)
@@ -1278,7 +1278,7 @@
 --hdp-alias-label-primary-bluish = rgb(0, 58, 100)
 --hdp-alias-label-primary-dimmed = rgb(24, 24, 24)
 --hdp-alias-label-primary-inverted = rgb(255, 255, 255)
---hdp-alias-label-secondary = rgb(100, 100, 100)
+--hdp-alias-label-secondary = rgb(71, 71, 71)
 --hdp-alias-label-tertiary = rgb(107, 107, 107)
 --hdp-alias-markdown-citation = rgb(237, 237, 237)
 --hdp-alias-markdown-code-block = rgb(249, 249, 249)

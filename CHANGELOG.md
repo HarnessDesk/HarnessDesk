@@ -14,6 +14,14 @@ move is real work and is not news to a person weighing an upgrade.
   code beside the page and Cancel, and hands the code to the command. The
   code is never logged, kept or repeated in an error.
 
+- **Secondary text is its own level again, and a segmented control shows its
+  choice.** Secondary and tertiary ink measured a hair apart — the app read
+  as two greys doing the work of three — so secondary moved to the grey
+  ramp's own darker step, easier to tell from a count or a timestamp at a
+  glance. A segmented control's chosen answer (Settings › Appearance's
+  dials, a Dashboard pivot) is lifted on the card again, with a hairline
+  shadow and primary ink, instead of blending into the track it sits on.
+
 - **A signed-out agent's mark looks empty.** The seat's badge and the menu's
   mark for an agent with no one signed in were meant to read as an empty seat
   and never did; they now draw a dashed ring with no plate and a quieter
