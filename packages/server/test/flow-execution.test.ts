@@ -763,3 +763,121 @@ test('paths that differ only in case are one folder to the board, as on a case-i
   assert.match(said, /^Refused: #1 is not finished, because list 1 \(src\/UI\/\*\*\) and list 2 \(src\/ui\/\*\*\) overlap/)
   assert.equal(rig.board(run.goal).intents.find((card) => card.id === 1)?.state, 'claimed')
 })
+
+// -------------------------------------------------------------- #1034
+// One Agent playing two roles in the same flow, each with its own outcome
+// vocabulary (exactly UC1 and UC5's pattern): a role's card must offer and
+// accept only the words its own rules branch on, never a sibling role's
+// words borrowed from the Agent's full declared list.
+
+const BORROWED_VOCABULARY = `
+version: 2
+name: Borrowed vocabulary
+roles:
+  proposal: { kind: agent, uses: [multi] }
+  contract: { kind: agent, uses: [multi] }
+  admit: { kind: person, outcomes: [admitted] }
+seed: { role: proposal, title: Propose }
+rules:
+  - { id: to-contract, on: proposal, when: { every: [agreed] }, then: { role: contract, title: Write the interface } }
+  - { id: to-admit, on: contract, when: { every: [published] }, then: { role: admit, title: Admit the split } }
+`
+// One Agent, four words across its whole life: two belong to `proposal`,
+// two to `contract`. Neither role's rules ever mention the other's words.
+const MULTI_ROLE_AGENT = [agent('multi', ['published', 'committed', 'disagree', 'agreed'])]
+
+test('a card offers and accepts only the outcome words its own role handles, not a sibling role’s borrowed from the same Agent', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(BORROWED_VOCABULARY, MULTI_ROLE_AGENT)
+  await rig.flows.flush()
+
+  // Round one: `proposal` only ever branches on `agreed`, so its own card
+  // (and the order actually sent) name only that word — not `committed` or
+  // `disagree`, which belong to `contract` elsewhere in this same flow.
+  const proposalCard = rig.board(run.goal).intents.find((one) => one.id === 1)
+  assert.match(proposalCard?.detail ?? '', /Finish this with complete_claim and an outcome of exactly one of: agreed\./)
+  assert.doesNotMatch(proposalCard?.detail ?? '', /published|committed|disagree/)
+  assert.match(rig.orderTexts.get('seat-1')!.at(-1)!, /exactly one of: agreed\./)
+
+  await rig.team.complete(1, { outcome: 'agreed' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  // Round two: `contract`'s only rule handles `published`. Its card and its
+  // order say so — not the four-word list `multi` happens to declare.
+  const contractCard = rig.board(run.goal).intents.find((one) => one.id === 2)
+  assert.match(contractCard?.detail ?? '', /Finish this with complete_claim and an outcome of exactly one of: published\./)
+  assert.doesNotMatch(contractCard?.detail ?? '', /agreed|committed|disagree/)
+  assert.match(rig.orderTexts.get('seat-2')!.at(-1)!, /exactly one of: published\./)
+
+  // The bug in #1034: `agreed` is a real word this Agent may answer, borrowed
+  // from `proposal`, but no rule for `contract` ever reads it. It is refused
+  // here, by name, rather than silently accepted and dead-ending the run
+  // later with a generic "no rule takes it further" message.
+  const refused = await rig.team.complete(2, { outcome: 'agreed' }, rig.sessionOf('seat-2'))
+  assert.match(refused, /^Refused: "agreed" is not an answer this step accepts\. It accepts published\./)
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === 2)?.state, 'claimed', 'the refused answer was never recorded')
+
+  // The word `contract` actually handles still works, and the run moves on.
+  const said = await rig.team.complete(2, { outcome: 'published' }, rig.sessionOf('seat-2'))
+  assert.doesNotMatch(said, /Refused/)
+  await rig.flows.flush()
+  assert.ok(rig.board(run.goal).intents.some((one) => one.role === 'admit'), 'the rule fired on the word it actually handles')
+})
+
+const TERMINAL_ROLE = `
+version: 2
+name: Terminal role
+roles:
+  first: { kind: agent, uses: [multi] }
+  second: { kind: agent, uses: [multi] }
+seed: { role: first, title: Go }
+rules:
+  - { id: to-second, on: first, when: { every: [agreed] }, then: { role: second, title: Finish } }
+`
+
+test('a role no rule is "on" is a terminal step, and its card keeps its Agent’s whole declared vocabulary', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(TERMINAL_ROLE, MULTI_ROLE_AGENT)
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'agreed' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  // `second` is never named by any rule's `on`, so it is a terminal step:
+  // whatever it answers settles the run, and nothing narrows its vocabulary.
+  const secondCard = rig.board(run.goal).intents.find((one) => one.id === 2)
+  assert.match(secondCard?.detail ?? '', /Finish this with complete_claim and an outcome of exactly one of: published, committed, disagree, agreed\./)
+
+  const said = await rig.team.complete(2, { outcome: 'committed' }, rig.sessionOf('seat-2'))
+  assert.doesNotMatch(said, /Refused/, 'a terminal role’s card still accepts every word its Agent declares')
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'settled', 'settling here is the normal end of a terminal step, not a dead end')
+})
+
+const UNCONDITIONAL_RULE = `
+version: 2
+name: Unconditional rule
+roles:
+  first: { kind: agent, uses: [multi] }
+  second: { kind: agent, uses: [multi] }
+  done: { kind: person, outcomes: [finished] }
+seed: { role: first, title: Go }
+rules:
+  - { id: to-second, on: first, then: { role: second, title: Finish } }
+  - { id: to-done, on: second, when: { every: [published] }, then: { role: done, title: Done } }
+`
+
+test('a rule with no "when" fires on any outcome, so every word its role’s Agent declares stays valid', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(UNCONDITIONAL_RULE, MULTI_ROLE_AGENT)
+  await rig.flows.flush()
+
+  // `to-second` is the only rule `on: first`, and it names no `when` at all —
+  // it fires on any outcome, so `first`'s card is not narrowed to one word.
+  const firstCard = rig.board(run.goal).intents.find((one) => one.id === 1)
+  assert.match(firstCard?.detail ?? '', /Finish this with complete_claim and an outcome of exactly one of: published, committed, disagree, agreed\./)
+
+  const said = await rig.team.complete(1, { outcome: 'agreed' }, rig.sessionOf('seat-1'))
+  assert.doesNotMatch(said, /Refused/)
+  await rig.flows.flush()
+  assert.ok(rig.board(run.goal).intents.some((one) => one.role === 'second'), 'the unconditional rule fired on a word never named in its own when')
+})

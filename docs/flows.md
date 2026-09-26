@@ -537,6 +537,22 @@ Agent, and an explicit `count:` must agree with whichever list sets the
 round's width. A seat's actual ceiling is `narrower(Agent's own ceiling,
 this role's grant)`; an omitted `grant:` is `read`.
 
+**A card's own vocabulary is this role's, never the Agent's whole one.** The
+card's displayed instruction and what `complete_claim` actually accepts are
+read fresh from this role's own rules — every word named in a `when.every` or
+`when.any` whose `on` is this role, intersected with what the Agent actually
+declares — never the Agent's full cross-role `answers`. An Agent playing two
+roles of the same flow with two different vocabularies (UC1's
+`requirements-analyst` as both `analyst` and `acceptance`; UC5's `implementer`
+as both `proposal` and `contract`) never lets one role's card offer or accept
+the other's words: a plausible but wrong word is refused by name, at the
+moment it is answered, instead of dead-ending the run rounds later with a
+generic "no rule takes it further". Two things widen this back to the Agent's
+full list: a role no rule is ever `on`, which is a terminal step whose outcome
+settles the run rather than routing anywhere, and a rule that names no `when`
+at all (or one naming neither `every` nor `any`), which fires on any outcome
+and so leaves every word the Agent declares legitimate there.
+
 Every Seat of a round is seated at once, and a round that is not
 `isolate: true` seats them all in the one working tree. When that ceiling lets
 them commit — `edit`, `publish` or `merge` — they move each other's HEAD and

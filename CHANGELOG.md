@@ -7,6 +7,21 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A flow card only ever offers and accepts its own role's outcome words.**
+  When one Agent plays two roles of the same flow with two different outcome
+  vocabularies — UC1's `requirements-analyst` as both an analyst and an
+  acceptance reviewer, UC5's `implementer` as both a proposer and the writer
+  of the contract — a role's card used to offer, and its `complete_claim` used
+  to accept, the Agent's whole cross-role vocabulary rather than the words
+  this round's own rules actually branch on. A plausible but wrong word (a
+  `contract` card answered `agreed`, borrowed from the same Agent's other
+  role) passed silently, and the run only dead-ended rounds later with a
+  generic "no rule takes it further" instead of the specific refusal at the
+  moment it happened. A card's instruction and its accepted answers are now
+  read from this role's own rules, and a wrong word is refused by name, on
+  the spot. A role no rule ever routes from, and a rule that fires on any
+  outcome, still accept everything the Agent declares, as before. (#1034)
+
 - **An independent judge seats on an ordinary desk again.** Two things still
   made a provider read as unknown on a real machine, so a role
   `independentOf` a Codex or DeepSeek competitor could not seat. Codex's
