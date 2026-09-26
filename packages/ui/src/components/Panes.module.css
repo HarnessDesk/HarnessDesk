@@ -29,6 +29,20 @@
   --titlebar-inset: 0px;
 }
 
+/*
+ * Whatever a pane mounts, sized to take the room left after its own strip
+ * (if it has one). `data-notice-yield` lands on this box, never on `.pane`
+ * itself: `.pane` is also `[data-notice-host]`, the box `App.tsx` measures
+ * to place the floating stack, and a margin on the measured box would move
+ * its own top on the next frame — chasing the notice down instead of
+ * holding it still while the room opens up beneath it.
+ */
+.screen {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 /* The name of a view that brought no header of its own. */
 .paneTitle {
   flex: 1;

@@ -109,6 +109,37 @@ profile.
 **The rule:** depth is worth having only against a contract that promises
 something.
 
+## DeepSeek runs on DSH's own ACP server, and its tools arrive with the session
+
+A board call is attributed by a caller token the host mints for one session
+and puts in the environment of the one tool bridge that session's agent
+spawns. The token is the only thing that ties a call to a seat, and it is why
+an agent in one conversation cannot finish another conversation's card. So
+the tools have to arrive *with the session*: a tool server composed once into
+an agent and shared by all its conversations carries no token, and every
+board call through it is refused as unattributed. That refusal stays; the fix
+is never to guess the caller.
+
+DeepSeek used to reach the tools only that way, through a
+`dsh-mcp-client` entry in its composition, because the ACP server we built for
+it, `@harnessdesk/dsh-acp`, refused session tool servers, and DSH's own server
+was then too thin to use. Both changed. DSH's own `dsh --profile acp` has taken
+session `mcpServers` since 0.1.2-alpha.1, mounting each on that session's own
+agent, and on 0.1.7 it is the server that works: it carries messages,
+reasoning, tool calls, context usage and model and effort options, and is
+versioned and tested with DSH itself. Our bridge reads DSH's internal event
+stream, and on 0.1.7 that stream moved under it — no assistant text reached
+the wire. What ours still adds (streaming, replay, plans, titles) is
+presentation the desk can live without or derive: it keeps its own transcript,
+and reads the plan from `todo_write`.
+
+So DeepSeek is a template on DSH's own server. Our bridge takes session tool
+servers too from 0.6.0, for a desk pinned to an older DSH, and is otherwise
+not where DeepSeek support grows.
+
+**The rule:** a seat's tools arrive with its session, or its board calls are
+refused; they are never shared and never attributed by inference.
+
 ## Writing a file belongs to the editor plane
 
 Three halves, and they are genuinely different:

@@ -2,6 +2,7 @@ import type { AgentItem, Session } from '@harnessdesk/protocol'
 
 import { editOf } from './handoff'
 import { SHELL_TOOLS } from './group-items'
+import { isPlanTool } from './tool-names'
 import { TEST_COMMAND } from './turn-summary'
 
 /**
@@ -42,7 +43,6 @@ export const TRACE_LABEL: Record<TraceState, string> = {
 /** States in which the agent is busy and the row should say what with. */
 export const ACTIVE_STATES: ReadonlySet<TraceState> = new Set(['planning', 'editing', 'testing', 'running', 'thinking'])
 
-const PLAN_TOOLS = /^(todowrite|todo_write|update_plan|plan|task_list|create_plan)\b/i
 
 const stepState = (item: AgentItem): TraceState | null => {
   switch (item.type) {
@@ -53,7 +53,7 @@ const stepState = (item: AgentItem): TraceState | null => {
     case 'command':
       return TEST_COMMAND.test(item.command) ? 'testing' : 'running'
     case 'toolCall': {
-      if (PLAN_TOOLS.test(item.tool)) return 'planning'
+      if (isPlanTool(item.tool)) return 'planning'
       if (editOf(item)) return 'editing'
       if (SHELL_TOOLS.test(item.tool)) {
         const args = typeof item.args === 'object' && item.args !== null ? (item.args as Record<string, unknown>) : {}

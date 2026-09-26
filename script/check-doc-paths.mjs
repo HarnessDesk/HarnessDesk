@@ -96,7 +96,6 @@ export const ALLOWED = new Map([
   ['archify/assets/template.html', 'upstream Archify, quoted at a pinned commit — not vendored here'],
   ['docs/built.md', "a maintainer's working file under the gitignored internal/, as the sentence naming it says"],
   ['packages/acp/acp/src/index.ts', "DeepSeek Harness's own tree, as the sentence naming it says"],
-  ['profile/harnessdesk.patch.yml', 'the dsh-acp repository, which the same sentence links to'],
   ['rmcp-client/src/oauth/store_lock.rs', "DeepSeek Harness's own Rust source"],
   ['src/server.js', "an invented file name in a demo board card — a path in the reader's project, not this one"],
 ])

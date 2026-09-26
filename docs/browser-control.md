@@ -393,7 +393,7 @@ Plugin tools reach an agent one of two ways, and neither is universal:
 | Claude Code | **yes** | takes the MCP server |
 | Codex | **yes** | dynamic tools at thread start |
 | Cursor | **yes** | a generated plugin directory, passed as `--plugin-dir` with `--approve-mcps` |
-| DeepSeek Harness | **yes** | a `dsh-mcp-client` entry in its own composition spawns the bridge; the host names the socket in the agent's environment |
+| DeepSeek Harness | **yes** | takes the MCP server per session (DSH's own `dsh --profile acp`, since 0.1.2-alpha.1) |
 
 **Cursor's route** (closed 2026-08-27): `cursor-agent` does not take an MCP
 server in the session request, but it takes a *plugin directory* on the
@@ -408,6 +408,15 @@ the temp tree. Verified against the live CLI: asked to list its `harnessdesk`
 tools it named all 44, `browser_open` among them, and a `git_status` call went
 CLI → generated plugin → `mcp-tools` bridge → unix socket → tool gateway and
 came back with the gateway's real answer.
+
+**DeepSeek Harness's route, now** (2026-09-25): DSH's own ACP server,
+`dsh --profile acp`, mounts the `mcpServers` a session request offers on that
+session's agent, so DSH takes the MCP server the way Claude Code does, and each
+conversation's bridge carries its own caller token. The composition route below
+is retired: a server composed once is shared by every DeepSeek conversation,
+so its board calls cannot say which conversation made them and the board
+refuses them as unattributed. What follows is kept as the record of how the
+route was first opened.
 
 **DeepSeek Harness's route** (closed 2026-08-27): its ACP layer still refuses
 a non-empty `mcpServers` outright (`packages/acp/acp/src/index.ts`, in DSH's

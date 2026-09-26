@@ -302,6 +302,14 @@ a:hover {
  * for it, and a future screen composes this rather than growing its own
  * copy (#913).
  *
+ * `Panes.tsx` is now the one place that opts in, not each screen: it wraps
+ * whatever a pane mounts and marks the wrapper for the pane riding the
+ * stack, so a room, a browser, an inspector or any future view all clear a
+ * standing notice without writing this attribute themselves. A screen that
+ * used to carry its own copy — the room's `.split` did, for #913 — now sits
+ * under an ancestor that already spent the inset, so its own copy would
+ * only ever read `0px`.
+ *
  * Reset to `0px` for everything underneath: an inset already spent once, at
  * the yielding element's own top, must not be spent again by whatever it
  * contains — the room's rail and its reading side share one top edge this
