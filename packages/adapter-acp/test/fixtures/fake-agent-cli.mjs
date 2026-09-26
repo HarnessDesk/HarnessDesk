@@ -10,9 +10,11 @@
  *                                      print the link and the prompt the way
  *                                      `claude auth login` does, then read a
  *                                      line: `paste` exits 0 only on the
- *                                      expected code, and repeats a wrong one
- *                                      in its error, so a test can tell the
- *                                      desk strikes it out; `paste-late`
+ *                                      expected code, refuses a line that is
+ *                                      not `code#state` and reads on, and
+ *                                      repeats each half of a wrong code in
+ *                                      its error, so a test can tell the desk
+ *                                      strikes them out; `paste-late`
  *                                      prompts a moment after its link;
  *                                      `paste-callback` finishes by itself,
  *                                      as the browser's own callback does
@@ -69,11 +71,19 @@ if (verb === 'login' && (process.env.FAKE_CLI_LOGIN ?? '').startsWith('paste')) 
   }
   const lines = createInterface({ input: process.stdin })
   lines.on('line', (line) => {
+    // As the real command does: a line that is not `code#state` is refused,
+    // and it goes on reading without printing the prompt again.
+    const [code, state] = line.trim().split('#')
+    if (!code || !state) {
+      process.stderr.write('Invalid code. Please make sure the full code was copied.\n')
+      return
+    }
     if (line.trim() === expected) {
       process.stdout.write('Login successful.\n')
       process.exit(0)
     }
-    process.stderr.write(`Login failed: the code ${line.trim()} was refused.\n`)
+    // Each half on its own, as a token exchange's error might name them.
+    process.stderr.write(`Login failed: the code ${code} was refused (state ${state}).\n`)
     process.exit(1)
   })
 } else if (verb === 'login') {

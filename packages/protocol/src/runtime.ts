@@ -156,7 +156,8 @@ export type LoginStart =
        * browser page that cannot hand the result back on its own shows the
        * code instead, and the command waits on its input for it. Set when the
        * ask came before the flow was handed out; one that comes later arrives
-       * as `account/loginAwaitsCode`. Either way the code goes back through
+       * as `account/loginAwaitsCode`, and so does a second ask after the
+       * command refused a code. Either way the code goes back through
        * `submitLoginCode`.
        */
       readonly pasteCode?: boolean

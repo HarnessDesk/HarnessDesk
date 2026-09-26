@@ -47,6 +47,14 @@ export interface AcpLoginSpec extends AcpCommandSpec {
    * closed, as it always was.
    */
   readonly pasteCode?: string
+  /**
+   * The words the command prints when it refuses a pasted code and goes on
+   * reading for another — matched literally, and only after a paste. A
+   * command that says nothing of the sort and simply waits would leave the
+   * person told to wait for an answer already given, so the desk hears it
+   * and asks again (`account/loginAwaitsCode` with `refused`).
+   */
+  readonly pasteCodeRejected?: string
 }
 
 export interface AcpAccountCommands {
@@ -66,6 +74,8 @@ const URL_SETTLE_MS = 250
 const KILL_GRACE_MS = 3_000
 /** Longer than any sign-in code; a paste this long is something else on the clipboard. */
 const CODE_LIMIT = 4_096
+/** The shortest part of a pasted code struck out on its own when a command repeats it. */
+const CODE_PART_MIN = 6
 /** What a pasted code is replaced with, should a command repeat it in what it says. */
 const CODE_REDACTED = '[code]'
 /** Anything short of a whole single line: a line break would hand the command a second answer. */
@@ -126,6 +136,7 @@ export class CliAccount {
     if (!spec) throw new Error('This agent declares no sign-in command.')
     const loginId = randomUUID()
     const prompt = spec.pasteCode?.trim() ? spec.pasteCode : null
+    const rejection = prompt !== null && spec.pasteCodeRejected?.trim() ? spec.pasteCodeRejected : null
     const child = (this.seams.spawn ?? spawn)(spec.command, [...(spec.args ?? [])], {
       // An input only where there is something to write to it: a command
       // that reads it and was never told to has always found it closed.
@@ -151,7 +162,10 @@ export class CliAccount {
     }
     const clean = (text: string): string => {
       let out = text
-      for (const code of submitted) out = out.split(code).join(CODE_REDACTED)
+      // Longest first, so a whole code is struck as one before its halves are.
+      for (const code of [...submitted].sort((a, b) => b.length - a.length)) out = out.split(code).join(CODE_REDACTED)
+      // A refusal it read on from was answered by asking again; it is not how the flow ended.
+      if (rejection !== null) out = out.split(rejection).join('\n')
       // The prompt is what the command asks, not what went wrong.
       return prompt ? out.replace(new RegExp(`${escapeRegExp(prompt)}[\\s>:]*`, 'g'), '\n') : out
     }
@@ -234,11 +248,36 @@ export class CliAccount {
       // Before the hand-out the start says so itself; after it, this does.
       if (handedOut && !settled) this.emit({ type: 'account/loginAwaitsCode', runtime: this.runtime, loginId })
     }
+    /* After a paste, whether the command refused it and went on reading.
+       Only its own words for that count, and only once per paste: the flow
+       is still pending, so a refusal is not an ending but a second ask. What
+       it said is not passed on — the person is told in the desk's words,
+       and the command's cannot carry the code if they are never sent. */
+    let answering = false
+    let judged = ''
+    const judge = (text: string): void => {
+      if (rejection === null || !answering) return
+      judged += text
+      if (!judged.includes(rejection)) {
+        judged = judged.slice(judged.length - (rejection.length - 1))
+        return
+      }
+      answering = false
+      judged = ''
+      if (!settled) this.emit({ type: 'account/loginAwaitsCode', runtime: this.runtime, loginId, refused: true })
+    }
     if (prompt !== null) {
       this.#codeSinks.set(loginId, (code) => {
         if (settled) return Promise.reject(new Error(NOT_WAITING))
         if (!asked) return Promise.reject(new Error('The sign-in has not asked for a code.'))
         submitted.add(code)
+        /* And each part a command may repeat on its own: one that splits the
+           line (`code#state`) and names only a half would put that half in
+           its error. Parts too short to be a secret stay, or striking them
+           would strike ordinary words. */
+        for (const part of code.split('#')) if (part.length >= CODE_PART_MIN) submitted.add(part)
+        answering = true
+        judged = ''
         return new Promise<void>((resolve, reject) => {
           child.stdin!.write(`${code}\n`, (error) => {
             if (error) reject(new Error('The sign-in command stopped reading before the code reached it.'))
@@ -255,6 +294,7 @@ export class CliAccount {
     const scan = (chunk: Buffer): void => {
       const text = chunk.toString()
       listen(text)
+      judge(text)
       tail.push(text)
       if (tail.length > 40) tail.shift()
       if (url !== null) return

@@ -137,6 +137,8 @@ test("a Claude row's sign-in declares the prompt its command prints when it want
      adapter keeps no agent's words of its own. */
   const overlay = knowledgeOverlay({ id: 'claude-code', name: 'Claude Code', command: 'claude-acp' }, knownAgent('claude-code'))
   assert.equal(overlay.account?.login?.pasteCode, 'Paste code here if prompted')
+  // And what it says when it refuses a paste and reads on, which the desk hears to ask again.
+  assert.equal(overlay.account?.login?.pasteCodeRejected, 'Invalid code. Please make sure the full code was copied.')
   assert.deepEqual(overlay.account?.login?.args, ['auth', 'login'])
   // A row that declares no prompt keeps its command's input closed.
   assert.equal(knownAgent('cursor')?.auth.login?.pasteCode, undefined)

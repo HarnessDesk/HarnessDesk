@@ -117,6 +117,7 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
           start: { type: 'deviceCode', loginId: 'l1', url: 'https://example.com/device', code: 'WDJB-MJHT' },
           outcome: { type: 'pending' },
           awaitingCode: false,
+          codeRefusals: 0,
         },
       }
     : scene === 'paste code'
@@ -126,6 +127,7 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
             start: { type: 'browser', loginId: 'l2', url: 'https://example.com/oauth/authorize', pasteCode: true },
             outcome: { type: 'pending' },
             awaitingCode: true,
+            codeRefusals: 0,
           },
         }
       : {},

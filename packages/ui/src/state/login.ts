@@ -25,6 +25,11 @@ export interface LoginState {
    * never the code: that stays in the field it was typed into until it is sent.
    */
   readonly awaitingCode: boolean
+  /**
+   * How many pasted codes the sign-in has refused and read on from. A count,
+   * not a flag, so a second refusal after a second paste is news too.
+   */
+  readonly codeRefusals: number
 }
 
 export const startedLogin = (method: string, start: LoginStart): LoginState => ({
@@ -32,16 +37,21 @@ export const startedLogin = (method: string, start: LoginStart): LoginState => (
   start,
   outcome: { type: 'pending' },
   awaitingCode: start.type === 'browser' && start.pasteCode === true,
+  codeRefusals: 0,
 })
 
-/** Folds a later ask for a pasted code into the login it belongs to, and no other. */
+/**
+ * Folds a later ask for a pasted code — a first one, or one after a refused
+ * paste — into the login it belongs to, and no other.
+ */
 export const applyLoginAwaitsCode = (
   login: LoginState | null,
   event: Extract<AgentEvent, { type: 'account/loginAwaitsCode' }>,
 ): LoginState | null => {
-  if (!login || login.outcome.type !== 'pending' || login.awaitingCode) return login
+  if (!login || login.outcome.type !== 'pending') return login
   if (event.loginId !== login.start.loginId) return login
-  return { ...login, awaitingCode: true }
+  if (event.refused) return { ...login, awaitingCode: true, codeRefusals: (login.codeRefusals ?? 0) + 1 }
+  return login.awaitingCode ? login : { ...login, awaitingCode: true }
 }
 
 /**

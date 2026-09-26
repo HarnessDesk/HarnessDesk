@@ -161,12 +161,18 @@ export type AgentEvent =
   | {
       /**
        * A sign-in still in progress has asked for a code to be pasted into
-       * it, after it was handed out — see `LoginStart`'s `pasteCode`. Carries
+       * it, after it was handed out, or asked again after refusing one — see `LoginStart`'s `pasteCode`. Carries
        * no code: the code comes from the person, never from the runtime.
        */
       readonly type: 'account/loginAwaitsCode'
       readonly runtime: RuntimeId
       readonly loginId: string
+      /**
+       * Asked again: the command refused the code just pasted and is still
+       * reading for one. Says only that — never what was pasted, nor the
+       * command's own words about it.
+       */
+      readonly refused?: boolean
     }
   | {
       /**

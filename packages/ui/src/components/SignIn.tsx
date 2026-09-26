@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type {
   AcpRegistryAgentInfo,
@@ -20,6 +20,7 @@ import { isDesktop, openExternal } from '../lib/desktop'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
+import { AppWindowMode } from './AppWindow'
 import { RuntimeMark } from './BrandIcons'
 import { Prose } from './Prose'
 import {
@@ -180,6 +181,7 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
 export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const embedded = useContext(AppWindowMode) === 'embedded'
 
   const rows = useMemo(
     () => snapshot.runtimes.map((info) => rowFor(info, snapshot)),
@@ -238,13 +240,17 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
   ].filter((group) => group.rows.length > 0)
 
   return (
-    <DialogRoot open onOpenChange={(open) => { if (!open) close() }}>
+    /* Embedded — a catalogue specimen — it is not modal and takes no focus,
+       as `AppWindow` is not: a modal there hides the page around it from a
+       screen reader and pulls focus into itself the moment its tab opens. */
+    <DialogRoot open modal={!embedded} onOpenChange={(open) => { if (!open) close() }}>
       <DialogContent
         bleed
         className={own.dialog}
         portalled={false}
         aria-label="Sign in"
         showCloseButton={false}
+        {...(embedded ? { initialFocus: false, finalFocus: false } : {})}
       >
         {/* The head every dialog wears: its name, one inset, the rule under
             it and the way out. Closing through it is the root's own close. */}
@@ -1077,29 +1083,48 @@ const SignOut = ({ runtime, lead }: { runtime: RuntimeId; lead?: ReactNode }) =>
  * The code is a secret: a password field, never in the store, gone from this
  * field the moment it is sent, whichever way the sending went.
  */
-const PasteCode = ({ runtime, actions }: { runtime: RuntimeId; actions: ReactNode }) => {
+const PasteCode = ({
+  runtime,
+  refusals,
+  actions,
+}: {
+  runtime: RuntimeId
+  /** How many pastes the sign-in has refused; one more than when the last was sent means it asks again. */
+  refusals: number
+  actions: ReactNode
+}) => {
   const store = useStore()
+  // In a catalogue the field stands still: taking focus there takes it from the page around it.
+  const embedded = useContext(AppWindowMode) === 'embedded'
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
-  const [sent, setSent] = useState(false)
+  // The refusal count when the last code went, or null when none has gone yet.
+  const [sentAt, setSentAt] = useState<number | null>(null)
+  const waiting = sentAt !== null && sentAt === refusals
+  const refused = refusals > 0 && !waiting
 
   const send = async (): Promise<void> => {
     const code = value.trim()
     if (!code || busy) return
     setBusy(true)
     setValue('')
+    const at = refusals
     const ok = await store.submitLoginCode(runtime, code)
     setBusy(false)
-    setSent(ok)
+    setSentAt(ok ? at : null)
   }
 
   return (
     <div className={own.stack} data-slot="sign-in-paste-code">
       <Field
         label="Paste the authentication code"
-        hint={sent
-          ? 'Sent. This window updates once the agent accepts it.'
-          : 'From the browser page that just opened, if it shows one.'}
+        {...(refused
+          ? { error: 'That code didn\u2019t work. Paste the whole code from the browser page, then send it again.' }
+          : {
+              hint: waiting
+                ? 'Sent. This window updates once the agent accepts it.'
+                : 'From the browser page that just opened, if it shows one.',
+            })}
       >
         {(control) => (
           <Input
@@ -1107,7 +1132,7 @@ const PasteCode = ({ runtime, actions }: { runtime: RuntimeId; actions: ReactNod
             type="password"
             variant="code"
             value={value}
-            autoFocus
+            autoFocus={!embedded}
             spellCheck={false}
             autoComplete="off"
             placeholder="Authentication code"
@@ -1187,7 +1212,7 @@ const Pending = ({
 
       {start.type === 'browser' && login.awaitingCode ? (
         // The code's own verb leads the row the page's and the cancel's share.
-        <PasteCode runtime={runtime} actions={actions} />
+        <PasteCode runtime={runtime} refusals={login.codeRefusals ?? 0} actions={actions} />
       ) : (
         <div className={own.row}>{actions}</div>
       )}

@@ -700,6 +700,7 @@ test('sign-in is relayed to the runtime, and its outcome arrives as an event', a
   await client.until(() => client.events.some((event) => event.type === 'account/changed'))
 })
 
+// The whole path, into a real sign-in command, is `login-code.test.ts`; this is the relay and the wire's refusals.
 test('a pasted sign-in code is relayed to the runtime, and never reaches the log', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-login-code-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

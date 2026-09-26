@@ -98,6 +98,15 @@ describe('applyLoginAwaitsCode', () => {
     expect(applyLoginAwaitsCode(pending(), asks('login-2'))?.awaitingCode).toBe(true)
   })
 
+  test('a refused paste counts, on its own login only, and asks again', () => {
+    const asked = applyLoginAwaitsCode(pending(), asks('login-2'))!
+    expect(asked.codeRefusals).toBe(0)
+    const refused = applyLoginAwaitsCode(asked, { ...asks('login-2'), refused: true })!
+    expect(refused).toMatchObject({ awaitingCode: true, codeRefusals: 1 })
+    expect(applyLoginAwaitsCode(refused, { ...asks('login-2'), refused: true })?.codeRefusals).toBe(2)
+    expect(applyLoginAwaitsCode(refused, { ...asks('login-1'), refused: true })).toBe(refused)
+  })
+
   test('an ask for another login, or one already settled, changes nothing', () => {
     const login = pending()
     expect(applyLoginAwaitsCode(login, asks('login-1'))).toBe(login)

@@ -42,7 +42,7 @@ const AGENT = {
 } as unknown as RuntimeInfo
 
 const mount = async (awaitingCode: boolean) => {
-  const snapshot = {
+  let snapshot = {
     ...emptySnapshot(),
     status: 'open',
     activeRuntime: 'claude',
@@ -56,13 +56,29 @@ const mount = async (awaitingCode: boolean) => {
         start: { type: 'browser', loginId: 'login-1', url: 'https://auth.example.com/flow', pasteCode: awaitingCode },
         outcome: { type: 'pending' },
         awaitingCode,
+        codeRefusals: 0,
       },
     },
   } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
+  /** The sign-in refused the code just sent, and reads on for another. */
+  const refuse = async (): Promise<void> => {
+    const logins = snapshot.logins as Record<string, { codeRefusals: number }>
+    snapshot = {
+      ...snapshot,
+      logins: { claude: { ...logins['claude']!, codeRefusals: logins['claude']!.codeRefusals + 1 } },
+    } as unknown as AppSnapshot
+    await act(async () => {
+      for (const listener of listeners) listener()
+    })
+  }
   const submitLoginCode = vi.fn(async () => true)
   const cancelLogin = vi.fn(async () => {})
   const store = {
-    subscribe: () => () => {},
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
     getSnapshot: () => snapshot,
     loadAccounts: vi.fn(async () => {}),
     acpRegistry: vi.fn(async () => ({ agents: [], fetchedAt: 1 })),
@@ -77,7 +93,7 @@ const mount = async (awaitingCode: boolean) => {
       </StoreProvider>,
     )
   })
-  return { submitLoginCode, cancelLogin }
+  return { submitLoginCode, cancelLogin, refuse }
 }
 
 const field = (): HTMLInputElement | null =>
@@ -114,6 +130,25 @@ it('sends the code, and it leaves the field the moment it is sent', async () => 
   expect(field()!.value).toBe('')
   expect(container.textContent).not.toContain(CODE)
   expect(container.textContent).toContain('Sent.')
+})
+
+it('a refused paste brings the field back with the reason, and the next one waits again', async () => {
+  const { submitLoginCode, refuse } = await mount(true)
+  await type(field()!, 'cut-short')
+  await act(async () => button('Send code').click())
+  expect(container.textContent).toContain('Sent.')
+
+  await refuse()
+  const pane = container.querySelector('[data-slot="sign-in-paste-code"]')!
+  expect(pane.textContent).toContain('That code didn\u2019t work. Paste the whole code from the browser page, then send it again.')
+  expect(pane.textContent).not.toContain('Sent.')
+  expect(field()!.disabled).toBe(false)
+
+  await type(field()!, CODE)
+  await act(async () => button('Send code').click())
+  expect(submitLoginCode).toHaveBeenLastCalledWith('claude', CODE)
+  expect(container.textContent).toContain('Sent.')
+  expect(container.textContent).not.toContain('didn\u2019t work')
 })
 
 it('cancel still ends the sign-in while it waits for a code', async () => {

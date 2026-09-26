@@ -24,6 +24,7 @@ import { AcpRuntime } from '../src/index.js'
 
 const FAKE_CLI = fileURLToPath(new URL('./fixtures/fake-agent-cli.mjs', import.meta.url))
 const PROMPT = 'Paste code here if prompted'
+const REJECTED = 'Invalid code. Please make sure the full code was copied.'
 const CODE = 'right-code-7f3a#state-91c2'
 const WRONG = 'wrong-code-0b1d#state-91c2'
 
@@ -34,7 +35,7 @@ interface Rig {
   readonly children: ChildProcess[]
 }
 
-const rig = (mode: string, login: Partial<AcpLoginSpec> = { pasteCode: PROMPT }): Rig => {
+const rig = (mode: string, login: Partial<AcpLoginSpec> = { pasteCode: PROMPT, pasteCodeRejected: REJECTED }): Rig => {
   const events: AgentEvent[] = []
   const logs: string[] = []
   const children: ChildProcess[] = []
@@ -114,10 +115,42 @@ test('a wrong code fails the flow in the command\'s words, with the code struck 
   await r.account.submitCode(start.loginId, WRONG)
   const done = await completion(r.events)
   assert.equal(done.success, false)
-  // The fake repeats the code it refused, as a careless command might.
-  assert.equal(done.error, 'Login failed: the code [code] was refused.')
-  assert.ok(!everything(r).includes(WRONG), 'the rejected code appears nowhere')
+  // The fake repeats each half of the code it refused, as a careless command might.
+  assert.equal(done.error, 'Login failed: the code [code] was refused (state [code]).')
+  const [half, state] = WRONG.split('#')
+  for (const part of [WRONG, half!, state!]) assert.ok(!everything(r).includes(part), 'no part of the rejected code appears')
   assert.ok(!String(done.error).includes(PROMPT), 'the prompt is what the command asked, not what went wrong')
+})
+
+test('a paste the command refuses and reads on from is asked for again, and the next paste signs in', async () => {
+  const r = rig('paste')
+  const start = await r.account.login()
+  await asksNow(r, start)
+  // Cut short, as a password field hides: the half before the `#`.
+  const [cut] = CODE.split('#')
+  await r.account.submitCode(start.loginId, cut!)
+  await until(
+    () => r.events.some((event) => event.type === 'account/loginAwaitsCode' && event.refused === true),
+    'the second ask',
+  )
+  assert.deepEqual(
+    r.events.filter((event) => event.type === 'account/loginAwaitsCode' && event.refused),
+    [{ type: 'account/loginAwaitsCode', runtime: 'fake-acp', loginId: start.loginId, refused: true }],
+  )
+  assert.ok(!r.events.some((event) => event.type === 'account/loginCompleted'), 'still pending: a refusal is not an ending')
+  await r.account.submitCode(start.loginId, CODE)
+  assert.equal((await completion(r.events)).success, true)
+  assert.ok(!everything(r).includes(cut!), 'the cut-short paste appears nowhere either')
+})
+
+test('without its refusal declared, a refused paste is not reported as one', async () => {
+  const r = rig('paste', { pasteCode: PROMPT })
+  const start = await r.account.login()
+  await asksNow(r, start)
+  await r.account.submitCode(start.loginId, 'no-state-here')
+  await r.account.submitCode(start.loginId, CODE)
+  assert.equal((await completion(r.events)).success, true)
+  assert.ok(!r.events.some((event) => event.type === 'account/loginAwaitsCode' && event.refused))
 })
 
 test('cancel ends a flow waiting for a code, kills its command, and takes no code after', async () => {
