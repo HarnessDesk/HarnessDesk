@@ -17,7 +17,7 @@ import { defineConfig, devices } from '@playwright/test'
  * so a developer's muscle memory and any port-scoped tooling keep working)
  * while a different worktree's checkout, at a different path, very likely
  * lands on a different one. The range is picked clear of this repo's other
- * fixed dev ports (5273, 5274, 5295, 5599).
+ * fixed dev ports (5273, 5274, 5599).
  */
 const PORT_RANGE_BASE = 5600
 const PORT_RANGE_SIZE = 200

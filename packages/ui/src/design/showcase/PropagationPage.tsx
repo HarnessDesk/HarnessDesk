@@ -133,7 +133,7 @@ export const PropagationPage = () => {
                 mark={<AccountMark size="sm"><RuntimeMark runtime={ANTIGRAVITY_RUNTIME} size={13} /></AccountMark>}
               >
                 <MenuAccountRow
-                  mark={<AccountMark size="dot" aria-hidden="true" data-tint="teal">{null}</AccountMark>}
+                  mark={<AccountMark size="dot" aria-hidden="true" data-tint="green">{null}</AccountMark>}
                   name="dev"
                   identity="dev@example.com · Pro"
                   tag="example.com"
@@ -141,7 +141,7 @@ export const PropagationPage = () => {
                   onSelect={() => undefined}
                 />
                 <MenuAccountRow
-                  mark={<AccountMark size="dot" aria-hidden="true" data-tint="orange">{null}</AccountMark>}
+                  mark={<AccountMark size="dot" aria-hidden="true" data-tint="amber">{null}</AccountMark>}
                   name="dev"
                   identity="dev@acme.dev · Pro"
                   tag="acme.dev"
@@ -149,15 +149,20 @@ export const PropagationPage = () => {
                   onSelect={() => undefined}
                 />
               </MenuAccountGroup>
-              {/* #993: the readiness word. An agent with no accounts that has
-                  already answered draws its one word — "Needs sign-in" — in
-                  the figure slot rather than a reading, exactly as an
-                  account-less seat does in `components/Sidebar.tsx`. */}
+              {/* #993: the readiness word. A listed agent with no accounts
+                  and nothing metered, whose one fact is what is wrong, draws
+                  that word in the figure slot rather than a reading — here a
+                  broken agent, which the seat menu keeps listed (only an
+                  answered sign-in state waits behind Add an account unless it
+                  is the default). Its identity is the same word, as
+                  `components/Sidebar.tsx` sets it for an account-less seat
+                  that has answered; its mark keeps its plate, since only a
+                  sign-in state is drawn as an empty seat. */}
               <MenuAccountRow
-                mark={<AccountMark size="sm" data-off=""><RuntimeMark runtime={DEEPSEEK_RUNTIME} size={13} /></AccountMark>}
+                mark={<AccountMark size="sm"><RuntimeMark runtime={DEEPSEEK_RUNTIME} size={13} /></AccountMark>}
                 name="DeepSeek"
-                identity="DeepSeek"
-                figure={{ kind: 'word', text: 'Needs sign-in', tone: 'brand' }}
+                identity="Unavailable"
+                figure={{ kind: 'word', text: 'Unavailable', tone: 'danger' }}
                 onSelect={() => undefined}
               />
             </Menu>

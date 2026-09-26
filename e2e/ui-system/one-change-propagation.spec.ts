@@ -106,10 +106,12 @@ test('one foundation perturbation reaches unrelated surfaces, portals, and adapt
   await expect(antigravity.getByRole('menuitem')).toHaveCount(2)
   await expect(antigravity.locator('[data-identity="dev@example.com · Pro"]')).toContainText('example.com')
   await expect(antigravity.locator('[data-identity="dev@acme.dev · Pro"]')).toContainText('acme.dev')
-  // #993/#995: the readiness word — an account-less row that has already
-  // answered draws its one word ("Needs sign-in") in the figure slot rather
-  // than a reading.
-  await expect(popup.getByRole('menuitem', { name: 'DeepSeek Needs sign-in' })).toBeVisible()
+  // #993/#995: the readiness word — a listed account-less row whose one fact
+  // is what is wrong ("Unavailable") draws it in the figure slot as a word,
+  // in prose type, not as a numeric reading.
+  const word = popup.getByRole('menuitem', { name: 'DeepSeek Unavailable' })
+  await expect(word).toBeVisible()
+  await expect(word.locator('[data-slot="text"][data-role="meta"]', { hasText: 'Unavailable' })).toHaveCount(1)
   await expect.poll(() => page.getByRole('menuitem', { name: 'Open workspace' }).evaluate(node => {
     let opacity = 1
     for (let element: Element | null = node; element; element = element.parentElement) opacity *= Number(getComputedStyle(element).opacity)
