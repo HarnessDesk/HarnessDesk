@@ -32,7 +32,7 @@ import {
   registrySentence,
 } from '../lib/acp-registry'
 import { describeLimits, formatReset } from '../lib/limits'
-import { isBlocking, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
+import { isBlocking, READINESS_LABEL, readinessOf, worstReadiness, type Readiness } from '../lib/readiness'
 import { splitHealth, type Unavailable } from '../lib/health'
 import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
@@ -1956,14 +1956,19 @@ export const RuntimesSection = ({
      page is usually one agent of many that will not take a turn, and sorting
      by that answer makes it the first line rather than the search. The groups
      are the status, so the page needs no status filter beside its search.
-     The split is `isBlocking`, the same test the Runtimes nav dot uses
-     (`Settings.tsx`) — not "not literally ready" — because an agent that has
-     not answered `runtime/account` yet has not asked anyone for anything: it
-     may turn out to need a sign-in, or not, but it does not belong beside a
-     dead agent and a spent plan window before it says which. */
+     "Needs attention" is `isBlocking`, the same test the Runtimes nav dot
+     uses (`Settings.tsx`) — not "not literally ready" — because an agent
+     that has not answered `runtime/account` yet has not asked anyone for
+     anything: it may turn out to need a sign-in, or not, but it does not
+     belong beside a dead agent and a spent plan window before it says
+     which. Nor does it belong under a heading that says "Ready": `unknown`
+     promises never to assert that (`readiness.ts`'s own `worstReadiness`
+     comment), so it gets a heading of its own, named the same word every
+     other surface uses for it — never folded into either claim. */
   const sections = [
     { name: 'Needs attention', agents: listed.filter(({ state }) => isBlocking(state)) },
-    { name: 'Ready', agents: listed.filter(({ state }) => !isBlocking(state)) },
+    { name: READINESS_LABEL.unknown, agents: listed.filter(({ state }) => state === 'unknown') },
+    { name: 'Ready', agents: listed.filter(({ state }) => state === 'ready') },
   ].filter((section) => section.agents.length > 0)
 
   if (view.kind === 'add') {
