@@ -63,3 +63,9 @@ test('session/create, resume and fork refuse a client-supplied `attachments`: on
   // A null is still a claim about what loads — refused the same.
   assert.throws(() => request('session/create', { runtime: 'fake', options: { cwd: '/work', attachments: null } }), ValidationError)
 })
+
+test('session/create, resume and fork refuse a client-supplied `knownCwd`: only the host names a folder the agent was never asked about', () => {
+  assert.throws(() => request('session/create', { runtime: 'fake', options: { cwd: '/work', knownCwd: '/work' } }), ValidationError)
+  assert.throws(() => request('session/resume', { runtime: 'fake', sessionId: 's', options: { knownCwd: '/' } }), ValidationError)
+  assert.throws(() => request('session/fork', { runtime: 'fake', sessionId: 's', options: { knownCwd: '/' } }), ValidationError)
+})
