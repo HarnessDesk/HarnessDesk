@@ -560,26 +560,58 @@ clone, so they are read bounded and without blocking, a regular file only,
 through a link at no point below the project; anything that cannot be read
 that way is unknown.
 
-Codex's read is scoped to the configuration actually in force for the
-session that runs: the root of `config.toml`, plus the one `[profiles.<name>]`
-table the root's own `profile` selects and the one `[model_providers.<id>]`
-table the active `model_provider` names. A `config.toml` kept around with an
-unselected profile or provider table — a local Ollama setup for occasional
-use, say — no longer makes every session on that Codex unknown; only what the
-session actually reads does. DeepSeek Harness always starts on its `acp`
-profile, so only that profile's own patch and the home-level patch that
-outranks it are read; a patch aimed at one of DSH's other profiles is inert
-the same way. Cursor has no reader: which vendor a Cursor session reaches is
-a per-conversation model choice, not a runtime- or project-level setting, and
+Codex's read is scoped to the configuration actually *in force* for the
+session that runs, merged across every layer it reads (its home
+`config.toml`, each sibling `<name>.config.toml`, and a project's own
+`.codex/config.toml`): the `profile` every layer names must agree, or the
+answer is unknown outright; once agreed (or none is set anywhere), that
+profile's `[profiles.<name>]` table and any root override are read from
+*every* layer that has one, not only the layer that happened to select it —
+a home table a project merely selects still counts. A `config.toml` kept
+around with an unselected profile or provider table — a local Ollama setup
+for occasional use, say — no longer makes every session on that Codex
+unknown; only what is actually selected does. The scanner is deliberately
+cruder than a TOML parser, but never *silently* cruder: a header it cannot
+fully parse (a trailing comment and whitespace around a dot are normalized;
+nothing else is), a dotted key, an inline table, or a multi-line string
+anywhere in the file — each of which could hide a real header or key from a
+line-based scan — answers unknown rather than being skipped or guessed at. A
+Codex launch's own `-c` override counts the same way when it names
+`model_provider`, `base_url`, or `profile`, since a profile switch from the
+command line is exactly as much a redirection as one written in the file.
+
+DeepSeek Harness always starts on its `acp` profile, so only that profile's
+own patch and the home-level patch that outranks it are read; a patch aimed
+at one of DSH's other profiles is inert the same way. Within those two
+layers, DeepSeek's own API is answered only when every one of these holds:
+no `llm-deepseek`, `llm-deepseek-account` or `llm-deepseek-api-key` entry
+sets a `baseURL` outside `api.deepseek.com`; no `agent-default-model` entry
+names a `provider` other than the vendor default, `deepseek-official`; no
+`llm-pi-ai` entry carries any `config` at all, since that entry ships
+mounted dormant until a settings document gives it live routes to some other
+vendor; and no layer has an `insert` anywhere, since a patch that inserts a
+plugin can add any capability at all, including a different default
+provider. `DSH_HOME` is expanded the same way DSH itself expands it — a
+leading `~` against the OS home — and a value that is still relative once
+expanded is unknown, not a guess against whichever directory this process
+happens to be running in.
+
+Cursor has no reader: which vendor a Cursor session reaches is a
+per-conversation model choice, not a runtime- or project-level setting, and
 this check is asked about a runtime, never a session — so Cursor stays
 unknown rather than guessed at from whichever model happened to run last.
 
 When independence cannot be proven because an *earlier* Seat's own provider
 could not be read at all — never merely because every candidate would repeat
-an already-used one — the stall names that card, by number, and the agent
-that held it, by its own presentation name, never a raw runtime id: fixing
-that agent's configuration, or dropping `independentOf` for the role, is the
-way past it. The guard itself stays fail-closed either way.
+an already-used one — the stall names the agent that held that card, by
+number, and by its own presentation name where the desk has one, never a raw
+runtime id. The way forward it names depends on whether there is anything to
+fix: an agent with a reader that merely could not rule an override out can
+have that configuration fixed; an agent with no provider reader at all
+(Cursor) has nothing there to point at, so the stall says instead to drop
+`independentOf` for the step or seat that earlier card on an agent whose
+provider can be read. The guard itself stays fail-closed either way — only
+the wording changes.
 
 **A Seat's card** is claimed for it as the Seat opens, and the Seat reads its
 Agent's brief in a turn of its own. A Seat that asks for work inside that turn

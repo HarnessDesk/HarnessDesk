@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { codexProvider } from '../src/provider.js'
+import { codexProvider, launchOverridesProvider } from '../src/provider.js'
 
 /*
  * Which vendor a Codex session's models come from, read from Codex's own
@@ -67,6 +67,73 @@ test('a profile or provider table nothing selects is defined but never in force,
   const other = folder(t, 'codex-provider-home-')
   writeFileSync(join(other, 'config.toml'), '[model_providers.local]\nname = "Local"\nenv_key = "LOCAL_KEY"\n')
   assert.equal(await codexProvider(other, {}), 'openai')
+})
+
+/*
+ * Opus review of #1028: three shapes this scanner used to skip past rather
+ * than refuse — a header with a trailing comment, whitespace around a
+ * header's dot, and a multi-line string that merely *contains* something
+ * that looks like a header — each made a real, selected override invisible.
+ * Three more were already open on main: a dotted root key, `[profiles]`
+ * followed by a dotted assignment, and an inline table. Every one of these
+ * must answer unknown, never openai.
+ */
+test('a header or assignment this scanner cannot fully parse answers unknown, never openai', async (t) => {
+  const cases: readonly [string, string][] = [
+    // A trailing comment on a header, after an unrelated table.
+    ['config.toml', 'profile = "x"\n[features]\nenabled = true\n[profiles.x] # local\nmodel_provider = "ollama"\n'],
+    // Whitespace around a header's dot.
+    ['config.toml', 'profile = "x"\n[ profiles . x ]\nmodel_provider = "ollama"\n'],
+    // A multi-line string whose body merely looks like it contains a header.
+    ['config.toml', 'instructions = """\nSome notes\n[notes]\nmore text\n"""\nmodel_provider = "ollama"\n'],
+    // Already open on main: a dotted root key is TOML shorthand for a table this scanner cannot see into.
+    ['config.toml', 'profiles.x.model_provider = "ollama"\n'],
+    // Already open on main: `[profiles]` is a real, but unrelated, header; the dotted key under it is not read.
+    ['config.toml', '[profiles]\nx.model_provider = "ollama"\n'],
+    // Already open on main: an inline table can define anything this scanner never looks inside.
+    ['config.toml', 'profiles = { x = { model_provider = "ollama" } }\n'],
+  ]
+  for (const [file, text] of cases) {
+    const home = folder(t, 'codex-provider-home-')
+    writeFileSync(join(home, file), text)
+    assert.equal(await codexProvider(home, {}), null, `${file}: ${text.trim()}`)
+  }
+})
+
+/*
+ * Opus review of #1028: each config layer used to be judged on its own, so a
+ * `profile` selected in one file and the table it selects defined in another
+ * never met — both files, read alone, said "openai".
+ */
+test('the active profile is chosen across every layer together, and layers that disagree are unknown', async (t) => {
+  // The project selects a profile the home config never mentions selecting; the home config defines its table.
+  const home = folder(t, 'codex-provider-home-')
+  const project = folder(t, 'codex-provider-project-')
+  writeFileSync(join(home, 'config.toml'), '[profiles.local]\nmodel_provider = "ollama"\n')
+  mkdirSync(join(project, '.codex'))
+  writeFileSync(join(project, '.codex', 'config.toml'), 'profile = "local"\n')
+  assert.equal(await codexProvider(home, {}, project), null, 'the home table the project selects still counts')
+
+  // Layers naming different profiles cannot be merged into one decision.
+  const disagreeing = folder(t, 'codex-provider-home-')
+  const disagreeingProject = folder(t, 'codex-provider-project-')
+  writeFileSync(join(disagreeing, 'config.toml'), 'profile = "a"\n')
+  mkdirSync(join(disagreeingProject, '.codex'))
+  writeFileSync(join(disagreeingProject, '.codex', 'config.toml'), 'profile = "b"\n')
+  assert.equal(await codexProvider(disagreeing, {}, disagreeingProject), null, 'layers that disagree on the active profile are unknown')
+})
+
+/*
+ * Opus review of #1028: a `-c profile=…` launch override was not counted,
+ * even though it can select a different profile as surely as `config.toml`'s
+ * own `profile` key.
+ */
+test('launchOverridesProvider counts a -c profile override, not only model_provider and base_url', () => {
+  assert.equal(launchOverridesProvider(['profile=ollama-launch']), true)
+  assert.equal(launchOverridesProvider(['model_provider=azure']), true)
+  assert.equal(launchOverridesProvider(['openai_base_url=http://localhost:4000/v1']), true)
+  assert.equal(launchOverridesProvider(['approval_policy=never']), false)
+  assert.equal(launchOverridesProvider([]), false)
 })
 
 test('a project’s own Codex configuration can override it for sessions there', async (t) => {

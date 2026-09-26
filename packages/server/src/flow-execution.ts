@@ -179,6 +179,15 @@ export interface FlowExecutionPort {
    * (`AGENTS.md` rule 8).
    */
   presentationOf?(runtime: string): string | null
+  /**
+   * Whether this runtime has any provider reader at all — never whether it
+   * currently rules an override out. False for a runtime like Cursor, whose
+   * vendor is a per-session model choice this desk has no reader for; a
+   * stall then has nothing to tell a person to go fix. Absent reads as
+   * false, the same conservative default: a stall names the generic way
+   * forward rather than pointing at configuration that may not exist.
+   */
+  canReadProvider?(runtime: string): boolean
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
   openSeat(input: GoalSeatRequest): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
@@ -2020,19 +2029,27 @@ export class FlowExecutions {
    * Why independence could not be proven, when every candidate was refused
    * only because an earlier round's own provider could not be read at all —
    * never when every candidate was merely already used. Names the earliest
-   * such card (by number, and by the agent's own presentation name, never a
-   * raw runtime id) and the way forward: read that agent's own
-   * configuration for whatever points it elsewhere, or start this role
-   * without `independentOf`. The guard stays fail-closed either way — this
-   * only changes what the stall says.
+   * such card, by number, and the agent that held it, by its own
+   * presentation name, never a raw runtime id. The way forward differs by
+   * whether there is anything to fix: an agent with a reader that merely
+   * could not rule an override out can have that configuration fixed; an
+   * agent with no reader at all (Cursor, say) has nothing there to point
+   * at, so the only way forward is to drop `independentOf` for this step or
+   * seat that earlier card on an agent whose provider can be read. The
+   * guard stays fail-closed either way — this only changes what the stall
+   * says.
    */
   #unreadableProviderStall(writers: readonly { readonly card: number | null; readonly runtime: string | null; readonly provider: string | null }[]): string {
     const first = writers.find((one) => one.provider === null)
     if (!first) return INDEPENDENT
-    const name = (first.runtime && this.#port.presentationOf?.(first.runtime)) || 'an agent this desk could not identify'
-    const where = first.card !== null ? `card #${first.card} (${name})` : `an earlier seat (${name})`
-    return `This step needs an independent provider, but ${where}’s provider could not be read, so no seat can be proven independent of it. ` +
-      `Fix that agent’s own configuration if something there points it at another host, or run this role without independentOf.`
+    const name = first.runtime ? this.#port.presentationOf?.(first.runtime) : null
+    const location = first.card !== null ? `card #${first.card}` : 'an earlier seat'
+    const who = name ? `the agent on ${location}, ${name},` : `the agent on ${location}`
+    const readable = first.runtime !== null && (this.#port.canReadProvider?.(first.runtime) ?? false)
+    const advice = readable
+      ? 'Fix that agent’s own configuration if something there points it at another host, or run this role without independentOf.'
+      : 'That agent has no provider reader at all, so the only way forward is to run this role without independentOf, or to seat that earlier card on an agent whose provider can be read.'
+    return `This step needs an independent provider, but ${who} could not have its provider read, so no seat can be proven independent of it. ${advice}`
   }
 
   /**

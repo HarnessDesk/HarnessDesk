@@ -1,7 +1,7 @@
 import { constants } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, relative, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 
 import { ConfinedTree } from '../confined-tree.js'
 import type { KnownAgent } from './known-agents.js'
@@ -204,22 +204,37 @@ const geminiProvider = async (context: ProviderContext, cwd?: string): Promise<s
 }
 
 /**
- * DeepSeek Harness (`dsh --profile acp`): DeepSeek's own API, unless
- * `DEEPSEEK_BASE_URL` is set in the environment it starts with, or a
- * person's own composition — the `acp` profile's `cordis.patch.yml`, or the
- * home-level one that outranks every profile — patches its `llm-deepseek`,
- * `llm-deepseek-account` or `llm-deepseek-api-key` entry to a `baseURL`
- * outside `api.deepseek.com`. DSH always starts on the `acp` profile (see
- * the `dsh` entry in `known-agents.ts`), so that is the only profile read;
- * DSH's other profiles (`web`, `headless`, `sdk`) are never this session's,
- * so a patch aimed at one of those is read as inert, never an override — the
- * same reasoning `codexProvider` applies to an inactive Codex profile.
- * DSH's own secret file (`.credentials.yaml`) is never opened: nothing it
- * can hold changes where a request goes, and its contents are not this
- * decision's business.
+ * DeepSeek Harness (`dsh --profile acp`): DeepSeek's own API, but only when
+ * every one of these holds across both layers a person can patch — the
+ * `acp` profile's own `cordis.patch.yml`, and the home-level one that
+ * outranks every profile (DSH always starts on `acp`; see the `dsh` entry
+ * in `known-agents.ts`, and `codexProvider` for the same reasoning about a
+ * profile nothing selects):
+ *
+ * - `DEEPSEEK_BASE_URL` is not set in the environment it starts with;
+ * - no layer's `llm-deepseek`, `llm-deepseek-account` or
+ *   `llm-deepseek-api-key` entry sets `baseURL` outside `api.deepseek.com`;
+ * - no layer's `agent-default-model` entry sets a `provider` other than the
+ *   vendor default, `deepseek-official` — absent is the default, present and
+ *   different is a redirect;
+ * - no layer's `llm-pi-ai` entry carries any `config` at all: that entry
+ *   ships mounted dormant, with zero routes, until a settings document gives
+ *   it one — so any config on it at all means some other provider's routes
+ *   could be live, and which one `agent-default-model` might then pick is
+ *   not this reader's to guess;
+ * - no layer has an `insert` anywhere: a patch that inserts a plugin can add
+ *   any capability, including a different default model or provider, and
+ *   this reader does not attempt to understand an inserted tree.
+ *
+ * A file that is absent contributes nothing (the vendor default holds); one
+ * that cannot be read, like one that redirects anything above, answers
+ * unknown. DSH's own secret file (`.credentials.yaml`) is never opened:
+ * nothing it can hold changes where a request goes, and its contents are
+ * not this decision's business.
  */
 const DSH_BASE_URL_ENV = 'DEEPSEEK_BASE_URL'
 const DSH_HOST = 'api.deepseek.com'
+const DSH_DEFAULT_PROVIDER = 'deepseek-official'
 const DSH_ENTRY_IDS = new Set(['llm-deepseek', 'llm-deepseek-account', 'llm-deepseek-api-key'])
 
 /** Splits a patch file's top-level YAML list into its items' own lines, cruder than a YAML parser: no nesting, no anchors. */
@@ -253,12 +268,35 @@ const yamlValue = (block: readonly string[], key: string): string | null => {
   return null
 }
 
-/** Whether a patch file's `llm-deepseek*` entries point their `baseURL` anywhere but DeepSeek's own host. */
-const dshOverride = (text: string): boolean => {
-  for (const item of yamlListItems(text)) {
-    const id = yamlValue(item, 'id')
-    if (!id || !DSH_ENTRY_IDS.has(id)) continue
-    const baseUrl = yamlValue(item, 'baseURL')
+/** Whether any line of a block names this key at all — used where the mere presence of a key, not its value, is what counts. */
+const yamlHasKey = (block: readonly string[], key: string): boolean =>
+  block.some((line) => new RegExp(`^-?\\s*${key}:`).test(line))
+
+/** The item whose `id:` line matches, or undefined. */
+const yamlItemById = (items: readonly (readonly string[])[], id: string): readonly string[] | undefined =>
+  items.find((item) => yamlValue(item, 'id') === id)
+
+/**
+ * Whether one patch layer's text could point DSH's default session anywhere
+ * but DeepSeek's own API — every condition documented above `dshProvider`,
+ * checked against this layer alone (the caller checks all of them together).
+ */
+const dshLayerOverrides = (text: string): boolean => {
+  const items = yamlListItems(text)
+  if (items.some((item) => yamlHasKey(item, 'insert'))) return true
+
+  const piAi = yamlItemById(items, 'llm-pi-ai')
+  if (piAi && yamlHasKey(piAi, 'config')) return true
+
+  const defaultModel = yamlItemById(items, 'agent-default-model')
+  if (defaultModel) {
+    const provider = yamlValue(defaultModel, 'provider')
+    if (provider !== null && provider !== DSH_DEFAULT_PROVIDER) return true
+  }
+
+  for (const id of DSH_ENTRY_IDS) {
+    const item = yamlItemById(items, id)
+    const baseUrl = item && yamlValue(item, 'baseURL')
     if (!baseUrl) continue
     try {
       if (new URL(baseUrl).hostname !== DSH_HOST) return true
@@ -269,18 +307,31 @@ const dshOverride = (text: string): boolean => {
   return false
 }
 
+/** Expands DSH's own supported tilde forms (`~`, `~/…`) against the OS home; any other path is returned unchanged. */
+const expandDshHome = (path: string, home: string): string => {
+  if (path === '~') return home
+  if (path.startsWith('~/') || path.startsWith('~\\')) return join(home, path.slice(2))
+  return path
+}
+
 const dshProvider = async (context: ProviderContext): Promise<string | null> => {
   const env = context.env ?? process.env
   if ((env[DSH_BASE_URL_ENV] ?? '').trim() !== '') return null
-  const home = env['DSH_HOME']?.trim() || join(context.home ?? homedir(), '.dsh')
+  const osHome = context.home ?? homedir()
+  const configured = env['DSH_HOME']?.trim()
+  const dshHome = configured ? expandDshHome(configured, osHome) : join(osHome, '.dsh')
+  // DSH itself resolves a still-relative home against its own process's
+  // working directory; this reader has no reliable claim to that directory,
+  // so guessing which files it would mean is refused rather than risked.
+  if (!isAbsolute(dshHome)) return null
   const reads = await Promise.all([
-    readOwn(join(home, 'cordis.patch.yml')),
-    readOwn(join(home, 'profiles', 'acp', 'cordis.patch.yml')),
+    readOwn(join(dshHome, 'cordis.patch.yml')),
+    readOwn(join(dshHome, 'profiles', 'acp', 'cordis.patch.yml')),
   ])
   for (const read of reads) {
     if (read.kind === 'absent') continue
     if (read.kind === 'unreadable') return null
-    if (dshOverride(read.text)) return null
+    if (dshLayerOverrides(read.text)) return null
   }
   return 'deepseek'
 }

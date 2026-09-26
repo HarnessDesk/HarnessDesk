@@ -11,17 +11,51 @@ move is real work and is not news to a person weighing an upgrade.
   The desk could only read the vendor behind Claude Code, Gemini CLI and
   Codex, so any other predecessor made the vendor unknown and, since an
   unknown vendor is never taken for independent, the step stalled with no way
-  forward. DeepSeek Harness now has its own reader, through its
-  `cordis.patch.yml` layers. Codex's own reader used to scan the whole of
-  `config.toml`, so a `[profiles.*]` or `[model_providers.*]` table defined
-  for occasional use — and never selected — made every session on that Codex
-  unknown too; it now reads only the profile and provider actually in force.
-  Cursor still has none: which vendor a Cursor session reaches is a choice
-  made per conversation, not something a runtime- or project-level check can
-  answer honestly, so guessing was refused rather than risked. When
-  independence still cannot be proven because an earlier card's own provider
-  could not be read, the stall now names that card and the agent that held
-  it, instead of a generic message with no way forward.
+  forward. DeepSeek Harness now has its own reader; Cursor still has none,
+  on purpose (below). Independence itself is unchanged — still refused the
+  moment any doubt exists — but three places that used to answer a vendor
+  they could not actually rule out now answer unknown instead, and the stall
+  says more when it still cannot be proven.
+
+  Codex's own reader used to scan the whole of `config.toml` as one flat
+  file, which both missed real overrides (a header with a trailing comment,
+  whitespace around a header's dot, a multi-line string that merely
+  *contained* something that looked like a header, a dotted key, an inline
+  table — each could hide a selected override from a line-based scan) and
+  wrongly counted unselected ones (an inactive `[profiles.*]` or
+  `[model_providers.*]` table kept around for occasional use). It now merges
+  every layer it reads — home `config.toml`, each sibling profile file, and
+  a project's own `.codex/config.toml` — into one decision: which `profile`
+  every layer agrees is active (layers that disagree are unknown), and that
+  profile's table and any root override from every layer that has one, not
+  only the layer that selected it. Anything the scanner cannot fully account
+  for now answers unknown outright rather than being skipped. A Codex
+  launch's own `-c profile=…` override is counted the same way `-c
+  model_provider=…` and `-c base_url=…` already were.
+
+  DeepSeek Harness's reader existed but was never reached — `known-agents.ts`
+  had no entry for it, so the real lookup a spawned agent goes through never
+  found one. Reached now, it also checks more than a `baseURL`: a live
+  `llm-pi-ai` route, an `agent-default-model` provider other than the vendor
+  default, or an `insert` anywhere in either of DSH's own patch layers each
+  now answers unknown too, since any of them can redirect a session's
+  default provider without ever touching an `llm-deepseek*` `baseURL`. A
+  `DSH_HOME` starting with `~` is expanded the way DSH itself expands it,
+  and a value that is still relative afterward is unknown rather than a
+  silent guess against the wrong directory.
+
+  Cursor still has no reader: which vendor a Cursor session reaches is a
+  choice made per conversation, not something a runtime- or project-level
+  check can answer honestly, so guessing was refused rather than risked.
+
+  When independence still cannot be proven because an earlier card's own
+  provider could not be read, the stall names the agent that held that card,
+  by number and by its own presentation name where the desk has one. What it
+  says next now depends on whether there is anything to fix: an agent with a
+  reader that merely could not rule an override out is told to fix that
+  configuration; an agent with no provider reader at all is told instead to
+  drop `independentOf` for the step or seat that card on an agent whose
+  provider can be read.
 
 - **Two Seats that may commit no longer share one working tree.** A flow
   role that seats more than one card at a time — `count: 2`, or a list of

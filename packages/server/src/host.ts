@@ -1131,6 +1131,10 @@ export class Host {
     }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
       presentationOf: (runtime) => this.#runtimes.get(runtime)?.info.presentation.name ?? null,
+      // `info.provider` is `undefined` only for a runtime with no provider
+      // reader configured at all (see `AcpRuntime`'s three-valued field);
+      // `null` still means "has one, could not rule an override out."
+      canReadProvider: (runtime) => this.#runtimes.get(runtime)?.info.provider !== undefined,
       openSeat: async (input) => {
         const record = await this.#goals.seat(input)
         // A trigger Goal's Seat starts its meter here — once durable, never awaited inside the run's queue.

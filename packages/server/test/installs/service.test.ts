@@ -253,6 +253,9 @@ test('knowledge is found by row field, registry provenance, template key, or the
     { id: 'hermes', name: 'H', template: 'hermes' },
     { id: 'custom', name: 'C', command: '/usr/local/bin/codebuddy', args: ['--acp'] },
     { id: 'devin-row', name: 'Devin', command: 'devin', args: ['acp'], agent: 'devin' },
+    // A row with none of the provenance fields still resolves by its own id
+    // matching a known agent's — the fallback #1028's review found unused
+    // for `dsh`, since `known-agents.ts` had no entry for it at all.
     { id: 'dsh', name: 'D', command: 'node', args: ['x.js'] },
   ])
   const service = new InstallService({ stateDir: STATE, store, locate: machine({}) })
@@ -263,7 +266,7 @@ test('knowledge is found by row field, registry provenance, template key, or the
     ['hermes', 'hermes'],
     ['custom', 'codebuddy-code'],
     ['devin-row', 'devin'],
-    ['dsh', null],
+    ['dsh', 'dsh'],
   ])
 })
 

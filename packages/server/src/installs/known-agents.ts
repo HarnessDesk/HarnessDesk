@@ -638,6 +638,40 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
     ],
   },
   {
+    id: 'dsh',
+    name: 'DeepSeek',
+    brand: 'deepseek',
+    tagline: "DeepSeek's agent harness, speaking ACP directly.",
+    cli: { commands: ['dsh'] },
+    acp: { args: ['--profile', 'acp'] },
+    publish: {
+      npm: '@deepseek-ai/dsh',
+      installCommand: 'npm install -g @deepseek-ai/dsh',
+    },
+    home: {
+      path: '~/.dsh',
+      env: 'DSH_HOME',
+      credentials: ['.credentials.yaml'],
+      config: ['cordis.patch.yml', 'profiles/acp/cordis.patch.yml'],
+    },
+    auth: {
+      kind: 'api-key',
+      secrets: [
+        {
+          env: 'DEEPSEEK_API_KEY',
+          label: 'DeepSeek API key',
+          helpUrl: 'https://platform.deepseek.com/api_keys',
+          description: 'DeepSeek authenticates with a provider key rather than a browser sign-in.',
+          alsoAt: [
+            { path: '${DSH_HOME:-~/.dsh}/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (.credentials.yaml in its home)" },
+            { path: '${DSH_HOME:-~/.dsh}/.env', format: 'dotenv', label: '.env in its home' },
+          ],
+        },
+      ],
+      note: 'DeepSeek authenticates with a provider key rather than a browser sign-in; there is no separate login command.',
+    },
+  },
+  {
     id: 'devin',
     name: 'Devin',
     brand: 'devin',
