@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'table-row' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
@@ -55,10 +55,12 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
+  'heat-grid': 'packages/ui/src/components/UsageActivity.tsx',
   alert: 'packages/ui/src/components/WorktreeAlerts.tsx',
   badge: 'packages/ui/src/components/GitPane.tsx',
   board: 'packages/ui/src/components/TeamBoardPane.tsx',
   bar: 'packages/ui/src/components/Sidebar.tsx',
+  bubble: 'packages/ui/src/components/Items.tsx',
   button: 'packages/ui/src/components/SignIn.tsx',
   chart: 'packages/ui/src/components/Usage.tsx',
   composer: 'packages/ui/src/components/RoomComposer.tsx',
@@ -75,6 +77,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   input: 'packages/ui/src/components/SignIn.tsx',
   label: 'packages/ui/src/components/Settings.tsx',
   'list-row': 'packages/ui/src/components/TeamRoomPane.tsx',
+  message: 'packages/ui/src/components/Items.tsx',
   'native-select': 'packages/ui/src/components/PluginsSection.tsx',
   popover: 'packages/ui/src/components/ComposerControls.tsx',
   'radio-group': 'packages/ui/src/components/AddMember.tsx',
@@ -93,6 +96,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'heat-grid': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   /* Shown on the compositions board, beside the panes it resizes. Its example
      used to be `showcase/PanelPlayground.tsx`, where coloured rectangles stood
      in for every feature — so the handle was documented against a drawing of
@@ -100,6 +104,9 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   'resize-handle': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   /* Its example is the queue's own rows, which are a sortable list. */
   'sortable-list': 'packages/ui/src/design/explorer/boards.tsx',
+  /* The message board mounts real `ItemView` rows, not a drawing of them. */
+  message: 'packages/ui/src/design/explorer/boards.tsx',
+  bubble: 'packages/ui/src/design/explorer/boards.tsx',
   /* The catalogue's own rail heads its groups with it. */
   'group-label': 'packages/ui/src/design/explorer/Explorer.tsx',
   badge: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -128,7 +135,8 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'TurnWork',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices',
+  'heat-grid',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -145,6 +153,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   badge: ['default', 'secondary', 'destructive', 'outline'],
   board: ['default'],
   breadcrumb: ['default'],
+  bubble: ['secondary', 'ghost'],
   button: ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
   card: ['default', 'muted', 'flush'],
   chart: ['default'],
@@ -167,6 +176,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   label: ['default'],
   'list-row': ['default'],
   marker: ['default', 'border', 'separator'],
+  message: ['start', 'end'],
   'native-select': ['default', 'filled'],
   popover: ['default'],
   progress: ['default', 'remaining', 'ring', 'stack'],
@@ -213,6 +223,8 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   InspectorPanel: ['default'],
   ConversationEmptyState: ['default'],
   TurnWork: ['default'],
+  Notices: ['default'],
+  'heat-grid': ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -224,6 +236,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   badge: ['default', 'active', 'inactive'],
   board: ['default', 'loading', 'empty', 'populated', 'derived'],
   breadcrumb: ['default', 'active'],
+  bubble: ['default', 'expanded', 'collapsed'],
   button: ['default', 'hover', 'focus-visible', 'disabled'],
   card: ['default', 'hover', 'selected'],
   chart: ['default', 'loading', 'empty', 'populated'],
@@ -246,6 +259,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   label: ['default', 'disabled'],
   'list-row': ['default', 'hover', 'selected', 'disabled'],
   marker: ['default', 'success', 'warning', 'error'],
+  message: ['default'],
   'native-select': ['closed', 'open', 'focus-visible', 'disabled'],
   popover: ['closed', 'open'],
   progress: ['default', 'success', 'warning', 'error'],
@@ -292,6 +306,8 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
   ConversationEmptyState: ['empty'],
   TurnWork: ['default', 'expanded'],
+  Notices: ['default', 'populated', 'empty', 'warning', 'error', 'open', 'closed'],
+  'heat-grid': ['default', 'empty', 'populated'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -333,6 +349,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
+  Notices: 'packages/ui/src/components/Notices.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -342,6 +359,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      in for every feature. */
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
+  Notices: 'packages/ui/src/design/explorer/boards.tsx',
   DialogForm: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   Popover: 'packages/ui/src/design/explorer/boards.tsx',
@@ -415,6 +433,7 @@ export const CANONICAL_UI_MODULES = [
   ['badge', 'badge', 'Compact categorical state'],
   ['board', 'kanban', 'Scrollable board and columns'],
   ['breadcrumb', 'adopted', 'Hierarchical location trail'],
+  ['bubble', 'message', 'What a chat message part’s words stand on'],
   ['button', 'button', 'All action and icon buttons'],
   ['card', 'adopted', 'Generic grouped surface'],
   ['chart', 'chart', 'Panel-sized quantitative charts'],
@@ -436,6 +455,7 @@ export const CANONICAL_UI_MODULES = [
   ['label', 'field', 'Native form label'],
   ['list-row', 'list', 'Generic selectable list row'],
   ['marker', 'adopted', 'Status marker'],
+  ['message', 'message', 'Chat message part: row, alignment, content and footer'],
   ['native-select', 'control', 'Native finite-choice select'],
   ['popover', 'propagation', 'Base UI anchored popup parts'],
   ['progress', 'readings', 'Progress and usage meter'],
@@ -458,6 +478,7 @@ export const CANONICAL_UI_MODULES = [
   ['toggle-group', 'control', 'Segmented and multi-toggle behavior'],
   ['tool-pane', 'tool-pane', 'Shared tool-pane chrome'],
   ['tone', 'foundation', 'Typed semantic tone mapping'],
+  ['heat-grid', 'chart', 'Calendar heatmap: quartile levels, a keyboard-walked cursor, its own tooltip'],
   ['tooltip', 'adopted', 'Accessible hover and focus help'],
 ] as const satisfies readonly ModuleSeed[]
 
@@ -483,6 +504,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
+  ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**
@@ -514,6 +536,7 @@ export const PRODUCT_SURFACES = [
   ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/panels/Workbench.tsx', false, 'packages/ui/src/app/App.tsx', 'PanelsSurface'],
   ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx', true],
   ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/components/BrowserPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ToolsSurface'],
+  ['surface.signin', 'signin', 'Sign-in waiting for a pasted code', 'packages/ui/src/components/SignIn.tsx', false, 'packages/ui/src/app/App.tsx', 'SignInSurface'],
 ] as const
 
 export const CATALOG_ENTRIES: readonly CatalogEntry[] = [

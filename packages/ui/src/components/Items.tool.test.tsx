@@ -136,15 +136,16 @@ describe('an opened tool step', () => {
 
     const row = byClass('row')[0]
     const body = container.querySelector('[data-slot="list-row-detail"]')
-    // The row itself is the shared `Card variant="plate"` surface, with its
-    // default gap/padding zeroed: this is a dense conversation row, not a
-    // section's boxed content, so the row's own header rung (30px) and the
-    // body's own inset supply the only spacing — not a Tailwind utility
-    // repeated at the call site.
+    // The row itself is the shared `Card variant="plate" spacing="flush"`
+    // surface: this is a dense conversation row, not a section's boxed
+    // content, so the row's own header rung (30px) and the body's own inset
+    // supply the only spacing — not a Tailwind utility repeated at the call
+    // site.
     expect(row?.getAttribute('data-slot')).toBe('card')
     expect(row?.getAttribute('data-variant')).toBe('plate')
-    expect(row?.className).toContain('!gap-0')
-    expect(row?.className).toContain('!py-0')
+    expect(row?.getAttribute('data-spacing')).toBe('flush')
+    expect(row?.className).toContain('gap-0')
+    expect(row?.className).toContain('py-0')
     expect(body?.getAttribute('data-slot')).not.toBe('card')
     // The step body is the shared `ListRowDetail`, not a bare div of the
     // row's own: `inset="title"` is the step that lands under the header's
@@ -474,7 +475,7 @@ describe('a user bubble', () => {
   const said = (text: string): AgentItem =>
     ({ id: 'u1', type: 'userMessage', content: [{ type: 'text', text }] }) as unknown as AgentItem
 
-  const bubble = (): string => byClass('bubble')[0]?.textContent ?? ''
+  const bubble = (): string => container.querySelector('[data-slot="bubble"]')?.textContent ?? ''
 
   /** One rule for a quotation: every markdown mark stays exactly as written. */
   it('leaves markdown and line breaks exactly as typed', () => {

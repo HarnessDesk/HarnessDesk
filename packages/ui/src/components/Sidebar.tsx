@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
@@ -22,6 +23,7 @@ import {
   MenuLabel,
   MenuNote,
   MenuSeparator,
+  InboxPanel,
   NavigationGroupHeader,
   Popover,
   RailSection,
@@ -275,6 +277,9 @@ export const Sidebar = ({
 
       <Slot name="sidebar.panel" />
 
+      {/* Offers and news that can wait, one at a time, above your seat. */}
+      <SidebarNotices />
+
       <AccountFooter
         onOpenSettings={onOpenSettings}
         onOpenUsage={onOpenUsage}
@@ -454,6 +459,7 @@ export const AccountFooter = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const inbox = useInboxMessages()
   // Outside every pane, so this is the default agent — the one ⌘N starts —
   // and not the focused conversation's.
   const runtime = useRuntime()
@@ -921,6 +927,14 @@ export const AccountFooter = ({
           </Menu>
         )}
       </Popover>
+      {/* The inbox sits beside the seat, not inside its menu: one press to
+          what was kept, and the bell's own tint while something is unread. */}
+      <InboxPanel
+        messages={inbox}
+        onOpen={(id) => store.markInboxRead(id)}
+        onMarkAllRead={() => store.markInboxRead(null)}
+        onClear={() => store.clearInbox()}
+      />
     </Bar>
   )
 }

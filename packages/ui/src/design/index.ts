@@ -96,6 +96,21 @@ export {
   DialogViewport,
 } from './ui/dialog'
 export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives/Banner'
+export {
+  ComposerNotice,
+  ComposerNoticeStack,
+  InboxList,
+  InboxPanel,
+  NoticeCard,
+  NoticeStrip,
+  showProgress,
+  showToast,
+  type InboxMessage,
+  type NoticeAct,
+  type NoticeMessage,
+  type NoticeSurface,
+  type NoticeTone,
+} from './patterns/Notices'
 
 export { ConfirmDialog } from './patterns/ConfirmDialog'
 export { ConversationEmptyState } from './patterns/ConversationEmptyState'
@@ -172,6 +187,6 @@ export {
   type ChannelMessageProps,
   type ChannelState,
 } from './patterns/ChannelMessage'
-export { AgentCard, CardBand, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
+export { AgentCard, CardBand, CardCrest, CardCrestBody, CardShell, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'

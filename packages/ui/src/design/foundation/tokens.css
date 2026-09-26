@@ -94,6 +94,39 @@ body {
   --hd-accent-foreground: rgb(255, 255, 255);
   --hd-accent-hover: var(--hdp-static-accent-600); /* desk: lighter 450 → darker 600 — a press darkens the drawing ink; it never washes it out */
   --hd-accent-dim: rgba(52, 88, 240, 0.12); /* desk: the wash follows the cobalt */
+
+  /* --- the heatmap -----------------------------------------------------
+     "When it ran"'s calendar grid — `design/ui/heat-grid.tsx` — reads a
+     quantity, not a state, so it takes the brand rather than a judgement:
+     the palette's identity hues are spoken for (which agent) and the state
+     colours would make a busy day look like a warning. Five steps, level 0
+     through 4, each a deeper wash of the same accent so the ramp still
+     reads as "more of this" against either theme's own card.
+
+     The empty step is a muted fill, not the card itself: `--hd-card` is what
+     `ChartCard` is drawn on, so a scanned zero in that colour was invisible —
+     indistinguishable from a slot with no cell at all, which undid the whole
+     point of drawing three kinds of nothing differently (review #990, item
+     1). The ramp mixes up from that same step, so 1 through 3 are still read
+     against the fill a zero actually uses, not the card underneath it. */
+  --hd-chart-heat-0: var(--hd-muted);
+  --hd-chart-heat-1: color-mix(in srgb, var(--hd-accent) 22%, var(--hd-chart-heat-0));
+  --hd-chart-heat-2: color-mix(in srgb, var(--hd-accent) 46%, var(--hd-chart-heat-0));
+  --hd-chart-heat-3: color-mix(in srgb, var(--hd-accent) 70%, var(--hd-chart-heat-0));
+  --hd-chart-heat-4: var(--hd-accent);
+  /* Not-scanned: hatched rather than blank, so a reader cannot mistake "the
+     ledger has nothing to say" for "nothing happened". Drawn over the card,
+     the surface every cell sits on — not over `--hd-chart-heat-0`, which is
+     itself a fill now and would only make the stripe read as a second, dimmer
+     tone of "empty" — in an ink strong enough to read as texture at a glance
+     rather than disappear into the ground (review #990, item 3: the border
+     colour at 5% alpha measured under 1.2:1 against the card in both
+     themes). */
+  --hd-chart-heat-not-scanned: repeating-linear-gradient(
+    135deg,
+    var(--hd-card) 0 2px,
+    color-mix(in srgb, var(--hd-muted-foreground) 45%, var(--hd-card)) 2px 3px
+  );
   --hd-danger: var(--hdp-static-red-500);
   --hd-danger-dim: rgba(228, 68, 62, 0.12); /* desk: the palette was rebuilt; this is its value */
   --hd-success: var(--hdp-static-green-500);
@@ -558,16 +591,6 @@ body {
   --hd-z-dialog: 100;
   --hd-z-toast: 200;
 
-  /* The floating notice stack's own measured height, plus its own gap — set
-     from JS (`App.tsx`'s `ResizeObserver` on `.hd-floatingNotices`), never
-     written by a screen. `0px` here is what every reader gets before that
-     effect has run once, and what a screen with nothing to yield to keeps.
-     A pane that can sit under the stack reads it once, at its own top edge,
-     through the system's own helper beside `.hd-floatingNotices`
-     (`app.css`) rather than reaching for this name directly, so the one
-     place that measures the stack is also the one place that says how a
-     pane leaves room for it (#913). */
-  --hd-notice-inset: 0px;
 
   /* =========================================================================
      SEMANTIC COLOUR — what a colour is for, not what it is.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { BackgroundTask, FlowRun, GoalView, Session, SessionQueue, TeamState, WrapPreview } from '@harnessdesk/protocol'
+import type { BackgroundTask, FlowRun, GoalReceipt, GoalView, Session, SessionQueue, TeamState, WrapPreview } from '@harnessdesk/protocol'
 
 import { reportedProvider } from '../src/host.js'
 import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
@@ -215,7 +215,19 @@ test('wrapped or restored Goal cannot dispatch', async (t) => {
   assert.equal(board.intents.length, 1, 'the run’s one card is on the Goal')
   const choices = { summary: 'Stopped by hand.', cards: board.intents.map((card) => ({ id: card.id, resolution: 'dropped' as const, reason: 'The run was stopped.' })) }
   const preview = await client.call('goal/preview', { goal, choices }) as WrapPreview
-  await client.call('goal/wrap', { goal, stamp: preview.stamp, choices })
+  const receipt = await client.call('goal/wrap', { goal, stamp: preview.stamp, choices }) as GoalReceipt
+  // The stopped Seat's turn had already ended, and its answer's own write to
+  // the transcript store is only ever scheduled, never awaited by the turn
+  // itself — so the receipt this wrap committed must still carry what the
+  // Seat actually said, not the gap a read that outran that write would
+  // otherwise leave behind (`Transcripts.enrich` settles the write first).
+  assert.equal(receipt.answers.length, 1, 'the stopped Seat’s answer is on the receipt')
+  assert.notEqual(receipt.answers[0]!.text.trim(), '', 'the Seat’s actual answer is recorded, not empty')
+  assert.equal(
+    receipt.gaps.some((gap) => gap.includes('has no recorded answer')),
+    false,
+    'no gap claims the Seat’s answer is missing',
+  )
   const sessions = harness.runtime.sessions.size
   const turns = client.events.filter((event) => event.type === 'turn/started').length
   const channel = (await client.call('team/state', { room: goal }) as TeamState).channel.length

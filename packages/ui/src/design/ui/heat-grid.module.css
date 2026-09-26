@@ -1,0 +1,111 @@
+/* The calendar heatmap's own layout: a CSS grid whose column count is set by
+   the caller (53 weeks, or 91 days), so it cannot be expressed in a fixed
+   utility class. Colour is still a token — `--hd-chart-heat-*`, applied by
+   the `data-level` / `data-state` attributes below — never a literal here.
+
+   One grid, explicitly placed: a row's header and its cells share a row
+   height that comes from the cells' own `aspect-ratio` once the grid is
+   fluid, and two independent grids would not agree on that height once the
+   column width changes. */
+
+.grid {
+  display: grid;
+  gap: var(--hd-space-0-5);
+  min-width: var(--heat-grid-min-width, 480px);
+  align-items: center;
+}
+
+.cell {
+  aspect-ratio: 1;
+  border-radius: var(--hd-radius-2xs);
+  background: var(--hd-chart-heat-0);
+  min-width: 0;
+  min-height: 8px;
+  cursor: default;
+  transition: opacity var(--hd-duration) var(--hd-ease);
+}
+
+.cell[data-level='1'] {
+  background: var(--hd-chart-heat-1);
+}
+.cell[data-level='2'] {
+  background: var(--hd-chart-heat-2);
+}
+.cell[data-level='3'] {
+  background: var(--hd-chart-heat-3);
+}
+.cell[data-level='4'] {
+  background: var(--hd-chart-heat-4);
+}
+
+.cell[data-state='not-scanned'] {
+  background: var(--hd-chart-heat-not-scanned);
+}
+
+.cell[data-today] {
+  box-shadow: 0 0 0 1.5px var(--hd-ring);
+}
+
+.cell[data-active] {
+  outline: 2px solid var(--hd-ring);
+  outline-offset: 1px;
+}
+
+/* Type and ink are the caller's `Text` — a header is whatever the caller
+   passed (a weekday abbreviation, an agent's name), and this class is only
+   the slot it sits in. `margin`, not `padding`: there is nothing here for a
+   padding to sit inside, and margin is the layout side of the boundary. */
+.header {
+  display: flex;
+  align-items: center;
+  margin-right: var(--hd-space-2);
+  white-space: nowrap;
+}
+
+.monthLabel {
+  display: block;
+  align-self: end;
+  margin-bottom: var(--hd-space-1);
+}
+
+.scroller {
+  overflow-x: auto;
+  padding-bottom: var(--hd-space-0-5);
+}
+
+/* The legend: the same five levels and the not-scanned hatch the grid itself
+   draws, so a caller never owns a coloured swatch of its own. Type and ink
+   are `Text role="meta"`, applied where this class is used. */
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+}
+
+.legendGap {
+  margin-left: var(--hd-space-1);
+}
+
+.swatch {
+  display: inline-block;
+  width: var(--hd-space-2-5);
+  height: var(--hd-space-2-5);
+  border-radius: var(--hd-radius-2xs);
+  background: var(--hd-chart-heat-0);
+}
+
+.swatch[data-level='1'] {
+  background: var(--hd-chart-heat-1);
+}
+.swatch[data-level='2'] {
+  background: var(--hd-chart-heat-2);
+}
+.swatch[data-level='3'] {
+  background: var(--hd-chart-heat-3);
+}
+.swatch[data-level='4'] {
+  background: var(--hd-chart-heat-4);
+}
+.swatch[data-state='not-scanned'] {
+  background: var(--hd-chart-heat-not-scanned);
+}

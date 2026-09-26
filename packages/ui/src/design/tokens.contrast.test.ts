@@ -696,6 +696,103 @@ describe("an accent's light face outranks a palette's on source order alone, so 
   })
 })
 
+/**
+ * The calendar heatmap's own ramp — `--hd-chart-heat-*` — held to the three
+ * numbers the review that found it invisible actually measured against
+ * (#990, items 1 and 3): the loudest step against the emptiest one, the
+ * empty step against the card it used to *be*, and the not-scanned hatch
+ * against the fill it is drawn over. None of these are text, so the bar is
+ * the WCAG UI-component floor (3:1) or looser, not AA — the point is that a
+ * scanned zero and a busy day are now two different, visible things, not
+ * that either reads like a paragraph.
+ */
+describe('the calendar heatmap ramp is visible', () => {
+  const resolved = faces()
+
+  /** `color-mix(in srgb, A P%, B)` resolved the same way `over` composites an
+   * alpha — the snapshot leaves such expressions unevaluated, so a token
+   * built from one has to be finished here the way a browser finishes it. */
+  const resolveColor = (value: string): Rgb | null => {
+    const direct = parse(value)
+    if (direct) return direct
+    const mix = /^color-mix\(in srgb,\s*(.+?)\s+([\d.]+)%,\s*(.+)\)$/.exec(value.trim())
+    if (!mix) return null
+    const a = resolveColor(mix[1] as string)
+    const b = resolveColor(mix[3] as string)
+    if (!a || !b) return null
+    const p = Number(mix[2]) / 100
+    return { r: a.r * p + b.r * (1 - p), g: a.g * p + b.g * (1 - p), b: a.b * p + b.b * (1 - p), a: 1 }
+  }
+
+  /** Splits `repeating-linear-gradient(angle, stop, stop, …)` on its
+   * top-level commas only — a stop's own `color-mix(...)` or `rgb(...)`
+   * carries commas of its own that a plain split would break on. */
+  const gradientStops = (value: string): string[] => {
+    const inner = /^repeating-linear-gradient\((.*)\)$/.exec(value.trim())?.[1]
+    if (!inner) return []
+    const out: string[] = []
+    let depth = 0
+    let at = 0
+    for (let index = 0; index < inner.length; index += 1) {
+      const char = inner[index]
+      if (char === '(') depth += 1
+      else if (char === ')') depth -= 1
+      else if (char === ',' && depth === 0) {
+        out.push(inner.slice(at, index).trim())
+        at = index + 1
+      }
+    }
+    out.push(inner.slice(at).trim())
+    return out
+  }
+
+  /** The hatch's own stripe colour — the second stop, with its length
+   * offsets (`2px 3px`) stripped back off the end. */
+  const stripeColorOf = (gradient: string): Rgb | null => {
+    const stops = gradientStops(gradient)
+    const last = stops.at(-1)
+    if (!last) return null
+    const color = last.replace(/\s+[\d.]+px(?:\s+[\d.]+px)?$/, '')
+    return resolveColor(color)
+  }
+
+  for (const face of ['light', 'dark'] as const) {
+    it(`heat-4 reads against heat-0 at 3:1 or better (${face})`, () => {
+      const UI_UI_LOCAL = 3
+      const heat0 = resolveColor(faceOf(resolved, face).get('--hd-chart-heat-0') ?? '')
+      const heat4 = resolveColor(faceOf(resolved, face).get('--hd-chart-heat-4') ?? '')
+      expect(heat0, `${face}: --hd-chart-heat-0 did not resolve`).not.toBeNull()
+      expect(heat4, `${face}: --hd-chart-heat-4 did not resolve`).not.toBeNull()
+      const ratio = contrast(heat0 as Rgb, heat4 as Rgb)
+      expect(ratio, `${face}: heat-4 on heat-0: ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(UI_UI_LOCAL)
+    })
+
+    it(`heat-0 reads against the card, so a scanned zero is not invisible (${face})`, () => {
+      // `--hd-muted` against `--hd-card` measures ~1.09:1 in the light face —
+      // the review's own "about 1.1:1" was an estimate, not the token's own
+      // system value to go change for this one ramp. Either way it is a real
+      // step up from the 1:1 a same-as-the-card fill measured before.
+      const FLOOR = 1.05
+      const heat0 = resolveColor(faceOf(resolved, face).get('--hd-chart-heat-0') ?? '')
+      const card = parse(faceOf(resolved, face).get('--hd-card') ?? '')
+      expect(heat0, `${face}: --hd-chart-heat-0 did not resolve`).not.toBeNull()
+      expect(card, `${face}: --hd-card missing`).not.toBeNull()
+      const ratio = contrast(heat0 as Rgb, card as Rgb)
+      expect(ratio, `${face}: heat-0 on the card: ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(FLOOR)
+    })
+
+    it(`the not-scanned hatch reads against heat-0 (${face})`, () => {
+      const FLOOR = 1.5
+      const heat0 = resolveColor(faceOf(resolved, face).get('--hd-chart-heat-0') ?? '')
+      const stripe = stripeColorOf(faceOf(resolved, face).get('--hd-chart-heat-not-scanned') ?? '')
+      expect(heat0, `${face}: --hd-chart-heat-0 did not resolve`).not.toBeNull()
+      expect(stripe, `${face}: could not read the hatch's stripe colour`).not.toBeNull()
+      const ratio = contrast(stripe as Rgb, heat0 as Rgb)
+      expect(ratio, `${face}: hatch stripe on heat-0: ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(FLOOR)
+    })
+  }
+})
+
 describe('the accent reads as a word in both faces', () => {
   const resolved = faces()
   for (const face of ['light', 'dark'] as const) {

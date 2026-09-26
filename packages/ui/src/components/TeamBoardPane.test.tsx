@@ -827,6 +827,38 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
   expect(labels).toContain('Answer approve')
 })
 
+/**
+ * A run on a Goal that stopped for its person — its Seat asked a question
+ * nobody answered in time — holds its card until they act. The Goal's header
+ * says "Needs you" for it, so the board draws the card there and counts it,
+ * from the same rule the host reads for the Goal's activity. Once the run goes
+ * on — the question answered — the card is Working again, and the count says so.
+ */
+it('a card of a run stopped for its person needs you, and is working again once the run goes on', async () => {
+  const held = intent({ id: 1, state: 'claimed', role: 'fixer', title: 'Fix the retry', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })
+  const run = (state: 'stalled' | 'running') => ({
+    id: 'flow-run-1', goal: ROOM, version: 2, state, reason: state === 'stalled' ? 'Card #1: its Seat asked a question nobody can answer.' : null,
+    operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'fixer', kind: 'agent' }] } },
+    rounds: [{ n: 1, role: 'fixer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+  })
+  const withRun = (state: 'stalled' | 'running') => {
+    const { store } = rig([held])
+    const snapshot = { ...store.getSnapshot(), flowExecutions: new Map([['flow-run-1', run(state)]]) }
+    return { ...store, getSnapshot: () => snapshot } as unknown as AppStore
+  }
+
+  await render(withRun('stalled'))
+  expect(column('Needs you').textContent).toContain('Fix the retry')
+  expect(card('Fix the retry').textContent).toContain('run stopped')
+  expect(container.textContent).toContain('0 working · 1 need you')
+
+  await render(withRun('running'))
+  expect(column('Working').textContent).toContain('Fix the retry')
+  expect(card('Fix the retry').textContent).not.toContain('run stopped')
+  expect(container.textContent).toContain('1 working · 0 need you')
+})
+
 const observed = (checks: readonly string[], cards: BoardEvidence['cards']): BoardEvidence => ({
   room: ROOM,
   stamp: 1,
@@ -834,6 +866,37 @@ const observed = (checks: readonly string[], cards: BoardEvidence['cards']): Boa
   refused: [],
   unreadable: null,
   cards,
+})
+
+/**
+ * A run stalled by one card must not sweep in a card that already finished.
+ * Three reviewers on one round: the first approved before a teammate's card
+ * stalled the run on its account's usage limit, and the finished one stays
+ * put — in Ready, with its outcome — while its still-unfinished siblings
+ * carry the "run stopped" reason the header count reads too.
+ */
+it('a run stalled by one card leaves a sibling that already finished alone', async () => {
+  const approved = intent({ id: 1, state: 'done', role: 'reviewer', title: 'Card #1', outcome: 'approve' })
+  const waiting = intent({ id: 2, state: 'open', role: 'reviewer', title: 'Card #2' })
+  const held = intent({ id: 3, state: 'claimed', role: 'reviewer', title: 'Card #3', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })
+  const execution = {
+    id: 'flow-run-3', goal: ROOM, version: 2, state: 'stalled',
+    reason: 'Card #2: its Seat hit its account\'s usage limit.',
+    operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'reviewer', kind: 'person', outcomes: ['approve', 'reject'] }] } },
+    rounds: [{ n: 1, role: 'reviewer', cards: [1, 2, 3], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+  }
+  const { store } = rig([approved, waiting, held], {}, observed([], []))
+  const snapshot = { ...store.getSnapshot(), flowExecutions: new Map([['flow-run-3', execution]]) }
+  const withRun = { ...store, getSnapshot: () => snapshot } as unknown as AppStore
+
+  await render(withRun)
+  expect(column('Ready').textContent).toContain('Card #1')
+  expect(column('Needs you').textContent).toContain('Card #2')
+  expect(column('Needs you').textContent).toContain('Card #3')
+  expect(column('Ready').textContent).not.toContain('Card #2')
+  expect(column('Ready').textContent).not.toContain('Card #3')
+  expect(container.textContent).toContain('0 working · 2 need you')
 })
 
 const chipsOf = (id: number): HTMLButtonElement | null =>

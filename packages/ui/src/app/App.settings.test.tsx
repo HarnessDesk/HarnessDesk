@@ -17,7 +17,7 @@ vi.mock('../lib/desktop', () => ({
 }))
 vi.mock('../panels/Workbench', () => ({ Workbench: () => null }))
 vi.mock('../components/Sidebar', () => ({ Sidebar: () => null }))
-vi.mock('../components/Notices', () => ({ Notices: () => null, StatusBanner: () => null }))
+vi.mock('../components/Notices', () => ({ Notices: () => null }))
 vi.mock('../components/ImportOffer', () => ({ ImportOffer: () => null }))
 vi.mock('../design', () => ({ Toaster: () => null }))
 vi.mock('../state/theme', () => ({ useTheme: () => 'light' }))

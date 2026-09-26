@@ -264,14 +264,20 @@ const ChartTipRow = ({
   label,
   value,
   tint,
+  divider,
   className,
   ...props
 }: Omit<React.ComponentProps<'div'>, 'children'> & {
   label: ReactNode
   value: ReactNode
   tint?: Tint
+  /** Set off from the rows above it — a tip's own "Total" line. */
+  divider?: boolean
 }) => (
-  <div className={cn('flex items-center gap-1.5', className)} {...props}>
+  <div
+    className={cn('flex items-center gap-1.5', divider && 'border-(--hd-border) mt-1 border-t pt-1', className)}
+    {...props}
+  >
     {tint && <SeriesDot tint={tint} className="size-1.5" />}
     <span className="min-w-0 flex-1 truncate">{label}</span>
     <span className="shrink-0 font-medium tabular-nums">{value}</span>
@@ -637,7 +643,7 @@ const DayColumns = ({
               })}
               {series.length > 1 && (
                 <ChartTipRow
-                  className="border-(--hd-border) mt-1 border-t pt-1"
+                  divider
                   label="Total"
                   value={format(shown.total)}
                 />

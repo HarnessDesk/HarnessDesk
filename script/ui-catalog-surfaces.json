@@ -40,6 +40,10 @@
     {
       "id": "surface.tools",
       "implementationPath": "packages/ui/src/components/BrowserPane.tsx"
+    },
+    {
+      "id": "surface.signin",
+      "implementationPath": "packages/ui/src/components/SignIn.tsx"
     }
   ]
 }

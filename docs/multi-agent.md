@@ -679,6 +679,7 @@ the MCP bridge:
 | `get_context` | `intent` (required) | Fetches the context package left by the completed intent. |
 | `get_team_status` | *(none)* | Returns the room roster: member names, models, runtime types, activity state (working/idle), and held claims. |
 | `agent_message` | `to` (required), `text` (required), `wake?` | Sends a message to a peer by nickname. `wake: false` queues for turn end; `wake: true` steers mid-turn where supported. |
+| `notify_person` | `where` (required: `inbox` or `composer`), `title` (required), `body?`, `task?` | Tells the person something outside the conversation. `inbox` keeps news for later, with `task` offered as "Start as a task"; `composer` asks for a decision on this conversation's own composer. Needs no room. At most five per conversation in ten minutes; the title is cut to 120 characters and the body to 600. The person's Settings › Notifications row "Messages from Agents" decides where it lands — where the Agent asks, the inbox only, or nowhere. |
 
 **Context chip**:
 - **Team board**: attaches the current board summary (intents, claims, holders)
@@ -848,7 +849,14 @@ read each becomes one named, durable wait, shown as Needs you on the Goal's
 own header and in the sidebar's room row — which also names where the Goal
 came from ("from PR #12," "from issue #7," "from a schedule") — and resolved
 through the same approval, message, question, person-card or trigger surface
-any other wait already uses. macOS notifications gain two kinds of their own,
+any other wait already uses. A Seat's question there waits as long as this
+machine says — five minutes unless you chose otherwise in Settings ›
+Permissions, from stopping right away to waiting until you are back — and
+then stops its run and ends its turn. Answered afterwards on that same
+question card, it is handed to the Seat in a turn of its own — reopened
+first, the way a relaunch reopens a Seat — and the run goes on. Until then
+the Seat's card sits in Needs you on the board, where the header reads it. A
+run a person started is never timed: its Seat's question waits for them. macOS notifications gain two kinds of their own,
 individually silenceable exactly like every other kind: unattended work that
 needs a person, and a trigger that was skipped. A wrapped Goal's receipt keeps
 that same origin and stop reason, frozen, so reading it back later never has

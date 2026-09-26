@@ -285,6 +285,22 @@ export const projectGroupRootOf = (workspace: WorkspaceEntry | null | undefined)
 }
 
 /**
+ * The row a room is filed under.
+ *
+ * A room keeps the folder its work started in, as that folder was opened
+ * (`projectRootOf`), because that is where the work is cut from — a folder
+ * reached through a link keeps the link's spelling. The list homes the same
+ * folder at its canonical root (`projectGroupRootOf`). Filed under its own
+ * spelling, the room earned the project a second row, under "Other
+ * projects", and went missing from the row it belongs to. So a room whose
+ * root is an open folder's own spelling is filed where that folder is.
+ */
+export const roomGroupRootOf = (root: string, open: readonly (WorkspaceEntry | null | undefined)[]): string => {
+  const opened = open.find((one) => one?.path === root)
+  return (opened && projectGroupRootOf(opened)) ?? root
+}
+
+/**
  * `listPrefs.pinned`/`.collapsed`, corrected for the one spelling a link
  * could have recorded them under.
  *

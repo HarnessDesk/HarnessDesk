@@ -5,13 +5,26 @@ import type { AgentItem } from '@harnessdesk/protocol'
 import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
+import { Toaster } from '../ui/toast'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
+import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
+import { Mount } from '../../preview/harness'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
   AccountMark,
+  ComposerNotice,
+  ComposerNoticeStack,
+  InboxPanel,
+  InboxList,
+  NoticeCard,
+  NoticeStrip,
+  showProgress,
+  showToast,
+  type InboxMessage,
+  type NoticeMessage,
   Alert,
   AlertContent,
   AlertDescription,
@@ -19,6 +32,8 @@ import {
   Banner,
   BannerAction,
   ActionError,
+  Bubble,
+  BubbleContent,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -61,6 +76,9 @@ import {
   RowChoice,
   Rows,
   Lightbox,
+  Message,
+  MessageContent,
+  MessageFooter,
   MetaList,
   Monogram,
   NavigationGroupHeader,
@@ -142,6 +160,16 @@ const SWITCH_CATALOG_ON = ['true', 'false'] as const
 const TOGGLE_GROUP_CATALOG_VARIANTS = ['default', 'outline'] as const
 const TOGGLE_GROUP_CATALOG_SIZES = ['default', 'sm', 'lg'] as const
 const TOGGLE_GROUP_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
+const BUBBLE_CATALOG_VARIANTS = ['secondary', 'ghost'] as const
+const BUBBLE_CATALOG_SIZES = ['default'] as const
+const BUBBLE_CATALOG_STATES = ['default', 'expanded', 'collapsed'] as const
+const MESSAGE_CATALOG_ALIGN = ['start', 'end'] as const
+/* Same values as `MESSAGE_CATALOG_ALIGN` — the manifest's own axis name for
+   `Message` ("variants") and the CVA contract's ("align") are different
+   words for the row's one choice, so the coverage check wants both spelled. */
+const MESSAGE_CATALOG_VARIANTS = ['start', 'end'] as const
+const MESSAGE_CATALOG_SIZES = ['default'] as const
+const MESSAGE_CATALOG_STATES = ['default'] as const
 
 const ButtonBoard = () => (
   <>
@@ -493,6 +521,14 @@ const RowBoard = () => {
             />
           ))}
         </Rows>
+
+        {/* A machine setting as Settings › Permissions ships it: one question,
+            its answers as RowChoice rows, and what they share said once. */}
+        <div data-catalog-case="question-wait">
+          <Mount>
+            <QuestionWaitSection />
+          </Mount>
+        </div>
       </div>
       </Specimen>
       <p className={styles.rule}>
@@ -576,6 +612,125 @@ const FaceBoard = () => (
     </p>
   </>
 )
+
+/* The notice surfaces, each with the message it is for. The words are the
+   desk's own situations, so the board reads as the app would. */
+const NOTICE_NOW = 30 * 60_000
+const NOTICE_CARD: NoticeMessage[] = [
+  { id: 'update', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 and one agent update are ready.', action: { label: 'Relaunch', onSelect: () => {}, shortcut: '⌘R' } },
+  { id: 'offer', title: 'Skills and servers to share', body: 'Your other agents have some this machine could use. Nothing is copied until you confirm.', action: { label: 'Review in Library', onSelect: () => {} } },
+]
+const NOTICE_STRIP: NoticeMessage[] = [
+  { id: 'pace', tone: 'warning', title: 'Claude Code is on course to run out in 51m.', action: { label: 'Switch agent', onSelect: () => {} } },
+  { id: 'signin', tone: 'danger', title: 'Cursor is not signed in.', action: { label: 'Sign in', onSelect: () => {} } },
+]
+const NOTICE_INBOX: InboxMessage[] = [
+  { id: 'i0', tone: 'info', from: 'Reviewer', title: 'Keep the old retry count, or raise it to five?', body: 'Five covers the documented flaps; three matches the other clients.', action: { label: 'Start as a task', onSelect: () => {} }, at: NOTICE_NOW - 60_000 },
+  { id: 'i1', tone: 'warning', title: 'On course to run out', body: 'Claude Code will run out in 51m, before the window resets.', action: { label: 'Switch agent', onSelect: () => {} }, at: NOTICE_NOW - 4 * 60_000 },
+  { id: 'i2', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 is ready.', at: NOTICE_NOW - 2 * 3_600_000 },
+  { id: 'i3', from: 'Checkout hardening', title: 'Goal finished', body: 'Checkout hardening closed its last card.', at: NOTICE_NOW - 26 * 3_600_000, read: true },
+]
+
+const NOTICE_ASK: NoticeMessage = {
+  id: 'ask',
+  tone: 'info',
+  title: 'Keep the old retry count, or raise it to five?',
+  body: 'Five covers the documented flaps; three matches the other clients.',
+}
+
+/* Every surface in every state the app can put it in, drawn by the shipped
+   components with the props the app passes: one message and several, with and
+   without an action, dismissable and not, the second dismissal's "Stop showing
+   this", the inbox empty, all read and full, and each kind of toast. */
+const NoticesBoard = () => {
+  const [inbox, setInbox] = useState(NOTICE_INBOX)
+  const read = (id: string) => setInbox((all) => all.map((message) => (message.id === id ? { ...message, read: true } : message)))
+  return (
+    <div className={styles.stack}>
+      <Case label="card: one message">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="card: several, paged one at a time">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={NOTICE_CARD} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="card: dismissed twice before — the × offers Stop showing this">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} onMute={() => () => {}} />
+        </div>
+      </Case>
+      <Case label="composer: each tone, with and without an action or a dismiss">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
+            <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
+            <ComposerNotice message={{ id: 'plain', title: 'Reconnecting to the host…' }} />
+          </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="composer: an Agent asks, and the strip sharing the stack">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            <NoticeStrip messages={[{ id: 'link', tone: 'warning', title: 'Reconnecting to the host…' }]} onDismiss={() => {}} />
+            <ComposerNotice message={NOTICE_ASK} onDismiss={() => {}} onMute={() => {}} />
+          </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="strip: one message">
+        <NoticeStrip messages={NOTICE_STRIP.slice(0, 1)} onDismiss={() => {}} />
+      </Case>
+      <Case label="strip: several, paged">
+        <NoticeStrip messages={NOTICE_STRIP} onDismiss={() => {}} />
+      </Case>
+      <Case label="inbox: the bell and its panel; unread tints the bell">
+        <div className="flex items-start gap-(--hd-space-4)">
+          <InboxPanel messages={inbox} now={NOTICE_NOW} onOpen={read} />
+          <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
+            <InboxList
+              messages={inbox}
+              now={NOTICE_NOW}
+              onOpen={read}
+              onMarkAllRead={() => setInbox((all) => all.map((message) => ({ ...message, read: true })))}
+              onClear={() => setInbox([])}
+            />
+          </div>
+        </div>
+      </Case>
+      <Case label="inbox: all read, and empty">
+        <div className="flex flex-wrap items-start gap-(--hd-space-4)">
+          <InboxPanel messages={NOTICE_INBOX.map((message) => ({ ...message, read: true }))} now={NOTICE_NOW} />
+          <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
+            <InboxList messages={NOTICE_INBOX.map((message) => ({ ...message, read: true }))} now={NOTICE_NOW} />
+          </div>
+          <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
+            <InboxList messages={[]} now={NOTICE_NOW} />
+          </div>
+        </div>
+      </Case>
+      <Case label="toast: a result, a failure that stays until closed, and work under way">
+        <div className="flex flex-wrap gap-(--hd-space-2)">
+          <Button variant="secondary" type="button" onClick={() => showToast({ title: 'Backup saved to your Desktop.', action: { label: 'Show', onSelect: () => {} } })}>
+            Result
+          </Button>
+          <Button variant="secondary" type="button" onClick={() => showToast({ tone: 'danger', title: 'Could not save the backup.', body: 'The disk is full.' }, { persist: true })}>
+            Failure
+          </Button>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={() => showProgress(new Promise((resolve) => setTimeout(resolve, 1500)), { working: 'Exporting…', done: 'Exported.', failed: 'Export failed.' })}
+          >
+            Under way
+          </Button>
+        </div>
+        <Toaster />
+      </Case>
+    </div>
+  )
+}
 
 const BannerBoard = () => (
   <>
@@ -834,6 +989,50 @@ const CATALOGUE_EMPTY_RESULTS = [
   { id: 'catalogue-empty-read', type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed', args: { file_path: '/workspace/README.md' }, result: emptyResult },
 ] as unknown as AgentItem[]
 
+/** A short sent message — the bubble sized to its own words. */
+const CATALOGUE_USER_SHORT = {
+  id: 'catalogue-user-short',
+  type: 'userMessage',
+  content: [{ type: 'text', text: 'Does the gate need the renderer in CI too?' }],
+  startedAt: Date.now() - 60_000,
+} as unknown as AgentItem
+
+/** Past the fold: the twelve-line clamp and its "Show all" toggle, measured
+ * rather than guessed, so the catalogue proves the same behaviour a screen
+ * gets rather than a drawing of it. */
+const CATALOGUE_USER_LONG = {
+  id: 'catalogue-user-long',
+  type: 'userMessage',
+  content: [{
+    type: 'text',
+    text: Array.from({ length: 18 }, (_, index) => `Line ${index + 1} of a message long enough to fold.`).join('\n'),
+  }],
+  startedAt: Date.now() - 30_000,
+} as unknown as AgentItem
+
+/** An attachment beside the words — the lightbox opens from the same tile a screen gets. */
+const CATALOGUE_USER_IMAGE = {
+  id: 'catalogue-user-image',
+  type: 'userMessage',
+  content: [
+    { type: 'text', text: 'Here is the state after the fix.' },
+    {
+      type: 'image',
+      name: 'Before-and-after.svg',
+      url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iMTgwIj48cmVjdCB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgZmlsbD0iIzViOGRlZiIvPjxjaXJjbGUgY3g9IjE2MCIgY3k9IjkwIiByPSI0NiIgZmlsbD0iI2ZmZmZmZiIgZmlsbC1vcGFjaXR5PSIwLjg1Ii8+PC9zdmc+',
+    },
+  ],
+  startedAt: Date.now() - 15_000,
+} as unknown as AgentItem
+
+/** The far side: full width, unframed, a Markdown answer. */
+const CATALOGUE_ASSISTANT_ANSWER = {
+  id: 'catalogue-assistant-answer',
+  type: 'assistantMessage',
+  phase: 'final',
+  text: 'Ready to look at the change — the gate now runs the same build CI does, so a broken bundle fails locally instead of only in review.',
+} as unknown as AgentItem
+
 /** DeepSeek over its own ACP server: its three everyday tools, with real output. */
 const CATALOGUE_DSH_TURN = [
   { id: 'catalogue-dsh-plan', type: 'toolCall', tool: 'todo_write', source: { kind: 'builtin' }, status: 'completed', args: { todos: [{ content: 'List the folder', status: 'completed' }, { content: 'Read the README', status: 'completed' }] }, result: [{ type: 'text', text: 'Updated todo list: 0 pending, 0 in progress, 2 completed.' }] },
@@ -914,6 +1113,97 @@ const CodeBoard = () => (
       A command and what it printed are one exact record, so they share one
       plate and one code register. Prose keeps its horizontal scroll because a
       source line is not a shell command and should not be reflowed.
+    </p>
+  </div>
+)
+
+/**
+ * The transcript's own two message parts: `Message`, the row and its
+ * alignment, and `Bubble`, what the words stand on. The rows below are the
+ * real `ItemView` — the same component the transcript mounts, not a drawing
+ * of it — so the clamp's "Show all" is measured here exactly as it is there.
+ */
+const MessageBoard = () => (
+  <div className={styles.stack}>
+    <div
+      className={styles.matrix}
+      data-catalog-variants={MESSAGE_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={[...BUBBLE_CATALOG_SIZES, ...MESSAGE_CATALOG_SIZES].join(' ')}
+      data-catalog-states={[...BUBBLE_CATALOG_STATES, ...MESSAGE_CATALOG_STATES].join(' ')}
+    >
+      {BUBBLE_CATALOG_VARIANTS.map((variant) => (
+        <Case key={variant} label={`bubble: ${variant}`}>
+          <Bubble variant={variant} data-catalog-variant={variant}>
+            <BubbleContent>
+              {variant === 'secondary' ? 'A short reply.' : 'An unframed answer, the full row.'}
+            </BubbleContent>
+          </Bubble>
+        </Case>
+      ))}
+      {MESSAGE_CATALOG_ALIGN.map((align) => (
+        <Case key={align} label={`message align: ${align}`}>
+          <Message align={align} data-catalog-align={align}>
+            <Bubble variant={align === 'end' ? 'secondary' : 'ghost'}>
+              <BubbleContent>
+                {align === 'end' ? 'The current person, right-aligned.' : 'Everyone else, at the left.'}
+              </BubbleContent>
+            </Bubble>
+          </Message>
+        </Case>
+      ))}
+    </div>
+    <Case label="a sent message — end-aligned, sized to its own words">
+      <div className="w-full" data-testid="message-user-short">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_USER_SHORT} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="a long sent message — clamped past twelve lines, with the toggle">
+      <div className="w-full" data-testid="message-user-long">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_USER_LONG} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="a sent message with an image">
+      <div className="w-full" data-testid="message-user-image">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_USER_IMAGE} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="an answer — start-aligned, unframed, the full row">
+      <div className="w-full" data-testid="message-assistant-answer">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_ASSISTANT_ANSWER} root="/workspace" />
+          <MessageFooter align="start">
+            <CopyButton text="Ready to look at the change." label="Copy this message" />
+            <Text as="span" role="meta" numeric>10:41 AM</Text>
+          </MessageFooter>
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="content composed directly — the surface and a footer, without a screen's own row">
+      <div className="w-full" data-testid="message-content-direct">
+        <Message align="end">
+          <MessageContent className="items-end">
+            <Bubble variant="secondary">
+              <BubbleContent>Looks right.</BubbleContent>
+            </Bubble>
+            <MessageFooter align="end">
+              <Text as="span" role="meta" numeric>10:41 AM</Text>
+            </MessageFooter>
+          </MessageContent>
+        </Message>
+      </div>
+    </Case>
+    <p className={styles.rule}>
+      <code>Bubble</code> has two variants because two screens reach for one each:{' '}
+      <code>secondary</code> is the current person&rsquo;s own words, filled and capped at two
+      thirds of the column; <code>ghost</code> is everyone else&rsquo;s, unframed and the full
+      row, because rendered prose is a document rather than a chip. The room&rsquo;s
+      own channel line (the Channel board) stands on the same two parts.
     </p>
   </div>
 )
@@ -1123,6 +1413,18 @@ const ChannelBoard = () => (
       </div>
     </Case>
 
+    <Case label="a long message, folded past nine lines">
+      <div className={styles.channel} data-testid="channel-long-sample">
+        <ChannelMessage
+          from="Reviewer"
+          brand="claudecode"
+          tint="teal"
+          at="03:35 PM"
+          state="delivered"
+          text={Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of a review long enough to fold.`).join('\n')}
+        />
+      </div>
+    </Case>
     <Case label="a notice, and a message with its envelope">
       <div className={styles.channel}>
         <ChannelNotice
@@ -1251,6 +1553,13 @@ export const BOARDS: Board[] = [
     render: FaceBoard,
   },
   {
+    id: 'notices',
+    title: 'Notices',
+    about:
+      'Where a message goes, chosen by what it is about: a card at the sidebar\u2019s foot for something to do when convenient, a notice on the composer it blocks, a slim strip, the inbox for what is worth keeping, a toast for a result. One message shape for all five.',
+    render: NoticesBoard,
+  },
+  {
     id: 'banner',
     title: 'Banner',
     about: 'Something the app needs to say that nobody asked for.',
@@ -1261,6 +1570,12 @@ export const BOARDS: Board[] = [
     title: 'CodeBlock',
     about: 'A command and its output, kept together as one exact record.',
     render: CodeBoard,
+  },
+  {
+    id: 'message',
+    title: 'Message · Bubble',
+    about: 'A sent message and an answer, and what each one stands on: sized to its words, or the full row.',
+    render: MessageBoard,
   },
   {
     id: 'channel',

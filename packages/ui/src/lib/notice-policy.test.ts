@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MUTE_AFTER,
-  NOTICE_KINDS,
   afterDismiss,
   emptyNoticePolicy,
   isSilenced,
+  MUTE_AFTER,
+  NOTICE_KINDS,
+  NOTICE_USES,
   noticeKind,
   offersMute,
   readNoticePolicy,
-  withMuted,
+  surfaceFor,
   type NoticeIdentity,
+  withMuted,
+  withSurface,
 } from './notice-policy'
 
 /**
@@ -53,7 +56,7 @@ describe('a condition', () => {
 
   it('stops offering once it has actually been silenced', () => {
     const policy = withMuted(
-      { records: { 'usage:pace': { count: 5, at: NOW } }, muted: [], seen: [] },
+      { records: { 'usage:pace': { count: 5, at: NOW } }, muted: [], seen: [], surfaces: {}, kept: [] },
       'usage:pace',
       true,
     )
@@ -82,7 +85,7 @@ describe('an offer', () => {
   it('is never given a second door on the banner itself', () => {
     // It has already been answered for good; asking again in a menu would be
     // asking the same question twice in one click.
-    const policy = { records: { 'import:offer': { count: 3, at: NOW } }, muted: [], seen: [] }
+    const policy = { records: { 'import:offer': { count: 3, at: NOW } }, muted: [], seen: [], surfaces: {}, kept: [] }
     expect(offersMute(policy, offer)).toBe(false)
   })
 })
@@ -92,7 +95,7 @@ describe('something happening right now', () => {
     const policy = afterDismiss(emptyNoticePolicy(), link, NOW)
     expect(policy).toEqual(emptyNoticePolicy())
     expect(isSilenced(policy, link)).toBe(false)
-    expect(offersMute({ records: { link: { count: 9, at: NOW } }, muted: [], seen: [] }, link)).toBe(false)
+    expect(offersMute({ records: { link: { count: 9, at: NOW } }, muted: [], seen: [], surfaces: {}, kept: [] }, link)).toBe(false)
   })
 
   it('has no row to turn off, because a dropped link must always be able to speak', () => {
@@ -127,6 +130,8 @@ describe('what is written down', () => {
     ).toEqual({
       muted: ['usage:pace'],
       seen: ['a'],
+      surfaces: {},
+      kept: [],
       records: { 'usage:pace': { count: 2, at: NOW } },
     })
   })
@@ -143,5 +148,43 @@ describe('the settings page', () => {
       expect(entry.detail.length).toBeGreaterThan(0)
     }
     expect(new Set(NOTICE_KINDS.map((entry) => entry.kind)).size).toBe(NOTICE_KINDS.length)
+  })
+})
+
+describe('where a kind is shown', () => {
+  it('goes to its first surface until moved, and nowhere once turned off', () => {
+    const policy = emptyNoticePolicy()
+    expect(surfaceFor(policy, 'usage:spent')).toBe('composer')
+    expect(surfaceFor(policy, 'import:offer')).toBe('card')
+    expect(surfaceFor(withSurface(policy, 'usage:spent', null), 'usage:spent')).toBeNull()
+    expect(surfaceFor(policy, 'not-a-kind')).toBeNull()
+  })
+
+  it('moves a kind only to a surface it may take, and moving it turns it back on', () => {
+    const off = withSurface(emptyNoticePolicy(), 'import:offer', null)
+    const moved = withSurface(off, 'import:offer', 'inbox')
+    expect(surfaceFor(moved, 'import:offer')).toBe('inbox')
+    expect(moved.muted).not.toContain('import:offer')
+    // A kind that blocks a turn is never a sidebar card.
+    expect(withSurface(emptyNoticePolicy(), 'usage:spent', 'card')).toEqual(emptyNoticePolicy())
+  })
+
+  it('stores only a departure from the default, so a changed default reaches everybody else', () => {
+    const moved = withSurface(emptyNoticePolicy(), 'usage:pace', 'strip')
+    expect(moved.surfaces).toEqual({ 'usage:pace': 'strip' })
+    expect(withSurface(moved, 'usage:pace', 'composer').surfaces).toEqual({})
+  })
+
+  it('reads back only surfaces a kind may still take', () => {
+    const read = readNoticePolicy({ surfaces: { 'usage:pace': 'strip', 'usage:spent': 'card', ghost: 'inbox' } })
+    expect(read.surfaces).toEqual({ 'usage:pace': 'strip' })
+  })
+
+  it('every kind names what it is for and at least one surface', () => {
+    for (const entry of NOTICE_KINDS) {
+      expect(NOTICE_USES.map((use) => use.use)).toContain(entry.use)
+      expect(entry.surfaces.length).toBeGreaterThan(0)
+      if (entry.use === 'blocks') expect(entry.surfaces).not.toContain('card')
+    }
   })
 })

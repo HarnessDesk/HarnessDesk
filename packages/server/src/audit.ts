@@ -31,6 +31,8 @@ export interface AuditEntry {
     | 'team/message'
     | 'team/intent'
     | 'library/write'
+    /** An Agent told the person something; `decision` is where it went, or why not. */
+    | 'person/notice'
   /** turn/completed; for library writes, the op's outcome. */
   readonly status?: string
   readonly steps?: number

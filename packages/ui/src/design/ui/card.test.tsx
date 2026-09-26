@@ -72,6 +72,17 @@ it('owns the compact inset and rhythm of a dense report card', () => {
   expect(card?.className).not.toContain('py-4')
 })
 
+it('zeroes a plate card down to a dense row, without redrawing flush by hand', () => {
+  act(() => root.render(<Card variant="plate" spacing="flush">Tool row</Card>))
+  const card = container.querySelector<HTMLElement>('[data-slot="card"]')
+  expect(card?.dataset['variant']).toBe('plate')
+  expect(card?.dataset['spacing']).toBe('flush')
+  expect(card?.className).toContain('gap-0')
+  expect(card?.className).toContain('py-0')
+  // The plate's own surface stays: spacing zeroes rhythm, not the variant's ground.
+  expect(card?.className).toContain('bg-(--hd-card-fill,var(--hd-card))')
+})
+
 it('owns the fixed preview viewport inside a card', () => {
   act(() => root.render(<CardViewport size="editor">Preview</CardViewport>))
   const viewport = container.querySelector<HTMLElement>('[data-slot="card-viewport"]')

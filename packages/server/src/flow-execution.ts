@@ -37,7 +37,7 @@ import { cardVars, guardHolds } from './flow.js'
 import {
   evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
 } from './flow-evidence.js'
-import { decideLoop } from './findings/rounds.js'
+import { decideLoop, QUESTION_STOP } from './findings/rounds.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
 import type { TriggerClosure } from './intake/consent.js'
@@ -407,6 +407,29 @@ export const CHECK_CWD_OUTSIDE = 'This check points outside the project. Choose 
 export const CHECK_UNPLANNED = 'This check’s checkouts were not recorded when its round opened, so it was not run. Start a new run.'
 const LANE_REFUSED = 'This step needs its own checkout, ports and browser profile, and they could not all be prepared, so its Seat was released.'
 
+/**
+ * Why a round stalled on one Seat that would not open, and what a person can
+ * do about it.
+ *
+ * A round's cards start together (`#seatRound`): every Seat is opened and
+ * made durable before any of them is handed its card, so a comparison never
+ * runs with one competitor, and a rule never judges a round that only part
+ * of started. The siblings are not refused — they were never tried — and the
+ * reason says so by number, because "stalled" alone read as though the whole
+ * round had failed on its own. The next step is the one that clears it, in
+ * order: nothing restarts a stalled round in place, a new run opens a Goal of
+ * its own, and only a wrap stops this run (`stopGoal`, the wrap barrier) — so
+ * wrap first, then fix the Seat and start the flow again.
+ */
+export const seatRefused = (card: number, cards: readonly number[], why: string): string => {
+  const siblings = cards.filter((one) => one !== card).map((one) => `#${one}`)
+  const together = siblings.length === 0
+    ? ''
+    : `\nA round’s cards start together, so card${siblings.length === 1 ? '' : 's'} ${siblings.join(', ')} ${siblings.length === 1 ? 'was' : 'were'} not started either.`
+  return `The Seat for card #${card} could not be opened: ${why}${together}\n` +
+    `Next: wrap this Goal, which stops this run, then fix what stopped card #${card} and start the flow again in a new Goal.`
+}
+
 /** What a finished round's rule decides: fire one (with the evidence that authorized it), wait, or end the run. */
 export type RuleDecision =
   | { readonly kind: 'fire'; readonly rule: FlowPolicyRule; readonly evidence: readonly string[] }
@@ -463,6 +486,9 @@ class JournalWriteError extends Error {
 }
 
 const done = (card: Intent | undefined): boolean => card?.state === 'done' || card?.state === 'abandoned'
+
+/** What a run records when its Seat's question on `card` went unanswered: one sentence, written and recognised here. */
+const questionStall = (card: number, reason: string): string => `Card #${card}: its Seat ${reason}. Its answer so far is kept.`
 
 const now = (): number => Date.now()
 
@@ -882,21 +908,164 @@ export class FlowExecutions {
   async stopForQuestion(runtime: string, sessionId: string, reason: string): Promise<boolean> {
     for (const run of [...this.#runs.values()]) {
       if (run.state !== 'running') continue
-      const seat = run.operations.find((one) => {
-        if (one.kind !== 'seat' || !one.seat) return false
-        const record = this.#port.seatOf(one.seat)
-        return record?.session.runtime === runtime && record.session.sessionId === sessionId
+      if (!this.#seatingOf(run, runtime, sessionId)) continue
+      await this.#queue.within(run.id, async () => {
+        // Read again inside the queue: the card is the one this Seat holds now, not when the deadline fired.
+        const seating = this.#seatingOf(this.#get(run.id), runtime, sessionId)
+        if (seating) await this.#stall(run.id, questionStall(seating.card, reason))
       })
-      if (!seat) continue
-      await this.#queue.within(run.id, () => this.#stall(run.id, `Card #${seat.card ?? '?'}: its Seat ${reason}. Its answer so far is kept.`))
       return true
     }
     return false
   }
 
-  /** Whether a conversation is a Seat of a running run: nobody is watching for its questions. */
+  /**
+   * A person answered the question an unattended Seat's turn was stopped on.
+   * That turn is over, so the answer cannot go into it: the run goes back to
+   * running, durably, and the Seat — reopened first, the way a relaunch
+   * reopens one — is handed the question and its answer in a turn of its
+   * own, with its card, and carries on. `settle` closes the old question,
+   * as answered, right before that turn is sent: never after it has begun.
+   * False when no run here stopped on this Seat's question, so the answer is
+   * not the flow's to deliver. Throws a sentence when it is and cannot be
+   * delivered: before `settle`, the question is kept and the run left
+   * stopped on it; after, the run stops with the answer in its reason.
+   */
+  async answerQuestion(
+    runtime: string,
+    sessionId: string,
+    words: { readonly question: string; readonly answer: string },
+    settle: () => Promise<void>,
+  ): Promise<boolean> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'stalled' || !this.#seatingOf(run, runtime, sessionId)) continue
+      return this.#queue.within(run.id, () => this.#answerQuestion(run.id, runtime, sessionId, words, settle))
+    }
+    return false
+  }
+
+  /**
+   * The question was answered in the turn that asked it after all — an
+   * answer that landed between its run stopping and its turn being
+   * interrupted, or after an interrupt that never took. The run stopped on
+   * that question goes back to running; the turn carries on with the answer.
+   */
+  async answeredInTurn(runtime: string, sessionId: string): Promise<void> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'stalled' || !this.#seatingOf(run, runtime, sessionId)) continue
+      await this.#queue.within(run.id, async () => {
+        const now = this.#get(run.id)
+        const seating = this.#seatingOf(now, runtime, sessionId)
+        if (seating && now.state === 'stalled' && now.reason === questionStall(seating.card, QUESTION_STOP)) {
+          await this.#put({ ...now, state: 'running', reason: null })
+        }
+      })
+      return
+    }
+  }
+
+  async #answerQuestion(
+    id: string,
+    runtime: string,
+    sessionId: string,
+    words: { readonly question: string; readonly answer: string },
+    settle: () => Promise<void>,
+  ): Promise<boolean> {
+    const stopped = (): boolean => {
+      const run = this.#get(id)
+      const seating = this.#seatingOf(run, runtime, sessionId)
+      return seating !== null && run.state === 'stalled' && run.reason === questionStall(seating.card, QUESTION_STOP)
+    }
+    if (!stopped()) return false
+    // A trigger's run sends nothing its gate would not: read before anything is decided below.
+    const intake = this.#get(id).intake
+    if (intake) {
+      if (intake.dispatchHeld) throw new Error(DISPATCH_HELD)
+      const gate = await this.#gateOf(id)
+      if (!gate.ok) throw new Error(`Your answer was not sent: ${gate.reason}`)
+      if (!stopped()) return false
+    }
+    /* Read again here, after the gate's await. What is carried past the
+       awaits below — the Seat, its round and its binding — is safe to carry:
+       only this run's queue writes this run, and it is held throughout; the
+       run itself is always read afresh. */
+    const run = this.#get(id)
+    const seating = this.#seatingOf(run, runtime, sessionId)!
+    const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === seating.card)
+    if (!card || done(card)) throw new Error(`Card #${seating.card} is already finished, so there is nothing to hand this answer to.`)
+    const seat = this.#port.seatOf(seating.seat!)
+    if (!seat || seat.closed) {
+      throw new Error(`The Seat for card #${card.id} is ${seat ? 'closed' : 'no longer recorded'}, so it cannot be handed your answer. Start a new run to pick up the work.`)
+    }
+    // A turn still ending — the one the question stopped, or one begun since — is never sent into: the answer waits for it.
+    if (this.#port.busy?.(seat)) throw new Error(`The Seat for card #${card.id} is inside a turn now. Answer again once it ends.`)
+    const round = run.rounds.find((one) => one.cards.includes(card.id))
+    const index = round ? round.cards.indexOf(card.id) : -1
+    const binding = round ? bindingsFor(run, round.role)[index] : undefined
+    if (!round || !binding) throw new Error(`Card #${card.id} no longer matches a Seat of its round, so it cannot be handed your answer.`)
+    const stall = questionStall(card.id, QUESTION_STOP)
+    // Durable before the Seat hears anything, and before the person is told it was sent.
+    await this.#put({ ...run, state: 'running', reason: null })
+    if (!await this.#sameSeat(id, seat, card.id, round.role, 'answered')) throw new Error(this.#get(id).reason ?? 'The Seat could not be reopened.')
+    /* Reopening can take a while — a runtime starting that was not up — and
+       the gate was read before it began. A limit reached meanwhile still
+       holds: read it again right before the hand-back (#939). One that
+       lifts on its own leaves the run stopped on the question, still
+       answerable; any other stops the run with its reason. */
+    if (this.#get(id).intake) {
+      const again = await this.#gateOf(id)
+      if (!again.ok) {
+        await this.#put({ ...this.#get(id), state: 'stalled', reason: again.transient ? stall : again.reason })
+        throw new Error(`Your answer was not sent: ${again.reason}`)
+      }
+    }
+    const prefix = `turn:${round.n}:${index}:answer:`
+    const key = `${prefix}${this.#get(id).operations.filter((one) => one.key.startsWith(prefix)).length + 1}`
+    const lead = [
+      'The person has answered the question you asked. Your turn had already been stopped while it waited, so their answer comes to you here.',
+      `You asked: ${words.question}`,
+      `Their answer: ${words.answer}`,
+      'Carry on from where you were, with that answer.',
+    ].join('\n\n')
+    // The old question closes as answered before the turn that carries the answer begins.
+    await settle()
+    const refused = await this.#handOver(id, key, seat, card.id, binding, lead)
+    const left = this.#get(id)
+    if (refused !== null || left.operations.find((one) => one.key === key)?.state === 'prepared') {
+      /* Not delivered — refused, or a turn began between the look and the
+         send. The question is already closed, so the run stops with the
+         answer in its reason: nothing reads as running over an answer the
+         Seat never heard, and the answer is not lost. */
+      const why = refused ?? 'it started another turn first'
+      const kept = left.operations.filter((one) => one.key !== key || one.state !== 'prepared')
+      await this.#put({
+        ...left, operations: kept, state: 'stalled',
+        reason: `Card #${card.id}: your answer (${words.answer}) could not be handed to its Seat: ${why}. Tell it in that conversation.`,
+      })
+      throw new Error(`Your answer could not be handed to the Seat for card #${card.id}: ${why}.`)
+    }
+    return true
+  }
+
+  /** The latest seating of this conversation on a run, preferring one whose card is still open. */
+  #seatingOf(run: StoredFlowExecution, runtime: string, sessionId: string): (FlowOperation & { readonly card: number }) | null {
+    const board = run.goal ? this.#team.stateFor(run.goal).intents : []
+    const mine = run.operations.filter((one): one is FlowOperation & { readonly card: number } => {
+      if (one.kind !== 'seat' || !one.seat || one.card === null) return false
+      const record = this.#port.seatOf(one.seat)
+      return record?.session.runtime === runtime && record.session.sessionId === sessionId
+    })
+    return mine.filter((one) => !done(board.find((card) => card.id === one.card))).at(-1) ?? mine.at(-1) ?? null
+  }
+
+  /**
+   * Whether a conversation is a Seat of a running run a trigger started:
+   * nobody is here for its questions, so they wait only as long as this
+   * machine says. A run a person started is theirs, and its Seat's question
+   * waits for their answer.
+   */
   unattended(runtime: string, sessionId: string): boolean {
-    return [...this.#runs.values()].some((run) => run.state === 'running' && run.operations.some((one) => {
+    return [...this.#runs.values()].some((run) => run.state === 'running' && run.intake !== undefined && run.operations.some((one) => {
       if (one.kind !== 'seat' || !one.seat) return false
       const record = this.#port.seatOf(one.seat)
       return record !== null && record.closed === null && record.session.runtime === runtime && record.session.sessionId === sessionId
@@ -1886,7 +2055,7 @@ export class FlowExecutions {
       } catch (error) {
         // The opening failed and said so: nothing is left open for this slot.
         await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'finished', card, seat: null }))
-        return fail(`The Seat for card #${card} could not be opened: ${error instanceof Error ? error.message : String(error)}`)
+        return fail(seatRefused(card, round.cards, error instanceof Error ? error.message : String(error)))
       }
       openedNow.push(String(record.id))
       await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'finished', card, seat: String(record.id) }))
@@ -1942,7 +2111,7 @@ export class FlowExecutions {
    * inside its brief's turn finishes it, needs no order at all. Only a send
    * refused for any other reason is a refusal (the answer, its words).
    */
-  async #handOver(id: string, key: string, seat: SeatRecord, cardId: number | null, binding: FlowBinding): Promise<string | null> {
+  async #handOver(id: string, key: string, seat: SeatRecord, cardId: number | null, binding: FlowBinding, lead?: string): Promise<string | null> {
     const cardNow = (): Intent | undefined => this.#team.stateFor(this.#get(id).goal).intents.find((one) => one.id === cardId)
     const turn = (state: FlowOperation['state']) => this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state, card: cardId, seat: String(seat.id) }))
     if (done(cardNow())) {
@@ -1955,7 +2124,8 @@ export class FlowExecutions {
     }
     await turn('started')
     try {
-      await this.#port.order(seat, this.#cardOrder(this.#get(id), cardNow(), binding))
+      const order = this.#cardOrder(this.#get(id), cardNow(), binding)
+      await this.#port.order(seat, lead ? `${lead}\n\n${order}` : order)
     } catch (error) {
       // A turn that began between the look and the send is the same Seat at work, not a refusal.
       if (this.#port.busy?.(seat) || done(cardNow())) {
@@ -2430,7 +2600,7 @@ export class FlowExecutions {
    * for a card going back after a quit or a hold stalls the run too, rather
    * than leaving it running over nothing.
    */
-  async #sameSeat(id: string, seat: SeatRecord, cardId: number, roleId: string, why: 'turn-ended' | 'released' | 'relaunched'): Promise<boolean> {
+  async #sameSeat(id: string, seat: SeatRecord, cardId: number, roleId: string, why: 'turn-ended' | 'released' | 'relaunched' | 'answered'): Promise<boolean> {
     const role = policyOf(this.#get(id)).roles.find((one) => one.id === roleId)
     if (role?.kind === 'agent' && role.isolate) {
       const lane = this.#port.laneOf(seat)

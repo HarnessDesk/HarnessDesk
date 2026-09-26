@@ -723,6 +723,33 @@ it('a project opened through a symlink is one row, not two', () => {
 })
 
 /**
+ * A Goal started in that same project keeps the folder as it was opened —
+ * the link's spelling, which is where its work is cut from — while the row
+ * is homed at git's resolved one. Its room used to earn a second row of its
+ * own under that spelling, filed with the projects you are not standing in:
+ * the same folder twice, once open and once under "Other projects", and the
+ * room missing from the row it belongs to.
+ */
+it('a room started in a project opened through a symlink is drawn in that project’s one row', () => {
+  const real = '/private/var/folders/x/work/widgets'
+  const link = '/var/folders/x/work/widgets'
+  const { container: tree } = treeWith(
+    [
+      room({ id: 'goal-1', name: 'Fix the retry', root: link }),
+      room({ id: 'other-1', name: 'Elsewhere', root: '/elsewhere' }),
+      room({ id: 'other-2', name: 'Further', root: '/further' }),
+    ],
+    [summary({ id: 'session-1', cwd: real, repo: { root: real, worktree: false } })],
+    [],
+    { othersOpen: true },
+    { path: link, name: 'widgets', lastOpenedAt: 1, repo: { root: real, worktree: false } },
+  )
+  const widgetsRows = [...tree.querySelectorAll('button')].filter((one) => one.textContent?.trim().startsWith('widgets'))
+  expect(widgetsRows).toHaveLength(1)
+  expect(tree.textContent).toContain('Fix the retry')
+})
+
+/**
  * The public report (#907), for a folder no git repository names: opened
  * through the same kind of alias, a non-git project also showed up as two
  * rows, and folding it needed the host's own `realPath` (`WorkspaceEntry`

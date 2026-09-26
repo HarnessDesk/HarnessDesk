@@ -1180,8 +1180,13 @@ class PreviewStore {
   ): Promise<import('@harnessdesk/protocol').TriggerPreferences> => triggerPreferencesFixture({ paused, dailyUsd })
   triggerGoal = async (goal: string): Promise<import('@harnessdesk/protocol').TriggerGoalStatus | null> =>
     goal === PREVIEW_TRIGGER_GOAL.goal.id ? triggerGoalStatus({ goal }) : null
+  loadQuestionWait = async (): Promise<'5m'> => '5m'
+  setQuestionWait = async (): Promise<boolean> => true
   loadUnattendedCeilings = async (): Promise<'seat' | 'refuse'> => 'refuse'
   setUnattendedCeilings = async (): Promise<void> => {}
+  /* A pasted sign-in code goes nowhere here, and — unlike the fallback below,
+     which prints what it was called with — is never written to the console. */
+  submitLoginCode = async (): Promise<boolean> => false
 
   // --- flows -----------------------------------------------------------
   flowGeneration = (): number => 0

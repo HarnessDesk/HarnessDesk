@@ -36,6 +36,7 @@ const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ d
 const RailSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RailSurface })))
 const SeatRowsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SeatRowsSurface })))
 const ToolsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ToolsSurface })))
+const SignInSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SignInSurface })))
 import { FOUNDATIONS, TOKEN_GROUPS, tokenVisual, useResolvedTokens } from './foundation'
 import styles from './explorer.module.css'
 
@@ -124,7 +125,7 @@ const SURFACES = [
     id: 'group',
     title: 'Group project',
     about:
-      'The team board and the room it belongs to, side by side — the shipped `TeamBoardPane` and `TeamRoomPane` on the preview\'s Checkout rewrite room: five columns of work, the claimed card naming the agent session that holds it, and the room\'s chat and members beside. Where the room stands in the workspace list is on the Left bar tab.',
+      'The team board and the room it belongs to, side by side — the shipped `TeamBoardPane` and `TeamRoomPane` on the preview\'s Checkout rewrite room: five columns of work, the claimed card naming the agent session that holds it, and the room\'s chat and members beside. Below it, a Goal whose run stopped on its Seat\'s unanswered question: the header reads Needs you, and the board draws that Seat\'s card in Needs you and counts it — beside a reviewer\'s card that already answered on the same run, which stays in Ready with its outcome rather than being swept in too. Then a run stalled because the first Seat of its round would not open: its two cards wait unclaimed, and the room\'s live line gives the host\'s own reason — the refusal, the sibling the round held back, and the way on. Where the room stands in the workspace list is on the Left bar tab.',
     render: GroupSurface,
   },
   {
@@ -189,6 +190,13 @@ const SURFACES = [
     about:
       'The shipped browser, editor and terminal panes, in the frame they share. What differs between them is only what each tool genuinely is; the header, the mark, the subject line, the tab strip and whether the body pads or bleeds are one component. On this page the browser can only plan pages, the editor shows the real source of `lib/brands.ts`, and the terminal redraws a fixture\'s scrollback with no shell behind it — nothing new arrives, and typing goes nowhere.',
     render: ToolsSurface,
+  },
+  {
+    id: 'signin',
+    title: 'Sign in',
+    about:
+      'The shipped Sign in dialog on the sign-in preview\'s roster, open on Claude while its browser sign-in waits: the command asked for the code the page shows when it cannot finish by itself, so the card asks for it in a password field, beside the page and the cancel. The dialog\'s other states — a refusal, a key, a device code, an account connected — are scenes of `/preview.html`, not of this tab.',
+    render: SignInSurface,
   },
   {
     id: 'propagation',

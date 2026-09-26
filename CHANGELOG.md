@@ -7,6 +7,65 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An isolated flow runs on any agent.** A competitor in an isolated lane
+  was refused on every agent that cannot take the lane's port variables per
+  conversation — "cannot pass a lane environment to a session" — so a
+  comparison with one of them could not start at all. The Seat now opens in
+  its own lane all the same, and its first message gives it the lane's ports
+  to pass to its commands itself. And when a Seat of a round cannot open, the
+  room now says why beside the header's **Needs you**: what refused it, which
+  of the round's other cards were held back with it (a round's cards start
+  together), and what to do next.
+
+
+- **Wrapping a Goal right after stopping its run now waits for the stopped
+  Seat's answer to finish saving.** That answer is written to disk a beat
+  after the turn ends, and wrapping right away could catch it mid-write: the
+  receipt could then say a Seat that had answered "has no recorded answer",
+  or the wrap could refuse with "This Goal changed while you reviewed its
+  receipt. Review it again." A read now waits for that write first, so the
+  receipt always carries what the Seat actually said.
+
+- **The Dashboard shows when the work ran.** A new "When it ran" band draws a
+  year as a calendar heatmap — Year or By agent, Tokens or Cost — with the
+  active days, the current and best streak, and the busiest day beside it. A
+  day before the ledger has scanned that far reads as unknown, not empty.
+
+- **A flow Seat's question waits for you.** On a run you started, a Seat's
+  question is no longer cut off after twenty seconds: it waits for your
+  answer. In a Goal a trigger opened, it waits as long as **Settings ›
+  Permissions › When nobody is here, an agent's question waits** says — five
+  minutes by default, from stopping right away to waiting until you are back
+  — and then its run stops for you. Answering it after that, on the room's
+  question card, now carries on the work: the Seat is handed your answer in a
+  turn of its own and the run goes with it, where before the answer went
+  nowhere. While a run is stopped like that, its board draws the Seat's card
+  in **Needs you**, as the header already said. A Goal started in a project
+  opened through a link is no longer listed a second time under **Other
+  projects**.
+- **A sign-in that wants a pasted code asks for it.** When an agent's browser
+  sign-in cannot finish by itself, the page shows a code to paste back into
+  the agent's sign-in command — which the desk runs in the background, so the
+  sign-in used to wait forever. Sign in now shows a password field for that
+  code beside the page and Cancel, and hands the code to the command. The
+  code is never logged, kept or repeated in an error.
+- **Secondary text is its own level again, and a segmented control shows its
+  choice.** Secondary and tertiary ink measured a hair apart — the app read
+  as two greys doing the work of three — so secondary moved to the grey
+  ramp's own darker step, easier to tell from a count or a timestamp at a
+  glance. A segmented control's chosen answer (Settings › Appearance's
+  dials, a Dashboard pivot) is lifted on the card again, with a hairline
+  shadow and primary ink, instead of blending into the track it sits on.
+
+- **A request-based Cursor plan shows its requests left, first.** An account
+  still on Cursor's older, request-quota tier is billed against its own
+  request counter whether or not the dashboard's summary resolves a percent —
+  that percent measures a different, dollar-denominated pool, so an account
+  can be out of requests while the summary still reads as mostly left. The
+  card now leads with the Requests lane whenever the counter names the
+  current cycle, with the summary's percent beside it as a comparable scale
+  and an on-demand budget of its own when the account has one turned on.
+
 - **A signed-out agent's mark looks empty.** The seat's badge and the menu's
   mark for an agent with no one signed in were meant to read as an empty seat
   and never did; they now draw a dashed ring with no plate and a quieter

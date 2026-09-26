@@ -23,6 +23,7 @@ const engine = (): TeamEngine & { readonly candidateCalls: unknown[]; readonly r
   return {
     candidateCalls,
     recordCalls,
+    notify: async () => "",
     board: refused,
     addIntent: async () => 'x',
     claim: async () => 'x',

@@ -14,7 +14,11 @@ test('real sidebar footer fills its column and its menu is painted and clickable
     }, width)
     const gap = await trigger.evaluate(node => {
       const footer = node.parentElement!.parentElement!
-      const box = footer.getBoundingClientRect(), row = node.getBoundingClientRect()
+      // The row is the seat and the inbox bell beside it: the seat opens the
+      // row, the bell closes it, and together they fill the column.
+      const end = footer.lastElementChild!.getBoundingClientRect()
+      const box = footer.getBoundingClientRect(), seat = node.getBoundingClientRect()
+      const row = { left: seat.left, right: end.right }
       // The column states one inset for every row it holds; the footer row is
       // one of them, so read the number rather than repeating it here — a
       // literal would have to be edited every time the column is re-spaced,
@@ -249,4 +253,39 @@ test('the account marks case shows every size and the empty seat as the app draw
     return { background: style.backgroundColor, outline: style.outlineStyle, shadow: style.boxShadow }
   })
   expect(look).toEqual({ background: 'rgba(0, 0, 0, 0)', outline: 'dashed', shadow: 'none' })
+})
+
+/**
+ * Two regressions a re-vendoring of `toggle-group.tsx` or a stale `cn()`
+ * merge could reintroduce (`design/patterns/Settings.tsx`'s `Segmented`,
+ * `design/ui/toggle-group.tsx`): the chosen answer must actually read as
+ * lifted off its own track, not blend into it; and pointing at an unchosen
+ * answer must never fade its label — the primitive's own `hover:text-
+ * muted-foreground` lowers it from secondary ink toward tertiary, which is
+ * dimmer, not stronger. Measured on the catalogue's own instance
+ * (`view=control`, "Reasoning effort") rather than a fabricated fixture.
+ */
+test('a segmented control lifts its chosen answer off the track and never fades an unchosen one on hover', async ({ page }) => {
+  await page.goto('/design.html?view=control')
+  const track = page.getByRole('radiogroup', { name: 'Reasoning effort' })
+  await expect(track).toBeVisible()
+  const chosen = track.getByRole('radio', { name: 'Medium', exact: true })
+  const unchosen = track.getByRole('radio', { name: 'Low', exact: true })
+
+  const [trackBg, chosenBg] = await Promise.all([
+    track.evaluate(node => getComputedStyle(node).backgroundColor),
+    chosen.evaluate(node => getComputedStyle(node).backgroundColor),
+  ])
+  expect(chosenBg).not.toBe(trackBg)
+
+  const brightness = (rgb: string) => {
+    const channels = rgb.match(/\d+(\.\d+)?/g)!.map(Number)
+    return (channels[0] + channels[1] + channels[2]) / 3
+  }
+  const resting = brightness(await unchosen.evaluate(node => getComputedStyle(node).color))
+  await unchosen.hover()
+  // Polls rather than reading once: `transition-colors` means the value right
+  // after the hover event may still be mid-animation.
+  await expect.poll(async () => brightness(await unchosen.evaluate(node => getComputedStyle(node).color)))
+    .toBeLessThanOrEqual(resting)
 })

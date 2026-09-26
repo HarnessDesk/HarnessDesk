@@ -108,7 +108,7 @@ import type {
   SessionSettings,
   SessionSummary,
 } from './session.js'
-import type { Intent, Plan, TeamInbound, TeamPeerInfo, TeamState } from './team.js'
+import type { Intent, PersonNotice, Plan, TeamInbound, TeamPeerInfo, TeamState } from './team.js'
 import type {
   LedgerQuery,
   LedgerReport,
@@ -1136,6 +1136,16 @@ export interface HostMethods {
   }
   'runtime/login/cancel': {
     params: { readonly runtime: RuntimeId; readonly loginId: string }
+    result: null
+  }
+  /**
+   * The code a sign-in asked to have pasted — see `AgentRuntime.submitLoginCode`.
+   * A secret travelling one way, like a stored key: nothing on this wire ever
+   * hands it back, and no answer or error repeats it. The outcome is the
+   * flow's `account/loginCompleted`, as for every other way it ends.
+   */
+  'runtime/login/code': {
+    params: { readonly runtime: RuntimeId; readonly loginId: string; readonly code: string }
     result: null
   }
   'runtime/logout': { params: { readonly runtime: RuntimeId }; result: null }
@@ -2755,6 +2765,16 @@ export type WireNotification =
        */
       readonly method: 'evidence/changed'
       readonly params: { readonly room: string; readonly evidence: BoardEvidence }
+    }
+  | {
+      /**
+       * A message an Agent sent the person (`team/notify` from a plugin tool),
+       * delivered to every window. Where it lands is the window's decision,
+       * under the person's notice setting — the inbox, the sending
+       * conversation's composer, or nowhere — never the host's.
+       */
+      readonly method: 'person/notice'
+      readonly params: { readonly notice: PersonNotice }
     }
   | { readonly method: 'host/shutdown'; readonly params: { readonly reason: string } }
 

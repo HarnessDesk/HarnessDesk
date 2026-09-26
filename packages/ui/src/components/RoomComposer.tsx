@@ -20,6 +20,8 @@ import {
 import type { Brand } from '../lib/brands'
 import { closeMentionGap, cycle, detectMention, stripMention } from '../lib/triggers'
 import { useSnapshot, useStore } from '../state/context'
+import { useMount } from '../panels/mount'
+import { mainNoticeHost } from '../state/workbench'
 import {
   ComposerChip,
   ComposerChips,
@@ -33,7 +35,8 @@ import {
 } from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
+import { ComposerNoticeStack, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
+import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 
 /**
@@ -185,6 +188,10 @@ export const RoomComposer = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const mount = useMount()
+  // Whether this room's own strip is the one the layout has chosen to carry
+  // the desk-wide messages — never a second, competing answer of its own.
+  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow) === mount?.id
   const textarea = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
   /** Empty is everyone. The default, and the common case by a distance. */
@@ -498,6 +505,14 @@ export const RoomComposer = ({
         {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
       </TurnWorkLive>
     )}
+    {/* A dropped link, whatever the person moved to the strip, and — same as
+        a conversation's own composer — what stops a turn here and what an
+        Agent in this room is waiting on someone to decide, over the room's
+        box as over a conversation's. */}
+    <ComposerNoticeStack>
+      <NoticeStripOutlet host={isNoticeHost} />
+      <ComposerNotices />
+    </ComposerNoticeStack>
     <ComposerShell className="relative">
       {mention && (
         <TriggerMenu

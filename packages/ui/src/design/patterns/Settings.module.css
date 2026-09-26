@@ -696,11 +696,24 @@
   border: none;
   border-radius: calc(var(--hd-radius-md) - 2px); /* desk: 4 → 6, with the track */
   background: none;
-  color: var(--hd-muted-foreground);
+  color: var(--hd-secondary-foreground); /* desk: was tertiary — an unchosen answer is still explanation, not a count (#988) */
   font-size: var(--hd-seg-text); /* desk: 13 → 12, the small rung's label */
   cursor: pointer;
 }
 
+/*
+ * The chosen answer, lifted out of the track: a raised card, a hairline
+ * shadow, primary ink. This is redundant with the Tailwind `data-pressed:`
+ * utilities on `toggleVariants` (`design/ui/toggle-group.tsx`) rather than
+ * this control's only source of truth — the vendored default there was
+ * `data-pressed:bg-accent data-pressed:text-accent-foreground`, which is the
+ * app's quiet hover wash, not a lifted surface, and it was winning the
+ * cascade (Tailwind's generated sheet loads after every CSS module, so at
+ * equal specificity the utility wins — the same defect `.segmented`'s own
+ * `inline-flex gap-0` comment above documents for `grid gap-2`). Both rules
+ * now agree on the same three tokens, so neither load order nor a future
+ * re-vendoring of the utility can put the two out of sync again.
+ */
 .segItem[data-pressed] {
   background: var(--hd-card);
   color: var(--hd-foreground);

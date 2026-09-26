@@ -171,7 +171,11 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   Seat/evidence records say who belonged. Isolated Seats receive a retained git
   worktree, a durable port block and an invocation-scoped browser profile. The
   six-value lane environment is supplied by the host to each new/resumed agent
-  process; the renderer never reads or invents it.
+  process whose runtime can take it per session; the renderer never reads or
+  invents it. A lane needs only its checkout from a runtime — the cwd, from the
+  desk's own lane record, is the confinement, and the browser profile is found
+  by it — so a runtime that cannot take the variables is still seated in its
+  lane, and its standing order tells it the values to pass explicitly.
 - **Reviewed receipts** — wrapping snapshots cards, Seats, answers, evidence,
   revisions, lanes and citations before committing an immutable receipt. A
   small operation journal makes restart recovery idempotent; wrapped and

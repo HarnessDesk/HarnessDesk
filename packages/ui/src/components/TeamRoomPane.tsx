@@ -1097,13 +1097,10 @@ export const TeamRoomPane = ({
         </ToolPaneNotice>
       )}
 
-      {/* `data-notice-yield` used to be applied here directly (#913), so the
-          rail, the reading side and Board's own header row all moved together
-          under a standing notice instead of the rail dropping onto a reading
-          side that never did. `Panes.tsx` now composes the same contract for
-          whatever a pane mounts, room included, so this element inherits an
-          already-zeroed `--hd-notice-inset` and a second copy here would only
-          ever read 0px — the pane host's version is the one doing the work. */}
+      {/* No inset reserved here, on purpose: a standing notice for the room
+          lives inside `RoomComposer`'s own strip, below, over its composer —
+          not above the rail or the reading side, which is why nothing in this
+          split has to make room for one. */}
       <div className={styles.split}>
         <aside className={styles.rail}>
           {/* The work before the chatter: a reader arriving at a group project
@@ -1940,6 +1937,19 @@ const RoomLiveLine = ({
       </TurnWorkLive>
     )
   }
+  /* A stalled run waits on a person as surely as a question does, and its
+     reason is the only place that says why and what to do next — a Seat that
+     would not open, the siblings its round held back with it. The header
+     said "Needs you" and nothing here said for what, so the one visible way
+     on was a card's own "Give this to…". Its lines are kept as written. */
+  if (!waiting && flowExecution?.state === 'stalled' && flowExecution.reason) {
+    return (
+      <TurnWorkLive settled data-slot="room-live-line" data-kind="stall">
+        <Dot state="limit" pulse />
+        <span className="whitespace-pre-line">{sentence(flowExecution.reason)}</span>
+      </TurnWorkLive>
+    )
+  }
   const busy = waiting ? null : members.find((one) => one.busy) ?? null
   const subject = waiting ?? busy
   if (!subject) return null
@@ -2243,6 +2253,11 @@ const Room = ({
         <div
           ref={stream}
           data-slot="room-stream"
+          // The column inset the transcript's own scroll box carries too
+          // (`SessionBars`' `JobsBar` names the same shape) — several screens
+          // repeat it with no shared owner yet, and giving it one, with the
+          // scrollbar and composer accounting each carries, is a bigger
+          // cross-file decision than this finding alone.
           className={`${styles.stream} py-2 px-6`}
           onScroll={(event) => {
             const box = event.currentTarget

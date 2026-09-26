@@ -412,7 +412,15 @@ splicing a member into local state.
 
 Isolated Goal work receives a durable lane: retained checkout, disjoint port
 block and, by default, its own persistent browser partition. The host injects
-the lane environment into each agent invocation. Wrapping takes a reviewed
+the lane environment into each agent invocation that can take it per session.
+A lane depends on its checkout, never on a variable in the agent's process: the
+cwd is the confinement and the browser partition is found by it, while the
+ports are a reservation the standing order states either way. So a runtime that
+cannot take the variables is seated in its lane all the same, and told the
+values; refusing it refused every isolated Seat on any ACP agent but the desk's own bridges. A round's
+cards still start together — every Seat is durable before any is handed its
+card — so a Seat that will not open stalls its round, and the stall names the
+siblings it held back and the way on. Wrapping takes a reviewed
 snapshot and journals the receipt before cross-store settlement, so replay is
 idempotent and later mutation is refused. Backup restore deliberately removes
 execution authority: journals are cleared and lanes are released archives.
@@ -813,3 +821,38 @@ explanation, never in its colour.
 
 **The rule:** a ceiling chip's colour never carries a fact its words do not
 already say.
+
+---
+
+## A question waits for a person unless nobody is here, and an answer is never too late
+
+A Seat's question used to be cut off after twenty seconds on every flow run.
+That deadline was written for unattended work, where nobody will ever
+answer, but it applied to any Seat of a running run — including one a
+person had just started and was watching in its room. The walk that found
+it saw the person answer on the room's own card, a few minutes in, to a run
+that had already stopped.
+
+So the deadline belongs only to a run a trigger started. There, how long a
+question waits is a machine setting (Settings › Permissions, `unattendedQuestionWait`):
+five minutes by default, from stopping right away to waiting until the
+person is back. It is never a trigger's, a flow's or a repository's to set,
+for the same reason the unattended ceiling policy is not: nothing an event
+carries may decide how long unattended work runs without a person. A run a
+person started has no deadline; its Seat waits for the answer.
+
+When the wait does run out, the run stops first and the turn is interrupted
+second, so the turn's end cannot hand the card straight back. An answer
+that arrives later is still an answer: the run goes back to running,
+durably; the Seat is reopened the way a relaunch reopens one; consent and
+spend are read again after that reopen; and the question is closed as
+answered — never as a refusal, which would hold the Seat's messages to its
+teammates — right before the turn that carries the answer is sent. An
+answer no run is waiting for any more is refused rather than put into a
+turn that is over. What the desk remembers of a stopped question is held in
+memory, so after a restart the question's card is gone and the Seat is
+handed its card again instead, as any relaunch hands it.
+
+**The rule:** only unattended work is timed, by the person's own setting;
+an answer that comes late is delivered, never dropped and never read as a
+refusal.

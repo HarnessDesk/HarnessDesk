@@ -465,6 +465,10 @@ export class FakeRuntime implements AgentRuntime {
   signInDriveable = false
   readonly logins: string[] = []
   readonly cancelled: string[] = []
+  /** Codes handed to a sign-in, as `[loginId, code]`: the fake is where a test reads them back. */
+  readonly pasted: [string, string][] = []
+  /** Set to make the next pasted code fail, as a command that stopped reading does. */
+  refusePaste: string | null = null
   loggedOut = false
   /**
    * Refuses to say anything about its account until it has been started.
@@ -520,6 +524,11 @@ export class FakeRuntime implements AgentRuntime {
       success: false,
       error: 'cancelled',
     })
+  }
+
+  async submitLoginCode(loginId: string, code: string): Promise<void> {
+    if (this.refusePaste) throw new Error(this.refusePaste)
+    this.pasted.push([loginId, code])
   }
 
   async logout(): Promise<void> {
@@ -930,6 +939,27 @@ export class FakeSession implements AgentSession {
         { id: 'opt-0', label: 'Allow', intent: 'approve' },
         { id: 'opt-1', label: 'Deny', intent: 'deny' },
       ],
+    }
+    return new Promise((resolve) => {
+      this.#pendingApproval = { id, resolve }
+      this.host.emit({ type: 'approval/requested', approval })
+    })
+  }
+
+  /**
+   * Asks the person a question inside the running turn, as an agent's own
+   * question tool does, and settles when it is answered. Like a real agent
+   * adapter, an interrupt ends the turn and leaves the question outstanding.
+   */
+  askQuestion(id: ApprovalId, question: string, options: readonly { id: string; label: string }[]): Promise<ApprovalDecision> {
+    const approval: Approval = {
+      id,
+      sessionId: this.id,
+      ...(this.#activeTurn ? { turnId: this.#activeTurn } : {}),
+      requestedAt: Date.now(),
+      type: 'userInput',
+      tool: 'AskUserQuestion',
+      questions: [{ id: 'q', question, multiSelect: false, options: [...options] }],
     }
     return new Promise((resolve) => {
       this.#pendingApproval = { id, resolve }

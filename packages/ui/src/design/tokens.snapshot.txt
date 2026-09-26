@@ -46,6 +46,12 @@
 --hd-card-gap = 12px
 --hd-card-padding = 16px
 --hd-card-raised = rgb(255, 255, 255)
+--hd-chart-heat-0 = rgb(245, 245, 245)
+--hd-chart-heat-1 = color-mix(in srgb, rgb(52, 88, 240) 22%, rgb(245, 245, 245))
+--hd-chart-heat-2 = color-mix(in srgb, rgb(52, 88, 240) 46%, rgb(245, 245, 245))
+--hd-chart-heat-3 = color-mix(in srgb, rgb(52, 88, 240) 70%, rgb(245, 245, 245))
+--hd-chart-heat-4 = rgb(52, 88, 240)
+--hd-chart-heat-not-scanned = repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(107, 107, 107) 45%, rgb(255, 255, 255)) 2px 3px )
 --hd-chip-fill = rgb(245, 245, 245)
 --hd-chip-fill-hover = color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))
 --hd-chip-h = 22px
@@ -149,7 +155,6 @@
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
---hd-notice-inset = 0px
 --hd-placeholder-foreground = rgb(107, 107, 107)
 --hd-popover = rgb(255, 255, 255)
 --hd-popover-foreground = rgb(27, 27, 27)
@@ -179,7 +184,7 @@
 --hd-scrollbar-inset = 2px
 --hd-scrollbar-inset-hover = 1px
 --hd-scrollbar-width = 8px
---hd-secondary-foreground = rgb(100, 100, 100)
+--hd-secondary-foreground = rgb(71, 71, 71)
 --hd-seg-pad = 2px
 --hd-seg-text = 12px
 --hd-seg-trim = calc(2px * 2)
@@ -344,7 +349,7 @@
 --hdp-alias-label-primary-bluish = rgb(0, 58, 100)
 --hdp-alias-label-primary-dimmed = rgb(24, 24, 24)
 --hdp-alias-label-primary-inverted = rgb(255, 255, 255)
---hdp-alias-label-secondary = rgb(100, 100, 100)
+--hdp-alias-label-secondary = rgb(71, 71, 71)
 --hdp-alias-label-tertiary = rgb(107, 107, 107)
 --hdp-alias-markdown-citation = rgb(237, 237, 237)
 --hdp-alias-markdown-code-block = rgb(249, 249, 249)
@@ -507,6 +512,12 @@
 --hd-card-gap = 12px
 --hd-card-padding = 16px
 --hd-card-raised = rgb(41, 41, 41)
+--hd-chart-heat-0 = rgb(49, 49, 49)
+--hd-chart-heat-1 = color-mix(in srgb, rgb(112, 142, 250) 22%, rgb(49, 49, 49))
+--hd-chart-heat-2 = color-mix(in srgb, rgb(112, 142, 250) 46%, rgb(49, 49, 49))
+--hd-chart-heat-3 = color-mix(in srgb, rgb(112, 142, 250) 70%, rgb(49, 49, 49))
+--hd-chart-heat-4 = rgb(112, 142, 250)
+--hd-chart-heat-not-scanned = repeating-linear-gradient( 135deg, rgb(33, 33, 33) 0 2px, color-mix(in srgb, rgb(177, 177, 177) 45%, rgb(33, 33, 33)) 2px 3px )
 --hd-chip-fill = rgb(49, 49, 49)
 --hd-chip-fill-hover = color-mix(in srgb, rgb(49, 49, 49) 86%, rgb(231, 231, 231))
 --hd-chip-h = 22px
@@ -610,7 +621,6 @@
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
---hd-notice-inset = 0px
 --hd-placeholder-foreground = rgb(177, 177, 177)
 --hd-popover = rgb(33, 33, 33)
 --hd-popover-foreground = rgb(231, 231, 231)
@@ -972,6 +982,12 @@
 --hd-card-padding = 16px
 --hd-card-radius = 14px
 --hd-card-raised = rgb(255, 255, 255)
+--hd-chart-heat-0 = rgb(245, 245, 245)
+--hd-chart-heat-1 = color-mix(in srgb, rgb(52, 88, 240) 22%, rgb(245, 245, 245))
+--hd-chart-heat-2 = color-mix(in srgb, rgb(52, 88, 240) 46%, rgb(245, 245, 245))
+--hd-chart-heat-3 = color-mix(in srgb, rgb(52, 88, 240) 70%, rgb(245, 245, 245))
+--hd-chart-heat-4 = rgb(52, 88, 240)
+--hd-chart-heat-not-scanned = repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(107, 107, 107) 45%, rgb(255, 255, 255)) 2px 3px )
 --hd-chip-fill = rgb(245, 245, 245)
 --hd-chip-fill-hover = color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))
 --hd-chip-h = 22px
@@ -1078,7 +1094,6 @@
 --hd-nav-inset = 10px
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
---hd-notice-inset = 0px
 --hd-page-group-gap = 0px
 --hd-page-row-h = 36px
 --hd-page-row-padding = 0 10px
@@ -1111,7 +1126,7 @@
 --hd-scrollbar-inset = 2px
 --hd-scrollbar-inset-hover = 1px
 --hd-scrollbar-width = 8px
---hd-secondary-foreground = rgb(100, 100, 100)
+--hd-secondary-foreground = rgb(71, 71, 71)
 --hd-seg-pad = 2px
 --hd-seg-text = 12px
 --hd-seg-trim = calc(2px * 2)
@@ -1278,7 +1293,7 @@
 --hdp-alias-label-primary-bluish = rgb(0, 58, 100)
 --hdp-alias-label-primary-dimmed = rgb(24, 24, 24)
 --hdp-alias-label-primary-inverted = rgb(255, 255, 255)
---hdp-alias-label-secondary = rgb(100, 100, 100)
+--hdp-alias-label-secondary = rgb(71, 71, 71)
 --hdp-alias-label-tertiary = rgb(107, 107, 107)
 --hdp-alias-markdown-citation = rgb(237, 237, 237)
 --hdp-alias-markdown-code-block = rgb(249, 249, 249)
@@ -1445,6 +1460,12 @@
 --hd-card-padding = 16px
 --hd-card-radius = 14px
 --hd-card-raised = rgb(41, 41, 41)
+--hd-chart-heat-0 = rgb(49, 49, 49)
+--hd-chart-heat-1 = color-mix(in srgb, rgb(112, 142, 250) 22%, rgb(49, 49, 49))
+--hd-chart-heat-2 = color-mix(in srgb, rgb(112, 142, 250) 46%, rgb(49, 49, 49))
+--hd-chart-heat-3 = color-mix(in srgb, rgb(112, 142, 250) 70%, rgb(49, 49, 49))
+--hd-chart-heat-4 = rgb(112, 142, 250)
+--hd-chart-heat-not-scanned = repeating-linear-gradient( 135deg, rgb(33, 33, 33) 0 2px, color-mix(in srgb, rgb(177, 177, 177) 45%, rgb(33, 33, 33)) 2px 3px )
 --hd-chip-fill = rgb(49, 49, 49)
 --hd-chip-fill-hover = color-mix(in srgb, rgb(49, 49, 49) 86%, rgb(231, 231, 231))
 --hd-chip-h = 22px
@@ -1551,7 +1572,6 @@
 --hd-nav-inset = 10px
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
---hd-notice-inset = 0px
 --hd-page-group-gap = 0px
 --hd-page-row-h = 36px
 --hd-page-row-padding = 0 10px
