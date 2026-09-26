@@ -110,7 +110,11 @@ test('Cursor turns one plan into one lane, with its billing cycle and its balanc
     'used and remaining come from the one object in this payload whose cents add up',
   )
   assert.equal(reading.reached, null)
-  assert.deepEqual(reading.billing, { kinds: ['allowance', 'metered'] }, 'on-demand is enabled in this fixture')
+  assert.deepEqual(
+    reading.billing,
+    { kinds: ['allowance', 'metered'], overage: { enabled: true, spent: 13.92, currency: 'USD' } },
+    'on-demand is enabled in this fixture, and its spend is restated as billing.overage.spent',
+  )
   assert.deepEqual(meter.watchPaths(), [], 'the editor rewrites its store constantly; watching it would be a poll')
 })
 

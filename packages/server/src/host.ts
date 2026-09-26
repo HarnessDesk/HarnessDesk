@@ -107,7 +107,7 @@ import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
-import { Ledger, defaultCorpora, type CorpusSpec } from './ledger/index.js'
+import { Ledger, defaultCorpora, type CorpusSpec, type RemoteEventsSource } from './ledger/index.js'
 import type { UsageMeter } from './usage/meter.js'
 import { UsageService } from './usage/service.js'
 import { CredentialBroker, plainCipher, type CredentialCipher } from './credentials.js'
@@ -738,6 +738,7 @@ export class Host {
   /** Local sources bound to a runtime by the wiring; see `bindUsage`. */
   readonly #meters = new Map<RuntimeId, UsageMeter>()
   readonly #corpora: CorpusSpec[] = []
+  readonly #remoteSources: RemoteEventsSource[] = []
   #usage: UsageService | null = null
   #ledger: Ledger | null = null
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
@@ -1900,7 +1901,7 @@ export class Host {
    */
   bindUsage(
     runtime: RuntimeId,
-    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string },
+    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string; remote?: RemoteEventsSource },
   ): void {
     if (binding.meter) this.#meters.set(runtime, binding.meter)
     if (binding.corpus) {
@@ -1909,12 +1910,16 @@ export class Host {
         : defaultCorpora([{ id: runtime, kind: binding.corpus }])
       if (spec) this.#corpora.push(spec)
     }
+    // Cursor's own transcript-free corpus: rows a network call fetches
+    // rather than a file this machine already has. See `usage/cursor-events.ts`.
+    if (binding.remote) this.#remoteSources.push(binding.remote)
   }
 
   get #ledgerService(): Ledger {
     this.#ledger ??= new Ledger({
       stateDir: this.#state.directory,
       corpora: this.#corpora,
+      remoteSources: this.#remoteSources,
       log: (message, details) => this.#logger.warn(message, details),
       onProgress: (progress) => {
         this.#push({ method: 'usage/scanProgress', params: { progress } })
