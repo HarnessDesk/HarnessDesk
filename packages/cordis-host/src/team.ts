@@ -54,7 +54,7 @@ export interface TeamEngine {
   conflicts(paths: readonly string[], scope: TeamScope): Promise<string>
   complete(
     intent: number,
-    args: { readonly note?: string; readonly handoff?: string; readonly outcome?: string },
+    args: { readonly note?: string; readonly handoff?: string; readonly outcome?: string; readonly split?: readonly (readonly string[])[] },
     scope: TeamScope,
   ): Promise<string>
   release(
@@ -217,7 +217,7 @@ export class TeamService extends Service {
 
   async complete(
     intent: number,
-    args: { readonly note?: string; readonly handoff?: string; readonly outcome?: string },
+    args: { readonly note?: string; readonly handoff?: string; readonly outcome?: string; readonly split?: readonly (readonly string[])[] },
     scope?: ScopeQuery,
   ): Promise<string> {
     const plugin = this.gate()

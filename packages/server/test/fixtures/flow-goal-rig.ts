@@ -242,6 +242,8 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       const bound = rig.flows.bindingFor(input.goal, input.card)
       if (bound && !bound.opening) throw new Error('This card cannot be assigned now.')
       const state = team.stateFor(input.goal)
+      const overlap = team.refuseOverlap(input.goal, state.intents, input.card, runtime, sessionId)
+      if (overlap) throw new Error(`Refused: ${overlap}`)
       team.installProjection({
         ...state,
         intents: state.intents.map((card) => card.id === input.card

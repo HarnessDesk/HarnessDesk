@@ -559,6 +559,7 @@ const flowThenValidator: Validator<FlowThen> = goalShape({
   title: atMost(2000, isFilled),
   detail: optional(atMost(4000)),
   files: optional(flowWordList(32, atMost(500))),
+  split: optional(flowRoleId),
 }) as Validator<FlowThen>
 const flowEvidenceGuardValidator: Validator<FlowEvidenceGuard> = (value, path = '') => {
   const record = isObject(value, path)

@@ -918,12 +918,12 @@ inputs:
 
 roles:
   proposal: { uses: implementer, count: 2 }                        # read: how would you split it
-  contract: { uses: implementer, grant: publish }                  # writes the interface, proposes the cards
-  admit:    { kind: person }                                       # the split becomes board work
+  contract: { uses: implementer, grant: publish }                  # writes the interface, records the split
+  admit:    { kind: person, outcomes: [admitted] }                 # the split becomes board work
   dev:      { uses: implementer, count: 2, isolate: true, grant: publish }
-  join:     { uses: integrator, grant: publish }
+  join:     { uses: implementer, grant: publish }                  # integrates both parts
   gate:     { kind: check, run: pnpm verify }
-  referee:  { kind: person }
+  referee:  { kind: person, outcomes: [accepted] }
 
 seed: { role: proposal, title: "How would you split {{task}}?" }
 
@@ -931,25 +931,32 @@ rules:
   - { on: proposal, when: { any: disagree },    then: { role: proposal, title: "Reconcile round {{round}}" } }
   - { on: proposal, when: { every: agreed },    then: { role: contract, title: "Write the interface and the split" } }
   - { on: contract, when: { every: published }, then: { role: admit,   title: "Admit the split" } }
-  - { on: admit,    when: { every: admitted },  then: { role: dev } }
-  - { on: dev,      when: { every: published }, then: { role: join } }
-  - { on: join,     when: { every: published }, then: { role: gate } }
+  - { on: admit,    when: { every: admitted },  then: { role: dev,     title: "Build part {{n}} of {{task}}", split: contract } }
+  - { on: dev,      when: { every: published }, then: { role: join,    title: "Integrate both parts" } }
+  - { on: join,     when: { every: published }, then: { role: gate,    title: "Verify the integration" } }
   - { on: gate,     when: { any: fail },        then: { role: join,    title: "Fix the integration" } }
-  - { on: gate,     when: { every: pass },      then: { role: referee } }
+  - { on: gate,     when: { every: pass },      then: { role: referee, title: "Accept {{task}}" } }
 ```
 
 1. **Aligning is the debate pattern again.** Round one is two blind proposals;
    `any: disagree` opens a sighted round where each sees the other's. Nothing new
    is needed — this is UC1's mechanism pointed at a different question.
-2. **The agreement becomes a file and a set of cards.** The `contract` Seat commits
-   the interface both sides will code against, and **proposes** the cards for the
-   split, with disjoint `files` patterns.
+2. **The agreement becomes a file and a recorded split.** The `contract` Seat
+   commits the interface both sides will code against, and finishes its card
+   with `complete_claim`'s `split`: one list of path patterns per `dev` card, in
+   card order. The board refuses a split whose lists overlap as it is recorded,
+   and `split: contract` on the `dev` rule gives card n the n-th list. A flat
+   `files` list on a round of two cards is refused at dry run: both cards would
+   own the same paths, which is no split at all.
 3. **An agent proposes cards; it never admits them.** `admit` is a `person` step.
    The engine does not decide what work exists, which is the same rule that keeps
    it from judging anything else.
 4. **The split is then enforced, not merely agreed.** Claiming a card claims its
-   paths, and the board refuses a claim whose paths overlap a live one. Two agents
-   who agreed to stay out of each other's files are held to it mechanically.
+   paths, and the board refuses a claim whose paths overlap a live one — the
+   host's own claim for an opening Seat included, naming the paths and the card
+   that holds them. Two agents who agreed to stay out of each other's files are
+   held to it mechanically. A `contract` that recorded no usable split stops the
+   run before any `dev` card opens, rather than seating both on the same paths.
 5. **Each dev still gets its own lane.** Disjoint paths are not enough at commit
    time in a shared working tree, and both will want to run the thing they built.
 6. **Integration is a step, not an accident.** With disjoint paths the merge is

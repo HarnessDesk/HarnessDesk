@@ -583,3 +583,37 @@ test('an assignment refused after it was staged is set aside at once, and the Go
   await harness.host.teamPlane.flush()
   assert.deepEqual((await client.call('goal/read', { goal }) as GoalView).board.intents.map((one) => one.id), [card.id, 2])
 })
+
+/*
+ * The host's own claim for an opening Seat is held to the board's file rule,
+ * exactly as an agent's claim is (#1015): two cards whose paths overlap are
+ * never both taken, and the refusal names the paths and the card holding them.
+ */
+test('an assignment whose card overlaps a live claim is refused, naming the paths and the card that holds them', async (t) => {
+  const work = tempDir('hd-goal-assign-overlap-')
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await halt(harness).catch(() => {})
+    await rm(work, { recursive: true, force: true })
+  })
+  await client.call('workspace/open', { path: work })
+  const goal = (await client.call('goal/create', { root: work, sentence: 'Two parts' }) as GoalView).goal.id
+  const first = await client.call('team/add', { room: goal, title: 'Part one', files: ['src/**'] }) as { id: number }
+  const second = await client.call('team/add', { room: goal, title: 'Part two', files: ['src/app.ts'] }) as { id: number }
+  const third = await client.call('team/add', { room: goal, title: 'Part three', files: ['docs/**'] }) as { id: number }
+  const one = await client.call('session/create', { runtime: 'fake', options: { cwd: work } }) as Session
+  const two = await client.call('session/create', { runtime: 'fake', options: { cwd: work } }) as Session
+  const three = await client.call('session/create', { runtime: 'fake', options: { cwd: work } }) as Session
+  await client.call('goal/assign', { goal, card: first.id, session: { runtime: 'fake', sessionId: one.id } })
+  await assert.rejects(
+    client.call('goal/assign', { goal, card: second.id, session: { runtime: 'fake', sessionId: two.id } }),
+    new RegExp(`the files of card #${second.id} overlap a live claim — src/\\*\\* is held by #${first.id}`),
+  )
+  // A card whose paths are its own is taken as ever.
+  await client.call('goal/assign', { goal, card: third.id, session: { runtime: 'fake', sessionId: three.id } })
+  await harness.host.teamPlane.flush()
+  const cards = (await client.call('goal/read', { goal }) as GoalView).board.intents
+  assert.deepEqual(cards.map((card) => [card.id, card.state]), [[first.id, 'claimed'], [second.id, 'open'], [third.id, 'claimed']])
+})

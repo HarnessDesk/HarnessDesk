@@ -891,3 +891,44 @@ refused, because one writer beside readers has the tree to itself.
 **The rule:** refuse a committing shared tree with the fix named, never isolate
 behind the file's back; and a round belongs to the review series only when its
 Seats are there to judge.
+
+## An agreed split is recorded by the agent that agreed it, and each card owns its own part
+
+*Issue #1015.* A pair build (the design's UC5) has two developers agree a
+split of the files, then work in parallel held to it: claiming a card claims
+its paths, and the board refuses a claim whose paths overlap a live one. It
+was never enforced. A round's `files:` was one list, so both sibling cards got
+the same paths, and the host's own claim for an opening Seat never asked the
+board's file rule at all, so both were seated on fully overlapping paths.
+
+Two ways to give each card its own paths were open. The flow file could list
+one `files` per card, but then the author decides the split and the agents
+only follow it, which is the opposite of what the shape is for. Or the round
+that agreed the split records it, and the next round reads it. We took the
+second, as the smallest version of it: the agreeing card finishes with
+`complete_claim`'s `split` — one list of path patterns per card of the later
+round, in card order — stored on that card, and a rule's `then` says
+`split: <role>` to give card n the n-th list of that role's latest round. No
+package or answer text is parsed: a split in prose is one nothing can hold
+anybody to. The board refuses a split whose lists overlap as it is recorded,
+while the agent that wrote it can still fix it.
+
+Where a flow asks for a split and none is usable — the agreeing card recorded
+none, two cards recorded different ones, or it has the wrong number of lists —
+the round stops before any card of it exists, and says which. There is no
+fallback to a shared list: that is exactly the agreement going unenforced. For
+the same reason the dry run, and with it the start, refuses a flat `files:` on
+a round of more than one card. That rule, and the checks on `split`, belong to
+the compiler, as #1024's did: recovery re-parses every saved run's text on
+launch, and a parse refusal would block a run saved before this rule with a
+false "could not be read". And the host's claim for an opening Seat, and a
+person's assignment, now ask the same file rule an agent's claim does, naming
+the paths and the card that holds them. Paths are compared case-folded, since
+on a case-insensitive volume two spellings are one folder, and folding can only
+find more overlap. A round refused at a claim interrupts and lets go of the
+Seats it already opened, whoever started the run: a Seat left in its first
+turn would pick up its claimed card while the run stood stalled.
+
+**The rule:** the agents agree the split and record it as data; the board
+holds each card to its own part; a split nobody recorded stops the round
+rather than seating everyone on the same paths.

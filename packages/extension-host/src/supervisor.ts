@@ -556,10 +556,11 @@ export class PluginHostProcess {
             return
           }
           case 'team/complete': {
-            const { note, handoff, outcome } = params as {
+            const { note, handoff, outcome, split } = params as {
               note?: string
               handoff?: string
               outcome?: string
+              split?: readonly (readonly string[])[]
             }
             reply({
               response: request.request,
@@ -569,6 +570,7 @@ export class PluginHostProcess {
                   ...(note !== undefined ? { note } : {}),
                   ...(handoff !== undefined ? { handoff } : {}),
                   ...(outcome !== undefined ? { outcome } : {}),
+                  ...(split !== undefined ? { split } : {}),
                 },
                 scope,
               ),
