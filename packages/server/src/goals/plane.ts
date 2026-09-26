@@ -251,6 +251,7 @@ export class GoalPlane {
         stranded: this.port.stranded(id, intent.id),
         holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
         forPerson: step?.kind === 'person',
+        live: step?.live ?? false,
         runStopped: step?.stopped ?? false,
       })
     })

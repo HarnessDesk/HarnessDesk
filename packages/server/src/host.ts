@@ -2962,8 +2962,14 @@ export class Host {
       }
     }
     const executions = this.#flows.executionsFor(goal)
-    const steps = board.intents.flatMap((intent) => intent.state !== 'done' && intent.state !== 'abandoned' &&
-      flowStepOf(intent, undefined, executions)?.kind === 'person' ? [{ card: intent.id, title: intent.title }] : [])
+    // An unanswered card only needs its person while the run that opened it
+    // is still asking (`live`) — a settled or stopped run is asking nothing
+    // more, so answering it would do nothing.
+    const steps = board.intents.flatMap((intent) => {
+      if (intent.state === 'done' || intent.state === 'abandoned') return []
+      const step = flowStepOf(intent, undefined, executions)
+      return step?.kind === 'person' && step.live ? [{ card: intent.id, title: intent.title }] : []
+    })
     const postings: { key: string; reason: string }[] = []
     for (const run of executions.filter((one) => one.intake)) {
       for (const entry of Object.values(this.#flows.publicationOf(run.id)?.ops ?? {})) {
