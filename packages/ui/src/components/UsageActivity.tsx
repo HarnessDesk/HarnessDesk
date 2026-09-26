@@ -25,14 +25,15 @@ import {
   ChartCard,
   ChartFoot,
   ChartFrame,
-  ChartTipRow,
   EmptyState,
   HeatGrid,
+  HeatLegend,
   SectionHead,
   Segmented,
   Text,
   type HeatGridCell,
   type HeatGridRow,
+  type HeatGridTooltip,
 } from '../design'
 import styles from './UsageActivity.module.css'
 
@@ -141,33 +142,30 @@ export const UsageActivity = ({
     const parts = [...cell.parts].sort((a, b) => (metric === 'tokens' ? b.tokens - a.tokens : b.cost - a.cost))
     const top = parts.slice(0, 3)
     const rest = parts.length - top.length
+
+    const tooltip: HeatGridTooltip | undefined =
+      cell.scanned && !notScanned && value > 0
+        ? {
+            title: dayLabelLong(cell.day),
+            rows: top.map((part) => ({
+              key: String(part.runtime),
+              label: nameOf(part.runtime),
+              value: metric === 'tokens' ? formatTokens(part.tokens) : (formatMoney(part.cost, currency) ?? '—'),
+            })),
+            more: rest > 0 ? rest : undefined,
+            footer: { label: 'Total', value: `${formatTokens(cell.tokens)} tokens · ${formatMoney(cell.cost, currency) ?? '—'}` },
+          }
+        : notScanned
+          ? { title: dayLabelLong(cell.day), note: cellLabel(cell).split(': ')[1] ?? cellLabel(cell) }
+          : undefined
+
     return {
       key: String(cell.day),
       level: notScanned ? 0 : levelOf(value),
       state: notScanned ? 'not-scanned' : value > 0 ? 'filled' : 'empty',
       today: cell.day === todayKey,
       ariaLabel: cellLabel(cell),
-      tooltip:
-        cell.scanned && !notScanned && value > 0 ? (
-          <>
-            <div className="mb-1 font-medium">{dayLabelLong(cell.day)}</div>
-            {top.map((part) => (
-              <ChartTipRow
-                key={String(part.runtime)}
-                label={nameOf(part.runtime)}
-                value={metric === 'tokens' ? formatTokens(part.tokens) : (formatMoney(part.cost, currency) ?? '—')}
-              />
-            ))}
-            {rest > 0 && <div className="text-(--hd-muted-foreground)">+{rest} more</div>}
-            <ChartTipRow
-              className="border-(--hd-border) mt-1 border-t pt-1"
-              label="Total"
-              value={`${formatTokens(cell.tokens)} tokens · ${formatMoney(cell.cost, currency) ?? '—'}`}
-            />
-          </>
-        ) : notScanned ? (
-          <div className="text-(--hd-muted-foreground)">{cellLabel(cell)}</div>
-        ) : undefined,
+      tooltip,
     }
   }
 
@@ -198,7 +196,6 @@ export const UsageActivity = ({
   return (
     <section className={styles.band} aria-label="When it ran">
       <SectionHead
-        sticky
         level="heading"
         name="When it ran"
         description={busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined}
@@ -252,20 +249,7 @@ export const UsageActivity = ({
         </ChartCard>
 
         <ChartFoot>
-          <span className={styles.legend}>
-            Less
-            {[0, 1, 2, 3, 4].map((level) => (
-              <span
-                key={level}
-                data-level={level}
-                title={levelTitle(level, metric)}
-                className={styles.swatch}
-              />
-            ))}
-            More
-          </span>
-          <span data-state="not-scanned" className={styles.swatch} title="Not scanned" />
-          <Text role="meta">Not scanned</Text>
+          <HeatLegend levelTitle={(level) => levelTitle(level, metric)} />
         </ChartFoot>
       </ChartFrame>
     </section>

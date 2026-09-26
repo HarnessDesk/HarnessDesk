@@ -1,19 +1,12 @@
 /* "When it ran" keeps only placement; its visible roles belong to design/.
-   `--usage-strip` is Usage.module.css's own custom property — it cascades
-   through the DOM to this band the same way any custom property does,
-   without this sheet importing that one. */
+   Its head is not sticky like its neighbours' — that trick keys off
+   `--usage-strip`, a custom property Usage.module.css defines for itself,
+   and this band owns no stylesheet but its own. */
 
 .band {
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-3);
-}
-
-.band :global([data-section-head][data-sticky]) {
-  position: sticky;
-  top: calc(var(--usage-strip) - max(var(--hd-space-6), var(--hd-titlebar-height)));
-  z-index: 1;
-  background: var(--hd-background);
 }
 
 .facts {
@@ -31,34 +24,4 @@
 
 .plot {
   overflow-x: auto;
-}
-
-.legend {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1);
-}
-
-.swatch {
-  display: inline-block;
-  width: var(--hd-space-2-5);
-  height: var(--hd-space-2-5);
-  border-radius: var(--hd-radius-2xs);
-  background: var(--hd-chart-heat-0);
-}
-
-.swatch[data-level='1'] {
-  background: var(--hd-chart-heat-1);
-}
-.swatch[data-level='2'] {
-  background: var(--hd-chart-heat-2);
-}
-.swatch[data-level='3'] {
-  background: var(--hd-chart-heat-3);
-}
-.swatch[data-level='4'] {
-  background: var(--hd-chart-heat-4);
-}
-.swatch[data-state='not-scanned'] {
-  background: var(--hd-chart-heat-not-scanned);
 }

@@ -1,7 +1,8 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
-import { ChartTip } from './chart'
+import { ChartTip, ChartTipRow } from './chart'
+import type { Tint } from './tone'
 import styles from './heat-grid.module.css'
 
 /**
@@ -20,6 +21,12 @@ import styles from './heat-grid.module.css'
  * breakpoints, the same split `DayColumns` keeps between arithmetic and
  * drawing.
  *
+ * The tooltip is data in, not markup in — a cell hands over a title, rows and
+ * a footer rather than pre-rendered `ChartTipRow`s, the same shape
+ * `DayColumns` takes for its own tip. A screen composing `ChartTipRow`
+ * directly is a screen drawing appearance the system already owns; keeping
+ * the composition in here is what keeps that count at zero.
+ *
  * One CSS grid, not a nested pair — a row's header and its cells have to
  * share a row height, and that height comes from the cells' own
  * `aspect-ratio` once the grid is fluid. Two independent grids agree on
@@ -27,13 +34,29 @@ import styles from './heat-grid.module.css'
  * `grid-row` placement on one grid keeps a row's header level with its day.
  */
 
+export interface HeatGridTooltipRow {
+  readonly key: string
+  readonly label: string
+  readonly value: string
+  readonly tint?: Tint
+}
+
+export interface HeatGridTooltip {
+  readonly title: string
+  /** A single explanatory line — "not scanned" — in place of a breakdown. */
+  readonly note?: string
+  readonly rows?: readonly HeatGridTooltipRow[]
+  readonly more?: number
+  readonly footer?: { readonly label: string; readonly value: string }
+}
+
 export interface HeatGridCell {
   readonly key: string
   readonly level: 0 | 1 | 2 | 3 | 4
   readonly state: 'empty' | 'filled' | 'not-scanned'
   readonly today?: boolean
   readonly ariaLabel: string
-  readonly tooltip?: ReactNode
+  readonly tooltip?: HeatGridTooltip
 }
 
 export interface HeatGridRow {
@@ -115,8 +138,31 @@ export const HeatGrid = ({
   return (
     <div className={cn('relative', className)}>
       {shown?.tooltip && (
-        <ChartTip at={at} className="bottom-auto top-0 -translate-y-full">
-          {shown.tooltip}
+        // `ChartTip` anchors to the bottom of its own relative box by default
+        // — right for a single plot, where the tip sits above the columns.
+        // A calendar has many rows, so the tip is pinned to the top of the
+        // whole grid instead and only its *horizontal* placement follows the
+        // cursor; `at` still owns that half through the tip's own inline
+        // `translate`, which is why only `top`/`bottom` are overridden here.
+        <ChartTip at={at} className="bottom-auto top-0">
+          <div className="mb-1 font-medium">{shown.tooltip.title}</div>
+          {shown.tooltip.note ? (
+            <div className="text-(--hd-muted-foreground)">{shown.tooltip.note}</div>
+          ) : (
+            <>
+              {shown.tooltip.rows?.map((row) => (
+                <ChartTipRow key={row.key} tint={row.tint} label={row.label} value={row.value} />
+              ))}
+              {!!shown.tooltip.more && <div className="text-(--hd-muted-foreground)">{`+${shown.tooltip.more} more`}</div>}
+              {shown.tooltip.footer && (
+                <ChartTipRow
+                  className="border-(--hd-border) mt-1 border-t pt-1"
+                  label={shown.tooltip.footer.label}
+                  value={shown.tooltip.footer.value}
+                />
+              )}
+            </>
+          )}
         </ChartTip>
       )}
 
@@ -200,3 +246,33 @@ export const HeatGrid = ({
     </div>
   )
 }
+
+/**
+ * "Less ▢▢▢▢▢ More" under a `HeatGrid` — the ramp's own five steps plus the
+ * not-scanned hatch, so a screen using the grid never has to draw a coloured
+ * swatch (background, a border-radius) of its own to explain one.
+ */
+export const HeatLegend = ({
+  className,
+  levelTitle,
+  notScannedLabel = 'Not scanned',
+  leastLabel = 'Less',
+  mostLabel = 'More',
+}: {
+  className?: string
+  /** What a level's swatch means, for its `title` — "Level 2 of 4". */
+  levelTitle: (level: 0 | 1 | 2 | 3 | 4) => string
+  notScannedLabel?: string
+  leastLabel?: string
+  mostLabel?: string
+}) => (
+  <span className={cn(styles.legend, className)}>
+    {leastLabel}
+    {([0, 1, 2, 3, 4] as const).map((level) => (
+      <span key={level} data-level={level} title={levelTitle(level)} className={styles.swatch} />
+    ))}
+    {mostLabel}
+    <span data-state="not-scanned" title={notScannedLabel} className={cn(styles.swatch, styles.legendGap)} />
+    {notScannedLabel}
+  </span>
+)

@@ -71,5 +71,44 @@
 
 .scroller {
   overflow-x: auto;
-  padding-bottom: 2px;
+  padding-bottom: var(--hd-space-0-5);
+}
+
+/* The legend: the same five levels and the not-scanned hatch the grid itself
+   draws, so a caller never owns a coloured swatch of its own. */
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-xs);
+  line-height: 1;
+}
+
+.legendGap {
+  margin-left: var(--hd-space-1);
+}
+
+.swatch {
+  display: inline-block;
+  width: var(--hd-space-2-5);
+  height: var(--hd-space-2-5);
+  border-radius: var(--hd-radius-2xs);
+  background: var(--hd-chart-heat-0);
+}
+
+.swatch[data-level='1'] {
+  background: var(--hd-chart-heat-1);
+}
+.swatch[data-level='2'] {
+  background: var(--hd-chart-heat-2);
+}
+.swatch[data-level='3'] {
+  background: var(--hd-chart-heat-3);
+}
+.swatch[data-level='4'] {
+  background: var(--hd-chart-heat-4);
+}
+.swatch[data-state='not-scanned'] {
+  background: var(--hd-chart-heat-not-scanned);
 }
