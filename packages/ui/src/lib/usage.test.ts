@@ -449,7 +449,7 @@ describe('runway', () => {
 
   it('says so plainly when nothing is close', () => {
     const summary = runway([report({ lanes: [lane({ id: 'w', usedPercent: 5 })] })], nameFor, NOON)
-    expect(summary.headline).toBe('Nothing is close to a limit.')
+    expect(summary.headline).toBeNull()
   })
 
   it('does not pretend an unmetered roster is healthy', () => {
@@ -477,7 +477,7 @@ describe('runway', () => {
     const funded = report({ runtime: runtimeId('amp'), credits: { remaining: 10, unit: 'USD' } })
     const overdrawn = report({ runtime: runtimeId('cline'), credits: { remaining: -0.016, unit: 'USD' }, reached: 'credits' })
     const healthy = runway([funded, report({})], nameFor, NOON)
-    expect(healthy.headline).toBe('Nothing is close to a limit.')
+    expect(healthy.headline).toBeNull()
     expect(healthy.metered).toBe(1)
     const spent = runway([funded, overdrawn], nameFor, NOON)
     expect(spent.exhausted).toEqual([overdrawn])
