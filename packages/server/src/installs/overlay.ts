@@ -30,8 +30,10 @@ export const knowledgeOverlay = (
     ...(agent.cwd ? { cwd: agent.cwd } : {}),
     env,
   })
-  // Which vendor its models come from, read from its own configuration; see `installs/provider.ts`.
-  const resolveProvider = providerReaderFor(known, { env })
+  // Which vendor its models come from, read from its own configuration; see
+  // `installs/provider.ts`. The row's own args go along too — DSH's reader
+  // needs them to see a launch flag its files would never mention.
+  const resolveProvider = providerReaderFor(known, { env, ...(agent.args ? { args: agent.args } : {}) })
   const usageRecord = usageRecordFor(known, { env, ...(options.warn ? { warn: options.warn } : {}) })
   const account = known?.auth && (known.auth.status || known.auth.login || known.auth.logout)
     ? {

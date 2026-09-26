@@ -75,6 +75,28 @@ test('a row that extends the knowledge\'s arguments keeps its extension', async 
   assert.deepEqual(corrected.args, ['--acp'], 'a row that disagrees about the base is still corrected')
 })
 
+/*
+ * Opus review of #1028, round 3, P1: `known-agents.ts`'s `dsh` entry carried
+ * `acp: { args: ['--profile', 'acp'] }`, so a row's own `--profile <custom>`
+ * — same length as the known base, disagreeing only in the profile name —
+ * was "corrected" back to `acp` on every start, the same way a stale
+ * `gemini --experimental-acp` is. Real custom profiles exist, so that
+ * correction was a silent rewrite of the launch command. `known.acp.args`
+ * is now empty, so `extendedArgs` has no base to fall back to and a dsh
+ * row's own args always survive.
+ */
+test('a dsh row’s own profile flag is never replaced by the known default (#1028)', async (t) => {
+  const store = await tempStore(t, [{ id: 'dsh', name: 'DeepSeek', command: 'dsh', args: ['--profile', 'custom'] }])
+  const service = new InstallService({
+    stateDir: STATE,
+    store,
+    locate: machine({ '/opt/homebrew/bin/dsh': 'dsh 1.0.0' }),
+  })
+  const launched = await service.launchFor(store.configs()[0]!)
+  assert.ok(launched && 'args' in launched, 'dsh was not blocked')
+  assert.deepEqual(launched.args, ['--profile', 'custom'], 'a custom profile survives byte-identical')
+})
+
 test("the person's newest usable copy runs in place of the row's command", async (t) => {
   const store = await tempStore(t, [
     { id: 'opencode', name: 'OpenCode', command: `${STATE}/acp-agents/opencode/1.18.27/opencode`, args: ['acp'], registry: { id: 'opencode', version: '1.18.27' } },
@@ -253,6 +275,9 @@ test('knowledge is found by row field, registry provenance, template key, or the
     { id: 'hermes', name: 'H', template: 'hermes' },
     { id: 'custom', name: 'C', command: '/usr/local/bin/codebuddy', args: ['--acp'] },
     { id: 'devin-row', name: 'Devin', command: 'devin', args: ['acp'], agent: 'devin' },
+    // A row with none of the provenance fields still resolves by its own id
+    // matching a known agent's — the fallback #1028's review found unused
+    // for `dsh`, since `known-agents.ts` had no entry for it at all.
     { id: 'dsh', name: 'D', command: 'node', args: ['x.js'] },
   ])
   const service = new InstallService({ stateDir: STATE, store, locate: machine({}) })
@@ -263,7 +288,7 @@ test('knowledge is found by row field, registry provenance, template key, or the
     ['hermes', 'hermes'],
     ['custom', 'codebuddy-code'],
     ['devin-row', 'devin'],
-    ['dsh', null],
+    ['dsh', 'dsh'],
   ])
 })
 

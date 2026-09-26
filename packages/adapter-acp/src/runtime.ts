@@ -703,8 +703,17 @@ const acpCategory = (id: string, category: string | null | undefined): OptionCat
 
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
-  /** Read on construction and again on each start, unknown until then; see `RuntimeInfo.provider`. */
-  #provider: string | null = null
+  /**
+   * Read on construction and again on each start; see `RuntimeInfo.provider`.
+   * Three values, not two: `undefined` when this agent has no provider
+   * reader configured at all (`known-agents.ts` names none for it, or the
+   * row matched none), `null` when it has one and that reader could not
+   * rule out an override, and a vendor id when it could. The independence
+   * guard treats the first two identically — neither is ever taken for
+   * independent — but a stall naming why can tell "nothing to fix" from
+   * "fix that agent's own configuration" apart.
+   */
+  #provider: string | null | undefined = undefined
   #providerRead: Promise<void> = Promise.resolve()
   /** Set when the agent answered that it cannot take an MCP tool server. */
   #toolServerRefused = false
@@ -934,9 +943,11 @@ export class AcpRuntime implements AgentRuntime {
     // agent behind this adapter.
   }
 
-  async #readProvider(cwd?: string): Promise<string | null> {
+  /** `undefined` when this agent has no reader configured at all; never a caught error's fault, which reads as unknown instead. */
+  async #readProvider(cwd?: string): Promise<string | null | undefined> {
+    if (!this.#config.resolveProvider) return undefined
     try {
-      return (await this.#config.resolveProvider?.(cwd)) ?? null
+      return await this.#config.resolveProvider(cwd)
     } catch {
       return null
     }
@@ -947,9 +958,9 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /** `AgentRuntime.providerAt`: an agent that reads a project's own settings can be pointed elsewhere there. */
-  async providerAt(cwd: string): Promise<string | null> {
+  async providerAt(cwd: string): Promise<string | null | undefined> {
     await this.#providerRead
-    return this.#provider === null ? null : this.#readProvider(cwd)
+    return this.#provider === null || this.#provider === undefined ? this.#provider : this.#readProvider(cwd)
   }
 
   async start(): Promise<void> {

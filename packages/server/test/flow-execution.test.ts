@@ -237,6 +237,80 @@ rules:
   assert.deepEqual(readback.rig.events.filter((one) => one.startsWith('release:')), ['release:seat-2'])
 })
 
+/*
+ * A predecessor whose provider is unknown makes the round unprovable
+ * (the #1019 stall). What the stall says once it happens depends on whether
+ * there is anything to fix, and the agent's own presentation name is used
+ * only when the desk actually has one (Opus review of #1028).
+ */
+const unreadableWriterFlow = (seat: string): string => `
+version: 2
+name: Write then review
+roles:
+  author: { kind: agent, uses: writer, seats: [${seat}] }
+  reviewer: { kind: agent, uses: reviewer, seats: [beta], independentOf: [author] }
+seed: { role: author, title: Write }
+rules:
+  - { id: review, on: author, when: { every: [done] }, then: { role: reviewer, title: Review } }
+`
+
+test('an unreadable predecessor with a reader names the card and the agent, and points at its configuration', async (t) => {
+  const rig = await goalRig(t)
+  // 'alpha' has a reader — `readableProviders` says so — but it is never given a provider, so it reads unknown.
+  rig.presentations.set('alpha', 'DeepSeek Harness')
+  rig.readableProviders.add('alpha')
+  rig.providers.set('beta', 'second')
+  const run = await rig.start(unreadableWriterFlow('alpha'), [agent('writer', ['done']), agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(stalled.state, 'stalled')
+  assert.equal(
+    stalled.reason,
+    'This step needs an independent provider, but the agent on card #1, DeepSeek Harness, could not have its provider read, so no seat can be proven independent of it. ' +
+      'Fix that agent’s own configuration if something there points it at another host, or run this role without independentOf.',
+  )
+  assert.deepEqual(opens(rig.events), ['open:seat-1'], 'the reviewer is never opened once independence cannot be proven')
+})
+
+test('an unreadable predecessor with no presentation name at all falls back to naming just the card', async (t) => {
+  const rig = await goalRig(t)
+  // No `rig.presentations` entry for 'alpha' at all — the desk has nothing to call it.
+  rig.readableProviders.add('alpha')
+  rig.providers.set('beta', 'second')
+  const run = await rig.start(unreadableWriterFlow('alpha'), [agent('writer', ['done']), agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(
+    stalled.reason,
+    'This step needs an independent provider, but the agent on card #1 could not have its provider read, so no seat can be proven independent of it. ' +
+      'Fix that agent’s own configuration if something there points it at another host, or run this role without independentOf.',
+  )
+})
+
+test('an unreadable predecessor with no provider reader at all points at independentOf or reseating, never at configuration', async (t) => {
+  const rig = await goalRig(t)
+  // 'alpha' is never added to `readableProviders` — no reader exists for it, the Cursor case.
+  rig.presentations.set('alpha', 'Cursor')
+  rig.providers.set('beta', 'second')
+  const run = await rig.start(unreadableWriterFlow('alpha'), [agent('writer', ['done']), agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(
+    stalled.reason,
+    'This step needs an independent provider, but the agent on card #1, Cursor, could not have its provider read, so no seat can be proven independent of it. ' +
+      'That agent has no provider reader at all, so the only way forward is to run this role without independentOf, or to seat that earlier card on an agent whose provider can be read.',
+  )
+})
+
 test('a brief changed since the run was compiled is refused before and after opening', async (t) => {
   const rig = await goalRig(t)
   rig.digests.set('writer', 'edited-digest')

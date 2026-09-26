@@ -485,12 +485,16 @@ export interface RuntimeInfo {
   /**
    * Which vendor's models this runtime's sessions reach, as its adapter
    * resolved it from the agent's own configuration. Null when the adapter
-   * cannot tell — and always null when anything the person configured (an
-   * environment variable, a settings file, a gateway) could point the agent
-   * at another provider or base URL: a runtime built by one vendor can be
-   * calling another's models. Absent reads as null. Never a guess from the
-   * runtime's name; a step that must be independent of another refuses an
-   * unknown provider rather than assume one.
+   * has a reader but cannot tell — and always null when anything the person
+   * configured (an environment variable, a settings file, a gateway) could
+   * point the agent at another provider or base URL: a runtime built by one
+   * vendor can be calling another's models. Undefined (and absent, which
+   * reads the same) when this runtime has no provider reader at all. A step
+   * that must be independent of another refuses either the same way — an
+   * unknown provider is never assumed independent — but the two are worth
+   * telling apart when a person is told why a step will not seat: one names
+   * something to fix, the other does not. Never a guess from the runtime's
+   * name.
    */
   readonly provider?: string | null
   /**
@@ -940,7 +944,7 @@ export interface AgentRuntime {
    * bounded, without blocking and refusing links; anything that cannot be
    * read that way is unknown.
    */
-  providerAt?(cwd: string): Promise<string | null>
+  providerAt?(cwd: string): Promise<string | null | undefined>
 
   /** Bring the runtime up. Safe to call more than once. */
   start(): Promise<void>
