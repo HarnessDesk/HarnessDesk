@@ -356,6 +356,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             ? waiting.has(sessionKey(intent.claim.runtime, intent.claim.sessionId as SessionId))
             : false,
           forPerson: role?.kind === 'person',
+          live: role?.live ?? false,
           runStopped: role?.stopped ?? false,
         }),
       )

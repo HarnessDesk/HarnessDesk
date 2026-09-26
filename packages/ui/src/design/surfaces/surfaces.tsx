@@ -536,7 +536,7 @@ const questionStopStore = (): AppStore => {
     const step = flowStepOf(card, undefined, [execution])
     return placeCard({
       intent: card, evidence: undefined, stranded: false, holderWaits: false,
-      forPerson: step?.kind === 'person', runStopped: step?.stopped ?? false,
+      forPerson: step?.kind === 'person', live: step?.live ?? false, runStopped: step?.stopped ?? false,
     })
   })
   const activity = activityOf(PREVIEW_FLOW_GOAL.goal, {
@@ -572,7 +572,7 @@ const seatRefusedStore = (): AppStore => {
     const step = flowStepOf(card, undefined, [execution])
     return placeCard({
       intent: card, evidence: undefined, stranded: false, holderWaits: false,
-      forPerson: step?.kind === 'person', runStopped: step?.stopped ?? false,
+      forPerson: step?.kind === 'person', live: step?.live ?? false, runStopped: step?.stopped ?? false,
     })
   })
   const activity = activityOf(PREVIEW_FLOW_GOAL.goal, {
