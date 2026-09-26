@@ -765,14 +765,10 @@ export const Conversation = ({
             scroller and must not scroll with what it pictures. */}
         {session && <ConversationMap turns={session.turns} scroll={scroll} />}
         {loading && items.length === 0 ? (
-          // Shares its padding with ConversationEmptyState's, but not its
-          // shape: that pattern stacks a title over a sentence, and a spinner
-          // beside its word is a row, not a column — forcing one onto the
-          // other would flip which way this reads while it is loading.
-          <div className={`${styles.loading} p-10`}>
+          <ConversationEmptyState row>
             <Spinner size="sm" tone="brand" />
             <Text role="prose" ink="muted">Loading transcript…</Text>
-          </div>
+          </ConversationEmptyState>
         ) : session && items.length > 0 ? (
           <PaneColumn
             inset="reading"
