@@ -495,11 +495,24 @@ it('gives an agent that has not answered yet its own heading, neither Needs atte
   await mountList({ accountsByRuntime: accounts })
 
   expect(grouped()).toEqual({ 'Not answered yet': ['Gamma'], Ready: ['Alpha', 'Beta'] })
+  // The heading says it once; no row repeats it, and none claims a sign-in.
   const chips = [...line('Gamma').querySelectorAll('[class*=chip]')].map((node) => node.textContent)
-  expect(chips).toContain('Not answered yet')
+  expect(chips).not.toContain('Not answered yet')
   expect(chips).not.toContain('Needs sign-in')
   // No Sign in either: readiness has not said one is needed.
   expect(line('Gamma').closest('[data-slot="row-folding"]')?.querySelector('[data-slot="row-action"] button')).toBeFalsy()
+})
+
+it('orders its groups by what they ask of you: needs attention, then not answered yet, then ready', async () => {
+  // One of each: Beta crashed (blocking), Gamma has not answered, Alpha ready.
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>).gamma
+  await mountList({
+    accountsByRuntime: accounts,
+    healthByRuntime: { alpha: { state: 'ready' }, beta: { state: 'unavailable', reason: 'crashed', message: 'exited' }, gamma: { state: 'ready' } },
+  })
+  const order = [...document.body.querySelectorAll('[data-group]')].map((group) => group.getAttribute('data-group'))
+  expect(order).toEqual(['Needs attention', 'Not answered yet', 'Ready'])
 })
 
 it("a line opens its agent's page, where the accounts under it are", async () => {
