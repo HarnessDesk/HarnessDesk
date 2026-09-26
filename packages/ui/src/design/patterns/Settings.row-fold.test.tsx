@@ -79,3 +79,33 @@ it('draws the same box open and folded — a toggle, not a menu', async () => {
 
 // The one rule (open) and no rule (folded) are measured in the real engine,
 // e2e/ui-system/row-fold.spec.ts: jsdom resolves no `var()` border.
+
+it('stands a row\u2019s one action beside its opener, in the chevron\u2019s place, never inside it', async () => {
+  let opened = 0
+  let acted = 0
+  await act(async () => {
+    root.render(
+      <Rows>
+        <RowButton title="Qwen Code" onClick={() => { opened += 1 }} action={<button type="button" onClick={() => { acted += 1 }}>Sign in</button>} />
+        <RowButton title="Codex" onClick={() => {}} />
+      </Rows>,
+    )
+  })
+  const pair = container.querySelector('[data-slot="row-folding"]')
+  const opener = pair?.querySelector(':scope > button') as HTMLButtonElement
+  const action = pair?.querySelector('[data-slot="row-action"] button') as HTMLButtonElement
+  // Siblings: a button inside the row's own button is no button at all.
+  expect(opener.contains(action)).toBe(false)
+  // The action takes the chevron's place; the row without one keeps its chevron.
+  expect(opener.querySelector('.lucide-chevron-right')).toBeNull()
+  expect(container.querySelectorAll('.lucide-chevron-right')).toHaveLength(1)
+  // A row that only acts has nothing to fold, and says nothing about opening.
+  expect(pair?.hasAttribute('data-open')).toBe(false)
+  await act(async () => action.click())
+  expect([opened, acted]).toEqual([0, 1])
+  await act(async () => opener.click())
+  expect([opened, acted]).toEqual([1, 1])
+  // The inset around the action is lit with the row, so it opens the row too.
+  await act(async () => (pair?.querySelector('[data-slot="row-action"]') as HTMLElement).click())
+  expect([opened, acted]).toEqual([2, 1])
+})

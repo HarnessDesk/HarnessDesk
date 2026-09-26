@@ -1,3 +1,4 @@
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -9,6 +10,17 @@ import {
   readAnnotations,
   type PageAnnotation,
 } from './annotate'
+
+/** Every identifier the parsed source names — comments and strings are not code. */
+const identifiersOf = (source: string): Set<string> => {
+  const names = new Set<string>()
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node)) names.add(node.text)
+    ts.forEachChild(node, visit)
+  }
+  visit(ts.createSourceFile('overlay.js', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS))
+  return names
+}
 
 const page = { title: 'Example Domain', url: 'https://example.com/' }
 
@@ -88,10 +100,21 @@ describe('the overlay, as source', () => {
 
   it('reaches for nothing this module holds', () => {
     // It is stringified, so anything it did not bring with it is a reference
-    // to nothing once it lands in the guest.
+    // to nothing once it lands in the guest. Read the identifiers, not the
+    // text: the transform may keep the function's comments, and prose in a
+    // comment is no reference.
+    const names = identifiersOf(ANNOTATE_SOURCE)
+    expect(names.size).toBeGreaterThan(0)
     for (const name of ['ANNOTATION_LABEL', 'annotationContext', 'annotationSummary', 'place', 'lines']) {
-      expect(ANNOTATE_SOURCE).not.toMatch(new RegExp(`\\b${name}\\b`))
+      expect(names.has(name), name).toBe(false)
     }
+  })
+
+  it('reads a reference in code and not one in a comment or a string', () => {
+    const names = identifiersOf("(function () { /* place */ const s = 'lines'; return place })()")
+    expect(names.has('place')).toBe(true)
+    expect(names.has('lines')).toBe(false)
+    expect(identifiersOf('// place\n1').has('place')).toBe(false)
   })
 })
 

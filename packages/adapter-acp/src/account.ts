@@ -260,7 +260,15 @@ export class CliAccount {
     this.#logins.delete(loginId)
     this.#cancels.delete(loginId)
     if (outcome.kind === 'error') {
-      throw new Error(`The sign-in command could not start (${spec.command}): ${outcome.error.message}`)
+      // A command that is not there is the common case — the agent's CLI was
+      // never installed, or lives outside the PATH agents are started with —
+      // and `spawn devin ENOENT` says it only to someone who reads errno.
+      if ((outcome.error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(
+          `The sign-in command "${spec.command}" was not found. Install it, or put it on the PATH HarnessDesk starts agents with.`,
+        )
+      }
+      throw new Error(`The sign-in command "${spec.command}" could not start: ${outcome.error.message}`)
     }
     // The exit this causes finds the flow never handed out, and reports nothing.
     if (outcome.kind === 'timeout') this.#stop(child)

@@ -948,6 +948,15 @@
   border-radius: var(--hd-radius-md); /* desk: 0 → --hd-radius-md, a round ring inside a round card */
 }
 
+/* A row's one action beside its opener, where the chevron would stand: the
+   card's inset after it, as the fold's end keeps. */
+.rowActionEnd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-inline-end: var(--hd-card-padding);
+}
+
 .rowFoldEnd {
   flex: none;
   display: flex;
