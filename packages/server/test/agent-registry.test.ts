@@ -145,17 +145,38 @@ test('the catalogue reports availability from this machine, not from hope', asyn
   assert.ok(cursor.requires?.installCommand)
 })
 
-test('the template set is a decision, and DSH is deliberately not in it', async (t) => {
+test("DeepSeek Harness is a template: its own ACP server, the key it keeps in its own store", async (t) => {
+  // It could not be one while the only ACP server worth using was ours and
+  // needed a machine-specific --config. DSH now ships its own, which takes a
+  // tool server per session — the one thing a seat needs to be attributed —
+  // and starts with `dsh --profile acp` on any machine with `dsh` installed.
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+
+  store.add({ id: 'dsh', template: 'dsh' })
+  const [config] = store.configs()
+  assert.ok(config, 'the template expanded to a runnable config')
+  assert.equal(config.name, 'DeepSeek')
+  assert.equal(config.brand, 'deepseek')
+  assert.equal(config.command, 'dsh')
+  assert.deepEqual(config.args, ['--profile', 'acp'])
+  // The key is DeepSeek's own to keep: the desk reads where it lives, and
+  // offers to store one only when DSH has none.
+  const secret = config.secrets?.[0]
+  assert.equal(secret?.env, 'DEEPSEEK_API_KEY')
+  assert.deepEqual(secret?.alsoAt?.map((source) => source.path), ['~/.dsh/.credentials.yaml', '~/.dsh/.env'])
+})
+
+test('the template set is a decision', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))
   const store = new AgentRegistryStore(join(dir, 'agents.json'))
   const templates = await directoryWith(store).templates(new Set())
 
   // Pinned so a row appearing or vanishing is a conscious test change. The
-  // bar is "runs without the user editing anything" — which is why DeepSeek
-  // Harness is absent even on a machine with `dsh` installed: our dsh-acp
-  // server needs a machine-specific --config, so it registers through the
-  // custom-command form instead. See the TEMPLATES doc in agent-registry.ts.
+  // bar is "runs without the user editing anything". See the TEMPLATES doc
+  // in agent-registry.ts.
   //
   // The display name is pinned beside the key: it is what every meter, menu
   // and hand-off in the interface goes on to say, so shortening one is a
@@ -165,6 +186,8 @@ test('the template set is a decision, and DSH is deliberately not in it', async 
     [
       ['claude-code', 'Claude'],
       ['cursor', 'Cursor'],
+      // DeepSeek Harness's own ACP server, `dsh --profile acp`.
+      ['dsh', 'DeepSeek'],
       ['gemini', 'Gemini CLI'],
       // Neither is in the public ACP registry, and both speak ACP from
       // their own CLI: OpenClaw through `openclaw acp`, which needs the

@@ -60,14 +60,11 @@ const siblingEntry = (relative: string): string =>
  * itself, and `command`/`args` say how to start it.
  *
  * The bar for a row here: it must run without the user editing anything.
- * DeepSeek Harness is deliberately not a template — even with `dsh` on PATH,
- * our `dsh-acp` server (a separate repository; `packages/dsh-acp` is its
- * untracked build output) needs a machine-specific `--config`, so a template
- * would register an agent that cannot start until a file is written, which
- * is the text-editor step templates exist to remove. DSH registers through
- * the custom-command form; the README's "does not do yet" records the same
- * decision where users read. A test pins this set so a change to it is a
- * choice, never drift.
+ * DeepSeek Harness was kept out while the only ACP server worth using was our
+ * `dsh-acp`, which needs a machine-specific `--config`. DSH now ships its own
+ * (`dsh --profile acp`), which takes a tool server per session and starts on
+ * any machine with `dsh` installed, so it is one. A test pins this set so a
+ * change to it is a choice, never drift.
  */
 interface AgentTemplate {
   readonly key: string
@@ -79,6 +76,8 @@ interface AgentTemplate {
   readonly args?: readonly string[]
   readonly env?: Readonly<Record<string, string>>
   readonly account?: AcpAgentConfig['account']
+  /** A key the agent reads from its environment, and where it keeps its own. */
+  readonly secrets?: AcpAgentConfig['secrets']
   readonly executable?: AcpAgentConfig['executable']
   readonly requires?: {
     readonly command: string
@@ -127,6 +126,33 @@ const TEMPLATES: readonly AgentTemplate[] = [
       command: 'cursor-agent',
       cliRequired: true,
       installCommand: 'curl https://cursor.com/install -fsS | bash',
+    },
+  },
+  {
+    // DeepSeek Harness's own ACP server. It reads the key from its own store
+    // and takes a tool server per session, so a seat on it is attributed.
+    key: 'dsh',
+    name: 'DeepSeek',
+    brand: 'deepseek',
+    tagline: "DeepSeek's agent harness, speaking ACP directly.",
+    command: 'dsh',
+    args: ['--profile', 'acp'],
+    secrets: [
+      {
+        env: 'DEEPSEEK_API_KEY',
+        label: 'DeepSeek API key',
+        helpUrl: 'https://platform.deepseek.com/api_keys',
+        description: 'DeepSeek authenticates with a provider key rather than a browser sign-in.',
+        alsoAt: [
+          { path: '~/.dsh/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (~/.dsh/.credentials.yaml)" },
+          { path: '~/.dsh/.env', format: 'dotenv', label: '~/.dsh/.env' },
+        ],
+      },
+    ],
+    requires: {
+      command: 'dsh',
+      cliRequired: true,
+      installCommand: 'npm install -g @deepseek-ai/dsh',
     },
   },
   {
@@ -228,6 +254,7 @@ const expandTemplate = (
     ...(template.brand ? { brand: template.brand } : {}),
     ...(template.tagline ? { tagline: template.tagline } : {}),
     ...(template.account ? { account: template.account } : {}),
+    ...(template.secrets ? { secrets: template.secrets } : {}),
     ...(template.executable ? { executable: template.executable } : {}),
     ...(template.requires?.installCommand
       ? { installCommand: template.requires.installCommand }

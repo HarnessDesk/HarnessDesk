@@ -696,6 +696,42 @@ test('a source-marked split usage response includes both cache halves in input t
   }
 })
 
+test('grouped choices are read as the choices inside them, by name', async () => {
+  // ACP lets a select group its choices, and DeepSeek Harness's own server
+  // does: one group per provider, each value an opaque `["provider","model"]`.
+  // Read as a flat list, the picker offered one choice — the group's name,
+  // with no value — and the seat and the model catalogue both printed the
+  // raw pair where the model's name belonged.
+  const runtime = make({ FAKE_ACP_GROUPED_MODELS: '1' })
+  await runtime.start()
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const model = session.options().find((option) => option.id === 'model')
+    assert.ok(model && model.type === 'select')
+    assert.deepEqual(
+      model.choices.map((choice) => [choice.value, choice.label]),
+      [['["house","small"]', 'Small'], ['["house","large"]', 'Large']],
+      'the choices inside the group, never the group itself',
+    )
+    assert.equal(model.choices[1]?.description, 'The big one.')
+
+    const catalog = await runtime.listModels()
+    assert.deepEqual(
+      catalog.map((entry) => [entry.id, entry.displayName]),
+      [['["house","small"]', 'Small'], ['["house","large"]', 'Large']],
+      'the catalogue names each model, not the group',
+    )
+
+    await session.setOption('model', '["house","large"]')
+    assert.equal(session.settings().model, '["house","large"]', 'the opaque value is still what is sent and kept')
+    const after = session.options().find((option) => option.id === 'model')
+    assert.ok(after && after.type === 'select')
+    assert.equal(after.choices.length, 2, "the agent's answer is flattened too")
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a model declared only through configOptions updates settings after selection', async () => {
   const runtime = make({ FAKE_ACP_CONFIG_MODEL_ONLY: '1' })
   await runtime.start()
@@ -815,6 +851,63 @@ test('a tool-server refusal in error.data retries without the bridge (#358)', as
     assert.ok(session, 'a tool server refused in error.data does not cost the session')
     assert.equal(runtime.info.capabilities.pluginTools, false, 'the refusal is remembered')
     unsubscribe()
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a restart asks again: an agent upgraded to accept the tool server gets it, token and all', async (t) => {
+  // The refusal was remembered for the life of the runtime object, and a
+  // restart — Refresh models, a CLI that changed on disk, a crash — reuses
+  // that object. So an agent upgraded to take a per-session tool server kept
+  // being offered none until the whole app restarted, and every board call
+  // its seats made arrived without a caller token and was refused.
+  const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-reask-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const refusing = join(dir, 'refusing')
+  const dump = join(dir, 'servers.json')
+  await writeFile(refusing, '')
+  const claims: [string, string][] = []
+  const runtime = new AcpRuntime({
+    id: 'upgraded',
+    name: 'Upgraded',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_REFUSE_TOOLS_WHILE: refusing, FAKE_ACP_DUMP_SERVERS: dump },
+    toolServer: {
+      name: 'harnessdesk',
+      command: process.execPath,
+      args: ['--version'],
+      env: {},
+      onSession: (token, session) => claims.push([token, session]),
+    },
+  })
+  const settle = async (want: boolean): Promise<void> => {
+    const deadline = Date.now() + 5_000
+    while (runtime.info.capabilities.pluginTools !== want && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  }
+  await runtime.start()
+  try {
+    await settle(false)
+    assert.equal(runtime.info.capabilities.pluginTools, false, 'the old agent refused, and that was learned')
+
+    // The upgrade, then a restart of the same runtime.
+    const { rm: remove } = await import('node:fs/promises')
+    await remove(refusing)
+    const refreshed = await runtime.refreshCatalog()
+    assert.equal(refreshed.refreshed, true, 'nothing but the probe was open, so the agent restarted')
+    assert.equal(runtime.info.capabilities.pluginTools, true, 'a fresh process is asked afresh')
+
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const claim = claims.find(([, id]) => id === String(session.id))
+    assert.ok(claim, 'the upgraded agent was offered the tool server for this session')
+    const dumped = JSON.parse(await readFile(dump, 'utf8')) as { env?: { name: string; value: string }[] }[]
+    const carried = dumped.at(-1)?.env?.find((entry) => entry.name === 'HD_TOOLS_CALLER')
+    assert.equal(carried?.value, claim[0], "the session's bridge carries its own caller token")
   } finally {
     await runtime.dispose()
   }
@@ -2519,6 +2612,77 @@ test('AcpSession send preserves localImage and http image inputs in prompt (#415
     assert.ok(blocks[6].uri.includes(largeFile))
   } finally {
     await runtime.dispose()
+  }
+})
+
+test('an agent that can resume but not load is reopened with session/resume, tool server and all', async (t) => {
+  // DeepSeek Harness's own server keeps its conversations and offers
+  // `session/resume`, and has no `session/load`. The capability was read as
+  // "can reopen", and then `session/load` was sent anyway — "Method not
+  // found" — so every reopened DeepSeek conversation failed. HarnessDesk
+  // keeps its own transcript, so a resume that replays nothing loses nothing.
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const dir = await mkdtemp(join(tmpdir(), 'acp-resume-only-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = join(dir, 'store.json')
+  const opens = join(dir, 'opens.ndjson')
+  const dump = join(dir, 'servers.json')
+  const claims: [string, string][] = []
+  const withStore = (): AcpRuntime =>
+    new AcpRuntime({
+      id: 'resume-only',
+      name: 'Resume Only',
+      command: process.execPath,
+      args: [FAKE],
+      env: { FAKE_ACP_STORE: store, FAKE_ACP_RESUME_ONLY: '1', FAKE_ACP_OPENS: opens, FAKE_ACP_DUMP_SERVERS: dump },
+      toolServer: {
+        name: 'harnessdesk',
+        command: process.execPath,
+        args: ['--version'],
+        env: {},
+        onSession: (token, session) => claims.push([token, session]),
+      },
+    })
+
+  const first = withStore()
+  await first.start()
+  const tapeA = record(first)
+  let savedId: string
+  try {
+    const session = await first.createSession({ cwd: dir })
+    savedId = String(session.id)
+    await session.send([{ type: 'text', text: 'remember me' }])
+    await tapeA.until((event) => event.type === 'turn/completed')
+  } finally {
+    await first.dispose()
+  }
+
+  const second = withStore()
+  await second.start()
+  const tapeB = record(second)
+  try {
+    assert.equal(second.info.capabilities.resume, true)
+    const resumed = await second.resumeSession(sessionId(savedId))
+    assert.equal(String(resumed.id), savedId)
+    const methods = (await readFile(opens, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { method: string; sessionId: string })
+    assert.deepEqual(
+      methods.filter((open) => open.sessionId === savedId).map((open) => open.method),
+      ['session/new', 'session/resume'],
+      'reopened with the verb the agent offers',
+    )
+    const claim = claims.find(([, id]) => id === savedId)
+    assert.ok(claim, "the resumed conversation's token names it")
+    const dumped = JSON.parse(await readFile(dump, 'utf8')) as { env?: { name: string; value: string }[] }[]
+    assert.equal(
+      dumped.at(-1)?.env?.find((entry) => entry.name === 'HD_TOOLS_CALLER')?.value,
+      claims.at(-1)?.[0],
+      'the bridge mounted on resume carries that token',
+    )
+    await resumed.send([{ type: 'text', text: 'and again' }])
+    await tapeB.until((event) => event.type === 'turn/completed')
+  } finally {
+    await second.dispose()
   }
 })
 

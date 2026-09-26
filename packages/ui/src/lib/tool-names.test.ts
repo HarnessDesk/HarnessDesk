@@ -4,6 +4,7 @@ import type { CapabilityContribution } from '@harnessdesk/protocol'
 
 import {
   bareToolName,
+  isPlanTool,
   shellCommandOf,
   shortestUniquePathLabels,
   toolSentence,
@@ -193,5 +194,27 @@ describe('toolWords on a camel-case identifier', () => {
     expect(toolWords('AskUserQuestion')).toBe('Ask user question')
     expect(toolWords('mcp__harnessdesk__web_fetch')).toBe('Web fetch')
     expect(toolWords('NotebookEdit')).toBe('Notebook edit')
+  })
+})
+
+describe('a plan tool', () => {
+  // DeepSeek Harness's own todo tool is called `todo_write` — the name
+  // HarnessDesk's own todo plugin registers — so the lookup answered with the
+  // plugin's description, a sentence about a tool that was never called.
+  const sentences = toolSentences([
+    tool('todo', 'todo_write', 'Write the task list for this conversation. Send the whole list every time.'),
+  ])
+
+  it('is recognised by every agent’s spelling, and nothing else', () => {
+    for (const name of ['todo_write', 'TodoWrite', 'update_plan', 'create_plan', 'mcp__harnessdesk__todo_write']) {
+      expect(isPlanTool(name)).toBe(true)
+    }
+    for (const name of ['todos_read', 'planner_status', 'Read README.md', 'bash']) {
+      expect(isPlanTool(name)).toBe(false)
+    }
+  })
+
+  it('reads as the plan it set, never as a plugin’s description of a namesake', () => {
+    expect(toolSentence('todo_write', sentences, { kind: 'plan' })).toBe('Updated the plan')
   })
 })

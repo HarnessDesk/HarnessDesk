@@ -537,3 +537,48 @@ describe('a failed dynamic tool call', () => {
     expect(container.textContent).not.toContain('half the page')
   })
 })
+
+/**
+ * DeepSeek Harness's tool vocabulary, as both of its ACP servers send it.
+ *
+ * Its own server names a call by the tool — `read`, `bash`, `todo_write` —
+ * and the bridge titles a read by its path; the adapter puts the verb back
+ * (`Read README.md`). Each has to read as the sentence and the glyph every
+ * other agent's call gets, with no identifier and no argument row under it.
+ */
+describe("DeepSeek Harness's tool calls", () => {
+  const glyph = (): string => container.querySelector('button svg')?.getAttribute('class') ?? ''
+
+  it('reads a file read as "Read <file>" with the file glyph, from either server', () => {
+    for (const item of [
+      call({ tool: 'read', args: { file_path: '/w/README.md' } }),
+      call({ tool: 'Read README.md', args: { file_path: 'README.md' } }),
+    ]) {
+      open(item)
+      expect(title()).toContain('Read README.md')
+      expect(glyph()).toContain('lucide-file')
+      expect(wire()).toBe(null)
+      expect(container.querySelector('[data-role="arguments"]')).toBeNull()
+    }
+  })
+
+  it('reads a shell call with the command glyph and no identifier', () => {
+    open(call({ tool: 'bash', args: { command: 'ls -a', description: 'List all entries in workspace' } }))
+    expect(title()).toContain('List all entries in workspace')
+    expect(glyph()).toContain('lucide-square-terminal')
+    expect(wire()).toBe(null)
+  })
+
+  it('reads a todo_write as the plan it set, with the plan glyph', () => {
+    open(call({
+      tool: 'todo_write',
+      args: { todos: [{ content: 'Run ls -a', status: 'completed' }, { content: 'Read README.md', status: 'in_progress' }] },
+    }))
+    expect(title()).toContain('Updated the plan')
+    expect(title()).not.toContain('task list')
+    expect(glyph()).toContain('lucide-list-todo')
+    expect(wire()).toBe(null)
+    // The plan itself is the body, as a list — not a `todos` argument row.
+    expect(container.textContent).toContain('Run ls -a')
+  })
+})
