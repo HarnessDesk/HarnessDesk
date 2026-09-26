@@ -590,9 +590,21 @@ export const Conversation = ({
   const busy = session ? isBusy(session) : false
   const live = session ? currentTurn(session) : undefined
 
+  // The auto-scroll below sets `scrollTop` itself, and that assignment fires
+  // its own native `scroll` event a frame later — indistinguishable, to a
+  // plain listener, from the reader scrolling back to the bottom. Without
+  // this mark that delayed event re-pinned every release a frame after it
+  // landed, so a selection made the instant a token streamed in snapped
+  // straight back. One event (or one frame, whichever comes first) is
+  // swallowed per programmatic scroll, the same way shadcn's own
+  // `data-autoscrolling` does it.
   const onScroll = useCallback(() => {
     const element = scroll.current
     if (!element) return
+    if (element.dataset.autoscrolling) {
+      delete element.dataset.autoscrolling
+      return
+    }
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight
     setPinned(distance < NEAR_BOTTOM_PX)
   }, [])
@@ -600,12 +612,16 @@ export const Conversation = ({
   // A reader who is selecting a word out of a streaming answer must not have
   // it yanked out from under the cursor by the next token — release follow
   // the moment the selection lands inside this transcript, the same way
-  // scrolling away from the bottom already does.
+  // scrolling away from the bottom already does. Scoped to the transcript's
+  // own content: the empty-state pitches share this ref while they are what
+  // is mounted, and a selection made in "Nothing to show" is not a reason to
+  // stop following a conversation that has not started streaming anything.
   useEffect(() => {
     const onSelectionChange = () => {
       const element = scroll.current
       const selection = document.getSelection()
-      if (!element || !selection || selection.isCollapsed) return
+      if (!element || !element.hasAttribute('data-live-transcript')) return
+      if (!selection || selection.isCollapsed) return
       if (selection.anchorNode && element.contains(selection.anchorNode)) setPinned(false)
     }
     document.addEventListener('selectionchange', onSelectionChange)
@@ -614,9 +630,15 @@ export const Conversation = ({
 
   // A link's own click does not move the scroll position, so `onScroll`
   // never sees it — but opening one is exactly the kind of thing a streamed
-  // token should not scroll out from under.
+  // token should not scroll out from under. `element.contains` (real DOM
+  // ancestry, not React's tree) keeps this from firing on a portalled hover
+  // card's own link — its node lives outside this box no matter which
+  // component rendered it — and `a[href]` skips a row's own clickable
+  // wrapper, which is an anchor with nowhere to go.
   const onScrollClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if ((event.target as HTMLElement).closest?.('a')) setPinned(false)
+    const element = scroll.current
+    const link = (event.target as HTMLElement).closest?.('a[href]')
+    if (element && link && element.contains(link)) setPinned(false)
   }, [])
 
   // Layout effect so the jump happens in the same frame the content grows,
@@ -624,13 +646,28 @@ export const Conversation = ({
   useLayoutEffect(() => {
     if (!pinned) return
     const element = scroll.current
-    if (element) element.scrollTop = element.scrollHeight
+    if (!element) return
+    element.dataset.autoscrolling = 'true'
+    element.scrollTop = element.scrollHeight
+    // A no-op assignment (already at the bottom) fires no `scroll` event at
+    // all, which would otherwise leave the mark to swallow the next real one.
+    const frame = requestAnimationFrame(() => delete element.dataset.autoscrolling)
+    return () => cancelAnimationFrame(frame)
   }, [items, pinned, session?.id])
 
   // Switching sessions always starts at the bottom of the new transcript.
   useEffect(() => {
     setPinned(true)
   }, [session?.id])
+
+  // A turn that was not there a moment ago is either a message the reader
+  // just sent or a fresh reply starting — either way the point of sending is
+  // to see what comes back, so a release from reading an earlier answer does
+  // not survive it.
+  const lastTurnId = session?.turns[session.turns.length - 1]?.id ?? null
+  useEffect(() => {
+    if (lastTurnId != null) setPinned(true)
+  }, [lastTurnId])
 
   // The transcript scrolls behind the floating composer; its measured height
   // becomes the scroll padding, so the last message always clears it — even
@@ -748,7 +785,7 @@ export const Conversation = ({
             <Text role="prose" ink="muted">Loading transcript…</Text>
           </div>
         ) : session && items.length > 0 ? (
-          <div className={styles.scroll} ref={scroll} onScroll={onScroll} onClick={onScrollClick} style={{ padding: SCROLL_PADDING }}>
+          <div className={styles.scroll} ref={scroll} onScroll={onScroll} onClick={onScrollClick} data-live-transcript style={{ padding: SCROLL_PADDING }}>
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,

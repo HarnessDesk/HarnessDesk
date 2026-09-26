@@ -123,7 +123,13 @@
    door to a view folds into ⋯ › View. The header marks the doors that have a
    ⋯ to fold into (`data-folds`); a draft has none, and keeps its browser. */
 @container hd-header (max-width: 400px) {
-  .statusIdle,
+  /* `.statusIdle` sits on the same element as Chip's own `.chip` class
+     (`display: inline-flex`, Settings.module.css) — a single class each, so
+     a plain `.statusIdle` here ties with it on specificity and the winner
+     becomes whichever module's CSS lands later in the bundle. The extra
+     attribute selector, on `data-slot` Chip always sets, breaks the tie in
+     this rule's favour regardless of load order. */
+  .statusIdle[data-slot='chip'],
   .headerRuleWrap,
   .headerButtonWrap[data-folds] {
     display: none;

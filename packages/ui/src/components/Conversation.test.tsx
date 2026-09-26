@@ -460,3 +460,121 @@ it('a collapsed selection (a plain click) does not release the pin', () => {
 
   expect(jumpToLatest()).toBeUndefined()
 })
+
+// Round 1 of review on #983: the release must stick (proved live in
+// e2e/ui-system/transcript-follow.spec.ts, since jsdom never fires the real
+// `scroll` event the auto-scroll's own `scrollTop` assignment causes) and
+// must not fire for a selection anywhere but the transcript's own content.
+
+it('a selection outside the transcript — in the dock area a composer shares — does not release the pin', () => {
+  render(rig(transcriptSession()).store)
+  const dock = container.getElementsByClassName(styles.dockArea!)[0]!
+  const note = document.createElement('span')
+  note.textContent = 'not the transcript'
+  dock.appendChild(note)
+  const text = note.firstChild!
+  const range = document.createRange()
+  range.selectNodeContents(text)
+  const selection = window.getSelection()
+  if (!selection) throw new Error('jsdom gave no Selection to work with')
+  act(() => {
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+
+  expect(jumpToLatest()).toBeUndefined()
+})
+
+it('a selection in a second conversation pane does not release the first pane’s pin', () => {
+  const otherKey = sessionKey('codex', sessionId('s-2'))
+  const otherSession = session({
+    id: sessionId('s-2'),
+    updatedAt: 9_000,
+    turns: [
+      {
+        id: turnId('t-2'),
+        status: 'completed',
+        items: [{ id: itemId('i-2'), type: 'assistantMessage', text: 'a second pane entirely' }],
+      },
+    ],
+  })
+  const { store } = rig(transcriptSession())
+  const shared = store.getSnapshot()
+  const sessions = new Map(shared.sessions)
+  sessions.set(otherKey, otherSession)
+  const merged = { ...shared, sessions }
+  const both = { ...store, getSnapshot: () => merged } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={both}>
+        <div>
+          <PaneProvider scope={{ paneId: 'p1' as never, view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}>
+            <Conversation onChooseProject={() => undefined} onSignIn={() => undefined} onOpenUsage={() => undefined} onOpenRuntimes={() => undefined} />
+          </PaneProvider>
+          <PaneProvider scope={{ paneId: 'p2' as never, view: { kind: 'conversation', session: otherKey as never }, sessionKey: otherKey as never }}>
+            <Conversation onChooseProject={() => undefined} onSignIn={() => undefined} onOpenUsage={() => undefined} onOpenRuntimes={() => undefined} />
+          </PaneProvider>
+        </div>
+      </StoreProvider>,
+    )
+  })
+
+  const [firstPane, secondPane] = [...container.firstElementChild!.children]
+  const [firstScroll, secondScroll] = [...container.getElementsByClassName(styles.scroll!)]
+  expect(firstScroll).toBeDefined()
+  expect(secondScroll).toBeDefined()
+
+  const jumpIn = (pane: Element): HTMLButtonElement | undefined =>
+    [...pane.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Jump to latest')
+
+  const text = document.createTreeWalker(secondScroll!, NodeFilter.SHOW_TEXT).nextNode()
+  if (!text) throw new Error('no text node in the second pane to select')
+  const range = document.createRange()
+  range.selectNodeContents(text)
+  const selection = window.getSelection()
+  if (!selection) throw new Error('jsdom gave no Selection to work with')
+  act(() => {
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+
+  // The selection landed in the second pane's own transcript, so its own
+  // release is the point — proof this is not a vacuously passing check.
+  expect(jumpIn(secondPane!)).not.toBeUndefined()
+  expect(jumpIn(firstPane!)).toBeUndefined()
+})
+
+it('only the transcript’s own scroll container is marked as the live transcript', () => {
+  // No turns: the "Nothing to show" pitch is what `.scroll` holds here, and
+  // a selection landing in it must not be mistaken for one in the transcript.
+  render(rig(session({ updatedAt: 9_000 })).store)
+  const emptyScroll = container.getElementsByClassName(styles.scroll!)[0]!
+  expect(emptyScroll.hasAttribute('data-live-transcript')).toBe(false)
+
+  render(rig(transcriptSession()).store)
+  const liveScroll = container.getElementsByClassName(styles.scroll!)[0]!
+  expect(liveScroll.hasAttribute('data-live-transcript')).toBe(true)
+})
+
+it('a new turn re-engages follow, undoing an earlier release', () => {
+  const first = { id: turnId('t-1'), status: 'completed' as const, items: [{ id: itemId('i-1'), type: 'assistantMessage' as const, text: 'first answer' }] }
+  const { store } = rig(session({ updatedAt: 9_000, turns: [first] }))
+  render(store)
+
+  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const link = document.createElement('a')
+  link.href = '#'
+  link.textContent = 'a link'
+  scrollEl.appendChild(link)
+  act(() => link.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(jumpToLatest()).not.toBeUndefined()
+
+  // The reader sent the next message: a new turn lands.
+  const second = { id: turnId('t-2'), status: 'inProgress' as const, items: [] as Session['turns'][number]['items'] }
+  render(rig(session({ updatedAt: 9_500, turns: [first, second] })).store)
+
+  expect(jumpToLatest()).toBeUndefined()
+})
