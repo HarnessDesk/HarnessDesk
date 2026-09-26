@@ -6,18 +6,15 @@ import {
   TurnWorkHeader,
   TurnWorkHeaderLabel,
   TurnWorkLive,
-  Checklist,
-  ChecklistItem,
-  Chip,
 } from '../design'
 import { useEffect, useState } from 'react'
 
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
 import { groupItems, isSilentReasoning } from '../lib/group-items'
-import { planOf, todoState, turnPlan } from '../lib/todos'
+import { planOf, turnPlan } from '../lib/todos'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
-import { ItemView, StepNameScope } from './Items'
+import { ItemView, PlanSteps, StepNameScope } from './Items'
 import { StepGroup } from './StepGroup'
 import styles from './TurnWork.module.css'
 
@@ -142,19 +139,7 @@ export const TurnWork = ({
       </TurnWorkHeader>
       {open && (
         <TurnWorkBody reveal={choice === true} className={styles.body} data-register="light">
-          {inlinePlan && (
-            <Checklist>
-              {inlinePlan.map((todo, index) => (
-                <ChecklistItem
-                  key={index}
-                  state={todoState(todo)}
-                  {...(todo.priority ? { after: <Chip tone="neutral" size="sm">{todo.priority}</Chip> } : {})}
-                >
-                  {todo.label}
-                </ChecklistItem>
-              ))}
-            </Checklist>
-          )}
+          {inlinePlan && <PlanSteps todos={inlinePlan} />}
           <StepNameScope items={shown} root={root}>
             {groupItems(shown).map((node) =>
               node.kind === 'group' ? (

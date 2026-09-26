@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { applyPlanEdits, type ShownTodo } from '../lib/plan-edits'
-import { sessionPlan } from '../lib/todos'
+import { sessionPlan, todoState } from '../lib/todos'
 import { PanelSection } from '../slots/PanelBlocks'
 import { registerSlot } from '../slots/registry'
 import styles from './TaskPanel.module.css'
@@ -68,7 +68,7 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
     if (next !== todo.label) store.editPlanTask(todo.source, next, todo.at, key ?? undefined)
   }
 
-  const state = todo.done ? 'done' : todo.active ? 'active' : 'pending'
+  const state = todoState(todo)
 
   if (draft !== null) {
     return (

@@ -26,11 +26,28 @@ const MARK: Record<ChecklistState, (props: { size: number }) => ReactNode> = {
 
 const LABEL: Record<ChecklistState, string> = { pending: 'To do', active: 'In progress', done: 'Done' }
 
-export const Checklist = ({ children, className, label }: { children: ReactNode; className?: string; label?: string }) => (
-  <ul className={cn(styles.list, className)} data-slot="checklist" {...(label ? { 'aria-label': label } : {})}>
-    {children}
-  </ul>
-)
+/**
+ * `ordered` for steps whose order is the point — a plan written as numbered
+ * steps — so a screen reader hears them as a sequence, not a set.
+ */
+export const Checklist = ({
+  children,
+  className,
+  label,
+  ordered = false,
+}: {
+  children: ReactNode
+  className?: string
+  label?: string
+  ordered?: boolean
+}) => {
+  const List = ordered ? 'ol' : 'ul'
+  return (
+    <List className={cn(styles.list, className)} data-slot="checklist" {...(label ? { 'aria-label': label } : {})}>
+      {children}
+    </List>
+  )
+}
 
 export const ChecklistItem = ({
   state,

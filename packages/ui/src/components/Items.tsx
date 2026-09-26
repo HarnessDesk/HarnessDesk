@@ -916,7 +916,7 @@ const findDiff = (value: unknown): string | null => {
  * the Tasks panel and a turn's own ACP plan draw. A step's priority (ACP's;
  * not every source has one) sits in a chip on the step's own line (rule 9).
  */
-const PlanSteps = ({ todos }: { todos: readonly Todo[] }) => (
+export const PlanSteps = ({ todos }: { todos: readonly Todo[] }) => (
   <Checklist>
     {todos.map((todo, index) => (
       <ChecklistItem
@@ -1341,7 +1341,7 @@ const Plan = ({ item }: { item: PlanItem }) => {
   return (
     <Row icon={<PlanIcon size={14} />} title="Plan" defaultOpen>
       {/* The same list as a tool's todo list, every step still to do. */}
-      <Checklist>
+      <Checklist ordered>
         {steps.map((step, index) => (
           <ChecklistItem key={index} state="pending">
             {step}
