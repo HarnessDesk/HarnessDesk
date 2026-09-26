@@ -47,9 +47,6 @@ export const previewAccounts: Record<string, AccountStatus> = {
   [CLAUDE]: { signedIn: true, accounts: [account('shane@harnessdesk.app')] },
 } as unknown as Record<string, AccountStatus>
 
-const HOUR = 3_600_000
-const DAY = 24 * HOUR
-
 /**
  * One rolling allowance.
  *
@@ -150,21 +147,39 @@ export const previewUsage: UsageReport[] = [
 ] as unknown as UsageReport[]
 
 /**
- * A month of spend, split three ways.
+ * A month of spend, split three ways — or, for the heatmap's own 365-day
+ * request, a year of it.
  *
  * Deliberately uneven: a weekend of nothing, one day that dwarfs the rest,
  * and one agent that only appears halfway through. A smooth fixture makes
- * every chart look correct.
+ * every chart look correct. The year request adds two more shapes "When it
+ * ran" exists to draw: a stretch of the oldest ~11% of days with no rows at
+ * all — the ledger not having scanned back that far, not a quiet spell — and
+ * a scattering of ordinary weekday gaps, so the grid is not a solid block.
+ * The 7/30/90-day money-band queries are unchanged.
  */
 export const previewLedger = (days: number, groupBy: string): unknown => {
   const midnight = new Date()
   midnight.setHours(0, 0, 0, 0)
   const start = midnight.getTime()
   const daily: { day: number; runtime: RuntimeId; cost: number; tokens: number }[] = []
+  const yearRequest = days > 180
+  const notScannedCount = yearRequest ? Math.floor(days * 0.11) : 0
   for (let index = days - 1; index >= 0; index -= 1) {
-    const day = start - index * DAY
+    // The oldest slice: nothing scanned yet, ever — not a quiet week.
+    if (index >= days - notScannedCount) continue
+    // Calendar stepping, not a fixed 86,400,000ms one — the exact DST bug
+    // `lib/heat.ts`'s own header documents: a fixed step drifts an hour off
+    // local midnight across a change, and this fixture's dates then miss the
+    // grid's local-midnight keys for months at a time (review #990, item 9).
+    const date = new Date(start)
+    date.setDate(date.getDate() - index)
+    const day = date.getTime()
     const weekend = [0, 6].includes(new Date(day).getDay())
     if (weekend && index % 3 !== 0) continue
+    // A handful of ordinary weekday gaps, so a scanned year is not a solid
+    // block of colour — a day off is still the common case.
+    if (yearRequest && index % 13 === 0 && index % 3 !== 0) continue
     const swell = index === 4 ? 3.4 : index === 11 ? 2.1 : 1
     const wobble = 0.55 + ((index * 37) % 100) / 100
     daily.push({ day, runtime: CLAUDE, cost: 41 * wobble * swell, tokens: 4_100_000 * wobble })

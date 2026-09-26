@@ -570,6 +570,75 @@ from the ranked rows, where it repeated down a column until it stopped reading
 as a warning and started reading as a category; it is a footnote under the
 table now, counting the rows it applies to.
 
+**When it ran is a calendar, not a chart of the current window.** It sits
+between "Where it went" and "Project usage", and it keeps its own ledger
+query — 365 days, independent of the money band's 7/30/90 range — because the
+question it answers, *when* did the work happen, is on a different clock from
+what a rolling window can show: a month of columns cannot draw a streak or
+name a busiest weekday, and a year of them would be a shape rather than a row
+of days. **Year** draws 53 weeks by 7 days, Monday first, with month labels
+across the top and today's cell ringed; **By agent** draws the last 13 weeks
+as one row per agent, so a pattern that belongs to one agent does not have to
+be read out of a shared column. Both read Tokens or Cost, and both follow the
+rail's scope like every band here.
+
+**Levels come from the data's own quartiles, not from `value / max`.** A
+scale built off the single highest day makes every ordinary day look empty
+the moment one huge day appears in the window — the outlier does not just
+stand out, it flattens everything beside it. Splitting the non-zero values
+into quartiles instead means the breakpoints move with the *shape* of a
+year's work: the six ordinary days in a week still land somewhere above
+empty, and the one unusual day is still the top of the scale, without erasing
+the six.
+
+**Three kinds of nothing, because a blank cell answers a different question
+each time.** A **zero** is a scanned day the ledger genuinely has nothing
+for — a weekend, a day off — and draws as an empty cell, level 0. **No
+record yet** is a day before the ledger holds any row at all, which is not
+"nothing happened" but "this screen cannot say" — the fixed ledger shape
+(`LedgerDay`) carries no per-day scanned flag, so it is derived the same way
+the money band's own coverage line is: the earliest day with any row at all
+is treated as where scanning starts, and everything before it is hatched
+rather than left blank. The label says "no record yet" rather than "not
+scanned" for exactly that reason — the host has no scan-horizon field of its
+own yet (`coverage.earliestDay` is a data-side follow-up), so this screen is
+honest about a guess rather than claiming a fact it cannot back. And with
+**Cost** selected, a day whose tokens were spent but whose cost reads as
+nothing is marked the same hatched way rather than as `$0` — real usage the
+ledger cannot price is not a free day, and `LedgerDay` has no per-day price
+flag to say otherwise, so `tokens > 0` with `cost <= 0` on an
+otherwise-scanned day is read as unpriced rather than free. The same honesty
+applies to the facts card and the tooltip footer: a scope nothing in it can
+be priced reads "unpriced", never `$0`.
+
+**The ramp is the desk's own accent, not green.** A calendar heatmap reads a
+quantity — *how much*, not *pass or fail* — and green is this app's own
+verdict colour everywhere else it appears (`--hd-success`); using it here
+would make a busy day look like good news and a quiet one look like a
+warning, neither of which this band is claiming. Five tokens,
+`--hd-chart-heat-0` through `-4`, each a deeper wash of `--hd-accent`, plus
+`--hd-chart-heat-not-scanned` for the hatch — `design/foundation/tokens.css`,
+never a literal in the component.
+
+**The grid itself is `design/ui/heat-grid.tsx`.** One tab stop, and arrow
+keys walk a cursor over the two axes: `ArrowLeft`/`ArrowRight` move a column
+and `ArrowUp`/`ArrowDown` move a row, whatever a row and a column mean to the
+caller — a week and a weekday in Year, a day and an agent in By agent.
+`Escape` puts the cursor away and stops there, but only when one is active:
+the same document-level Escape this window closes itself on must still reach
+it when nothing is being pointed at. The tooltip is data handed to the grid —
+a title, up to three agents, an overflow count, a total — rather than
+pre-rendered markup, the same split `DayColumns` keeps for the money chart's
+own tip; a band that composed the tooltip's borders and colour itself would
+be appearance the design system already owns, drawn twice.
+
+The arithmetic behind all of this — building a day by the calendar rather
+than by a fixed millisecond step (the DST bug `lib/ledger.ts` already
+documents), the quartile breakpoints, the current and best streak, the
+busiest day and weekday — lives in
+[`lib/heat.ts`](../packages/ui/src/lib/heat.ts) and is tested without a
+browser.
+
 ## Will it last
 
 One band, and only when the rail is on one agent. The first screen is triage and

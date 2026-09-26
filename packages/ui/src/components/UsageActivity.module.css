@@ -1,0 +1,27 @@
+/* "When it ran" keeps only placement; its visible roles belong to design/.
+   Its head is not sticky like its neighbours' — that trick keys off
+   `--usage-strip`, a custom property Usage.module.css defines for itself,
+   and this band owns no stylesheet but its own. */
+
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-6);
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-0-5);
+  min-width: 96px;
+}
+
+.plot {
+  overflow-x: auto;
+}
