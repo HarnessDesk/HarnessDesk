@@ -269,6 +269,15 @@ body {
   --hd-control-h: 26px;
   --hd-target-min: 24px;
   --hd-control-h-sm: 24px;
+  /* The pitch of a windowed table row — the git history list's own, kept
+     apart from `--hd-control-h` on purpose. A virtualized list does
+     arithmetic on this number (top = index × pitch) and a graph column
+     drawn beside it must fill the same pitch with no gap between rows, so
+     nothing may move it without moving both; `--hd-control-h` answers a
+     different question and Studio raises it, which this must not follow
+     (#835). `GitPane.tsx`'s `ROW` mirrors this value, and a test pins the
+     two together. */
+  --hd-table-row-h: 26px;
   /* The floor of the history's resizable commit detail. Its action and
      filter bars stand on the tool pane's own bar rung now (`ToolPaneBar`). */
   --hd-history-detail-min-h: 160px;
