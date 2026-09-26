@@ -44,6 +44,13 @@ export interface ToolGatewayBackend {
    */
   instructions?(caller?: string): string
   /**
+   * A bridge introduced itself with no caller token. No conversation offered
+   * it — an agent's own configuration composed it — so its board calls will
+   * be refused as unattributed. `agent` is the runtime whose environment the
+   * bridge says it was spawned from, when it says.
+   */
+  tokenless?(agent: string | undefined): void
+  /**
    * Phase 12's own two verbs — a Seat's approved external MCP servers, never
    * the desk's own plugin tools `tools/list`/`tools/invoke` answer for.
    * Optional: a desk not wired for phase 12 (or a test of the plugin-tools
@@ -180,6 +187,7 @@ export class ToolGateway {
         case 'server/info': {
           const params = request.params ?? {}
           const caller = typeof params['caller'] === 'string' ? params['caller'] : undefined
+          if (caller === undefined) this.backend.tokenless?.(typeof params['agent'] === 'string' ? params['agent'] : undefined)
           reply({ result: { instructions: this.backend.instructions?.(caller) ?? '' } })
           return
         }

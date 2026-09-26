@@ -67,15 +67,19 @@ What it does and does not carry, measured on DSH `0.1.7-rc.2` on 2026-09-25:
   that session's own agent, so each DeepSeek conversation gets its own tool
   bridge carrying its own caller token, and a DeepSeek seat's board calls —
   `complete_claim` and the rest — are attributed to that seat. Remove any
-  `@deepseek-ai/dsh-mcp-client` entry for HarnessDesk from your composition: a
-  server composed once is shared by every conversation, so its calls cannot
-  say which one is calling and the board refuses them.
+  `@deepseek-ai/dsh-mcp-client` entry for HarnessDesk left in your
+  composition from an older setup. Each session's own server takes
+  precedence over it, so attribution holds, but it still starts one bridge
+  per DSH process that no call should reach, and one that did would carry no
+  caller token and be refused. The app says so when it finds one.
 - **Messages and reasoning arrive whole**, one update per committed message
   rather than streamed token by token. Tool calls, context usage, and model and
   reasoning effort as session options all reach the wire.
 - **A reopened conversation resumes rather than replays.** The server offers
-  `session/resume` and no `session/load`; HarnessDesk keeps its own transcript
-  of every conversation, so nothing is lost.
+  `session/resume` and no `session/load`, so the agent gets its context back
+  and the wire carries none of the past. The conversation you see is the one
+  HarnessDesk recorded: its earlier turns are kept ahead of the new ones and
+  never overwritten. Turns taken outside HarnessDesk are not shown.
 - **No plans or titles on the wire.** The Tasks panel reads the plan from
   DSH's `todo_write` calls instead; a conversation is named by its opening ask.
 
@@ -173,10 +177,10 @@ the other**), not by shortcut.
 
 Twelve ship built in: git, files, search, task list, team, checkpoints,
 guardrails, web, browser, iOS simulator, Android and tests. Their tools reach
-every agent — Codex as dynamic tools, Claude Code through an MCP server, Cursor
-through a generated plugin directory, and DeepSeek Harness through a
-`dsh-mcp-client` entry in its own composition (see
-[browser-control.md](browser-control.md) for the entry to add). Settings ›
+every agent — Codex as dynamic tools, Claude Code and DeepSeek Harness through
+an MCP server offered with each conversation, and Cursor through a generated
+plugin directory. If your DSH composition still has a `dsh-mcp-client` entry
+for HarnessDesk from an older setup, remove it. Settings ›
 Plugins shows each one's state, what it contributes, what it was granted, and
 its configuration.
 

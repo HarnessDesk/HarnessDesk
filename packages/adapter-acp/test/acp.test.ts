@@ -131,6 +131,30 @@ test('one call announced twice is one row, and an unannounced completion still l
   }
 })
 
+test('a call whose output arrives only as content blocks keeps that output', async () => {
+  // DeepSeek Harness's own server sends no rawOutput: the output is text in
+  // the completing update's `content`. Only rawOutput and images were kept,
+  // so every DeepSeek step was stored with no result and drew an empty box.
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'output as content please' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    const call = turn.items.find((item) => item.type === 'toolCall' && String(item.id).includes('tc-content'))
+    assert.ok(call && call.type === 'toolCall')
+    assert.equal(call.status, 'completed')
+    assert.deepEqual(call.result, [
+      { type: 'text', text: '.\n..\nREADME.md\n' },
+      { type: 'text', text: 'second block' },
+    ])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('an agent that can say what the context is made of gets it read, defensively', async () => {
   const runtime = make()
   await runtime.start()
@@ -908,6 +932,31 @@ test('a restart asks again: an agent upgraded to accept the tool server gets it,
     const dumped = JSON.parse(await readFile(dump, 'utf8')) as { env?: { name: string; value: string }[] }[]
     const carried = dumped.at(-1)?.env?.find((entry) => entry.name === 'HD_TOOLS_CALLER')
     assert.equal(carried?.value, claim[0], "the session's bridge carries its own caller token")
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a build that refused the tool server is not asked again on every restart', async () => {
+  const runtime = new AcpRuntime({
+    id: 'steady-refuser',
+    name: 'Steady Refuser',
+    command: process.execPath,
+    args: [FAKE],
+    env: { FAKE_ACP_REFUSE_TOOLS: '1', FAKE_ACP_AGENT_VERSION: '2.0.0' },
+    toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} },
+  })
+  await runtime.start()
+  try {
+    const deadline = Date.now() + 5_000
+    while (runtime.info.capabilities.pluginTools && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(runtime.info.capabilities.pluginTools, false)
+    const refreshed = await runtime.refreshCatalog()
+    assert.equal(refreshed.refreshed, true)
+    // Re-asked, the claim would read true until the probe was refused again.
+    assert.equal(runtime.info.capabilities.pluginTools, false, 'the same build keeps its answer')
   } finally {
     await runtime.dispose()
   }

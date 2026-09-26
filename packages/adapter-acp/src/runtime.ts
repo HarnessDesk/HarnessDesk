@@ -344,7 +344,7 @@ const shutDown = (name: string): Error => new Error(`${name} has been shut down.
  * not support per-session MCP servers", and an agent that cannot host our
  * tool bridge should still open sessions — it simply does not get
  * HarnessDesk's plugin tools. The refusal is learned from the agent's own
- * answer and remembered for the life of that process; a restart asks again.
+ * answer and remembered until a different build of the agent answers.
  */
 const REFUSES_TOOL_SERVER = /mcp[\s_-]?servers?\b/i
 
@@ -483,6 +483,20 @@ export const permissionReason = (toolCall: AcpToolCallUpdate): string | null => 
   return text === '' ? null : text
 }
 
+/** The text blocks of a tool's content, as result parts; anything else is skipped. */
+export const textsInToolContent = (
+  content: unknown,
+): readonly { readonly type: 'text'; readonly text: string }[] => {
+  if (!Array.isArray(content)) return []
+  return content.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null || entry.type !== 'content') return []
+    const block = entry.content as { type?: string; text?: unknown } | null | undefined
+    return block?.type === 'text' && typeof block.text === 'string' && block.text.length > 0
+      ? [{ type: 'text' as const, text: block.text }]
+      : []
+  })
+}
+
 /**
  * Extract image parts from tool content blocks.
  *
@@ -596,6 +610,8 @@ const levelsOfOptions = (
 export const whereSecretLives = (
   secret: AcpSecretSpec,
   resolve?: (env: string) => string | undefined,
+  /** The agent's own configured environment, which a path may name a variable from. */
+  agentEnv?: Readonly<Record<string, string>>,
 ): { readonly kind: 'apiKey' | 'externalKey'; readonly detail: string } | null => {
   if (typeof resolve?.(secret.env) === 'string') return { kind: 'apiKey', detail: 'API key' }
   const inherited = process.env[secret.env]
@@ -603,16 +619,23 @@ export const whereSecretLives = (
     return { kind: 'externalKey', detail: `the ${secret.env} in HarnessDesk's environment` }
   }
   for (const source of secret.alsoAt ?? []) {
-    if (readsKey(source, secret.env)) return { kind: 'externalKey', detail: source.label }
+    if (readsKey(source, secret.env, agentEnv)) return { kind: 'externalKey', detail: source.label }
   }
   return null
 }
 
 /** True when the file names this key with a non-empty value. Reads no value out. */
-const readsKey = (source: AcpSecretSource, key: string): boolean => {
-  const path = source.path.startsWith('~')
-    ? join(homedir(), source.path.slice(1))
-    : source.path
+const readsKey = (source: AcpSecretSource, key: string, agentEnv?: Readonly<Record<string, string>>): boolean => {
+  // `${NAME:-fallback}` at the start of a path is the agent's own home
+  // variable — DSH keeps its store under $DSH_HOME when that is set — read
+  // from the agent's configured environment, then from the one it inherits.
+  const expanded = source.path.replace(/^\$\{([A-Z_][A-Z0-9_]*):-([^}]*)\}/, (_whole, name: string, fallback: string) => {
+    const set = agentEnv?.[name] ?? process.env[name]
+    return set !== undefined && set !== '' ? set : fallback
+  })
+  const path = expanded.startsWith('~')
+    ? join(homedir(), expanded.slice(1))
+    : expanded
   let text: string
   try {
     text = readFileSync(path, 'utf8')
@@ -684,6 +707,8 @@ export class AcpRuntime implements AgentRuntime {
   #providerRead: Promise<void> = Promise.resolve()
   /** Set when the agent answered that it cannot take an MCP tool server. */
   #toolServerRefused = false
+  /** The version of the agent that refused the tool server; a different one is asked again. */
+  #refusedBy: string | null | undefined = undefined
   /** The agent's bridge declared that it carries the desk's standing instruction. */
   #briefs = false
 
@@ -940,11 +965,6 @@ export class AcpRuntime implements AgentRuntime {
     // A fresh process is a fresh question: what the last one showed about
     // its sign-in may be the very thing that changed between the two.
     this.#signIn = { state: 'unknown' }
-    // So is whether it takes the tool server. A refusal is the old process's
-    // answer; an agent upgraded since and restarted without the app kept
-    // getting none, and every board call its seats made arrived with no
-    // caller token and was refused as unattributed.
-    this.#toolServerRefused = false
     if (!(await this.#decideLaunch())) {
       throw new Error(`${this.#config.name} will not start: ${(this.#health as { message?: string }).message ?? 'blocked'}`)
     }
@@ -983,6 +1003,14 @@ export class AcpRuntime implements AgentRuntime {
           },
         },
       })
+      // So may whether it takes the tool server. A refusal is the answer of
+      // the build that gave it: an agent upgraded since and restarted without
+      // the app kept getting none, and every board call its seats made
+      // arrived with no caller token and was refused as unattributed. A build
+      // that already said no is not asked again on every restart.
+      if (this.#toolServerRefused && this.#initialized.agentInfo?.version !== this.#refusedBy) {
+        this.#toolServerRefused = false
+      }
       const declared = (this.#initialized._meta as { harnessdesk?: Record<string, unknown> } | undefined)
         ?.harnessdesk
       if (declared?.[ACP_TASKS_CAPABILITY] === true) this.#adoptTasks()
@@ -1539,7 +1567,7 @@ export class AcpRuntime implements AgentRuntime {
     // A stored key is an account: it is what "signed in" means for an agent
     // that authenticates with one, and the label never carries the value.
     const keyAccounts: Account[] = (this.#config.secrets ?? []).flatMap((secret) => {
-      const where = whereSecretLives(secret, this.#config.resolveSecret)
+      const where = whereSecretLives(secret, this.#config.resolveSecret, this.#config.env)
       return where ? [{ kind: where.kind, label: secret.label, planType: where.detail }] : []
     })
     if (this.#account) {
@@ -2029,6 +2057,7 @@ export class AcpRuntime implements AgentRuntime {
       // happens once: a second "info changed" for the same fact is noise.
       if (!this.#toolServerRefused) {
         this.#toolServerRefused = true
+        this.#refusedBy = this.#initialized?.agentInfo?.version
         this.#config.logger?.info?.('agent does not accept an MCP tool server; HarnessDesk plugin tools are unavailable to it', {
           agent: this.#config.id,
           reason: message,
@@ -2298,8 +2327,9 @@ export class AcpRuntime implements AgentRuntime {
       this.#sessions.set(id, session)
       // An agent that keeps its conversations but cannot replay one offers
       // `session/resume` alone — DeepSeek Harness's own server does. It
-      // restores the context and replays nothing, which loses nothing here:
-      // the host keeps its own transcript of every conversation.
+      // restores the context and replays nothing; the session says so
+      // (`partialHistory`), and the host keeps the turns it holds from before
+      // ahead of the ones the agent reports from here on.
       const verb = capabilities.loadSession ? 'session/load' : 'session/resume'
       try {
         const loaded = await this.#openWithTools<AcpNewSessionResult>(verb, {
@@ -2317,7 +2347,7 @@ export class AcpRuntime implements AgentRuntime {
           acknowledgeEnvironment(loaded._meta, environment)
           this.#environments.set(id, environment)
         }
-        session.finishReplay(loaded)
+        session.finishReplay(loaded, verb === 'session/load')
         return session
       } catch (error) {
         this.#sessions.delete(id)
@@ -3117,7 +3147,20 @@ class AcpSession implements AgentSession {
     return session
   }
 
-  finishReplay(loaded: AcpNewSessionResult): void {
+  /**
+   * Whether this session's turns begin at a reopen that replayed nothing.
+   * Its turn ids then carry a mark of that reopen: numbering restarts with
+   * the process, and a `turn-1` here would claim the desk's own `turn-1`
+   * from before it.
+   */
+  #partialHistory = false
+  #turnPrefix = 'turn-'
+
+  finishReplay(loaded: AcpNewSessionResult, replayed = true): void {
+    if (!replayed) {
+      this.#partialHistory = true
+      this.#turnPrefix = `turn-r${Date.now().toString(36)}-`
+    }
     // Close the trailing history turn, then adopt whatever the load declared.
     const open = this.#currentTurn
     if (open) {
@@ -3342,7 +3385,7 @@ class AcpSession implements AgentSession {
         `${this.#host.agentName} is still working on the last message; wait for the turn to end, or interrupt it.`,
       )
     }
-    const id = turnId(`turn-${++this.#counter}`)
+    const id = turnId(`${this.#turnPrefix}${++this.#counter}`)
     // A standing order is real input — the model reads it whole — but not a
     // person's words, so it is not recorded as the person's turn. Same fact
     // `NoticeItem` already carries for a `/model` echo: housekeeping, not speech.
@@ -3509,6 +3552,7 @@ class AcpSession implements AgentSession {
           : []),
       ],
       itemsLoaded: true,
+      ...(this.#partialHistory ? { partialHistory: true } : {}),
       forkedFrom: null,
       settings: this.settings(),
       options: this.options(),
@@ -3546,7 +3590,7 @@ class AcpSession implements AgentSession {
           startedAt: open.startedAt,
         })
       }
-      const id = turnId(`turn-${++this.#counter}`)
+      const id = turnId(`${this.#turnPrefix}${++this.#counter}`)
       this.#currentTurn = {
         id,
         items: [
@@ -3659,6 +3703,11 @@ class AcpSession implements AgentSession {
         // becomes an image part the transcript can draw. The raw copy keeps
         // everything else but not the same megabytes twice.
         const images = imagesInToolContent(update.content)
+        // An agent that reports output only as text blocks in `content` —
+        // DeepSeek Harness's own server sends no rawOutput at all — has that
+        // text kept as the result. Where rawOutput exists it stays the
+        // record, and the same output is not stored twice.
+        const texts = update.rawOutput === undefined ? textsInToolContent(update.content) : []
         const next: AgentItem = {
           ...previous,
           status,
@@ -3670,9 +3719,10 @@ class AcpSession implements AgentSession {
           ...(update.rawInput !== undefined && emptyArgs(previous.args)
             ? { args: update.rawInput }
             : {}),
-          ...(update.rawOutput !== undefined || images.length > 0
+          ...(update.rawOutput !== undefined || images.length > 0 || texts.length > 0
             ? {
                 result: [
+                  ...texts,
                   ...(update.rawOutput !== undefined
                     ? [
                         {

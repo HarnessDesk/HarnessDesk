@@ -165,7 +165,8 @@ test("DeepSeek Harness is a template: its own ACP server, the key it keeps in it
   // offers to store one only when DSH has none.
   const secret = config.secrets?.[0]
   assert.equal(secret?.env, 'DEEPSEEK_API_KEY')
-  assert.deepEqual(secret?.alsoAt?.map((source) => source.path), ['~/.dsh/.credentials.yaml', '~/.dsh/.env'])
+  // Under $DSH_HOME when that is set, as DSH itself reads it.
+  assert.deepEqual(secret?.alsoAt?.map((source) => source.path), ['${DSH_HOME:-~/.dsh}/.credentials.yaml', '${DSH_HOME:-~/.dsh}/.env'])
 })
 
 test('the template set is a decision', async (t) => {

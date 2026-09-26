@@ -427,6 +427,30 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  // The way DeepSeek Harness's own server reports a call: no rawOutput at
+  // all, the output as a text `content` block on the completing update.
+  if (text.includes('output as content')) {
+    update(state.id, {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'tc-content',
+      title: 'bash',
+      kind: 'other',
+      status: 'in_progress',
+      rawInput: { command: 'ls -a', description: 'List all entries' },
+    })
+    update(state.id, {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-content',
+      status: 'completed',
+      content: [
+        { type: 'content', content: { type: 'text', text: '.\n..\nREADME.md\n' } },
+        { type: 'content', content: { type: 'text', text: 'second block' } },
+      ],
+    })
+    say('listed.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   // The way Claude Code's bridge actually talks: one call announced twice —
   // the permission flow first, with a bare title, then the stream again with
   // the real input — and one call whose only notice is its completion.

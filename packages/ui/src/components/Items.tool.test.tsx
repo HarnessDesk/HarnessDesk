@@ -287,6 +287,14 @@ describe('an opened tool step', () => {
     expect(wire()).toBe('search_files')
   })
 
+  it.each([
+    ['search_text', { pattern: 'retry' }],
+    ['read_file', { path: 'src/retry.ts' }],
+  ])('keeps the name a permission rule matches when the sentence is a search or a read: %s', (tool, args) => {
+    open(call({ tool, args }))
+    expect(wire()).toBe(tool)
+  })
+
   it.each(['claim_work', 'complete_claim', 'claim_next'])(
     'keeps a board worker tool name exact, for a person copying it into a permission rule: %s',
     (tool) => {

@@ -89,9 +89,10 @@ enough:
 richer events than ACP but has no cancel and no approvals, so a native adapter
 would buy depth by losing the stop button and the one approval surface —
 [the DSH decision](decisions.md#deepseek-harness-joins-over-acp-and-its-plugins-stay-in-its-own-profile) records the
-measurement and names the upgrade path. (It runs on
-[`@harnessdesk/dsh-acp`](https://github.com/HarnessDesk/dsh-acp), an ACP server
-mounted as a Cordis plugin in its profile that replays full transcripts.)
+measurement and names the upgrade path. (It runs on DSH's own ACP server,
+`dsh --profile acp`, which takes HarnessDesk's tools per session and resumes a
+conversation without replaying it; the desk keeps the transcript. See
+[the DeepSeek decision](decisions.md#deepseek-runs-on-dshs-own-acp-server-and-its-tools-arrive-with-the-session).)
 
 **The machine decides which copy runs.** The row in `agents.json` is the
 fallback; before every start the host finds every copy of the agent on the

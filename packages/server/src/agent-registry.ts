@@ -144,8 +144,8 @@ const TEMPLATES: readonly AgentTemplate[] = [
         helpUrl: 'https://platform.deepseek.com/api_keys',
         description: 'DeepSeek authenticates with a provider key rather than a browser sign-in.',
         alsoAt: [
-          { path: '~/.dsh/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (~/.dsh/.credentials.yaml)" },
-          { path: '~/.dsh/.env', format: 'dotenv', label: '~/.dsh/.env' },
+          { path: '${DSH_HOME:-~/.dsh}/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (.credentials.yaml in its home)" },
+          { path: '${DSH_HOME:-~/.dsh}/.env', format: 'dotenv', label: '.env in its home' },
         ],
       },
     ],

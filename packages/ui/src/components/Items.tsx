@@ -66,6 +66,7 @@ import {
   isSilentReasoning,
   PATH_KEYS,
   reasoningBody,
+  SHELL_TOOLS,
   reasoningHeadline,
   shellCommandOf as toolCallCommandOf,
   toolCallVerb,
@@ -76,6 +77,7 @@ import { findTodos, type Todo } from '../lib/todos'
 import { readToolResult } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
+  bareToolName,
   isPlanTool,
   shellCommandOf,
   shortestUniquePathLabels,
@@ -1083,10 +1085,17 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
     }
   })()
   const said = toolSentence(item.tool, sentences, detail)
-  // A call the grammar already says — a read, a command, a plan — needs no
-  // identifier under it: the sentence is the answer, and an agent's own
-  // `read` or `bash` is not a name any HarnessDesk permission rule matches.
-  const wire = detail ? null : wireNameOf(item.tool)
+  // An identifier that only repeats the sentence's own verb — an agent's
+  // bare `read` under "Read README.md", its `bash` under the command, its
+  // plan tool under "Updated the plan" — is dropped. Any other name stays,
+  // because a person writes a permission rule against it: a plugin's
+  // `read_file` or `search_text` keeps its row.
+  const bare = bareToolName(item.tool).toLowerCase()
+  const saysOnlyTheVerb =
+    detail?.kind === 'plan' ||
+    (detail?.kind === 'read' && bare === 'read') ||
+    (detail?.kind === 'command' && SHELL_TOOLS.test(bare) && /^[a-z]+$/.test(bare))
+  const wire = saysOnlyTheVerb ? null : wireNameOf(item.tool)
   // An MCP tool's server is the one word that says whose tool ran.
   const label = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
   // A call the lookup has no grammar for carries no object in its sentence,

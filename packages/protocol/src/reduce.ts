@@ -296,10 +296,19 @@ export const mergeRead = (
       ...(plan === undefined ? {} : { plan }),
     }
   })
+  // A read that starts partway — a reopen that replayed nothing — is silent
+  // about what came before its first turn: every settled turn held ahead of
+  // the first one it shares with us is history, and stays ahead of it.
+  const firstShared = held.turns.findIndex((turn) => readIds.has(turn.id))
+  const earlier = read.partialHistory
+    ? held.turns.slice(0, firstShared === -1 ? held.turns.length : firstShared)
+        .filter((turn) => turn.status !== 'inProgress')
+    : []
+  const earlierIds = new Set(earlier.map((turn) => turn.id))
   // Ours that the read has not caught up with, in the order we hold them —
   // the turn in flight is the last of them, which is where it belongs.
-  const missing = held.turns.filter((turn) => !readIds.has(turn.id) && keep(turn))
-  return keepUsage({ ...read, turns: [...turns, ...missing] })
+  const missing = held.turns.filter((turn) => !readIds.has(turn.id) && !earlierIds.has(turn.id) && keep(turn))
+  return keepUsage({ ...read, turns: [...earlier, ...turns, ...missing] })
 }
 
 /** Convenience fold for replaying a recorded stream. */
