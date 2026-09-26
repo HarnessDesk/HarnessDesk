@@ -412,7 +412,15 @@ splicing a member into local state.
 
 Isolated Goal work receives a durable lane: retained checkout, disjoint port
 block and, by default, its own persistent browser partition. The host injects
-the lane environment into each agent invocation. Wrapping takes a reviewed
+the lane environment into each agent invocation that can take it per session.
+A lane depends on its checkout, never on a variable in the agent's process: the
+cwd is the confinement and the browser partition is found by it, while the
+ports are a reservation the standing order states either way. So a runtime that
+cannot take the variables is seated in its lane all the same, and told the
+values; refusing it refused every isolated Seat on any ACP agent but the desk's own bridges. A round's
+cards still start together — every Seat is durable before any is handed its
+card — so a Seat that will not open stalls its round, and the stall names the
+siblings it held back and the way on. Wrapping takes a reviewed
 snapshot and journals the receipt before cross-store settlement, so replay is
 idempotent and later mutation is refused. Backup restore deliberately removes
 execution authority: journals are cleared and lanes are released archives.

@@ -136,7 +136,9 @@ export interface HostContext {
     set(value: import('@harnessdesk/protocol').LanePreferences): Promise<import('@harnessdesk/protocol').LanePreferences>
   }
   readonly laneEnvironment: {
+    /** The lane's six values for a checkout, whatever runtime asks; pass them through `laneEnvironmentFor`. */
     forCheckout(cwd: string): Readonly<Record<string, string>> | undefined
+    /** A durable Seat's lane values, already narrowed to what its runtime can take per session. */
     forSession(runtime: string, sessionId: string): Promise<Readonly<Record<string, string>> | undefined>
   }
   /**

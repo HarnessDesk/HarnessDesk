@@ -45,28 +45,59 @@ export function environmentForSession(
   return matches[0] ? laneEnvironmentOf(laneEnvironment(matches[0])) : undefined
 }
 
-export function requireLaneSupport(
-  runtime: { capabilities: { sessionEnvironment: boolean }; presentation: { name: string } },
+/**
+ * The environment a runtime is handed for a lane: all six values when it can
+ * take them per session, and none when it cannot — never a refusal.
+ *
+ * What a lane needs from a runtime is its checkout. The checkout is the
+ * Seat's cwd, which every runtime takes, and it is the confinement: the cwd
+ * comes only from the desk's own lane record, and a Seat whose checkout is not
+ * its lane's is released (`LANE_REFUSED`). The browser profile is found by
+ * that cwd (`setBrowserResolver`), not by anything in the agent's
+ * environment. The ports are a reservation, and the agent is told them in its
+ * standing order either way (`laneStandingOrder`); the environment variables
+ * are a convenience on top, for commands that read `PORT` on their own.
+ *
+ * So nothing in a lane depends on a variable the agent's process must carry,
+ * and refusing a runtime that cannot take them per session refused every
+ * isolated Seat on it: a comparison with one competitor on an agent whose own
+ * ACP server claims nothing, or on a row running a bridge built before lane
+ * support, could not start at all. Such a runtime runs in its lane without the
+ * variables, and its standing order says so.
+ *
+ * `sessionEnvironment` is an observation — an ACP agent claims it in its
+ * handshake — so a runtime that has not shaken hands yet is handed none; its
+ * adapter would refuse them anyway (`environmentMeta`).
+ */
+export function laneEnvironmentFor(
+  runtime: { readonly info: { capabilities: { sessionEnvironment: boolean } } },
   environment: Readonly<Record<string, string>> | undefined,
-): void {
-  if (environment && !runtime.capabilities.sessionEnvironment) {
-    throw new Error(
-      `${runtime.presentation.name} cannot pass a lane environment to a session. ` +
-        'Choose a runtime with lane support, or turn isolation off.',
-    )
-  }
+): Readonly<Record<string, string>> | undefined {
+  return environment && runtime.info.capabilities.sessionEnvironment ? environment : undefined
 }
 
-/** Appends the durable lane allocation to the Seat's one standing-order turn. */
+/**
+ * Appends the durable lane allocation to the Seat's one standing-order turn.
+ *
+ * `handed` says whether the runtime was given the values as environment
+ * variables (`laneEnvironmentFor`). When it was not, the values are the same
+ * reservation and the order says to pass them to each command explicitly —
+ * nothing in the agent's environment will.
+ */
 export function laneStandingOrder(
   text: string,
   environment: Readonly<Record<string, string>> | undefined,
+  handed = true,
 ): string {
   if (!environment) return text
   const lane = laneEnvironmentOf(environment)
   const values = LANE_KEYS.map((key) => `${key}=${lane[key]}`).join('\n')
+  const heading = handed
+    ? 'Its environment has:'
+    : 'Its reserved values are below. They are not set in your environment, so give them to each command explicitly (for example PORT=' +
+      `${lane['PORT']} before the command):`
   return (
-    `${text}\n\nThis Seat has a dedicated HarnessDesk lane. Its environment has:\n${values}\n\n` +
+    `${text}\n\nThis Seat has a dedicated HarnessDesk lane. ${heading}\n${values}\n\n` +
     'Use PORT as the default. Applications that ignore PORT must be started with an explicit port argument ' +
     'inside HARNESSDESK_PORT_START through HARNESSDESK_PORT_END (inclusive).'
   )

@@ -61,6 +61,26 @@ test('a Seat whose record cannot be written stops the round before any order is 
   assert.match(now.reason ?? '', /could not be opened: the Seat record could not be written/)
 })
 
+test('a round whose first Seat will not open says its sibling was not started, and what a person can do next', async (t) => {
+  const rig = await goalRig(t)
+  const refusal = 'No seat could be opened for this Agent:\n  claude-code=haiku — claude-code could not open a conversation: the lane was refused'
+  rig.beforeOpen = (n) => { if (n === 1) throw new Error(refusal) }
+  const run = await rig.start(THREE_STAGES, AGENTS)
+  await rig.flows.flush()
+
+  // The design holds: a round's cards start together, so the sibling is not tried alone.
+  assert.deepEqual(opens(rig.events), [], 'card #2 is never seated on its own')
+  assert.deepEqual(orders(rig.events), [])
+  const now = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(now.state, 'stalled')
+  assert.equal(
+    now.reason,
+    `The Seat for card #1 could not be opened: ${refusal}\n` +
+      'A round’s cards start together, so card #2 was not started either.\n' +
+      'Next: fix what stopped card #1 and start the flow again, or seat an Agent in this Goal and give it the cards yourself.',
+  )
+})
+
 test('specialists cannot claim each other’s bindings', async (t) => {
   const rig = await goalRig(t)
   const SPECIALISTS = `

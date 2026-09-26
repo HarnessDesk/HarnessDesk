@@ -507,6 +507,42 @@ const questionStopStore = (): AppStore => {
 const QUESTION_STOP_STORE = questionStopStore()
 
 /**
+ * The front-door Goal's run stalled on a round whose first Seat would not
+ * open: both of the round's cards wait unclaimed, and the room's live line
+ * carries the host's own reason — the refusal, the sibling held back, the way on.
+ */
+const seatRefusedStore = (): AppStore => {
+  const base = previewStore().getSnapshot()
+  const goal = PREVIEW_FLOW_GOAL.goal.id
+  const waiting = { ...PREVIEW_FLOW_CARD, state: 'open' as const, claim: null }
+  const cards = [waiting, { ...waiting, id: 2 }]
+  const teams = new Map(base.teams)
+  const board = teams.get(goal)
+  if (board) teams.set(goal, { ...board, intents: cards })
+  // Derived as the host derives it (`GoalPlane`), from the same placement the board draws.
+  const execution = sceneFlowExecution('seat-refused')
+  const placed = cards.map((card) => {
+    const step = flowStepOf(card, undefined, [execution])
+    return placeCard({
+      intent: card, evidence: undefined, stranded: false, holderWaits: false,
+      forPerson: step?.kind === 'person', runStopped: step?.stopped ?? false,
+    })
+  })
+  const activity = activityOf(PREVIEW_FLOW_GOAL.goal, {
+    needsYou: placed.some((one) => one.column === 'needs'), busy: false, liveFlow: true, cards, dependencies: [],
+  })
+  const goals = new Map(base.goals)
+  goals.set(goal, { ...PREVIEW_FLOW_GOAL, activity })
+  return previewStore({
+    teams,
+    goals,
+    flowExecutions: new Map([['preview-flow-run', execution]]),
+  })
+}
+
+const SEAT_REFUSED_STORE = seatRefusedStore()
+
+/**
  * A group project: the board and the room that belongs to it, together.
  *
  * Apart they are two panes; together they are the claim the layout exists to
@@ -540,6 +576,17 @@ export const GroupSurface = () => (
               <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
             </Frame>
           </div>
+        </Mount>
+      </div>
+      <div className={styles.headerCase} data-testid="group-run-stalled-on-a-seat">
+        <span className={styles.headerCaseLabel}>A run stalled because one Seat of its round would not open</span>
+        {/* The room alone, at the width its conversation needs: the live
+            line is the tail of the room's chat, which a half-width frame
+            folds away behind the room's own rail. */}
+        <Mount with={SEAT_REFUSED_STORE}>
+          <Frame>
+            <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
+          </Frame>
         </Mount>
       </div>
     </div>
