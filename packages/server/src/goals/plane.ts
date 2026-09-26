@@ -1101,7 +1101,15 @@ export class GoalPlane {
     this.#editable(document)
     const landing = this.port.intakeHeld?.(goal)
     if (landing) throw new Error(typeof landing === 'string' ? landing : INTAKE_LANDING)
-    const operation = { kind: 'wrap', id: randomUUID(), goal, stamp, receipt } as const
+    /* Read every receipt Seat's stop now, before any of them ever closes
+       below (`#closeWrapSeats`) — once a Seat closes, there may be no live
+       session left to ask (issue #1042 P2). Persisted on the operation
+       itself, so a crash replay carries the exact reads made here, the way
+       `release`'s own `until` already does, rather than trying — and likely
+       failing — to read a checkout again long after this process, or the
+       one that held it, may be gone. */
+    const stops = await this.#readWrapStops(receipt.seats)
+    const operation = { kind: 'wrap', id: randomUUID(), goal, stamp, receipt, stops } as const
     await this.store.save({
       ...document,
       operation,
@@ -1109,13 +1117,24 @@ export class GoalPlane {
     }, document.goal.revision)
   }
 
+  /** Every receipt Seat's checkout stop, read once, by Seat id — see `#stageWrap`. A Seat this plane no longer knows gives nothing. */
+  async #readWrapStops(seats: readonly SeatId[]): Promise<Readonly<Record<string, string | null>>> {
+    const entries = await Promise.all(seats.map(async (id): Promise<readonly [string, string | null]> => {
+      const seat = this.port.seats.byId(id)
+      return [id, seat ? await this.#readStop(seat.session) : null]
+    }))
+    return Object.fromEntries(entries)
+  }
+
   async #closeWrapSeats(goal: string, ids: readonly string[]): Promise<void> {
+    const document = this.store.read(goal)
+    const stops = document.operation?.kind === 'wrap' ? document.operation.stops : undefined
     for (const id of ids) {
       const seat = this.port.seats.byId(id)
       if (!seat || seat.board !== goal || seat.restored) throw new Error('A reviewed Seat no longer belongs to this Goal. Finish recovery before wrapping again.')
       if (!seat.closed) await this.port.closeId(id, 'wrapped')
-      // The wrap itself reads and records each card's own stop (`#finishWrap`); nothing to give here.
-      await this.port.releaseClaim(goal, id, null)
+      // What `#stageWrap` already read, before this Seat or any other closed.
+      await this.port.releaseClaim(goal, id, stops?.[id] ?? null)
       await this.port.refuseMail(goal, id)
       await this.port.retainLane(id)
     }

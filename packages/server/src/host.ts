@@ -157,7 +157,7 @@ import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
 import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
-import { STOP_HEAD_TIMEOUT_MS, Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
+import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
@@ -2844,29 +2844,13 @@ export class Host {
     const receipt: GoalReceipt = setAside.length === 0 ? operation.receipt
       : { ...operation.receipt, cards: [...operation.receipt.cards, ...setAside] }
     /*
-     * Every card still claimed loses its checkout the instant this wrap
-     * lands — there is no session left to ask afterwards — so where each
-     * stood is read now, bounded by the same timeout `Team`'s own stop
-     * capture uses, and written into the same save as the wrap itself rather
-     * than as a second write nobody could make once the Goal is read-only
-     * (issue #1035). A read that fails or times out records nothing for that
-     * card: it is left exactly as a card whose stop could not be read always
-     * is, never diffed unbounded to make up for it (`EvidencePlane#lookAround`).
+     * Every card a receipt Seat held already lost its claim, and had its stop
+     * recorded, before this ever ran (`GoalPlane#stageWrap` reads it, and
+     * `Host#releaseGoalCard` records it in the same write that clears the
+     * claim — issue #1042 P2). Nothing here still carries a claim to lose a
+     * checkout for: a second read this late would find no session left to
+     * ask for any of them, which is exactly why it no longer tries.
      */
-    const stops = new Map<number, string>()
-    await Promise.all(document.board.intents.map(async (intent) => {
-      if (!intent.claim) return
-      const cwd = this.#sessionCwd(intent.claim.runtime, intent.claim.sessionId)
-      if (!cwd) return
-      const timedOut = Symbol('wrap-stop-timeout')
-      let timer: ReturnType<typeof setTimeout>
-      const timeout = new Promise<typeof timedOut>((resolve) => {
-        timer = setTimeout(() => resolve(timedOut), STOP_HEAD_TIMEOUT_MS)
-      })
-      const revision = await Promise.race([revisionOf(cwd).catch(() => null), timeout])
-      clearTimeout(timer!)
-      if (revision !== timedOut && revision?.head) stops.set(intent.id, revision.head)
-    }))
     const board = {
       ...document.board,
       intents: document.board.intents.map((intent) => {
@@ -2877,7 +2861,6 @@ export class Host {
           claim: null,
           blockedBy: null,
           blockedReason: null,
-          ...(intent.claim && stops.has(intent.id) ? { until: stops.get(intent.id)! } : {}),
           ...(resolution.reason?.trim() ? { note: resolution.reason.trim() } : {}),
           updatedAt: at,
         }
