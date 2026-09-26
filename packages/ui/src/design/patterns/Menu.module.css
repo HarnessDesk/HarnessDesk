@@ -113,6 +113,33 @@
   width: calc(100% - var(--hd-space-3));
 }
 
+/* An account row is one line: the name, and — only where two share it — the
+   tag that tells them apart. The tag keeps its width up to half the line;
+   the name gives way first, and the figure holds the trailing edge. */
+.accountText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-1-5);
+}
+
+.accountName {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.accountTag {
+  flex: none;
+  max-width: 50%;
+}
+
+.accountFigure {
+  flex: none;
+}
+
 .row:hover,
 .row:focus-visible,
 .row[data-open],
