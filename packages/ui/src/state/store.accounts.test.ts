@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { runtimeId, type HostMethodName } from '@harnessdesk/protocol'
 
@@ -141,5 +141,60 @@ describe('two account reads in flight at once', () => {
     await stale
 
     expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+  })
+})
+
+describe('an account read that fails (#1021)', () => {
+  /** Puts one agent in the roster the way the app gets it: over the wire. */
+  const roster = (): void => {
+    const handlers = (store.transport as unknown as { handlers: { onNotification: (n: unknown) => void } })
+      .handlers
+    handlers.onNotification({
+      method: 'sync',
+      params: { sessions: [], runtimes: [{ id: ADDED, name: 'Codex', presentation: { name: 'Codex' } }] },
+    })
+  }
+  const reads = (): number => asked.filter((method) => method === 'runtime/account').length
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('keeps the last answer rather than forgetting who was signed in', async () => {
+    roster()
+    answers['runtime/account'] = { accounts: [{ kind: 'chatgpt', label: 'ada@example.com' }], signInMethods: [] }
+    await store.loadAccounts()
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+
+    refusals['runtime/account'] = new Error('The agent is not running.')
+    await store.loadAccounts()
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+  })
+
+  it('asks again on its own, less often each time, and stops once it is answered', async () => {
+    vi.useFakeTimers()
+    roster()
+    refusals['runtime/account'] = new Error('The agent is not running.')
+    await store.loadAccounts()
+    expect(store.getSnapshot().accountsByRuntime[ADDED]).toBeUndefined()
+    const first = reads()
+
+    // Nothing else happens on the desk; the store asks again by itself.
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(reads()).toBe(first + 1)
+    // Still failing: the next ask waits twice as long.
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(reads()).toBe(first + 1)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(reads()).toBe(first + 2)
+
+    // The agent answers; the status arrives and the asking stops.
+    delete refusals['runtime/account']
+    answers['runtime/account'] = { accounts: [], signInMethods: [] }
+    await vi.advanceTimersByTimeAsync(8_000)
+    expect(reads()).toBe(first + 3)
+    expect(store.getSnapshot().accountsByRuntime[ADDED]).toEqual({ accounts: [], signInMethods: [] })
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(reads()).toBe(first + 3)
   })
 })

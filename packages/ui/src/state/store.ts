@@ -241,6 +241,10 @@ import { Transport, transportUrl } from '../lib/transport'
 /** How many decisions Agents may have waiting on composers at once; the oldest give way. */
 const AGENT_NOTICE_LIMIT = 6
 
+/** A failed account read is asked again this soon, then twice as long each time, up to the last. */
+const ACCOUNT_RETRY_FIRST_MS = 2_000
+const ACCOUNT_RETRY_LAST_MS = 60_000
+
 const summaryOfSession = (session: Session): SessionSummary => ({
   id: session.id,
   runtime: session.runtime,
@@ -1323,20 +1327,60 @@ export class AppStore {
    */
   #accountsGeneration = 0
 
+  /**
+   * The re-ask after a failed account read, and how long the next one waits.
+   *
+   * A read that failed used to drop the agent's status and leave it there:
+   * nothing asked again until some other event happened to, so an agent
+   * whose read failed once sat at "Not answered yet" with nothing on any
+   * surface to press (#1021). A failure now keeps the last answer that
+   * arrived, if one did, and asks again on its own — soon at first, then
+   * less often, until a pass comes back whole.
+   */
+  #accountRetry: ReturnType<typeof setTimeout> | null = null
+  #accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
+
   async loadAccounts(): Promise<void> {
     const generation = ++this.#accountsGeneration
     const entries = await Promise.all(
       this.#snapshot.runtimes.map(async (runtime) => {
-        const status = await this.transport
+        const answer = await this.transport
           .request('runtime/account', { runtime: runtime.id })
-          .catch(() => null)
-        return [runtime.id, status] as const
+          .then(
+            (status) => ({ failed: false as const, status }),
+            () => ({ failed: true as const, status: null }),
+          )
+        return [runtime.id, answer] as const
       }),
     )
     if (generation !== this.#accountsGeneration) return
+    const previous = this.#snapshot.accountsByRuntime
     const accountsByRuntime: Partial<Record<RuntimeId, AccountStatus>> = {}
-    for (const [id, status] of entries) if (status) accountsByRuntime[id] = status
+    let failed = false
+    for (const [id, answer] of entries) {
+      // A failed read says nothing new about who is signed in, so the last
+      // answer stands rather than being thrown away for no answer at all.
+      const status = answer.failed ? previous[id] : answer.status
+      if (answer.failed) failed = true
+      if (status) accountsByRuntime[id] = status
+    }
     this.#patch({ accountsByRuntime })
+    this.#scheduleAccountRetry(failed)
+  }
+
+  #scheduleAccountRetry(failed: boolean): void {
+    if (this.#accountRetry) clearTimeout(this.#accountRetry)
+    this.#accountRetry = null
+    if (!failed) {
+      this.#accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
+      return
+    }
+    const delay = this.#accountRetryDelay
+    this.#accountRetryDelay = Math.min(delay * 2, ACCOUNT_RETRY_LAST_MS)
+    this.#accountRetry = setTimeout(() => {
+      this.#accountRetry = null
+      void this.loadAccounts()
+    }, delay)
   }
 
   /**

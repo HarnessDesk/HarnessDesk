@@ -700,11 +700,18 @@ const AgentAccounts = ({
         ))}
 
         {/* An extra account that has not answered yet. Its line is where its
-            credential lives — the one thing that tells two of them apart. */}
+            credential lives — the one thing that tells two of them apart.
+            One that could not start will not answer at all: it says so, as
+            the list does when it puts this agent under "Needs attention"
+            (#1038), rather than waiting on an answer that is not coming. */}
         {pending.map((entry) => (
           <Row
             key={entry.id}
-            title={READINESS_LABEL.unknown}
+            title={
+              snapshot.healthByRuntime[entry.id]?.state === 'unavailable'
+                ? READINESS_LABEL.broken
+                : READINESS_LABEL.unknown
+            }
             {...(entry.slot?.home ? { desc: shortPath(entry.slot.home, snapshot.home) } : {})}
             truncateDesc
             control={
