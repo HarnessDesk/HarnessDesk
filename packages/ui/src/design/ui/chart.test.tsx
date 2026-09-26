@@ -328,6 +328,85 @@ describe('DayColumns', () => {
     const gutter = container.querySelector('[aria-hidden].flex.flex-col') as HTMLElement
     expect(gutter?.textContent).toBe('$50$25$0')
   })
+
+  it('places the tooltip inside the plot, not the y-axis gutter beside it', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        axisTicks={[0, 25, 50]}
+      />,
+    )
+    press('ArrowRight')
+    // The tip's `left: N%` is a fraction of the plot alone. Rendered as a
+    // descendant of the same `role="group"` box the columns live in — rather
+    // than the outer wrapper that also spans the gutter — is what keeps that
+    // fraction meaning "over this column" instead of "over some stretch of
+    // the gutter plus the plot" (review #1011, B4).
+    expect(plot().contains(tip())).toBe(true)
+  })
+
+  it('reads the ghost value under the cursor for every index, not just one', () => {
+    const ghost = [5, 40, 8]
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        ghost={ghost}
+      />,
+    )
+    press('Home')
+    expect(tip()?.textContent).toContain(`$${(ghost[0] as number).toFixed(2)}`)
+    press('ArrowRight')
+    expect(tip()?.textContent).toContain(`$${(ghost[1] as number).toFixed(2)}`)
+    press('ArrowRight')
+    expect(tip()?.textContent).toContain(`$${(ghost[2] as number).toFixed(2)}`)
+  })
+
+  it('shows a cursor mark on the line once the keyboard moves to a day', () => {
+    mount(
+      <DayColumns
+        buckets={BUCKETS}
+        series={SERIES}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        mode="line"
+      />,
+    )
+    // Bars dim every column but the active one; a line has no columns to
+    // dim, so without a mark of its own neither a pointer nor a keyboard
+    // reader can tell which day the tip beside it is for.
+    expect(container.querySelector('svg line')).toBeNull()
+    press('ArrowRight')
+    expect(container.querySelector('svg line')).not.toBeNull()
+  })
+
+  it('draws a point rather than nothing for a single known day between unknowns', () => {
+    mount(
+      <DayColumns
+        buckets={[
+          { label: 'Mon', total: 0, parts: [0], unknown: true },
+          { label: 'Tue', total: 20, parts: [20], unknown: false },
+          { label: 'Wed', total: 0, parts: [0], unknown: true },
+        ]}
+        series={[{ key: 'a', label: 'Alpha', tint: 'blue' }]}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        mode="line"
+      />,
+    )
+    const line = container.querySelector('svg path[stroke="var(--hd-accent)"]')
+    const d = line?.getAttribute('d') ?? ''
+    // `M x,y` alone has no length and paints nothing. A lone known day, with
+    // an unknown run on either side, still has to draw something — a
+    // zero-length segment back to itself, which the round linecap already
+    // on this stroke renders as a dot.
+    expect(d).toMatch(/^M[\d.]+,[\d.]+L[\d.]+,[\d.]+$/)
+  })
 })
 
 describe('PaceBadge', () => {
