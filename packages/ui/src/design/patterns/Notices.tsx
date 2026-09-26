@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 
-import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CrossIcon, InfoIcon, ShieldAlertIcon } from '../../components/Icons'
+import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, CheckAllIcon, ChevronIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
 import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
 import { Popover } from './Popover'
 import type { BannerTone } from '../primitives/Banner'
@@ -263,16 +263,21 @@ const ago = (at: number, now: number): string => {
 
 /** A kept message, with who sent it when an Agent did. */
 export type InboxMessage = NoticeMessage & {
-  /** The sender's name, for the card's first line: an Agent's, or the desk's own when absent. */
+  /** The sender's name, under the title: an Agent's, or nothing for the desk's own. */
   readonly from?: string
+  /** Where the message is about, when it has a place: its conversation. Pressing the row goes there. */
+  readonly go?: () => void
 }
 
+const DAY = 24 * 3_600_000
+
 /**
- * The inbox: messages kept until they are cleared, newest first. Each is a
- * compact card — the sender's tile, the title with its time at the right, a
- * line of who and why under it, and at most one thing to do about it. Unread
- * cards carry a dot and the heavier title; pressing a card marks it read.
- * "Unread" narrows the list to what is still waiting. New cards rise in.
+ * The inbox: messages kept until they are cleared, newest first, under
+ * "Today" and "Earlier". Each is a flat row — the sender's tile, the title
+ * with its time at the right, who and why under it, at most one thing to do.
+ * The whole row is one press: it marks the message read and, when the
+ * message has a place (`go`), goes there. Unread rows carry a dot and the
+ * heavier title; "Unread" narrows the list to them. New rows rise in.
  */
 export const InboxList = ({
   messages,
@@ -290,39 +295,73 @@ export const InboxList = ({
   const [only, setOnly] = useState<'all' | 'unread'>('all')
   const unread = messages.filter((message) => !message.read).length
   const shown = only === 'unread' ? messages.filter((message) => !message.read) : messages
+  const groups = [
+    { name: 'Today', items: shown.filter((message) => message.at === undefined || now - message.at < DAY) },
+    { name: 'Earlier', items: shown.filter((message) => message.at !== undefined && now - message.at >= DAY) },
+  ].filter((group) => group.items.length > 0)
+  const row = (message: InboxMessage) => {
+    const press = message.go ?? (onOpen && !message.read ? () => onOpen(message.id) : undefined)
+    return (
+      <li key={message.id} className={cn(styles.inboxItem, revealMotion)} {...(message.read ? {} : { 'data-unread': '' })}>
+        <Lead message={message} />
+        <div className={styles.inboxText}>
+          <span className={styles.inboxTop}>
+            {press ? (
+              <button
+                type="button"
+                className={styles.inboxTitle}
+                title={message.go ? 'Go to the conversation' : 'Mark read'}
+                onClick={() => {
+                  if (!message.read) onOpen?.(message.id)
+                  message.go?.()
+                }}
+              >
+                {message.title}
+              </button>
+            ) : (
+              <span className={styles.inboxTitle}>{message.title}</span>
+            )}
+            {message.at !== undefined ? <time className={styles.inboxTime}>{ago(message.at, now)}</time> : null}
+          </span>
+          {message.from || message.body ? (
+            <span className={styles.inboxBody}>
+              {message.from ? <span className={styles.inboxFrom}>{message.from}</span> : null}
+              {message.from && message.body ? ' · ' : null}
+              {message.body}
+            </span>
+          ) : null}
+          {message.action ? <ActionButton action={message.action} variant="outline" className={styles.inboxAction} /> : null}
+        </div>
+        {message.read ? null : <span className={styles.unreadDot} aria-label="Unread" />}
+      </li>
+    )
+  }
   return (
     <div className={styles.inbox} data-slot="inbox-list">
       <div className={styles.inboxHead}>
         <span className={styles.inboxHeading}>Inbox</span>
+        {messages.length > 0 ? (
+          <div className={styles.inboxTabs} role="tablist" aria-label="Show">
+            {(['all', 'unread'] as const).map((key) => (
+              <button key={key} type="button" role="tab" aria-selected={only === key} className={styles.inboxTab} onClick={() => setOnly(key)}>
+                {key === 'all' ? 'All' : 'Unread'}
+                {key === 'unread' && unread > 0 ? <span className={styles.tabCount}>{unread}</span> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <span className={styles.fill} />
         {onMarkAllRead && unread > 0 ? (
-          <Button variant="ghost" size="sm" type="button" onClick={onMarkAllRead}>
-            Mark all read
+          <Button variant="ghost" size="icon-sm" type="button" aria-label="Mark all read" title="Mark all read" onClick={onMarkAllRead}>
+            <CheckAllIcon size={14} />
           </Button>
         ) : null}
         {onClear && messages.length > 0 ? (
-          <Button variant="ghost" size="sm" type="button" onClick={onClear}>
-            Clear
+          <Button variant="ghost" size="icon-sm" type="button" aria-label="Clear the inbox" title="Clear the inbox" onClick={onClear}>
+            <TrashIcon size={14} />
           </Button>
         ) : null}
       </div>
-      {messages.length > 0 ? (
-        <div className={styles.inboxTabs} role="tablist" aria-label="Show">
-          {(['all', 'unread'] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={only === key}
-              className={styles.inboxTab}
-              onClick={() => setOnly(key)}
-            >
-              {key === 'all' ? 'All' : 'Unread'}
-              {key === 'unread' && unread > 0 ? <span className={styles.tabCount}>{unread}</span> : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
       {shown.length === 0 ? (
         <div className={styles.empty}>
           <span className={styles.emptyTile} aria-hidden>
@@ -332,38 +371,14 @@ export const InboxList = ({
           <span className={styles.emptyBody}>Messages an Agent sends you, and anything you move here, wait in this list.</span>
         </div>
       ) : (
-        <ul className={styles.inboxItems}>
-          {shown.map((message) => (
-            <li
-              key={message.id}
-              className={cn(styles.inboxItem, revealMotion)}
-              {...(message.read ? {} : { 'data-unread': '' })}
-            >
-              <Lead message={message} />
-              <div className={styles.inboxText}>
-                <span className={styles.inboxTop}>
-                  {onOpen && !message.read ? (
-                    <button type="button" className={styles.inboxTitle} title="Mark read" onClick={() => onOpen(message.id)}>
-                      {message.title}
-                    </button>
-                  ) : (
-                    <span className={styles.inboxTitle}>{message.title}</span>
-                  )}
-                  {message.at !== undefined ? <time className={styles.inboxTime}>{ago(message.at, now)}</time> : null}
-                </span>
-                <span className={styles.inboxBody}>
-                  {message.from ? <span className={styles.inboxFrom}>{message.from}</span> : null}
-                  {message.from && message.body ? ' · ' : null}
-                  {message.body}
-                </span>
-                {message.action ? (
-                  <ActionButton action={message.action} variant="outline" className={styles.inboxAction} />
-                ) : null}
-              </div>
-              {message.read ? null : <span className={styles.unreadDot} aria-label="Unread" />}
-            </li>
+        <div className={styles.inboxScroll}>
+          {groups.map((group) => (
+            <section key={group.name} aria-label={group.name}>
+              <h3 className={styles.inboxGroup}>{group.name}</h3>
+              <ul className={styles.inboxItems}>{group.items.map(row)}</ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   )

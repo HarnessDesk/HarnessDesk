@@ -199,18 +199,6 @@
 
 /* --- inbox: the bell, and what it keeps ----------------------------------- */
 
-.inboxButton {
-  position: relative;
-  color: var(--hd-secondary-foreground);
-}
-
-/* Unread has its own tint: the brand, never the readiness dot's colours. */
-.inboxButton[data-unread] {
-  color: var(--hd-primary-ink);
-}
-
-.unreadCount,
-.unreadMark,
 .bellCount,
 .tabCount {
   min-width: var(--hd-space-4);
@@ -222,16 +210,6 @@
   line-height: var(--hd-space-4);
   font-variant-numeric: tabular-nums;
   text-align: center;
-}
-
-.unreadCount {
-  position: absolute;
-  top: calc(-1 * var(--hd-space-0-5));
-  right: calc(-1 * var(--hd-space-0-5));
-}
-
-.unreadMark {
-  flex: none;
 }
 
 .inbox {
@@ -246,8 +224,8 @@
 .inboxHead {
   display: flex;
   align-items: center;
-  gap: var(--hd-space-1);
-  padding: var(--hd-space-1) var(--hd-space-1) var(--hd-space-1) var(--hd-space-2);
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-1) var(--hd-space-1) var(--hd-space-2) var(--hd-space-2);
 }
 
 .inboxHeading {
@@ -256,25 +234,24 @@
   font-weight: var(--hd-weight-semibold);
 }
 
-/* All / Unread: a segmented pair, not two more buttons. */
+/* All / Unread: a small segmented pair beside the heading. */
 .inboxTabs {
-  display: flex;
+  display: inline-flex;
   gap: var(--hd-space-0-5);
-  margin: 0 var(--hd-space-2) var(--hd-space-2);
   padding: var(--hd-space-0-5);
-  border-radius: var(--hd-radius-lg);
+  border-radius: var(--hd-radius-md);
   background: var(--hd-muted);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
 }
 
 .inboxTab {
   display: inline-flex;
-  flex: 1;
   align-items: center;
-  justify-content: center;
-  gap: var(--hd-space-1-5);
-  padding: var(--hd-space-1) var(--hd-space-2);
+  gap: var(--hd-space-1);
+  padding: var(--hd-space-0-5) var(--hd-space-2);
   border: 0;
-  border-radius: var(--hd-radius-md);
+  border-radius: var(--hd-radius-sm);
   background: none;
   color: var(--hd-muted-foreground);
   font: inherit;
@@ -317,29 +294,40 @@
   text-wrap: pretty;
 }
 
+.inboxScroll {
+  max-height: min(calc(var(--hd-space-16) * 7), 70vh);
+  overflow-y: auto;
+}
+
+.inboxGroup {
+  margin: 0;
+  padding: var(--hd-space-2) var(--hd-space-2) var(--hd-space-1);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  font-weight: var(--hd-weight-medium);
+  color: var(--hd-muted-foreground);
+}
+
 .inboxItems {
   display: flex;
   flex-direction: column;
-  gap: var(--hd-space-1-5);
-  max-height: min(calc(var(--hd-space-16) * 7), 70vh);
   margin: 0;
-  padding: 0 var(--hd-space-2) var(--hd-space-2);
-  overflow-y: auto;
+  padding: 0;
   list-style: none;
 }
 
-/* Each kept message is its own compact card. */
+/* A flat row inside the panel — the panel is the card, not each message. */
 .inboxItem {
   position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--hd-space-2-5);
-  padding: var(--hd-space-2-5) var(--hd-space-3) var(--hd-space-2-5) var(--hd-space-2-5);
+  padding: var(--hd-space-2) var(--hd-space-5) var(--hd-space-2) var(--hd-space-2);
   border-radius: var(--hd-radius-lg);
-  background: var(--hd-card);
-  box-shadow:
-    inset 0 0 0 var(--hd-space-px) var(--hd-border),
-    var(--hd-shadow-xs);
+}
+
+.inboxItem:hover {
+  background: var(--hd-muted);
 }
 
 .inboxText {
@@ -374,12 +362,24 @@
   font-weight: var(--hd-weight-semibold);
 }
 
+/* The whole row is the title's press; the action sits above it. */
 button.inboxTitle {
   cursor: pointer;
 }
 
-button.inboxTitle:hover {
-  text-decoration: underline;
+button.inboxTitle::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: '';
+}
+
+button.inboxTitle:focus-visible {
+  outline: none;
+}
+
+button.inboxTitle:focus-visible::after {
+  box-shadow: 0 0 0 var(--hd-space-0-5) var(--hd-ring);
 }
 
 .inboxTime {
@@ -400,28 +400,25 @@ button.inboxTitle:hover {
   font-weight: var(--hd-weight-medium);
 }
 
-/* Read cards keep their words and lose their weight: kept, not waiting. */
+/* Read rows keep their words and lose their weight: kept, not waiting. */
 .inboxItem:not([data-unread]) .tile {
   opacity: 0.6;
 }
 
 .inboxAction {
+  position: relative;
+  z-index: 1;
   margin-top: var(--hd-space-1-5);
 }
 
 .unreadDot {
   position: absolute;
-  top: var(--hd-space-2-5);
-  right: var(--hd-space-2-5);
+  top: calc(var(--hd-space-2) + var(--hd-space-1-5));
+  right: var(--hd-space-2);
   width: var(--hd-space-1-5);
   height: var(--hd-space-1-5);
   border-radius: var(--hd-radius-full);
   background: var(--hd-primary);
-}
-
-/* The unread card's time leaves room for its dot. */
-.inboxItem[data-unread] .inboxTime {
-  margin-right: var(--hd-space-2);
 }
 
 /* The bell: its own tint while something is unread, never the readiness dot's. */
@@ -439,5 +436,6 @@ button.inboxTitle:hover {
 .bellCount {
   position: absolute;
   top: calc(-1 * var(--hd-space-2));
-  right: calc(-1 * var(--hd-space-2-5));
+  right: calc(-1 * var(--hd-space-3));
+  box-shadow: 0 0 0 var(--hd-space-0-5) var(--hd-sidebar);
 }

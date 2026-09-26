@@ -367,6 +367,9 @@ export const useInboxMessages = (): InboxMessage[] => {
       read: entry.read,
       ...(entry.from ? { from: entry.from.name } : {}),
       ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
+      ...(sender && entry.from
+        ? { go: () => void store.openSession(entry.from!.sessionId as SessionId, { runtime: sender.id }) }
+        : {}),
       ...(entry.task ? { action: { label: 'Start as a task', onSelect: () => void store.startSuggestedTask(entry.id) } } : {}),
     }
   })
