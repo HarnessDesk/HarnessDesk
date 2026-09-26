@@ -1,7 +1,8 @@
-import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
-import { ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CrossIcon } from '../../components/Icons'
+import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CrossIcon, InfoIcon, ShieldAlertIcon } from '../../components/Icons'
 import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
+import { Popover } from './Popover'
 import type { BannerTone } from '../primitives/Banner'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
@@ -57,14 +58,27 @@ export type NoticeMessage = {
   readonly mark?: ReactNode
 }
 
-/** The dot every surface leads with: the message's tone, at a glance. */
-const ToneDot = ({ tone = 'neutral' }: { tone?: NoticeTone }) => (
-  <span className={styles.dot} data-tone={tone} aria-hidden />
-)
+const TONE_ICON: Record<NoticeTone, (props: { size: number }) => ReactNode> = {
+  neutral: BellIcon,
+  info: InfoIcon,
+  warning: AlertIcon,
+  danger: ShieldAlertIcon,
+}
 
-/** What a message leads with: its sender's face when it has one, else its tone. */
-const Lead = ({ message }: { message: NoticeMessage }) =>
-  message.mark ? <span className={styles.mark}>{message.mark}</span> : <ToneDot tone={message.tone} />
+/**
+ * What every surface leads with: a small tile. The tone lives here — a tinted
+ * square around its icon — so the ground under the words can stay calm; an
+ * Agent's message puts that Agent's face in the tile instead.
+ */
+const Lead = ({ message, size = 'md' }: { message: NoticeMessage; size?: 'sm' | 'md' }) => {
+  const tone = message.tone ?? 'neutral'
+  const Glyph = TONE_ICON[tone]
+  return (
+    <span className={styles.tile} data-tone={tone} data-size={size} aria-hidden>
+      {message.mark ?? <Glyph size={size === 'sm' ? 12 : 14} />}
+    </span>
+  )
+}
 
 /**
  * Putting a message away — and, once a kind has been put away twice
@@ -129,17 +143,12 @@ const Pager = ({ at, count, onPrevious, onNext }: { at: number; count: number; o
     </span>
   ) : null
 
-const ActionButton = ({ action, variant }: { action: NoticeAct; variant: 'default' | 'link' }) =>
-  variant === 'link' ? (
-    <button type="button" className={styles.link} onClick={action.onSelect}>
-      {action.label}
-    </button>
-  ) : (
-    <Button size="sm" type="button" onClick={action.onSelect}>
-      {action.label}
-      {action.shortcut ? <kbd className={styles.chord}>{action.shortcut}</kbd> : null}
-    </Button>
-  )
+const ActionButton = ({ action, variant, className }: { action: NoticeAct; variant: 'default' | 'outline'; className?: string }) => (
+  <Button size="sm" variant={variant} type="button" className={className} onClick={action.onSelect}>
+    {action.label}
+    {action.shortcut ? <kbd className={styles.chord}>{action.shortcut}</kbd> : null}
+  </Button>
+)
 
 /**
  * The card at the foot of the sidebar. It holds every waiting message but
@@ -161,9 +170,9 @@ export const NoticeCard = ({
   return (
     <section className={styles.card} data-slot="notice-card" data-tone={message.tone ?? 'neutral'} role="status" aria-label="Messages">
       <div className={styles.cardHead}>
-        {message.mark ? <span className={styles.mark}>{message.mark}</span> : null}
-        <Pager at={pager.at} count={messages.length} onPrevious={pager.previous} onNext={pager.next} />
+        <Lead message={message} />
         <span className={styles.fill} />
+        <Pager at={pager.at} count={messages.length} onPrevious={pager.previous} onNext={pager.next} />
         <Dismiss onDismiss={() => onDismiss(message.id)} onMute={onMute?.(message.id)} />
       </div>
       <div className={styles.cardTitle} data-slot="notice-title">
@@ -174,19 +183,16 @@ export const NoticeCard = ({
           {message.body}
         </p>
       ) : null}
-      {message.action ? (
-        <div className={styles.cardAction}>
-          <ActionButton action={message.action} variant="default" />
-        </div>
-      ) : null}
+      {message.action ? <ActionButton action={message.action} variant="default" className={styles.cardAction} /> : null}
     </section>
   )
 }
 
 /**
  * A message about the conversation it sits over, fastened to the top of that
- * conversation's composer — the control it is about. Tinted by tone, one
- * line, one action as a link.
+ * conversation's composer — the control it is about. A calm bar the
+ * composer's own width: the tone is in the tile, the words wrap, and the
+ * action sits at the right as a small button.
  */
 export const ComposerNotice = ({
   message,
@@ -203,7 +209,7 @@ export const ComposerNotice = ({
       <span className={styles.lineTitle}>{message.title}</span>
       {message.body ? <span className={styles.lineBody}> {message.body}</span> : null}
     </span>
-    {message.action ? <ActionButton action={message.action} variant="link" /> : null}
+    {message.action ? <ActionButton action={message.action} variant="outline" /> : null}
     {onDismiss ? <Dismiss onDismiss={onDismiss} onMute={onMute} /> : null}
   </div>
 )
@@ -230,54 +236,22 @@ export const NoticeStrip = ({
   if (!message) return null
   return (
     <div className={styles.strip} data-slot="notice-strip" data-tone={message.tone ?? 'neutral'} role="status">
-      <Lead message={message} />
+      <Lead message={message} size="sm" />
       <span className={styles.line}>
         <span className={styles.lineTitle}>{message.title}</span>
         {message.body ? <span className={styles.lineBody}> {message.body}</span> : null}
       </span>
-      {message.action ? <ActionButton action={message.action} variant="link" /> : null}
+      {message.action ? (
+        <button type="button" className={styles.link} onClick={message.action.onSelect}>
+          {message.action.label}
+        </button>
+      ) : null}
       <span className={styles.fill} />
       <Pager at={pager.at} count={messages.length} onPrevious={pager.previous} onNext={pager.next} />
       <Dismiss onDismiss={() => onDismiss(message.id)} onMute={onMute?.(message.id)} />
     </div>
   )
 }
-
-/**
- * The inbox's trigger: a bell, and how many are unread. Unread has its own
- * tint (`data-unread`), never the readiness dot's colours — that dot says
- * whether a turn can start, and a message waiting is a different fact.
- */
-export const InboxButton = ({
-  unread,
-  className,
-  ...props
-}: { unread: number } & ButtonHTMLAttributes<HTMLButtonElement>) => (
-  <Button
-    variant="ghost"
-    size="icon-sm"
-    type="button"
-    aria-label={unread > 0 ? `Inbox, ${unread} unread` : 'Inbox'}
-    className={[styles.inboxButton, className].filter(Boolean).join(' ')}
-    data-slot="inbox-button"
-    {...(unread > 0 ? { 'data-unread': '' } : {})}
-    {...props}
-  >
-    <BellIcon size={14} />
-    {unread > 0 ? <span className={styles.unreadCount}>{unread > 99 ? '99+' : unread}</span> : null}
-  </Button>
-)
-
-/**
- * How many kept messages are unread, beside whatever opens the inbox — the
- * seat's row, say. Its own tint, never the readiness dot's colours.
- */
-export const UnreadMark = ({ count }: { count: number }) =>
-  count > 0 ? (
-    <span className={styles.unreadMark} data-slot="unread-mark" aria-label={`${count} unread`}>
-      {count > 99 ? '99+' : count}
-    </span>
-  ) : null
 
 const ago = (at: number, now: number): string => {
   const minutes = Math.max(0, Math.round((now - at) / 60_000))
@@ -287,10 +261,18 @@ const ago = (at: number, now: number): string => {
   return hours < 24 ? `${hours}h` : `${Math.round(hours / 24)}d`
 }
 
+/** A kept message, with who sent it when an Agent did. */
+export type InboxMessage = NoticeMessage & {
+  /** The sender's name, for the card's first line: an Agent's, or the desk's own when absent. */
+  readonly from?: string
+}
+
 /**
- * The inbox itself: messages kept until they are cleared, newest first,
- * unread ones marked. What it is drawn inside — a menu's fold, a popover — is
- * the caller's; this is the list and its two verbs.
+ * The inbox: messages kept until they are cleared, newest first. Each is a
+ * compact card — the sender's tile, the title with its time at the right, a
+ * line of who and why under it, and at most one thing to do about it. Unread
+ * cards carry a dot and the heavier title; pressing a card marks it read.
+ * "Unread" narrows the list to what is still waiting. New cards rise in.
  */
 export const InboxList = ({
   messages,
@@ -299,51 +281,121 @@ export const InboxList = ({
   onClear,
   now = Date.now(),
 }: {
-  messages: readonly NoticeMessage[]
+  messages: readonly InboxMessage[]
   onOpen?: (id: string) => void
   onMarkAllRead?: () => void
   onClear?: () => void
   now?: number
-}) => (
-  <div className={styles.inbox} data-slot="inbox-list">
-    {messages.length === 0 ? (
-      <p className={styles.empty}>Nothing kept.</p>
-    ) : (
-      <>
+}) => {
+  const [only, setOnly] = useState<'all' | 'unread'>('all')
+  const unread = messages.filter((message) => !message.read).length
+  const shown = only === 'unread' ? messages.filter((message) => !message.read) : messages
+  return (
+    <div className={styles.inbox} data-slot="inbox-list">
+      <div className={styles.inboxHead}>
+        <span className={styles.inboxHeading}>Inbox</span>
+        <span className={styles.fill} />
+        {onMarkAllRead && unread > 0 ? (
+          <Button variant="ghost" size="sm" type="button" onClick={onMarkAllRead}>
+            Mark all read
+          </Button>
+        ) : null}
+        {onClear && messages.length > 0 ? (
+          <Button variant="ghost" size="sm" type="button" onClick={onClear}>
+            Clear
+          </Button>
+        ) : null}
+      </div>
+      {messages.length > 0 ? (
+        <div className={styles.inboxTabs} role="tablist" aria-label="Show">
+          {(['all', 'unread'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={only === key}
+              className={styles.inboxTab}
+              onClick={() => setOnly(key)}
+            >
+              {key === 'all' ? 'All' : 'Unread'}
+              {key === 'unread' && unread > 0 ? <span className={styles.tabCount}>{unread}</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {shown.length === 0 ? (
+        <div className={styles.empty}>
+          <span className={styles.emptyTile} aria-hidden>
+            <BellIcon size={16} />
+          </span>
+          <span className={styles.emptyTitle}>{messages.length === 0 ? 'Nothing kept yet' : 'All read'}</span>
+          <span className={styles.emptyBody}>Messages an Agent sends you, and anything you move here, wait in this list.</span>
+        </div>
+      ) : (
         <ul className={styles.inboxItems}>
-          {messages.map((message) => (
-            <li key={message.id} className={cn(styles.inboxItem, revealMotion)} {...(message.read ? {} : { 'data-unread': '' })}>
+          {shown.map((message) => (
+            <li
+              key={message.id}
+              className={cn(styles.inboxItem, revealMotion)}
+              {...(message.read ? {} : { 'data-unread': '' })}
+            >
               <Lead message={message} />
               <div className={styles.inboxText}>
-                <span className={styles.inboxTitle}>{message.title}</span>
-                {message.body ? <span className={styles.inboxBody}>{message.body}</span> : null}
-                {message.action ? <ActionButton action={message.action} variant="link" /> : null}
+                <span className={styles.inboxTop}>
+                  {onOpen && !message.read ? (
+                    <button type="button" className={styles.inboxTitle} title="Mark read" onClick={() => onOpen(message.id)}>
+                      {message.title}
+                    </button>
+                  ) : (
+                    <span className={styles.inboxTitle}>{message.title}</span>
+                  )}
+                  {message.at !== undefined ? <time className={styles.inboxTime}>{ago(message.at, now)}</time> : null}
+                </span>
+                <span className={styles.inboxBody}>
+                  {message.from ? <span className={styles.inboxFrom}>{message.from}</span> : null}
+                  {message.from && message.body ? ' · ' : null}
+                  {message.body}
+                </span>
+                {message.action ? (
+                  <ActionButton action={message.action} variant="outline" className={styles.inboxAction} />
+                ) : null}
               </div>
-              {message.at !== undefined ? <time className={styles.when}>{ago(message.at, now)}</time> : null}
-              {onOpen && !message.read ? (
-                <button type="button" className={styles.markRead} aria-label="Mark read" onClick={() => onOpen(message.id)} />
-              ) : null}
+              {message.read ? null : <span className={styles.unreadDot} aria-label="Unread" />}
             </li>
           ))}
         </ul>
-        {onMarkAllRead || onClear ? (
-          <div className={styles.inboxFoot}>
-            {onMarkAllRead ? (
-              <button type="button" className={styles.link} onClick={onMarkAllRead}>
-                Mark all read
-              </button>
-            ) : null}
-            {onClear ? (
-              <button type="button" className={styles.link} onClick={onClear}>
-                Clear
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </>
-    )}
-  </div>
-)
+      )}
+    </div>
+  )
+}
+
+/**
+ * The bell and the inbox behind it. The bell carries the unread count in its
+ * own tint; the inbox opens beside it as a panel of its own, wide enough for
+ * a card to read in two lines, rather than folding into a menu.
+ */
+export const InboxPanel = ({
+  side = 'right',
+  ...list
+}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left' }) => {
+  const unread = list.messages.filter((message) => !message.read).length
+  return (
+    <Popover
+      title={unread > 0 ? `Inbox, ${unread} unread` : 'Inbox'}
+      side={side}
+      sideAlign="end"
+      triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}
+      label={
+        <span className={styles.bell} data-slot="inbox-button" {...(unread > 0 ? { 'data-unread': '' } : {})}>
+          <BellIcon size={14} />
+          {unread > 0 ? <span className={styles.bellCount}>{unread > 99 ? '99+' : unread}</span> : null}
+        </span>
+      }
+    >
+      {() => <InboxList {...list} />}
+    </Popover>
+  )
+}
 
 /**
  * A result, said as a toast: the same message shape, through the registry's

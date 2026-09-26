@@ -1,3 +1,4 @@
+import { useInboxMessages } from './Notices'
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
@@ -22,6 +23,7 @@ import {
   DetailHead,
   Face,
   Input,
+  InboxPanel,
   Keycap,
   Note,
   RowValue,
@@ -31,8 +33,6 @@ import {
   SectionHead,
   Segmented,
   NativeSelect,
-  InboxList,
-  UnreadMark,
   Switch,
   Text,
 } from '../design'
@@ -616,6 +616,7 @@ export const NotificationsSection = () => {
   const now = Date.now()
   const silenced = NOTICE_KINDS.filter((entry) => policy.muted.includes(entry.kind))
   const inboxUnread = unreadCount(snapshot.inbox)
+  const inboxMessages = useInboxMessages()
 
   return (
     <>
@@ -713,8 +714,7 @@ export const NotificationsSection = () => {
           ) : undefined
         }
       />
-      {/* What was kept, the same list the seat menu folds out — so a message
-          put away there can be found here, and the count is the list's own. */}
+      {/* How much is kept, and the same bell that sits beside the seat. */}
       <Rows>
         <Row
           title="Kept messages"
@@ -723,24 +723,17 @@ export const NotificationsSection = () => {
               ? 'Nothing kept.'
               : `${snapshot.inbox.length} kept${inboxUnread > 0 ? `, ${inboxUnread} unread` : ''}.`
           }
-          control={<UnreadMark count={inboxUnread} />}
+          control={
+            <InboxPanel
+              side="bottom"
+              messages={inboxMessages}
+              onOpen={(id) => store.markInboxRead(id)}
+              onMarkAllRead={() => store.markInboxRead(null)}
+              onClear={() => store.clearInbox()}
+            />
+          }
         />
       </Rows>
-      {snapshot.inbox.length > 0 ? (
-        <InboxList
-          messages={snapshot.inbox.map((entry) => ({
-            id: entry.id,
-            tone: entry.tone,
-            title: entry.from ? `${entry.from.name}: ${entry.title}` : entry.title,
-            ...(entry.body ? { body: entry.body } : {}),
-            at: entry.at,
-            read: entry.read,
-            ...(entry.task ? { action: { label: 'Start as a task', onSelect: () => void store.startSuggestedTask(entry.id) } } : {}),
-          }))}
-          onOpen={(id) => store.markInboxRead(id)}
-          onMarkAllRead={() => store.markInboxRead(null)}
-        />
-      ) : null}
 
       <SectionHead name="On your Mac" />
       <Rows>

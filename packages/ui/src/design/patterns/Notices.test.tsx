@@ -8,7 +8,7 @@ const { toast } = vi.hoisted(() => {
 })
 vi.mock('../ui/toast', () => ({ toast }))
 
-import { ComposerNotice, InboxButton, InboxList, NoticeCard, NoticeStrip, showProgress, showToast, type NoticeMessage } from './Notices'
+import { ComposerNotice, InboxList, InboxPanel, NoticeCard, NoticeStrip, showProgress, showToast, type NoticeMessage } from './Notices'
 
 let host: HTMLDivElement
 let root: Root
@@ -67,11 +67,11 @@ it('a strip shows one message and pages like the card', async () => {
 })
 
 it('the inbox bell says how many are unread and tints itself only then', async () => {
-  await act(() => root.render(<InboxButton unread={3} />))
+  await act(() => root.render(<InboxPanel messages={[offer, update, { ...offer, id: 'third' }]} />))
   const bell = host.querySelector('[data-slot="inbox-button"]')
-  expect(bell?.getAttribute('aria-label')).toBe('Inbox, 3 unread')
   expect(bell?.hasAttribute('data-unread')).toBe(true)
-  await act(() => root.render(<InboxButton unread={0} />))
+  expect(bell?.textContent).toBe('3')
+  await act(() => root.render(<InboxPanel messages={[{ ...offer, read: true }]} />))
   expect(host.querySelector('[data-slot="inbox-button"]')?.hasAttribute('data-unread')).toBe(false)
 })
 
@@ -82,10 +82,12 @@ it('the inbox marks a message read when it is opened, and says so when empty', a
   expect(items[0]?.hasAttribute('data-unread')).toBe(true)
   expect(items[1]?.hasAttribute('data-unread')).toBe(false)
   expect(items[0]?.querySelector('time')?.textContent).toBe('5m')
-  await act(() => button('Mark read').click())
+  await act(() => host.querySelector<HTMLButtonElement>('[title="Mark read"]')!.click())
   expect(onOpen).toHaveBeenCalledWith('offer')
+  await act(() => host.querySelector<HTMLButtonElement>('[role="tab"]:last-child')!.click())
+  expect(host.querySelectorAll('li')).toHaveLength(1)
   await act(() => root.render(<InboxList messages={[]} />))
-  expect(host.textContent).toContain('Nothing kept.')
+  expect(host.textContent).toContain('Nothing kept yet')
 })
 
 it('a toast takes the same message, by tone', () => {
@@ -98,7 +100,7 @@ it('a toast takes the same message, by tone', () => {
 it('a message from an Agent leads with its face instead of the tone dot', async () => {
   await act(() => root.render(<ComposerNotice message={{ id: 'agent', title: 'Opus wants a decision.', mark: <span data-testid="face">O</span> }} />))
   expect(host.querySelector('[data-testid="face"]')).toBeTruthy()
-  expect(host.querySelector('[data-tone][aria-hidden]')).toBeNull()
+  expect(host.querySelector('svg')).toBeNull()
 })
 
 it('work that takes a moment is one toast that turns into how it ended', () => {

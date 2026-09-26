@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { RuntimeMark } from './BrandIcons'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
@@ -10,6 +11,7 @@ import {
   NoticeCard,
   NoticeStrip,
   showToast,
+  type InboxMessage,
   type NoticeAct,
   type NoticeMessage,
   type NoticeTone,
@@ -274,13 +276,22 @@ export const ComposerNotices = () => {
   return (
     <>
       {place === 'composer' && standing ? <ComposerNotice message={standing.message} onDismiss={standing.dismiss} onMute={standing.mute} /> : null}
-      {asking.map((notice) => (
-        <ComposerNotice
-          key={notice.id}
-          message={{ id: notice.id, tone: 'info', title: notice.title, ...(notice.body ? { body: notice.body } : {}) }}
-          onDismiss={() => store.dismissAgentNotice(notice.id)}
-        />
-      ))}
+      {asking.map((notice) => {
+        const sender = snapshot.runtimes.find((info) => info.id === notice.from.runtime)
+        return (
+          <ComposerNotice
+            key={notice.id}
+            message={{
+              id: notice.id,
+              tone: 'info',
+              title: notice.title,
+              ...(notice.body ? { body: notice.body } : {}),
+              ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
+            }}
+            onDismiss={() => store.dismissAgentNotice(notice.id)}
+          />
+        )
+      })}
     </>
   )
 }
@@ -336,4 +347,27 @@ export const SidebarNotices = () => {
   }
   if (messages.length === 0) return null
   return <NoticeCard messages={messages} onDismiss={(id) => dismissals.get(id)?.()} />
+}
+
+/**
+ * The kept messages as the inbox draws them: the sender's name and mark on
+ * the card, and "Start as a task" for a task one suggests.
+ */
+export const useInboxMessages = (): InboxMessage[] => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  return snapshot.inbox.map((entry) => {
+    const sender = entry.from ? snapshot.runtimes.find((info) => info.id === entry.from?.runtime) : undefined
+    return {
+      id: entry.id,
+      tone: entry.tone,
+      title: entry.title,
+      ...(entry.body ? { body: entry.body } : {}),
+      at: entry.at,
+      read: entry.read,
+      ...(entry.from ? { from: entry.from.name } : {}),
+      ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
+      ...(entry.task ? { action: { label: 'Start as a task', onSelect: () => void store.startSuggestedTask(entry.id) } } : {}),
+    }
+  })
 }

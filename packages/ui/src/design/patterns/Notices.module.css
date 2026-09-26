@@ -1,40 +1,46 @@
 /*
- * The notice surfaces (Notices.tsx). One message anatomy — a tone dot, a
- * title, a body, one action — drawn five ways; every value is a token, so a
- * palette or density change reaches all of them at once.
+ * The notice surfaces (Notices.tsx). One message anatomy — a tone tile, a
+ * title, a body, one action — drawn five ways. The ground under the words
+ * stays calm on every surface; the tone is spent once, in the tile. Every
+ * value is a token, so a palette or density change reaches all of them.
  */
 
 .fill {
   flex: 1;
 }
 
-/* The tone, at a glance. The dot is the only place most surfaces spend the
-   tone; the composer notice is the one that also tints its ground, because
-   it is fastened to a control the tone is about. */
-.dot {
+/* --- the tile every message leads with ------------------------------------ */
+
+.tile {
+  display: inline-grid;
   flex: none;
-  width: var(--hd-space-1-5);
-  height: var(--hd-space-1-5);
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-muted-foreground);
+  place-items: center;
+  width: var(--hd-space-6);
+  height: var(--hd-space-6);
+  border-radius: var(--hd-radius-md);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
 }
 
-.dot[data-tone='info'] {
-  background: var(--hd-primary);
+.tile[data-size='sm'] {
+  width: var(--hd-space-5);
+  height: var(--hd-space-5);
+  border-radius: var(--hd-radius-sm);
 }
 
-.dot[data-tone='warning'] {
-  background: var(--hd-warning);
+.tile[data-tone='info'] {
+  background: var(--hd-primary-muted);
+  color: var(--hd-primary-ink);
 }
 
-.dot[data-tone='danger'] {
-  background: var(--hd-danger);
+.tile[data-tone='warning'] {
+  background: var(--hd-warning-dim);
+  color: var(--hd-warning-ink);
 }
 
-.mark {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
+.tile[data-tone='danger'] {
+  background: var(--hd-danger-dim);
+  color: var(--hd-danger-ink);
 }
 
 .dismiss {
@@ -55,8 +61,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* An action said as a link: the composer notice, the strip and the inbox
-   keep their one line, so the act reads inline rather than as a button. */
+/* The strip's one inline act: a line that keeps its one line. */
 .link {
   flex: none;
   padding: 0;
@@ -83,13 +88,15 @@
 .card {
   display: flex;
   flex-direction: column;
-  gap: var(--hd-space-1-5);
-  padding: var(--hd-space-2) var(--hd-space-3) var(--hd-space-3);
-  border-radius: var(--hd-radius-lg);
+  gap: var(--hd-space-1);
+  /* Inset from the column's edges: it sits in the sidebar, not across it. */
+  margin: 0 var(--hd-space-2) var(--hd-space-2);
+  padding: var(--hd-space-3);
+  border-radius: var(--hd-radius-xl);
   background: var(--hd-card);
   box-shadow:
     inset 0 0 0 var(--hd-space-px) var(--hd-border),
-    var(--hd-shadow-xs);
+    var(--hd-shadow-sm);
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
   color: var(--hd-foreground);
@@ -98,23 +105,25 @@
 .cardHead {
   display: flex;
   align-items: center;
-  min-height: var(--hd-icon-target);
+  gap: var(--hd-space-1);
+  margin-bottom: var(--hd-space-1-5);
 }
 
 .cardTitle {
   font-size: var(--hd-text);
   line-height: var(--hd-line);
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-semibold);
 }
 
 .cardBody {
   margin: 0;
-  color: var(--hd-secondary-foreground);
+  color: var(--hd-muted-foreground);
 }
 
+/* The one thing to do, under the words it answers. */
 .cardAction {
-  display: flex;
-  padding-top: var(--hd-space-1);
+  align-self: flex-start;
+  margin-top: var(--hd-space-2);
 }
 
 /* --- composer: fastened to the top of the composer it blocks -------------- */
@@ -133,50 +142,31 @@
   display: none;
 }
 
-/* Over a composer the strip is one more line in the stack, not a bar across
-   a pane: rounded like the notices beside it, with no rule under it. */
+/* Over a composer the strip is one more bar in the stack, not a rule across
+   a pane: shaped like the notices beside it. */
 .composerStack .strip {
   border-bottom: 0;
-  border-radius: var(--hd-radius-lg);
-  padding-left: var(--hd-space-3);
+  border-radius: var(--hd-radius-xl);
+  padding-left: var(--hd-space-2);
 }
 
 .composer {
   display: flex;
   align-items: center;
   gap: var(--hd-space-2-5);
-  padding: var(--hd-space-2) var(--hd-space-3);
-  border-radius: var(--hd-radius-lg);
+  min-height: var(--hd-space-10);
+  padding: var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-2);
+  border-radius: var(--hd-radius-xl);
   background: var(--hd-muted);
-  box-shadow: inset 0 0 0 var(--hd-space-px) var(--hd-border);
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
   color: var(--hd-foreground);
 }
 
-.composer[data-tone='info'] {
-  background: var(--hd-primary-muted);
-}
-
-.composer[data-tone='warning'] {
-  background: var(--hd-warning-dim);
-}
-
-.composer[data-tone='warning'] .link {
-  color: var(--hd-warning-ink);
-}
-
-.composer[data-tone='danger'] {
-  background: var(--hd-danger-dim);
-}
-
-.composer[data-tone='danger'] .link {
-  color: var(--hd-danger-ink);
-}
-
 .line {
   flex: 1;
   min-width: 0;
+  text-wrap: pretty;
 }
 
 .lineTitle {
@@ -184,7 +174,7 @@
 }
 
 .lineBody {
-  color: var(--hd-secondary-foreground);
+  color: var(--hd-muted-foreground);
 }
 
 /* --- strip: one slim line above a pane ------------------------------------ */
@@ -192,8 +182,8 @@
 .strip {
   display: flex;
   align-items: center;
-  gap: var(--hd-space-2-5);
-  padding: var(--hd-space-1) var(--hd-space-2) var(--hd-space-1) var(--hd-space-4);
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-1) var(--hd-space-2) var(--hd-space-1) var(--hd-space-3);
   border-bottom: var(--hd-space-px) solid var(--hd-border);
   background: var(--hd-muted);
   font-size: var(--hd-text-sm);
@@ -219,10 +209,10 @@
   color: var(--hd-primary-ink);
 }
 
-.unreadCount {
-  position: absolute;
-  top: calc(-1 * var(--hd-space-0-5));
-  right: calc(-1 * var(--hd-space-0-5));
+.unreadCount,
+.unreadMark,
+.bellCount,
+.tabCount {
   min-width: var(--hd-space-4);
   padding: 0 var(--hd-space-1);
   border-radius: var(--hd-radius-full);
@@ -234,64 +224,122 @@
   text-align: center;
 }
 
+.unreadCount {
+  position: absolute;
+  top: calc(-1 * var(--hd-space-0-5));
+  right: calc(-1 * var(--hd-space-0-5));
+}
+
 .unreadMark {
   flex: none;
-  min-width: var(--hd-space-4);
-  padding: 0 var(--hd-space-1);
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-primary);
-  color: var(--hd-primary-foreground);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-space-4);
-  font-variant-numeric: tabular-nums;
-  text-align: center;
 }
 
 .inbox {
   display: flex;
   flex-direction: column;
+  width: min(calc(var(--hd-space-16) * 5.5), calc(100vw - var(--hd-space-8)));
+  margin: calc(-1 * var(--hd-space-1));
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
 }
 
-.empty {
-  margin: 0;
-  padding: var(--hd-space-3);
+.inboxHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  padding: var(--hd-space-1) var(--hd-space-1) var(--hd-space-1) var(--hd-space-2);
+}
+
+.inboxHeading {
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+  font-weight: var(--hd-weight-semibold);
+}
+
+/* All / Unread: a segmented pair, not two more buttons. */
+.inboxTabs {
+  display: flex;
+  gap: var(--hd-space-0-5);
+  margin: 0 var(--hd-space-2) var(--hd-space-2);
+  padding: var(--hd-space-0-5);
+  border-radius: var(--hd-radius-lg);
+  background: var(--hd-muted);
+}
+
+.inboxTab {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--hd-space-1-5);
+  padding: var(--hd-space-1) var(--hd-space-2);
+  border: 0;
+  border-radius: var(--hd-radius-md);
+  background: none;
   color: var(--hd-muted-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.inboxTab[aria-selected='true'] {
+  background: var(--hd-card);
+  box-shadow: var(--hd-shadow-xs);
+  color: var(--hd-foreground);
+  font-weight: var(--hd-weight-medium);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hd-space-1);
+  padding: var(--hd-space-6) var(--hd-space-5) var(--hd-space-8);
+  text-align: center;
+}
+
+.emptyTile {
+  display: inline-grid;
+  place-items: center;
+  width: var(--hd-space-10);
+  height: var(--hd-space-10);
+  margin-bottom: var(--hd-space-2);
+  border-radius: var(--hd-radius-xl);
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
+}
+
+.emptyTitle {
+  font-weight: var(--hd-weight-medium);
+}
+
+.emptyBody {
+  color: var(--hd-muted-foreground);
+  text-wrap: pretty;
 }
 
 .inboxItems {
   display: flex;
   flex-direction: column;
+  gap: var(--hd-space-1-5);
+  max-height: min(calc(var(--hd-space-16) * 7), 70vh);
   margin: 0;
-  padding: 0;
+  padding: 0 var(--hd-space-2) var(--hd-space-2);
+  overflow-y: auto;
   list-style: none;
 }
 
+/* Each kept message is its own compact card. */
 .inboxItem {
   position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--hd-space-2-5);
-  padding: var(--hd-space-2-5) var(--hd-space-3);
-}
-
-.inboxItem + .inboxItem {
-  border-top: var(--hd-space-px) solid var(--hd-border);
-}
-
-.inboxItem .dot {
-  margin-top: var(--hd-space-1-5);
-}
-
-/* Read messages keep their words but lose their weight and their dot's
-   colour: kept, not waiting. */
-.inboxItem:not([data-unread]) .dot {
-  background: var(--hd-border-strong);
-}
-
-.inboxItem:not([data-unread]) .inboxTitle {
-  font-weight: var(--hd-weight-normal);
+  padding: var(--hd-space-2-5) var(--hd-space-3) var(--hd-space-2-5) var(--hd-space-2-5);
+  border-radius: var(--hd-radius-lg);
+  background: var(--hd-card);
+  box-shadow:
+    inset 0 0 0 var(--hd-space-px) var(--hd-border),
+    var(--hd-shadow-xs);
 }
 
 .inboxText {
@@ -303,15 +351,38 @@
   min-width: 0;
 }
 
+.inboxTop {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  width: 100%;
+}
+
 .inboxTitle {
-  font-weight: var(--hd-weight-medium);
-}
-
-.inboxBody {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--hd-secondary-foreground);
+  font: inherit;
+  text-align: left;
 }
 
-.when {
+.inboxItem[data-unread] .inboxTitle {
+  color: var(--hd-foreground);
+  font-weight: var(--hd-weight-semibold);
+}
+
+button.inboxTitle {
+  cursor: pointer;
+}
+
+button.inboxTitle:hover {
+  text-decoration: underline;
+}
+
+.inboxTime {
   flex: none;
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-xs);
@@ -319,32 +390,54 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The whole row marks it read; the button is laid over the row, below its
-   own links, so a press anywhere that is not an action counts as opening. */
-.markRead {
+.inboxBody {
+  color: var(--hd-muted-foreground);
+  text-wrap: pretty;
+}
+
+.inboxFrom {
+  color: var(--hd-secondary-foreground);
+  font-weight: var(--hd-weight-medium);
+}
+
+/* Read cards keep their words and lose their weight: kept, not waiting. */
+.inboxItem:not([data-unread]) .tile {
+  opacity: 0.6;
+}
+
+.inboxAction {
+  margin-top: var(--hd-space-1-5);
+}
+
+.unreadDot {
   position: absolute;
-  inset: 0;
-  z-index: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
+  top: var(--hd-space-2-5);
+  right: var(--hd-space-2-5);
+  width: var(--hd-space-1-5);
+  height: var(--hd-space-1-5);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-primary);
 }
 
-.inboxItem > :not(.markRead) {
+/* The unread card's time leaves room for its dot. */
+.inboxItem[data-unread] .inboxTime {
+  margin-right: var(--hd-space-2);
+}
+
+/* The bell: its own tint while something is unread, never the readiness dot's. */
+.bell {
   position: relative;
-  z-index: 1;
-  pointer-events: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--hd-secondary-foreground);
 }
 
-.inboxItem .link {
-  pointer-events: auto;
+.bell[data-unread] {
+  color: var(--hd-primary-ink);
 }
 
-.inboxFoot {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--hd-space-4);
-  padding: var(--hd-space-2) var(--hd-space-3);
-  border-top: var(--hd-space-px) solid var(--hd-border);
+.bellCount {
+  position: absolute;
+  top: calc(-1 * var(--hd-space-2));
+  right: calc(-1 * var(--hd-space-2-5));
 }

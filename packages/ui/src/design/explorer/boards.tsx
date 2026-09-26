@@ -12,11 +12,12 @@ import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
   ComposerNotice,
-  InboxButton,
+  InboxPanel,
   InboxList,
   NoticeCard,
   NoticeStrip,
   showToast,
+  type InboxMessage,
   type NoticeMessage,
   Alert,
   AlertContent,
@@ -564,15 +565,15 @@ const NOTICE_STRIP: NoticeMessage[] = [
   { id: 'pace', tone: 'warning', title: 'Claude Code is on course to run out in 51m.', action: { label: 'Switch agent', onSelect: () => {} } },
   { id: 'signin', tone: 'danger', title: 'Cursor is not signed in.', action: { label: 'Sign in', onSelect: () => {} } },
 ]
-const NOTICE_INBOX: NoticeMessage[] = [
+const NOTICE_INBOX: InboxMessage[] = [
+  { id: 'i0', tone: 'info', from: 'Reviewer', title: 'Keep the old retry count, or raise it to five?', body: 'Five covers the documented flaps; three matches the other clients.', action: { label: 'Start as a task', onSelect: () => {} }, at: NOTICE_NOW - 60_000 },
   { id: 'i1', tone: 'warning', title: 'On course to run out', body: 'Claude Code will run out in 51m, before the window resets.', action: { label: 'Switch agent', onSelect: () => {} }, at: NOTICE_NOW - 4 * 60_000 },
   { id: 'i2', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 is ready.', at: NOTICE_NOW - 2 * 3_600_000 },
-  { id: 'i3', title: 'Goal finished', body: 'Checkout hardening closed its last card.', at: NOTICE_NOW - 26 * 3_600_000, read: true },
+  { id: 'i3', from: 'Checkout hardening', title: 'Goal finished', body: 'Checkout hardening closed its last card.', at: NOTICE_NOW - 26 * 3_600_000, read: true },
 ]
 
 const NoticesBoard = () => {
   const [inbox, setInbox] = useState(NOTICE_INBOX)
-  const unread = inbox.filter((message) => !message.read).length
   return (
     <div className={styles.stack}>
       <Case label="card: the foot of the sidebar, one at a time">
@@ -584,6 +585,7 @@ const NoticesBoard = () => {
         <div style={{ width: 'min(var(--hd-column), 100%)' }}>
           <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
           <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
+          <ComposerNotice message={{ id: 'ask', tone: 'info', title: 'Keep the old retry count, or raise it to five?', body: 'Five covers the documented flaps; three matches the other clients.', action: { label: 'Raise to five', onSelect: () => {} } }} onDismiss={() => {}} />
         </div>
       </Case>
       <Case label="strip: one slim line above a pane">
@@ -591,8 +593,12 @@ const NoticesBoard = () => {
       </Case>
       <Case label="inbox: kept until cleared; the bell tints only while something is unread">
         <div className="flex items-start gap-(--hd-space-4)">
-          <InboxButton unread={unread} />
-          <div style={{ width: 'calc(var(--hd-space-16) * 5.5)' }} className="rounded-(--hd-radius-lg) border border-(--hd-border) bg-(--hd-card)">
+          <InboxPanel
+            messages={inbox}
+            now={NOTICE_NOW}
+            onOpen={(id) => setInbox((all) => all.map((message) => (message.id === id ? { ...message, read: true } : message)))}
+          />
+          <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
             <InboxList
               messages={inbox}
               now={NOTICE_NOW}
