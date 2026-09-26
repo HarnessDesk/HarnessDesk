@@ -2608,15 +2608,15 @@ export class FlowExecutions {
       }
     }
     if (found.decision.kind === 'none') {
-      // Named by card, not only by role: an outcome no rule routes is not a
-      // mistake to hunt down — it is how this flow stops for a person — so
-      // the reason points straight at the card and the word that did it.
-      const answered = this.#team.stateFor(run.goal).intents
-        .filter((card) => last.cards.includes(card.id))
-        .map((card) => `#${card.id} answered ${card.outcome ?? 'nothing'}`)
-        .join('; ')
+      // Led by the card's own title, not only its role: an outcome no rule
+      // routes is not a mistake to hunt down — it is how this flow stops for
+      // a person — so the reason points straight at the card, by name, and
+      // the word that did it.
+      const cards = this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id))
+      const answered = cards.map((card) => `"${card.title}" (#${card.id}) answered ${card.outcome ?? 'nothing'}`).join(', ')
+      const from = cards.length > 1 ? 'them' : 'it'
       const why = (found.decision.passed ?? []).map((one) => `${one.rule} did not apply: ${one.reason}`).join('; ')
-      await this.#finish(id, 'settled', `${answered}; no rule continues from it, so this waits for you${why ? ` — ${why}` : ''}`)
+      await this.#finish(id, 'settled', `${answered}; no rule continues from ${from}, so this waits for you${why ? ` — ${why}` : ''}`)
       return
     }
     await this.#open(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: found.decision.evidence }, found.completed)

@@ -833,7 +833,7 @@ const FAN_OUT = `
 version: 2
 name: Fan-out review
 roles:
-  build: { kind: agent, uses: [builder] }
+  build: { kind: agent, uses: [builder], grant: edit, independentOf: [] }
   review: { kind: agent, uses: [reviewer] }
   ship: { kind: person, outcomes: [shipped] }
 seed: { role: build, title: Build it }
@@ -865,7 +865,32 @@ test('a fan-out reviewer recording request-changes is accepted, and the run stop
   // exact card and word — never a generic message rounds later.
   const execution = rig.flows.executionsFor(run.goal)[0]!
   assert.equal(execution.state, 'settled')
-  assert.equal(execution.reason, '#2 answered request-changes; no rule continues from it, so this waits for you')
+  assert.equal(execution.reason, '"Review it" (#2) answered request-changes; no rule continues from it, so this waits for you')
+})
+
+test('a fan-out reviewer’s request-changes is accepted through record_review as well, and still stops the run for a person', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'sha-build', dirty: false })
+  const run = await rig.start(FAN_OUT, FAN_OUT_AGENTS)
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const reviewCard = rig.board(run.goal).intents.find((one) => one.id === 2)!
+  const reviewSession = rig.sessionOf('seat-2')
+
+  // The review path — `record_review`, bound through `reviewBinding` — reads
+  // the same scoped vocabulary as `complete_claim`. `request-changes` is
+  // unrouted, never borrowed from another role, so it is accepted there too.
+  const candidates = await rig.review.candidates(reviewCard.id, reviewSession)
+  assert.ok(candidates.length > 0, 'the build card’s clean head is offered as a candidate to review')
+  const record = await rig.review.record({ intent: reviewCard.id, candidate: candidates[0]!.id, verdict: 'request-changes' }, reviewSession)
+  assert.equal(record.fact.kind, 'review')
+
+  const said = await rig.team.complete(2, { outcome: 'request-changes' }, reviewSession)
+  assert.doesNotMatch(said, /Refused/)
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'settled', 'an unrouted word accepted through either path still stops the run for a person')
 })
 
 const ALIGNMENT_SHAPED = `
