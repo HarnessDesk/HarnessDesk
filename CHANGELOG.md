@@ -7,6 +7,16 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Answering a flow Seat's question later carries on the work.** When a flow
+  Seat's question went unanswered for twenty seconds, its turn stopped and its
+  run waited for you — but answering it afterwards, on the room's question
+  card, went nowhere and the run stayed stopped. The Seat is now handed your
+  answer in a turn of its own and carries on with its card, and the run goes
+  with it. While a run is stopped like that, its board draws the Seat's card in
+  **Needs you**, as the header already said, rather than under Working; the
+  sidebar reads the same. A Goal started in a project opened through a link is
+  no longer listed a second time under **Other projects**.
+
 - **A signed-out agent's mark looks empty.** The seat's badge and the menu's
   mark for an agent with no one signed in were meant to read as an empty seat
   and never did; they now draw a dashed ring with no plate and a quieter
