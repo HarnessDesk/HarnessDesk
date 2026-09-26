@@ -234,12 +234,38 @@ const buttonVariants = (props: NonNullable<Parameters<typeof boxedVariants>[0]> 
   const { size: _pattern, ...rest } = props
   return unboxedVariants(rest)
 }
+/*
+ * `edge`'s formula, once: an icon-sized button's box is bigger than its
+ * glyph, so a ghost/icon button dropped at the end of a row sits with its
+ * *box* on the row's inset and its glyph 4–8px inside the text column — the
+ * defect the spacing census calls "trailing ghost glyphs off column". The fix
+ * is not a new inset; it is admitting the box is allowed to hang past the
+ * inset by half of what it is bigger than its own glyph, so the glyph itself
+ * lands where a row's last word would. `(box − 16px) / 2`, 16px being the
+ * glyph every icon button in the app is drawn at
+ * (`components/Icons.tsx`'s own default) — negative because the box is
+ * always the larger term for every icon size this system has.
+ */
+const EDGE_PULL = {
+  icon: 'calc((var(--hd-btn-h) - 16px) / -2)',
+  'icon-sm': 'calc((var(--hd-btn-h-sm) - 16px) / -2)',
+  'icon-xs': 'calc((var(--hd-icon-target) - 16px) / -2)',
+} as const
+
 type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   className?: string
   variant?: NonNullable<ButtonVariants['variant']>
   size?: NonNullable<ButtonVariants['size']>
   /** Remove the canonical hairline when adjoining content has to meet the control edge. */
   bordered?: boolean
+  /**
+   * This button is the last (or first) thing on a row, so its glyph — not
+   * its box — belongs on the row's inset. Only defined for the `icon`,
+   * `icon-sm` and `icon-xs` sizes, whose box is the one thing bigger than
+   * their glyph; a labelled button's padding already puts its text on the
+   * inset without help.
+   */
+  edge?: 'start' | 'end'
   /** Selection rows may keep the platform cursor while retaining button semantics. */
   cursor?: 'default' | 'pointer'
   /** A quiet row may brighten its inherited label on hover without changing warning ink. */
@@ -265,6 +291,7 @@ const Button = ({
   cursor = 'pointer',
   quietHover = false,
   swatch,
+  edge,
   style,
   type,
   render,
@@ -281,8 +308,17 @@ const Button = ({
       cursor === 'default' && 'cursor-default',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
       swatch !== undefined && 'bg-(--swatch) bg-clip-border hover:bg-(--swatch)',
+      edge && size && size in EDGE_PULL && (edge === 'end' ? 'me-(--hd-edge-pull)' : 'ms-(--hd-edge-pull)'),
     )}
-    style={swatch !== undefined && typeof style !== 'function' ? ({ ...style, '--swatch': swatch } as CSSProperties) : style}
+    style={
+      typeof style === 'function'
+        ? style
+        : ({
+            ...style,
+            ...(swatch !== undefined ? { '--swatch': swatch } : {}),
+            ...(edge && size && size in EDGE_PULL ? { '--hd-edge-pull': EDGE_PULL[size as keyof typeof EDGE_PULL] } : {}),
+          } as CSSProperties)
+    }
     /* A bare <button> submits the form around it; nothing in this app means
        that, so the default is the safe one — the same rule Kit's Btn holds.
        Skipped when `render` is given, because the element being rendered may
