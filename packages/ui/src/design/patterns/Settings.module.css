@@ -1360,11 +1360,15 @@
    quietest ink, so a mark that cannot start a turn never reads like one that
    can. A shape and an ink rather than an opacity: the agents' glyphs draw in
    currentColor, and an opacity would mix the mark into whatever it sits on.
-   Last, so it wins over a tint. */
+   Last, so it wins over a tint. The dashed ring is an outline, so it steps
+   aside when the mark has keyboard focus: a focus ring outranks a state. */
 .avatar[data-off] {
   background: transparent;
   color: var(--hd-muted-foreground);
   box-shadow: none;
+}
+
+.avatar[data-off]:not(:focus-visible) {
   outline: var(--hd-border-width) dashed var(--hd-border-strong);
   outline-offset: calc(-1 * var(--hd-border-width));
 }
