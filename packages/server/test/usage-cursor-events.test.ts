@@ -23,7 +23,7 @@ import { LedgerStore, type UsageRow } from '../src/ledger/store.js'
  * value read off the real endpoint (rule 13). The shapes match what was
  * confirmed there: `POST get-filtered-usage-events`, paged at 1000, an empty
  * query answering `{}`, a terminal page short of a full one omitting the
- * events array, and one event in several hundred with no `tokenUsage` at all.
+ * events array, and a small share of events with no `tokenUsage` at all.
  */
 
 const scratch = (): string => tempDir('hd-cursor-events-')
@@ -219,18 +219,47 @@ test('unpriced events stay unpriced, never $0, and never share a row with priced
   assert.equal(withoutCost?.requests, 1)
 })
 
-test('max-mode requests can cost several units, and the row sums them as reported', () => {
-  const cheap: CursorEvent = { at: 1_000, model: 'gpt-5', input: 1, output: 1, cacheRead: 0, cacheWrite: 0, requests: 0.1, cents: 1 }
-  const maxMode: CursorEvent = { at: 1_000, model: 'gpt-5', input: 1, output: 1, cacheRead: 0, cacheWrite: 0, requests: 12, cents: 900 }
+test('a max-mode call still counts as one request, its quota weight never stored', () => {
+  // By the time an event reaches `aggregateCursorEvents` it is already one
+  // request each — `requestsCosts` is read only to decide whether a
+  // tokenless event is worth keeping, never summed into `requests` (that
+  // sum is the meter's own figure, #999's `numRequests`).
+  const cheap: CursorEvent = { at: 1_000, model: 'gpt-5', input: 1, output: 1, cacheRead: 0, cacheWrite: 0, requests: 1, cents: 1 }
+  const maxMode: CursorEvent = { at: 1_000, model: 'gpt-5', input: 1, output: 1, cacheRead: 0, cacheWrite: 0, requests: 1, cents: 900 }
   const rows = aggregateCursorEvents([cheap, maxMode], 'cursor', 'cursor-events:abc')
   assert.equal(rows.length, 1)
-  assert.equal(rows[0]?.requests, 12.1, 'a max-mode call is many requests, not one')
+  assert.equal(rows[0]?.requests, 2, 'two kept events, two requests, whatever either one\'s quota weight was')
+})
+
+test('parseEvent (through fetchCursorEvents) counts a max-mode event as one request, never its requestsCosts weight', async () => {
+  const raw = event({ requestsCosts: 300 })
+  const events = await fetchCursorEvents({
+    cookie: 'c',
+    since: 0,
+    until: DAY,
+    fetch: sequence([{ totalUsageEventsCount: 1, usageEventsDisplay: [raw] }]),
+  })
+  assert.equal(events?.length, 1)
+  assert.equal(events?.[0]?.requests, 1, 'a call is a call: the 300-weight quota cost never lands in requests')
+})
+
+test('a tokenless event with a nonzero requestsCosts weight is kept as one request; a zero-weighted one is dropped', async () => {
+  const kept = event({ tokenUsage: null, requestsCosts: 0.5 })
+  const dropped = event({ tokenUsage: null, requestsCosts: 0 })
+  const events = await fetchCursorEvents({
+    cookie: 'c',
+    since: 0,
+    until: DAY,
+    fetch: sequence([{ totalUsageEventsCount: 2, usageEventsDisplay: [kept, dropped] }]),
+  })
+  assert.equal(events?.length, 1, 'the zero-weight, tokenless event carries nothing worth a row')
+  assert.equal(events?.[0]?.requests, 1)
 })
 
 test('signed out resolves no file, and the source is never asked to sync', async () => {
   const source = new CursorEventsSource('cursor', { databasePath: cursorDatabase(null) })
   assert.equal(await source.resolveFile(), null)
-  assert.equal(await source.sync({ from: 0, to: DAY }), null)
+  assert.equal(await source.sync({ from: 0, to: DAY }, 'cursor-events:unused'), null)
 
   const missing = new CursorEventsSource('cursor', { databasePath: join(scratch(), 'nothing.vscdb') })
   assert.equal(await missing.resolveFile(), null)

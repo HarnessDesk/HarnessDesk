@@ -23,10 +23,11 @@ import { cursorAccountHash, cursorCookie, readCursorToken } from './cursor.js'
  * window** (never against a wider one — this file records the shape, never a
  * real reading): the envelope is `{ totalUsageEventsCount, usageEventsDisplay
  * }`; an empty query returns `{}`; a terminal page short of a full page omits
- * `usageEventsDisplay` but keeps the count. One event in ~2,400 carries no
+ * `usageEventsDisplay` but keeps the count. A small share of events carry no
  * `tokenUsage` at all — a non-token completion Cursor still bills — and
  * `kind: 'USAGE_EVENT_KIND_ABORTED_NOT_CHARGED'` events carry neither tokens
- * nor a cost; both are skipped rather than counted as zero-cost usage.
+ * nor a cost; an event with neither tokens nor a `requestsCosts` weight above
+ * zero is skipped rather than counted as zero-cost usage.
  * `tokenUsage.totalCents` was present on every event that had `tokenUsage` at
  * all in that window, but is read as optional regardless, since a wrong
  * price is worse than none (`ledger/pricing.ts`'s own rule) and Cursor does
@@ -45,19 +46,26 @@ import { cursorAccountHash, cursorCookie, readCursorToken } from './cursor.js'
  * "requests" of a request-based plan's quota one event consumed — a plain
  * model call reads `1`, a cheap one can read a fraction of that, and a
  * max-mode or otherwise expensive call reads several (the read above saw
- * values past 300 on one event). It is summed as `requests` directly, so a
- * ledger row's request count already carries that weighting rather than
- * counting every event as one flat request. An event that omits it (about a
- * quarter of the window, always ones with no `tokenUsage` either) is counted
- * as a single request — the same default Cursor's own dashboard falls back
- * to for a call it does not itemise.
+ * values past 300 on one event). That is the meter's unit, not the ledger's:
+ * it is the same figure the legacy request counter reads live (#999's
+ * `numRequests`), and it is a float, never an integer count. `LedgerRow.requests`
+ * promises a call count — the same count `SpendCoverage.priced` / `unpriced`
+ * partition — so every kept event counts as exactly one request here,
+ * whatever `requestsCosts` said its quota weight was. An event with neither
+ * tokens nor a nonzero `requestsCosts` is dropped rather than kept as a
+ * zero-weighted call; one that is dropped for tokens alone but still carries
+ * a weight is kept, still counted as one request.
  *
  * **Value, never Paid.** `tokenUsage.totalCents / 100` is Cursor's own
  * API-rate estimate for the tokens — the agent's own price, i.e. `vendorCost`
  * — and never `chargedCents`, which is what the plan actually deducted and
  * belongs only to `billing.overage.spent` on the meter's report (#992's
  * rule: an agent's own price for its tokens is Value, not necessarily cash
- * that left the account).
+ * that left the account). A row with no tokens at all is never priced from
+ * the catalogue — `Ledger.#price` treats zero tokens as nothing to price,
+ * never as a free $0 call — and a token-bearing event with no usable
+ * `totalCents` falls through to the catalogue's own list-price rate, an
+ * estimate rather than a true unpriced row.
  */
 
 const ENDPOINT = 'https://cursor.com/api/dashboard/get-filtered-usage-events'
@@ -126,9 +134,12 @@ const parseEvent = (raw: unknown): CursorEvent | null => {
   const output = positiveInt(usage?.outputTokens)
   const cacheRead = positiveInt(usage?.cacheReadTokens)
   const cacheWrite = positiveInt(usage?.cacheWriteTokens)
-  const requests = nonNegativeFinite(event.requestsCosts) ?? 1
   const cents = usage ? nonNegativeFinite(usage.totalCents) : null
-  if (input + output + cacheRead + cacheWrite === 0 && requests === 0) return null
+  // `requestsCosts` is Cursor's own quota weight for the meter (#999's
+  // legacy `numRequests`) — not a call count, so it is never stored in
+  // `requests`. A kept event is always exactly one request.
+  if (input + output + cacheRead + cacheWrite === 0 && nonNegativeFinite(event.requestsCosts) === 0) return null
+  const requests = 1
   return { at, model, input, output, cacheRead, cacheWrite, requests, cents }
 }
 

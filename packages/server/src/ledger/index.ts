@@ -510,6 +510,11 @@ export class Ledger {
     if (typeof row.vendorCost === 'number') {
       return { cost: row.vendorCost, tokens, priced: row.requests, unpriced: 0, vendor: row.requests }
     }
+    // Nothing to price is not $0: a row with no tokens at all (Cursor's own
+    // non-token completions, kept only for their request count) would
+    // otherwise cost `0 x rates` on any catalogued model and be counted as
+    // priced. Leave it unpriced instead.
+    if (tokens === 0) return { cost: 0, tokens, priced: 0, unpriced: row.requests, vendor: 0 }
     const rates: ModelRates | null = this.#pricing.rateFor(row.model)
     if (!rates) return { cost: 0, tokens, priced: 0, unpriced: row.requests, vendor: 0 }
     const cost =
