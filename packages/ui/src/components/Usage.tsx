@@ -1434,9 +1434,11 @@ const Spend = ({
                 start={dayLabel(series.days[0]?.day ?? now)}
                 end={dayLabel(series.days[series.days.length - 1]?.day ?? now)}
               />
-              {/* Only when the stack is actually stacked: a legend naming the
-                  one series a single-colour chart already is says nothing. */}
-              {runtimes.length > 1 && (
+              {/* Only in bars mode, and only when the stack is actually
+                  stacked: the line view draws one accent line for the whole
+                  period, not a colour per agent, so a legend naming agents
+                  beside it would name a split the chart is not drawing. */}
+              {mode === 'bars' && runtimes.length > 1 && (
                 <ChartKeys>
                   {runtimes.map((entry) => (
                     <ChartKey key={entry.key} tint={entry.tint} label={entry.label} />
