@@ -10,19 +10,18 @@ move is real work and is not news to a person weighing an upgrade.
 - **An agent that has not answered yet no longer reads as signed out.**
   Readiness used to have one guess for both "nobody is signed in" and "still
   loading, or the read failed" — so while an account was on its way in, the
-  menu bar and the header strip claimed a sign-in was needed for however long
-  that took, even though the footer and the seat menu already stayed neutral
-  about the same agent. Readiness now has a state for not knowing yet, and
-  every surface draws it the same quiet way: the menu bar's row says "Not
-  answered yet" rather than offering a sign-in it cannot back up, the header
-  strip stops naming it in its "needs sign-in" count, the Dashboard's "has
-  nothing to report" card no longer appears for it, the seat menu's five
-  hand-written checks for this collapse into the one state, Settings ›
-  Agents wears a neutral "Not answered yet" chip under a heading of its own
+  menu bar and the header strip claimed a sign-in was needed for however
+  long that took, even though the footer and the seat menu already stayed
+  neutral about the same agent. Readiness now has a state for not knowing
+  yet, and every surface draws it the same quiet way: the menu bar's row
+  says "Not answered yet" rather than offering a sign-in it cannot back up,
+  the header strip stops naming it in its "needs sign-in" count, the
+  Dashboard's "has nothing to report" card no longer appears for it,
+  Settings › Runtimes lists it under a "Not answered yet" heading of its own
   — neither "Needs attention" nor a "Ready" it has not earned — the
-  Runtimes row in the Settings window's own nav no longer lights for it
-  either, and the whole-desk survey (the empty pane's "now what?") says so
-  instead of a tagline or a bare "Ready." (#986)
+  Runtimes row in the Settings window's own nav no longer lights for it, and
+  the whole-desk survey (the empty pane's "now what?") says so instead of a
+  tagline or a bare "Ready." (#986)
 
 - **A role `independentOf` a DeepSeek or Cursor competitor could never seat.**
   The desk could only read the vendor behind Claude Code, Gemini CLI and

@@ -438,12 +438,15 @@ const AgentRow = ({
         /* The default's chip wears the agent's own state: a default that has
            crashed is not a green one (#131) — and it still names the state
            beside it, or an amber "Default" leaves why unsaid. A state chip
-           only where the state is not fine, and not beside a Sign in that
-           already says it. */
-        snapshot.activeRuntime === info.id || (state !== 'ready' && !signIn) ? (
+           only where the state is not fine, not beside a Sign in that
+           already says it, and not under a heading that already says it:
+           every agent in the "Not answered yet" group is exactly that, so a
+           chip repeating it on each row belongs to the group, as the lack of
+           one does under "Ready". */
+        snapshot.activeRuntime === info.id || (state !== 'ready' && state !== 'unknown' && !signIn) ? (
           <>
             {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
-            {state !== 'ready' && !signIn && <Chip state={state} />}
+            {state !== 'ready' && state !== 'unknown' && !signIn && <Chip state={state} />}
           </>
         ) : undefined
       }
