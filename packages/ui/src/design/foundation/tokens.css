@@ -96,7 +96,7 @@ body {
   --hd-accent-dim: rgba(52, 88, 240, 0.12); /* desk: the wash follows the cobalt */
 
   /* --- the heatmap -----------------------------------------------------
-     "When it ran"'s calendar grid — `design/ui/heat-grid.tsx` — reads a
+     "When it ran"'s calendar grid — `design/patterns/HeatGrid.tsx` — reads a
      quantity, not a state, so it takes the brand rather than a judgement:
      the palette's identity hues are spoken for (which agent) and the state
      colours would make a busy day look like a warning. Five steps, level 0
