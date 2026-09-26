@@ -7,6 +7,23 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A mixed race no longer stalls before the judge, and a race started from
+  the generic Flow-start seeds two competitors, like `/race` always has.**
+  In `comparison` (race and judge), the one rule that opened the judge round
+  fired only when every competitor's own check passed; when both competitors
+  delivered but the check passed for one and failed for the other, no rule
+  matched and the run stopped before a judge ever weighed in, on a result the
+  shape exists to let a judge decide. That rule now fires as soon as one
+  competitor's check passed, with every competitor's own result still on the
+  board as the judge's evidence — only when nothing passed does the run stop
+  for the person, naming each card and what it answered. Separately, starting
+  `comparison` from the generic Flow-start dialog opened one competitor card,
+  because the shipped file's `competitor` role had no declared width of its
+  own and only `/race`'s own seat substitution ever supplied one; the role
+  now declares `count: 2` itself, so either entry point opens two, and
+  `/race` still adds its own real value of two distinct, chosen seats.
+  (#1032)
+
 - **A flow card no longer offers or accepts a word borrowed from a sibling
   role.** When one Agent plays two roles of the same flow with two different
   outcome vocabularies — UC1's `requirements-analyst` as both an analyst and

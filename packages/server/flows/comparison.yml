@@ -8,6 +8,7 @@ roles:
   competitor:
     kind: agent
     uses: [implementer]
+    count: 2
     isolate: true
     grant: edit
     independentOf: []
@@ -33,7 +34,7 @@ rules:
     then: { role: verify, title: "Check the attempt" }
   - id: to-judge
     on: verify
-    when: { every: [pass] }
+    when: { any: [pass] }
     then: { role: judge, title: "Pick the better attempt" }
   - id: to-referee
     on: judge

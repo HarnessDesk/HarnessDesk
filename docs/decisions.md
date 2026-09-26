@@ -932,3 +932,48 @@ turn would pick up its claimed card while the run stood stalled.
 **The rule:** the agents agree the split and record it as data; the board
 holds each card to its own part; a split nobody recorded stops the round
 rather than seating everyone on the same paths.
+
+## A mixed check result still reaches the judge, and a race seeds two from the file, not the entry point
+
+*Issue #1032.* Two gaps in `comparison` (the design's UC2), both seen on a
+real run. First, its one rule from `verify` to `judge` read `every: [pass]`:
+when both competitors delivered but the check passed for one and failed for
+the other, no rule matched, and the round that closed with no rule to open
+from it is exactly how this engine already stops a run for a person — so the
+run stopped, but before a judge ever got to weigh in, on a result the shape
+was supposed to let a judge decide. Second, the shipped file named its
+`competitor` role with `uses: [implementer]` and no `seats:` or `count:`, so
+its width defaulted to one card. `/race` never noticed, because it always
+substitutes two explicit seats into that role before starting it — text
+surgery on an ordinary file, never a second execution path. Starting the same
+file from the generic Flow-start dialog skipped that substitution and opened
+one competitor, silently giving a "race" with one runner.
+
+Both fixes stayed in the file, because the rule language already said what
+was wanted. `to-judge` now reads `any: [pass]`: it fires as soon as one
+competitor's check passed, with every competitor's own check card still on
+the board as the judge's evidence — mixed or all-passing looks the same to
+the rule, and the judge sees which one failed either way. Only when nothing
+passed does no rule fire, which stops the run for the person exactly as it
+already did, and says so by naming each card and what it answered — the
+existing "no rule continues from it" message is plain enough on its own; it
+needed a way to be reached on purpose, not a rewrite. The design's UC2 walk-
+through carries the identical shape and got the identical fix, checked to
+compile clean against the real shipped Agents.
+
+For the seed, the smaller change was making the file say what it always
+meant: `competitor` now declares `count: 2` alongside its one `uses:`. A
+generic Flow-start reads the file exactly as `/race` does — through the same
+compiler, no dialog-specific path — so it now opens two cards from either
+entry point, both seated on the role's own default Agent when nothing more
+specific is asked for. `/race`'s own substitution is untouched: it still
+strips `seats:`/`count:` and writes two explicit seats for whichever two
+attempts a person chose, which is a real second value on top of a file that
+already seeds a race on its own. Nothing needed to ask the generic dialog to
+recognize `/race`'s marker and refuse — the file's own declared width
+already answers the question every entry point asks it.
+
+**The rule:** a round's routing reads the outcomes it actually has, in the
+weakest guard that still means what the shape wants (`any`, not `every`, for
+"at least one usable result"); and a role's width is the file's own fact, not
+something only one entry point happens to supply.

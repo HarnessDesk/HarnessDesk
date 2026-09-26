@@ -786,7 +786,7 @@ roles:
 seed: { role: competitor, title: "{{work}}" }
 
 rules:
-  - { on: competitor, when: { every: delivered }, then: { role: judge, title: "Pick one" } }
+  - { on: competitor, when: { any: published },    then: { role: judge, title: "Pick one" } }
   - { on: judge,      when: { any: picked },      then: { role: referee, title: "Merge {{evidence.review.at}}" } }
 ```
 
@@ -803,6 +803,13 @@ rules:
    findings against the loser's head, which gives each one an id. One-shot today;
    if the loser is ever sent back to try again, the loop converges for free.
 5. `{{evidence.review.at}}` is how the merge step knows what to merge.
+6. **A mixed result still reaches the judge.** `any: published` fires as soon as
+   one competitor published, whether the other also published, is still short of
+   it, or answered `disagree`/`agreed` instead — the judge round opens with what
+   each competitor actually produced given as evidence, so the judge sees which
+   one, if either, came up short. Only when neither published does no rule
+   match, which is how this flow stops for a person instead of stalling before
+   a judge round that would have had nothing to look at.
 
 ### UC3 — every new pull request, reviewed by three, blind
 
