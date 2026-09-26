@@ -699,7 +699,7 @@ inputs:
 
 roles:
   scout:      { uses: researcher, grant: edit }
-  analyst:    { uses: requirements-analyst, count: 2, isolate: true, grant: edit }
+  analyst:    { uses: requirements-analyst, count: 2, isolate: true, grant: edit, blind: true }
   editor:     { uses: requirements-editor, grant: publish }
   dev:        { uses: implementer, grant: publish, isolate: true }
   gate:       { kind: check, run: pnpm verify }
@@ -732,6 +732,9 @@ The trace, channel by channel:
    package and `diff` evidence are what the next round reads.
 3. **Board, blind.** Two sibling `analyst` cards, each depending on the scout's
    card and **not on each other**: two independent positions, each committed.
+   Writing positions is a plain round, not a review, so its blindness is asked
+   for with `blind: true`: neither analyst reads the other's note or package
+   until both have finished.
 4. **Board, sighted — this is the debate.** `any: disagree` opens another
    `analyst` round whose cards depend on *both* prior cards, so each analyst is
    now handed the other's position. Round one is independent because siblings are

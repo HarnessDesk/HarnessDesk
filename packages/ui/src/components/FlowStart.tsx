@@ -306,7 +306,7 @@ export const FlowPreviewReport = ({
 
     <Note>{messagingWords(preview.messaging)}</Note>
 
-    {preview.compiled.bindings.some((one) => one.agent.produces.includes('review')) && (() => {
+    {preview.seats.some((one) => one.reviews) && (() => {
       const budget = flow?.budget ?? DEFAULT_FLOW_BUDGET
       return (
         <Note>

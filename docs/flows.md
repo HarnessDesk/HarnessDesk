@@ -541,10 +541,11 @@ Every Seat of a round is seated at once, and a round that is not
 `isolate: true` seats them all in the one working tree. When that ceiling lets
 them commit — `edit`, `publish` or `merge` — they move each other's HEAD and
 land commits on each other's branches, so the dry run, and with it the start,
-refuses a role wider than one Seat that may commit without `isolate: true`,
+refuses a role without `isolate: true` in which two or more Seats may commit,
 naming the role and the two ways out: isolate it, or lower its grant to
 `read`. Nothing isolates it silently. Seats that may only read share a tree
-safely, and a round opens exactly one role, so no two roles run at once.
+safely, so one writer beside reviewers that only read is fine, and a round
+opens exactly one role, so no two roles run at once.
 
 **Independence** (`independentOf: [build]`) is judged on the vendor behind
 each Seat, as the runtime's adapter reads it from the agent's own
@@ -713,6 +714,13 @@ card has durably completed, the round's whole batch — every finding, every
 review, one comment each — is decided and journaled together, then sent one
 comment at a time; a person watching mid-round sees how many reviewers have
 finished, never a claim that the others agree.
+
+An Agent role's `blind:` key sets this. A review round is blind unless its role
+says `blind: false`, which lets siblings read each other's finished work while
+still holding their posting until the round closes. A plain round with more
+than one card, such as two analysts writing positions, is not blind by default,
+and becomes blind the same way when its role says `blind: true`: no sibling
+reads another's note, context package or messages until the round closes.
 
 **A later review of the same series is handed a delta, not a transcript**: the
 repairs claimed since its last review, what is still unresolved, and the exact

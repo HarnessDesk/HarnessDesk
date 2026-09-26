@@ -7,6 +7,7 @@ import type { FindingRunSnapshot } from '../src/flow-execution.js'
 import { compileFlowPolicy, parseFlowPolicy, reviewsIn } from '../src/flow-policy.js'
 import { FlowPreviews } from '../src/flow-preview.js'
 import { closeRound } from '../src/findings/plane.js'
+import { goalRig, type GoalRig } from './fixtures/flow-goal-rig.js'
 
 /*
  * Issue #1014. Two Seats of one round run at the same time; without
@@ -70,6 +71,15 @@ test('a read-only sibling pair, an isolated pair and a single committing Seat al
   assert.deepEqual(errors('uses: writer, count: 2, grant: edit', [agent('writer', ['review'], 'read')]), [])
 })
 
+test('a wide role is refused only when two of its Seats may commit, and says how many', () => {
+  const reader = agent('reader', ['review'], 'read')
+  // A writer beside a reviewer that may only read: one Seat commits, so nothing lands on anyone else's work.
+  assert.deepEqual(errors('uses: [writer, reader], grant: edit', [agent('writer'), reader]), [])
+  const found = errors('uses: [writer, other, reader], grant: edit', [agent('writer'), agent('other'), reader])
+  assert.equal(found.length, 1, JSON.stringify(found))
+  assert.match(found[0]!, /^roles\.analyst: 2 of the 3 Seats of "analyst" run at once in one working tree/)
+})
+
 test('the dry run of a shared-tree committing pair mints no start token, and names the problem', async () => {
   const previews = new FlowPreviews({
     confine: async () => {},
@@ -85,6 +95,23 @@ test('the dry run of a shared-tree committing pair mints no start token, and nam
   assert.ok(refused.problems.some((one) => one.level === 'error' && one.at === 'roles.analyst' && /isolate: true/.test(one.text)))
   const isolated = await previews.preview('/repo', flow('uses: writer, count: 2, isolate: true, grant: edit'), {})
   assert.ok(isolated.token, 'the isolated pair starts')
+})
+
+test('the dry run says, per Seat, whether it is there to review — decided by the server, not the screen', async () => {
+  const both = agent('analyst', ['diff', 'review'])
+  const previews = new FlowPreviews({
+    confine: async () => {},
+    agents: async () => [both],
+    previewAgent: async (_root, id) => ({
+      id, from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'edit', hold: 'asked' },
+      candidates: [{ seat: { runtime: 'alpha' }, label: 'Alpha', runtimeName: 'Alpha', state: 'taken', reason: null, fix: null }],
+    } satisfies SeatPlan),
+    now: () => 1,
+  })
+  const writing = await previews.preview('/repo', flow('uses: analyst, count: 2, isolate: true, grant: edit'), {})
+  assert.deepEqual(writing.seats.map((one) => one.reviews), [false, false], 'seated to commit, it writes')
+  const judging = await previews.preview('/repo', flow('uses: analyst, count: 2, grant: read'), {})
+  assert.deepEqual(judging.seats.map((one) => one.reviews), [true, true], 'seated to read, it reviews')
 })
 
 const binding = (produces: readonly string[], grant: CeilingLevel, ceiling: CeilingLevel = 'edit'): FlowBinding => ({
@@ -122,12 +149,90 @@ test('a plain round is never stopped by the review series, and a stall there nam
   assert.equal(close(false, 3).stopped, null, 'an unreadable evidence line is no reason to stop a round that counts no findings')
   const stalled = close(false, 1).stopped
   assert.ok(stalled, 'the run budget still stops a plain round')
-  assert.equal(stalled.reason, 'Round 1 ended with 0 open findings.', 'the budget, not the findings ledger')
-  assert.doesNotMatch(stalled.reason, /could not be read/)
+  assert.equal(stalled.reason, 'This run reached its limit of 1 round.', 'the budget, in plain words — never a count of findings it did not read')
+  assert.doesNotMatch(stalled.reason, /could not be read|findings/)
+  assert.equal(close(false, 1).stopped?.round, 1)
 })
 
 test('a review round still stops on an unreadable ledger, and says which records', () => {
   const stopped = close(true, 3).stopped
   assert.ok(stopped)
   assert.equal(stopped.reason, 'Some evidence records could not be read, so the open findings cannot be counted. A person has to look.')
+})
+
+/*
+ * The same decisions on the real engine: an Agent that produces diffs and
+ * reviews, seated under `edit` for two debate rounds, then a check. Each
+ * assertion below fails if the round is taken for a review round again.
+ */
+const DEBATE = (blind: string) => `
+version: 2
+name: Debate then check
+roles:
+  analyst: { kind: agent, uses: analyst, count: 2, isolate: true, grant: edit${blind} }
+  gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 30 }
+seed: { role: analyst, title: Take a position }
+rules:
+  - { id: debate, on: analyst, when: { any: [disagree] }, then: { role: analyst, title: Debate } }
+  - { id: check, on: analyst, when: { every: [agreed] }, then: { role: gate, title: Verify } }
+budget: { rounds: 10, without-progress: 5 }
+`
+
+const ANALYST: AgentEntry = {
+  ...agent('analyst', ['diff', 'review']),
+  definition: { ...agent('analyst', ['diff', 'review']).definition!, answers: ['agreed', 'disagree'] },
+}
+
+const debate = async (t: { after(fn: () => Promise<void>): void }, blind: string) => {
+  const rig = await goalRig(t)
+  for (const n of [1, 2, 3, 4]) rig.heads.set(`/repo/.lanes/${n}`, { at: `sha-lane-${n}`, dirty: false })
+  const packets: number[] = []
+  rig.flows.attachReviewPackets(async (_run, round) => {
+    packets.push(round)
+    return { text: 'a repair packet', pinned: [{ cwd: '/repo', at: 'sha-pinned' }], leads: [] }
+  })
+  const run = await rig.start(DEBATE(blind), [ANALYST])
+  await rig.flows.flush()
+  return { rig, run, packets }
+}
+
+const holderOf = (rig: GoalRig, goal: string, card: number) => {
+  const claim = rig.board(goal).intents.find((one) => one.id === card)?.claim
+  const seat = [...rig.seats.values()].find((one) => one.session.sessionId === claim?.sessionId)
+  assert.ok(seat, `somebody holds card ${card}`)
+  return rig.sessionOf(String(seat.id))
+}
+
+test('a debate round of a writing-and-reviewing Agent owes no review, is pinned no packet, and is the next check\'s subject', async (t) => {
+  const { rig, run, packets } = await debate(t, '')
+  assert.equal(rig.executions.requiresReview(run.goal, 1), false, 'a writing card owes no structured review')
+  assert.equal(rig.flows.findingBinding(run.goal, 1, holderOf(rig, run.goal, 1))?.reviews, false, 'no finding is raised from a writing card')
+  for (const card of [1, 2]) {
+    const answer = await rig.team.complete(card, { outcome: 'disagree' }, holderOf(rig, run.goal, card))
+    assert.doesNotMatch(String(answer), /structured review/)
+  }
+  await rig.flows.flush()
+  const round2 = rig.board(run.goal).intents.filter((one) => one.role === 'analyst' && one.id > 2).map((one) => one.id)
+  assert.equal(round2.length, 2, 'the debate round opened')
+  assert.deepEqual(packets, [], 'a debate round is no later review of a series')
+  assert.deepEqual(rig.flows.findingRun(run.id)?.pinned, {}, 'no review packet is pinned')
+  assert.deepEqual(rig.flows.findingRun(run.id)?.rounds.map((one) => one.reviews), [false, false], 'no round of the debate is a review series\'s')
+  for (const card of round2) await rig.team.complete(card, { outcome: 'agreed' }, holderOf(rig, run.goal, card))
+  await rig.flows.flush()
+  assert.deepEqual(rig.checkCwds, ['/repo/.lanes/3', '/repo/.lanes/4'], 'the check runs on each analyst\'s own commit: they are its subjects')
+})
+
+test('a plain round with several cards is blind only when its role says blind: true', async (t) => {
+  const secret = async (blind: string): Promise<{ blind: number; board: string }> => {
+    const { rig, run } = await debate(t, blind)
+    await rig.team.complete(1, { outcome: 'disagree', note: 'SECRET-NOTE' }, holderOf(rig, run.goal, 1))
+    await rig.flows.flush()
+    return { blind: rig.flows.blindRounds(run.goal).length, board: await rig.team.board(holderOf(rig, run.goal, 2)) }
+  }
+  const blind = await secret(', blind: true')
+  assert.equal(blind.blind, 1, 'blind: true embargoes a plain round')
+  assert.doesNotMatch(blind.board, /SECRET-NOTE/, 'the sibling still writing cannot read the finished one\'s note')
+  const sighted = await secret('')
+  assert.equal(sighted.blind, 0, 'a plain round is not blind by default')
+  assert.match(sighted.board, /SECRET-NOTE/)
 })

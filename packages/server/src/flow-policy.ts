@@ -432,9 +432,12 @@ export const compileFlowPolicy = (document: FlowDocument, agents: readonly Agent
        round that is not isolated seats them all in the one working tree: two
        that may commit there move each other's HEAD and land on each other's
        work (#1014). Refused rather than isolated silently, so the file says
-       what runs. A Seat that may only read shares a tree safely. */
-    if (!role.isolate && slots.length > 1 && bindings.some((binding) => binding.role === role.id && mayCommit(binding.agent, binding.grant))) {
-      problems.push(problem('error', `roles.${role.id}`, `The ${slots.length} Seats of "${role.id}" run at once in one working tree and may commit over each other's work, so add isolate: true, or lower its grant to read.`))
+       what runs. A Seat that may only read shares a tree safely, so it takes
+       two that may commit: one writer beside readers has the tree to itself. */
+    const committing = role.isolate ? 0 : bindings.filter((binding) => binding.role === role.id && mayCommit(binding.agent, binding.grant)).length
+    if (committing > 1) {
+      const which = committing === slots.length ? `The ${committing} Seats` : `${committing} of the ${slots.length} Seats`
+      problems.push(problem('error', `roles.${role.id}`, `${which} of "${role.id}" run at once in one working tree and may commit over each other's work, so add isolate: true, or lower its grant to read.`))
     }
   }
   const roleById = new Map(document.flow.roles.map((role) => [role.id, role]))

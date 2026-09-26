@@ -189,6 +189,7 @@ it('an asked candidate stays visible with its reason and fix; Start is disabled 
       index: 0,
       agent: 'reviewer',
       isolate: false,
+      reviews: true,
       plan: {
         id: 'reviewer', from: 'prefer', winner: null, blocked: null, ceiling: null,
         candidates: [{

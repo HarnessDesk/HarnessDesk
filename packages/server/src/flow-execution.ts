@@ -829,11 +829,19 @@ export class FlowExecutions {
     const decision = decideLoop({
       closed, limit, idle: state.idleRounds, idleLimit: state.budget.withoutProgress, newProgress: true,
       unresolvedRepairs: [], unresolved: 0, reviewComplete: false, freshGuards: false, pendingException: false,
+      plain: !this.#reviewsInRound(run, round),
     })
     await this.#put(this.#operation({
       ...run,
       findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason! } : null },
     }, `close:${round}`, { kind: 'round', state: 'finished', card: null, seat: null }))
+  }
+
+  /** Whether a round of this run is a review series's round: any of its Seats is there to review (`reviewsIn`). */
+  #reviewsInRound(run: StoredFlowExecution, n: number): boolean {
+    const round = run.rounds.find((one) => one.n === n)
+    const role = round && run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round.role) : undefined
+    return role?.kind === 'agent' && bindingsFor(run, role.id).some(reviewsIn)
   }
 
   /**
@@ -847,9 +855,11 @@ export class FlowExecutions {
   }
 
   /**
-   * Every open review round with several reviewers, blind or sighted: none of
-   * them may post to a forge, and the round's batch is released only once it
-   * closes. `blind` is the role's own policy — true unless it says false.
+   * Every open review round with several reviewers, blind or sighted, and
+   * every open plain round with several cards whose role says `blind: true`:
+   * none of them may post to a forge, and the round's batch is released only
+   * once it closes. `blind` is the role's own policy — for a review round
+   * true unless it says false.
    */
   embargoedRounds(goal: string): readonly { readonly run: string; readonly round: number; readonly blind: boolean; readonly cards: readonly number[]; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[] {
     const out: { run: string; round: number; blind: boolean; cards: readonly number[]; holders: { card: number; runtime: string; sessionId: string }[] }[] = []
@@ -858,7 +868,12 @@ export class FlowExecutions {
       for (const round of run.rounds) {
         if (round.state === 'closed' || round.cards.length < 2) continue
         const role = run.document.flow.roles.find((one) => one.id === round.role)
-        if (role?.kind !== 'agent' || !bindingsFor(run, role.id).some(reviewsIn)) continue
+        if (role?.kind !== 'agent') continue
+        /* A review round is blind unless its role says `blind: false`; a
+           plain round — a debate, a build — only when its role says
+           `blind: true` (#1014). */
+        const reviews = bindingsFor(run, role.id).some(reviewsIn)
+        if (!reviews && role.blind !== true) continue
         const holders = round.cards.flatMap((card) => {
           const seat = this.#seatForCard(run, card).seat
           return seat ? [{ card, runtime: seat.session.runtime, sessionId: seat.session.sessionId }] : []

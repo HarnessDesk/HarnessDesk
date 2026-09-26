@@ -15,7 +15,7 @@ import {
   type StartContext,
 } from '@harnessdesk/protocol'
 
-import { compileFlowPolicy, parseFlowPolicy } from './flow-policy.js'
+import { compileFlowPolicy, parseFlowPolicy, reviewsIn } from './flow-policy.js'
 
 /**
  * The dry run: a non-executing statement of what a flow would do, and the
@@ -217,7 +217,7 @@ export class FlowPreviews {
             ...(unattended ? { unattended: true } : {}),
             ...(requireHeld ? { requireHeld: true as const } : {}),
           })
-          seats.push({ role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate })
+          seats.push({ role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate, reviews: reviewsIn(binding) })
           if (plan.blocked) {
             problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
           } else if (plan.winner === null) {

@@ -881,6 +881,13 @@ commit, it is writing, and its round is a plain one: it opens no review series,
 owes no structured review, and is never stopped by a findings ledger it did not
 read.
 
+Blindness does not follow that line on its own. A review round stays blind by
+default, but making every plain round with several cards blind would hide
+ordinary parallel work from itself for no reason. So a plain round is blind
+only when its role says `blind: true`, which is what the analysts' first,
+independent positions ask for. It takes two Seats that may commit to be
+refused, because one writer beside readers has the tree to itself.
+
 **The rule:** refuse a committing shared tree with the fix named, never isolate
 behind the file's back; and a round belongs to the review series only when its
 Seats are there to judge.

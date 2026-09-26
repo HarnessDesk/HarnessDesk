@@ -1422,6 +1422,7 @@ export function closeRound(input: {
     reviewComplete: false,
     freshGuards: false,
     pendingException: series.some((one) => one.pending.length > 0),
+    plain: !round.reviews,
   })
   /* An unreadable ledger stops only the review series's own rounds. A plain
      round — a debate, a build — raises and decides no findings, so its stop,
