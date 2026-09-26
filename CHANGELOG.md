@@ -7,6 +7,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **"What it cost" draws a line as well as bars, against its own past.** A
+  Bars/Line toggle beside the range control is remembered per user. Either
+  view now carries a dashed line for the previous period of the same length,
+  aligned day by day, an emphasised mark on today, and a hatch for a day
+  before the ledger's own coverage — never an empty, priced day. The total
+  above the chart carries its own change against that previous period.
+  "Where it went" replaces the doughnut and its separate table with one thin
+  distribution bar and the ranked rows beneath it in the same colours; rows
+  past six fold into "Other · N", and the by-agent view alone carries a
+  change chip, since only an agent's identity survives between periods
+  honestly.
+
 - **An isolated flow runs on any agent.** A competitor in an isolated lane
   was refused on every agent that cannot take the lane's port variables per
   conversation — "cannot pass a lane environment to a session" — so a
