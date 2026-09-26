@@ -500,6 +500,10 @@ const AgentAccounts = ({
   const snapshot = useSnapshot()
   const [addingGateway, setAddingGateway] = useState(false)
   const [adding, setAdding] = useState(false)
+  // An unanswered extra may be signed in already, and removing it signs it
+  // out and forgets its credential home — so it asks first, as an answered
+  // account's removal does on its own page.
+  const [removing, setRemoving] = useState<RuntimeInfo | null>(null)
   const status = snapshot.accountsByRuntime[info.id]
   // One flat list of rows across the agent's runtimes, each row remembering
   // which runtime it belongs to — that is what a sign-out or a removal needs.
@@ -694,21 +698,24 @@ const AgentAccounts = ({
           />
         ))}
 
-        {/* A slot made but never signed into. Left visible on purpose: it is
-            what an abandoned sign-in leaves behind, and hiding it would put
-            the credential home on disk with nothing naming it. */}
+        {/* An extra account that has not answered yet. Its line is where its
+            credential lives — the one thing that tells two of them apart. */}
         {pending.map((entry) => (
           <Row
             key={entry.id}
             title={READINESS_LABEL.unknown}
-            desc="It has not said yet who is signed in."
+            {...(entry.slot?.home ? { desc: entry.slot.home } : {})}
+            truncateDesc
             control={
-              <Button variant="secondary" size="sm" onClick={() => void store.removeAccount(entry.id)}>
+              <Button variant="secondary" size="sm" onClick={() => setRemoving(entry)}>
                 Remove
               </Button>
             }
           />
         ))}
+        {/* A slot made but never signed into. Left visible on purpose: it is
+            what an abandoned sign-in leaves behind, and hiding it would put
+            the credential home on disk with nothing naming it. */}
         {empties.map((entry) => (
           <Row
             key={entry.id}
@@ -736,9 +743,8 @@ const AgentAccounts = ({
           <Row title="Unavailable" desc="Its accounts show once it starts." />
         ) : rows.length === 0 && gateways.length === 0 && info.capabilities.account && status === undefined ? (
           /* Not answered yet (#986): the agent has not said who is signed in,
-             so "Not signed in" would be a guess. Its accounts show once it
-             answers. */
-          <Row title={READINESS_LABEL.unknown} desc={`${info.presentation.name} has not said yet who is signed in.`} />
+             so "Not signed in" would be a guess. */
+          <Row title={READINESS_LABEL.unknown} desc="Its accounts show once it answers." />
         ) : (
           rows.length === 0 &&
           gateways.length === 0 && (
@@ -755,7 +761,14 @@ const AgentAccounts = ({
                  which is what it is. */
               desc={
                 info.capabilities.account ? (
-                  `${info.presentation.name} has no credential here yet, so a session sent to it would not start.`
+                  /* Whether a session would start is the whole agent's
+                     answer, and an extra account still answering may yet
+                     say yes — so only this account's absence is claimed. */
+                  pending.length > 0 ? (
+                    `No credential on this account. ${pending.length === 1 ? 'Another has' : 'Others have'} not answered yet.`
+                  ) : (
+                    `${info.presentation.name} has no credential here yet, so a session sent to it would not start.`
+                  )
                 ) : info.install?.signIn ? (
                   <Prose
                     text={`${info.presentation.name} keeps its own credential — HarnessDesk never sees it. ${
@@ -791,6 +804,21 @@ const AgentAccounts = ({
       </Rows>
 
       {addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
+      {removing && (
+        <ConfirmDialog
+          title={`Remove this ${info.presentation.name} account?`}
+          confirmLabel="Remove account"
+          tone="destructive"
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            const entry = removing
+            setRemoving(null)
+            void store.removeAccount(entry.id)
+          }}
+        >
+          It may be signed in already. Its sign-in is forgotten; conversations stay with the agent.
+        </ConfirmDialog>
+      )}
     </>
   )
 }
@@ -1989,12 +2017,13 @@ export const RuntimesSection = ({
      comment), so it gets a heading of its own, named the same word every
      other surface uses for it — never folded into either claim. */
   const sections = [
-    // Everything that is neither of the two quiet states needs attention —
-    // today exactly the blocking ones, and by construction any state added
-    // later, so no agent can fall off this page for want of a heading.
-    { name: 'Needs attention', agents: listed.filter(({ state }) => state !== 'unknown' && state !== 'ready') },
+    // The three partition every state, so no agent can fall off this page
+    // for want of a heading; `isBlocking` answers per state by an exhaustive
+    // table, so a state added later is placed by the compiler, here and on
+    // the nav dot alike. `agentReadiness` never answers `available`.
+    { name: 'Needs attention', agents: listed.filter(({ state }) => isBlocking(state)) },
     { name: READINESS_LABEL.unknown, agents: listed.filter(({ state }) => state === 'unknown') },
-    { name: 'Ready', agents: listed.filter(({ state }) => state === 'ready') },
+    { name: 'Ready', agents: listed.filter(({ state }) => !isBlocking(state) && state !== 'unknown') },
   ].filter((section) => section.agents.length > 0)
 
   if (view.kind === 'add') {

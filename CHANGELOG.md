@@ -18,8 +18,10 @@ move is real work and is not news to a person weighing an upgrade.
   the header strip stops naming it in its "needs sign-in" count, the
   Dashboard's "has nothing to report" card no longer appears for it,
   Settings › Runtimes lists it under a "Not answered yet" heading of its own
-  — neither "Needs attention" nor a "Ready" it has not earned — and its own
-  page says it has not answered yet rather than "Not signed in", the
+  — neither "Needs attention" nor a "Ready" it has not earned — its own
+  page says it has not answered yet rather than "Not signed in", and no
+  longer says a session would not start while one of its accounts is still
+  answering, the
   Runtimes row in the Settings window's own nav no longer lights for it, and
   the whole-desk survey (the empty pane's "now what?") says so instead of a
   tagline or a bare "Ready." (#986)
