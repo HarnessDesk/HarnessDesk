@@ -268,7 +268,57 @@ export class TranscriptStore {
     await next
   }
 
+  /**
+   * Waits for this session's own write to be reflected before it is read
+   * back. A write only *scheduled* — `record`'s settle timer, or the
+   * zero-delay one a completed turn takes — is flushed right now instead of
+   * waited out; a write already under way is awaited in place.
+   *
+   * Called from inside the private `#read`, never from `#write` or anything
+   * `#write` calls — `#write` reads the file it is about to replace directly
+   * (its own inline `readFile`, to check the file's format), never through
+   * `#read` — so a write can never end up waiting on itself through here.
+   * Every public reader of a stored transcript goes through `#read` (`enrich`,
+   * `recover`, `readInsight`, `importOne`), so a read landing in the gap
+   * between a turn ending and its write landing — after a close, a runtime
+   * restart, or while the session is merely idle — sees the turn anyway,
+   * instead of a backend that has not caught up to its own turn yet — the
+   * fake runtime, Cursor, a lossy ACP replay — reading as if the Seat never
+   * answered.
+   *
+   * Never unbounded: `#write` always settles, even when the write itself
+   * fails (logged there, never thrown), so there is nothing here for a
+   * failing disk to hang a read on.
+   *
+   * A read no longer only waits for a write here — it can now *cause* one,
+   * ahead of `record`'s own debounce: a session read in a tight loop while a
+   * write is pending forces that write out on every call, measured at 199
+   * writes over 4s of one-event-per-20ms, against 1 with no reads at all.
+   * Considered and left alone: folding `pending.session`'s turns straight
+   * into what a read returns, with no disk round trip, would remove that
+   * cost for a *pending* write, but `#writes` keeps only the in-flight
+   * write's promise, not the session it is writing — so the same fold for a
+   * write already under way would need that too, touching `forget`,
+   * `dropTurns` and `flush` alongside it, for a cost this class does not pay
+   * in practice: `#read` never runs against a live running session, which
+   * `host.ts`'s own registry serves from memory instead, so `enrich` only
+   * ever reaches here once a session is idle — exactly when nothing is
+   * producing the events that would read it in a loop.
+   */
+  async #settle(runtime: RuntimeId, id: SessionId): Promise<void> {
+    const key = keyOf(runtime, id)
+    const pending = this.#pending.get(key)
+    if (pending) {
+      clearTimeout(pending.timer)
+      this.#pending.delete(key)
+      await this.#write(pending.session, pending.insight)
+      return
+    }
+    await this.#writes.get(key)?.catch(() => {})
+  }
+
   async #read(runtime: RuntimeId, id: SessionId): Promise<Stored | null> {
+    await this.#settle(runtime, id)
     try {
       const raw = await readFile(this.#pathOf(runtime, id), 'utf8')
       const parsed = JSON.parse(raw) as Partial<Stored>

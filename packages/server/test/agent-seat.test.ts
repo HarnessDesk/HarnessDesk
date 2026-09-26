@@ -3653,6 +3653,24 @@ test('over Codex: the brief opens as a notice too — Codex echoes it back as `u
   await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
 
   const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  // `agent/seat` resolves once the brief's `turn/start` is answered — the
+  // fake app-server's default order ('answer-first', matching 0.149.0)
+  // writes that answer and only later, on a further read of its stdout,
+  // the opening item's own notifications. Under load, that later read can
+  // lag an idle machine's by far more than the two calls here take back to
+  // back, so a read taken immediately can land before the item does.
+  // Waited for here instead of assumed — the item's arrival, not its
+  // eventual classification, so a regression in that classification still
+  // fails the assertions below rather than this wait timing out.
+  await client.until(
+    () =>
+      client.events.some(
+        (event) =>
+          (event.type === 'item/started' || event.type === 'item/completed') && event.sessionId === session.id,
+      ),
+    5_000,
+    "the brief's opening item to arrive",
+  )
   const read = (await client.call('session/read', {
     runtime: session.runtime,
     sessionId: session.id,

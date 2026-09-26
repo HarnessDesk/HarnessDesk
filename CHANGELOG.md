@@ -7,6 +7,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Wrapping a Goal right after stopping its run now waits for the stopped
+  Seat's answer to finish saving.** That answer is written to disk a beat
+  after the turn ends, and wrapping right away could catch it mid-write: the
+  receipt could then say a Seat that had answered "has no recorded answer",
+  or the wrap could refuse with "This Goal changed while you reviewed its
+  receipt. Review it again." A read now waits for that write first, so the
+  receipt always carries what the Seat actually said.
+
 - **The Dashboard shows when the work ran.** A new "When it ran" band draws a
   year as a calendar heatmap — Year or By agent, Tokens or Cost — with the
   active days, the current and best streak, and the busiest day beside it. A

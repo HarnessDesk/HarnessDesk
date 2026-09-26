@@ -49,11 +49,37 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      # The per-test deadline is not about slow tests — the slowest here is
-      # ~18s. It is so that a test which hangs fails by name in two minutes
-      # instead of burning the job's twenty-five and reporting nothing.
+      # The per-test deadline is not about slow tests — most here finish in
+      # ~18s. It is so that a test which hangs fails by name well inside the
+      # job's twenty-five minutes instead of burning them and reporting
+      # nothing. On Node 22 this flag caps each test *file*'s cumulative
+      # time, not a single test's own — measured directly (round 2 of #972's
+      # review: three files each holding two 1.5s tests, each with its own
+      # `{ timeout: 10000 }`, still failed as a whole file at the flag's
+      # value); a per-test default on newer Node, where the same run passes.
+      # A per-test option can only ever narrow the file-cumulative ceiling
+      # here, never widen it. The four flow-host-evidence end-to-end files
+      # legitimately need more than this, so they run in their own step
+      # below instead of sharing this one; everything else fits inside it.
+      #
+      # The exclusion is a `find`, not a second glob, because node's own
+      # glob matching has no negation syntax. Still the same glob as before,
+      # minus the four files the next step covers, so a package that gains
+      # tests is covered here the day it does.
       - name: Node tests
-        run: node --test --test-timeout=120000 "packages/*/dist/test/**/*.test.js"
+        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -name 'flow-host-evidence-*.test.js')"
+
+      # The worst of these four files, flow-host-evidence-review.test.ts,
+      # has 7 end-to-end cases and took 33s measured with nothing else
+      # running. Each case's own ceiling is 260s (`E2E`) behind an internal
+      # 200s safety dump (`SAFETY_MS`) that names exactly what did not move
+      # on the desk — both in `test/fixtures/flow-host-evidence.ts`. Sized
+      # for the worst realistic combination for that file: its own measured
+      # normal total, one case genuinely stuck reaching its full 260s outer
+      # bound, and headroom for several others running as slow as this
+      # suite has actually observed under load (92-100s each, #972).
+      - name: Flow-host-evidence tests
+        run: node --test --test-timeout=600000 "packages/server/dist/test/flow-host-evidence-*.test.js"
 
       - name: UI typecheck
         run: pnpm --filter @harnessdesk/ui run typecheck
