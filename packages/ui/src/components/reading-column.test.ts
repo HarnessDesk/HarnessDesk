@@ -120,12 +120,25 @@ it.each([
  */
 
 it('the transcript’s bars are inset by the gutter its stream reserves (inline)', () => {
-  // Composed, not spelled: the transcript's scroll box and its bars strip
-  // both ask `PaneColumn` for the same `transcript`/`bars` inset, and it is
-  // `PaneColumn`'s own gutter compensation that is asserted below.
-  expect(conversationTsx).toMatch(/<PaneColumn\s[^>]*inset="transcript"/)
+  // Composed, not spelled: the transcript's scroll box asks `PaneColumn` for
+  // `reading`, and its bars strip for `bars` — only `bars` needs the gutter
+  // compensation asserted below, since it is not itself a scroll box.
+  expect(conversationTsx).toMatch(/<PaneColumn\s[^>]*inset="reading"/)
   expect(conversationTsx).toMatch(/<PaneColumn\s[^>]*inset="bars"/)
-  expect(paneColumnTsx).toMatch(/var\(--hd-scrollbar-width/)
+  expect(paneColumnTsx).toMatch(/bars: 'calc\(var\(--hd-space-6\) \+ var\(--hd-scrollbar-width, 8px\)\)'/)
+})
+
+/**
+ * The regression #1016's review caught: `reading` is the transcript's own
+ * scroll box too, and that box already reserves the gutter physically
+ * (`scrollbar-gutter: stable both-edges`, asserted above). Adding the same
+ * `--hd-scrollbar-width` a second time into `reading`'s own padding — as
+ * `bars` correctly does, being no scroll box itself — double-counted it,
+ * narrowing the transcript 16px against the composer under it below the
+ * column's own cap. `reading` must stay the one flat value.
+ */
+it('the reading column does not double the gutter its own scroll box already reserves', () => {
+  expect(paneColumnTsx).toMatch(/reading: 'var\(--hd-space-6\)',/)
 })
 
 it('the room’s composer and its tail are inset by the gutter its stream reserves', () => {

@@ -509,7 +509,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
-  ['PaneColumn', 'conversation', 'Scrolling pane column inset, shared by the transcript, the room stream and the rail'],
+  ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

@@ -1,4 +1,3 @@
-import { cva } from 'class-variance-authority'
 import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject } from 'react'
 
 /**
@@ -6,61 +5,71 @@ import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject } fr
  * lined up with whatever gutter its own scrollbar reserves, and clear of a
  * floating composer where one sits over it.
  *
- * Four screens each drew this by hand: the transcript's own scroll box and
- * the strip of bars above its composer (both in `Conversation.tsx`), the
- * room's own stream (`TeamRoomPane.tsx`), the sidebar's rail row
- * (`SessionTree.tsx`), and a background-jobs strip nested inside the
- * transcript's own bars (`SessionBars.tsx`). None of the four is the same
- * pixel value — the transcript reserves its own scrollbar's width on top of
- * 24px, the room relies on `scrollbar-gutter` instead and stays flat, the
- * rail is the sidebar's own indent, and the jobs strip is smaller still — so
- * `inset` names each shape rather than forcing one number on every screen
- * that carries a version of it. `clearComposer` is the transcript's alone:
- * only its composer floats over the column rather than sitting in flow.
+ * Four screens each drew a version of this by hand. Two of them were never
+ * two shapes: the transcript's own scroll box (`Conversation.tsx`) and the
+ * room's own stream (`TeamRoomPane.tsx`) are the same role — a reading
+ * column in a pane — and both already ask their own scroll box to reserve
+ * the gutter physically (`scrollbar-gutter: stable both-edges`), so `reading`
+ * is a flat `var(--hd-space-6)`: the browser adds the gutter back, and adding
+ * it again in this padding double-counted it, narrowing the transcript 16px
+ * against the composer under it below the column's own cap (#1016 review).
+ *
+ * The other two remain distinct, each for a stated reason:
+ * - `bars`: the strip above the transcript's composer is not itself a scroll
+ *   box, so nothing gives it the gutter for free — it adds the scrollbar's
+ *   own width back explicitly, the one place that math is still correct.
+ * - `jobs`: a background-jobs strip nested inside `bars`, at its own smaller
+ *   scale (`var(--hd-space-3)`), not the reading column's edge at all.
+ *
+ * `rail` is the sidebar's own indent (`--hd-rail-inset`, a token this file
+ * owns rather than a class string a screen composes around it).
+ *
+ * `clearComposer` is `reading`'s alone: only a floating composer needs its
+ * measured height cleared, and only the transcript's own scroll box floats
+ * one — the room's composer sits in flow below its stream.
  */
 
-type PaneColumnInset = 'transcript' | 'bars' | 'stream' | 'rail' | 'jobs'
+type ReadingInset = 'reading'
+type StaticInset = 'bars' | 'jobs' | 'rail'
+export type PaneColumnInset = ReadingInset | StaticInset
 
 /** Each inset's own inline (left/right) padding. Never a screen's prop — the
  *  point of naming the shape is that no caller spells out a pixel value. */
 const INLINE: Record<PaneColumnInset, string> = {
-  // The transcript's own scrollbar sits inside this padding rather than
-  // beside it (`scrollbar-gutter: stable both-edges`), so the reading column
-  // stays off the pane by 24px plus that gutter's own width — otherwise it
-  // would centre 4px off the composer below, which does not scroll and so
-  // reserves no gutter of its own.
-  transcript: 'calc(var(--hd-space-6) + var(--hd-scrollbar-width, 8px))',
+  reading: 'var(--hd-space-6)',
   bars: 'calc(var(--hd-space-6) + var(--hd-scrollbar-width, 8px))',
-  // The room takes the same 24px flat: its own scrollbar gutter is reserved
-  // by the same CSS property, but nothing below the stream needs the extra
-  // compensation the transcript's floating composer does.
-  stream: 'var(--hd-space-6)',
-  rail: 'var(--rail)',
   jobs: 'var(--hd-space-3)',
+  rail: 'var(--hd-rail-inset)',
 }
 
 /** Each inset's own static top-and-bottom padding — `0` unless named here.
- *  The transcript's own vertical inset is never static (`clearComposer`,
- *  below, is the only one that carries a runtime-measured height). */
+ *  `reading`'s own static value is the room's: a flat breath, top and
+ *  bottom. The transcript's own scroll box never takes this branch — it
+ *  always sets `clearComposer`, which computes its own vertical pair. */
 const VERTICAL: Partial<Record<PaneColumnInset, string>> = {
-  // The room's composer sits in flow below the stream rather than floating
-  // over it, so this is the whole of its own top-and-bottom air — no
-  // measured height to clear.
-  stream: 'var(--hd-space-2)',
+  reading: 'var(--hd-space-2)',
 }
 
-export interface PaneColumnProps extends ComponentProps<'div'> {
-  inset: PaneColumnInset
-  /**
-   * The transcript's own composer floats over the column rather than sitting
-   * in flow below it, so the column's bottom must clear its measured height
-   * (`--composer-h`, set by `useComposerHeightVar` below) plus a notice
-   * banner's own inset above (`--hd-notice-inset`). Meaningful only for
-   * `inset="transcript"`; every other inset keeps whatever static vertical
-   * padding `VERTICAL` above gives it, or none.
-   */
-  clearComposer?: boolean
-}
+type PaneColumnCommonProps = Omit<ComponentProps<'div'>, 'inset'>
+
+export type PaneColumnProps =
+  | (PaneColumnCommonProps & {
+      inset: ReadingInset
+      /**
+       * The transcript's own composer floats over the column rather than
+       * sitting in flow below it, so the column's bottom must clear its
+       * measured height (`--composer-h`, set by `useComposerHeightVar`
+       * below) plus a notice banner's own inset above (`--hd-notice-inset`).
+       * Absent (the room's own stream), the column keeps `reading`'s flat
+       * vertical air instead.
+       */
+      clearComposer?: boolean
+    })
+  | (PaneColumnCommonProps & {
+      inset: StaticInset
+      /** Meaningless off `reading`: nothing else floats a composer over it. */
+      clearComposer?: never
+    })
 
 /** `data-slot`/`data-inset` are for a test or a screen's own CSS to read, the
  *  same convention the rest of `design/patterns` stamps. */
@@ -81,27 +90,6 @@ export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
   ),
 )
 PaneColumn.displayName = 'PaneColumn'
-
-/**
- * The one inset `PaneColumn` itself cannot carry: the sidebar's row hands its
- * inline padding to `SessionHoverCard`'s own `className`, which is the hover
- * trigger's own surface — wrapping it in another element would move the
- * trigger's edge rather than merely its padding. A class name composed here,
- * the same way `Chip`'s tone reads from `softTone({ tone })`, so the rail's
- * own inset stays this file's the day it changes rather than a literal a
- * screen repeats.
- */
-export const paneColumnInsetClassName = cva('', {
-  variants: {
-    inset: {
-      transcript: 'px-[calc(var(--hd-space-6)+var(--hd-scrollbar-width,8px))]',
-      bars: 'px-[calc(var(--hd-space-6)+var(--hd-scrollbar-width,8px))]',
-      stream: 'px-(--hd-space-6)',
-      rail: 'px-(--rail)',
-      jobs: 'px-(--hd-space-3)',
-    },
-  },
-})
 
 /**
  * The transcript's composer floats over its own scrolling column, so the

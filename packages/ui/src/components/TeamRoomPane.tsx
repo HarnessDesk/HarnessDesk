@@ -2253,7 +2253,7 @@ const Room = ({
       <div className={styles.streamWrap}>
         <PaneColumn
           ref={stream}
-          inset="stream"
+          inset="reading"
           data-slot="room-stream"
           className={styles.stream}
           onScroll={(event) => {

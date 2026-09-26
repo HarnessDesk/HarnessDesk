@@ -136,7 +136,7 @@ export {
   TurnWorkLive,
   type TurnWorkState,
 } from './patterns/TurnWork'
-export { PaneColumn, useComposerHeightVar, paneColumnInsetClassName, type PaneColumnProps } from './patterns/PaneColumn'
+export { PaneColumn, useComposerHeightVar, type PaneColumnProps, type PaneColumnInset } from './patterns/PaneColumn'
 export {
   ApprovalChoiceHint,
   ApprovalCode,

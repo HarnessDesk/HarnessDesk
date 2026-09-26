@@ -1,6 +1,5 @@
 /* The sidebar owns only placement. Visible roles come from the design system. */
 .sidebar {
-  --rail: var(--hd-bar-pad);
   --panel-max: 320px;
   display: flex;
   flex-direction: column;

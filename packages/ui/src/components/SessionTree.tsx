@@ -11,10 +11,10 @@ import {
   MenuSeparator,
   Popover,
   PopoverGroupLabel,
+  PaneColumn,
   Separator,
   Text,
   buttonVariants,
-  paneColumnInsetClassName,
   useContextMenu,
   type Tone,
 } from '../design'
@@ -215,7 +215,10 @@ const SessionRow = ({
       {renaming ? (
         // A one-row rename box only this tree draws; no shared inline-rename
         // part exists yet, and one for a single caller would be premature.
-        <div style={{ padding: '4px 8px' }}>
+        // Its side padding is the rail's own inset, composed rather than
+        // the literal 8px it used to spell out; only the 4px top-and-bottom
+        // is this box's alone.
+        <PaneColumn inset="rail" style={{ paddingBlock: '4px' }}>
           <Input
             variant="quiet" controlSize="compact" className={styles.renameInput}
             value={draft}
@@ -231,7 +234,7 @@ const SessionRow = ({
               }
             }}
           />
-        </div>
+        </PaneColumn>
       ) : (
         <>
           <Button
@@ -263,10 +266,10 @@ const SessionRow = ({
               session={summary}
               // The rail's own indent, only wanted here: the other consumer
               // (`TeamBoardPane`) lays this card out with no inset at all,
-              // so the inset belongs to this row, not the shared card.
-              // `PaneColumn`'s own column-inset shape, composed as a class
-              // name because this prop is the hover trigger's own surface.
-              className={`${styles.statusTarget} ${paneColumnInsetClassName({ inset: 'rail' })}`}
+              // so the inset belongs to this row, not the shared card —
+              // `AgentHoverCard` composes `PaneColumn` onto its own trigger.
+              className={styles.statusTarget}
+              inset="rail"
               actions={[
                 ...(snapshot.activeSessionKey === key
                   ? []

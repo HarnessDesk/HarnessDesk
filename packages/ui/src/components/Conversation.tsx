@@ -42,6 +42,7 @@ import {
   Bar,
   Button,
   Chip,
+  ComposerDock,
   ConversationEmptyState,
   Menu,
   MenuItem,
@@ -774,7 +775,7 @@ export const Conversation = ({
           </div>
         ) : session && items.length > 0 ? (
           <PaneColumn
-            inset="transcript"
+            inset="reading"
             clearComposer
             className={styles.scroll}
             ref={scroll}
@@ -840,7 +841,7 @@ export const Conversation = ({
           // there were none. Nothing failed — nothing has happened yet — so
           // the pitch below is the honest answer, and `updatedAt` moving past
           // `createdAt` is what separates the two.
-          <PaneColumn inset="transcript" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
+          <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
             <ConversationEmptyState>
               <EmptyTitle>Nothing to show</EmptyTitle>
               <EmptyBody>
@@ -851,7 +852,7 @@ export const Conversation = ({
             </ConversationEmptyState>
           </PaneColumn>
         ) : (
-          <PaneColumn inset="transcript" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
+          <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
             <ConversationEmpty onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
           </PaneColumn>
         )}
@@ -870,10 +871,10 @@ export const Conversation = ({
         )}
       </div>
 
-      {/* The fade this pane sits on is its own: no other screen holds a
-          scrolling transcript under a floating dock, so there is nowhere
-          else this gradient belongs yet. */}
-      <div className={`${styles.dockArea} pt-(--hd-space-4) bg-[linear-gradient(to_bottom,transparent,var(--hd-background,var(--hd-card))_26%)]`} ref={dockArea}>
+      {/* `ComposerDock`'s `floating` fade: no other pane holds a scrolling
+          transcript under a dock that floats over it — the room's own
+          composer sits in flow below its stream instead. */}
+      <ComposerDock floating className={styles.dockArea} ref={dockArea}>
         {/* Stacked by lifetime, shortest first: the jobs strip goes when this
             turn does, the queue happens after it. That order puts the thing
             you can act on nearest the composer and the transcript's own
@@ -895,7 +896,7 @@ export const Conversation = ({
         ) : (
           <Composer onChooseProject={onChooseProject} />
         )}
-      </div>
+      </ComposerDock>
       {removingWorktree && worktree && (
         <RemoveWorktree worktree={worktree} onClose={() => setRemovingWorktree(false)} />
       )}
