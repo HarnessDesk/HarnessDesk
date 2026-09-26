@@ -495,11 +495,151 @@ it('gives an agent that has not answered yet its own heading, neither Needs atte
   await mountList({ accountsByRuntime: accounts })
 
   expect(grouped()).toEqual({ 'Not answered yet': ['Gamma'], Ready: ['Alpha', 'Beta'] })
+  // The heading says it once; no row repeats it, and none claims a sign-in.
   const chips = [...line('Gamma').querySelectorAll('[class*=chip]')].map((node) => node.textContent)
-  expect(chips).toContain('Not answered yet')
+  expect(chips).not.toContain('Not answered yet')
   expect(chips).not.toContain('Needs sign-in')
   // No Sign in either: readiness has not said one is needed.
   expect(line('Gamma').closest('[data-slot="row-folding"]')?.querySelector('[data-slot="row-action"] button')).toBeFalsy()
+})
+
+it('orders its groups by what they ask of you: needs attention, then not answered yet, then ready', async () => {
+  // One of each: Beta crashed (blocking), Gamma has not answered, Alpha ready.
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>).gamma
+  await mountList({
+    accountsByRuntime: accounts,
+    healthByRuntime: { alpha: { state: 'ready' }, beta: { state: 'unavailable', reason: 'crashed', message: 'exited' }, gamma: { state: 'ready' } },
+  })
+  const order = [...document.body.querySelectorAll('[data-group]')].map((group) => group.getAttribute('data-group'))
+  expect(order).toEqual(['Needs attention', 'Not answered yet', 'Ready'])
+})
+
+it('an unanswered default wears its Default chip alone', async () => {
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>).gamma
+  await mountList({ accountsByRuntime: accounts, activeRuntime: 'gamma' })
+  const chips = [...line('Gamma').querySelectorAll('[data-slot="chip"]')].map((node) => node.textContent)
+  expect(chips).toEqual(['Default'])
+})
+
+it('an unanswered row that is not the default carries no control at all', async () => {
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>).gamma
+  await mountList({ accountsByRuntime: accounts })
+  expect(line('Gamma').querySelector('[class*=rowCtl]')).toBeNull()
+})
+
+it("an agent's page says it has not answered yet, rather than that nobody is signed in", async () => {
+  // Control: answered with no account is a real sign-out.
+  await mountList()
+  await act(async () => line('Gamma').click())
+  expect(document.body.textContent).toContain('Not signed in')
+  act(() => root.unmount())
+  root = createRoot(container)
+
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>).gamma
+  await mountList({ accountsByRuntime: accounts })
+  await act(async () => line('Gamma').click())
+  expect(document.body.textContent).toContain('Not answered yet')
+  expect(document.body.textContent).toContain('Its accounts show once it answers.')
+  expect(document.body.textContent).not.toContain('Not signed in')
+  expect(document.body.textContent).not.toContain('has no credential here yet')
+})
+
+it("an extra account that has not answered is not \"waiting to be signed in\"", async () => {
+  // Control: an extra slot that answered with no account is an abandoned sign-in.
+  await mountList({ accountsByRuntime: { ...ROSTER.accountsByRuntime, 'alpha#2': signedIn([], ['browser']) } })
+  await act(async () => line('Alpha').click())
+  expect(document.body.textContent).toContain('Waiting to be signed in')
+  act(() => root.unmount())
+  root = createRoot(container)
+
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({ accountsByRuntime: accounts })
+  await act(async () => line('Alpha').click())
+  expect(document.body.textContent).toContain('ada@example.com')
+  expect(document.body.textContent).toContain('Not answered yet')
+  // Its line is where its credential lives, the one fact that varies.
+  expect(document.body.textContent).toContain('/tmp/alpha-2')
+  expect(document.body.textContent).not.toContain('Waiting to be signed in')
+  expect(button('Remove')).toBeTruthy()
+})
+
+it('removing an extra account that has not answered asks first — it may be signed in', async () => {
+  const removed: string[] = []
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({
+    accountsByRuntime: accounts,
+    store: { removeAccount: async (id: string) => void removed.push(id) },
+  })
+  await act(async () => line('Alpha').click())
+  await act(async () => button('Remove')!.click())
+  expect(removed).toEqual([])
+  const confirm = [...document.body.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Remove account')
+  expect(confirm).toBeTruthy()
+  await act(async () => confirm!.click())
+  expect(removed).toEqual(['alpha#2'])
+})
+
+it("an agent's page claims no session would fail while another of its accounts is still answering", async () => {
+  // Control: every account answered, none signed in — the claim is true.
+  await mountList({
+    accountsByRuntime: { ...ROSTER.accountsByRuntime, alpha: signedIn([], ['browser']), 'alpha#2': signedIn([], ['browser']) },
+  })
+  await act(async () => line('Alpha').click())
+  expect(document.body.textContent).toContain('would not start')
+  act(() => root.unmount())
+  root = createRoot(container)
+
+  const accounts = { ...ROSTER.accountsByRuntime, alpha: signedIn([], ['browser']) }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({ accountsByRuntime: accounts })
+  await act(async () => line('Alpha').click())
+  expect(document.body.textContent).toContain('Not signed in')
+  expect(document.body.textContent).toContain('Another has not answered yet.')
+  expect(document.body.textContent).not.toContain('would not start')
+  expect(button('Sign in')).toBeTruthy()
+})
+
+it("an unanswered agent's page says so only when nothing else answers for it", async () => {
+  const unanswered = 'Its accounts show once it answers.'
+  // An agent that needs no account has nothing to answer.
+  const delta = runtime({ id: 'delta', name: 'Delta', capabilities: NO_CAPABILITIES, presentation: { name: 'Delta' } })
+  await mountList({ runtimes: [...ROSTER.runtimes, delta] })
+  await act(async () => line('Delta').click())
+  expect(document.body.textContent).toContain('No account needed')
+  expect(document.body.textContent).not.toContain(unanswered)
+  act(() => root.unmount())
+  root = createRoot(container)
+
+  // A signed-in extra account is an answer: the page lists it.
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>).alpha
+  await mountList({ accountsByRuntime: accounts })
+  await act(async () => line('Alpha').click())
+  expect(document.body.textContent).toContain('grace@example.com')
+  expect(document.body.textContent).not.toContain(unanswered)
+  act(() => root.unmount())
+  root = createRoot(container)
+
+  // So is a gateway account, which never signs in.
+  const gateway = runtime({
+    id: 'alpha#3',
+    name: 'Alpha',
+    presentation: { name: 'Alpha' },
+    slot: { agent: 'alpha', home: '/tmp/alpha-3', removable: true, canAdd: true, gateway: { name: 'Acme gateway', endpoint: 'https://gw.acme.dev' } },
+  })
+  const bare = { ...ROSTER.accountsByRuntime }
+  delete (bare as Record<string, unknown>).alpha
+  delete (bare as Record<string, unknown>)['alpha#2']
+  await mountList({ runtimes: [ROSTER.runtimes[0]!, gateway, ...ROSTER.runtimes.slice(2)], accountsByRuntime: bare })
+  await act(async () => line('Alpha').click())
+  expect(document.body.textContent).toContain('Acme gateway')
+  expect(document.body.textContent).not.toContain(unanswered)
 })
 
 it("a line opens its agent's page, where the accounts under it are", async () => {

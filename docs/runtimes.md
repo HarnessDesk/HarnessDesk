@@ -177,9 +177,10 @@ Navigate to **Settings › Runtimes › [runtime]** to view its **Install** sect
 - **Runtime home and authentication:** Displays the runtime's home directory,
   environment variable overrides (such as `OPENCLAW_STATE_DIR` or
   `CLAUDE_CONFIG_DIR`), and sign-in instructions or terminal login commands.
-- **Roster view:** The runtime list displays account counts when present and
-  status badges when a runtime is not ready. Runtimes needing no accounts omit
-  redundant status text.
+- **Roster view:** The runtime list groups runtimes under "Needs attention",
+  "Not answered yet" and "Ready", shows account counts when present, and
+  names a state on the row only where its group does not already say it.
+  Runtimes needing no accounts omit redundant status text.
 - **Startup failures:** When a runtime fails preflight or daemon checks, the
   interface presents the runtime's raw stderr findings in a scrolling pane
   alongside actionable remediation commands formatted as code blocks.

@@ -136,10 +136,19 @@ export const worstReadiness = (states: readonly Readiness[]): Readiness => {
   return worst
 }
 
+/** A table, not a test, so a state added later has to be answered here. */
+const BLOCKING: Readonly<Record<Readiness, boolean>> = {
+  signin: true,
+  limit: true,
+  broken: true,
+  available: false,
+  unknown: false,
+  ready: false,
+}
+
 /**
  * Whether this state should pull the eye. `available` is a fact about the
  * registry rather than a problem with your setup, so it stays quiet —
  * and `unknown` has not said there is a problem at all.
  */
-export const isBlocking = (state: Readiness): boolean =>
-  state === 'signin' || state === 'limit' || state === 'broken'
+export const isBlocking = (state: Readiness): boolean => BLOCKING[state]
