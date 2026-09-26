@@ -41,7 +41,12 @@
 
 .banner {
   display: flex;
-  align-items: center;
+  /* `flex-start`, not `center`: the icon and the dismiss are centred on the
+     title's own first line (below), not on the card's whole height, which
+     used to put both 12px low the moment a description wrapped to a second
+     line. The actions row keeps the card's centre — it is its own block of
+     controls, not a lead or a trailing glyph reading against the title. */
+  align-items: flex-start;
   gap: var(--hd-space-4); /* desk: canonical One UI System scale */
   width: min(var(--hd-column), 100%);
   padding: var(--hd-space-4) var(--hd-space-4) var(--hd-space-4) var(--hd-space-5); /* desk: canonical One UI System scale */
@@ -87,6 +92,11 @@
   display: inline-grid;
   place-items: center;
   color: var(--hd-muted-foreground);
+  /* The icon is smaller than the title's line, so centring it on the card
+     (the old `align-items: center`) put it 1–2px high once the card grew a
+     second line; this drops it back onto the title's own centre. 17px is
+     the glyph the tone icons render at (`DEFAULT_ICON`, above). */
+  margin-top: calc((var(--hd-line) - 17px) / 2);
 }
 
 .banner[data-tone='info'] .icon {
@@ -140,6 +150,9 @@
   align-items: center;
   gap: 8px;
   padding-left: 10px;
+  /* Its own block of controls, not a lead reading against the title — it
+     keeps the card's centre rather than the icon/dismiss's first-line rule. */
+  align-self: center;
 }
 
 .action {
@@ -192,6 +205,11 @@
   background: none;
   color: var(--hd-muted-foreground);
   cursor: pointer;
+  /* Its 28px hit target is taller than the title's line, so pulling the
+     whole button up by half the difference lands its own centre — and the
+     glyph inside it — on the title's centre, the way a smaller lead is
+     pushed down onto the same line. */
+  margin-top: calc((var(--hd-line) - 28px) / 2);
 }
 
 .dismiss:hover {
@@ -202,6 +220,7 @@
 .banner[data-compact] .dismiss {
   width: 24px;
   height: 24px;
+  margin-top: calc((var(--hd-line) - 24px) / 2);
 }
 
 /* Too narrow for the words and the actions side by side, the actions take a
