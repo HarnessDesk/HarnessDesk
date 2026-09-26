@@ -2681,7 +2681,17 @@ export class Team {
     }
     const key = keyOf(caller.runtime, caller.sessionId)
     const now = Date.now()
-    const recent = (this.#personNotices.get(key) ?? []).filter((at) => now - at < PERSON_NOTICE_WINDOW_MS)
+    // Every call is a natural point to drop what the window has fully cleared
+    // — a conversation that sends once and is never seen again would
+    // otherwise leave its entry in this map, forever, for the life of the
+    // host. Swept here rather than on a timer, since the map is only ever
+    // read at a call like this one.
+    for (const [otherKey, timestamps] of this.#personNotices) {
+      const kept = timestamps.filter((at) => now - at < PERSON_NOTICE_WINDOW_MS)
+      if (kept.length === 0) this.#personNotices.delete(otherKey)
+      else if (kept.length !== timestamps.length) this.#personNotices.set(otherKey, kept)
+    }
+    const recent = this.#personNotices.get(key) ?? []
     if (recent.length >= PERSON_NOTICE_LIMIT) {
       audit('refused-rate')
       return `Refused: this conversation has already told the person ${PERSON_NOTICE_LIMIT} things in the last ten minutes. Put the rest in your reply, or send one message that sums it up later.`
