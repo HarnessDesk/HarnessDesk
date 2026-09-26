@@ -207,6 +207,70 @@ test('Escape closes a preview the keyboard opened', async ({ page }) => {
   await expect(tipsOf(page)).toHaveCount(0)
 })
 
+/**
+ * The focus indicator, sized to what actually has it.
+ *
+ * The rail is the one tab stop, and it can be taller than the whole pane —
+ * so the document's own ring, drawn around whatever is focused, used to
+ * frame the rail's entire height: a big blue box around mostly empty space.
+ * The ring belongs on the one mark the keyboard is actually on instead, and
+ * nowhere at all for a pointer, which never holds a keyboard position.
+ */
+test('keyboard focus rings the active mark, not the whole rail, and a pointer hover rings nothing', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 })
+  await page.goto('/preview.html')
+  await page.evaluate(async () => { await document.fonts.ready })
+  await page.waitForTimeout(600)
+  await overflow(page)
+
+  // Read wherever a ring actually paints — box-shadow or outline — rather
+  // than assume which one draws it.
+  const activeRingBox = () => page.evaluate(() => {
+    const current = document.querySelector('[data-keyboard-current] [data-slot="tick"]') as HTMLElement | null
+    if (!current) return null
+    const style = getComputedStyle(current)
+    const ringed =
+      (style.boxShadow !== 'none' && style.boxShadow.trim() !== '') ||
+      (style.outlineStyle !== 'none' && Number.parseFloat(style.outlineWidth) > 0)
+    return ringed ? current.getBoundingClientRect().toJSON() : null
+  })
+
+  const marks = marksOf(page)
+  await marks.first().scrollIntoViewIfNeeded()
+  const railBox = await rail(page).boundingBox()
+  if (!railBox) throw new Error('no box for the rail')
+
+  // Pointer hover: near a mark, growing its dash, but no keyboard position —
+  // no ring anywhere on the rail.
+  const hoverBox = await marks.nth(0).boundingBox()
+  if (!hoverBox) throw new Error('no box for the first mark')
+  await page.mouse.move(hoverBox.x + hoverBox.width / 2, hoverBox.y + hoverBox.height / 2 - 1)
+  await page.mouse.move(hoverBox.x + hoverBox.width / 2, hoverBox.y + hoverBox.height / 2)
+  await page.waitForTimeout(150)
+  expect(await activeRingBox()).toBeNull()
+  await page.mouse.move(700, 700)
+
+  // Keyboard focus: the rail's own outline — the document's default for any
+  // focused element — is off.
+  await rail(page).focus()
+  await page.waitForTimeout(150)
+  const navOutlineStyle = await page.evaluate(
+    () => getComputedStyle(document.querySelector('nav[aria-label="Jump to a message"]') as HTMLElement).outlineStyle,
+  )
+  expect(navOutlineStyle).toBe('none')
+
+  // A ring shows up instead, on the active mark: small next to the rail
+  // itself (~700px tall here), and within about 24px of that one mark's own
+  // box rather than spanning anywhere near the rail's full height.
+  const activeMark = await page.evaluate(() => document.querySelector('[data-keyboard-current]')?.getBoundingClientRect().toJSON())
+  const ring = await activeRingBox()
+  if (!ring || !activeMark) throw new Error('no visible ring on the active mark')
+  expect(ring.height).toBeLessThan(24)
+  expect(Math.abs(ring.top - activeMark.top)).toBeLessThanOrEqual(24)
+  expect(Math.abs(ring.bottom - activeMark.bottom)).toBeLessThanOrEqual(24)
+  expect(ring.height).toBeLessThan(railBox.height / 10)
+})
+
 test('the rail is one tab stop: arrow keys move the current mark and its preview', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 800 })
   await page.goto('/preview.html?dense')

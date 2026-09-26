@@ -223,12 +223,20 @@ const Donut = ({ className, slices, size = 120, children, ...props }: DonutProps
  * Two emphases and no colours: a strip index says which entries matter more
  * (what the person asked, against what came back), not what kind they are.
  * A kind is a series, and a series takes `SeriesDot`.
+ *
+ * `ring` draws the document's own focus ring (`--hd-focus-ring`, the same
+ * token every other control's `:focus-visible` reads) around this one tick.
+ * It exists for a strip whose tab stop is not any one entry — the tick
+ * itself is `aria-hidden` and was never going to be focusable — so the
+ * caller states which entry a roving position is currently on rather than
+ * this component reading its own focus.
  */
 const Tick = ({
   className,
   emphasis = 'quiet',
+  ring = false,
   ...props
-}: Omit<React.ComponentProps<'span'>, 'children'> & { emphasis?: 'strong' | 'quiet' }) => (
+}: Omit<React.ComponentProps<'span'>, 'children'> & { emphasis?: 'strong' | 'quiet'; ring?: boolean }) => (
   <span
     data-slot="tick"
     data-emphasis={emphasis}
@@ -236,6 +244,7 @@ const Tick = ({
     className={cn(
       'block h-(--hd-space-0-5) shrink-0 rounded-full',
       emphasis === 'strong' ? 'bg-(--hd-foreground)' : 'bg-(--hd-muted-foreground)',
+      ring && 'shadow-(--hd-focus-ring)',
       className,
     )}
     {...props}
