@@ -24,6 +24,22 @@ move is real work and is not news to a person weighing an upgrade.
   Goal's own card, never another Goal's whose card numbers happen to collide,
   and never more than three named before it says how many more.
 
+- **A flow card no longer offers or accepts a word borrowed from a sibling
+  role.** When one Agent plays two roles of the same flow with two different
+  outcome vocabularies — UC1's `requirements-analyst` as both an analyst and
+  an acceptance reviewer, UC5's `implementer` as both a proposer and the
+  writer of the contract — a role's card used to offer, and its
+  `complete_claim` used to accept, the Agent's whole cross-role vocabulary
+  rather than just its own. A plausible but wrong word (a `contract` card
+  answered `agreed`, which is really `proposal`'s word) passed silently, and
+  the run only dead-ended rounds later with a generic "no rule takes it
+  further" instead of the specific refusal at the moment it happened. A
+  card's instruction and its accepted answers now exclude only a word that
+  belongs to *another* role's own rules — an outcome no rule anywhere routes
+  is still a legitimate answer, exactly as before, since that is how a round
+  is meant to stop for a person; and when one does, the run settles at once,
+  naming the exact card and word. (#1034)
+
 - **An independent judge seats on an ordinary desk again.** Two things still
   made a provider read as unknown on a real machine, so a role
   `independentOf` a Codex or DeepSeek competitor could not seat. Codex's
