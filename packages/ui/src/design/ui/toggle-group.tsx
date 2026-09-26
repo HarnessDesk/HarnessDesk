@@ -16,6 +16,18 @@ import { cn } from '@/lib/utils'
  * enclosed variant presses with (`design/ui/tabs.tsx`) — it layers its own
  * `data-pressed:` classes on the item (tailwind-merge drops these in favour
  * of theirs) rather than changing what ships here.
+ *
+ * One departure from the registry's own `type="single"` wrapping, found by a
+ * raw `ToggleGroup` on the design catalogue rendering nothing pressed
+ * (`design.html?view=control`, "segmented" case) even though it only passed
+ * `defaultValue`: the registry's `value={value ? [value] : []}` turns a
+ * *missing* `value` into `[]` as readily as an *empty* one, and `[]` is
+ * still a value — Base UI reads it as "this group is controlled, and
+ * controlled-empty", so `defaultValue` never gets to seed anything. `Segmented`
+ * always passes a `value`, so it never met this. The fix keeps `undefined`
+ * as `undefined` (uncontrolled, `defaultValue` applies) and only turns an
+ * explicitly empty string into `[]` (a controlled "nothing chosen" stays
+ * that way).
  */
 const toggleVariants = cva(
     'inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50 data-pressed:bg-accent data-pressed:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none transition-colors whitespace-nowrap',
@@ -82,7 +94,15 @@ const ToggleGroup = ({
       className,
     )}
     multiple={type === 'multiple'}
-    value={type === 'multiple' ? value : value == null || value === '' ? [] : [value]}
+    value={
+      type === 'multiple'
+        ? value
+        : value === undefined
+          ? undefined
+          : value === ''
+            ? []
+            : [value]
+    }
     defaultValue={
       type === 'multiple'
         ? defaultValue
