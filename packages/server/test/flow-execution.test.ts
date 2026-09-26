@@ -77,8 +77,17 @@ test('a round whose first Seat will not open says its sibling was not started, a
     now.reason,
     `The Seat for card #1 could not be opened: ${refusal}\n` +
       'A round’s cards start together, so card #2 was not started either.\n' +
-      'Next: fix what stopped card #1 and start the flow again, or seat an Agent in this Goal and give it the cards yourself.',
+      'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.',
   )
+
+  // The facts the advice rests on. Wrapping is what stops a stalled run — the
+  // wrap barrier, `stopGoal` — and the run it stops is this one.
+  await rig.flows.stopGoal(run.goal, 'the Goal was wrapped')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'stopped')
+  // And starting the flow again opens a Goal of its own, not this one.
+  rig.beforeOpen = null
+  const again = await rig.start(THREE_STAGES, AGENTS)
+  assert.notEqual(again.goal, run.goal)
 })
 
 test('specialists cannot claim each other’s bindings', async (t) => {

@@ -19,7 +19,7 @@ test('a round stalled on a Seat names why and what to do on the live line, lines
   await expect(line).toBeVisible()
   await expect(line).toContainText('The Seat for card #1 could not be opened')
   await expect(line).toContainText('card #2 was not started either')
-  await expect(line).toContainText('Next: fix what stopped card #1 and start the flow again')
+  await expect(line).toContainText('Next: wrap this Goal, which stops this run, then fix what stopped card #1')
 
   // Four lines as written: the refusal wraps rather than truncating, and each
   // written line starts on its own.

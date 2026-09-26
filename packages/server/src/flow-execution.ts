@@ -416,18 +416,18 @@ const LANE_REFUSED = 'This step needs its own checkout, ports and browser profil
  * runs with one competitor, and a rule never judges a round that only part
  * of started. The siblings are not refused — they were never tried — and the
  * reason says so by number, because "stalled" alone read as though the whole
- * round had failed on its own. The next step names the two ways on from here
- * a person has: fix the seat and start the flow again, or seat an Agent in
- * the Goal and hand it the cards directly.
+ * round had failed on its own. The next step is the one that clears it, in
+ * order: nothing restarts a stalled round in place, a new run opens a Goal of
+ * its own, and only a wrap stops this run (`stopGoal`, the wrap barrier) — so
+ * wrap first, then fix the Seat and start the flow again.
  */
 export const seatRefused = (card: number, cards: readonly number[], why: string): string => {
   const siblings = cards.filter((one) => one !== card).map((one) => `#${one}`)
   const together = siblings.length === 0
     ? ''
     : `\nA round’s cards start together, so card${siblings.length === 1 ? '' : 's'} ${siblings.join(', ')} ${siblings.length === 1 ? 'was' : 'were'} not started either.`
-  const give = siblings.length === 0 ? 'the card' : 'the cards'
   return `The Seat for card #${card} could not be opened: ${why}${together}\n` +
-    `Next: fix what stopped card #${card} and start the flow again, or seat an Agent in this Goal and give it ${give} yourself.`
+    `Next: wrap this Goal, which stops this run, then fix what stopped card #${card} and start the flow again in a new Goal.`
 }
 
 /** What a finished round's rule decides: fire one (with the evidence that authorized it), wait, or end the run. */

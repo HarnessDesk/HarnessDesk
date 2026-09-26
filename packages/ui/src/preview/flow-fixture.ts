@@ -199,7 +199,7 @@ export const SEAT_REFUSED_REASON =
   'The Seat for card #1 could not be opened: No seat could be opened for this Agent:\n' +
   '  worker=large — worker could not open a conversation: the agent is not running\n' +
   'A round’s cards start together, so card #2 was not started either.\n' +
-  'Next: fix what stopped card #1 and start the flow again, or seat an Agent in this Goal and give it the cards yourself.'
+  'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.'
 
 /** What the "flow scene" Dial in the preview harness stages for `goal-flow`'s own reserved run. */
 export const sceneFlowExecution = (scene: FlowExecutionScene): FlowExecution => {

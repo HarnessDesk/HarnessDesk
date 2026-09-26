@@ -196,7 +196,7 @@ test('a round whose first Seat will not open stalls naming the sibling it held b
   const reason = run.reason ?? ''
   assert.match(reason, /^The Seat for card #1 could not be opened: /)
   assert.match(reason, /\nA round’s cards start together, so card #2 was not started either\.\n/)
-  assert.match(reason, /\nNext: fix what stopped card #1 and start the flow again, or seat an Agent in this Goal and give it the cards yourself\.$/)
+  assert.match(reason, /\nNext: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal\.$/)
 
   // Nothing is left open, in a lane or in the main checkout.
   const view = await d.host.call('goal/read', { goal: run.goal }) as GoalView

@@ -1644,7 +1644,7 @@ it("names a person-started flow's own stop reason on the live line, as a proper 
 it("names a stalled run's own reason on the live line, lines kept, as a wait on you", async () => {
   const reason = 'The Seat for card #1 could not be opened: Claude did not offer to pass a lane environment to a session when it started.\n' +
     'A round’s cards start together, so card #2 was not started either.\n' +
-    'Next: fix what stopped card #1 and start the flow again, or seat an Agent in this Goal and give it the cards yourself.'
+    'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.'
   const execution: FlowExecution = {
     version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled',
     rounds: [], operations: [], legacyRun: null, reason,
