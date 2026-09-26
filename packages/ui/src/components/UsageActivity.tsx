@@ -136,7 +136,11 @@ export const UsageActivity = ({
     return `${dayLabelLong(cell.day)}: ${formatTokens(cell.tokens)} tokens, ${formatMoney(cell.cost, currency) ?? 'unpriced'}`
   }
 
-  const toGridCell = (cell: HeatCell): HeatGridCell => {
+  // `rowKey` disambiguates the cell's own key across rows: Year has one row
+  // per weekday and each day appears in exactly one of them, but By agent
+  // repeats every day once per agent row, and two agents' cells for the same
+  // day would otherwise collide in the grid's sr-only list.
+  const toGridCell = (cell: HeatCell, rowKey = ''): HeatGridCell => {
     const value = metric === 'tokens' ? cell.tokens : cell.cost
     const notScanned = !cell.scanned || (metric === 'cost' && isUnpricedCost(cell))
     const parts = [...cell.parts].sort((a, b) => (metric === 'tokens' ? b.tokens - a.tokens : b.cost - a.cost))
@@ -160,7 +164,7 @@ export const UsageActivity = ({
           : undefined
 
     return {
-      key: String(cell.day),
+      key: rowKey ? `${rowKey}:${cell.day}` : String(cell.day),
       level: notScanned ? 0 : levelOf(value),
       state: notScanned ? 'not-scanned' : value > 0 ? 'filled' : 'empty',
       today: cell.day === todayKey,
@@ -188,7 +192,7 @@ export const UsageActivity = ({
               <Text role="meta">{format(row.total)}</Text>
             </span>
           ),
-          cells: row.cells.map((cell) => toGridCell(cell)),
+          cells: row.cells.map((cell) => toGridCell(cell, String(row.runtime))),
         }))
 
   const columns = view === 'year' ? 53 : AGENT_SPAN_DAYS

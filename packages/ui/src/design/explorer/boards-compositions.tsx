@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import { runtimeId, type LedgerDay, type LedgerReport } from '@harnessdesk/protocol'
+
 import {
   AgentIcon,
   BranchIcon,
@@ -161,6 +163,15 @@ import {
   WorkbenchScrim,
 } from '../patterns/DockPanel'
 import { CodeText, Row, Rows, SectionHead, Text } from '../patterns/Settings'
+import { HeatGrid, HeatLegend, type HeatGridCell, type HeatGridRow } from '../patterns/HeatGrid'
+import {
+  buildAgentRows,
+  buildYearGrid,
+  isUnpricedCost,
+  quartileLevels,
+  type HeatCell,
+  type HeatMetric,
+} from '@/lib/heat'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import { DialogBoard, type Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
@@ -1120,7 +1131,115 @@ const CHART_DAYS = [18, 24, 0, 0, 31, 44, 29, 52, 38, 0, 41, 63, 47, 35].map((to
   parts: [total * 0.72, total * 0.28],
 }))
 
-const ChartKitBoard = () => (
+/**
+ * "When it ran"'s own board — the same `HeatGrid`/`HeatLegend` the Dashboard
+ * mounts, fed hand-built ledgers rather than a live store: this page loads
+ * with no store at all (`main.tsx`), the same boundary that keeps every
+ * whole-screen surface behind a lazy split. The Dashboard's own board is
+ * `surface.dashboard`, which mounts the real `Usage` (and so the real
+ * `UsageActivity` band, live) once opened — this board exists for the piece
+ * that band is built from.
+ */
+const HEAT_NOW = new Date('2026-09-20T12:00:00').getTime()
+const HEAT_CLAUDE = runtimeId('claude')
+const HEAT_CODEX = runtimeId('codex')
+
+const heatLedger = ({ days, notScanned = 0, unpricedDay = false }: { days: number; notScanned?: number; unpricedDay?: boolean }): LedgerReport => {
+  const midnight = new Date(HEAT_NOW)
+  midnight.setHours(0, 0, 0, 0)
+  const start = midnight.getTime()
+  const daily: LedgerDay[] = []
+  for (let index = days - 1; index >= 0; index -= 1) {
+    if (index >= days - notScanned) continue
+    const date = new Date(start)
+    date.setDate(date.getDate() - index)
+    const day = date.getTime()
+    const weekend = [0, 6].includes(date.getDay())
+    if (weekend && index % 3 !== 0) continue
+    const wobble = 0.5 + ((index * 37) % 100) / 100
+    const swell = index === 4 ? 3 : 1
+    daily.push({ day, runtime: HEAT_CLAUDE, cost: unpricedDay && index === 2 ? 0 : 6 * wobble * swell, tokens: 520_000 * wobble * swell })
+    if (index % 2 === 0) daily.push({ day, runtime: HEAT_CODEX, cost: 1.6 * wobble, tokens: 140_000 * wobble })
+  }
+  return {
+    days,
+    currency: 'USD',
+    totalCost: daily.reduce((sum, entry) => sum + entry.cost, 0),
+    totalTokens: daily.reduce((sum, entry) => sum + entry.tokens, 0),
+    provenance: 'listPrice',
+    coverage: { priced: daily.length, unpriced: unpricedDay ? 1 : 0, unmetered: 0, estimated: 0, daysCovered: days - notScanned, daysRequested: days },
+    rows: [],
+    daily,
+    scannedAt: HEAT_NOW,
+  } as LedgerReport
+}
+
+const heatCellLabel = (cell: HeatCell, metric: HeatMetric): string => {
+  const day = new Date(cell.day).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+  if (!cell.scanned) return `${day}: not scanned`
+  const value = metric === 'tokens' ? cell.tokens : cell.cost
+  if (metric === 'cost' && isUnpricedCost(cell)) return `${day}: usage recorded, not priced`
+  return value > 0 ? `${day}: ${value.toLocaleString()}` : `${day}: nothing`
+}
+
+const heatToGridCell = (
+  cell: HeatCell,
+  metric: HeatMetric,
+  levelOf: (value: number) => HeatGridCell['level'],
+  // Disambiguates the key across rows: By agent repeats every day once per
+  // agent row, and two agents' cells for the same day would otherwise
+  // collide in the grid's sr-only list.
+  rowKey = '',
+): HeatGridCell => {
+  const value = metric === 'tokens' ? cell.tokens : cell.cost
+  const notScanned = !cell.scanned || (metric === 'cost' && isUnpricedCost(cell))
+  return {
+    key: rowKey ? `${rowKey}:${cell.day}` : String(cell.day),
+    level: notScanned ? 0 : levelOf(value),
+    state: notScanned ? 'not-scanned' : value > 0 ? 'filled' : 'empty',
+    ariaLabel: heatCellLabel(cell, metric),
+  }
+}
+
+/** The year grid, transposed from `buildYearGrid`'s weeks-of-weekdays into `HeatGrid`'s rows-of-weeks. */
+const heatYearRows = (ledger: LedgerReport | null, metric: HeatMetric): { rows: HeatGridRow[]; columns: number } => {
+  const grid = buildYearGrid(ledger, HEAT_NOW)
+  const values = grid.weeks.flatMap((week) => week.filter((cell): cell is HeatCell => cell !== null).map((cell) => (metric === 'tokens' ? cell.tokens : cell.cost)))
+  const levelOf = quartileLevels(values)
+  const rows = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((name, weekday) => ({
+    key: name,
+    cells: grid.weeks.map((week) => {
+      const cell = week[weekday]
+      return cell ? heatToGridCell(cell, metric, levelOf) : null
+    }),
+  }))
+  return { rows, columns: grid.weeks.length }
+}
+
+const heatAgentRows = (ledger: LedgerReport | null, metric: HeatMetric, byId: Readonly<Record<string, string>>): { rows: HeatGridRow[]; columns: number } => {
+  const cells = buildYearGrid(ledger, HEAT_NOW).weeks.slice(-13).flatMap((week) => week.filter((cell): cell is HeatCell => cell !== null))
+  const agentRows = buildAgentRows(cells, metric)
+  const levelOf = quartileLevels(agentRows.flatMap((row) => row.cells.map((cell) => (metric === 'tokens' ? cell.tokens : cell.cost))))
+  const rows = agentRows.map((row) => ({
+    key: String(row.runtime),
+    header: <Text role="meta">{byId[String(row.runtime)] ?? String(row.runtime)}</Text>,
+    cells: row.cells.map((cell) => heatToGridCell(cell, metric, levelOf, String(row.runtime))),
+  }))
+  return { rows, columns: cells.length / 7 }
+}
+
+const HEAT_AGENT_NAMES: Readonly<Record<string, string>> = { [String(HEAT_CLAUDE)]: 'Claude Code', [String(HEAT_CODEX)]: 'Codex' }
+
+const heatLevelTitle = (level: 0 | 1 | 2 | 3 | 4): string => (level === 0 ? 'Nothing' : `Level ${level} of 4`)
+
+const ChartKitBoard = () => {
+  const heatNoData = heatYearRows(null, 'tokens')
+  const heatOneDay = heatYearRows(heatLedger({ days: 30, notScanned: 29 }), 'tokens')
+  const heatFullYear = heatYearRows(heatLedger({ days: 365, notScanned: 40 }), 'tokens')
+  const heatByAgent = heatAgentRows(heatLedger({ days: 365, notScanned: 40 }), 'tokens', HEAT_AGENT_NAMES)
+  const heatCostUnpriced = heatYearRows(heatLedger({ days: 60, unpricedDay: true }), 'cost')
+
+  return (
   <>
     <div className={styles.matrix}>
       <Case label="what is left — a countable budget">
@@ -1182,6 +1301,30 @@ const ChartKitBoard = () => (
         </ChartFrame>
       </Case>
     </div>
+    <div className={styles.matrix}>
+      <Case label="a calendar heatmap — no data, one day, a not-scanned stretch">
+        <div className="flex flex-col gap-3">
+          <HeatGrid label="No data" rows={heatNoData.rows} columns={heatNoData.columns} minCellPx={5} />
+          <HeatGrid label="One day" rows={heatOneDay.rows} columns={heatOneDay.columns} minCellPx={5} />
+        </div>
+      </Case>
+      <Case label="a full year">
+        <div className="w-full">
+          <HeatGrid label="A year" rows={heatFullYear.rows} columns={heatFullYear.columns} minCellPx={5} />
+          <div className="mt-2">
+            <HeatLegend levelTitle={heatLevelTitle} />
+          </div>
+        </div>
+      </Case>
+    </div>
+    <div className={styles.matrix}>
+      <Case label="by agent — one row each, sorted by total">
+        <HeatGrid label="By agent" rows={heatByAgent.rows} columns={heatByAgent.columns} minCellPx={7} />
+      </Case>
+      <Case label="cost, with a day the ledger can't price">
+        <HeatGrid label="Cost, unpriced day included" rows={heatCostUnpriced.rows} columns={heatCostUnpriced.columns} minCellPx={5} />
+      </Case>
+    </div>
     <Rule>
       The other size of chart: the one that is the subject of its own panel. The frame is a hairline
       round a 3px gutter of the muted ground, so the header and the axis sit visibly outside the
@@ -1192,8 +1335,18 @@ const ChartKitBoard = () => (
       marks hold that no token can: a meter fills with what is <em>left</em>, and a figure nobody
       reported is drawn hollow rather than as zero.
     </Rule>
+    <Rule>
+      The calendar heatmap — <code>design/patterns/HeatGrid.tsx</code>, mounted as the Dashboard's
+      &ldquo;When it ran&rdquo; band (<code>components/UsageActivity.tsx</code>, live on the Dashboard
+      surface board) — levels its cells from the data's own quartiles rather than a fixed scale, so
+      one outlier day cannot wash out the rest of the grid. Not-scanned and zero are drawn
+      differently on purpose: a day before the ledger's earliest row is unknown, not empty, and with
+      Cost selected a day whose tokens carry no public price reads the same honest way rather than as
+      $0.
+    </Rule>
   </>
-)
+  )
+}
 
 
 // --- what the registry brought ---------------------------------------------

@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 import { ChartHint, ChartTip, ChartTipRow, ChartTitle } from '../ui/chart'
@@ -177,7 +177,7 @@ export const HeatGrid = ({
           }}
         >
           {rows.map((row, rowIndex) => (
-            <>
+            <Fragment key={row.key}>
               {row.header !== undefined && (
                 <div
                   key={`${row.key}:header`}
@@ -206,7 +206,7 @@ export const HeatGrid = ({
                   />
                 )
               })}
-            </>
+            </Fragment>
           ))}
 
           {columnLabels && (

@@ -129,6 +129,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices',
+  'HeatGrid',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -214,6 +215,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   ConversationEmptyState: ['default'],
   TurnWork: ['default'],
   Notices: ['default'],
+  HeatGrid: ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -336,6 +338,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
   Notices: 'packages/ui/src/components/Notices.tsx',
+  HeatGrid: 'packages/ui/src/components/UsageActivity.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -361,6 +364,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
+  HeatGrid: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -488,6 +492,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
+  ['HeatGrid', 'chart', 'Calendar heatmap: quartile levels, a keyboard-walked cursor, its own tooltip'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**
