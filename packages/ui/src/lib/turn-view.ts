@@ -3,6 +3,7 @@ import type { AgentItem, FileChange, ItemStatus, Turn } from '@harnessdesk/proto
 import { elapsedSince, instant } from './clock'
 import { countFileChange } from './diff'
 import { readToolResult } from './tool-result'
+import { planOf } from './todos'
 import { describedTitle, editedPathOf, isDescribed, isSilentReasoning, toolCallVerb } from './group-items'
 
 /**
@@ -246,6 +247,7 @@ const tally = (work: readonly AgentItem[]): string[] => {
   let read = 0
   let searched = 0
   let tools = 0
+  let planned = false
 
   for (const item of work) {
     /* A step still running is not yet a thing the turn did. `runsOf` in
@@ -268,6 +270,16 @@ const tally = (work: readonly AgentItem[]): string[] => {
         searched += 1
         break
       case 'toolCall':
+        // A call that writes the turn's task list is the plan changing, not
+        // a tool the reader needs counted: however often an agent rewrites
+        // its list, the receipt says so once. Read by `planOf` — the same
+        // reading the Tasks panel uses, so a list under some other key is a
+        // tool, and a cleared list is still the plan changing — and only
+        // when the write went through.
+        if (planOf(item.args) !== null) {
+          if (effectiveItemStatus(item) !== 'failed') planned = true
+          break
+        }
         // ACP flattens every step to a tool call; the arguments still say
         // what it was, and "ran 3 commands, read 2 files" is the receipt
         // where "called 5 tools" is a shrug.
@@ -304,6 +316,7 @@ const tally = (work: readonly AgentItem[]): string[] => {
   if (read > 0) parts.push(`read ${plural(read, 'file')}`)
   if (searched > 0) parts.push(`searched ${plural(searched, 'time')}`)
   if (tools > 0) parts.push(`called ${plural(tools, 'tool')}`)
+  if (planned) parts.push('updated the plan')
   return parts
 }
 

@@ -13,6 +13,10 @@ move is real work and is not news to a person weighing an upgrade.
   glyph, so an agent that cannot start a turn no longer looks like one that
   can.
 
+- **Old DeepSeek bridge removed.** If your `agents.json` runs
+  `@harnessdesk/dsh-acp`, change that row to `{ "id": "dsh", "template": "dsh" }`
+  — DeepSeek now runs on DSH's own ACP server.
+
 - **DeepSeek seats finish their cards.** A DeepSeek conversation's board
   calls — finishing a card, claiming one — were refused as unattributed,
   because the only way it reached HarnessDesk's tools was one tool server

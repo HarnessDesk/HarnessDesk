@@ -123,6 +123,11 @@ describe('describeGroup', () => {
     ).toBe('Ran 2 commands, edited 1 file')
   })
 
+  test('plan writes are the plan changing, said once, never counted as tools', () => {
+    const plan = (id: string, todos: unknown[]) => ({ ...item('toolCall', id), tool: 'todo_write', args: { todos } }) as AgentItem
+    expect(describeGroup([plan('p1', [{ content: 'a', status: 'pending' }]), item('toolCall', 't1'), plan('p2', [])])).toBe('Called 1 tool, updated the plan')
+  })
+
   test('singulars read correctly', () => {
     expect(describeGroup([item('toolCall', 't1')])).toBe('Called 1 tool')
   })

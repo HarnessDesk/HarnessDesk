@@ -213,7 +213,16 @@ describe('the room under a standing notice', () => {
   })
 
   it('is declared once, beside the stack it measures, and reset for whatever it contains', () => {
-    expect(appCss).toMatch(/\[data-notice-yield\]\s*{[^}]*margin-top:\s*var\(--hd-notice-inset,\s*0px\)/s)
+    // The inset reaches the yield under its own name, so resetting
+    // `--hd-notice-inset` for the pane's contents cannot zero the yield too.
+    expect(appCss).toMatch(/\[data-notice-yield\]\s*{[^}]*--hd-notice-yield:\s*var\(--hd-notice-inset,\s*0px\)/s)
     expect(appCss).toMatch(/\[data-notice-yield\]\s*>\s*\*\s*{[^}]*--hd-notice-inset:\s*0px/s)
+  })
+
+  it('moves what follows the pane\u2019s bar, never the bar itself, and a bar-less screen whole (#968)', () => {
+    // The body after the screen's top-level bar takes the margin.
+    expect(appCss).toMatch(/\[data-notice-yield\]\s*>\s*\*\s*>\s*:is\([^)]*\)\s*\+\s*\*\s*{[^}]*margin-top:\s*var\(--hd-notice-yield\)/s)
+    // A screen with no bar of its own yields whole, as it did before.
+    expect(appCss).toMatch(/\[data-notice-yield\]:not\(:has\(>\s*\*\s*>\s*:is\([^)]*\)\)\)\s*{[^}]*margin-top:\s*var\(--hd-notice-yield\)/s)
   })
 })
