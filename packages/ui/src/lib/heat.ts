@@ -1,6 +1,6 @@
 import type { LedgerReport, RuntimeId } from '@harnessdesk/protocol'
 
-import type { HeatGridCell, HeatGridTooltip } from '../design/ui/heat-grid'
+import type { HeatGridCell, HeatGridTooltip } from '../design'
 import { formatTokens } from './context-usage'
 import { formatMoney } from './usage'
 
