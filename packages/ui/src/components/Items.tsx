@@ -319,11 +319,9 @@ const Row = ({
     <div className={styles.row}>{inner}</div>
   ) : (
     // Card's own default gap-4/py-4 is sized for a section's boxed content,
-    // not a dense conversation row: without the override every tool row here
-    // grows from its intended ~30px to ~62px. Items-only for now, so the
-    // override stays local rather than becoming a third Card spacing value
-    // with one caller.
-    <Card variant="plate" className={`${styles.row} !gap-0 !py-0`}>{inner}</Card>
+    // not a dense conversation row: without `spacing="flush"` every tool row
+    // here grows from its intended ~30px to ~62px.
+    <Card variant="plate" spacing="flush" className={styles.row}>{inner}</Card>
   )
 }
 

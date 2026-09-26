@@ -1434,6 +1434,9 @@ const AdoptedBoard = () => {
           <Card variant="plate" spacing="compact" className="w-full">
             The app&rsquo;s own card: it follows the interface&rsquo;s card family, as the files card under an answer does.
           </Card>
+          <Card variant="plate" spacing="flush" className="w-full">
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs">A dense transcript row: the plate&rsquo;s own surface, its gap and padding zeroed.</div>
+          </Card>
         </Case>
 
         <Case label="select &mdash; open with pointer or keyboard">
