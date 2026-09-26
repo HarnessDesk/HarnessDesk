@@ -4272,13 +4272,16 @@ export class Team {
   }
 
   /**
-   * The one place a card's claim going from held to nothing is ever asked to
-   * record where its checkout stood — whatever verb cleared it: block,
-   * release, abandon, done, a stale claim taken over, or a Goal wrapped away.
-   * Called from both places a claim is ever cleared on a board this engine
-   * holds (`#patchIntent`, above, and `goalPlaneWrite`, below); a Goal wrap
-   * writes its document directly, without this engine, and reads its cards'
-   * stops the same way before it saves (`Host#finishGoalWrap`).
+   * The one place a card's claim going from held to nothing, on a board this
+   * engine holds directly, is ever asked to record where its checkout stood
+   * — whatever verb cleared it through `#patchIntent`, above: block, release,
+   * abandon, done, or a stale claim taken over. A Goal Seat's own release
+   * clears a claim through `goalPlaneWrite` instead, which already holds the
+   * Goal's own queue to make its write and cannot call back into this
+   * without deadlocking it (review round 2 on #1042); that path reads and
+   * records its own stop before it ever reaches here (`Host#releaseGoalCard`).
+   * A Goal wrap writes its document directly, without this engine either, and
+   * reads its cards' stops the same way before it saves (`Host#finishGoalWrap`).
    *
    * Reads the checkout's HEAD once, bounded by `STOP_HEAD_TIMEOUT_MS` so a
    * checkout that cannot answer never hangs the round waiting on this card. A
@@ -4949,18 +4952,15 @@ export class Team {
     if (carried) this.#settleSave(carried, null)
     this.#problem = null
     /* Whatever claim this write just cleared to nothing — a Goal Seat's own
-       release, chief among them — records where its checkout stood, the same
-       way `#patchIntent` does, and this write does not answer until it lands:
-       the caller here is exactly the moment before the next round would
-       otherwise open on a card whose diff has not yet learned where the one
-       before it stopped (issue #1035). Bounded by `#captureStop`'s own
-       timeout, so a stuck checkout still lets this write, and the round,
-       through. */
-    await Promise.all(ids.flatMap((id) => {
-      const prior = before.get(id)
-      const after = next.find((one) => one.id === id)
-      return prior?.claim && after && after.claim === null ? [this.#captureStop(goal, id, prior.claim)] : []
-    }))
+       release, chief among them — records where its checkout stood the same
+       way `#patchIntent` does (issue #1035), but not from here: the caller
+       above already holds the Goal's own queue to make this write (`save`
+       runs inside it), and `#captureStop` ends in a save of its own. Calling
+       it from here would queue that save behind this very write on the same
+       queue, and this write is what the queue is waiting to finish first —
+       a deadlock the moment a checkout ever actually answered (review round
+       2 on #1042). The caller records `until` itself, in the same patch this
+       write already carries, before it ever reaches this queue. */
     const now = this.#boards.get(goal) ?? board
     this.#port.changed(this.#stateOf(now))
     this.#wake(now)

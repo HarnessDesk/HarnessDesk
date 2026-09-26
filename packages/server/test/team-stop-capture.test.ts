@@ -11,13 +11,19 @@ import { Team, type TeamPeer, type TeamPort } from '../src/team.js'
 import { makeRepo, type Repo } from './fixtures/evidence-desk.js'
 
 /*
- * Issue #1035, review round 2: wherever a card's claim clears — released,
- * abandoned, blocked, taken over, a Goal Seat's own release, a Goal wrapped
- * away — the host records where its checkout stood, through the one choke
- * point every one of those goes through (`Team#captureStop`, reached only
- * from `#patchIntent` and `goalPlaneWrite`). Recorded on the card itself
- * (`Intent.until`), in the same board file `StateStore` already persists it
- * in, so it survives a restart. A failed or timed-out read records nothing.
+ * Issue #1035: wherever a card's claim clears on a board this engine holds
+ * directly — released, abandoned, blocked, taken over — the host records
+ * where its checkout stood, through `Team#captureStop`, reached only from
+ * `#patchIntent`. Recorded on the card itself (`Intent.until`), in the same
+ * board file `StateStore` already persists it in, so it survives a restart.
+ * A failed or timed-out read records nothing.
+ *
+ * A Goal Seat's own release clears a claim through `goalPlaneWrite` instead,
+ * which never calls into this capture (review round 2 on #1042: doing so
+ * would deadlock the Goal queue that write already holds). That path reads
+ * and records its own stop before it ever reaches here — see
+ * `goal-host.test.ts` for the real-host test of it, and a Goal wrap's own
+ * equivalent in `Host#finishGoalWrap`.
  */
 
 const peer = (sessionId: string, cwd: string): TeamPeer => ({
@@ -114,8 +120,11 @@ test('a referee block on a claimed card records where its checkout stood', async
   assert.equal(untilOf(team, room), head)
 })
 
-test('a Goal Seat’s own release, through goalPlaneWrite, records where its checkout stood', async (t) => {
-  const { team, room, repo } = await rig(t, {
+test('goalPlaneWrite clearing a claim never captures a stop itself — its caller does, before this queue', async (t) => {
+  // `mutate` re-enters synchronously, the way the host's real Goal-serial
+  // `mutate` does: were `goalPlaneWrite` still awaiting a second commit
+  // through this same path (review round 2 on #1042), this would deadlock.
+  const { team, room } = await rig(t, {
     mutate: async (snapshot, refused) => {
       try {
         snapshot()
@@ -126,7 +135,6 @@ test('a Goal Seat’s own release, through goalPlaneWrite, records where its che
   })
   await team.addIntent({ title: 'Do it' }, scope)
   assert.match(await team.claim(1, scope), /^Claimed #1/)
-  const head = await headOf(repo.dir)
   // What `Host#releaseGoalCard` does: patch the claim to null through the Goal-plane path, never through `#patchIntent` directly.
   const ok = await team.goalPlaneWrite(
     room,
@@ -134,7 +142,8 @@ test('a Goal Seat’s own release, through goalPlaneWrite, records where its che
     async () => {},
   )
   assert.equal(ok, true)
-  assert.equal(untilOf(team, room), head)
+  // Nothing is captured here: a Goal Seat's own release records `until` itself, in the same patch — see `goal-host.test.ts`.
+  assert.equal(untilOf(team, room), null)
 })
 
 test('a stop recorded before a restart still bounds the diff after it', async (t) => {

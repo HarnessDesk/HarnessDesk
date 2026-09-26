@@ -60,7 +60,7 @@ test('assignment recovery after every awaited boundary retains the original open
 
 test('release closes the requested Seat, releases its claim and mail, then wakes waiters', async () => {
   const proof = rig(null)
-  const release: GoalOperation = { kind: 'release', id: 'release-1', goal: 'g1', seat: 'only-this-seat', reason: 'released' }
+  const release: GoalOperation = { kind: 'release', id: 'release-1', goal: 'g1', seat: 'only-this-seat', reason: 'released', until: null }
   await recoverOperation(release, proof.port)
   assert.deepEqual(proof.calls, ['close', 'release', 'mail', 'finish', 'wake'])
   assert.deepEqual([...proof.closings], ['only-this-seat'])
@@ -68,7 +68,7 @@ test('release closes the requested Seat, releases its claim and mail, then wakes
 })
 
 test('release recovery remains repeatable after each awaited boundary', async () => {
-  const release: GoalOperation = { kind: 'release', id: 'release-1', goal: 'g1', seat: 'only-this-seat', reason: 'released' }
+  const release: GoalOperation = { kind: 'release', id: 'release-1', goal: 'g1', seat: 'only-this-seat', reason: 'released', until: null }
   for (const boundary of ['close', 'release', 'mail', 'finish']) {
     const proof = rig(boundary)
     await assert.rejects(recoverOperation(release, proof.port), new RegExp(`cut at ${boundary}`))

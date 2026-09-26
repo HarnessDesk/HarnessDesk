@@ -12,7 +12,15 @@ export type GoalOperation =
       opening: SeatOpening
       close: readonly SeatId[]
     }
-  | { kind: 'release'; id: string; goal: string; seat: SeatId; reason: 'released' }
+  | {
+      kind: 'release'
+      id: string
+      goal: string
+      seat: SeatId
+      reason: 'released'
+      /** Where the checkout stood, read before staging ever closes the Seat; null on a failed, timed-out or empty read (issue #1042 P1). */
+      until: string | null
+    }
   | { kind: 'wrap'; id: string; goal: string; stamp: string; receipt: GoalReceipt }
   /**
    * A person carrying unresolved findings into this Goal: the dependency it
@@ -33,7 +41,8 @@ export interface GoalOperationPort {
   importOpening(project: string, opening: SeatOpening): Promise<void>
   closeId(seat: SeatId, reason: string): Promise<void>
   claim(goal: string, card: number, seat: SeatOpening): Promise<void>
-  releaseClaim(goal: string, seat: SeatId): Promise<void>
+  /** `until` is the stop already read for this release, if any (issue #1042 P1); a recovered wrap's per-seat release has none to give. */
+  releaseClaim(goal: string, seat: SeatId, until: string | null): Promise<void>
   refuseMail(goal: string, seat: SeatId): Promise<void>
   retainLane(seat: SeatId): Promise<void>
   wake(goal: string): void
@@ -59,7 +68,7 @@ export async function recoverOperation(operation: GoalOperation, port: GoalOpera
       return
     case 'release':
       await port.closeId(operation.seat, operation.reason)
-      await port.releaseClaim(operation.goal, operation.seat)
+      await port.releaseClaim(operation.goal, operation.seat, operation.until)
       await port.refuseMail(operation.goal, operation.seat)
       await port.finish(operation.goal, operation.id)
       port.wake(operation.goal)
@@ -67,7 +76,8 @@ export async function recoverOperation(operation: GoalOperation, port: GoalOpera
     case 'wrap':
       for (const seat of operation.receipt.seats) {
         await port.closeId(seat, 'wrapped')
-        await port.releaseClaim(operation.goal, seat)
+        // The wrap itself reads and records each card's own stop (`finishWrap`, below); nothing to give here.
+        await port.releaseClaim(operation.goal, seat, null)
         await port.refuseMail(operation.goal, seat)
         await port.retainLane(seat)
       }

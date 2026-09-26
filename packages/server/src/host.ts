@@ -1480,6 +1480,7 @@ export class Host {
         const project = await this.#boardRootOf(held.cwd)
         return project ? { project, busy: isBusy(held) } : null
       },
+      sessionCwd: (session) => this.#sessionCwd(session.runtime, session.sessionId),
       claimable: (goal: string, card: number, session) => this.#goalClaimable(goal, card, session.runtime, session.sessionId),
       overlap: (goal: string, card: number, session) => this.#team.refuseOverlap(goal, this.#goalIntents(goal), card, session.runtime, session.sessionId),
       // A truly plain conversation (never kept as any Agent's Seat) has
@@ -1619,8 +1620,8 @@ export class Host {
       claim: async (goal: string, card: number, opening: SeatOpening) => {
         await this.#claimGoalCard(goal, card, opening)
       },
-      releaseClaim: async (goal: string, seat: SeatId) => {
-        await this.#releaseGoalCard(goal, seat)
+      releaseClaim: async (goal: string, seat: SeatId, until: string | null) => {
+        await this.#releaseGoalCard(goal, seat, until)
       },
       refuseMail: async (goal: string, seat: SeatId) => {
         const record = this.#evidence.seats.byId(seat)
@@ -2740,7 +2741,14 @@ export class Host {
     })
   }
 
-  async #releaseGoalCard(goal: string, seat: SeatId): Promise<void> {
+  /**
+   * `until` is where the checkout stood, read by `GoalPlane.release` before
+   * it ever closed this Seat (issue #1042 P1) — carried into this same patch
+   * rather than a second write after the fact, which would have to queue
+   * behind this one on the Goal queue its caller already holds (P2). Null on
+   * a failed, timed-out or empty read: nothing is recorded, never a guess.
+   */
+  async #releaseGoalCard(goal: string, seat: SeatId, until: string | null): Promise<void> {
     const record = this.#evidence.seats.byId(seat)
     if (!record) return
     await this.#goalPlaneWrite(goal, (intents) => {
@@ -2756,6 +2764,7 @@ export class Host {
         ...intent,
         state: blocked ? 'blocked' as const : 'open' as const,
         claim: null,
+        ...(until ? { until } : {}),
         blockedBy: blocked ? 'graph' as const : null,
         blockedReason: null,
         updatedAt: at,

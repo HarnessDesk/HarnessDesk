@@ -5,7 +5,9 @@ import { test } from 'node:test'
 import { isBusy, type GoalReceipt, type GoalView, type SeatRecord, type Session, type TeamState, type WrapPreview } from '@harnessdesk/protocol'
 
 import { EvidenceStore } from '../src/evidence/store.js'
+import { headOf } from '../src/evidence/revision.js'
 import { Client, halt, start } from './fixtures/harness.js'
+import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
 /** Waits for a fake-runtime turn this test explicitly finished to actually settle in the host's own registry, before a busy check downstream reads it. */
@@ -181,6 +183,47 @@ test('Goal create and board mutation route through the real Host and survive res
     await rm(harness.stateDir, { recursive: true, force: true })
     await rm(work, { recursive: true, force: true })
   }
+})
+
+/*
+ * Review round 2 on #1042: a Goal Seat's own release is the one place a
+ * card's claim clears through `GoalPlane` rather than `Team#patchIntent`
+ * directly, and it recorded nothing — `recoverOperation` closed the Seat
+ * before anything read where its checkout stood, and the read that finally
+ * ran afterwards found nothing to read. Worse, had that read ever found a
+ * checkout, recording it would have deadlocked: it saved through the same
+ * Goal queue `release` was still holding. Goes through the real Host, a real
+ * git checkout and the wire's own `goal/assign` → `goal/release` →
+ * `goal/read`, exactly as the round's own probe did — a stub can't see
+ * either bug, since a stub never has a real checkout to fail to read.
+ */
+test('a Goal Seat’s own release records where its checkout stood, and finishes promptly', { timeout: 5_000 }, async (t) => {
+  const repo = await makeRepo('hd-goal-release-stop-')
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+    await rm(repo.dir, { recursive: true, force: true })
+  })
+  await client.call('workspace/open', { path: repo.dir })
+  const created = await client.call('goal/create', { root: repo.dir, sentence: 'Finish the probe' }) as GoalView
+  const card = await client.call('team/add', { room: created.goal.id, title: 'Do the work' }) as { id: number }
+  const session = await client.call('session/create', { runtime: 'fake', options: { cwd: repo.dir } }) as Session
+  const assigned = await client.call('goal/assign', {
+    goal: created.goal.id, card: card.id, session: { runtime: 'fake', sessionId: session.id },
+  }) as { id: string }
+  const head = await headOf(repo.dir)
+  assert.ok(head, 'the probe repository must have a real commit to bound the release to')
+  const startedAt = Date.now()
+  await client.call('goal/release', { goal: created.goal.id, seat: assigned.id })
+  // Well under the 10s stop-read timeout: a real, fast git read, never the bound.
+  assert.ok(Date.now() - startedAt < 5_000, 'a release with a live, answering checkout must not wait for the stop-read timeout')
+  const released = await client.call('goal/read', { goal: created.goal.id }) as GoalView
+  assert.equal(released.board.intents[0]?.state, 'open')
+  assert.equal(released.board.intents[0]?.until, head)
 })
 
 test('a board mutation publishes the refreshed Goal view used by wrap', async (t) => {

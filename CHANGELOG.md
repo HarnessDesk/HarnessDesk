@@ -26,7 +26,9 @@ move is real work and is not news to a person weighing an upgrade.
   one that finished before this shipped, or whose checkout could not be read
   in time — is never diffed unbounded to make up for that: it keeps whatever
   it last showed, or none at all if it never had a diff, rather than being
-  measured against a branch that has since moved on. (#1035)
+  measured against a branch that has since moved on. Abandoning, finishing or
+  releasing a card can now wait up to 10 s for a slow git to report where the
+  card stopped. (#1035, #1042)
 
 - **A mixed race no longer stalls before the judge, and a race started from
   the generic Flow-start seeds two competitors, like `/race` always has.**
