@@ -1,0 +1,39 @@
+=== BEFORE (no stored plan) ===
+{
+  "usage/plan/read": {
+    "entries": [],
+    "suggestions": "[8 suggestions, elided]"
+  },
+  "usage/reports[0].billing": null
+}
+
+=== AFTER (fee set to $20/mo, matching the Pro suggestion) ===
+{
+  "usage/plan/read": {
+    "entries": [
+      {
+        "runtime": "claude-code",
+        "account": "sha256:bb11527660d615925e3e1c7567040ccd26710c18f98686fc1d0014c3c916f5f9",
+        "entry": {
+          "fee": {
+            "amount": 20,
+            "currency": "USD",
+            "period": "month",
+            "source": "user",
+            "setAt": 1758800000000
+          }
+        }
+      }
+    ],
+    "suggestions": "[8 suggestions, elided]"
+  },
+  "usage/reports[0].billing": {
+    "kinds": [],
+    "fee": {
+      "amount": 20,
+      "currency": "USD",
+      "period": "month",
+      "source": "user"
+    }
+  }
+}
