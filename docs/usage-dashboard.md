@@ -309,9 +309,12 @@ a card can be built without naming the vendor behind it.
   'usd'`) and which side of the plan it is on (`layer: 'plan' | 'overage'`),
   but the percentage is what makes two agents' lanes comparable at all, and
   it stays even where a source also gives its own unit.
-- **Money, Paid** — cash that actually left an account: a vendor-metered
-  spend, or `billing.fee` (the plan's own recurring charge) and
-  `billing.overage.spent` (metered spend past the included allowance).
+- **Money, Paid** — cash that actually left an account: `billing.fee` (the
+  plan's own recurring charge) and `billing.overage.spent` (metered spend past
+  the included allowance). A `vendorCost` an agent reports for itself
+  (OpenCode, Cline) is that agent's own price for the tokens, not necessarily
+  cash that left the account — a bring-your-own-key or subscription seat can
+  carry a `vendorCost` with nothing paid — so it is **Value**, not Paid.
 - **Money, Value** — tokens priced at public API rates, a *list-price
   equivalent* and never an invoice — the whole of "What honest costs money to
   say" above.
@@ -328,29 +331,34 @@ a card can be built without naming the vendor behind it.
   `input + output + cacheRead + cacheWrite` — reasoning is already inside
   `output` for every scanner in `ledger/scan.ts`, so it is never added a
   second time, only kept so a caller can say "of which N reasoning" without
-  a second total that could disagree with the first. Every scanner also
-  normalises `input` to exclude the cache before it is stored, so a
-  cache-hit rate is always `cacheRead / (input + cacheRead)` — the share of
-  the *input* side that came from cache — never `cacheRead / tokens`, which
-  would dilute it with output that was never a candidate for the cache at
-  all.
+  a second total that could disagree with the first. Four of the five
+  scanners — Codex, Claude, Gemini/Qwen and OpenCode — also normalise `input`
+  to exclude the cache before it is stored, so for those four a cache-hit
+  rate is always `cacheRead / (input + cacheRead)` — the share of the *input*
+  side that came from cache — never `cacheRead / tokens`, which would dilute
+  it with output that was never a candidate for the cache at all. Cline is
+  the fifth: its `input` is stored as Cline's own database records it, and
+  whether that already includes cache reads hasn't been measured, so a
+  cache-hit rate for `cline` is not defined yet.
 
 `UsageReport.billing.kinds` names which of these a plan actually has —
 `'windows' | 'allowance' | 'balance' | 'metered' | 'free'` — as a set, because
 a plan can be more than one shape at once (a Claude Code plan is `windows` for
 its lanes and also `balance` the moment it carries prepaid credit). It is
-typed and documented in this PR; filling it in per reader, and reading
+typed; no reader fills it yet — filling it in per reader, and reading
 `earliestDay` into the heatmap, are the next PR's work — see the field
 comments in `usage.ts` for exactly what each one may never be collapsed with.
 
 `SpendCoverage.earliestDay` is the other new field here, and it is not one of
 the five shapes — it is what makes **Tokens** honest on a calendar. It is the
-earliest day the ledger has *any* row for, unwindowed, so the heatmap can tell
-a day before the scan started (drawn as "no record yet") from a day the scan
-covered where nothing was actually spent (a real zero). `daysCovered` answers
-"how much of the window I asked for came back"; `earliestDay` answers "how far
-back does this agent's history go at all," and the two are read for different
-questions.
+earliest day the ledger has *any* row for, unwindowed — not a scan horizon,
+since the scan reads every file each time: a day before `earliestDay` simply
+has no record and draws as "no record yet," while a day at or after it with
+no row had no recorded use (for session-total runtimes — OpenCode, Cline —
+whose whole session lands on the day it was last touched, a gap is not proof
+the agent was idle throughout). `daysCovered` answers "how much of the window
+I asked for came back"; `earliestDay` answers "how far back does this
+agent's history go at all," and the two are read for different questions.
 
 ## The screen
 

@@ -118,10 +118,11 @@ export interface SpendCoverage {
    * scope yet.
    *
    * This is how the Dashboard heatmap tells "no record yet" from a real zero:
-   * a day before `earliestDay` was never scanned and draws as unknown, a day
-   * at or after it with no row is a day the agent was not used. Optional so
-   * an old report — which drew every day before its own boot the same way —
-   * still validates.
+   * a day before `earliestDay` has no record and draws as unknown; a day at
+   * or after it with no row had no recorded use (for session-total runtimes
+   * — OpenCode, Cline — a multi-day session lands on its last day, so a gap
+   * is not proof the agent was idle throughout). Optional so an old report —
+   * which drew every day before its own boot the same way — still validates.
    */
   readonly earliestDay?: number | null
 }
@@ -279,15 +280,21 @@ export interface LedgerRow {
    * kept only so a caller can show "of which N reasoning" without minting a
    * second total that would double-count if added in.
    *
-   * Every scanner also normalises `input` to exclude the cache before it is
-   * stored: Codex subtracts `cached_input_tokens` out of `input_tokens`,
-   * Claude's `input_tokens` already excludes both cache fields on arrival,
-   * and Gemini/Qwen subtract `cached` from `prompt` before adding the
-   * tool-use tokens back in (see `fromGeminiCounts` and the Codex/Claude scans
-   * in `ledger/scan.ts`). So a cache-hit rate is always
+   * Four of the five scanners also normalise `input` to exclude the cache
+   * before it is stored: Codex subtracts `cached_input_tokens` out of
+   * `input_tokens`, Claude's `input_tokens` already excludes both cache
+   * fields on arrival, Gemini/Qwen subtract `cached` from `prompt` before
+   * adding the tool-use tokens back in, and OpenCode does the same (see
+   * `fromGeminiCounts` and the Codex/Claude/OpenCode scans in
+   * `ledger/scan.ts`). For those four, a cache-hit rate is always
    * `cacheRead / (input + cacheRead)` — the share of the *input* side that
    * came from cache — never `cacheRead / tokens`, which would dilute it with
    * output that was never a cache candidate.
+   *
+   * Cline is the fifth, and the odd one out: its `input` is stored exactly
+   * as Cline's own database records it, and whether that figure already
+   * includes cache reads has not been measured here, so a cache-hit rate for
+   * the `cline` runtime is not defined yet.
    *
    * `requests` is the call count the group's `tokens` and `cost` were summed
    * over — the same count `SpendCoverage.priced` / `unpriced` partition.

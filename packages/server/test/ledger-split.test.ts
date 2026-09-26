@@ -165,6 +165,80 @@ test('the token split sums per day, per row and in the window totals, across two
     { input: 300, output: 60, reasoning: 5, requests: 1 },
   )
 
+  // Every row in this fixture shares one project, so grouping by project
+  // must fold the lot into a single row whose split equals the window
+  // totals exactly — nothing escapes the pivot, whichever axis it is cut on.
+  const byProject = ledger.query({ days: 30, groupBy: 'project' })
+  assert.equal(byProject.rows.length, 1, 'every row in this fixture shares one project')
+  const project = byProject.rows[0]
+  assert.deepEqual(
+    { input: project?.input, output: project?.output, cacheRead: project?.cacheRead, cacheWrite: project?.cacheWrite, reasoning: project?.reasoning, requests: project?.requests },
+    byProject.totals,
+  )
+
+  ledger.close()
+})
+
+test('a vendored row and an unvendored row for the same day, model and project are two store rows, both counted', async () => {
+  const dir = scratch()
+  const dbPath = join(dir, 'usage.sqlite')
+
+  // `vendored` is part of the store's primary key precisely so a request the
+  // agent priced itself and one we have to price never collide on a shared
+  // day/model/project — they are two rows by design (see `scan.ts`'s
+  // recording key), not one overwriting the other.
+  const store = new LedgerStore(dbPath)
+  store.commit(
+    { path: '/vendored', size: 1, mtime: 1, offset: 1, tail: [] },
+    [
+      row({
+        file: '/vendored',
+        day: NOON,
+        runtime: 'opencode',
+        model: 'gpt-5.6-sol',
+        project: '/p',
+        input: 40,
+        output: 10,
+        requests: 1,
+        vendorCost: 0.01,
+      }),
+    ],
+    NOON,
+    false,
+  )
+  store.commit(
+    { path: '/unvendored', size: 1, mtime: 1, offset: 1, tail: [] },
+    [
+      row({
+        file: '/unvendored',
+        day: NOON,
+        runtime: 'opencode',
+        model: 'gpt-5.6-sol',
+        project: '/p',
+        input: 60,
+        output: 20,
+        requests: 1,
+      }),
+    ],
+    NOON,
+    false,
+  )
+  store.close()
+
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: dbPath,
+    corpora: [],
+    pricing: await noRatesPricing(dir),
+    now: () => NOON,
+  })
+
+  const byModel = ledger.query({ days: 30, groupBy: 'model' })
+  const sol = byModel.rows.find((entry) => entry.key === 'gpt-5.6-sol')
+  assert.equal(sol?.requests, 2, 'both requests are counted — the vendored row did not overwrite the unvendored one')
+  assert.deepEqual({ input: sol?.input, output: sol?.output }, { input: 100, output: 30 })
+  assert.equal(sol?.hasUnpriced, true, 'the unvendored row still has no rates, so the group still carries an unpriced request')
+
   ledger.close()
 })
 
