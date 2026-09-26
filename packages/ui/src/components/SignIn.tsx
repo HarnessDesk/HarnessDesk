@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type {
   AcpRegistryAgentInfo,
@@ -20,6 +20,7 @@ import { isDesktop, openExternal } from '../lib/desktop'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
+import { AppWindowMode } from './AppWindow'
 import { RuntimeMark } from './BrandIcons'
 import { Prose } from './Prose'
 import {
@@ -180,6 +181,7 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
 export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const embedded = useContext(AppWindowMode) === 'embedded'
 
   const rows = useMemo(
     () => snapshot.runtimes.map((info) => rowFor(info, snapshot)),
@@ -238,13 +240,17 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
   ].filter((group) => group.rows.length > 0)
 
   return (
-    <DialogRoot open onOpenChange={(open) => { if (!open) close() }}>
+    /* Embedded — a catalogue specimen — it is not modal and takes no focus,
+       as `AppWindow` is not: a modal there hides the page around it from a
+       screen reader and pulls focus into itself the moment its tab opens. */
+    <DialogRoot open modal={!embedded} onOpenChange={(open) => { if (!open) close() }}>
       <DialogContent
         bleed
         className={own.dialog}
         portalled={false}
         aria-label="Sign in"
         showCloseButton={false}
+        {...(embedded ? { initialFocus: false, finalFocus: false } : {})}
       >
         {/* The head every dialog wears: its name, one inset, the rule under
             it and the way out. Closing through it is the root's own close. */}
@@ -1065,6 +1071,89 @@ const SignOut = ({ runtime, lead }: { runtime: RuntimeId; lead?: ReactNode }) =>
 }
 
 /**
+ * The code a sign-in asked to have pasted into it.
+ *
+ * Some agents' sign-in commands take the result of the browser page two ways:
+ * the page hands it back by itself, or — when it cannot reach the command —
+ * shows a code and the command waits on its input for it. The desk runs the
+ * command in the background, so that input is this field. Offered from the
+ * moment the command asks, because the page decides which way it goes, and
+ * only the person looking at it knows.
+ *
+ * The code is a secret: a password field, never in the store, gone from this
+ * field the moment it is sent, whichever way the sending went.
+ */
+const PasteCode = ({
+  runtime,
+  refusals,
+  actions,
+}: {
+  runtime: RuntimeId
+  /** How many pastes the sign-in has refused; one more than when the last was sent means it asks again. */
+  refusals: number
+  actions: ReactNode
+}) => {
+  const store = useStore()
+  // In a catalogue the field stands still: taking focus there takes it from the page around it.
+  const embedded = useContext(AppWindowMode) === 'embedded'
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  // The refusal count when the last code went, or null when none has gone yet.
+  const [sentAt, setSentAt] = useState<number | null>(null)
+  const waiting = sentAt !== null && sentAt === refusals
+  const refused = refusals > 0 && !waiting
+
+  const send = async (): Promise<void> => {
+    const code = value.trim()
+    if (!code || busy) return
+    setBusy(true)
+    setValue('')
+    const at = refusals
+    const ok = await store.submitLoginCode(runtime, code)
+    setBusy(false)
+    setSentAt(ok ? at : null)
+  }
+
+  return (
+    <div className={own.stack} data-slot="sign-in-paste-code">
+      <Field
+        label="Paste the authentication code"
+        {...(refused
+          ? { error: 'That code didn\u2019t work. Paste the whole code from the browser page, then send it again.' }
+          : {
+              hint: waiting
+                ? 'Sent. This window updates once the agent accepts it.'
+                : 'From the browser page that just opened, if it shows one.',
+            })}
+      >
+        {(control) => (
+          <Input
+            {...control}
+            type="password"
+            variant="code"
+            value={value}
+            autoFocus={!embedded}
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="Authentication code"
+            onChange={(event) => setValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void send()
+            }}
+          />
+        )}
+      </Field>
+      <div className={own.row}>
+        <Button variant="default" className={own.grow} disabled={!value.trim() || busy} onClick={() => void send()}>
+          {busy ? 'Sending…' : 'Send code'}
+        </Button>
+        {actions}
+      </div>
+    </div>
+  )
+}
+
+/**
  * Waiting on the user, showing exactly what the runtime handed back.
  *
  * `alreadyAs` is the account this agent is already signed in as, and is set
@@ -1086,6 +1175,22 @@ const Pending = ({
 }) => {
   const store = useStore()
   const start = login.start
+  const actions = (
+    <>
+      {/* Only where there is a page to open. An agent that opened the
+          browser from inside its own `authenticate` never said which URL
+          it used, so the button would have nowhere to go (#749); the wait
+          and the cancel are the whole of what this flow offers then. */}
+      {start.url ? (
+        <Button variant="secondary" onClick={() => openExternal(start.url!)}>
+          {start.type === 'browser' ? 'Open the page again' : 'Open the page'}
+        </Button>
+      ) : null}
+      <Button variant="ghost" onClick={() => void store.cancelLogin(runtime)}>
+        Cancel
+      </Button>
+    </>
+  )
   return (
     <div className={own.stack}>
       <StatusSummary
@@ -1105,20 +1210,12 @@ const Pending = ({
         </CodeText>
       )}
 
-      <div className={own.row}>
-        {/* Only where there is a page to open. An agent that opened the
-            browser from inside its own `authenticate` never said which URL
-            it used, so the button would have nowhere to go (#749); the wait
-            and the cancel are the whole of what this flow offers then. */}
-        {start.url ? (
-          <Button variant="secondary" onClick={() => openExternal(start.url!)}>
-            {start.type === 'browser' ? 'Open the page again' : 'Open the page'}
-          </Button>
-        ) : null}
-        <Button variant="ghost" onClick={() => void store.cancelLogin(runtime)}>
-          Cancel
-        </Button>
-      </div>
+      {start.type === 'browser' && login.awaitingCode ? (
+        // The code's own verb leads the row the page's and the cancel's share.
+        <PasteCode runtime={runtime} refusals={login.codeRefusals ?? 0} actions={actions} />
+      ) : (
+        <div className={own.row}>{actions}</div>
+      )}
 
       {alreadyAs ? (
         <div className={own.aside}>

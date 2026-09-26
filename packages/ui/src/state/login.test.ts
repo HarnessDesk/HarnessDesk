@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 
 import { runtimeId, type AgentEvent } from '@harnessdesk/protocol'
 
-import { applyLoginCompleted, startedLogin } from './login'
+import { applyLoginAwaitsCode, applyLoginCompleted, startedLogin } from './login'
 
 /**
  * Which completions belong to the login in progress. The runtime observed
@@ -78,5 +78,40 @@ describe('applyLoginCompleted', () => {
 
   test('nothing in progress means nothing to fold', () => {
     expect(applyLoginCompleted(null, completed({}))).toBeNull()
+  })
+})
+
+describe('applyLoginAwaitsCode', () => {
+  const asks = (loginId: string): Extract<AgentEvent, { type: 'account/loginAwaitsCode' }> => ({
+    type: 'account/loginAwaitsCode',
+    runtime: runtimeId('r'),
+    loginId,
+  })
+
+  test('a start that already asked for a code opens the field from the first frame', () => {
+    const login = startedLogin('m', { type: 'browser', loginId: 'login-2', url: 'https://auth.example/start', pasteCode: true })
+    expect(login.awaitingCode).toBe(true)
+    expect(pending().awaitingCode).toBe(false)
+  })
+
+  test('a later ask opens it on the login it names', () => {
+    expect(applyLoginAwaitsCode(pending(), asks('login-2'))?.awaitingCode).toBe(true)
+  })
+
+  test('a refused paste counts, on its own login only, and asks again', () => {
+    const asked = applyLoginAwaitsCode(pending(), asks('login-2'))!
+    expect(asked.codeRefusals).toBe(0)
+    const refused = applyLoginAwaitsCode(asked, { ...asks('login-2'), refused: true })!
+    expect(refused).toMatchObject({ awaitingCode: true, codeRefusals: 1 })
+    expect(applyLoginAwaitsCode(refused, { ...asks('login-2'), refused: true })?.codeRefusals).toBe(2)
+    expect(applyLoginAwaitsCode(refused, { ...asks('login-1'), refused: true })).toBe(refused)
+  })
+
+  test('an ask for another login, or one already settled, changes nothing', () => {
+    const login = pending()
+    expect(applyLoginAwaitsCode(login, asks('login-1'))).toBe(login)
+    const settled = applyLoginCompleted(login, completed({}))
+    expect(applyLoginAwaitsCode(settled, asks('login-2'))).toBe(settled)
+    expect(applyLoginAwaitsCode(null, asks('login-2'))).toBeNull()
   })
 })

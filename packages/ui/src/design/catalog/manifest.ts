@@ -133,7 +133,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'TurnWork',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -220,6 +220,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   InspectorPanel: ['default'],
   ConversationEmptyState: ['default'],
   TurnWork: ['default'],
+  Notices: ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -301,6 +302,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
   ConversationEmptyState: ['empty'],
   TurnWork: ['default', 'expanded'],
+  Notices: ['default', 'populated', 'empty', 'warning', 'error', 'open', 'closed'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -342,6 +344,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
+  Notices: 'packages/ui/src/components/Notices.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -351,6 +354,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      in for every feature. */
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
+  Notices: 'packages/ui/src/design/explorer/boards.tsx',
   DialogForm: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   Popover: 'packages/ui/src/design/explorer/boards.tsx',
@@ -494,6 +498,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
+  ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**
@@ -525,6 +530,7 @@ export const PRODUCT_SURFACES = [
   ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/panels/Workbench.tsx', false, 'packages/ui/src/app/App.tsx', 'PanelsSurface'],
   ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx', true],
   ['surface.tools', 'tools', 'Browser, terminal and editor chrome', 'packages/ui/src/components/BrowserPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ToolsSurface'],
+  ['surface.signin', 'signin', 'Sign-in waiting for a pasted code', 'packages/ui/src/components/SignIn.tsx', false, 'packages/ui/src/app/App.tsx', 'SignInSurface'],
 ] as const
 
 export const CATALOG_ENTRIES: readonly CatalogEntry[] = [

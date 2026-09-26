@@ -226,6 +226,7 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
     case 'runtime/options':
     case 'catalog/changed':
     case 'account/loginCompleted':
+    case 'account/loginAwaitsCode':
     case 'account/changed':
     case 'notice':
     case 'error':

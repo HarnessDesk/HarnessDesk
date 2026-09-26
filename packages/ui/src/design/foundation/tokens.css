@@ -558,16 +558,6 @@ body {
   --hd-z-dialog: 100;
   --hd-z-toast: 200;
 
-  /* The floating notice stack's own measured height, plus its own gap — set
-     from JS (`App.tsx`'s `ResizeObserver` on `.hd-floatingNotices`), never
-     written by a screen. `0px` here is what every reader gets before that
-     effect has run once, and what a screen with nothing to yield to keeps.
-     A pane that can sit under the stack reads it once, at its own top edge,
-     through the system's own helper beside `.hd-floatingNotices`
-     (`app.css`) rather than reaching for this name directly, so the one
-     place that measures the stack is also the one place that says how a
-     pane leaves room for it (#913). */
-  --hd-notice-inset: 0px;
 
   /* =========================================================================
      SEMANTIC COLOUR — what a colour is for, not what it is.

@@ -29,6 +29,7 @@ test('tool bridge attributes and bounds each command', async () => {
     sequence: 1, evidence: [], posted: [], restored: false, problem: null,
   }
   const engine: TeamEngine = {
+    notify: async () => "",
     board: async () => 'x', addIntent: async () => 'x', claim: async () => 'x', claimNext: async () => 'x', awaitWork: async () => 'x',
     awaitMember: async () => 'x', conflicts: async () => 'x', complete: async () => 'x', release: async () => 'x', handoff: async () => 'x',
     status: async () => 'x', send: async () => 'x', reviewCandidates: async () => [], recordReview: refused,

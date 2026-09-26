@@ -69,6 +69,8 @@ const describe = (row: AuditRow): string => {
       return `Approval answered: ${row.decision ?? 'decided'}`
     case 'approval/autoDecided':
       return `${row.decision === 'approve' ? 'Approved' : 'Denied'} by policy rule “${row.rule}”`
+    case 'person/notice':
+      return row.decision?.startsWith('sent') ? 'Messaged you' : `A message to you was refused (${row.decision?.replace('refused-', '') ?? 'refused'})`
     case 'library/write': {
       const verb = (row.op && LIBRARY_VERB[row.op]) ?? 'Changed'
       const what = `${verb} ${row.name ?? 'a library item'}`

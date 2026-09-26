@@ -927,6 +927,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'routes/delete': shape({ id: isString }),
   'runtime/login': shape({ runtime: isString, method: isString }),
   'runtime/login/cancel': shape({ runtime: isString, loginId: isString }),
+  // `isString` names the type it expected, never the value it got, so a code refused here is not repeated.
+  'runtime/login/code': shape({ runtime: isString, loginId: isString, code: isString }),
   'runtime/logout': shape({ runtime: isString }),
   'runtime/account/add': shape({
     runtime: isString,

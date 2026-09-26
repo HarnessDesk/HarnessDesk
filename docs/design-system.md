@@ -274,7 +274,6 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-z-sheet` | `60` |
 | `--hd-z-dialog` | `100` |
 | `--hd-z-toast` | `200` |
-| `--hd-notice-inset` | `0px` |
 
 ### The solid
 
@@ -1283,6 +1282,68 @@ and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
 Nothing in the body needs spacing of its own. A `flush` body is a list and
 is not a form, so it keeps the page's parts.
 
+### `NoticeCard`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The card at the foot of the sidebar. It holds every waiting message but
+shows one, so the column never grows a stack; the pager says how many.
+
+### `ComposerNotice`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+A message about the conversation it sits over, fastened to the top of that
+conversation's composer — the control it is about. A calm bar the
+composer's own width: the tone is in the tile, the words wrap, and the
+action sits at the right as a small button.
+
+### `ComposerNoticeStack`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The composer notices, stacked over the composer they are about.
+
+### `NoticeStrip`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+One slim line above a pane, one message at a time.
+
+### `InboxList`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The inbox: messages kept until they are cleared, newest first, under
+"Today" and "Earlier". Each is a flat row — the sender's tile, the title
+with its time at the right, who and why under it, at most one thing to do.
+The whole row is one press: it marks the message read and, when the
+message has a place (`go`), goes there. Unread rows carry a dot and the
+heavier title; "Unread" narrows the list to them. New rows rise in.
+
+### `InboxPanel`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The bell and the inbox behind it. The bell carries the unread count in its
+own tint; the inbox opens beside it as a panel of its own, wide enough for
+a card to read in two lines, rather than folding into a menu.
+
+### `showToast`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+A result, said as a toast: the same message shape, through the registry's
+Sonner so every toast in the app looks the same.
+
+### `showProgress`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+A result that takes a moment: one toast that says it is under way and then
+turns into how it ended, rather than a spinner somewhere and a second toast
+later. The promise's own value can name the ending.
+
 ### `useDismissOverlays`
 
 `packages/ui/src/design/patterns/Popover.tsx`
@@ -1669,7 +1730,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
 | `screenAppearance` | 31 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
-| `singleAreaPrimitive` | 43 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
+| `singleAreaPrimitive` | 42 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
