@@ -844,8 +844,8 @@ a confirm from the catalogue, and fails on four of them:
   wrap. A `Row`'s description wraps by default, and `truncateDesc` is the
   opt-in for one that is a name or a path.
 - **A page, section or dialog title that wraps** at 1440px.
-- **A one-word last line** in a description, a blurb, a confirm's body or a
-  message. `app.css` sets `text-wrap: pretty` on everything read as a
+- **A one-word last line** in a description, a blurb or a message. A
+  confirm's body is left to the engine's own breaks, by decision. `app.css` sets `text-wrap: pretty` on everything read as a
   sentence and `balance` on titles, so this should not need a hand.
 - **A second line every row of a group repeats**, which belongs to the group
   as one note.

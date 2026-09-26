@@ -248,11 +248,13 @@ a:hover {
  * halves rather than a full line over a stray word.
  *
  * Everything else read as a sentence — a paragraph, a list item, a page's
- * blurb, a description, a confirm's body, a message — is `pretty`: it keeps
+ * blurb, a description, a message — is `pretty`: it keeps
  * the full measure and only reflows the last lines to avoid leaving a word
  * alone. `balance` was tried on these too and rejected on sight: it evened
  * a confirm's body into short lines and left half the dialog empty. A
- * rare one-word last line is the lesser fault.
+ * confirm's body keeps the engine's own greedy breaks: its first lines run
+ * the dialog's full width, which read better there than a reflowed pair
+ * that saves one word from the last line.
  *
  * Both are `:where()`, so a component that decides its own wrapping (a code
  * block, a truncated name) still wins without a fight. The bodies are named
@@ -263,7 +265,7 @@ a:hover {
   text-wrap: balance;
 }
 
-:where(p, li, dd, [data-slot$='-description'], [data-slot$='-blurb'], [data-slot='confirm-body'], [data-slot='channel-body']) {
+:where(p, li, dd, [data-slot$='-description'], [data-slot$='-blurb'], [data-slot='channel-body']) {
   text-wrap: pretty;
 }
 

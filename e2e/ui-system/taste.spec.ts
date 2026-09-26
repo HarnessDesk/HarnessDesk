@@ -12,8 +12,9 @@
  * - A title stays on one line at the width the app is drawn for. A page's
  *   name, a section's label and a dialog's question are names, and a name that
  *   wraps at 1440px is a sentence wearing a title's type.
- * - Nothing read as a sentence ends on a one-word line. "afterwards." used to
- *   stand alone under a confirm's question.
+ * - Nothing read as a sentence ends on a one-word line. A confirm's body is
+ *   the exception, by owner decision: its greedy breaks, full-width first
+ *   lines and all, read better than a reflow that rescues one word.
  * - A second line every row of a group repeats belongs to the group, once.
  *   The room roster said "has not used the board" four times.
  */
@@ -76,7 +77,6 @@ const SENTENCES = [
   '[class*="rowDesc"]',
   '[class*="pageBlurb"]',
   '[class*="detailBlurb"]',
-  '[data-slot="confirm-body"]',
   '[data-slot="channel-body"]',
   '[role="dialog"] p',
   '[role="alertdialog"] p',
@@ -146,7 +146,7 @@ test('nothing read as a sentence ends on a one-word line', async ({ page }) => {
   expect(await widows(page, '[data-taste]')).toEqual([])
 })
 
-test('a confirm reads whole, on balanced lines, with no word left alone', async ({ page }) => {
+test('a confirm reads whole, and its title stays on one line', async ({ page }) => {
   await page.goto('/design.html')
   await page.getByRole('navigation').getByRole('button', { name: 'Dialog · ConfirmDialog', exact: true }).click()
   await page.getByRole('button', { name: 'Delete conversation', exact: true }).click()
@@ -155,7 +155,6 @@ test('a confirm reads whole, on balanced lines, with no word left alone', async 
   const root = '[role="alertdialog"]'
   expect(await cutSentences(page, root)).toEqual([])
   expect(await wrappedTitles(page, root)).toEqual([])
-  expect(await widows(page, root)).toEqual([])
 })
 
 test('a second line every row of a group repeats is said once, for the group', async ({ page }) => {
