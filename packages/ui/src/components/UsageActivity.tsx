@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { LedgerReport, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
 
 import {
+  agentLevels,
   busiestDay,
   busiestWeekday,
   buildAgentRows,
@@ -11,9 +12,10 @@ import {
   dayLabelLong,
   isUnpricedCost,
   leadingAgent,
-  quartileLevels,
   streaksFor,
+  toGridCell,
   WEEKDAY_NAMES,
+  yearLevels,
   type HeatCell,
   type HeatMetric,
 } from '../lib/heat'
@@ -31,9 +33,7 @@ import {
   SectionHead,
   Segmented,
   Text,
-  type HeatGridCell,
   type HeatGridRow,
-  type HeatGridTooltip,
 } from '../design'
 import styles from './UsageActivity.module.css'
 
@@ -47,10 +47,13 @@ import styles from './UsageActivity.module.css'
  * belongs to that band alone, and a heatmap of four weeks is not a calendar.
  * It still follows the rail's scope, like every band on this screen.
  *
- * The arithmetic — which day is "not scanned" rather than empty, where the
+ * The arithmetic — which day is "no record yet" rather than empty, where the
  * quartile breakpoints fall, the streaks, the busiest day — lives in
  * `lib/heat.ts` and is tested without a browser; this file only draws, the
- * rule the rest of the Dashboard keeps.
+ * rule the rest of the Dashboard keeps. `toGridCell` and `cellLabel` live
+ * there too, so this band and the catalogue board's own chart-kit example
+ * call the same code rather than keeping two copies that can quietly
+ * disagree (review #990, item 4).
  */
 
 type View = 'year' | 'agent'
@@ -71,10 +74,19 @@ export const UsageActivity = ({
   byId,
   scope,
   now,
+  scanFinishedAt,
 }: {
   byId: ReadonlyMap<RuntimeId, RuntimeInfo>
   scope: RuntimeId | null
   now: number
+  /**
+   * Refetches the ledger once a scan finishes — the same signal the money
+   * band above already refreshes on. Without it, opening the Dashboard
+   * during the first scan left this band showing whatever partial (or
+   * empty) report it queried at mount, while every other band on the
+   * screen moved on (review #990, item 7).
+   */
+  scanFinishedAt?: number | null
 }) => {
   const store = useStore()
   const [view, setView] = useState<View>('year')
@@ -91,12 +103,15 @@ export const UsageActivity = ({
     return () => {
       cancelled = true
     }
-  }, [store, scope])
+  }, [store, scope, scanFinishedAt])
 
   const currency = ledger?.currency ?? 'USD'
   const format = (value: number): string => (metric === 'tokens' ? formatTokens(value) : (formatMoney(value, currency) ?? '—'))
   const nameOf = (id: RuntimeId): string => byId.get(id)?.presentation.name ?? String(id)
-  const markOf = (id: RuntimeId): RuntimeInfo => byId.get(id) ?? ({ id, presentation: { name: String(id) } } as RuntimeInfo)
+  // Skip the mark rather than draw one for a runtime `byId` has never heard
+  // of: the earlier `as RuntimeInfo` cast built an object missing every
+  // field the type promises `RuntimeMark` will find (review #990, item 16).
+  const markOf = (id: RuntimeId): RuntimeInfo | undefined => byId.get(id)
 
   const year = useMemo(() => buildYearGrid(ledger, now), [ledger, now])
   const yearCells = useMemo(() => year.weeks.flatMap((week) => week.filter((cell): cell is HeatCell => cell !== null)), [year])
@@ -105,9 +120,12 @@ export const UsageActivity = ({
   const agentRows = useMemo(() => buildAgentRows(recentCells, metric), [recentCells, metric])
 
   const inView = view === 'year' ? yearCells : recentCells
+  // Year levels off the combined per-day totals; By agent has to level off
+  // each agent's own cells instead, or a lighter agent's busiest day almost
+  // never clears the heaviest agent's first quartile (review #990, item 4).
   const levelOf = useMemo(
-    () => quartileLevels(inView.map((cell) => (metric === 'tokens' ? cell.tokens : cell.cost))),
-    [inView, metric],
+    () => (view === 'year' ? yearLevels(yearCells, metric) : agentLevels(agentRows, metric)),
+    [view, yearCells, agentRows, metric],
   )
 
   const streaks = useMemo(() => streaksFor(inView, metric), [inView, metric])
@@ -128,50 +146,13 @@ export const UsageActivity = ({
   today.setHours(0, 0, 0, 0)
   const todayKey = today.getTime()
 
-  const cellLabel = (cell: HeatCell): string => {
-    if (!cell.scanned) return `${dayLabelLong(cell.day)}: not scanned`
-    if (metric === 'cost' && isUnpricedCost(cell)) return `${dayLabelLong(cell.day)}: usage recorded, not priced`
-    const value = metric === 'tokens' ? cell.tokens : cell.cost
-    if (value <= 0) return `${dayLabelLong(cell.day)}: nothing`
-    return `${dayLabelLong(cell.day)}: ${formatTokens(cell.tokens)} tokens, ${formatMoney(cell.cost, currency) ?? 'unpriced'}`
-  }
-
-  // `rowKey` disambiguates the cell's own key across rows: Year has one row
-  // per weekday and each day appears in exactly one of them, but By agent
-  // repeats every day once per agent row, and two agents' cells for the same
-  // day would otherwise collide in the grid's sr-only list.
-  const toGridCell = (cell: HeatCell, rowKey = ''): HeatGridCell => {
-    const value = metric === 'tokens' ? cell.tokens : cell.cost
-    const notScanned = !cell.scanned || (metric === 'cost' && isUnpricedCost(cell))
-    const parts = [...cell.parts].sort((a, b) => (metric === 'tokens' ? b.tokens - a.tokens : b.cost - a.cost))
-    const top = parts.slice(0, 3)
-    const rest = parts.length - top.length
-
-    const tooltip: HeatGridTooltip | undefined =
-      cell.scanned && !notScanned && value > 0
-        ? {
-            title: dayLabelLong(cell.day),
-            rows: top.map((part) => ({
-              key: String(part.runtime),
-              label: nameOf(part.runtime),
-              value: metric === 'tokens' ? formatTokens(part.tokens) : (formatMoney(part.cost, currency) ?? '—'),
-            })),
-            more: rest > 0 ? rest : undefined,
-            footer: { label: 'Total', value: `${formatTokens(cell.tokens)} tokens · ${formatMoney(cell.cost, currency) ?? '—'}` },
-          }
-        : notScanned
-          ? { title: dayLabelLong(cell.day), note: cellLabel(cell).split(': ')[1] ?? cellLabel(cell) }
-          : undefined
-
-    return {
-      key: rowKey ? `${rowKey}:${cell.day}` : String(cell.day),
-      level: notScanned ? 0 : levelOf(value),
-      state: notScanned ? 'not-scanned' : value > 0 ? 'filled' : 'empty',
-      today: cell.day === todayKey,
-      ariaLabel: cellLabel(cell),
-      tooltip,
-    }
-  }
+  // The figure the facts card leads with. A scope nothing in it can be
+  // priced reads `ledger.totalCost === null`, the same signal the money
+  // band already keys "unpriced" off — not a `$0` that reads as a real,
+  // priced total of nothing (review #990, item 6).
+  const totalUnpriced = metric === 'cost' && ledger?.totalCost === null
+  const totalLabel = totalUnpriced ? 'unpriced' : format(total)
+  const somePartiallyUnpriced = metric === 'cost' && !totalUnpriced && (ledger?.coverage.unpriced ?? 0) > 0
 
   const rows: readonly HeatGridRow[] =
     view === 'year'
@@ -182,20 +163,25 @@ export const UsageActivity = ({
           header: [0, 2, 4].includes(weekday) ? <Text role="meta">{name.slice(0, 3)}</Text> : undefined,
           cells: year.weeks.map((week) => {
             const cell = week[weekday]
-            return cell ? toGridCell(cell) : null
+            return cell ? toGridCell(cell, metric, levelOf, { currency, today: todayKey, nameOf }) : null
           }),
         }))
-      : agentRows.map((row) => ({
-          key: String(row.runtime),
-          header: (
-            <span className="flex items-center gap-1.5">
-              <RuntimeMark runtime={markOf(row.runtime)} size={13} />
-              <Text role="row">{nameOf(row.runtime)}</Text>
-              <Text role="meta">{format(row.total)}</Text>
-            </span>
-          ),
-          cells: row.cells.map((cell) => toGridCell(cell, String(row.runtime))),
-        }))
+      : agentRows.map((row) => {
+          const mark = markOf(row.runtime)
+          return {
+            key: String(row.runtime),
+            header: (
+              <span className="flex items-center gap-1.5">
+                {mark && <RuntimeMark runtime={mark} size={13} />}
+                <Text role="row">{nameOf(row.runtime)}</Text>
+                <Text role="meta">{format(row.total)}</Text>
+              </span>
+            ),
+            cells: row.cells.map((cell) =>
+              toGridCell(cell, metric, levelOf, { currency, today: todayKey, rowKey: String(row.runtime), nameOf }),
+            ),
+          }
+        })
 
   const columns = view === 'year' ? 53 : AGENT_SPAN_DAYS
 
@@ -216,8 +202,11 @@ export const UsageActivity = ({
       <ChartFrame>
         <ChartCard className={styles.facts}>
           <div className={styles.fact}>
-            <Text role="metric">{format(total)}</Text>
-            <Text role="meta">{view === 'year' ? 'this year' : 'last 13 weeks'}</Text>
+            <Text role="metric">{totalLabel}</Text>
+            <Text role="meta">
+              {view === 'year' ? 'this year' : 'last 13 weeks'}
+              {somePartiallyUnpriced ? ' · some unpriced' : ''}
+            </Text>
           </div>
           <div className={styles.fact}>
             <Text role="metric">{activeCount}</Text>
@@ -228,7 +217,13 @@ export const UsageActivity = ({
             <Text role="meta">streak · best {streaks.best}</Text>
           </div>
           <div className={styles.fact}>
-            <Text role="metric">{busiest ? format(metric === 'tokens' ? busiest.tokens : busiest.cost) : '—'}</Text>
+            <Text role="metric">
+              {busiest
+                ? metric === 'cost' && isUnpricedCost(busiest)
+                  ? 'unpriced'
+                  : format(metric === 'tokens' ? busiest.tokens : busiest.cost)
+                : '—'}
+            </Text>
             <Text role="meta">{busiest ? dayLabelLong(busiest.day) : 'busiest day'}</Text>
           </div>
           {view === 'year' && (

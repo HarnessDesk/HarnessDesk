@@ -163,12 +163,13 @@ import {
   WorkbenchScrim,
 } from '../patterns/DockPanel'
 import { CodeText, Row, Rows, SectionHead, Text } from '../patterns/Settings'
-import { HeatGrid, HeatLegend, type HeatGridCell, type HeatGridRow } from '../patterns/HeatGrid'
+import { HeatGrid, HeatLegend, type HeatGridRow } from '../ui/heat-grid'
 import {
+  agentLevels,
   buildAgentRows,
   buildYearGrid,
-  isUnpricedCost,
-  quartileLevels,
+  toGridCell,
+  yearLevels,
   type HeatCell,
   type HeatMetric,
 } from '@/lib/heat'
@@ -1174,43 +1175,15 @@ const heatLedger = ({ days, notScanned = 0, unpricedDay = false }: { days: numbe
   } as LedgerReport
 }
 
-const heatCellLabel = (cell: HeatCell, metric: HeatMetric): string => {
-  const day = new Date(cell.day).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
-  if (!cell.scanned) return `${day}: not scanned`
-  const value = metric === 'tokens' ? cell.tokens : cell.cost
-  if (metric === 'cost' && isUnpricedCost(cell)) return `${day}: usage recorded, not priced`
-  return value > 0 ? `${day}: ${value.toLocaleString()}` : `${day}: nothing`
-}
-
-const heatToGridCell = (
-  cell: HeatCell,
-  metric: HeatMetric,
-  levelOf: (value: number) => HeatGridCell['level'],
-  // Disambiguates the key across rows: By agent repeats every day once per
-  // agent row, and two agents' cells for the same day would otherwise
-  // collide in the grid's sr-only list.
-  rowKey = '',
-): HeatGridCell => {
-  const value = metric === 'tokens' ? cell.tokens : cell.cost
-  const notScanned = !cell.scanned || (metric === 'cost' && isUnpricedCost(cell))
-  return {
-    key: rowKey ? `${rowKey}:${cell.day}` : String(cell.day),
-    level: notScanned ? 0 : levelOf(value),
-    state: notScanned ? 'not-scanned' : value > 0 ? 'filled' : 'empty',
-    ariaLabel: heatCellLabel(cell, metric),
-  }
-}
-
 /** The year grid, transposed from `buildYearGrid`'s weeks-of-weekdays into `HeatGrid`'s rows-of-weeks. */
 const heatYearRows = (ledger: LedgerReport | null, metric: HeatMetric): { rows: HeatGridRow[]; columns: number } => {
   const grid = buildYearGrid(ledger, HEAT_NOW)
-  const values = grid.weeks.flatMap((week) => week.filter((cell): cell is HeatCell => cell !== null).map((cell) => (metric === 'tokens' ? cell.tokens : cell.cost)))
-  const levelOf = quartileLevels(values)
+  const levelOf = yearLevels(grid.weeks.flatMap((week) => week.filter((cell): cell is HeatCell => cell !== null)), metric)
   const rows = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((name, weekday) => ({
     key: name,
     cells: grid.weeks.map((week) => {
       const cell = week[weekday]
-      return cell ? heatToGridCell(cell, metric, levelOf) : null
+      return cell ? toGridCell(cell, metric, levelOf) : null
     }),
   }))
   return { rows, columns: grid.weeks.length }
@@ -1219,11 +1192,11 @@ const heatYearRows = (ledger: LedgerReport | null, metric: HeatMetric): { rows: 
 const heatAgentRows = (ledger: LedgerReport | null, metric: HeatMetric, byId: Readonly<Record<string, string>>): { rows: HeatGridRow[]; columns: number } => {
   const cells = buildYearGrid(ledger, HEAT_NOW).weeks.slice(-13).flatMap((week) => week.filter((cell): cell is HeatCell => cell !== null))
   const agentRows = buildAgentRows(cells, metric)
-  const levelOf = quartileLevels(agentRows.flatMap((row) => row.cells.map((cell) => (metric === 'tokens' ? cell.tokens : cell.cost))))
+  const levelOf = agentLevels(agentRows, metric)
   const rows = agentRows.map((row) => ({
     key: String(row.runtime),
     header: <Text role="meta">{byId[String(row.runtime)] ?? String(row.runtime)}</Text>,
-    cells: row.cells.map((cell) => heatToGridCell(cell, metric, levelOf, String(row.runtime))),
+    cells: row.cells.map((cell) => toGridCell(cell, metric, levelOf, { rowKey: String(row.runtime) })),
   }))
   return { rows, columns: cells.length / 7 }
 }
@@ -1336,7 +1309,7 @@ const ChartKitBoard = () => {
       reported is drawn hollow rather than as zero.
     </Rule>
     <Rule>
-      The calendar heatmap — <code>design/patterns/HeatGrid.tsx</code>, mounted as the Dashboard's
+      The calendar heatmap — <code>design/ui/heat-grid.tsx</code>, mounted as the Dashboard's
       &ldquo;When it ran&rdquo; band (<code>components/UsageActivity.tsx</code>, live on the Dashboard
       surface board) — levels its cells from the data's own quartiles rather than a fixed scale, so
       one outlier day cannot wash out the rest of the grid. Not-scanned and zero are drawn
