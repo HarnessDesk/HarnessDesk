@@ -180,4 +180,36 @@ describe('a card a Goal’s run addressed to the person', () => {
     expect(place({ intent: intent({ id: 2, state: 'open', role: 'close' }), runStopped: true })).toEqual({ column: 'needs', why: 'run stopped' })
     expect(place({ intent: intent({ state: 'abandoned' }), runStopped: true })).toEqual({ column: 'aside', why: null })
   })
+
+  /*
+   * A run's stall holds whoever it is still waiting on — never a card that
+   * already answered. Three reviewers on one round: the first approved
+   * before a teammate's card stalled the run on its usage limit, and the
+   * board once put all three in Needs you, the finished one included.
+   */
+  it('a finished card of a stalled round stays out of Needs you, and its still-unfinished siblings stay in it', () => {
+    const stalled = execution([2, 3, 4], 'stalled')
+    const approved = intent({ id: 2, state: 'done', role: 'close', outcome: 'closed' })
+    const waiting = intent({ id: 3, state: 'open', role: 'close' })
+    const held = intent({ id: 4, state: 'claimed', role: 'close', claim: HELD })
+
+    const approvedStep = flowStepOf(approved, undefined, [stalled])
+    expect(approvedStep?.stopped).toBe(true)
+    expect(place({ intent: approved, forPerson: approvedStep?.kind === 'person', runStopped: approvedStep?.stopped ?? false })).toEqual({
+      column: 'ready',
+      why: null,
+    })
+
+    const waitingStep = flowStepOf(waiting, undefined, [stalled])
+    expect(place({ intent: waiting, forPerson: waitingStep?.kind === 'person', runStopped: waitingStep?.stopped ?? false })).toEqual({
+      column: 'needs',
+      why: 'needs your answer',
+    })
+
+    const heldStep = flowStepOf(held, undefined, [stalled])
+    expect(place({ intent: held, forPerson: heldStep?.kind === 'person', runStopped: heldStep?.stopped ?? false })).toEqual({
+      column: 'needs',
+      why: 'run stopped',
+    })
+  })
 })

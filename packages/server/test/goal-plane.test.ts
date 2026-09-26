@@ -361,6 +361,47 @@ test('a person step of a run on the Goal makes the Goal need its person', async 
   assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
 })
 
+/*
+ * A finished card must stay finished whatever its run is doing now: the
+ * placement rule #996 shared between the board and this Goal's own activity
+ * once swept an already-answered reviewer into Needs you alongside a
+ * still-unfinished teammate, because their round's run had stalled on that
+ * teammate (its account's usage limit, say). Only the unfinished one is the
+ * person's; the one that already answered keeps its outcome.
+ */
+test('a finished person step keeps its place when the run that opened it stalls', async () => {
+  const proof = await rig()
+  const document = proof.store.read('g1')
+  await proof.store.save({
+    ...document,
+    board: {
+      ...document.board, nextIntent: 4,
+      intents: [
+        intent(2, { state: 'done', role: 'reviewer', outcome: 'approve' }),
+        intent(3, { state: 'open', role: 'reviewer' }),
+      ],
+    },
+    goal: { ...document.goal, revision: 1 },
+  }, 0)
+  const stalled = {
+    version: 2, id: 'flow-1', goal: 'g1', state: 'stalled',
+    reason: 'Card #3: its Seat hit its account’s usage limit.',
+    operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'reviewer', kind: 'person', outcomes: ['approve', 'reject'] }] } },
+    rounds: [{ n: 1, role: 'reviewer', cards: [2, 3], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+  } as unknown as FlowExecution
+  proof.port.executions = () => [stalled]
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'card #3 has not answered, so the Goal still needs its person')
+
+  const answered = proof.store.read('g1')
+  await proof.store.save({
+    ...answered,
+    board: { ...answered.board, intents: [intent(2, { state: 'done', role: 'reviewer', outcome: 'approve' })] },
+    goal: { ...answered.goal, revision: 2 },
+  }, 1)
+  assert.notEqual((await proof.plane.view('g1')).activity, 'needs-you', 'an approved card is not waiting on anyone, even while its run is stalled')
+})
+
 test('a wrap holds the board before it reads it, and lets it go once it is done', async () => {
   const proof = await rig()
   const events: string[] = []
