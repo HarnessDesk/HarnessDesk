@@ -45,6 +45,7 @@ const report = (id: string, lanes: readonly UsageLane[], over: Partial<UsageRepo
   }) as unknown as UsageReport
 
 const signedIn = { accounts: [{ id: 'me' }], signInMethods: [] } as unknown as AccountStatus
+const signedOut = { accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] } as unknown as AccountStatus
 
 /** A plan with a share left and nothing else to say about it. */
 const at = (id: string, left: number, over: Partial<UsageReport> = {}): UsageReport =>
@@ -94,11 +95,23 @@ describe('the anchor', () => {
   it('asks for a sign-in when the conversation own agent has no account', () => {
     const view = strip({
       runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')],
-      accountsByRuntime: { b: signedIn } as StripInput['accountsByRuntime'],
+      accountsByRuntime: { a: signedOut, b: signedIn } as StripInput['accountsByRuntime'],
       usage: [at('b', 50)],
       sessionRuntime: runtimeId('a'),
     })
     expect(view.anchor).toEqual({ kind: 'signIn', info: expect.objectContaining({ id: 'a' }) })
+  })
+
+  it('does not ask for a sign-in before the conversation’s own agent has answered who is signed in', () => {
+    // Absent from accountsByRuntime altogether — still loading, or a read
+    // that failed silently — is not the same fact as a confirmed sign-out.
+    const view = strip({
+      runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')],
+      accountsByRuntime: { b: signedIn } as StripInput['accountsByRuntime'],
+      usage: [at('b', 50)],
+      sessionRuntime: runtimeId('a'),
+    })
+    expect(view.anchor).toBeNull()
   })
 
   it('trusts a live reading over an account list that has not arrived yet', () => {
@@ -158,7 +171,16 @@ describe('the token', () => {
     const view = strip({
       runtimes: six,
       usage: [at('a', 90), at('b', 64)],
-      accountsByRuntime: { a: signedIn, b: signedIn } as StripInput['accountsByRuntime'],
+      accountsByRuntime: {
+        a: signedIn,
+        b: signedIn,
+        // c–f have all answered, and confirmed nobody is signed in — the
+        // fixture's point is a real "Needs sign-in", not an unheard-from one.
+        c: signedOut,
+        d: signedOut,
+        e: signedOut,
+        f: signedOut,
+      } as StripInput['accountsByRuntime'],
       sessionRuntime: runtimeId('a'),
     })
     expect(view.rest?.count).toBe(5)
@@ -174,6 +196,19 @@ describe('the token', () => {
     expect(view.rest?.signIn).toBe(4)
   })
 
+  it('does not count an unanswered agent as needing sign-in', () => {
+    // b–f have never been heard from at all (still loading, or a read that
+    // failed silently) — none of them has confirmed anything, so the token
+    // must not claim four of them need a sign-in.
+    const view = strip({
+      runtimes: six,
+      usage: [at('a', 90)],
+      sessionRuntime: runtimeId('a'),
+    })
+    expect(view.rest?.signIn).toBe(0)
+    expect(view.rest?.asides.map((aside) => aside.detail)).not.toContain('Needs sign-in')
+  })
+
   it('is absent when there is nobody else', () => {
     const view = strip({ runtimes: [runtime('a', 'Agent A')], usage: [at('a', 50)], sessionRuntime: runtimeId('a') })
     expect(view.rest).toBeNull()
@@ -184,7 +219,8 @@ describe('the token', () => {
     const view = strip({
       runtimes: six,
       usage: [at('a', 90), spent('b', 2 * HOUR), at('c', 11), at('d', 55)],
-      accountsByRuntime: { e: signedIn } as StripInput['accountsByRuntime'],
+      // f has answered and confirmed nobody is signed in; e has an account.
+      accountsByRuntime: { e: signedIn, f: signedOut } as StripInput['accountsByRuntime'],
       sessionRuntime: runtimeId('a'),
     })
     expect(view.rest?.title).toBe(

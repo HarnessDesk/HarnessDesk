@@ -420,10 +420,15 @@ interface Seat {
   readonly sub: string
   readonly state: Readiness
   /**
-   * Whether the agent has answered who is signed in. Until it has, an empty
-   * account list is not an answer, and `signin` is only readiness's guess.
+   * Whether `runtime/account` has answered for this agent — not the same
+   * fact as `state !== 'unknown'`. Broken health and `capabilities.account
+   * === false` both take precedence over the account check in `readinessOf`,
+   * so an agent that never answered can still read `broken` or `ready`. Only
+   * `signin` is now readiness's own guarantee that it answered; everywhere
+   * else that needs to tell "has not answered" apart from a real fact reads
+   * this instead of the state.
    */
-  readonly known: boolean
+  readonly answered: boolean
   /** What is left of the tightest window, or null when nothing is metered. */
   readonly figure: string | null
   readonly tone: 'good' | 'warn' | 'bad'
@@ -441,6 +446,7 @@ const domainOf = (account: Account | null): string | null => {
 const readinessTone = (state: Readiness): Tone | undefined => ({
   ready: undefined,
   available: undefined,
+  unknown: undefined,
   signin: 'brand',
   limit: 'warning',
   broken: 'danger',
@@ -489,6 +495,7 @@ export const AccountFooter = ({
     })
     const accounts = status?.accounts ?? []
     const current = info.id === snapshot.activeRuntime
+    const answered = status !== null
 
     if (accounts.length === 0) {
       return [
@@ -497,11 +504,14 @@ export const AccountFooter = ({
           info,
           account: null,
           name: info.presentation.name,
-          // Until the agent answers, readiness can only guess "Needs
-          // sign-in"; the tooltip names the agent instead of repeating it.
-          sub: status !== null ? READINESS_LABEL[state] : info.presentation.name,
+          // `state` can be a real fact — broken health, or ready for an
+          // agent that runs without one — even before the account read
+          // answers, so `state !== 'unknown'` is not "has answered". Gate on
+          // the read itself: until it answers, the tooltip names the agent
+          // rather than a word for a question it has not asked yet.
+          sub: answered ? READINESS_LABEL[state] : info.presentation.name,
           state,
-          known: status !== null,
+          answered,
           figure: usage[0]
             ? (() => {
                 const lane = describeReport(usage[0] as UsageReport, { now: Date.now(), maxLanes: 1 }).hero
@@ -530,7 +540,7 @@ export const AccountFooter = ({
         name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
         sub: accountIdentity(account) || info.presentation.name,
         state,
-        known: true,
+        answered: true,
         figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
         tone: view?.blocked ? ('bad' as const) : (lane?.tone ?? ('good' as const)),
         current,
@@ -556,9 +566,10 @@ export const AccountFooter = ({
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
   // listed whatever its state: it is the chair you are in.
-  // An agent that has not answered yet is not known to be waiting, so it
-  // stays until it says so — or every agent would drop out while accounts load.
-  const chairs = seats.filter((seat) => seat.current || seat.state !== 'signin' || !seat.known)
+  // An agent that has not answered yet (`unknown`) is not known to be
+  // waiting, so it stays until it says so — or every agent would drop out
+  // while accounts load.
+  const chairs = seats.filter((seat) => seat.current || seat.state !== 'signin')
   // The list, by agent. An agent with one account is one row wearing its
   // mark. An agent with several is a heading wearing the mark once, and its
   // accounts under it as lines of their own — the agent is said by the
@@ -581,7 +592,8 @@ export const AccountFooter = ({
   // readiness word the figure slot is about to say.
   const labelOf = (seat: Seat): string =>
     groupOf(seat).length > 1 && seat.name === seat.info.presentation.name
-      ? (seat.info.slot?.gateway?.name ?? (seat.account ? seat.sub : seat.known ? 'No account' : 'Unknown account'))
+      ? (seat.info.slot?.gateway?.name ??
+          (seat.account ? seat.sub : seat.answered ? 'No account' : 'Unknown account'))
       : seat.name
   // Two rows with one name get the word that differs, and only they do.
   // Across agents that is the agent — two single rows are two agents. Under
@@ -614,7 +626,7 @@ export const AccountFooter = ({
     }
   }
 
-  const unanswered = here !== null && here.state === 'signin' && !here.known
+  const unanswered = here !== null && here.state === 'unknown'
   const accountTrigger = (
     <>
       <ProfileFace size={24} />
@@ -640,7 +652,7 @@ export const AccountFooter = ({
             size="sm"
             {...(here.account
               ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) }
-              : here.state === 'signin' && here.known
+              : here.state === 'signin'
                 ? { 'data-off': '' }
                 : {})}
           >
@@ -648,9 +660,10 @@ export const AccountFooter = ({
           </AccountMark>
         </AccountHoverCard>
       )}
-      {/* Until the default agent has answered who is signed in, readiness can
-          only guess "Needs sign-in"; the light stays neutral and says nothing
-          it does not know, as the badge beside it and the menu already do. */}
+      {/* Until the default agent has answered who is signed in, `state` is
+          `unknown` rather than a guess at "Needs sign-in"; the light stays
+          neutral and says nothing it does not know, as the badge beside it
+          and the menu already do. */}
       <Dot
         {...(unanswered ? {} : { state: here?.state ?? 'available' })}
         role="img"
@@ -753,7 +766,7 @@ export const AccountFooter = ({
                       size="sm"
                       {...(seat.account
                         ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
-                        : seat.state === 'signin' && seat.known
+                        : seat.state === 'signin'
                           ? { 'data-off': '' }
                           : {})}
                     >
@@ -762,10 +775,11 @@ export const AccountFooter = ({
                   </AccountHoverCard>
                 )
                 // What is left, where it is measured; otherwise the one word
-                // that is wrong. A ready seat with nothing metered says nothing.
+                // that is wrong. A ready seat with nothing metered says
+                // nothing, and neither does one that has not answered yet.
                 const figure: MenuAccountFigure | undefined = seat.figure
                   ? { kind: 'reading', text: seat.figure, tone: usageReadingTone(seat.tone) }
-                  : seat.state !== 'ready' && seat.state !== 'available' && (seat.known || seat.state !== 'signin')
+                  : seat.state !== 'ready' && seat.state !== 'available' && seat.state !== 'unknown'
                     ? { kind: 'word', text: READINESS_LABEL[seat.state], tone: readinessTone(seat.state) }
                     : undefined
                 return (

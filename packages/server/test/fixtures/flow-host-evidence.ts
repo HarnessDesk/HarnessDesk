@@ -180,8 +180,8 @@ export const execution = async (d: Desk, run: string): Promise<FlowExecution> =>
  * The deadline sits under each case's own timeout (`E2E`), so a stuck run
  * fails its own case with where the board and the run stood — never the
  * whole file, silently, at whatever the runner's own `--test-timeout` is.
- * That is not node:test's own doing: measured on Node 22 (the review of
- * #972 round 2), `--test-timeout` caps a test *file*'s cumulative time, not
+ * That is not node:test's own doing: measured on Node 22 (#1000's review,
+ * round 2), `--test-timeout` caps a test *file*'s cumulative time, not
  * a single case's — a per-test default on newer Node, where the same run
  * passes. A case's own longer `E2E` can only ever narrow that file-wide
  * ceiling, never widen it: a file given a runner default lower than its
