@@ -60,6 +60,7 @@ import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { MessageQueue } from '../components/MessageQueue'
 import { GoalFrames } from './frames-goals'
 import { SettingsFrames } from './frames-settings'
+import { TranscriptFrames } from './frames-transcript'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -858,6 +859,7 @@ const Preview = () => {
 
       <SettingsFrames />
       <GoalFrames />
+      <TranscriptFrames />
     </div>
   )
 }

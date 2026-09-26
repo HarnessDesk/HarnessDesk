@@ -1501,6 +1501,12 @@ class PreviewStore {
     { name: 'Google Chrome', path: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' },
   ]
   loadWorktrees = async () => {}
+  /** `BranchSwitcher`'s own list — a few ordinary branches, one of them checked out, so the switcher has something to filter and pick from. */
+  listBranches = async (): Promise<readonly { name: string; current: boolean; committedAt: number }[]> => [
+    { name: 'main', current: true, committedAt: now },
+    { name: 'feat/checkout-retry', current: false, committedAt: now - 3_600_000 },
+    { name: 'fix/worktree-listing', current: false, committedAt: now - 86_400_000 },
+  ]
   agentCatalog = async () => []
   agentsIn = async (): Promise<readonly AgentEntry[]> => PREVIEW_AGENTS
   /* `AgentFields`, `AgentNotes` and the two field-edit dialogs all wait on
@@ -1718,6 +1724,19 @@ class PreviewStore {
         return null
       }
       if (method === 'workspace/stat') return { kind: 'file', isSymlink: false, modifiedAt: now }
+      /** `FolderPicker`'s own listing — one folder deep, plain names, so the dialog has something to click into. */
+      if (method === 'workspace/browse') {
+        const path = (params as { path?: string } | undefined)?.path ?? PREVIEW_ROOT
+        return {
+          path,
+          parent: path === '/' ? null : path.split('/').slice(0, -1).join('/') || '/',
+          entries: [
+            { name: 'apps', path: `${path}/apps` },
+            { name: 'packages', path: `${path}/packages` },
+            { name: 'docs', path: `${path}/docs` },
+          ],
+        }
+      }
       if (method === 'git/log') return gitLog()
       if (method === 'git/refs') return gitRefs()
       if (method === 'git/status') return gitStatus()
