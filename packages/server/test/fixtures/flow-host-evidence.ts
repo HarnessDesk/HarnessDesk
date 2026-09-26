@@ -173,15 +173,20 @@ export const execution = async (d: Desk, run: string): Promise<FlowExecution> =>
  * step, not a whole second: what it waits for either arrives promptly or the
  * run is stuck, which the safety deadline and the dump say.
  *
- * The deadline sits under each case's own timeout (`E2E`), and that under
- * the suite's 120 s per file, so a stuck run fails its own case with where
- * the board and the run stood — never the whole file, silently, at 120 s.
- * Each case takes a few seconds alone; 32 of these files at once on one
- * machine took a case up to 85 s, which is what the margin is for.
+ * The deadline sits under each case's own timeout (`E2E`), so a stuck run
+ * fails its own case with where the board and the run stood — never the
+ * whole file, silently, at whatever the runner's own default is (each
+ * case's `E2E` replaces that default outright, so it is never the shorter of
+ * the two). Each case takes a few seconds alone; 32 of these files at once
+ * on one machine once took a case up to 85 s, which is what the margin was
+ * sized for — but a busier desk than that measurement (several other
+ * sessions building and testing at once, load averages of 30-50) has since
+ * reached this deadline itself at 92-100 s, so the margin below is wider
+ * than that one measurement, not merely equal to it.
  */
-export const SAFETY_MS = 75_000
+export const SAFETY_MS = 200_000
 /** Every end-to-end case's own timeout: past the safety deadline, so the dump lands first. */
-export const E2E = { timeout: 100_000 } as const
+export const E2E = { timeout: 260_000 } as const
 const POLL_FLOOR_MS = 50
 const POLL_CEILING_MS = 500
 export const whenChanged = async <T>(d: Desk, read: () => Promise<T | null> | T | null, what: string): Promise<T> => {
