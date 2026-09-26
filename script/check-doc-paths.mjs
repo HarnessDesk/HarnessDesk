@@ -97,6 +97,7 @@ export const ALLOWED = new Map([
   ['docs/built.md', "a maintainer's working file under the gitignored internal/, as the sentence naming it says"],
   ['packages/acp/acp/src/index.ts', "DeepSeek Harness's own tree, as the sentence naming it says"],
   ['rmcp-client/src/oauth/store_lock.rs', "DeepSeek Harness's own Rust source"],
+  ['sdk/packages/core/src/services/usage.ts', "upstream Cline's own source, quoted for evidence — not vendored here"],
   ['src/server.js', "an invented file name in a demo board card — a path in the reader's project, not this one"],
 ])
 
