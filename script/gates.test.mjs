@@ -2850,8 +2850,8 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
     assert.ok(text.includes(TEST_GLOB), `${file} runs the tests by the glob prune-dist.mjs writes`)
   }
   // The gate and CI split the four flow-host-evidence end-to-end files into
-  // their own run, at a wider `--test-timeout` than the rest (round 2 of
-  // #972's review: Node 22 caps that flag per test file, cumulatively, and
+  // their own run, at a wider `--test-timeout` than the rest (#1000's
+  // review, round 2: Node 22 caps that flag per test file, cumulatively, and
   // those four legitimately run longer than everything else combined) — an
   // exclusion plus an explicit sub-glob whose union is `TEST_GLOB`, rather
   // than the one unbroken string these two files used to hold it in. Held

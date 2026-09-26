@@ -72,8 +72,8 @@ step('node tests', () =>
     '-c',
     // Same deadline CI uses: a hung test should say its name, not time out
     // the run. On Node 22 this flag caps each test *file*'s cumulative
-    // time, not a single test's own — measured directly (round 2 of #972's
-    // review: three files each holding two 1.5s tests, each with its own
+    // time, not a single test's own — measured directly (#1000's review,
+    // round 2: three files each holding two 1.5s tests, each with its own
     // `{ timeout: 10000 }`, still failed as a whole file at the flag's
     // value). A per-test option can only ever narrow that file-cumulative
     // ceiling, never widen it. The four flow-host-evidence end-to-end files
