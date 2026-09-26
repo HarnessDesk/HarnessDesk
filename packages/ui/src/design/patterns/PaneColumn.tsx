@@ -22,7 +22,10 @@ import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject } fr
  *   scale (`var(--hd-space-3)`), not the reading column's edge at all.
  *
  * `rail` is the sidebar's own indent (`--hd-rail-inset`, a token this file
- * owns rather than a class string a screen composes around it).
+ * owns rather than a class string a screen composes around it). `rail-tight`
+ * is the same indent at a one-row control's own vertical breath — the
+ * sidebar's inline rename box, which sits in the rail's flow for exactly one
+ * row and wants less air above and below it than a whole section does.
  *
  * `clearComposer` is `reading`'s alone: only a floating composer needs its
  * measured height cleared, and only the transcript's own scroll box floats
@@ -30,7 +33,7 @@ import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject } fr
  */
 
 type ReadingInset = 'reading'
-type StaticInset = 'bars' | 'jobs' | 'rail'
+type StaticInset = 'bars' | 'jobs' | 'rail' | 'rail-tight'
 export type PaneColumnInset = ReadingInset | StaticInset
 
 /** Each inset's own inline (left/right) padding. Never a screen's prop — the
@@ -40,6 +43,7 @@ const INLINE: Record<PaneColumnInset, string> = {
   bars: 'calc(var(--hd-space-6) + var(--hd-scrollbar-width, 8px))',
   jobs: 'var(--hd-space-3)',
   rail: 'var(--hd-rail-inset)',
+  'rail-tight': 'var(--hd-rail-inset)',
 }
 
 /** Each inset's own static top-and-bottom padding — `0` unless named here.
@@ -48,6 +52,7 @@ const INLINE: Record<PaneColumnInset, string> = {
  *  always sets `clearComposer`, which computes its own vertical pair. */
 const VERTICAL: Partial<Record<PaneColumnInset, string>> = {
   reading: 'var(--hd-space-2)',
+  'rail-tight': 'var(--hd-space-1)',
 }
 
 type PaneColumnCommonProps = Omit<ComponentProps<'div'>, 'inset'>

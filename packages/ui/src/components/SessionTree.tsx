@@ -215,10 +215,9 @@ const SessionRow = ({
       {renaming ? (
         // A one-row rename box only this tree draws; no shared inline-rename
         // part exists yet, and one for a single caller would be premature.
-        // Its side padding is the rail's own inset, composed rather than
-        // the literal 8px it used to spell out; only the 4px top-and-bottom
-        // is this box's alone.
-        <PaneColumn inset="rail" style={{ paddingBlock: '4px' }}>
+        // Both its insets are the column's own named shape now: the rail's
+        // side padding, and `rail-tight`'s one-row top-and-bottom.
+        <PaneColumn inset="rail-tight">
           <Input
             variant="quiet" controlSize="compact" className={styles.renameInput}
             value={draft}

@@ -177,8 +177,9 @@ const MESSAGE_CATALOG_STATES = ['default'] as const
 const MESSAGE_CATALOG_RHYTHM = ['transcript'] as const
 /** `PaneColumn`'s own shapes: the reading column both the transcript's scroll
  *  box and the room's stream share, the bars strip above the transcript's
- *  composer, the sidebar's rail, and the jobs strip nested in the bars. */
-const PANECOLUMN_CATALOG_INSET = ['reading', 'bars', 'rail', 'jobs'] as const
+ *  composer, the sidebar's rail, its one-row `rail-tight` (the inline rename
+ *  box), and the jobs strip nested in the bars. */
+const PANECOLUMN_CATALOG_INSET = ['reading', 'bars', 'rail', 'rail-tight', 'jobs'] as const
 /** `PaneColumn` has no variant, size or state of its own — `inset` carries
  *  the whole contract — so these three match the manifest's own `['default']`. */
 const PANECOLUMN_CATALOG_VARIANTS = ['default'] as const
@@ -1371,7 +1372,11 @@ const MessageBoard = () => (
     >
       {PANECOLUMN_CATALOG_INSET.map((inset) => (
         <Case key={inset} label={`pane column: ${inset}`}>
-          <PaneColumnDemo inset={inset} data-catalog-inset={inset} rows={inset === 'rail' ? railRows : messageRows} />
+          <PaneColumnDemo
+            inset={inset}
+            data-catalog-inset={inset}
+            rows={inset === 'rail' || inset === 'rail-tight' ? railRows : messageRows}
+          />
         </Case>
       ))}
       <Case label="pane column: reading, clearing a composer">
