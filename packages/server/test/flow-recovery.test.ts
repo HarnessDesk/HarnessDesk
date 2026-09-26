@@ -283,7 +283,7 @@ test('a relaunch whose Seat was closed stalls with why, never reads as running o
   await rig.flows.flush()
   const [run] = rig.flows.executionsFor(started.goal)
   assert.equal(run!.state, 'stalled')
-  assert.match(run!.reason ?? '', /The Seat for card #1 is closed, so its card was not handed back after the desk restarted/)
+  assert.match(run!.reason ?? '', /The Seat for card #1 is closed, so its card was not handed back after the desk restarted\. This run cannot continue; start a new one to pick up the work\./)
   assert.equal(counts(rig.events).orders, orders, 'nothing was sent')
 })
 
@@ -358,7 +358,7 @@ test('a Seat closed while its run is held by a pause or the cap stalls with why 
   await rig.flows.flush()
   const [run] = rig.flows.executionsFor(triggered.goal)
   assert.equal(run!.state, 'stalled', 'a closed Seat must not leave the run reading Running')
-  assert.equal(run!.reason, `The Seat for card #${card.id} is closed, so its card was not handed back.`)
+  assert.equal(run!.reason, `The Seat for card #${card.id} is closed, so its card was not handed back. This run cannot continue; start a new one to pick up the work.`)
   assert.equal(counts(rig.events).orders, orders, 'nothing was sent to a closed Seat')
 })
 

@@ -1,4 +1,4 @@
-import { Button, Text, TextMark, Textarea } from '../design'
+import { Button, Chip, Text, TextMark, Textarea } from '../design'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
@@ -118,6 +118,10 @@ const TaskRow = ({ todo }: { todo: ShownTodo }) => {
         onClick={open}
       >
         <Text role="value" done={todo.done}>{todo.label}</Text>
+        {/* The agent's own word for urgency, in a chip on the label's own
+            line — it names no meaning of its own scale, so it earns the
+            chip rather than a second line under every task (rule 9). */}
+        {todo.priority && <Chip size="sm" tone="neutral">{todo.priority}</Chip>}
         {todo.active && <Text role="meta" className={styles.hint}>in progress</Text>}
         {/* The panel is a read of the conversation, so where it is showing
             something the conversation does not say, it says so. */}

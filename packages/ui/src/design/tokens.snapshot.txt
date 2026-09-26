@@ -733,7 +733,7 @@
 --hd-toggle-width = 34px
 --hd-toggle-width-sm = 30px
 --hd-tooltip-fill = rgb(71, 71, 71)
---hd-tooltip-foreground = rgb(49, 49, 49)
+--hd-tooltip-foreground = rgb(255, 255, 255)
 --hd-tracking-heading = -0.01em
 --hd-warning = rgb(240, 165, 27)
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
@@ -1677,7 +1677,7 @@
 --hd-toggle-width = 34px
 --hd-toggle-width-sm = 30px
 --hd-tooltip-fill = rgb(71, 71, 71)
---hd-tooltip-foreground = rgb(49, 49, 49)
+--hd-tooltip-foreground = rgb(255, 255, 255)
 --hd-tracking-heading = -0.01em
 --hd-warning = rgb(240, 165, 27)
 --hd-warning-dim = rgba(240, 165, 27, 0.14)

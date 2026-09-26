@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A signed-out agent's mark looks empty.** The seat's badge and the menu's
+  mark for an agent with no one signed in were meant to read as an empty seat
+  and never did; they now draw a dashed ring with no plate and a quieter
+  glyph, so an agent that cannot start a turn no longer looks like one that
+  can.
+
 - **The account menu says less.** Every account is one line — its name and
   what is left — with the address and plan on hover rather than under every
   name. An agent with several accounts shows its mark once, as a heading with
