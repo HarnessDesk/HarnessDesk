@@ -400,11 +400,36 @@ export const previewTurns = [
       item('i6', {
         type: 'assistantMessage',
         phase: 'final',
-        text: 'Found it — `listWorktrees` in `packages/server/src/git/worktrees.ts` returned the porcelain parse unchanged.\n\nThe registry is local, so it outlives the remote: deleting a branch upstream leaves its worktree row in place indefinitely. I now ask git whether each branch still resolves and drop the ones that do not, leaving detached worktrees (`branch === null`) alone since they have no ref to check.\n\nOne thing worth deciding: a worktree whose branch is gone but which still has uncommitted work will now vanish from the list. If that is not what you want, the filter should mark it rather than hide it.',
+        text: 'The same **entry point** shows up in [a similar case](https://en.wikipedia.org/wiki/Foo_(bar)), and the check belongs beside `__init__.py` too — found it in `listWorktrees`, `packages/server/src/git/worktrees.ts`, which returned the porcelain parse unchanged.\n\nThe registry is local, so it outlives the remote: deleting a branch upstream leaves its worktree row in place indefinitely. I now ask git whether each branch still resolves and drop the ones that do not, leaving detached worktrees (`branch === null`) alone since they have no ref to check.\n\nOne thing worth deciding: a worktree whose branch is gone but which still has uncommitted work will now vanish from the list. If that is not what you want, the filter should mark it rather than hide it.',
       }),
     ],
   },
 ] as unknown as Session['turns']
+
+/**
+ * A long transcript — enough turns to fill the conversation map's rail from
+ * top to bottom, for the one thing `previewTurns`' single exchange cannot
+ * show: how tightly the marks pack once there are dozens of them, and
+ * whether the last one really does sit near the pane's own bottom edge.
+ * Loaded only on `preview.html?dense`.
+ */
+export const denseTurns = Array.from({ length: 14 }, (_, index) => ({
+  id: `dense-${index}` as never,
+  status: 'completed',
+  startedAt: minutes(60 - index * 4),
+  completedAt: minutes(59 - index * 4),
+  items: [
+    item(`dense-${index}-u`, {
+      type: 'userMessage',
+      content: [{ type: 'text', text: `Question ${index + 1}: does the retry path still cover a 502?` }],
+    }),
+    item(`dense-${index}-a`, {
+      type: 'assistantMessage',
+      phase: 'final',
+      text: `Answer ${index + 1}: yes — the 502 case is listed alongside the others it already retried.`,
+    }),
+  ],
+})) as unknown as Session['turns']
 
 /** The conversation the preview opens: `s1`, with the transcript above. */
 export const previewSession = {
