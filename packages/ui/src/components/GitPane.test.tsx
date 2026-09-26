@@ -1193,7 +1193,12 @@ it('keeps the open commit’s head on one line, while the other tool bars wrap',
  * to read as one number, not two that happen to agree today.
  */
 it('the row pitch and its named token cannot drift apart (#835)', () => {
-  const declared = tokensCss.match(/--hd-table-row-h:\s*(\d+)px/)
+  // Exactly one declaration: a later interface or density block overriding
+  // the pitch would move the CSS row while ROW, and the list's arithmetic,
+  // stayed put.
+  const declarations = [...tokensCss.matchAll(/--hd-table-row-h:\s*([^;]+);/g)]
+  expect(declarations.map((match) => match[1]), 'tokens.css names the row pitch once, in px').toHaveLength(1)
+  const declared = /^(\d+)px$/.exec(declarations[0]![1]!.trim())
   expect(declared, 'tokens.css names the row pitch').not.toBeNull()
   const rowConst = gitPaneSource.match(/\bconst ROW = (\d+)\b/)
   expect(rowConst, 'GitPane.tsx states ROW as a literal, documented against the token').not.toBeNull()

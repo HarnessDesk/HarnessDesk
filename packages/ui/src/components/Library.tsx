@@ -148,8 +148,8 @@ type Filter =
  * warning ink where the copy needs mending, the muted one everywhere else: a
  * problem is its icon, a copy no agent has read is the task list's pending
  * ring, a copy that loads is the readiness light, one not loaded yet the
- * neutral light. Only "switched off" — the neutral light struck through — is
- * drawn here.
+ * neutral light, and "switched off" is the same light struck through (the
+ * shared `Dot`'s `struck`).
  */
 const ReachMark = ({
   state,
