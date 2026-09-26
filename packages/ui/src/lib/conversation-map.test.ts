@@ -74,11 +74,14 @@ describe('the conversation map', () => {
 })
 
 describe('stripMarkdown', () => {
-  it('drops a heading or list marker at the very front', () => {
+  it('drops a heading or list marker on every line, not only the first', () => {
     expect(stripMarkdown('# Title')).toBe('Title')
     expect(stripMarkdown('- first step')).toBe('first step')
     expect(stripMarkdown('1. first step')).toBe('first step')
     expect(stripMarkdown('> a quote')).toBe('a quote')
+    // A second and third line each carry their own marker once the message
+    // reaches this function before its newlines are collapsed away.
+    expect(stripMarkdown('# Title\n- one\n- two')).toBe('Title one two')
   })
 
   it('unwraps bold, strikethrough and code, keeping only the words', () => {
@@ -88,9 +91,20 @@ describe('stripMarkdown', () => {
     expect(stripMarkdown('run `pnpm test` now')).toBe('run pnpm test now')
   })
 
-  it('keeps a link\'s words and drops its target', () => {
+  it('drops a fenced block\'s fence and language tag, keeping its body', () => {
+    expect(stripMarkdown('before\n```ts\nconst x = 1\n```\nafter')).toBe('before const x = 1 after')
+  })
+
+  it('never touches emphasis syntax sitting inside a code span', () => {
+    // The span's backticks go, as any code span's do — the `**` inside stays
+    // exactly as written, because it was never a bold marker to begin with.
+    expect(stripMarkdown('use `**not bold**` here')).toBe('use **not bold** here')
+  })
+
+  it('keeps a link\'s words and drops its target, parentheses in the URL included', () => {
     expect(stripMarkdown('see [the retry logic](./retry.ts) for it')).toBe('see the retry logic for it')
     expect(stripMarkdown('![a diagram](./diagram.png)')).toBe('a diagram')
+    expect(stripMarkdown('see [wiki](https://en.wikipedia.org/wiki/Foo_(bar)) now')).toBe('see wiki now')
   })
 
   it('leaves a lone * or _ alone, so a glob or an identifier survives', () => {
@@ -98,6 +112,14 @@ describe('stripMarkdown', () => {
     // single marker cannot tell "emphasis" from a name that just contains one.
     expect(stripMarkdown('run_tests failed')).toBe('run_tests failed')
     expect(stripMarkdown('packages/**/*.css matched')).toBe('packages/**/*.css matched')
+  })
+
+  it('never strips a double marker that opens or closes inside a word', () => {
+    // `__init__.py`: the dot right after the closing `__` says this was
+    // never emphasis, so both pairs stay exactly as written.
+    expect(stripMarkdown('open __init__.py and check it')).toBe('open __init__.py and check it')
+    // A glob with `**` hugged by `/` on both sides, same reasoning.
+    expect(stripMarkdown('src/**/*.ts and lib/**/*.js both matched')).toBe('src/**/*.ts and lib/**/*.js both matched')
   })
 
   it('is idempotent on text with no markdown at all', () => {
