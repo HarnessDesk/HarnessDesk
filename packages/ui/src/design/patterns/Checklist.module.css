@@ -75,6 +75,15 @@
   height: auto;
   min-height: 0;
   padding: 0;
+  /* A step is a sentence and has to wrap in the sidebar's narrow column:
+     the shared button is an inline-flex box that never wraps, so a long
+     step ran the Tasks panel past the column's edge. As inline text it
+     wraps like the words it stands for, and an unbroken path still breaks. */
+  display: inline;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
   font: inherit;
 }
 
