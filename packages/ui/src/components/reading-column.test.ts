@@ -7,6 +7,7 @@ import roomCss from './TeamRoomPane.module.css?raw'
 import conversationTsx from './Conversation.tsx?raw'
 import roomTsx from './TeamRoomPane.tsx?raw'
 import composerSystem from '../design/ui/composer.tsx?raw'
+import paneColumnTsx from '../design/patterns/PaneColumn.tsx?raw'
 
 /**
  * One measure, in both places a person reads a conversation.
@@ -119,7 +120,12 @@ it.each([
  */
 
 it('the transcript’s bars are inset by the gutter its stream reserves (inline)', () => {
-  expect(conversationTsx).toMatch(/var\(--hd-scrollbar-width/)
+  // Composed, not spelled: the transcript's scroll box and its bars strip
+  // both ask `PaneColumn` for the same `transcript`/`bars` inset, and it is
+  // `PaneColumn`'s own gutter compensation that is asserted below.
+  expect(conversationTsx).toMatch(/<PaneColumn\s[^>]*inset="transcript"/)
+  expect(conversationTsx).toMatch(/<PaneColumn\s[^>]*inset="bars"/)
+  expect(paneColumnTsx).toMatch(/var\(--hd-scrollbar-width/)
 })
 
 it('the room’s composer and its tail are inset by the gutter its stream reserves', () => {
@@ -146,6 +152,7 @@ it('the transcript’s composer is inset by the gutter its stream reserves', () 
 it('every read of the scrollbar gutter carries its own fallback', () => {
   for (const [what, css] of [
     ['design/ui/composer.tsx', composerSystem],
+    ['design/patterns/PaneColumn.tsx', paneColumnTsx],
     ['Conversation.module.css', conversationCss],
     ['TeamRoomPane.module.css', roomCss],
   ] as const) {
