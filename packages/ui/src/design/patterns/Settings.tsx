@@ -40,6 +40,7 @@ export const Dot = ({
   pulse = false,
   variant = 'default',
   ground = 'background',
+  struck = false,
   className,
   ...props
 }: HTMLAttributes<HTMLSpanElement> & {
@@ -49,17 +50,28 @@ export const Dot = ({
   variant?: 'default' | 'navigation' | 'presence'
   /** The surface a presence light's tile stands on. */
   ground?: 'background' | 'popover'
-}) => (
-  <span
-    {...props}
-    className={cx(styles.dot, className)}
-    data-slot="dot"
-    {...(state ? { 'data-state': state } : {})}
-    data-variant={variant}
-    {...(variant === 'presence' ? { 'data-ground': ground } : {})}
-    {...(pulse ? { 'data-pulse': '' } : {})}
-  />
-)
+  /** Switched off: the light struck through rather than lit or ringed. */
+  struck?: boolean
+}) => {
+  const light = (
+    <span
+      {...props}
+      className={cx(styles.dot, className)}
+      data-slot="dot"
+      {...(state ? { 'data-state': state } : {})}
+      data-variant={variant}
+      {...(variant === 'presence' ? { 'data-ground': ground } : {})}
+      {...(pulse ? { 'data-pulse': '' } : {})}
+    />
+  )
+  if (!struck) return light
+  return (
+    <span className="relative inline-flex size-3 items-center justify-center">
+      {light}
+      <span className="absolute h-px w-3 bg-current" />
+    </span>
+  )
+}
 
 const SPINNER_TONE: Record<Tone, string> = {
   neutral: 'border-t-(--hd-muted-foreground)',

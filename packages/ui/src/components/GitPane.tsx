@@ -104,6 +104,11 @@ import styles from './GitPane.module.css'
 const PAGE = 400
 /** How deep a jump-to-ref will page before admitting the commit is far away. */
 const JUMP_CAP = 4000
+/** The windowing pitch. Mirrors `--hd-table-row-h` in tokens.css — a test
+ * pins the two together so the arithmetic here and the row's CSS height
+ * cannot drift apart (#835). No design/ui/ export owns this number: today
+ * it has exactly one consumer, and a shared constant for one caller would
+ * itself be a new single-area primitive. */
 const ROW = 26
 const LANE_W = 12
 /** Lanes drawn before the gutter stops growing; deeper ones clip. */
@@ -1709,11 +1714,11 @@ const CommitRow = ({
     <Button
       type="button"
       variant="row"
-      size="content"
+      size="table-row"
       bordered={false}
       cursor="default"
       className={styles.row}
-      style={{ top, height: ROW, paddingRight: 'var(--hd-space-3)' }}
+      style={{ top }}
       {...(selected ? { 'data-selected': '' } : {})}
       {...(merge ? { 'data-merge': '' } : {})}
       role="option"
