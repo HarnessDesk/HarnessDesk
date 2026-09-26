@@ -583,6 +583,28 @@ it('removing an extra account that has not answered asks first — it may be sig
   expect(confirm).toBeTruthy()
   await act(async () => confirm!.click())
   expect(removed).toEqual(['alpha#2'])
+  expect(document.body.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
+})
+
+it('keeping an unanswered extra account removes nothing, and its confirm names where its sign-in lives', async () => {
+  const removed: string[] = []
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({
+    home: '/tmp',
+    accountsByRuntime: accounts,
+    store: { removeAccount: async (id: string) => void removed.push(id) },
+  })
+  await act(async () => line('Alpha').click())
+  // The row's line is the credential home, shortened against the host's home.
+  expect(document.body.textContent).toContain('~/alpha-2')
+  expect(document.body.textContent).not.toContain('/tmp/alpha-2')
+  await act(async () => button('Remove')!.click())
+  expect(document.body.textContent).toContain('Its sign-in at ~/alpha-2 is forgotten')
+  const keep = [...document.body.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Keep')
+  await act(async () => keep!.click())
+  expect(removed).toEqual([])
+  expect(document.body.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
 })
 
 it("an agent's page claims no session would fail while another of its accounts is still answering", async () => {
@@ -600,7 +622,7 @@ it("an agent's page claims no session would fail while another of its accounts i
   await mountList({ accountsByRuntime: accounts })
   await act(async () => line('Alpha').click())
   expect(document.body.textContent).toContain('Not signed in')
-  expect(document.body.textContent).toContain('Another has not answered yet.')
+  expect(document.body.textContent).toContain('Another account has not answered yet.')
   expect(document.body.textContent).not.toContain('would not start')
   expect(button('Sign in')).toBeTruthy()
 })
