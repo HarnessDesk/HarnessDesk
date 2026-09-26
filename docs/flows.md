@@ -807,8 +807,9 @@ that way compares two named seats instead of two cards on the role's one
 default Agent.
 
 The `to-judge` rule reads `any: [pass]`, not `every: [pass]`: the judge round
-opens as soon as one competitor's check passed, with every competitor's own
-check card still on the board as the judge's evidence, mixed or not. Only
+opens once every competitor's check has finished and at least one passed,
+with every competitor's own check card still on the board as the judge's
+evidence, mixed or not. Only
 when nothing passed does no rule fire, which stops the run for the person as
 above, naming each card and what it answered, rather than opening a judge
 round with nothing to weigh.

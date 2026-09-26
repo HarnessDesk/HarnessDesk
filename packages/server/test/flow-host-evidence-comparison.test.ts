@@ -84,9 +84,10 @@ for (const second of UNKNOWN) {
 /*
  * Issue #1032, gap 1: a mixed check result has no rule that covers it, so the
  * run stalled before the judge round instead of letting the judge decide.
- * `to-judge` now fires on `any: [pass]`, so the judge round opens as soon as
- * one competitor's check passed — with every competitor's own check result
- * still on the board as the judge's evidence, so it sees which one failed.
+ * `to-judge` now fires on `any: [pass]`, so the judge round opens once every
+ * competitor's check has finished and at least one passed — with every
+ * competitor's own check result still on the board as the judge's evidence,
+ * so it sees which one failed.
  * Only when nothing passed at all does no rule fire, which is how this flow
  * already stops a run for a person, plainly, rather than stalling.
  */

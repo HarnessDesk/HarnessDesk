@@ -13,10 +13,11 @@ move is real work and is not news to a person weighing an upgrade.
   fired only when every competitor's own check passed; when both competitors
   delivered but the check passed for one and failed for the other, no rule
   matched and the run stopped before a judge ever weighed in, on a result the
-  shape exists to let a judge decide. That rule now fires as soon as one
-  competitor's check passed, with every competitor's own result still on the
-  board as the judge's evidence — only when nothing passed does the run stop
-  for the person, naming each card and what it answered. Separately, starting
+  shape exists to let a judge decide. That rule now fires once every
+  competitor's check has finished and at least one passed, with every
+  competitor's own result still on the board as the judge's evidence — only
+  when nothing passed does the run stop for the person, naming each card and
+  what it answered. Separately, starting
   `comparison` from the generic Flow-start dialog opened one competitor card,
   because the shipped file's `competitor` role had no declared width of its
   own and only `/race`'s own seat substitution ever supplied one; the role

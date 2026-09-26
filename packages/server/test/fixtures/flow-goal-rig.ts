@@ -79,6 +79,13 @@ export interface GoalRig {
   readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean }>
   /** What `runCheck` answers for a command, keyed by its exact text; unset commands "pass" (exit 0). */
   readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
+  /**
+   * What `runCheck` answers for one card's own checkout, keyed by `cwd` —
+   * checked before `checkOutcomes`, so a check that fans out one card per
+   * competitor can still tell them apart even though every card runs the
+   * exact same command text.
+   */
+  readonly checkOutcomesByCwd: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
   /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
   checkEvidenceFails: boolean
   /** Checks run until their signal aborts, as a long command a pause or a stop kills; told when one starts. */
@@ -183,6 +190,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     readableProviders: new Set<string>(), goals: new Map<string, string>(),
     heads: new Map<string, { at: string | null; dirty: boolean }>(),
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
+    checkOutcomesByCwd: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
     checksRunUntilStopped: null,
     failEvidenceIn: new Set<string>(),
@@ -329,7 +337,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       }
       rig.checkCwds.push(where.cwd)
       rig.checkContexts.push(where.flowContext)
-      const outcome = rig.checkOutcomes.get(command) ?? { exit: 0, timedOut: false, tail: '' }
+      const outcome = rig.checkOutcomesByCwd.get(where.cwd) ?? rig.checkOutcomes.get(command) ?? { exit: 0, timedOut: false, tail: '' }
       const fails = rig.checkEvidenceFails || rig.failEvidenceIn.delete(where.cwd)
       if (!fails) {
         const head = rig.heads.get(where.cwd) ?? { at: null, dirty: false }

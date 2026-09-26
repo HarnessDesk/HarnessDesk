@@ -950,10 +950,11 @@ file from the generic Flow-start dialog skipped that substitution and opened
 one competitor, silently giving a "race" with one runner.
 
 Both fixes stayed in the file, because the rule language already said what
-was wanted. `to-judge` now reads `any: [pass]`: it fires as soon as one
-competitor's check passed, with every competitor's own check card still on
-the board as the judge's evidence — mixed or all-passing looks the same to
-the rule, and the judge sees which one failed either way. Only when nothing
+was wanted. `to-judge` now reads `any: [pass]`: it fires once every
+competitor's check has finished and at least one passed, with every
+competitor's own check card still on the board as the judge's evidence —
+mixed or all-passing looks the same to the rule, and the judge sees which one
+failed either way. Only when nothing
 passed does no rule fire, which stops the run for the person exactly as it
 already did, and says so by naming each card and what it answered — the
 existing "no rule continues from it" message is plain enough on its own; it

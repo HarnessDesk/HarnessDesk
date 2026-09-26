@@ -167,10 +167,10 @@ test('comparison seeds two competitor cards from the file itself, so a generic F
 
 /*
  * Issue #1032, gap 1, in the design spec's own walk-through: `to-judge` reads
- * `any: delivered`, not `every: delivered`, so a round where only one
- * competitor delivered still reaches the judge instead of stalling before it.
+ * `any: published`, not `every: published`, so a round where only one
+ * competitor published still reaches the judge instead of stalling before it.
  */
-test('the design’s race and judge (UC2) compiles against the shipped Agents, and lets the judge decide as soon as one competitor publishes', async () => {
+test('the design’s race and judge (UC2) compiles against the shipped Agents, and lets the judge decide once every competitor has finished and at least one published', async () => {
   const spec = await readFile(join(builtinFlowRoot(), '..', '..', '..', 'docs', 'superpowers', 'specs', '2026-09-17-agents-and-goals-design.md'), 'utf8')
   const section = spec.slice(spec.indexOf('### UC2'), spec.indexOf('### UC3'))
   const source = /```yaml\n([\s\S]*?)```/.exec(section)?.[1]
