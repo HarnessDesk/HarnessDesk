@@ -28,6 +28,8 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
 const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
 const DashboardSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.DashboardSurface })))
 const ConversationSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationSurface })))
+const ConversationMapDenseSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapDenseSurface })))
+const ConversationMapPreviewOpenSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapPreviewOpenSurface })))
 const GitSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GitSurface })))
 const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GroupSurface })))
 const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
@@ -131,6 +133,20 @@ const SURFACES = [
     about:
       'The shipped conversation — header, transcript and composer — on the preview\'s Worktree Management session: a question, the agent\'s thinking, one command, one file change, and the answer. It does not yet show an approval, a refused or failed tool call, a plan, attachments, a compaction or a turn still running: the fixture has no session in those states, and this tab shows the fixture.',
     render: ConversationSurface,
+  },
+  {
+    id: 'conversation-map-dense',
+    title: 'Conversation · map, dense',
+    about:
+      'The shipped conversation map on a fourteen-exchange transcript — the rail at the ~8px pitch a real transcript reads at, dense enough to overflow this frame on its own. Hover a dash for its preview, or press Tab then Up/Down.',
+    render: ConversationMapDenseSurface,
+  },
+  {
+    id: 'conversation-map-preview-open',
+    title: 'Conversation · map, preview open',
+    about:
+      'The same dense transcript with the rail focused on mount, so its preview is already open — the state Tab puts it in, caught rather than staged. Press Escape to close it, or Up/Down to move it.',
+    render: ConversationMapPreviewOpenSurface,
   },
   {
     id: 'composer',
