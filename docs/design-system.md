@@ -1489,6 +1489,13 @@ reads as the drill-in chevron. The row keeps its inset and its one rule
 around both: the rule is the pair's, drawn under it unless it is its card's
 last row, as any row's is.
 
+With an `action`, the row's one thing to do stands at its end as a real
+button beside the opener — Sign in on an agent that is signed out, Retry
+on one that failed — where the chevron would be. It cannot go in `control`:
+that sits inside the row's own button, and a button in a button is not a
+button to anyone using a keyboard or a screen reader. The whole line still
+opens; the action is the shortcut past the page it opens.
+
 ### `RowChoice`
 
 `packages/ui/src/design/patterns/Settings.tsx`

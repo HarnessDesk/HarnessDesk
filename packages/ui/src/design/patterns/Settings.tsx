@@ -862,6 +862,13 @@ export interface RowFold {
  * reads as the drill-in chevron. The row keeps its inset and its one rule
  * around both: the rule is the pair's, drawn under it unless it is its card's
  * last row, as any row's is.
+ *
+ * With an `action`, the row's one thing to do stands at its end as a real
+ * button beside the opener — Sign in on an agent that is signed out, Retry
+ * on one that failed — where the chevron would be. It cannot go in `control`:
+ * that sits inside the row's own button, and a button in a button is not a
+ * button to anyone using a keyboard or a screen reader. The whole line still
+ * opens; the action is the shortcut past the page it opens.
  */
 export const RowButton = ({
   mark,
@@ -872,6 +879,7 @@ export const RowButton = ({
   onClick,
   chevron = true,
   fold,
+  action,
   className,
   ...rest
 }: {
@@ -885,6 +893,8 @@ export const RowButton = ({
   chevron?: boolean
   /** A fold at the row's end, beside the button. */
   fold?: RowFold
+  /** The row's one action, a `Button`, at its end beside the opener — in the chevron's place. */
+  action?: ReactNode
   className?: string
   /*
    * Anything else the caller needs on the button itself — `data-slot`, an
@@ -909,10 +919,10 @@ export const RowButton = ({
       {/* The control and the chevron are one trailing item, so a row too narrow
           for them beside the title wraps them together and they keep the row's
           end on either line. */}
-      {control || (chevron && !fold) ? (
+      {control || (chevron && !fold && !action) ? (
         <span className={styles.rowEnd}>
           {control ? <span className={styles.rowCtl}>{control}</span> : null}
-          {chevron && !fold ? (
+          {chevron && !fold && !action ? (
             <span className={styles.rowChev}>
               <ChevronIcon size={ROW_CHEVRON} />
             </span>
@@ -921,10 +931,25 @@ export const RowButton = ({
       ) : null}
     </Button>
   )
-  if (!fold) return button
+  if (!fold && !action) return button
   return (
-    <div className={styles.rowFolding} data-slot="row-folding" {...(fold.open ? { 'data-open': '' } : {})}>
+    <div className={styles.rowFolding} data-slot="row-folding" {...(fold?.open ? { 'data-open': '' } : {})}>
       {button}
+      {/* The inset around the action is lit with the row under the pointer,
+          so a click on it opens the row, as a click on the row does; the
+          action's own button is the keyboard's target. */}
+      {action ? (
+        <span
+          className={styles.rowActionEnd}
+          data-slot="row-action"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) onClick()
+          }}
+        >
+          {action}
+        </span>
+      ) : null}
+      {fold ? (
       <span className={styles.rowFoldEnd} style={{ '--row-chevron': `${ROW_CHEVRON}px` } as CSSProperties}>
         <Button
           variant="row"
@@ -938,6 +963,7 @@ export const RowButton = ({
           <DisclosureChevron open={fold.open} placement="trailing" size="lg" />
         </Button>
       </span>
+      ) : null}
     </div>
   )
 }

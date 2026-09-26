@@ -181,25 +181,3 @@ export const agentGroups = (
   return groups
 }
 
-/**
- * Where this agent's credential comes from, in two or three words.
- *
- * The page's whole claim is that an agent either signs in through its own
- * flow or is handed a key from here, and until now that was a paragraph at
- * the top rather than something you could see per agent. Read from the
- * methods the runtime declares, so an agent that declares nothing gets no
- * badge instead of a guess — and neither does one with no account to get,
- * which its own row already says in full.
- */
-export const connectionLabel = (
-  info: RuntimeInfo,
-  methods: readonly { readonly flow: string }[],
-): string | null => {
-  if (!info.capabilities.account || methods.length === 0) return null
-  const key = methods.some((method) => method.flow === 'apiKey')
-  const flow = methods.some((method) => method.flow === 'browser' || method.flow === 'deviceCode')
-  if (key && flow) return 'Sign-in or key'
-  if (key) return 'API key'
-  if (flow) return 'Browser sign-in'
-  return 'Its own CLI'
-}
