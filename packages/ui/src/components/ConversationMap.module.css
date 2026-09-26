@@ -37,6 +37,20 @@
 }
 
 /*
+ * The keyboard's own mark stands at full strength rather than the pointer's
+ * usual peak (0.8) — focus is certain in a way a hover never is. The ring
+ * itself is `Tick`'s own `ring` prop (`design/ui/spark.tsx`): drawing it here
+ * would put an edge-family declaration in a screen sheet the audit's
+ * `screenAppearance` ceiling can only fall, not a place this rail may spend
+ * one. Never a pointer hover: `data-keyboard-current` is the keyboard's own
+ * position, not the pointer's nearest mark (`data-current`, which a hover
+ * reaches too).
+ */
+.rail .mark[data-keyboard-current] .dash {
+  opacity: 1;
+}
+
+/*
  * The drawing.
  *
  * `--near` is 0 at rest and 1 under the pointer, and only the width reads it:
