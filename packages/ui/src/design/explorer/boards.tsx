@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
@@ -1137,6 +1137,90 @@ const CodeBoard = () => (
   </div>
 )
 
+/** A line of text or a rail row, standing in for real content — the same
+ *  plain-rectangle convention this board already draws other rows in. */
+const messageRows = (
+  <>
+    <div className="h-3 w-4/5 rounded-full bg-(--hd-muted)" />
+    <div className="h-3 w-3/5 rounded-full bg-(--hd-muted)" />
+    <div className="h-3 w-2/3 rounded-full bg-(--hd-muted)" />
+  </>
+)
+const railRows = (
+  <>
+    <div className="h-4 w-full rounded-(--hd-radius-sm) bg-(--hd-muted)" />
+    <div className="h-4 w-full rounded-(--hd-radius-sm) bg-(--hd-muted)" />
+    <div className="h-4 w-full rounded-(--hd-radius-sm) bg-(--hd-muted)" />
+  </>
+)
+
+/**
+ * `PaneColumn`'s own inset, made visible rather than asserted: the outer box
+ * is the pane's edge, the inner bordered box is where its content actually
+ * starts, and the gap between the two — read back from `getComputedStyle`,
+ * not typed here — is the padding `PaneColumn` adds. A moved token shows up
+ * in this number the day it moves, rather than in a caption nobody edited.
+ */
+const PaneColumnDemo = ({
+  inset,
+  clearComposer = false,
+  rows,
+}: {
+  inset: (typeof PANECOLUMN_CATALOG_INSET)[number]
+  clearComposer?: boolean
+  rows: React.ReactNode
+  /** Unused here — `PaneColumn` below already carries its own. Accepted so
+   *  the coverage scan (`ui-catalog.mjs`) finds the attribute in the map
+   *  that renders this case, not only inside this component's own body. */
+  'data-catalog-inset'?: string
+}) => {
+  const column = useRef<HTMLDivElement>(null)
+  const [meta, setMeta] = useState('')
+  useEffect(() => {
+    const el = column.current
+    if (!el) return
+    const read = (): void => {
+      const style = getComputedStyle(el)
+      const inline = Math.round(parseFloat(style.paddingLeft))
+      const top = Math.round(parseFloat(style.paddingTop))
+      const bottom = Math.round(parseFloat(style.paddingBottom))
+      const vertical = clearComposer
+        ? `bottom clears the composer (${bottom}px)`
+        : top > 0
+          ? `block ${top}px`
+          : null
+      setMeta([`inline ${inline}px`, vertical].filter(Boolean).join(' · '))
+    }
+    read()
+    const observer = new ResizeObserver(read)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [clearComposer])
+
+  return (
+    <div
+      className="relative w-60 overflow-hidden rounded-(--hd-radius-md) border border-(--hd-border) bg-(--hd-card)"
+      // `--rail` is normally the sidebar's own scope (`Sidebar.module.css`);
+      // stood up here the same way so the rail case resolves to a real
+      // number instead of the unscoped custom property's own fallback of
+      // nothing.
+      style={{ height: clearComposer ? 132 : 104, '--composer-h': '28px', '--rail': 'var(--hd-bar-pad)' } as React.CSSProperties}
+    >
+      <PaneColumn ref={column} inset={inset} clearComposer={clearComposer} data-catalog-inset={inset} className="h-full">
+        <div className="flex h-full flex-col justify-center gap-(--hd-space-1-5) rounded-(--hd-radius-sm) border border-(--hd-border-heavy) p-(--hd-space-1-5)">
+          {rows}
+        </div>
+      </PaneColumn>
+      {clearComposer && (
+        <div className="absolute inset-x-0 bottom-0 h-7 border-t border-(--hd-border) bg-(--hd-muted)" />
+      )}
+      <div className="pointer-events-none absolute bottom-1 left-1 rounded-(--hd-radius-sm) bg-(--hd-popover) px-1 py-0.5 text-[10px] leading-none text-(--hd-muted-foreground)">
+        {meta}
+      </div>
+    </div>
+  )
+}
+
 /**
  * The transcript's own two message parts: `Message`, the row and its
  * alignment, and `Bubble`, what the words stand on. The rows below are the
@@ -1247,15 +1331,12 @@ const MessageBoard = () => (
     >
       {PANECOLUMN_CATALOG_INSET.map((inset) => (
         <Case key={inset} label={`pane column: ${inset}`}>
-          <PaneColumn
-            inset={inset}
-            data-catalog-inset={inset}
-            className="w-56 rounded-(--hd-radius-md) border border-(--hd-border) bg-(--hd-card)"
-          >
-            <div className="h-10 rounded-(--hd-radius-sm) bg-(--hd-muted)" />
-          </PaneColumn>
+          <PaneColumnDemo inset={inset} data-catalog-inset={inset} rows={inset === 'rail' ? railRows : messageRows} />
         </Case>
       ))}
+      <Case label="pane column: transcript, clearing a composer">
+        <PaneColumnDemo inset="transcript" clearComposer rows={messageRows} />
+      </Case>
     </div>
     <p className={styles.rule}>
       <code>PaneColumn</code> is the inline-and-bottom inset a scrolling pane's own
@@ -1263,7 +1344,8 @@ const MessageBoard = () => (
       (<code>transcript</code>, which also clears its floating composer), the strip of
       bars above it (<code>bars</code>), the room's stream (<code>stream</code>), the
       sidebar's rail row (<code>rail</code>), and the jobs strip nested inside the
-      transcript's own bars (<code>jobs</code>).
+      transcript's own bars (<code>jobs</code>). The small number in the corner of each is
+      read off the rendered box's own computed style, not written here.
     </p>
   </div>
 )
