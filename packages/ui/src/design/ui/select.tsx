@@ -3,6 +3,7 @@ import type * as React from 'react'
 
 import { CaretIcon, CheckIcon, MoveUpIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
+import { floatingMotion } from './motion'
 
 /* Vendored from shadcn/ui (select); façade icons, app measure tokens, ring
  * utilities dropped. For a picker that must survive jsdom (tests drive it
@@ -59,7 +60,8 @@ const SelectContent = ({
       <SelectPrimitive.Popup
         data-slot="select-content"
         className={cn(
-          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 relative max-h-(--available-height) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border shadow-md data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
+          floatingMotion,
+          'bg-popover text-popover-foreground relative max-h-(--available-height) min-w-32 overflow-x-hidden overflow-y-auto rounded-lg border shadow-md data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
           className,
         )}
         {...props}

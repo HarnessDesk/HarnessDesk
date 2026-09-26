@@ -845,6 +845,9 @@ export const TeamRoomPane = ({
           .includes(needle),
       )
     : roster
+  /* Whether the board caution belongs to the group rather than to each row:
+     every row shown would say it, so it is said once above them. */
+  const idleShared = shown.length > 1 && shown.every((member) => member.idleOnBoard)
 
   /* The cap is measured, not assumed: the room gives width up to the rail, the
      right dock and the window, so what fits is a fact about this pane right
@@ -1260,10 +1263,16 @@ export const TeamRoomPane = ({
               <EmptyState variant="inline" title={`No agent here matches “${filter.trim()}”.`} />
             )}
             {railTrouble && <Note tone="bad" className={styles.railEmpty}>{railTrouble}</Note>}
+            {/* A doubt every row shares is the group's, said once. Four rows
+                each reading "has not used the board" explained nothing a
+                single line above them does not, and cost a line of height on
+                every one of them. */}
+            {idleShared && <Note ink="muted" className={styles.railEmpty}>None of these agents has used the board yet.</Note>}
             {shown.map((member) => (
               <MemberRow
                 key={member.key}
                 member={member}
+                idleSaidAbove={idleShared}
                 onRemove={() => leave(member.key)}
                 onInbound={(mode) => setInbound(member.key, mode)}
                 selected={columns.includes(member.key)}
@@ -1626,6 +1635,7 @@ const MemberCard = ({
  */
 const MemberRow = ({
   member,
+  idleSaidAbove = false,
   selected,
   replaces,
   cap,
@@ -1636,6 +1646,12 @@ const MemberRow = ({
   onInbound,
 }: {
   member: Member
+  /**
+   * The board caution is said once above the list, because every row would
+   * carry it: the row drops its own copy. Only the row — the member's card
+   * still states it, since a card is read one member at a time.
+   */
+  idleSaidAbove?: boolean
   selected: boolean
   /** Whose column this pick would take, when the pane is already full. */
   replaces: string | null
@@ -1728,7 +1744,7 @@ const MemberRow = ({
             <Text role="meta" tint="violet">#{member.onTask.id}</Text>{' '}
             {member.onTask.title}
           </>
-        ) : member.idleOnBoard ? (
+        ) : member.idleOnBoard && !idleSaidAbove ? (
           /* The lesser of the two cautions, and the reason both exist: the line
              above is what the harness says about itself, this is what the board
              has seen. A member can read as able, take nothing, and until now

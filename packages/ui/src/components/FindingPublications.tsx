@@ -76,7 +76,6 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
               key={item.key}
               title={item.finding ? <CodeText>{item.finding}</CodeText> : `Review summary, round ${item.round}`}
               desc={item.reason ?? undefined}
-              wrapDesc
               control={
                 <span className="flex items-center gap-2">
                   <Chip tone={item.state === 'prepared' ? 'warning' : 'danger'}>{STATE_WORDS[item.state]}</Chip>

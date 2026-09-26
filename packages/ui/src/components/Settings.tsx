@@ -1375,7 +1375,7 @@ const BrowserSection = () => {
               <RowChoice
                 key={browser.path}
                 title={browser.name}
-                desc={browser.path}
+                desc={browser.path} truncateDesc
                 selected={prefs.externalBinary === browser.path}
                 onClick={() => store.setBrowserPrefs({ externalBinary: browser.path })}
               />
@@ -1513,7 +1513,7 @@ export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | 
             key={workspace.path}
             mark={<FolderIcon size={15} />}
             title={workspace.name}
-            desc={shortPath(workspace.path, snapshot.home)}
+            desc={shortPath(workspace.path, snapshot.home)} truncateDesc
             {...(workspace.path === snapshot.workspace?.path
               ? { control: <Chip state="ready" label="Current" /> }
               : {})}
@@ -1686,7 +1686,7 @@ const WorktreeRows = () => {
             key={worktree.path}
             mark={<BranchIcon size={15} />}
             title={worktree.branch ?? '(detached)'}
-            desc={worktree.path}
+            desc={worktree.path} truncateDesc
             control={
               <Button size="sm" variant="ghost" onClick={() => setRemoving(worktree)}>
                 Remove…

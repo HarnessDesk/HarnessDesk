@@ -162,7 +162,6 @@ const FlowRow = ({
   return (
     <Row
       title={entry.name}
-      wrapDesc
       {...(desc ? { desc } : {})}
       control={(
         <span className="inline-flex items-center gap-(--hd-space-2)">

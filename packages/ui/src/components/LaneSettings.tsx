@@ -146,7 +146,7 @@ export const LaneSettings = ({ root }: { readonly root?: string }) => {
             <Row
               key={lane.id}
               title={lane.branch}
-              desc={lane.cwd}
+              desc={lane.cwd} truncateDesc
               control={<Button variant="secondary" onClick={() => void store.releaseLane(lane.id)}>Release ports</Button>}
             />
           ))}

@@ -946,7 +946,6 @@ export const HandoffSheet = ({
               </span>
             }
             desc={option.hint}
-            wrapDesc
           />
         ))}
       </div>

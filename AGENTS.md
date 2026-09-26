@@ -69,8 +69,10 @@ them in `docs/decisions.md`.
    the label's own line, costing no row height. Settings pages are the exception for a
    control's own description; a definition of something already chosen is not
    one. `docs/design.md`.
-10. **Type comes from the scale, not from the component.** Four sizes carry the
-   whole interface and 14px is the default answer; ink has three levels and
+10. **Type comes from the scale, not from the component.** Four sizes — 12, 13,
+   14 and 16 — carry nearly all of the interface and 14px is the default
+   answer; the few steps above them each name one thing (a page's title, a
+   figure). Ink has three levels and
    the faintest one is for facts, not for text. `docs/design.md`
    is the guideline, `packages/ui/src/design/foundation/tokens.css` the tokens. A raw
    `font-size` in a component is how an app ends up with ten sizes.

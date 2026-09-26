@@ -5,6 +5,7 @@ import type * as React from 'react'
 import { CrossIcon } from '@/components/Icons'
 import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
+import { modalMotion, scrimMotion } from './motion'
 
 /* Vendored from shadcn/ui (dialog). The scrim and z-order are the app's own
  * tokens, and the surface wears the app's floating shadow. Prefer the
@@ -62,7 +63,8 @@ const DialogOverlay = forwardRef<
     ref={ref}
     data-slot="dialog-overlay"
     className={cn(
-      'data-starting-style:animate-in data-starting-style:fade-in-0 data-ending-style:animate-out data-ending-style:fade-out-0 fixed inset-0 z-(--hd-z-dialog) bg-(--hd-scrim)',
+      scrimMotion,
+      'fixed inset-0 z-(--hd-z-dialog) bg-(--hd-scrim)',
       className,
     )}
     {...props}
@@ -107,7 +109,8 @@ const DialogContent = forwardRef<
         ref={ref}
         data-slot="dialog-content"
         className={cn(
-          'bg-popover data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 relative max-w-[calc(100%-2rem)] rounded-xl shadow-(--hd-surface-shadow) duration-200',
+          modalMotion,
+          'bg-popover relative max-w-[calc(100%-2rem)] rounded-xl shadow-(--hd-surface-shadow)',
           SURFACE_FOCUS,
           bleed || 'grid w-full gap-4 p-5 sm:max-w-md',
           className,

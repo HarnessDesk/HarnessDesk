@@ -50,10 +50,18 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hdp-font-family` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
 | `--hdp-font-family-code` | `ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'` |
 | `--hd-font-display` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
-| `--hd-accent` | `rgb(82, 117, 235)` |
+| `--hd-font-heading` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
+| `--hd-tracking-heading` | `-0.01em` |
+| `--hd-title-rule` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-title-rule-width` | `1px` |
+| `--hd-title-rule-gap` | `12px` |
+| `--hd-title-rule-mark` | `rgb(52, 88, 240)` |
+| `--hd-title-rule-mark-width` | `24px` |
+| `--hd-title-rule-mark-height` | `2px` |
+| `--hd-accent` | `rgb(52, 88, 240)` |
 | `--hd-accent-foreground` | `rgb(255, 255, 255)` |
-| `--hd-accent-hover` | `rgb(98, 135, 249)` |
-| `--hd-accent-dim` | `rgba(82, 117, 235, 0.12)` |
+| `--hd-accent-hover` | `rgb(38, 70, 214)` |
+| `--hd-accent-dim` | `rgba(52, 88, 240, 0.12)` |
 | `--hd-danger` | `rgb(228, 68, 62)` |
 | `--hd-danger-dim` | `rgba(228, 68, 62, 0.12)` |
 | `--hd-success` | `rgb(65, 189, 111)` |
@@ -70,7 +78,7 @@ A state colour used as *text on its own soft fill* is a different question from 
 | `--hd-warning-ink` | `rgb(150, 100, 0)` |
 | `--hd-danger-ink` | `rgb(196, 52, 48)` |
 | `--hd-success-ink` | `rgb(0, 126, 63)` |
-| `--hd-primary-ink` | `rgb(69, 99, 205)` |
+| `--hd-primary-ink` | `rgb(40, 72, 210)` |
 
 ### Tints
 
@@ -204,14 +212,23 @@ Controls are one height so a row of them lines up without anyone counting pixels
 
 ### Motion
 
-One curve, three durations. Fast is a state change the finger caused — a hover, a press. Base is something appearing or leaving. Slow is a surface moving across the window, and is rare.
+Motion says where a thing came from and where it went, and nothing else. Three curves, each for one direction of travel: --hd-ease a state that changes in place: a hover, a press, a colour, a width. Symmetric, because nothing arrives. --hd-ease-out something arriving — a menu, a dialog, a fold opening. Fast off the mark and settling, so it is there at once and still reads as having moved. --hd-ease-in something leaving. It accelerates away and is quicker than its entrance: nobody waits to watch a menu close. Durations name the event, not a number. Fast is a change the finger caused. Enter and exit are an overlay or a fold. Base is a surface resizing; slow is a surface crossing the window, and is rare. The loops are ambient — a live dot, the sweep on words still being written — and are the only motion that repeats. `prefers-reduced-motion` takes every one of these to an instant in app.css. `design-audit` counts a time written out in a transition or an animation (`rawDuration`), so a new surface cannot pick its own.
 
 | token | value |
 | --- | --- |
 | `--hd-ease` | `cubic-bezier(0.4, 0, 0.2, 1)` |
+| `--hd-ease-out` | `cubic-bezier(0.16, 1, 0.3, 1)` |
+| `--hd-ease-in` | `cubic-bezier(0.5, 0, 0.75, 0)` |
 | `--hd-duration-fast` | `0.1s` |
+| `--hd-duration-enter` | `0.18s` |
+| `--hd-duration-exit` | `0.12s` |
 | `--hd-duration` | `0.2s` |
 | `--hd-duration-slow` | `0.3s` |
+| `--hd-duration-pulse` | `1.6s` |
+| `--hd-duration-sweep` | `1.8s` |
+| `--hd-duration-cadence` | `1s` |
+| `--hd-motion-scale` | `0.97` |
+| `--hd-motion-rise` | `4px` |
 
 ### Elevation
 
@@ -234,8 +251,8 @@ The values below are Desk's, and they are the app's own: a hard 2px ring in the 
 | --- | --- |
 | `--hd-ring-width` | `2px` |
 | `--hd-ring-offset` | `2px` |
-| `--hd-ring-muted` | `rgb(82, 117, 235)` |
-| `--hd-focus-ring` | `0 0 0 2px rgb(82, 117, 235)` |
+| `--hd-ring-muted` | `rgb(52, 88, 240)` |
+| `--hd-focus-ring` | `0 0 0 2px rgb(52, 88, 240)` |
 | `--hd-press` | `none` |
 | `--hd-hairline` | `inset 0 0 0 1px rgba(9, 12, 17, 0.12)` |
 | `--hd-hairline-soft` | `inset 0 0 0 1px rgba(9, 12, 17, 0.05)` |
@@ -280,7 +297,7 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-border-emphasis` | `rgba(9, 12, 17, 0.14)` |
 | `--hd-border-heavy` | `rgba(9, 12, 17, 0.2)` |
 | `--hd-input` | `rgb(255, 255, 255)` |
-| `--hd-ring` | `rgb(82, 117, 235)` |
+| `--hd-ring` | `rgb(52, 88, 240)` |
 | `--hd-hover` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-hover-solid` | `rgb(242, 242, 242)` |
 | `--hd-tooltip-fill` | `rgb(41, 41, 41)` |
@@ -342,7 +359,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-toggle-knob` | `rgb(255, 255, 255)` |
 | `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-toggle-track` | `rgba(9, 12, 17, 0.14)` |
-| `--hd-toggle-on` | `rgb(82, 117, 235)` |
+| `--hd-toggle-on` | `rgb(52, 88, 240)` |
 | `--hd-toggle-width` | `34px` |
 | `--hd-toggle-width-sm` | `30px` |
 | `--hd-toggle-height-sm` | `18px` |
@@ -366,7 +383,11 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-warning-ink` | `rgb(150, 100, 0)` |
 | `--hd-danger-ink` | `rgb(196, 52, 48)` |
 | `--hd-success-ink` | `rgb(0, 126, 63)` |
-| `--hd-primary-ink` | `rgb(69, 99, 205)` |
+| `--hd-primary-ink` | `rgb(40, 72, 210)` |
+| `--hd-accent-dim` | `rgba(52, 88, 240, 0.12)` |
+| `--hd-accent-foreground` | `rgb(255, 255, 255)` |
+| `--hd-primary-foreground` | `rgb(255, 255, 255)` |
+| `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 | `--hd-sidebar-selected-foreground` | `` |
 | `--hd-sidebar-selected-muted-foreground` | `` |
@@ -391,9 +412,9 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-press` | `none` |
 | `--hd-ring-width` | `2px` |
 | `--hd-ring-offset` | `2px` |
-| `--hd-ring-muted` | `rgb(82, 117, 235)` |
+| `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-card-fill` | `` |
-| `--hd-ring-muted` | `rgb(82, 117, 235)` |
+| `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-field-h` | `30px` |
 | `--hd-btn-h` | `30px` |
 | `--hd-field-h` | `30px` |
@@ -1663,6 +1684,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawRadius` | 0 | Will not follow a shape change. |
 | `offGrid` | 0 | Will not follow a density change. |
 | `rawZIndex` | 0 | Two layers claim the same plane, and the one that wins is the one written later. |
+| `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 

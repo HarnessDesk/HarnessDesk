@@ -63,15 +63,37 @@ body {
      for macOS's own serif). */
   --hd-font-display: var(--hd-font-family);
 
-  /* HarnessDesk brand. The platform's accent is DeepSeek blue; this replaces
-     it so the app does not present itself as someone else's product. */
-  --hd-accent: var(--hdp-static-accent-500); /* desk: the palette was rebuilt; this is its value */
+  /* The heading face: the names of places — the wordmark, a page's title and
+     a detail page's name. It is the interface sans by default, pulled in a
+     hundredth of an em; the token exists so a foundation that wants its own
+     voice for a place's name changes one line rather than three patterns. */
+  --hd-font-heading: var(--hd-font-family);
+  --hd-tracking-heading: -0.01em;
+
+  /* The title block: the hairline a page head closes on, and the short mark
+     in the accent at its start (Settings.module.css `.pageHead`). The title
+     names the place; the rule sets it off from what is on it. The rule sits
+     inside the head's existing 24px — 12 above it, the hairline, 11 below — so
+     a page with a title block starts its content exactly where it did
+     without one. A foundation that wants no mark sets its
+     width to 0. */
+  --hd-title-rule: var(--hd-border);
+  --hd-title-rule-width: var(--hd-space-px);
+  --hd-title-rule-gap: var(--hd-space-3);
+  --hd-title-rule-mark: var(--hd-accent);
+  --hd-title-rule-mark-width: var(--hd-space-6);
+  --hd-title-rule-mark-height: var(--hd-space-0-5);
+
+  /* HarnessDesk brand: Blueprint cobalt, the ink of an engineer's drawing.
+     Deep enough that white reads on it at 5.5:1 — the lighter blue it
+     replaced managed 4.1:1, short of AA for a 13px label on the fill. */
+  --hd-accent: var(--hdp-static-accent-500); /* desk: blue 82,117,235 → cobalt 52,88,240, white on it 4.1 → 5.5:1 */
   /* Ink on the accent. One value, because every surface painted with the
      accent needs it and each one reaching for `white` is a literal that the
      next palette silently breaks. */
   --hd-accent-foreground: rgb(255, 255, 255);
-  --hd-accent-hover: var(--hdp-static-accent-450); /* desk: the palette was rebuilt; this is its value */
-  --hd-accent-dim: rgba(82, 117, 235, 0.12); /* desk: the palette was rebuilt; this is its value */
+  --hd-accent-hover: var(--hdp-static-accent-600); /* desk: lighter 450 → darker 600 — a press darkens the drawing ink; it never washes it out */
+  --hd-accent-dim: rgba(52, 88, 240, 0.12); /* desk: the wash follows the cobalt */
   --hd-danger: var(--hdp-static-red-500);
   --hd-danger-dim: rgba(228, 68, 62, 0.12); /* desk: the palette was rebuilt; this is its value */
   --hd-success: var(--hdp-static-green-500);
@@ -97,7 +119,7 @@ body {
   --hd-warning-ink: rgb(150, 100, 0); /* desk: re-solved against the rebuilt palette */
   --hd-danger-ink: rgb(196, 52, 48); /* desk: re-solved against the rebuilt palette */
   --hd-success-ink: rgb(0, 126, 63); /* desk: re-solved against the rebuilt palette */
-  --hd-primary-ink: rgb(69, 99, 205); /* desk: re-solved against the rebuilt palette */
+  --hd-primary-ink: rgb(40, 72, 210); /* desk: re-solved for the cobalt, 6.0:1 on its own 12% wash */
 
   /* --- tints ---------------------------------------------------------------
      Five hues that identify a thing rather than judge it — which account,
@@ -408,13 +430,42 @@ body {
   --hd-scrollbar-fill-hover: var(--hdp-alias-scrollbar-hover-l1);
 
   /* --- motion --------------------------------------------------------------
-     One curve, three durations. Fast is a state change the finger caused —
-     a hover, a press. Base is something appearing or leaving. Slow is a
-     surface moving across the window, and is rare. */
+     Motion says where a thing came from and where it went, and nothing else.
+     Three curves, each for one direction of travel:
+
+       --hd-ease       a state that changes in place: a hover, a press, a
+                       colour, a width. Symmetric, because nothing arrives.
+       --hd-ease-out   something arriving — a menu, a dialog, a fold opening.
+                       Fast off the mark and settling, so it is there at once
+                       and still reads as having moved.
+       --hd-ease-in    something leaving. It accelerates away and is quicker
+                       than its entrance: nobody waits to watch a menu close.
+
+     Durations name the event, not a number. Fast is a change the finger
+     caused. Enter and exit are an overlay or a fold. Base is a surface
+     resizing; slow is a surface crossing the window, and is rare. The loops
+     are ambient — a live dot, the sweep on words still being written — and
+     are the only motion that repeats.
+
+     `prefers-reduced-motion` takes every one of these to an instant in
+     app.css. `design-audit` counts a time written out in a transition or an
+     animation (`rawDuration`), so a new surface cannot pick its own. */
   --hd-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --hd-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --hd-ease-in: cubic-bezier(0.5, 0, 0.75, 0);
   --hd-duration-fast: 0.1s;
+  --hd-duration-enter: 0.18s;
+  --hd-duration-exit: 0.12s;
   --hd-duration: 0.2s;
   --hd-duration-slow: 0.3s;
+  --hd-duration-pulse: 1.6s;
+  --hd-duration-sweep: 1.8s;
+  --hd-duration-cadence: 1s;
+  /* How far an arriving surface travels: a menu grows from 97% toward its
+     trigger, a revealed block rises one space step. Small on purpose — the
+     motion is a hint of direction, not a flourish. */
+  --hd-motion-scale: 0.97;
+  --hd-motion-rise: var(--hd-space-1);
 
   /* --- elevation -----------------------------------------------------------
      What floats, and how far. A menu sits just off the surface; a dialog sits
@@ -1151,6 +1202,15 @@ body[data-hd-dark-theme] {
   --hd-danger-ink: rgb(246, 109, 99); /* desk: re-solved against the rebuilt palette */
   --hd-success-ink: rgb(86, 186, 119); /* desk: re-solved against the rebuilt palette */
   --hd-primary-ink: rgb(115, 150, 253); /* desk: re-solved against the rebuilt palette */
+
+  /* The accent on a dark ground is the palette's lighter step, and so the ink
+     on it inverts too: near-black reads 6.2:1 on it where white would manage
+     3.0:1. The knob on a toggle stays white — it is a shape, not a word, and
+     clears the 3:1 a shape needs. */
+  --hd-accent-dim: rgba(112, 142, 250, 0.12); /* desk: the wash follows the lifted accent */
+  --hd-accent-foreground: rgb(17, 17, 17); /* desk: white → near-black on the lifted accent */
+  --hd-primary-foreground: rgb(17, 17, 17); /* desk: white → near-black on the lifted accent */
+  --hd-toggle-knob-on: rgb(255, 255, 255); /* desk: the knob stays white on the lifted accent */
 }
 
 /*

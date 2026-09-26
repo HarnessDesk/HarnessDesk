@@ -149,7 +149,6 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
               key={role.id}
               title={role.id}
               desc={`${ROLE_KIND_WORDS[role.kind]} — ${roleWord(policy, role.id)}`}
-              wrapDesc
               onClick={() => onSelect(role.id)}
             />
           ))}
@@ -165,7 +164,6 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
               key={rule.id}
               title={`${index + 1}. ${rule.on} → ${rule.then.role}${rule.then.role === rule.on ? ' (loops back)' : ''}`}
               desc={rule.then.title}
-              wrapDesc
               onClick={() => onEditRule(rule.id)}
             />
           ))}
