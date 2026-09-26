@@ -5,7 +5,7 @@ import type { Brand } from '../../lib/brands'
 import { Bubble, BubbleContent } from '../ui/bubble'
 import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
-import { Message, MessageFooter } from '../ui/message'
+import { Message, MessageContent, MessageFooter, MessageHeader } from '../ui/message'
 import type { Tone } from '../ui/tone'
 import { Chip, CodeText, MetaList, Monogram, Text } from './Settings'
 import { TurnItem } from './TurnWork'
@@ -66,10 +66,12 @@ import { TurnItem } from './TurnWork'
  *
  * The measure is the caller's — `TeamRoomPane.module.css` sets it to
  * `--hd-column`, the transcript's — and the rows sit on its edges the way the
- * transcript's items do. The words themselves stand in the transcript's own
- * `Message`/`Bubble` box (design/ui/message.tsx, design/ui/bubble.tsx),
- * unframed the way an answer's own prose is — a second screen for parts that
- * would otherwise exist for the transcript alone.
+ * transcript's items do. The row itself is the transcript's own `Message`
+ * (design/ui/message.tsx): a name uses `MessageHeader`, the words stand in
+ * `Bubble` (design/ui/bubble.tsx) unframed the way an answer's own prose is,
+ * and a delivery's trouble reads from `MessageFooter` — a second screen for
+ * parts that would otherwise exist for the transcript alone, not a box
+ * borrowed and then switched off.
  *
  * What stays here is what only a channel has: the clamp that folds a long
  * message, and the grid that keeps every row's words on one line after the
@@ -307,14 +309,18 @@ export const ChannelMessage = ({
         )}
       </div>
 
-      {/* The content column shares its box with the transcript's own message
-          row (`Message`, design/ui/message.tsx) — the room's own grid keeps
-          its shape, so layout stays overridden to the block it always was;
-          only the box is shared, the second screen family this system's
-          parts were sized for. */}
-      <Message align="start" className="block min-w-0">
+      {/* The room's row genuinely stands on the transcript's own parts now —
+          not a box borrowed and switched off. `Message` keeps its real flex
+          column; only two of its defaults are tuned for this caller:
+          `items-stretch` because a header and a content column both need to
+          fill the row rather than hug their own width (the way `ghost`
+          already tunes `Bubble` for the same reason), and `gap-px` in place
+          of the transcript's 6px — the exact `mb-px` the header carried
+          before it was `MessageHeader`, so the row's own rhythm does not
+          move. */}
+      <Message align="start" className="items-stretch gap-px">
         {!grouped && (
-          <div className="mb-px flex items-baseline gap-1.5">
+          <MessageHeader>
             {wrap(<Text role="subject" truncate>{from}</Text>)}
             {/* `min-w-0`, or `truncate` is decoration: a flex item will not
                 shrink below its content without it, and a recipient list of
@@ -332,113 +338,123 @@ export const ChannelMessage = ({
               <span>{at}</span>
               {whisper && <span>{whisper}</span>}
             </MetaList>
-          </div>
+          </MessageHeader>
         )}
 
-        {/* `body` when the app gave one, the words themselves otherwise, at
-            the document's own reading size — the rendered body sets its own.
+        {/* `gap-0`: the transcript's default rhythm between a content
+            column's own parts (4px) is not this row's — its body, "Show
+            more", outcomes and trouble each already carry the margin they
+            had before this was `MessageContent`, so the column adds none of
+            its own on top. */}
+        <MessageContent className="gap-0">
+          {/* `body` when the app gave one, the words themselves otherwise, at
+              the document's own reading size — the rendered body sets its own.
 
-            Clamped by height rather than `line-clamp`: line clamping needs
-            `display: -webkit-box`, which flattens the very blocks — lists,
-            fences, quotes — that a rendered body is made of. About eight lines;
-            the "Show more" below opens the rest. */}
-        <Bubble variant="ghost">
-          <BubbleContent
-            ref={bodyRef}
-            variant="ghost"
-            data-slot="channel-body"
-            clampHeight={192}
-            expanded={expanded}
-            // Several screens (Items, FindingDetail, ProjectTriggers, the
-            // session tree) each clamp long content with their own "Show
-            // more", none sharing a part. Giving that role one owner is a
-            // wider decision than this message body alone.
-            className={`break-words ${body ? '' : 'whitespace-pre-wrap'}`}
-          >
-            {body ?? text}
-          </BubbleContent>
-        </Bubble>
-        {(overflows || expanded) && (
-          <Button
-            variant="muted"
-            size="xs"
-            type="button"
-            data-slot="channel-more"
-            className="mt-1"
-            onClick={() => setExpanded((on) => !on)}
-          >
-            {expanded ? 'Show less' : 'Show more'}
-          </Button>
-        )}
-
-        {outcomes && outcomes.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {outcomes.map((outcome) => (
-              <span
-                key={`${outcome.state}-${outcome.reason ?? ''}`}
-                className="flex items-center gap-1.5"
-              >
-                <Chip tone={troubleTone(outcome.state)}>{outcome.state}</Chip>
-                <Text role="meta">
-                  {outcome.names.join(', ')}
-                  {outcome.reason ? ` — ${outcome.reason}` : ''}
-                </Text>
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* A message's trouble, in the same footer the transcript's own
-            reads its time and actions from — status on the left, the one
-            action a held delivery offers on the right. */}
-        {(state === 'held' || state === 'refused' || state === 'queued') && (
-          <MessageFooter align="start" className="mt-1.5 flex-wrap gap-1.5">
-            <Chip tone={troubleTone(state)}>{state}</Chip>
-            {reason && (
-              <Text role="meta" className="min-w-0 flex-1 basis-48">
-                {reason}
-              </Text>
-            )}
-            {state === 'held' && onDeliver && (
-              <Button variant="outline" size="sm" onClick={onDeliver}>
-                Deliver now
-              </Button>
-            )}
-          </MessageFooter>
-        )}
-
-        {refusedFirst && (
-          <Text as="p" role="meta" className="mt-1">
-            First attempt refused — {refusedFirst}
-          </Text>
-        )}
-
-        {envelope && (
-          <>
-            {/* The exact envelope is a diagnostic, not part of reading the
-                message, so the room holds it back until the pointer or the
-                keyboard arrives — opacity, never `hidden`, so it stays in the
-                accessibility tree and stays tabbable. */}
+              Clamped by height rather than `line-clamp`: line clamping needs
+              `display: -webkit-box`, which flattens the very blocks — lists,
+              fences, quotes — that a rendered body is made of. Nine lines —
+              desk: 192px (`max-h-48`) → 9 lines (189px), the nearest whole
+              line at the reading size, the same unit Items' own clamp is
+              expressed in rather than a pixel count the audit cannot see.
+              The "Show more" below opens the rest. */}
+          <Bubble variant="ghost">
+            <BubbleContent
+              ref={bodyRef}
+              data-slot="channel-body"
+              clampLines={9}
+              expanded={expanded}
+              // Several screens (Items, FindingDetail, ProjectTriggers, the
+              // session tree) each clamp long content with their own "Show
+              // more", none sharing a part. Giving that role one owner is a
+              // wider decision than this message body alone.
+              className={`break-words ${body ? '' : 'whitespace-pre-wrap'}`}
+            >
+              {body ?? text}
+            </BubbleContent>
+          </Bubble>
+          {(overflows || expanded) && (
             <Button
               variant="muted"
               size="xs"
               type="button"
-              data-slot="channel-peek"
-              className={`mt-1 ${
-                peeking ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
-              }`}
-              aria-expanded={peeking}
-              onClick={() => setPeeking((on) => !on)}
+              data-slot="channel-more"
+              className="mt-1"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((on) => !on)}
             >
-              {peeking ? 'Hide envelope' : 'Envelope'}
+              {expanded ? 'Show less' : 'Show more'}
             </Button>
-            {peeking && (
-              <CodeText as="pre" block ground="muted" wrap className="mt-1.5">
-                {envelope}
-              </CodeText>
-            )}
-          </>
-        )}
+          )}
+
+          {outcomes && outcomes.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {outcomes.map((outcome) => (
+                <span
+                  key={`${outcome.state}-${outcome.reason ?? ''}`}
+                  className="flex items-center gap-1.5"
+                >
+                  <Chip tone={troubleTone(outcome.state)}>{outcome.state}</Chip>
+                  <Text role="meta">
+                    {outcome.names.join(', ')}
+                    {outcome.reason ? ` — ${outcome.reason}` : ''}
+                  </Text>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* A message's trouble, in the same footer the transcript's own
+              reads its time and actions from — status on the left, the one
+              action a held delivery offers on the right. */}
+          {(state === 'held' || state === 'refused' || state === 'queued') && (
+            <MessageFooter align="start" className="mt-1.5 flex-wrap gap-1.5">
+              <Chip tone={troubleTone(state)}>{state}</Chip>
+              {reason && (
+                <Text role="meta" className="min-w-0 flex-1 basis-48">
+                  {reason}
+                </Text>
+              )}
+              {state === 'held' && onDeliver && (
+                <Button variant="outline" size="sm" onClick={onDeliver}>
+                  Deliver now
+                </Button>
+              )}
+            </MessageFooter>
+          )}
+
+          {refusedFirst && (
+            <Text as="p" role="meta" className="mt-1">
+              First attempt refused — {refusedFirst}
+            </Text>
+          )}
+
+          {envelope && (
+            <>
+              {/* The exact envelope is a diagnostic, not part of reading the
+                  message, so the room holds it back until the pointer or the
+                  keyboard arrives — opacity, never `hidden`, so it stays in the
+                  accessibility tree and stays tabbable. */}
+              <Button
+                variant="muted"
+                size="xs"
+                type="button"
+                data-slot="channel-peek"
+                className={`mt-1 ${
+                  peeking ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                }`}
+                aria-expanded={peeking}
+                onClick={() => setPeeking((on) => !on)}
+              >
+                {peeking ? 'Hide envelope' : 'Envelope'}
+              </Button>
+              {peeking && (
+                <CodeText as="pre" block ground="muted" wrap className="mt-1.5">
+                  {envelope}
+                </CodeText>
+              )}
+            </>
+          )}
+        </MessageContent>
       </Message>
     </TurnItem>
   )

@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { ChannelMessage, ChannelNotice, ChannelSignal } from './ChannelMessage'
 
@@ -199,4 +199,23 @@ it('draws a face of the caller’s own in the face’s place, on no tint', () =>
   expect(tile?.querySelector('img[data-face]')).not.toBeNull()
   expect(tile?.textContent).toBe('')
   expect(tile?.hasAttribute('data-tint')).toBe(false)
+})
+
+it('offers "Show more" only when nine rendered lines do not hold the message, and says so on the toggle', () => {
+  const scrollHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(300)
+  const clientHeight = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(252)
+  try {
+    const long = Array.from({ length: 14 }, (_, index) => `line ${index + 1}`).join('\n')
+    render(<ChannelMessage from="Reviewer" at="03:35 PM" state="delivered" text={long} />)
+    const more = container.querySelector<HTMLButtonElement>('[data-slot="channel-more"]')
+    expect(more?.textContent).toBe('Show more')
+    expect(more?.getAttribute('aria-expanded')).toBe('false')
+    act(() => more?.click())
+    const toggled = container.querySelector<HTMLButtonElement>('[data-slot="channel-more"]')
+    expect(toggled?.textContent).toBe('Show less')
+    expect(toggled?.getAttribute('aria-expanded')).toBe('true')
+  } finally {
+    scrollHeight.mockRestore()
+    clientHeight.mockRestore()
+  }
 })
