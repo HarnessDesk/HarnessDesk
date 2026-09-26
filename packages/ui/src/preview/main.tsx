@@ -58,6 +58,7 @@ import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, tr
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { MessageQueue } from '../components/MessageQueue'
+import { GoalFrames } from './frames-goals'
 import { SettingsFrames } from './frames-settings'
 import '../styles/app.css'
 
@@ -856,6 +857,7 @@ const Preview = () => {
       </div>
 
       <SettingsFrames />
+      <GoalFrames />
     </div>
   )
 }

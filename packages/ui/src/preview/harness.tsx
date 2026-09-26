@@ -145,7 +145,7 @@ export const EMPTY_ROOM = 'room-empty'
  */
 export const EDGE_ROOM = 'room-edges'
 
-const TEAM: TeamState = {
+export const TEAM: TeamState = {
   id: PREVIEW_ROOM,
   name: 'Checkout rewrite',
   updatedAt: 1,
@@ -1510,7 +1510,15 @@ class PreviewStore {
      carries (`agentSource`, above), so a field's diff matches what the
      page's own rows already say. */
   readAuthoring = async (target: AuthoringTarget): Promise<AuthoringDocument> => {
-    const entry = target.kind === 'agent' ? PREVIEW_AGENTS.find((one) => one.id === target.id) : undefined
+    if (target.kind === 'triggers') {
+      // No project here has committed one yet — `TriggerCreate`'s "already exists" merge path has nothing to read against, which is the ordinary first-time case.
+      return { target, source: '', digest: 'digest-triggers-none', exists: false, displayPath: `${target.root}/.harnessdesk/triggers.yaml`, writable: true, issues: [] }
+    }
+    if (target.kind === 'flow') {
+      const source = PREVIEW_FLOW_SOURCE[target.id] ?? PREVIEW_FLOW_SOURCE['fix']!
+      return { target, source, digest: `digest-flow-${target.id}`, exists: true, displayPath: `${target.root}/.harnessdesk/flows/${target.id}.md`, writable: target.origin !== 'builtin', issues: [] }
+    }
+    const entry = PREVIEW_AGENTS.find((one) => one.id === target.id)
     if (!entry?.definition || entry.digest === null) throw new Error('The preview desk has no such file.')
     return {
       target,
@@ -1531,6 +1539,21 @@ class PreviewStore {
     if (!entry?.definition) throw new Error('The preview desk has no such file.')
     const before = agentSource(entry)
     return { token: 'preview-authoring-token', edits: [{ path: entry.path, before, after: applyAgentFieldEdit(before, edit) }], issues: [], resuming: false }
+  }
+  /**
+   * `ShapeSave`'s own dry run: `preview !== null && preview.token !== null`
+   * is its whole "can I save" test, so this must answer a real object —
+   * never the floor's bare `undefined`, which reads as "not null" and then
+   * throws on `.token` the moment the dialog paints.
+   */
+  previewAuthoringSave = async (input: { readonly target: AuthoringTarget; readonly source: string }): Promise<AuthoringSavePreview> => {
+    const { target } = input
+    const path = target.kind === 'agent'
+      ? (PREVIEW_AGENTS.find((one) => one.id === target.id)?.path ?? `agents/${target.id}/AGENT.md`)
+      : target.kind === 'flow'
+        ? `${target.root}/.harnessdesk/flows/${target.id}.md`
+        : `${target.root}/.harnessdesk/triggers.yaml`
+    return { token: 'preview-save-token', edits: [{ path, before: null, after: input.source }], issues: [], resuming: false }
   }
   applyAuthoringSave = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: [], message: 'The preview desk writes nothing.' })
   plansIn = async (): Promise<readonly SeatPlan[]> => [...PREVIEW_PLANS.values()]
