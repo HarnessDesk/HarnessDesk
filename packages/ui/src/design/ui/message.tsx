@@ -6,9 +6,8 @@ import { cn } from '@/lib/utils'
 
 /*
  * Vendored from shadcn/ui — a chat message part: the row a person's or an
- * agent's turn stands in, and the two spots every screen that shows one
- * needs around its words — a header naming who spoke, and a footer for the
- * time and its icon-only actions.
+ * agent's turn stands in, its content column, and a footer for the time and
+ * its icon-only actions.
  *
  * This file draws the row alone. What the words stand on is `Bubble`, beside
  * it: composition over one more prop, the same split the registry itself
@@ -18,6 +17,12 @@ import { cn } from '@/lib/utils'
  * `align` is the one axis: `start` is the far side of the conversation — an
  * assistant, an agent, another sender in a room — `end` is the current
  * person's own words. Both read left to right; only the row's own edge moves.
+ *
+ * The registry's `MessageHeader` (a name above the bubble) is not here. Only
+ * one screen would ever call it — the transcript has no header, alignment
+ * alone says who spoke — and a part with one caller, kept only to round out
+ * the set, is the same audit finding a header switched off to dodge would
+ * have been. Add it back the day a second screen genuinely needs one.
  */
 
 const messageVariants = cva('flex w-full min-w-0 flex-col gap-(--hd-space-1-5)', {
@@ -41,14 +46,19 @@ const Message = ({ className, align, ...props }: MessageProps) => (
   />
 )
 
-/** The column beside a message's face — everything but the avatar. */
+/**
+ * The column beside a message's face — everything but the avatar.
+ *
+ * `w-full` unconditionally, not left to whichever `align-items` its parent
+ * `Message` happens to carry: a bubble inside it caps itself with a
+ * percentage (`max-w-[66.6667%]`), and a percentage means nothing against a
+ * box that is still sizing itself to its own content — a bubble short enough
+ * to fit its row on one line wrapped early against that undefined width. A
+ * fixed full width gives the percentage the same row every time, whichever
+ * way the message aligns.
+ */
 const MessageContent = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="message-content" className={cn('flex min-w-0 max-w-full flex-col gap-(--hd-space-1)', className)} {...props} />
-)
-
-/** The name above a message — who spoke, and who it reached. */
-const MessageHeader = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="message-header" className={cn('flex min-w-0 items-baseline gap-1.5', className)} {...props} />
+  <div data-slot="message-content" className={cn('flex w-full min-w-0 max-w-full flex-col gap-(--hd-space-1)', className)} {...props} />
 )
 
 /**
@@ -81,5 +91,5 @@ const MessageFooter = ({ className, align, ...props }: MessageFooterProps) => (
   <div data-slot="message-footer" className={cn(messageFooterVariants({ align }), className)} {...props} />
 )
 
-export { Message, MessageContent, MessageHeader, MessageFooter, messageVariants, messageFooterVariants }
+export { Message, MessageContent, MessageFooter, messageVariants, messageFooterVariants }
 export type { MessageProps, MessageFooterProps }
