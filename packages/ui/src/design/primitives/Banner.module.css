@@ -204,8 +204,11 @@
   /* Its hit target is taller than the title's line, so pulling the whole
      button up by half the difference lands its own centre — and the glyph
      inside it — on the title's centre, the way a smaller lead is pushed
-     down onto the same line. */
-  margin-top: calc((var(--hd-line) - 28px) / 2);
+     down onto the same line. `--hd-btn-h-sm` rather than a literal 28: a
+     foundation is free to move it (Studio's comfortable density takes it to
+     34), and a literal here would silently stop matching the box the `size`
+     prop actually draws. */
+  margin-top: calc((var(--hd-line) - var(--hd-btn-h-sm)) / 2);
 }
 
 .dismiss:hover {
@@ -214,7 +217,10 @@
 }
 
 .banner[data-compact] .dismiss {
-  margin-top: calc((var(--hd-line) - 24px) / 2);
+  /* The compact card's dismiss is `size="icon-xs"` (Banner.tsx), whose box is
+     `--hd-icon-target` — the same token, not a second literal for the same
+     number. */
+  margin-top: calc((var(--hd-line) - var(--hd-icon-target)) / 2);
 }
 
 /* Too narrow for the words and the actions side by side, the actions take a
