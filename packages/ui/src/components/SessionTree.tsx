@@ -92,6 +92,27 @@ const traceTone = (trace: ReturnType<typeof traceOf>): Tone | undefined => {
   return trace !== null && ACTIVE_STATES.has(trace) ? 'brand' : undefined
 }
 
+/**
+ * The row titles more than one agent's conversations wear — the only rows
+ * whose title alone cannot say which agent they are. Computed once per
+ * history list, not once per row.
+ */
+const sharedLabels = new WeakMap<readonly SessionSummary[], ReadonlySet<string>>()
+const labelsSharedAcrossAgents = (history: readonly SessionSummary[]): ReadonlySet<string> => {
+  const known = sharedLabels.get(history)
+  if (known) return known
+  const agentsBy = new Map<string, Set<string>>()
+  for (const summary of history) {
+    const label = sessionLabel(summary.title, summary.preview)
+    const agents = agentsBy.get(label) ?? new Set<string>()
+    agents.add(String(summary.runtime))
+    agentsBy.set(label, agents)
+  }
+  const shared = new Set([...agentsBy].filter(([, agents]) => agents.size > 1).map(([label]) => label))
+  sharedLabels.set(history, shared)
+  return shared
+}
+
 const SessionRow = ({
   summary,
   now,
@@ -145,6 +166,12 @@ const SessionRow = ({
      read every name. The live session is the fresher record when it exists. */
   const ownLabel = sessionLabel(live?.title ?? summary.title, summary.preview)
   const label = need?.name ?? ownLabel
+  const presentedName = runtime?.presentation.name ?? null
+  const collides =
+    !need &&
+    snapshot.listPrefs.density !== 'comfortable' &&
+    snapshot.runtimes.length > 1 &&
+    labelsSharedAcrossAgents(snapshot.history).has(ownLabel)
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
   // over, the row would read idle, and something is still running. The glyph
@@ -272,6 +299,14 @@ const SessionRow = ({
               <span className={styles.rowHead}>
                 <Text role="navigation" fade className={styles.rowTitle}>{label}</Text>
                 {need && <Chip tone="warning">{need.reason}</Chip>}
+                {/* Which agent, where the title cannot say. A flow's several
+                    Seats of one role — three "Code reviewer" rows, one per
+                    agent — share the exact same title (measured on UC3's
+                    review flow), and compact density has no second line to
+                    tell them apart. The agent's name is a word, so it is a
+                    chip on the title's own line (rule 9): no row gets taller,
+                    and a title only one agent's rows wear carries none. */}
+                {collides && presentedName && <Chip tone="neutral">{presentedName}</Chip>}
                 {/* One project, several checkouts. The row says which it ran
                     in with a branch glyph rather than a group of its own —
                     a worktree is where a conversation happened, not what it

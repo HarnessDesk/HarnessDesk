@@ -519,6 +519,7 @@ export const PRODUCT_SURFACES = [
   ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/components/Conversation.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ConversationSurface'],
   ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/components/Composer.tsx', false, 'packages/ui/src/components/Conversation.tsx', 'ComposerSurface'],
   ['surface.rail', 'rail', 'Sidebar and navigation rows', 'packages/ui/src/components/Sidebar.tsx', false, 'packages/ui/src/app/App.tsx', 'RailSurface'],
+  ['surface.seat-rows', 'seat-rows', 'Seats sharing a title, told apart by an agent chip; a Seat whose folder is gone', 'packages/ui/src/components/SessionTree.tsx', false, 'packages/ui/src/components/Sidebar.tsx', 'SeatRowsSurface'],
   ['surface.git', 'git', 'Repository history and detail', 'packages/ui/src/components/GitPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'GitSurface'],
   ['surface.panels', 'panels', 'Dock, split, collapse and resize', 'packages/ui/src/panels/Workbench.tsx', false, 'packages/ui/src/app/App.tsx', 'PanelsSurface'],
   ['surface.propagation', 'propagation', 'Cross-surface foundation propagation', 'packages/ui/src/design/showcase/PropagationPage.tsx', true],

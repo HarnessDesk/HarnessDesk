@@ -612,6 +612,7 @@ export const AccountFooter = ({
     }
   }
 
+  const unanswered = here !== null && here.state === 'signin' && !here.known
   const accountTrigger = (
     <>
       <ProfileFace size={24} />
@@ -645,10 +646,13 @@ export const AccountFooter = ({
           </AccountMark>
         </AccountHoverCard>
       )}
+      {/* Until the default agent has answered who is signed in, readiness can
+          only guess "Needs sign-in"; the light stays neutral and says nothing
+          it does not know, as the badge beside it and the menu already do. */}
       <Dot
-        state={here?.state ?? 'available'}
+        {...(unanswered ? {} : { state: here?.state ?? 'available' })}
         role="img"
-        aria-label={here ? `${agentName}: ${READINESS_LABEL[here.state]}` : 'No agent'}
+        aria-label={here ? (unanswered ? agentName : `${agentName}: ${READINESS_LABEL[here.state]}`) : 'No agent'}
       />
     </>
   )

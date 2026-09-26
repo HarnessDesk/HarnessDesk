@@ -144,11 +144,16 @@ export const Popover = ({
   children: (close: () => void) => ReactNode
 }) => {
   const [open, setOpenState] = useState(false)
+  // What the caller was last told, kept beside the state rather than read out
+  // of an updater: an updater runs during render (twice, in StrictMode), and a
+  // caller's `onOpenChange` sets the caller's own state — so telling it from
+  // there updated one component while React was rendering another (#973).
+  const told = useRef(false)
   const setOpen = (next: boolean): void => {
-    setOpenState((value) => {
-      if (next !== value) onOpenChange?.(next)
-      return next
-    })
+    setOpenState(next)
+    if (next === told.current) return
+    told.current = next
+    onOpenChange?.(next)
   }
   const trigger = useRef<HTMLButtonElement>(null)
   const triggerId = useId()
