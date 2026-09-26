@@ -953,6 +953,13 @@ because the difference between "still reading" and "ran out of its window
 forty minutes ago" is the whole reason the row exists, and a grey sentence
 in a busy channel is not that difference.
 
+### `Checklist`
+
+`packages/ui/src/design/patterns/Checklist.tsx`
+
+`ordered` for steps whose order is the point — a plan written as numbered
+steps — so a screen reader hears them as a sequence, not a set.
+
 ### `CodeBlock`
 
 `packages/ui/src/design/patterns/CodeBlock.tsx`

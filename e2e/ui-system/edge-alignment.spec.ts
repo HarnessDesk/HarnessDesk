@@ -170,9 +170,15 @@ test.describe('the layout system holds its own claims', () => {
       return {
         textDecorationLine: cs.textDecorationLine,
         color: cs.color,
-        // The chip shares the label's first line rather than dropping to one
-        // of its own under it.
-        sameLine: Math.abs(label.getBoundingClientRect().top - chip.getBoundingClientRect().top) < 4,
+        // The chip follows the step's last words on their line rather than
+        // dropping to one of its own under them. The label is inline text,
+        // so its last line box is its last client rect.
+        sameLine: (() => {
+          const rects = [...label.getClientRects()].filter((rect) => rect.width > 0 && !chip.contains(document.elementFromPoint(rect.left + 1, rect.top + 1)))
+          const last = rects[rects.length - 1]!
+          const box = chip.getBoundingClientRect()
+          return box.top < last.bottom && box.bottom > last.top
+        })(),
       }
     })
     expect(reading.textDecorationLine).toContain('line-through')
