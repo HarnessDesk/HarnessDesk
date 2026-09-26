@@ -14,10 +14,12 @@ import {
   ComposerNotice,
   Checklist,
   ChecklistItem,
+  ComposerNoticeStack,
   InboxPanel,
   InboxList,
   NoticeCard,
   NoticeStrip,
+  showProgress,
   showToast,
   type InboxMessage,
   type NoticeMessage,
@@ -602,47 +604,101 @@ const ChecklistBoard = () => (
   </div>
 )
 
+const NOTICE_ASK: NoticeMessage = {
+  id: 'ask',
+  tone: 'info',
+  title: 'Keep the old retry count, or raise it to five?',
+  body: 'Five covers the documented flaps; three matches the other clients.',
+}
+
+/* Every surface in every state the app can put it in, drawn by the shipped
+   components with the props the app passes: one message and several, with and
+   without an action, dismissable and not, the second dismissal's "Stop showing
+   this", the inbox empty, all read and full, and each kind of toast. */
 const NoticesBoard = () => {
   const [inbox, setInbox] = useState(NOTICE_INBOX)
+  const read = (id: string) => setInbox((all) => all.map((message) => (message.id === id ? { ...message, read: true } : message)))
   return (
     <div className={styles.stack}>
-      <Case label="card: the foot of the sidebar, one at a time">
+      <Case label="card: one message">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="card: several, paged one at a time">
         <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
           <NoticeCard messages={NOTICE_CARD} onDismiss={() => {}} />
         </div>
       </Case>
-      <Case label="composer: fastened to the composer it blocks">
-        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
-          <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
-          <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
-          <ComposerNotice message={{ id: 'ask', tone: 'info', title: 'Keep the old retry count, or raise it to five?', body: 'Five covers the documented flaps; three matches the other clients.', action: { label: 'Raise to five', onSelect: () => {} } }} onDismiss={() => {}} />
+      <Case label="card: dismissed twice before — the × offers Stop showing this">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} onMute={() => () => {}} />
         </div>
       </Case>
-      <Case label="strip: one slim line above a pane">
+      <Case label="composer: each tone, with and without an action or a dismiss">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
+            <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
+            <ComposerNotice message={{ id: 'plain', title: 'Reconnecting to the host…' }} />
+          </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="composer: an Agent asks, and the strip sharing the stack">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            <NoticeStrip messages={[{ id: 'link', tone: 'warning', title: 'Reconnecting to the host…' }]} onDismiss={() => {}} />
+            <ComposerNotice message={NOTICE_ASK} onDismiss={() => {}} onMute={() => {}} />
+          </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="strip: one message">
+        <NoticeStrip messages={NOTICE_STRIP.slice(0, 1)} onDismiss={() => {}} />
+      </Case>
+      <Case label="strip: several, paged">
         <NoticeStrip messages={NOTICE_STRIP} onDismiss={() => {}} />
       </Case>
-      <Case label="inbox: kept until cleared; the bell tints only while something is unread">
+      <Case label="inbox: the bell and its panel; unread tints the bell">
         <div className="flex items-start gap-(--hd-space-4)">
-          <InboxPanel
-            messages={inbox}
-            now={NOTICE_NOW}
-            onOpen={(id) => setInbox((all) => all.map((message) => (message.id === id ? { ...message, read: true } : message)))}
-          />
+          <InboxPanel messages={inbox} now={NOTICE_NOW} onOpen={read} />
           <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
             <InboxList
               messages={inbox}
               now={NOTICE_NOW}
-              onOpen={(id) => setInbox((all) => all.map((message) => (message.id === id ? { ...message, read: true } : message)))}
+              onOpen={read}
               onMarkAllRead={() => setInbox((all) => all.map((message) => ({ ...message, read: true })))}
               onClear={() => setInbox([])}
             />
           </div>
         </div>
       </Case>
-      <Case label="toast: the result of what was just done">
-        <Button variant="secondary" type="button" onClick={() => showToast({ title: 'Backup saved to your Desktop.', action: { label: 'Show', onSelect: () => {} } })}>
-          Show a toast
-        </Button>
+      <Case label="inbox: all read, and empty">
+        <div className="flex flex-wrap items-start gap-(--hd-space-4)">
+          <InboxPanel messages={NOTICE_INBOX.map((message) => ({ ...message, read: true }))} now={NOTICE_NOW} />
+          <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
+            <InboxList messages={NOTICE_INBOX.map((message) => ({ ...message, read: true }))} now={NOTICE_NOW} />
+          </div>
+          <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
+            <InboxList messages={[]} now={NOTICE_NOW} />
+          </div>
+        </div>
+      </Case>
+      <Case label="toast: a result, a failure that stays until closed, and work under way">
+        <div className="flex flex-wrap gap-(--hd-space-2)">
+          <Button variant="secondary" type="button" onClick={() => showToast({ title: 'Backup saved to your Desktop.', action: { label: 'Show', onSelect: () => {} } })}>
+            Result
+          </Button>
+          <Button variant="secondary" type="button" onClick={() => showToast({ tone: 'danger', title: 'Could not save the backup.', body: 'The disk is full.' }, { persist: true })}>
+            Failure
+          </Button>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={() => showProgress(new Promise((resolve) => setTimeout(resolve, 1500)), { working: 'Exporting…', done: 'Exported.', failed: 'Export failed.' })}
+          >
+            Under way
+          </Button>
+        </div>
         <Toaster />
       </Case>
     </div>

@@ -242,9 +242,9 @@ export const NoticeStrip = ({
         {message.body ? <span className={styles.lineBody}> {message.body}</span> : null}
       </span>
       {message.action ? (
-        <button type="button" className={styles.link} onClick={message.action.onSelect}>
+        <Button variant="link" size="inline" type="button" className={cn(styles.link, 'h-auto p-0')} onClick={message.action.onSelect}>
           {message.action.label}
-        </button>
+        </Button>
       ) : null}
       <span className={styles.fill} />
       <Pager at={pager.at} count={messages.length} onPrevious={pager.previous} onNext={pager.next} />
@@ -307,9 +307,11 @@ export const InboxList = ({
         <div className={styles.inboxText}>
           <span className={styles.inboxTop}>
             {press ? (
-              <button
+              <Button
+                variant="link"
+                size="inline"
                 type="button"
-                className={styles.inboxTitle}
+                className={cn(styles.inboxTitle, 'h-auto items-baseline p-0 font-[inherit] leading-[inherit] whitespace-normal')}
                 title={message.go ? 'Go to the conversation' : 'Mark read'}
                 onClick={() => {
                   if (!message.read) onOpen?.(message.id)
@@ -317,7 +319,7 @@ export const InboxList = ({
                 }}
               >
                 {message.title}
-              </button>
+              </Button>
             ) : (
               <span className={styles.inboxTitle}>{message.title}</span>
             )}
@@ -343,10 +345,10 @@ export const InboxList = ({
         {messages.length > 0 ? (
           <div className={styles.inboxTabs} role="tablist" aria-label="Show">
             {(['all', 'unread'] as const).map((key) => (
-              <button key={key} type="button" role="tab" aria-selected={only === key} className={styles.inboxTab} onClick={() => setOnly(key)}>
+              <Button key={key} variant="ghost" size="xs" type="button" role="tab" aria-selected={only === key} className={styles.inboxTab} onClick={() => setOnly(key)}>
                 {key === 'all' ? 'All' : 'Unread'}
                 {key === 'unread' && unread > 0 ? <span className={styles.tabCount}>{unread}</span> : null}
-              </button>
+              </Button>
             ))}
           </div>
         ) : null}
