@@ -245,6 +245,34 @@
   background: currentColor;
 }
 
+/* `dotTone`: a dot given a tone of its own beats the rule above on purpose.
+   Equal specificity would leave the winner to whichever sheet the bundler
+   places last, so the extra `data-slot` attribute is there to settle it
+   regardless of load order. */
+.dot[data-slot='dot'][data-tone='neutral'] {
+  background: var(--hd-muted-foreground);
+}
+
+.dot[data-slot='dot'][data-tone='brand'] {
+  background: var(--hd-primary);
+}
+
+.dot[data-slot='dot'][data-tone='success'] {
+  background: var(--hd-success);
+}
+
+.dot[data-slot='dot'][data-tone='warning'] {
+  background: var(--hd-warning);
+}
+
+.dot[data-slot='dot'][data-tone='danger'] {
+  background: var(--hd-danger);
+}
+
+.dot[data-slot='dot'][data-tone='info'] {
+  background: var(--hd-tint-sky-ink);
+}
+
 /* Stale is marked rather than struck: the history glyph in front, and — for
    a fact that no longer judges anything (a stale pass goes neutral) — muted
    ink for the mark and the words. A stale failure keeps its tone's ink. A
