@@ -16,6 +16,8 @@ move is real work and is not news to a person weighing an upgrade.
   room now says why beside the header's **Needs you**: what refused it, which
   of the round's other cards were held back with it (a round's cards start
   together), and what to do next.
+
+
 - **Wrapping a Goal right after stopping its run now waits for the stopped
   Seat's answer to finish saving.** That answer is written to disk a beat
   after the turn ends, and wrapping right away could catch it mid-write: the
@@ -23,10 +25,12 @@ move is real work and is not news to a person weighing an upgrade.
   or the wrap could refuse with "This Goal changed while you reviewed its
   receipt. Review it again." A read now waits for that write first, so the
   receipt always carries what the Seat actually said.
+
 - **The Dashboard shows when the work ran.** A new "When it ran" band draws a
   year as a calendar heatmap — Year or By agent, Tokens or Cost — with the
   active days, the current and best streak, and the busiest day beside it. A
   day before the ledger has scanned that far reads as unknown, not empty.
+
 - **A flow Seat's question waits for you.** On a run you started, a Seat's
   question is no longer cut off after twenty seconds: it waits for your
   answer. In a Goal a trigger opened, it waits as long as **Settings ›
@@ -52,11 +56,13 @@ move is real work and is not news to a person weighing an upgrade.
   glance. A segmented control's chosen answer (Settings › Appearance's
   dials, a Dashboard pivot) is lifted on the card again, with a hairline
   shadow and primary ink, instead of blending into the track it sits on.
+
 - **A signed-out agent's mark looks empty.** The seat's badge and the menu's
   mark for an agent with no one signed in were meant to read as an empty seat
   and never did; they now draw a dashed ring with no plate and a quieter
   glyph, so an agent that cannot start a turn no longer looks like one that
   can.
+
 - **The account menu says less.** Every account is one line — its name and
   what is left — with the address and plan on hover rather than under every
   name. An agent with several accounts shows its mark once, as a heading with
@@ -66,9 +72,11 @@ move is real work and is not news to a person weighing an upgrade.
   row to say "—" when nothing is metered. The current account is marked by its
   filled row rather than a tick, so every figure ends at the same edge, and
   Dashboard — already in the sidebar's nav — is no longer repeated here.
+
 - **Old DeepSeek bridge removed.** If your `agents.json` runs
   `@harnessdesk/dsh-acp`, change that row to `{ "id": "dsh", "template": "dsh" }`
   — DeepSeek now runs on DSH's own ACP server.
+
 - **DeepSeek seats finish their cards.** A DeepSeek conversation's board
   calls — finishing a card, claiming one — were refused as unattributed,
   because the only way it reached HarnessDesk's tools was one tool server
@@ -81,6 +89,7 @@ move is real work and is not news to a person weighing an upgrade.
   "Updated the plan", the command it ran — with the matching glyph and no raw
   tool name under them. An agent upgraded to take the tools is offered them
   on its next restart, not only after the app restarts.
+
 - **A standing notice stays in its own pane.** The floating banner stack (a
   Library import offer, an account warning) used to span the whole workbench,
   so it could sit squarely over a room's Board row, cut through the top of
@@ -91,6 +100,7 @@ move is real work and is not news to a person weighing an upgrade.
   read — a panel zoomed to fill the window, or laid over a narrow one, takes
   it along — never narrower than a card can be read at, and always below
   that pane's toolbars rather than over them.
+
 - **An Agent can be started at a higher ceiling, and its MCP servers load.**
   An Agent whose ceiling is publish or merge was always seated at edit from
   the app, so an MCP server it declared — which needs a Seat that may merge
@@ -104,12 +114,14 @@ move is real work and is not news to a person weighing an upgrade.
   another agent says its content was approved for the first one, a server
   that ignores being asked to stop no longer outlives a quick quit, and a
   Seat the agent still held when it was reopened keeps its servers.
+
 - **Goal boards save whole, and a stuck Goal clears without a restart.** A
   board change that rode along with an assignment could be reported saved
   before its name, messaging and plans were written; they now land in the
   same write. A Goal whose failed assignment could not be set aside
   retries that once the next board save lands, instead of waiting for a
   relaunch. A legacy flow's member roles survive a Goal being read back.
+
 - **A Goal's work survives a relaunch.** Quitting while a Goal's agent was
   working, or waiting for you to approve a command, used to leave the Goal
   reading "Running" after the next launch while nothing ran and the approval
@@ -117,6 +129,7 @@ move is real work and is not news to a person weighing an upgrade.
   card again, so it picks the work back up and asks again; one that cannot
   be reopened stops the run and says why. A Goal's Findings pane now shows
   the run that is going on, not an older stopped one that shares its Goal.
+
 - **A Goal or room now has one header, and it says what it should.** A Goal's
   page used to stack two headers naming it — its own, then the room's, one
   of them running its full folder path across two lines — and named the
@@ -133,6 +146,7 @@ move is real work and is not news to a person weighing an upgrade.
   Every Agent's ceiling chip now reads in the same neutral tone; "asked" is
   the ordinary state for a runtime with no control that holds one, not a
   warning.
+
 - **Starting a team is two clicks, from files you can edit or write yourself** —
   New session gains **Start with a team**, alongside the solo and room
   choices: a catalogue of shapes — Fan out, Review, Compare, Relay,
