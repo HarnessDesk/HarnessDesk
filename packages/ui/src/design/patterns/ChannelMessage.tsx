@@ -5,7 +5,7 @@ import type { Brand } from '../../lib/brands'
 import { Bubble, BubbleContent } from '../ui/bubble'
 import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
-import { Message, MessageContent, MessageFooter, MessageHeader } from '../ui/message'
+import { Message, MessageContent, MessageFooter } from '../ui/message'
 import type { Tone } from '../ui/tone'
 import { Chip, CodeText, MetaList, Monogram, Text } from './Settings'
 import { TurnItem } from './TurnWork'
@@ -67,11 +67,14 @@ import { TurnItem } from './TurnWork'
  * The measure is the caller's — `TeamRoomPane.module.css` sets it to
  * `--hd-column`, the transcript's — and the rows sit on its edges the way the
  * transcript's items do. The row itself is the transcript's own `Message`
- * (design/ui/message.tsx): a name uses `MessageHeader`, the words stand in
- * `Bubble` (design/ui/bubble.tsx) unframed the way an answer's own prose is,
- * and a delivery's trouble reads from `MessageFooter` — a second screen for
- * parts that would otherwise exist for the transcript alone, not a box
- * borrowed and then switched off.
+ * (design/ui/message.tsx): its content stands in `MessageContent`, the words
+ * in `Bubble` (design/ui/bubble.tsx) unframed the way an answer's own prose
+ * is, and a delivery's trouble reads from `MessageFooter` — a second screen
+ * for parts that would otherwise exist for the transcript alone, not a box
+ * borrowed and then switched off. The name above it stays this row's own —
+ * a header naming the sender exists nowhere else in the transcript to give
+ * a shared `MessageHeader` a second caller, and inventing one there to give
+ * it one would be the same audit-shaped dishonesty the box itself was.
  *
  * What stays here is what only a channel has: the clamp that folds a long
  * message, and the grid that keeps every row's words on one line after the
@@ -309,18 +312,19 @@ export const ChannelMessage = ({
         )}
       </div>
 
-      {/* The room's row genuinely stands on the transcript's own parts now —
-          not a box borrowed and switched off. `Message` keeps its real flex
-          column; only two of its defaults are tuned for this caller:
-          `items-stretch` because a header and a content column both need to
-          fill the row rather than hug their own width (the way `ghost`
-          already tunes `Bubble` for the same reason), and `gap-px` in place
-          of the transcript's 6px — the exact `mb-px` the header carried
-          before it was `MessageHeader`, so the row's own rhythm does not
-          move. */}
-      <Message align="start" className="items-stretch gap-px">
+      {/* The room's row genuinely stands on the transcript's own Message —
+          not a box borrowed and switched off. `items-stretch` because the
+          header and the content column both need to fill the row rather than
+          hug their own width (the way `ghost` already tunes `Bubble` for the
+          same reason); `gap-0` because the header below keeps the exact
+          `mb-px` it always drew itself, its own row rather than a shared
+          `MessageHeader` — no other row in the transcript names a sender
+          above its message, so there is no second caller to give one, and a
+          part with exactly one is the same audit-shaped dishonesty the box
+          itself was. */}
+      <Message align="start" className="items-stretch gap-0">
         {!grouped && (
-          <MessageHeader>
+          <div className="mb-px flex items-baseline gap-1.5">
             {wrap(<Text role="subject" truncate>{from}</Text>)}
             {/* `min-w-0`, or `truncate` is decoration: a flex item will not
                 shrink below its content without it, and a recipient list of
@@ -338,7 +342,7 @@ export const ChannelMessage = ({
               <span>{at}</span>
               {whisper && <span>{whisper}</span>}
             </MetaList>
-          </MessageHeader>
+          </div>
         )}
 
         {/* `gap-0`: the transcript's default rhythm between a content
