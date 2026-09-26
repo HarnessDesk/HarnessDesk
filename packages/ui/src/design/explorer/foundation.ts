@@ -165,12 +165,43 @@ export const TOKEN_GROUPS: {
   },
 ]
 
+/**
+ * How to draw one token, decided from its own name and value rather than
+ * trusted to its group.
+ *
+ * A group's `kind` says what most of its tokens are, and it used to be taken
+ * as gospel for every name the group's regex happened to match — which is how
+ * `--hd-card-padding` and `--hd-card-radius` ended up in "Surface" (matched on
+ * the `card` prefix) and drawn as colour swatches, one of them a 16px padding
+ * value with a coloured square that meant nothing. `shadow` and `radius` are
+ * pulled out by name first because both live inside colour-shaped groups
+ * (`Button colour`, `Surface`) the same way; `color` is trusted only once the
+ * value itself reads as one, so a stray non-colour caught by a group's regex
+ * falls through to a plain value instead of a lying swatch.
+ */
+export type TokenVisual = 'color' | 'space' | 'radius' | 'shadow' | 'size'
+
+const COLOR_VALUE = /^(#|rgb|hsl|color-mix)/i
+
+export const tokenVisual = (
+  name: string,
+  groupKind: 'color' | 'space' | 'plain',
+  value: string,
+): TokenVisual => {
+  if (/shadow/.test(name)) return 'shadow'
+  if (/radius/.test(name)) return 'radius'
+  if (groupKind === 'space') return 'space'
+  if (groupKind === 'color' && (COLOR_VALUE.test(value) || value === 'transparent')) return 'color'
+  return 'size'
+}
+
+const CLEAN_TOKENS_CSS = tokensCss.replace(/\/\*[\s\S]*?\*\//g, '')
+
 /** The names the token file declares, in source order. */
 const declaredNames = (): string[] => {
   const names: string[] = []
   const seen = new Set<string>()
-  const clean = tokensCss.replace(/\/\*[\s\S]*?\*\//g, '')
-  for (const match of clean.matchAll(/(--[A-Za-z0-9-]+)\s*:/g)) {
+  for (const match of CLEAN_TOKENS_CSS.matchAll(/(--[A-Za-z0-9-]+)\s*:/g)) {
     const name = match[1]
     if (name && !seen.has(name)) {
       seen.add(name)
@@ -181,11 +212,27 @@ const declaredNames = (): string[] => {
 }
 
 /**
+ * What a row says for a token the current interface never sets. A few
+ * tokens (`--hd-card-fill`, `--hd-card-border`, `--hd-card-divider`,
+ * `--hd-card-radius`) are declared only inside the Studio interface's block,
+ * and under Desk the app reads each through a fallback to a Desk token. Their
+ * Studio values are not what Desk paints, so this board says so plainly
+ * rather than drawing a swatch the app never uses.
+ */
+export const UNSET_HERE = 'not set in this interface'
+
+/** One token's value as the app resolves it right now, or `UNSET_HERE`. */
+const resolveTokenValue = (name: string, computed: CSSStyleDeclaration): string =>
+  computed.getPropertyValue(name).trim() || UNSET_HERE
+
+/**
  * What each token resolves to *right now*, asked of the browser.
  *
- * Not parsed, not cached, not written down anywhere: `getComputedStyle` is
- * the same machinery that paints the app, so what this shows and what the app
- * does cannot disagree.
+ * Mostly `getComputedStyle` — the same machinery that paints the app, so
+ * what this shows and what the app does cannot disagree — with the
+ * declared-text fallback above for the tokens the current interface has not
+ * set on `body` at all. A row never shows nothing: a token the current
+ * interface leaves unset says so.
  */
 export const useResolvedTokens = (): { name: string; value: string }[] => {
   const [tokens, setTokens] = useState<{ name: string; value: string }[]>([])
@@ -195,7 +242,7 @@ export const useResolvedTokens = (): { name: string; value: string }[] => {
       setTokens(
         declaredNames().map((name) => ({
           name,
-          value: computed.getPropertyValue(name).trim(),
+          value: resolveTokenValue(name, computed),
         })),
       )
     }

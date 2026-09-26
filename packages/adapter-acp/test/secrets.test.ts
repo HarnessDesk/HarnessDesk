@@ -61,6 +61,22 @@ describe('whereSecretLives', () => {
     assert.deepEqual(where, { kind: 'externalKey', detail: "DeepSeek Harness's own store" })
   })
 
+  it("follows the agent's own home variable to its store, from the agent's environment first", () => {
+    // DSH keeps its store under $DSH_HOME when that is set, and a desk that
+    // looked only under ~/.dsh asked for a key DSH already had.
+    const home = mkdtempSync(join(dir, 'dsh-home-'))
+    writeFileSync(join(home, '.credentials.yaml'), 'DEEPSEEK_API_KEY: sk-theirs\n')
+    const at = spec([{ path: '${DSH_HOME:-~/.dsh-none-here}/.credentials.yaml', format: 'yaml', label: 'its store' }])
+    assert.equal(whereSecretLives(at, () => undefined, { DSH_HOME: home })?.detail, 'its store')
+    process.env['DSH_HOME'] = home
+    try {
+      assert.equal(whereSecretLives(at, () => undefined)?.detail, 'its store', 'or from the launching environment')
+    } finally {
+      delete process.env['DSH_HOME']
+    }
+    assert.equal(whereSecretLives(at, () => undefined), null, 'and the fallback when neither sets it')
+  })
+
   it("reads the one-line flow mapping DSH's own writer produces", () => {
     const path = file('flow.yaml', '{ DEEPSEEK_API_KEY: sk-theirs }\n')
     const where = whereSecretLives(

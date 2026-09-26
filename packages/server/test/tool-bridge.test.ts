@@ -72,4 +72,10 @@ test('an ACP agent is born knowing where the tool gateway listens', () => {
     { HD_TOOLS_SOCKET: '/elsewhere.sock' },
     'an entry that names its own socket wins over the host default',
   )
+  // The agent is named too, for the one bridge that will say it: one its
+  // own configuration composed, with no conversation's token.
+  assert.deepEqual(agentEnvironment('/run/tools.sock', undefined, 'rig-agent'), {
+    HD_TOOLS_SOCKET: '/run/tools.sock',
+    HD_TOOLS_AGENT: 'rig-agent',
+  })
 })

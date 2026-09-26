@@ -21,7 +21,7 @@ import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
 import { RaceStart } from '../components/RaceStart'
 import { projectRootOf } from '../lib/projects'
-import { NOTICE_BAR_SELECTOR, noticePlacement } from '../lib/notice-bounds'
+import { NOTICE_BAR_SELECTOR, NOTICE_FLOOR, NOTICE_GAP, noticePlacement } from '../lib/notice-bounds'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
@@ -327,13 +327,43 @@ export const App = () => {
   // lights, but a card over the first message is a card over the first
   // message: the transcript learns the stack's height and starts below it.
   const notices = useRef<HTMLDivElement | null>(null)
+  /*
+   * The placement effect's own `apply`, latest version — set by that effect
+   * below, called from this one. A margin driven by `--hd-notice-inset` can
+   * move the very bar the placement effect clears (a conversation's header,
+   * a room's), without resizing it — a margin only shifts a box, and
+   * `ResizeObserver` fires on a size change — so nothing would otherwise ask
+   * the placement effect to look again. Calling it here, synchronously,
+   * right after the inset is written, is what a shared `ResizeObserver` on
+   * the same element could only promise by relying on two different
+   * observers happening to run in the right order; a plain function call
+   * says so outright.
+   */
+  const repositionNotices = useRef<() => void>(() => {})
   useEffect(() => {
     const stack = notices.current
     const area = stack?.parentElement
     if (!stack || !area) return
     const apply = (): void => {
       const height = stack.getBoundingClientRect().height
-      area.style.setProperty('--hd-notice-inset', height > 0 ? `${Math.ceil(height) + 10}px` : '0px')
+      /*
+       * `NOTICE_FLOOR + NOTICE_GAP`, not a flat cushion: a pane that yields
+       * (`[data-notice-yield]` below) mounts whatever a screen draws — a
+       * header included — from its own top, the same baseline the stack
+       * itself measures `NOTICE_FLOOR` from. Reserving only the card's own
+       * height pushed that header down by less than the stack's own top
+       * offset, so the two still overlapped by exactly that difference: a
+       * conversation's header, moved to sit partly under the card it was
+       * clear of before anything yielded to it. Reserving the same floor the
+       * stack itself starts behind, plus its usual clearance, means whatever
+       * yields always ends up at or past the stack's own bottom, however
+       * little or much sits above it before the push.
+       */
+      area.style.setProperty(
+        '--hd-notice-inset',
+        height > 0 ? `${Math.ceil(height) + NOTICE_FLOOR + NOTICE_GAP}px` : '0px',
+      )
+      repositionNotices.current()
     }
     apply()
     const observer = new ResizeObserver(apply)
@@ -378,6 +408,7 @@ export const App = () => {
       stack.style.right = `${placement.right}px`
       stack.style.top = `${placement.top}px`
     }
+    repositionNotices.current = apply
     apply()
     const observer = new ResizeObserver(apply)
     observer.observe(area)
@@ -385,7 +416,10 @@ export const App = () => {
     if (host) observer.observe(host)
     // A bar that wraps onto a second line moves the edge the stack clears.
     for (const bar of document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)) observer.observe(bar)
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      repositionNotices.current = () => {}
+    }
   }, [snapshot.layout, snapshot.workbench, snapshot.narrowWindow])
 
   return (

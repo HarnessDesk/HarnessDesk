@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { Boundary } from '../../preview/boundary'
 import { PropagationPage } from '../showcase/PropagationPage'
 
-import { Button, GroupLabel, Input } from '..'
+import { Button, GroupLabel, Input, Segmented } from '..'
 import { CATALOG_ENTRIES } from '../catalog/manifest'
 import { BOARDS } from './boards'
 import { COMPOSITION_BOARDS } from './boards-compositions'
@@ -33,7 +33,7 @@ const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ de
 const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
 const RailSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RailSurface })))
 const ToolsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ToolsSurface })))
-import { FOUNDATIONS, TOKEN_GROUPS, useResolvedTokens } from './foundation'
+import { FOUNDATIONS, TOKEN_GROUPS, tokenVisual, useResolvedTokens } from './foundation'
 import styles from './explorer.module.css'
 
 /**
@@ -217,7 +217,9 @@ const NavItem = ({
   onClick: () => void
 }) => (
   <Button
-    variant={selected ? 'secondary' : 'ghost'}
+    variant="navigation"
+    size="navigation"
+    data-selected={selected || undefined}
     className={styles.navControl}
     onClick={onClick}
   >
@@ -344,47 +346,37 @@ export const Explorer = () => {
       <main className={styles.main}>
         <div className={styles.bar}>
           {DIALS.map((dial) => (
-            <div key={dial.id} className={styles.switch}>
+            <div key={dial.id} className={styles.dial}>
               <span className={styles.switchLabel}>{dial.label}</span>
-              {dial.options.map((option) => (
-                <Button
-                  key={option.value}
-                  size="sm"
-                  variant={dials[dial.id] === option.value ? 'default' : 'ghost'}
-                  onClick={() => setDials((prior) => ({ ...prior, [dial.id]: option.value }))}
-                >
-                  {option.label}
-                </Button>
-              ))}
+              <Segmented
+                label={dial.label}
+                value={dials[dial.id] ?? dial.options[0]!.value}
+                onChange={(next) => setDials((prior) => ({ ...prior, [dial.id]: next }))}
+                options={dial.options}
+              />
             </div>
           ))}
-          <span className={styles.barSpacer} />
-          <div className={styles.switch}>
+          <div className={styles.dial}>
             <span className={styles.switchLabel}>Foundation</span>
-            {FOUNDATIONS.map((one) => (
-              <Button
-                key={one.id}
-                size="sm"
-                variant={foundation === one.id ? 'default' : 'ghost'}
-                onClick={() => setFoundation(one.id)}
-                title={one.about}
-              >
-                {one.title}
-              </Button>
-            ))}
+            <Segmented
+              label="Foundation"
+              value={foundation}
+              onChange={setFoundation}
+              options={FOUNDATIONS.map((one) => ({ value: one.id, label: one.title }))}
+            />
           </div>
-          <div className={styles.switch}>
+          <div className={styles.dial}>
             <span className={styles.switchLabel}>Theme</span>
-            {(['light', 'dark', 'system'] as const).map((one) => (
-              <Button
-                key={one}
-                size="sm"
-                variant={theme === one ? 'default' : 'ghost'}
-                onClick={() => setTheme(one)}
-              >
-                {one}
-              </Button>
-            ))}
+            <Segmented
+              label="Theme"
+              value={theme}
+              onChange={setTheme}
+              options={[
+                { value: 'light', label: 'light' },
+                { value: 'dark', label: 'dark' },
+                { value: 'system', label: 'system' },
+              ]}
+            />
           </div>
         </div>
         <div className={styles.body}>
@@ -463,18 +455,29 @@ const FoundationBoard = () => {
           <div className={styles.tokens}>
             {tokens
               .filter((token) => group.match(token.name))
-              .map((token) => (
-                <div key={token.name} className={styles.token}>
-                  {group.kind === 'color' && (
-                    <span className={styles.swatch} style={{ background: token.value }} />
-                  )}
-                  {group.kind === 'space' && (
-                    <span className={styles.swatch} style={{ width: token.value, background: 'var(--hd-primary)' }} />
-                  )}
-                  <span className={styles.tokenName}>{token.name}</span>
-                  <span className={styles.tokenValue}>{token.value}</span>
-                </div>
-              ))}
+              .map((token) => {
+                const visual = tokenVisual(token.name, group.kind, token.value)
+                return (
+                  <div key={token.name} className={styles.token}>
+                    <span className={styles.tokenSlot}>
+                      {visual === 'color' && (
+                        <span className={styles.swatch} style={{ background: token.value }} />
+                      )}
+                      {visual === 'space' && (
+                        <span className={styles.spaceBar} style={{ width: token.value }} />
+                      )}
+                      {visual === 'radius' && (
+                        <span className={styles.radiusSample} style={{ borderRadius: token.value }} />
+                      )}
+                      {visual === 'shadow' && (
+                        <span className={styles.shadowSample} style={{ boxShadow: token.value }} />
+                      )}
+                    </span>
+                    <span className={styles.tokenName}>{token.name}</span>
+                    <span className={styles.tokenValue} title={token.value}>{token.value}</span>
+                  </div>
+                )
+              })}
           </div>
         </section>
       ))}

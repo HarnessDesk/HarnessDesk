@@ -178,11 +178,6 @@ Stated plainly, because the gaps are the plan.
 - **Drive every agent's sign-in.** Gemini CLI, Kimi, CodeBuddy and pi sign in
   from their own interface; the settings page says which command to run in
   a terminal and offers the API-key field where the vendor takes one.
-- **A DeepSeek Harness entry in the Add-agent catalogue.** Deliberate, not
-  forgotten: the catalogue only offers agents that run without editing
-  anything, and our [`dsh-acp`](https://github.com/HarnessDesk/dsh-acp)
-  server takes a machine-specific `--config`. DSH registers through the
-  custom-command form in the same dialog.
 
 ## What each agent can actually do
 

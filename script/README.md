@@ -71,7 +71,6 @@ architecture diagram and the social card all go through it.
 
 | | |
 | --- | --- |
-| [`dsh-compare.mjs`](dsh-compare.mjs) | The same task twice — DeepSeek Harness over its own ACP server, and through HarnessDesk. |
 | [`shots/`](shots) | Screenshots and the README's GIF, off the real app against a seeded desk that is nobody's. |
 | [`probe/`](probe) | One-off probes kept because reproducing them was the expensive part. |
 

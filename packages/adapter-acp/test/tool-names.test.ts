@@ -84,3 +84,35 @@ test('a real title on the update still wins, because it is the agent’s own wor
 test('an update that finally names the tool improves on a generic name already stored', () => {
   assert.equal(toolNameOf({ title: 'Mcp', rawInput: { toolName: 'browser_key' } }, 'Mcp'), 'browser_key')
 })
+
+/**
+ * A title that is only the thing the call touched.
+ *
+ * DeepSeek Harness's bridge titles a read with the path alone — `README.md`,
+ * kind `read`, `file_path: README.md` — so the row said a file name with the
+ * generic tool glyph and printed the argument again beneath it. ACP's `kind`
+ * is the verb the title left out, and it is only put back when the title is
+ * nothing but that call's own path or pattern: an agent's own sentence is
+ * never rewritten.
+ */
+test('puts the verb back on a title that is only its own path', () => {
+  assert.equal(toolNameOf({ title: 'README.md', kind: 'read', rawInput: { file_path: 'README.md' } }), 'Read README.md')
+  assert.equal(toolNameOf({ title: 'src/a.ts', kind: 'edit', rawInput: { path: 'src/a.ts', old_string: 'a' } }), 'Edit src/a.ts')
+  assert.equal(toolNameOf({ title: 'TODO', kind: 'search', rawInput: { pattern: 'TODO' } }), 'Search TODO')
+})
+
+test('never rewrites a title that already says something', () => {
+  assert.equal(toolNameOf({ title: 'Read README.md', kind: 'read', rawInput: { file_path: 'README.md' } }), 'Read README.md')
+  assert.equal(toolNameOf({ title: 'Checking the config', kind: 'read', rawInput: { file_path: 'a.json' } }), 'Checking the config')
+  // A command is its own title; the row reads it from the arguments.
+  assert.equal(toolNameOf({ title: 'ls -a', kind: 'execute', rawInput: { command: 'ls -a' } }), 'ls -a')
+  // A plan tool keeps its name; the transcript knows what a plan call is.
+  assert.equal(toolNameOf({ title: 'todo_write', kind: 'think', rawInput: { todos: [] } }), 'todo_write')
+  // A kind with no verb to lend leaves the title alone.
+  assert.equal(toolNameOf({ title: 'notes.md', kind: 'other', rawInput: { file_path: 'notes.md' } }), 'notes.md')
+})
+
+test('a later notice repeating the bare title keeps the verb already put back', () => {
+  const first = toolNameOf({ title: 'README.md', kind: 'read', rawInput: { file_path: 'README.md' } })
+  assert.equal(toolNameOf({ title: 'README.md', kind: 'read' }, first), 'Read README.md')
+})
