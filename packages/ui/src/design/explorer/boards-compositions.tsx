@@ -162,8 +162,9 @@ import {
 } from '../patterns/DockPanel'
 import { CodeText, Row, Rows, SectionHead, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
-import type { Board as BoardSpec } from './boards'
+import { DialogBoard, type Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
+import { Specimen } from './specimen'
 import styles from './explorer.module.css'
 
 /**
@@ -240,6 +241,7 @@ const Rule = ({ children }: { children: React.ReactNode }) => (
 
 const StatBoard = () => (
   <>
+    <Specimen wide caption="Stat rows: variants, alignment, and a dashboard's own numbers">
     <div
       className={styles.stack}
       style={{ maxWidth: 'none' }}
@@ -298,6 +300,7 @@ const StatBoard = () => (
         <Stat variant="tinted" tone="danger" label="Blocked" value="4" caption="need a decision" align="center" />
       </StatRow>
     </div>
+    </Specimen>
     <div className={styles.matrix} style={{ marginTop: 'var(--hd-space-4)' }}>
       <Case label="variant=plain">
         <Stat variant="plain" label="Turns" value="1,284" caption="this month" />
@@ -830,6 +833,7 @@ const ToolPaneBoard = () => {
 
 const FieldBoard = () => (
   <>
+    <Specimen caption="InputGroup addons, and Field wiring a hint or an error to its control">
     <div
       className={styles.stack}
       style={{ maxWidth: 420 }}
@@ -883,6 +887,7 @@ const FieldBoard = () => (
         )}
       </Field>
     </div>
+    </Specimen>
     <Rule>
       The error replaces the hint rather than stacking under it — the hint said what to type, and the
       reader now knows, because they typed it and it was wrong. <code>Field</code> wires{' '}
@@ -896,6 +901,7 @@ const StepperBoard = () => {
   const [current, setCurrent] = useState(1)
   return (
     <>
+      <Specimen caption="Stepper, horizontal and vertical, driven by one current step">
       <div className={styles.stack} style={{ maxWidth: 560 }}>
         <Stepper steps={SETUP_STEPS} current={current} />
         <div className={styles.caseBody}>
@@ -911,6 +917,7 @@ const StepperBoard = () => {
         </div>
         <Stepper steps={SETUP_STEPS} current={current} orientation="vertical" />
       </div>
+      </Specimen>
       <Rule>
         Worth drawing only when the steps are ordered, cannot be skipped, and the number remaining
         changes whether someone starts. Done steps show a tick rather than their number: once a step
@@ -1532,7 +1539,7 @@ const AdoptedBoard = () => {
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'stat',
-    title: 'Stat · Delta',
+    title: 'Stat',
     about:
       'A figure, and everything the reader needs to trust it: what it counts, what period it covers, which way it is moving.',
     render: StatBoard,
@@ -1629,5 +1636,11 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'The chart kit',
     about: 'The other size: a figure that is the subject of its own panel.',
     render: ChartKitBoard,
+  },
+  {
+    id: 'dialog',
+    title: 'Dialog · ConfirmDialog',
+    about: 'A surface that takes the window until it is answered.',
+    render: DialogBoard,
   },
 ]

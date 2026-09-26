@@ -83,6 +83,7 @@ import {
   sortableItemClass,
   useSortable,
 } from '..'
+import { Specimen } from './specimen'
 import styles from './explorer.module.css'
 
 /**
@@ -376,6 +377,7 @@ const RowBoard = () => {
   const [picked, setPicked] = useState(false)
   return (
     <>
+      <Specimen caption="A settings page, assembled from Row, RowButton and RowChoice">
       <div className={styles.stack}>
         <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
         <PageHead
@@ -445,6 +447,7 @@ const RowBoard = () => {
           ))}
         </Rows>
       </div>
+      </Specimen>
       <p className={styles.rule}>
         A row has no opinion about what its control is — that is what lets twelve settings pages
         stay the same height. Only a row that <em>does</em> something is a{' '}
@@ -456,6 +459,7 @@ const RowBoard = () => {
 
 const HeadBoard = () => (
   <>
+    <Specimen caption="An Agents page, and one row drilled into">
     <div className={styles.stack}>
       <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
       <PageHead
@@ -471,6 +475,7 @@ const HeadBoard = () => (
         actions={<Button variant="secondary" size="sm">Remove</Button>}
       />
     </div>
+    </Specimen>
     <p className={styles.rule}>
       20px and 600 weight name the app and a page; subjects use the reading step at medium. That is
       the whole heading scale — a screen that wants a third size is asking for a size the system
@@ -504,6 +509,7 @@ const AppWindowBoard = () => (
 
 const FaceBoard = () => (
   <>
+    <Specimen caption="Face at its sizes, and one drawn into a DetailHead">
     <div className={styles.stack}>
       <div>
         <Face avatar={null} size={24} /> <Face avatar="astronaut" size={24} /> <Face avatar="pirate" size={24} />{' '}
@@ -515,6 +521,7 @@ const FaceBoard = () => (
         blurb="A person's head: the face they chose, drawn through the canonical avatar primitive."
       />
     </div>
+    </Specimen>
     <p className={styles.rule}>
       A person is a squared tile; an account is a ring. The tile is the shared avatar primitive — one plate, one
       hairline — its corner stepping up the radius scale as it grows, and the house mark for any
@@ -525,6 +532,7 @@ const FaceBoard = () => (
 
 const BannerBoard = () => (
   <>
+    <Specimen caption="Alert tones and variants, ActionError, a patch card, and every Banner">
     <div
       className={styles.stack}
       data-catalog-variants={ALERT_CATALOG_VARIANTS.join(' ')}
@@ -589,6 +597,7 @@ const BannerBoard = () => (
         Copied the transcript.
       </Banner>
     </div>
+    </Specimen>
     <p className={styles.rule}>
       The card stays neutral in every tone. Colour that floods a banner reads as an emergency
       whatever it says, and most of these are not — so severity is carried by the icon alone.
@@ -644,6 +653,7 @@ const QueueRows = () => {
 
 const QueueBoard = () => (
   <>
+    <Specimen caption="The message queue: a paused header, a trigger picker, and the composer shell">
     <div className={styles.stack}>
       <Alert variant="soft" tone="warning" className="flex-col items-stretch gap-1.5">
         <Toolbar className="flex-nowrap">
@@ -666,6 +676,7 @@ const QueueBoard = () => (
         <ComposerDropHint>Drop images to attach</ComposerDropHint>
       </ComposerShell>
     </div>
+    </Specimen>
     <p className={styles.rule}>
       The queue is one held-work surface: warning belongs to the paused header, order stays quiet in
       its rows, and the controls arrive only at the row being handled. Trigger pickers use the same
@@ -831,7 +842,7 @@ const CodeBoard = () => (
   </div>
 )
 
-const DialogBoard = () => {
+export const DialogBoard = () => {
   const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'lightbox'>(null)
   const [name, setName] = useState('')
   const [ceiling, setCeiling] = useState<'read' | 'edit' | 'publish' | 'merge'>('read')
@@ -1181,11 +1192,5 @@ export const BOARDS: Board[] = [
     about:
       'Agents talking to each other, and the board recording what they did. A face finds the sender, a run of messages groups, a long review folds, and a retry after a refusal is one message rather than two copies.',
     render: ChannelBoard,
-  },
-  {
-    id: 'dialog',
-    title: 'Dialog · ConfirmDialog',
-    about: 'A surface that takes the window until it is answered.',
-    render: DialogBoard,
   },
 ]
