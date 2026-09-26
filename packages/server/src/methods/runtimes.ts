@@ -94,6 +94,17 @@ export const runtimeMethods = {
     return null
   },
 
+  // The code is a secret: handed to the runtime and never logged, kept or
+  // repeated. What goes wrong is said in the runtime's words, which never
+  // carry it (`AgentRuntime.submitLoginCode`); the server logs the error and
+  // the method name, never the params.
+  'runtime/login/code': async (ctx, params) => {
+    const runtime = ctx.runtimes.resolve(params)
+    if (!runtime.submitLoginCode) throw new Error('This sign-in does not take a pasted code.')
+    await runtime.submitLoginCode(params.loginId, params.code)
+    return null
+  },
+
   'runtime/logout': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     if (!runtime.logout) throw new Error(signInUnavailable(runtime))

@@ -999,6 +999,7 @@ export class Host {
         }
       },
       changed: (state) => this.#push({ method: 'team/changed', params: { state } }),
+      notifyPerson: (notice) => this.#push({ method: 'person/notice', params: { notice } }),
       // Built inside the Goal's queue, from the Team's copy as it is when the save runs.
       startOf: async (cwd) => {
         const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])

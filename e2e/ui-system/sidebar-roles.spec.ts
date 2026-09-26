@@ -66,7 +66,9 @@ test('the accounts menu opens above its row, inside the sidebar and as wide as t
   // Unfolds from the row rather than being laid over the transcript beside it.
   expect(edges.menu.bottom).toBeLessThanOrEqual(edges.row.top)
   expect(edges.menu.left).toBeCloseTo(edges.row.left, 0)
-  expect(edges.menu.width).toBeCloseTo(edges.row.width, 0)
+  // The panel takes the anchor's width, which the positioner rounds to a
+  // whole pixel; the seat beside the inbox bell can land on a half.
+  expect(Math.abs(edges.menu.width - edges.row.width)).toBeLessThanOrEqual(1)
   expect(edges.menu.left).toBeGreaterThanOrEqual(edges.column.left)
   expect(edges.menu.right).toBeLessThanOrEqual(edges.column.right)
 })

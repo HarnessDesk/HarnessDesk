@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
@@ -8,10 +8,8 @@ import { describeTray } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
-import { ImportOffer } from '../components/ImportOffer'
-import { GoalMigrationBanner } from '../components/GoalMigrationBanner'
 import { Toaster } from '../design'
-import { Notices, StatusBanner } from '../components/Notices'
+import { Notices } from '../components/Notices'
 import { ChangesReview } from '../components/ChangesReview'
 import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
@@ -21,7 +19,6 @@ import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
 import { RaceStart } from '../components/RaceStart'
 import { projectRootOf } from '../lib/projects'
-import { NOTICE_BAR_SELECTOR, NOTICE_FLOOR, NOTICE_GAP, noticePlacement } from '../lib/notice-bounds'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
@@ -323,105 +320,6 @@ export const App = () => {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [run])
 
-  // Standing notices float over the pane area so they never fight the traffic
-  // lights, but a card over the first message is a card over the first
-  // message: the transcript learns the stack's height and starts below it.
-  const notices = useRef<HTMLDivElement | null>(null)
-  /*
-   * The placement effect's own `apply`, latest version — set by that effect
-   * below, called from this one. A margin driven by `--hd-notice-inset` can
-   * move the very bar the placement effect clears (a conversation's header,
-   * a room's), without resizing it — a margin only shifts a box, and
-   * `ResizeObserver` fires on a size change — so nothing would otherwise ask
-   * the placement effect to look again. Calling it here, synchronously,
-   * right after the inset is written, is what a shared `ResizeObserver` on
-   * the same element could only promise by relying on two different
-   * observers happening to run in the right order; a plain function call
-   * says so outright.
-   */
-  const repositionNotices = useRef<() => void>(() => {})
-  useEffect(() => {
-    const stack = notices.current
-    const area = stack?.parentElement
-    if (!stack || !area) return
-    const apply = (): void => {
-      const height = stack.getBoundingClientRect().height
-      /*
-       * `NOTICE_FLOOR + NOTICE_GAP`, not a flat cushion: a pane that yields
-       * (`[data-notice-yield]` below) mounts whatever a screen draws — a
-       * header included — from its own top, the same baseline the stack
-       * itself measures `NOTICE_FLOOR` from. Reserving only the card's own
-       * height pushed that header down by less than the stack's own top
-       * offset, so the two still overlapped by exactly that difference: a
-       * conversation's header, moved to sit partly under the card it was
-       * clear of before anything yielded to it. Reserving the same floor the
-       * stack itself starts behind, plus its usual clearance, means whatever
-       * yields always ends up at or past the stack's own bottom, however
-       * little or much sits above it before the push.
-       */
-      area.style.setProperty(
-        '--hd-notice-inset',
-        height > 0 ? `${Math.ceil(height) + NOTICE_FLOOR + NOTICE_GAP}px` : '0px',
-      )
-      repositionNotices.current()
-    }
-    apply()
-    const observer = new ResizeObserver(apply)
-    observer.observe(stack)
-    return () => observer.disconnect()
-  }, [])
-
-  /*
-   * A standing banner rides the pane being read (#896) — `noticeArea` in
-   * `state/workbench.ts` says which one, from the layout model, and marks it
-   * `[data-notice-host]`: the split tree's expanded or first pane, or the
-   * panel a zoom or a narrow window has given the room. This reads that box
-   * live rather than reconstructing it from saved sizes, which a zoom or a
-   * narrow window overrides without changing, and `noticePlacement` keeps
-   * the stack at a readable width and below every bar it would otherwise lie
-   * across, so it never takes a click meant for another pane's toolbar. The
-   * observers fire for a window resize, a split drag, a zoom or a panel
-   * opening alike; the effect itself only runs again when the marked element
-   * could be a different one.
-   */
-  useLayoutEffect(() => {
-    const stack = notices.current
-    const area = stack?.parentElement
-    if (!stack || !area) return
-    const content = document.querySelector<HTMLElement>('[data-notice-bounds]')
-    const host = document.querySelector<HTMLElement>('[data-notice-host]')
-    const apply = (): void => {
-      const box = area.getBoundingClientRect()
-      const bars = [...document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)]
-        // A hidden tab, a zoomed-away area or the collapsed half of an
-        // expansion keeps its box but is not on screen; a header inside a
-        // notice is the stack's own, and would only chase it down the page.
-        .filter((bar) => !stack.contains(bar) && (bar.checkVisibility?.({ visibilityProperty: true }) ?? true))
-        .map((bar) => bar.getBoundingClientRect())
-      const placement = noticePlacement({
-        container: box,
-        content: content?.getBoundingClientRect() ?? box,
-        host: host?.getBoundingClientRect() ?? null,
-        bars,
-      })
-      stack.style.left = `${placement.left}px`
-      stack.style.right = `${placement.right}px`
-      stack.style.top = `${placement.top}px`
-    }
-    repositionNotices.current = apply
-    apply()
-    const observer = new ResizeObserver(apply)
-    observer.observe(area)
-    if (content) observer.observe(content)
-    if (host) observer.observe(host)
-    // A bar that wraps onto a second line moves the edge the stack clears.
-    for (const bar of document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)) observer.observe(bar)
-    return () => {
-      observer.disconnect()
-      repositionNotices.current = () => {}
-    }
-  }, [snapshot.layout, snapshot.workbench, snapshot.narrowWindow])
-
   return (
     /* One shell, one set of actions — including the app windows mounted
        beside the workbench. A project page lives in Settings, and its Agent
@@ -434,6 +332,10 @@ export const App = () => {
         openUsage: (runtime) => setUsageOpen(runtime),
         openRuntimes: () => openSettingsAt('runtimes', null),
         openAgents,
+        reviewImports: () => {
+          setLibraryImport(true)
+          openSettingsAt('library', null)
+        },
       }}
     >
     <div className="hd-shell">
@@ -451,36 +353,12 @@ export const App = () => {
               />
             }
           />
-          {/* Banners float over the pane area instead of topping the window,
-              where they would collide with the macOS traffic lights.
-
-              Marked as floating over the conversation, and always rendered,
-              even empty: a sidebar floating over a narrow window makes what
-              is so marked inert with the conversation, so this stack goes
-              under its curtain wherever it is drawn, and a notice raised while
-              the sidebar is open arrives inside something already inert. */}
-          <div
-            className="hd-floatingNotices"
-            data-over-conversation
-            ref={notices}
-          >
-            <StatusBanner onSignIn={() => setSignInOpen(true)} />
-            <GoalMigrationBanner />
-            <ImportOffer
-              onReview={() => {
-                setLibraryImport(true)
-                openSettingsAt('library', null)
-              }}
-            />
-          </div>
       </div>
+      {/* Results, and failures the store could not say in place, as toasts:
+          `Notices` hands the store's queue to the one toaster. Standing
+          notices are drawn where they are about — the composer, the strip
+          above the panes, the sidebar's foot — never floated over a pane. */}
       <Notices />
-      {/* Sonner, from the registry's `toast`. Mounted beside the notice stack
-          rather than replacing it: `Notices` holds the four-lifetime policy and
-          the escalating dismissal, which are product decisions and stay put.
-          This is the surface for the other half &mdash; the things worth
-          announcing that happen in the transport, nowhere near a component,
-          and that a `toast()` call can reach from anywhere. */}
       <Toaster theme={theme} />
       {settingsOpen && (
         <Settings

@@ -162,6 +162,7 @@ const remoteTeamEngine: TeamEngine = {
   repairFinding: (input, scope) => askHost('team/repairFinding', { scope, input }),
   decideFinding: (input, scope) => askHost('team/decideFinding', { scope, input }),
   listFindings: (input, scope) => askHost('team/listFindings', { scope, input }),
+  notify: (input, scope) => askHost('team/notify', { scope, ...input }),
 }
 
 setTeamEngine(remoteTeamEngine)
