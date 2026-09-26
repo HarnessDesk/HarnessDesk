@@ -7,6 +7,7 @@ import {
   buildDayRange,
   buildYearGrid,
   earliestScannedDay,
+  localMidnight,
   quartileLevels,
   streaksFor,
   busiestWeekday,
@@ -116,6 +117,16 @@ describe('quartileLevels', () => {
     const level = quartileLevels([])
     expect(level(5)).toBe(0)
   })
+
+  it('reads every active value the same as the top of the scale, not the bottom (#990 item 12)', () => {
+    // A single busy day...
+    expect(quartileLevels([10])(10)).toBe(4)
+    // ...and a run that never varies, both read as the most active thing in
+    // view rather than tied for the faintest step.
+    const level = quartileLevels([5, 5, 5, 5])
+    expect(level(5)).toBe(4)
+    expect(level(0)).toBe(0)
+  })
 })
 
 describe('streaksFor', () => {
@@ -138,8 +149,13 @@ describe('streaksFor', () => {
     expect(best).toBe(4)
   })
 
-  it('reads a current streak of zero when the last day is inactive', () => {
+  it('counts the run through yesterday when today is empty, rather than reading zero (#990 item 11)', () => {
     const cells = [cell(addDays(TODAY, -1), 10), cell(TODAY, 0)]
+    expect(streaksFor(cells, 'tokens').current).toBe(1)
+  })
+
+  it('still reads zero when yesterday was empty too', () => {
+    const cells = [cell(addDays(TODAY, -2), 10), cell(addDays(TODAY, -1), 0), cell(TODAY, 0)]
     expect(streaksFor(cells, 'tokens').current).toBe(0)
   })
 })
@@ -157,6 +173,61 @@ describe('busiestWeekday', () => {
 
   it('is null when nothing was spent', () => {
     expect(busiestWeekday([], 'tokens')).toBeNull()
+  })
+})
+
+describe('buildYearGrid across DST-at-midnight zones (#990 item 5)', () => {
+  const previous = process.env.TZ
+  afterAll(() => {
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  })
+
+  // Each of these zones springs its clocks forward *at* local midnight on
+  // some day of the year, so local 00:00 does not exist that day — the
+  // exact case `addDays`'s trailing `setHours` exists for.
+  const zones = ['America/Havana', 'America/Santiago', 'Asia/Beirut', 'Africa/Cairo'] as const
+
+  for (const zone of zones) {
+    it(`gives 371 cells, every one at local midnight, Monday first (${zone})`, () => {
+      process.env.TZ = zone
+      const now = new Date('2026-09-25T12:00:00').getTime()
+      const grid = buildYearGrid(report([]), now)
+      expect(grid.weeks).toHaveLength(53)
+      for (const week of grid.weeks) expect(week, `${zone}: a short week`).toHaveLength(7)
+      for (const week of grid.weeks) {
+        const monday = week[0]
+        if (monday) expect(new Date(monday.day).getDay(), zone).toBe(1)
+      }
+      // "Local midnight" on the one day of the year these zones skip it
+      // outright is whatever `localMidnight` itself normalises that instant
+      // to — not literally hour zero, which cannot exist that day. What
+      // matters is that every stepped cell agrees with that same
+      // normalisation, so it still lines up with the host's own day keys
+      // (built the identical way) instead of drifting a step off them.
+      for (const week of grid.weeks) {
+        for (const cell of week) {
+          if (!cell) continue
+          expect(localMidnight(cell.day), `${zone}: ${new Date(cell.day).toString()}`).toBe(cell.day)
+        }
+      }
+    })
+  }
+
+  it('holds through a leap year (2024)', () => {
+    process.env.TZ = 'America/Havana'
+    const now = new Date('2024-09-25T12:00:00').getTime()
+    const grid = buildYearGrid(report([]), now)
+    expect(grid.weeks).toHaveLength(53)
+    for (const week of grid.weeks) expect(week).toHaveLength(7)
+  })
+
+  it('holds through a leap year (2028)', () => {
+    process.env.TZ = 'America/Havana'
+    const now = new Date('2028-09-24T12:00:00').getTime()
+    const grid = buildYearGrid(report([]), now)
+    expect(grid.weeks).toHaveLength(53)
+    for (const week of grid.weeks) expect(week).toHaveLength(7)
   })
 })
 

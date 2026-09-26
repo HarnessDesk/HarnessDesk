@@ -1,5 +1,9 @@
 import type { LedgerReport, RuntimeId } from '@harnessdesk/protocol'
 
+import type { HeatGridCell, HeatGridTooltip } from '../design/ui/heat-grid'
+import { formatTokens } from './context-usage'
+import { formatMoney } from './usage'
+
 /**
  * The arithmetic behind "When it ran" — the calendar heatmap band on the
  * Dashboard. Everything here is a pure function of a ledger and a clock, the
@@ -51,10 +55,25 @@ export const localMidnight = (at: number): number => {
   return date.getTime()
 }
 
-/** The local midnight `delta` calendar days from `day` — never `day + delta * DAY_MS`. */
+/**
+ * The local midnight `delta` calendar days from `day` — never
+ * `day + delta * DAY_MS`.
+ *
+ * The trailing `setHours` matters on its own, not only the `setDate`: in a
+ * zone where daylight saving starts *at* midnight (America/Havana,
+ * America/Santiago, Asia/Beirut, Africa/Cairo), local midnight does not
+ * exist on the change day, and `setDate` alone can leave the result an hour
+ * off local midnight — which then compounds every later step, since
+ * `buildDayRange` chains this call once per day. Re-stamping the hour after
+ * the date move is what keeps every step exactly equal to `localMidnight` of
+ * the same day, the same normalisation the host's own day keys use, so a
+ * grid built across one of these zones still lines up with the ledger's
+ * rows instead of drifting a cell short (review #990, item 5).
+ */
 export const addDays = (day: number, delta: number): number => {
   const date = new Date(day)
   date.setDate(date.getDate() + delta)
+  date.setHours(0, 0, 0, 0)
   return date.getTime()
 }
 
@@ -214,6 +233,13 @@ export const buildAgentRows = (cells: readonly HeatCell[], metric: HeatMetric): 
 export const quartileLevels = (values: readonly number[]): ((value: number) => HeatLevel) => {
   const nonZero = values.filter((value) => value > 0).sort((a, b) => a - b)
   if (nonZero.length === 0) return () => 0
+  // Every active value the same — a single busy day, or a stretch that never
+  // varies — leaves nothing for a quartile to split, and every one of the
+  // four quantile checks below lands on the same number. That reads every
+  // active cell as "level 1", the faintest step there is, which is backwards
+  // for the only (or the most even) work in view: it should read as the top
+  // of the scale, not the bottom (review #990, item 12).
+  if (nonZero[0] === nonZero.at(-1)) return (value) => (value > 0 ? 4 : 0)
   const quantile = (p: number): number => {
     if (nonZero.length === 1) return nonZero[0] as number
     const at = p * (nonZero.length - 1)
@@ -236,13 +262,39 @@ export const quartileLevels = (values: readonly number[]): ((value: number) => H
   }
 }
 
+/** Level breakpoints for the year view: the combined per-day totals in view. */
+export const yearLevels = (cells: readonly HeatCell[], metric: HeatMetric): ((value: number) => HeatLevel) =>
+  quartileLevels(cells.map((cell) => metricValue(cell, metric)))
+
+/**
+ * Level breakpoints for the by-agent view: every agent's own per-day values,
+ * not the day's combined total. Levelling agent rows off the combined
+ * totals put nearly every cell in the lowest band, because a lighter
+ * agent's busiest day rarely clears even the first quartile of everyone's
+ * spend together — the bug the catalogue board's own `heatAgentRows` never
+ * had, because it always split its levels from the agent rows themselves
+ * rather than the day's combined figure (review #990, item 4).
+ */
+export const agentLevels = (rows: readonly AgentRow[], metric: HeatMetric): ((value: number) => HeatLevel) =>
+  quartileLevels(rows.flatMap((row) => row.cells.map((cell) => metricValue(cell, metric))))
+
 export interface Streaks {
   /** Consecutive active days ending at the last cell in view. */
   readonly current: number
   readonly best: number
 }
 
-/** Active days in a row, and the longest run — by whichever metric is on screen. */
+/**
+ * Active days in a row, and the longest run — by whichever metric is on
+ * screen.
+ *
+ * `cells` always ends today (`buildRecentDays`/`buildYearGrid`'s last
+ * non-null cell is `now`'s own day), and today reading zero does not mean
+ * the streak broke — the day may simply not be over. Walking back from
+ * *yesterday* instead when the last cell is empty is what keeps a real run
+ * that is still in progress from reading as zero every morning before the
+ * first turn (review #990, item 11).
+ */
 export const streaksFor = (cells: readonly HeatCell[], metric: HeatMetric): Streaks => {
   let best = 0
   let run = 0
@@ -255,7 +307,9 @@ export const streaksFor = (cells: readonly HeatCell[], metric: HeatMetric): Stre
     }
   }
   let current = 0
-  for (let index = cells.length - 1; index >= 0; index -= 1) {
+  let start = cells.length - 1
+  if (start >= 0 && metricValue(cells[start] as HeatCell, metric) <= 0) start -= 1
+  for (let index = start; index >= 0; index -= 1) {
     if (metricValue(cells[index] as HeatCell, metric) > 0) current += 1
     else break
   }
@@ -307,8 +361,104 @@ export const leadingAgent = (cells: readonly HeatCell[], metric: HeatMetric): Ru
   return best?.runtime ?? null
 }
 
-/** "Tue 16 Sep" — the long form a tooltip and an accessible label use. */
+/**
+ * "Tue 16 Sep 2026" — the long form a tooltip and an accessible label use.
+ * The year is not optional: on a 53-week grid the same "Mon, Sep 22" names a
+ * day in each of two different years, and a reader has no other way to
+ * tell them apart (review #990, item 15).
+ */
 export const dayLabelLong = (day: number): string =>
-  new Date(day).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+  new Date(day).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+
+/**
+ * The day's accessible description — one cell's whole story in a sentence,
+ * shared by the grid's own `aria-label` list and its tooltip.
+ *
+ * "Unpriced" is spelled out rather than left to fall through to
+ * `formatMoney` on its own: `formatMoney(0, …)` reads `$0.00`, a real
+ * currency value, not the absence of one, so a day the ledger cannot price
+ * needs its own check ahead of it or it reads as a free day (review #990,
+ * item 6).
+ */
+export const cellLabel = (cell: HeatCell, metric: HeatMetric, currency = 'USD'): string => {
+  if (!cell.scanned) return `${dayLabelLong(cell.day)}: no record yet`
+  const unpriced = isUnpricedCost(cell)
+  if (metric === 'cost' && unpriced) return `${dayLabelLong(cell.day)}: usage recorded, unpriced`
+  const value = metricValue(cell, metric)
+  if (value <= 0) return `${dayLabelLong(cell.day)}: nothing`
+  const costPart = unpriced ? 'unpriced' : (formatMoney(cell.cost, currency) ?? 'unpriced')
+  return `${dayLabelLong(cell.day)}: ${formatTokens(cell.tokens)} tokens, ${costPart}`
+}
+
+export interface ToGridCellOptions {
+  readonly currency?: string
+  /**
+   * Disambiguates a cell's key across rows: the year view has one row per
+   * weekday and each day appears in exactly one of them, but By agent
+   * repeats every day once per agent row, and two agents' cells for the
+   * same day would otherwise collide in the grid's sr-only list.
+   */
+  readonly rowKey?: string
+  /** Today's own local-midnight key, so the grid can ring today's cell. */
+  readonly today?: number
+  /**
+   * Present only where the caller can name a runtime — turns on the
+   * tooltip's per-agent breakdown. The catalogue board has no names to give
+   * and gets a cell with no tooltip at all, exactly as it always did.
+   */
+  readonly nameOf?: (id: RuntimeId) => string
+}
+
+/**
+ * One `HeatCell` reduced to what `HeatGrid` draws: level, state, label and
+ * (optionally) a tooltip. The Dashboard band and the catalogue board both
+ * call this now instead of keeping their own copies, so a fix to any of
+ * those lands in one place rather than two quietly disagreeing (review
+ * #990, item 4 — the same review that found the board's own `heatAgentRows`
+ * was already right and the band was not).
+ */
+export const toGridCell = (
+  cell: HeatCell,
+  metric: HeatMetric,
+  levelOf: (value: number) => HeatLevel,
+  options: ToGridCellOptions = {},
+): HeatGridCell => {
+  const { currency = 'USD', rowKey = '', today, nameOf } = options
+  const value = metricValue(cell, metric)
+  const unpriced = isUnpricedCost(cell)
+  const notScanned = !cell.scanned || (metric === 'cost' && unpriced)
+  const label = cellLabel(cell, metric, currency)
+
+  let tooltip: HeatGridTooltip | undefined
+  if (nameOf && cell.scanned && !notScanned && value > 0) {
+    const parts = [...cell.parts].sort((a, b) => (metric === 'tokens' ? b.tokens - a.tokens : b.cost - a.cost))
+    const top = parts.slice(0, 3)
+    const rest = parts.length - top.length
+    tooltip = {
+      title: dayLabelLong(cell.day),
+      rows: top.map((part) => ({
+        key: String(part.runtime),
+        label: nameOf(part.runtime),
+        value: metric === 'tokens' ? formatTokens(part.tokens) : (formatMoney(part.cost, currency) ?? 'unpriced'),
+      })),
+      more: rest > 0 ? rest : undefined,
+      footer: {
+        label: 'Total',
+        value: `${formatTokens(cell.tokens)} tokens · ${unpriced ? 'unpriced' : (formatMoney(cell.cost, currency) ?? '—')}`,
+      },
+    }
+  } else if (notScanned) {
+    tooltip = { title: dayLabelLong(cell.day), note: label.split(': ')[1] ?? label }
+  }
+
+  return {
+    key: rowKey ? `${rowKey}:${cell.day}` : String(cell.day),
+    level: notScanned ? 0 : levelOf(value),
+    state: notScanned ? 'not-scanned' : value > 0 ? 'filled' : 'empty',
+    today: today !== undefined && cell.day === today,
+    ariaLabel: label,
+    tooltip,
+  }
+}
 
 export { DAY_MS }
