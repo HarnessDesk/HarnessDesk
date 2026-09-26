@@ -370,6 +370,10 @@
 
 /* The whole row is the title's press; the action sits above it. */
 button.inboxTitle {
+  /* Static, so the press below stretches over the whole row, not the button. */
+  position: static;
+  display: inline;
+  height: auto;
   cursor: pointer;
 }
 
