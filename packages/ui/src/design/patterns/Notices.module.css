@@ -1,0 +1,452 @@
+/*
+ * The notice surfaces (Notices.tsx). One message anatomy — a tone tile, a
+ * title, a body, one action — drawn five ways. The ground under the words
+ * stays calm on every surface; the tone is spent once, in the tile. Every
+ * value is a token, so a palette or density change reaches all of them.
+ */
+
+.fill {
+  flex: 1;
+}
+
+/* --- the tile every message leads with ------------------------------------ */
+
+.tile {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--hd-space-6);
+  height: var(--hd-space-6);
+  border-radius: var(--hd-radius-md);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
+}
+
+.tile[data-size='sm'] {
+  width: var(--hd-space-5);
+  height: var(--hd-space-5);
+  border-radius: var(--hd-radius-sm);
+}
+
+.tile[data-tone='info'] {
+  background: var(--hd-primary-muted);
+  color: var(--hd-primary-ink);
+}
+
+.tile[data-tone='warning'] {
+  background: var(--hd-warning-dim);
+  color: var(--hd-warning-ink);
+}
+
+.tile[data-tone='danger'] {
+  background: var(--hd-danger-dim);
+  color: var(--hd-danger-ink);
+}
+
+.dismiss {
+  flex: none;
+  color: var(--hd-muted-foreground);
+}
+
+.pager {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-0-5);
+}
+
+.count {
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  color: var(--hd-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The strip's one inline act: a line that keeps its one line. */
+.link {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hd-primary-ink);
+  font: inherit;
+  font-weight: var(--hd-weight-medium);
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.chord {
+  margin-left: var(--hd-space-1-5);
+  font-family: inherit;
+  opacity: 0.7;
+}
+
+/* --- card: the foot of the sidebar ---------------------------------------- */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+  /* Inset from the column's edges: it sits in the sidebar, not across it. */
+  margin: 0 var(--hd-space-2) var(--hd-space-2);
+  padding: var(--hd-space-3);
+  border-radius: var(--hd-radius-xl);
+  background: var(--hd-card);
+  box-shadow:
+    inset 0 0 0 var(--hd-space-px) var(--hd-border),
+    var(--hd-shadow-sm);
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-foreground);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  margin-bottom: var(--hd-space-1-5);
+}
+
+.cardTitle {
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+  font-weight: var(--hd-weight-semibold);
+}
+
+.cardBody {
+  margin: 0;
+  color: var(--hd-muted-foreground);
+}
+
+/* The one thing to do, under the words it answers. */
+.cardAction {
+  align-self: flex-start;
+  margin-top: var(--hd-space-2);
+}
+
+/* --- composer: fastened to the top of the composer it blocks -------------- */
+
+.composerStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1-5);
+  max-width: var(--hd-column);
+  margin: 0 auto;
+  padding-bottom: var(--hd-space-1-5);
+}
+
+/* Nothing to say: no room taken. */
+.composerStack:empty {
+  display: none;
+}
+
+/* Over a composer the strip is one more bar in the stack, not a rule across
+   a pane: shaped like the notices beside it. */
+.composerStack .strip {
+  border-bottom: 0;
+  border-radius: var(--hd-radius-xl);
+  padding-left: var(--hd-space-2);
+}
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2-5);
+  min-height: var(--hd-space-10);
+  padding: var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-2);
+  border-radius: var(--hd-radius-xl);
+  background: var(--hd-muted);
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-foreground);
+}
+
+.line {
+  flex: 1;
+  min-width: 0;
+  text-wrap: pretty;
+}
+
+.lineTitle {
+  font-weight: var(--hd-weight-medium);
+}
+
+.lineBody {
+  color: var(--hd-muted-foreground);
+}
+
+/* --- strip: one slim line above a pane ------------------------------------ */
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-1) var(--hd-space-2) var(--hd-space-1) var(--hd-space-3);
+  border-bottom: var(--hd-space-px) solid var(--hd-border);
+  background: var(--hd-muted);
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-foreground);
+}
+
+.strip .line {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* --- inbox: the bell, and what it keeps ----------------------------------- */
+
+.bellCount,
+.tabCount {
+  min-width: var(--hd-space-4);
+  padding: 0 var(--hd-space-1);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-primary);
+  color: var(--hd-primary-foreground);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-space-4);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.inbox {
+  display: flex;
+  flex-direction: column;
+  width: min(calc(var(--hd-space-16) * 5.5), calc(100vw - var(--hd-space-8)));
+  /* Inside the panel's own inset, on the same 10px text edge a menu row
+     keeps, so a list opened from the seat lines up like every other menu. */
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+}
+
+.inboxHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  padding: var(--hd-space-1-5) var(--hd-space-1) var(--hd-space-1) var(--hd-space-2-5);
+}
+
+.inboxHeading {
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+  font-weight: var(--hd-weight-semibold);
+}
+
+/* All / Unread: a small segmented pair beside the heading. */
+.inboxTabs {
+  display: inline-flex;
+  gap: var(--hd-space-0-5);
+  padding: var(--hd-space-0-5);
+  border-radius: var(--hd-radius-md);
+  background: var(--hd-muted);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+}
+
+.inboxTab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  padding: var(--hd-space-0-5) var(--hd-space-2);
+  border: 0;
+  border-radius: var(--hd-radius-sm);
+  background: none;
+  color: var(--hd-muted-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.inboxTab[aria-selected='true'] {
+  background: var(--hd-card);
+  box-shadow: var(--hd-shadow-xs);
+  color: var(--hd-foreground);
+  font-weight: var(--hd-weight-medium);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hd-space-1);
+  padding: var(--hd-space-6) var(--hd-space-5) var(--hd-space-8);
+  text-align: center;
+}
+
+.emptyTile {
+  display: inline-grid;
+  place-items: center;
+  width: var(--hd-space-10);
+  height: var(--hd-space-10);
+  margin-bottom: var(--hd-space-2);
+  border-radius: var(--hd-radius-xl);
+  background: var(--hd-muted);
+  color: var(--hd-muted-foreground);
+}
+
+.emptyTitle {
+  font-weight: var(--hd-weight-medium);
+}
+
+.emptyBody {
+  color: var(--hd-muted-foreground);
+  text-wrap: pretty;
+}
+
+/* The panel scrolls, not a box inside it: one scroll, measured by the
+   popover from the room the window has. */
+.inboxScroll {
+  padding-bottom: 0;
+}
+
+.inboxGroup {
+  margin: 0;
+  padding: var(--hd-space-2) var(--hd-space-2-5) var(--hd-space-1);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  font-weight: var(--hd-weight-medium);
+  color: var(--hd-muted-foreground);
+}
+
+.inboxItems {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A flat row inside the panel — the panel is the card, not each message. */
+.inboxItem {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hd-space-2-5);
+  padding: var(--hd-space-2-5) var(--hd-space-6) var(--hd-space-2-5) var(--hd-space-2-5);
+  border-radius: var(--hd-radius-sm);
+}
+
+.inboxItem:hover {
+  background: var(--hd-muted);
+}
+
+.inboxText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--hd-space-0-5);
+  min-width: 0;
+  /* The tile is taller than a line of text: drop the words by half the
+     difference so the tile centres on the title's first line, not on the
+     top of the block. */
+  padding-top: calc((var(--hd-space-6) - var(--hd-line-sm)) / 2);
+}
+
+.inboxTop {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  width: 100%;
+}
+
+.inboxTitle {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hd-secondary-foreground);
+  font: inherit;
+  text-align: left;
+}
+
+.inboxItem[data-unread] .inboxTitle {
+  color: var(--hd-foreground);
+  font-weight: var(--hd-weight-semibold);
+}
+
+/* The whole row is the title's press; the action sits above it. */
+button.inboxTitle {
+  /* Static, so the press below stretches over the whole row, not the button. */
+  position: static;
+  display: inline;
+  height: auto;
+  cursor: pointer;
+}
+
+button.inboxTitle::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: '';
+}
+
+button.inboxTitle:focus-visible {
+  outline: none;
+}
+
+button.inboxTitle:focus-visible::after {
+  box-shadow: 0 0 0 var(--hd-space-0-5) var(--hd-ring);
+}
+
+.inboxTime {
+  flex: none;
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  color: var(--hd-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.inboxBody {
+  color: var(--hd-muted-foreground);
+  text-wrap: pretty;
+}
+
+.inboxFrom {
+  color: var(--hd-secondary-foreground);
+  font-weight: var(--hd-weight-medium);
+}
+
+/* Read rows keep their words and lose their weight: kept, not waiting. */
+.inboxItem:not([data-unread]) .tile {
+  opacity: 0.6;
+}
+
+.inboxAction {
+  position: relative;
+  z-index: 1;
+  margin-top: var(--hd-space-1-5);
+}
+
+.unreadDot {
+  position: absolute;
+  /* Centred on the first line, like the tile and the time beside it. */
+  top: calc(var(--hd-space-2-5) + (var(--hd-space-6) - var(--hd-space-1-5)) / 2);
+  right: var(--hd-space-2-5);
+  width: var(--hd-space-1-5);
+  height: var(--hd-space-1-5);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-primary);
+}
+
+/* The bell: its own tint while something is unread, never the readiness dot's. */
+.bell {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  color: var(--hd-secondary-foreground);
+}
+
+.bell[data-unread] {
+  color: var(--hd-primary-ink);
+}
+
+.bellCount {
+  position: absolute;
+  top: calc(-1 * var(--hd-space-2));
+  right: calc(-1 * var(--hd-space-3));
+  box-shadow: 0 0 0 var(--hd-space-0-5) var(--hd-sidebar);
+}

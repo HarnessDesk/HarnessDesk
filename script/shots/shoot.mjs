@@ -308,7 +308,9 @@ try {
           }
           const footer = sidebar.querySelector('button[class*="accountRow"]')
           if (footer) {
-            const row = footer.getBoundingClientRect(), column = sidebar.getBoundingClientRect()
+            // The footer row is the seat and the inbox bell beside it; the bell is its right end.
+            const end = footer.parentElement?.parentElement?.lastElementChild ?? footer
+            const row = end.getBoundingClientRect(), column = sidebar.getBoundingClientRect()
             if (column.right - row.right > 8) faults.push('sidebar footer no longer fills its column')
           }
         }

@@ -679,6 +679,7 @@ the MCP bridge:
 | `get_context` | `intent` (required) | Fetches the context package left by the completed intent. |
 | `get_team_status` | *(none)* | Returns the room roster: member names, models, runtime types, activity state (working/idle), and held claims. |
 | `agent_message` | `to` (required), `text` (required), `wake?` | Sends a message to a peer by nickname. `wake: false` queues for turn end; `wake: true` steers mid-turn where supported. |
+| `notify_person` | `where` (required: `inbox` or `composer`), `title` (required), `body?`, `task?` | Tells the person something outside the conversation. `inbox` keeps news for later, with `task` offered as "Start as a task"; `composer` asks for a decision on this conversation's own composer. Needs no room. At most five per conversation in ten minutes; the title is cut to 120 characters and the body to 600. The person's Settings › Notifications row "Messages from Agents" decides where it lands — where the Agent asks, the inbox only, or nowhere. |
 
 **Context chip**:
 - **Team board**: attaches the current board summary (intents, claims, holders)

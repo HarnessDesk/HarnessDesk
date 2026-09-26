@@ -8,7 +8,7 @@ export {
 } from './runtime.js'
 // The shape an `AcpUsageRecord` answers in, for the host that implements one.
 export type { AcpUsage } from '@harnessdesk/transport-acp'
-export { parseStatus, type AcpAccountCommands, type AcpCommandSpec } from './account.js'
+export { parseStatus, type AcpAccountCommands, type AcpCommandSpec, type AcpLoginSpec } from './account.js'
 export {
   resolveExecutable,
   versionIn,

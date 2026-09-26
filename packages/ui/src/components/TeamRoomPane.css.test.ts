@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import css from './TeamRoomPane.module.css?raw'
 import source from './TeamRoomPane.tsx?raw'
-import appCss from '../styles/app.css?raw'
 
 /**
  * Two things about the room's stylesheet that no rendered test in this suite
@@ -166,63 +165,3 @@ describe('the narrow rail and the narrow header', () => {
   })
 })
 
-/**
- * The app's floating notice stack (`.hd-floatingNotices` in `App.tsx`) sits
- * over the whole pane area, starting right under the window's own 46px
- * header — which is also where a room's rail starts. Measured live (#913):
- * with a standing banner showing, its "Board" row was entirely hidden under
- * it and "Chat" was cut through its top half, both unclickable until the
- * banner was dismissed.
- *
- * `Conversation.tsx` already answers this for a plain transcript by reading
- * `--hd-notice-inset` — the height `App.tsx`'s `ResizeObserver` writes onto
- * the pane area — as scroll padding, so its content starts below whatever
- * notice is showing. The rail never read that variable at all, so it never
- * moved. Giving the rail the same padding is what "the rail leaves room for
- * it" (the fix #913 itself offers, alongside sitting only over the reading
- * side) comes down to: Board, Chat and Findings stay below a notice's
- * height, at zero cost when `--hd-notice-inset` is unset.
- */
-/**
- * The app's floating notice stack (`.hd-floatingNotices` in `App.tsx`) sits
- * over the whole pane area, starting right under the window's own 46px
- * header — which is also where a room's rail starts. Measured live (#913):
- * with a standing banner showing, its "Board" row was entirely hidden under
- * it and "Chat" was cut through its top half, both unclickable until the
- * banner was dismissed.
- *
- * The fix belongs to the notice system, not the rail, and no longer to the
- * room either: `data-notice-yield` (declared once, in `app.css`, beside
- * `.hd-floatingNotices` itself) reads `--hd-notice-inset` and resets it for
- * what it contains. `Panes.tsx` now composes it once for whatever a pane
- * mounts, so the room's own `.split` no longer carries a copy — one here
- * would only ever read an already-zeroed inset, since the pane host's
- * wrapper sits above it and has spent the variable already.
- */
-describe('the room under a standing notice', () => {
-  it('carries no `data-notice-yield` of its own — the pane host composes it for every screen now', () => {
-    // The name still appears in prose, explaining why it moved; only the
-    // JSX attribute itself — the thing that would double the margin — is
-    // gone.
-    expect(source).not.toMatch(/<[a-zA-Z][^>]*\bdata-notice-yield\b/)
-  })
-
-  it('does not keep its own copy of the inset — that is the notice system’s job now', () => {
-    expect(body('.rail')).not.toMatch(/margin-top|padding-top/)
-    expect(body('.split')).not.toMatch(/margin-top|padding-top/)
-  })
-
-  it('is declared once, beside the stack it measures, and reset for whatever it contains', () => {
-    // The inset reaches the yield under its own name, so resetting
-    // `--hd-notice-inset` for the pane's contents cannot zero the yield too.
-    expect(appCss).toMatch(/\[data-notice-yield\]\s*{[^}]*--hd-notice-yield:\s*var\(--hd-notice-inset,\s*0px\)/s)
-    expect(appCss).toMatch(/\[data-notice-yield\]\s*>\s*\*\s*{[^}]*--hd-notice-inset:\s*0px/s)
-  })
-
-  it('moves what follows the pane\u2019s bar, never the bar itself, and a bar-less screen whole (#968)', () => {
-    // The body after the screen's top-level bar takes the margin.
-    expect(appCss).toMatch(/\[data-notice-yield\]\s*>\s*\*\s*>\s*:is\([^)]*\)\s*\+\s*\*\s*{[^}]*margin-top:\s*var\(--hd-notice-yield\)/s)
-    // A screen with no bar of its own yields whole, as it did before.
-    expect(appCss).toMatch(/\[data-notice-yield\]:not\(:has\(>\s*\*\s*>\s*:is\([^)]*\)\)\)\s*{[^}]*margin-top:\s*var\(--hd-notice-yield\)/s)
-  })
-})

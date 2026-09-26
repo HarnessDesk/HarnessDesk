@@ -19,7 +19,12 @@ move is real work and is not news to a person weighing an upgrade.
   in **Needs you**, as the header already said. A Goal started in a project
   opened through a link is no longer listed a second time under **Other
   projects**.
-
+- **A sign-in that wants a pasted code asks for it.** When an agent's browser
+  sign-in cannot finish by itself, the page shows a code to paste back into
+  the agent's sign-in command — which the desk runs in the background, so the
+  sign-in used to wait forever. Sign in now shows a password field for that
+  code beside the page and Cancel, and hands the code to the command. The
+  code is never logged, kept or repeated in an error.
 - **Secondary text is its own level again, and a segmented control shows its
   choice.** Secondary and tertiary ink measured a hair apart — the app read
   as two greys doing the work of three — so secondary moved to the grey

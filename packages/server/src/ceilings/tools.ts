@@ -38,6 +38,10 @@ export const DESK_TOOLS: Readonly<Record<string, Readonly<Record<string, Ceiling
     get_context: 'read',
     get_team_status: 'read',
     agent_message: 'read',
+    // Speech to a person outside the conversation, exactly like `agent_message`
+    // is speech to the rest of a team: it can land in an inbox or on a
+    // composer, but it never acts for the person, so `read` is enough.
+    notify_person: 'read',
     /* A judgment, not a publication: reading and recording a structured
        review is read-level even at a ceiling of `read`, exactly like
        `complete_claim` — the evidence guard that acts on it is a later,

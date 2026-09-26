@@ -7,6 +7,7 @@ import { Composer } from '../../components/Composer'
 import { FilePane } from '../../components/FilePane'
 import { Conversation } from '../../components/Conversation'
 import { GitPane } from '../../components/GitPane'
+import { SignIn } from '../../components/SignIn'
 import { Sidebar } from '../../components/Sidebar'
 import { TeamBoardPane } from '../../components/TeamBoardPane'
 import { TeamRoomPane } from '../../components/TeamRoomPane'
@@ -21,6 +22,7 @@ import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../pr
 import { PREVIEW_FLOW_CARD, sceneFlowExecution } from '../../preview/flow-fixture'
 import { PREVIEW_FLOW_GOAL } from '../../preview/goal-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
+import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
 import styles from './surfaces.module.css'
 
 /**
@@ -676,6 +678,25 @@ export const DashboardSurface = () => (
   <Mount>
     <Frame height="window">
       <Usage onClose={() => {}} onSignIn={() => {}} />
+    </Frame>
+  </Mount>
+)
+
+/**
+ * Sign in, on the agent whose sign-in is waiting for a pasted code.
+ *
+ * The dialog the app opens from the seat and the rail, on the roster
+ * `/preview.html` photographs (`preview/signin-fixture.ts`), in the one state
+ * no other page shows: a browser sign-in whose command asked for the code the
+ * page shows when it cannot finish by itself. The dialog lays itself out in
+ * place rather than in a portal, so a window-sized frame holds it.
+ */
+const signInStore = previewStore(signInSeed('paste code'))
+
+export const SignInSurface = () => (
+  <Mount with={signInStore}>
+    <Frame height="window">
+      <SignIn runtime={SIGN_IN_SELECTED['paste code']} onClose={() => {}} />
     </Frame>
   </Mount>
 )

@@ -19,7 +19,7 @@ import type {
 
 import type { AcpRegistry } from './acp-registry.js'
 import { channelLabel } from './installs/channels.js'
-import { currentNameOf, knownAgent } from './installs/known-agents.js'
+import { CLAUDE_PASTE_PROMPT, CLAUDE_PASTE_REJECTED, currentNameOf, knownAgent } from './installs/known-agents.js'
 import type { JudgedInstall } from './installs/locate.js'
 import type { InstallService } from './installs/service.js'
 
@@ -98,7 +98,7 @@ const TEMPLATES: readonly AgentTemplate[] = [
     env: { CLAUDECODE: '' },
     account: {
       status: { command: 'claude', args: ['auth', 'status'] },
-      login: { command: 'claude', args: ['auth', 'login'] },
+      login: { command: 'claude', args: ['auth', 'login'], pasteCode: CLAUDE_PASTE_PROMPT, pasteCodeRejected: CLAUDE_PASTE_REJECTED },
       logout: { command: 'claude', args: ['auth', 'logout'] },
     },
     executable: { command: 'claude', env: 'CLAUDE_CODE_EXECUTABLE' },

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 
 import type { ImportableConfig } from '@harnessdesk/protocol'
 
 import { useRuntime, useSnapshot, useStore } from '../state/context'
-import { Banner, BannerAction } from '../design'
-import { ImportIcon } from './Icons'
+import type { NoticeMessage } from '../design'
+import { useShell } from '../panels/views'
 import { isSilenced, type NoticeIdentity } from '../lib/notice-policy'
 
 /**
@@ -50,6 +50,51 @@ const KIND_NOUN: Readonly<Record<string, string>> = {
 const kindNoun = (kind: string): string =>
   KIND_NOUN[kind] ?? kind.toLowerCase().replace(/_/g, ' ')
 
+/**
+ * One detection, shared by every mounted caller.
+ *
+ * `useImportOffer` is called from `SidebarNotices` and every `NoticeStripOutlet`
+ * — a split can mount more than one strip outlet at once — and each used to
+ * run its own `runtime/imports/detect` the moment it rendered. The scan reads
+ * every other agent's configuration on disk, so several callers meant several
+ * passes over the same files for one answer. This runs it once per
+ * `(runtime, folder)` and every caller reads the same result back.
+ */
+interface ImportCache {
+  readonly key: string
+  readonly items: readonly ImportableConfig[] | null
+}
+
+let importCache: ImportCache | null = null
+const importListeners = new Set<() => void>()
+
+const notifyImportCache = (): void => {
+  for (const listener of importListeners) listener()
+}
+
+const subscribeImportCache = (listener: () => void): (() => void) => {
+  importListeners.add(listener)
+  return () => importListeners.delete(listener)
+}
+
+const readImportCache = (): ImportCache | null => importCache
+
+/** Starts a detection for this key, unless one is already running or done for it. */
+const ensureImportDetection = (key: string, detect: () => Promise<readonly ImportableConfig[]>): void => {
+  if (importCache?.key === key) return
+  importCache = { key, items: null }
+  notifyImportCache()
+  void detect().then((found) => {
+    // A later call may have moved the cache on to a different key (the
+    // runtime changed, or the workspace did) before this one answers; an
+    // answer that no longer matches the current question is dropped.
+    if (importCache?.key === key) {
+      importCache = { key, items: found }
+      notifyImportCache()
+    }
+  })
+}
+
 /** "skills", "skills and MCP servers", "skills, MCP servers and more". */
 const whatWasFound = (items: readonly ImportableConfig[]): string => {
   const nouns = [...new Set(items.map((item) => kindNoun(item.kind)))]
@@ -57,63 +102,49 @@ const whatWasFound = (items: readonly ImportableConfig[]): string => {
   return `${nouns.slice(0, -1).join(', ')} and ${nouns[nouns.length - 1] ?? ''}`
 }
 
-export const ImportOffer = ({ onReview }: { onReview: () => void }) => {
+/**
+ * The offer to import what the other agents on this machine already have, as
+ * a message for whichever surface the person keeps it on. Detection runs only
+ * once the host has said the offer was not already answered, and stops if it
+ * is answered while a detection is in flight.
+ */
+export const useImportOffer = (): { readonly message: NoticeMessage; readonly dismiss: () => void } | null => {
   const store = useStore()
+  const shell = useShell()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
-  const [items, setItems] = useState<readonly ImportableConfig[]>([])
-  // Both halves of the guard, in one value the effect can depend on: the offer
-  // must not be detected before the host has said whether it was refused, and
-  // must not survive being refused while a detection was already in flight.
   const answered = !snapshot.preferencesLoaded || isSilenced(snapshot.noticePolicy, OFFER)
+  const cacheKey = `${runtime.id}:${snapshot.workspace?.path ?? ''}`
 
   useEffect(() => {
-    if (!runtime.capabilities.extensionStore) return
-    if (answered) {
-      setItems([])
-      return
-    }
-    let cancelled = false
-    void store.detectImports().then((found) => {
-      if (!cancelled) setItems(found.filter((item) => IMPORTABLE.has(item.kind)))
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [store, runtime.capabilities.extensionStore, answered])
+    if (!runtime.capabilities.extensionStore || answered) return
+    ensureImportDetection(cacheKey, () => store.detectImports())
+  }, [store, runtime.capabilities.extensionStore, answered, cacheKey])
+
+  const cache = useSyncExternalStore(subscribeImportCache, readImportCache)
+  const items =
+    cache?.key === cacheKey && cache.items !== null ? cache.items.filter((item) => IMPORTABLE.has(item.kind)) : []
 
   if (items.length === 0 || answered) return null
 
   const dismiss = (): void => {
     store.dismissStanding(OFFER)
-    setItems([])
   }
-
-  return (
-    <Banner
-      icon={<ImportIcon size={17} />}
-      title="Your other agents have skills and servers this machine could share"
-      onDismiss={dismiss}
-      actions={
-        <>
-          <BannerAction variant="secondary" onClick={dismiss}>
-            Not now
-          </BannerAction>
-          <BannerAction
-            onClick={() => {
-              // Following the signpost answers the question: the Library is
-              // where imports live from here on, so the banner never returns.
-              dismiss()
-              onReview()
-            }}
-          >
-            Review in Library
-          </BannerAction>
-        </>
-      }
-    >
-      It found {whatWasFound(items)} — every import is previewed, and nothing is copied until you
-      confirm it.
-    </Banner>
-  )
+  return {
+    message: {
+      id: OFFER.key,
+      title: 'Skills and servers to share',
+      body: `Your other agents have ${whatWasFound(items)} this machine could use. Nothing is copied until you confirm it.`,
+      action: {
+        label: 'Review in Library',
+        onSelect: () => {
+          // Following the signpost answers the question: the Library is where
+          // imports live from here on, so the offer never returns.
+          dismiss()
+          shell.reviewImports()
+        },
+      },
+    },
+    dismiss,
+  }
 }

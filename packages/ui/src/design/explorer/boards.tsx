@@ -5,6 +5,7 @@ import type { AgentItem } from '@harnessdesk/protocol'
 import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
+import { Toaster } from '../ui/toast'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
@@ -14,6 +15,16 @@ import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
   AccountMark,
+  ComposerNotice,
+  ComposerNoticeStack,
+  InboxPanel,
+  InboxList,
+  NoticeCard,
+  NoticeStrip,
+  showProgress,
+  showToast,
+  type InboxMessage,
+  type NoticeMessage,
   Alert,
   AlertContent,
   AlertDescription,
@@ -586,6 +597,125 @@ const FaceBoard = () => (
     </p>
   </>
 )
+
+/* The notice surfaces, each with the message it is for. The words are the
+   desk's own situations, so the board reads as the app would. */
+const NOTICE_NOW = 30 * 60_000
+const NOTICE_CARD: NoticeMessage[] = [
+  { id: 'update', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 and one agent update are ready.', action: { label: 'Relaunch', onSelect: () => {}, shortcut: '⌘R' } },
+  { id: 'offer', title: 'Skills and servers to share', body: 'Your other agents have some this machine could use. Nothing is copied until you confirm.', action: { label: 'Review in Library', onSelect: () => {} } },
+]
+const NOTICE_STRIP: NoticeMessage[] = [
+  { id: 'pace', tone: 'warning', title: 'Claude Code is on course to run out in 51m.', action: { label: 'Switch agent', onSelect: () => {} } },
+  { id: 'signin', tone: 'danger', title: 'Cursor is not signed in.', action: { label: 'Sign in', onSelect: () => {} } },
+]
+const NOTICE_INBOX: InboxMessage[] = [
+  { id: 'i0', tone: 'info', from: 'Reviewer', title: 'Keep the old retry count, or raise it to five?', body: 'Five covers the documented flaps; three matches the other clients.', action: { label: 'Start as a task', onSelect: () => {} }, at: NOTICE_NOW - 60_000 },
+  { id: 'i1', tone: 'warning', title: 'On course to run out', body: 'Claude Code will run out in 51m, before the window resets.', action: { label: 'Switch agent', onSelect: () => {} }, at: NOTICE_NOW - 4 * 60_000 },
+  { id: 'i2', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 is ready.', at: NOTICE_NOW - 2 * 3_600_000 },
+  { id: 'i3', from: 'Checkout hardening', title: 'Goal finished', body: 'Checkout hardening closed its last card.', at: NOTICE_NOW - 26 * 3_600_000, read: true },
+]
+
+const NOTICE_ASK: NoticeMessage = {
+  id: 'ask',
+  tone: 'info',
+  title: 'Keep the old retry count, or raise it to five?',
+  body: 'Five covers the documented flaps; three matches the other clients.',
+}
+
+/* Every surface in every state the app can put it in, drawn by the shipped
+   components with the props the app passes: one message and several, with and
+   without an action, dismissable and not, the second dismissal's "Stop showing
+   this", the inbox empty, all read and full, and each kind of toast. */
+const NoticesBoard = () => {
+  const [inbox, setInbox] = useState(NOTICE_INBOX)
+  const read = (id: string) => setInbox((all) => all.map((message) => (message.id === id ? { ...message, read: true } : message)))
+  return (
+    <div className={styles.stack}>
+      <Case label="card: one message">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="card: several, paged one at a time">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={NOTICE_CARD} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="card: dismissed twice before — the × offers Stop showing this">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} onMute={() => () => {}} />
+        </div>
+      </Case>
+      <Case label="composer: each tone, with and without an action or a dismiss">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
+            <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
+            <ComposerNotice message={{ id: 'plain', title: 'Reconnecting to the host…' }} />
+          </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="composer: an Agent asks, and the strip sharing the stack">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            <NoticeStrip messages={[{ id: 'link', tone: 'warning', title: 'Reconnecting to the host…' }]} onDismiss={() => {}} />
+            <ComposerNotice message={NOTICE_ASK} onDismiss={() => {}} onMute={() => {}} />
+          </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="strip: one message">
+        <NoticeStrip messages={NOTICE_STRIP.slice(0, 1)} onDismiss={() => {}} />
+      </Case>
+      <Case label="strip: several, paged">
+        <NoticeStrip messages={NOTICE_STRIP} onDismiss={() => {}} />
+      </Case>
+      <Case label="inbox: the bell and its panel; unread tints the bell">
+        <div className="flex items-start gap-(--hd-space-4)">
+          <InboxPanel messages={inbox} now={NOTICE_NOW} onOpen={read} />
+          <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
+            <InboxList
+              messages={inbox}
+              now={NOTICE_NOW}
+              onOpen={read}
+              onMarkAllRead={() => setInbox((all) => all.map((message) => ({ ...message, read: true })))}
+              onClear={() => setInbox([])}
+            />
+          </div>
+        </div>
+      </Case>
+      <Case label="inbox: all read, and empty">
+        <div className="flex flex-wrap items-start gap-(--hd-space-4)">
+          <InboxPanel messages={NOTICE_INBOX.map((message) => ({ ...message, read: true }))} now={NOTICE_NOW} />
+          <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
+            <InboxList messages={NOTICE_INBOX.map((message) => ({ ...message, read: true }))} now={NOTICE_NOW} />
+          </div>
+          <div className="rounded-(--hd-radius-xl) border border-(--hd-border) bg-(--hd-popover) p-(--hd-space-1) shadow-(--hd-shadow-lg)">
+            <InboxList messages={[]} now={NOTICE_NOW} />
+          </div>
+        </div>
+      </Case>
+      <Case label="toast: a result, a failure that stays until closed, and work under way">
+        <div className="flex flex-wrap gap-(--hd-space-2)">
+          <Button variant="secondary" type="button" onClick={() => showToast({ title: 'Backup saved to your Desktop.', action: { label: 'Show', onSelect: () => {} } })}>
+            Result
+          </Button>
+          <Button variant="secondary" type="button" onClick={() => showToast({ tone: 'danger', title: 'Could not save the backup.', body: 'The disk is full.' }, { persist: true })}>
+            Failure
+          </Button>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={() => showProgress(new Promise((resolve) => setTimeout(resolve, 1500)), { working: 'Exporting…', done: 'Exported.', failed: 'Export failed.' })}
+          >
+            Under way
+          </Button>
+        </div>
+        <Toaster />
+      </Case>
+    </div>
+  )
+}
 
 const BannerBoard = () => (
   <>
@@ -1259,6 +1389,13 @@ export const BOARDS: Board[] = [
     title: 'Face',
     about: 'A person, drawn: the face they chose, or the house mark.',
     render: FaceBoard,
+  },
+  {
+    id: 'notices',
+    title: 'Notices',
+    about:
+      'Where a message goes, chosen by what it is about: a card at the sidebar\u2019s foot for something to do when convenient, a notice on the composer it blocks, a slim strip, the inbox for what is worth keeping, a toast for a result. One message shape for all five.',
+    render: NoticesBoard,
   },
   {
     id: 'banner',

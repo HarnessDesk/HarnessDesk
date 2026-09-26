@@ -465,6 +465,10 @@ export class FakeRuntime implements AgentRuntime {
   signInDriveable = false
   readonly logins: string[] = []
   readonly cancelled: string[] = []
+  /** Codes handed to a sign-in, as `[loginId, code]`: the fake is where a test reads them back. */
+  readonly pasted: [string, string][] = []
+  /** Set to make the next pasted code fail, as a command that stopped reading does. */
+  refusePaste: string | null = null
   loggedOut = false
   /**
    * Refuses to say anything about its account until it has been started.
@@ -520,6 +524,11 @@ export class FakeRuntime implements AgentRuntime {
       success: false,
       error: 'cancelled',
     })
+  }
+
+  async submitLoginCode(loginId: string, code: string): Promise<void> {
+    if (this.refusePaste) throw new Error(this.refusePaste)
+    this.pasted.push([loginId, code])
   }
 
   async logout(): Promise<void> {

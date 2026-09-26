@@ -1344,7 +1344,7 @@ const AdoptedBoard = () => {
         </Case>
 
         <Case label="tooltip and toast &mdash; focusable help and transient status">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <HoverCard>
               <HoverCardTrigger render={<Button variant="outline">Preview details</Button>} />
               <HoverCardContent className="p-3">A richer, enterable preview rather than a repeated label.</HoverCardContent>

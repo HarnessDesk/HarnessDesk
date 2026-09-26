@@ -6,6 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 
+import { NoticeStripOutlet } from './Notices'
 import { PaneSurface, ResizeHandle, Text } from '../design'
 import { DockPanelActions, DockPanelBar } from '../design'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
@@ -14,7 +15,7 @@ import { PanelActions } from '../panels/PanelActions'
 import { ViewHost, useViewTitle, views } from '../panels/views'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import { sessionOf, type LayoutNode, type Pane as PaneNode, type Split } from '../state/layout'
-import { noticeArea } from '../state/workbench'
+import { mainNoticeHost } from '../state/workbench'
 import styles from './Panes.module.css'
 
 /**
@@ -36,10 +37,12 @@ import styles from './Panes.module.css'
 
 export const Panes = () => {
   const snapshot = useSnapshot()
-  const host =
-    noticeArea(snapshot.workbench, snapshot.narrowWindow) === 'main'
-      ? (snapshot.layout.expanded ?? primaryPaneId(snapshot.layout.root))
-      : null
+  // The pane the strip above the panes rides (`NoticeStripOutlet`), while the
+  // main area hosts it — `null` whenever it does not, because a dock or
+  // nobody is hosting it instead. `mainNoticeHost` is pure layout state, so
+  // this is the one place a pane is chosen, never a mount racing another for
+  // the title.
+  const host = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow)
   return (
     <div className={styles.root}>
       <Node node={snapshot.layout.root} primary={host} />
@@ -53,19 +56,6 @@ export const Panes = () => {
  */
 const needsStrip = (view: PaneNode['view']): boolean =>
   view.kind !== 'conversation' && views.get(view.kind)?.ownsChrome !== true
-
-/**
- * The pane the app's floating notice stack rides (#896) while the main area
- * hosts it (`noticeArea`): the expanded pane when one has taken the split's
- * room — the only pane then on screen — and otherwise the split tree's own
- * first leaf, one level down at a time. Never whichever pane happens to have
- * focus, which a click into a docked browser pane would otherwise hand the
- * marker to, moving the overlap it exists to prevent onto the conversation
- * instead of removing it. The same leaf a fresh split's own first half
- * already is, so opening a second pane beside the primary one never moves
- * the marker at all.
- */
-const primaryPaneId = (node: LayoutNode): string => (node.kind === 'pane' ? node.id : primaryPaneId(node.first))
 
 const Node = ({ node, primary }: { node: LayoutNode; primary: string | null }) =>
   node.kind === 'pane' ? <PaneView pane={node} primary={primary} /> : <SplitView split={node} primary={primary} />
@@ -90,12 +80,6 @@ const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string | null })
              the one that leaves room for the window buttons and the view below
              it does not. See `--titlebar-inset` in `app.css`. */
           {...(needsStrip(pane.view) ? { 'data-strip': '' } : {})}
-          /* `App.tsx` measures this box directly to place the floating
-             notice stack (#896) — the split tree's own geometry, read live,
-             rather than reconstructed from the sizes a right or bottom panel
-             were last dragged to, which a zoom or a narrow window overrides
-             without changing. */
-          {...(pane.id === primary ? { 'data-notice-host': '' } : {})}
           // Any interaction inside a pane makes it the target of shortcuts and
           // commands; capture phase so a click on a control counts too.
           onPointerDownCapture={() => {
@@ -122,20 +106,11 @@ const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string | null })
               </DockPanelActions>
             </DockPanelBar>
           )}
-          {/*
-            * `data-notice-yield`: the notice system's own contract (`app.css`,
-            * beside `.hd-floatingNotices`) for whatever a pane shows, composed
-            * once here so every screen gets it and none has to opt in for
-            * itself. A strip stays where it is — it already reserves the
-            * window-button room `--titlebar-inset` names, and a bar the
-            * floating stack already clears needs no second margin — so only
-            * what is mounted below moves: the whole of it, a screen owning its
-            * own header included, since a pane host that peeled the two apart
-            * would have to know a screen's own insides to do it. Scoped to the
-            * pane actually riding the stack (`data-notice-host`, above); a
-            * pane that never shows one costs nothing.
-            */}
-          <div className={styles.screen} {...(pane.id === primary ? { 'data-notice-yield': '' } : {})}>
+          {/* The notice strip, for a view with no header of its own: under the
+              pane's bar, in the primary pane only. A conversation draws its
+              strip above its own composer instead, below its own header. */}
+          {needsStrip(pane.view) && pane.id === primary && <NoticeStripOutlet host />}
+          <div className={styles.screen}>
             <ViewHost view={pane.view} />
           </div>
         </PaneSurface>

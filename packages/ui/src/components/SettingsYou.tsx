@@ -1,8 +1,10 @@
+import { useInboxMessages } from './Notices'
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
 import { chordOf, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
-import { NOTICE_KINDS } from '../lib/notice-policy'
+import { emptyNoticePolicy, NOTICE_KINDS, NOTICE_USES, surfaceFor, SURFACE_LABEL, type NoticeSurface } from '../lib/notice-policy'
+import { unreadCount } from '../lib/inbox'
 import { SYSTEM_NOTIFICATION_KINDS, systemNotificationOn } from '../lib/system-notifications'
 import { FONT_SIZES, installedFaces, TAB_SIZES } from '../lib/editor-prefs'
 import { formatAge } from '../lib/usage'
@@ -21,6 +23,7 @@ import {
   DetailHead,
   Face,
   Input,
+  InboxPanel,
   Keycap,
   Note,
   RowValue,
@@ -594,9 +597,10 @@ export const AppearanceSection = () => {
  * it has ever been shown, in the same words the banner uses, with the switch
  * beside it and the way back always in the same place.
  *
- * The switch reads *shown*, not *silenced*. A row titled with the message and
- * a switch that is on when the message is off would take a second read every
- * time, and settings are read quickly or not at all.
+ * Each kind's one control says *where* it is shown, with Off as the last
+ * choice: a place is the question a person actually has ("why is this over my
+ * conversation?"), and a switch could only answer half of it. The page opens
+ * on the map from purpose to place, so the choices below read as choices.
  *
  * What is not on this page is as deliberate as what is. A dropped connection
  * has no row, because it is the one thing the app must always be able to say —
@@ -611,18 +615,20 @@ export const NotificationsSection = () => {
   const policy = snapshot.noticePolicy
   const now = Date.now()
   const silenced = NOTICE_KINDS.filter((entry) => policy.muted.includes(entry.kind))
+  const inboxUnread = unreadCount(snapshot.inbox)
+  const inboxMessages = useInboxMessages()
 
   return (
     <>
       <PageHead
         title="Notifications"
-        blurb="What HarnessDesk tells you outside a conversation."
+        blurb="Where HarnessDesk tells you things, and which ones."
         actions={
           silenced.length > 0 ? (
             <Button
               variant="outline"
               onClick={() => {
-                for (const entry of silenced) store.setNoticeMuted(entry.kind, false)
+                for (const entry of silenced) store.setNoticeSurface(entry.kind, surfaceFor(emptyNoticePolicy(), entry.kind))
               }}
             >
               Turn all back on
@@ -630,6 +636,104 @@ export const NotificationsSection = () => {
           ) : undefined
         }
       />
+
+      {/* The map before the switches: what each kind of message is for, and
+          where that puts it. Read once, it explains every control below. */}
+      <SectionHead name="How messages reach you" />
+      <Rows>
+        <Row title="Something stops a turn" desc="Shown on the composer of the conversation it stops, and nowhere else." />
+        <Row title="Something to do later" desc="Waits at the foot of the sidebar, one at a time, until you act or dismiss it." />
+        <Row title="Worth keeping" desc="Goes to the inbox in your seat menu and stays until you clear it." />
+        <Row title="An Agent writes to you" desc="Kept in the inbox, or on its own conversation when it is waiting on your decision." />
+        <Row title="The result of what you did" desc="A toast in the corner that leaves on its own. Always on." />
+        <Row title="The connection drops" desc="Shown in the strip above the composer, or under a pane's bar, until it is back. Always on." />
+      </Rows>
+
+      {NOTICE_USES.map((use) => {
+        const kinds = NOTICE_KINDS.filter((entry) => entry.use === use.use)
+        if (kinds.length === 0) return null
+        return (
+          <section key={use.use}>
+            <SectionHead name={use.title} />
+            <Rows>
+              {kinds.map((entry) => {
+                const record = policy.records[entry.kind]
+                const surface = surfaceFor(policy, entry.kind)
+                return (
+                  <Row
+                    key={entry.kind}
+                    title={entry.title}
+                    desc={
+                      <>
+                        {entry.detail}
+                        {/* The count is why the row is worth reading twice: it
+                            is the evidence for turning something off, and
+                            afterwards the only record that it ever spoke. */}
+                        {record ? (
+                          <>
+                            {' '}
+                            <Text role="meta">
+                              Put away {record.count === 1 ? 'once' : `${record.count} times`}
+                              {record.at > 0 ? `, last ${formatAge(record.at, now)}` : ''}.
+                            </Text>
+                          </>
+                        ) : null}
+                      </>
+                    }
+                    control={
+                      <NativeSelect
+                        aria-label={`Where "${entry.title}" is shown`}
+                        value={surface ?? 'off'}
+                        onChange={(event) =>
+                          store.setNoticeSurface(entry.kind, event.target.value === 'off' ? null : (event.target.value as NoticeSurface))
+                        }
+                      >
+                        {entry.surfaces.map((option) => (
+                          <option key={option} value={option}>
+                            {entry.labels?.[option] ?? SURFACE_LABEL[option]}
+                          </option>
+                        ))}
+                        <option value="off">Off</option>
+                      </NativeSelect>
+                    }
+                  />
+                )
+              })}
+            </Rows>
+          </section>
+        )
+      })}
+
+      <SectionHead
+        name="Inbox"
+        action={
+          snapshot.inbox.length > 0 ? (
+            <Button variant="outline" size="sm" onClick={() => store.clearInbox()}>
+              Clear
+            </Button>
+          ) : undefined
+        }
+      />
+      {/* How much is kept, and the same bell that sits beside the seat. */}
+      <Rows>
+        <Row
+          title="Kept messages"
+          desc={
+            snapshot.inbox.length === 0
+              ? 'Nothing kept.'
+              : `${snapshot.inbox.length} kept${inboxUnread > 0 ? `, ${inboxUnread} unread` : ''}.`
+          }
+          control={
+            <InboxPanel
+              side="bottom"
+              messages={inboxMessages}
+              onOpen={(id) => store.markInboxRead(id)}
+              onMarkAllRead={() => store.markInboxRead(null)}
+              onClear={() => store.clearInbox()}
+            />
+          }
+        />
+      </Rows>
 
       <SectionHead name="On your Mac" />
       <Rows>
@@ -660,48 +764,6 @@ export const NotificationsSection = () => {
             />
           ))}
       </Rows>
-
-      <SectionHead name="In the app" />
-      <Rows>
-        {NOTICE_KINDS.map((entry) => {
-          const record = policy.records[entry.kind]
-          const muted = policy.muted.includes(entry.kind)
-          return (
-            <Row
-              key={entry.kind}
-              title={entry.title}
-              desc={
-                <>
-                  {entry.detail}
-                  {/* The count is why the row is worth reading twice: it is
-                      the evidence for turning something off, and afterwards
-                      the only record that it ever spoke. */}
-                  {record ? (
-                    <>
-                      {' '}
-                      <Text role="meta">
-                        Put away {record.count === 1 ? 'once' : `${record.count} times`}
-                        {record.at > 0 ? `, last ${formatAge(record.at, now)}` : ''}.
-                      </Text>
-                    </>
-                  ) : null}
-                </>
-              }
-              control={
-                <Switch
-                  aria-label={`Show "${entry.title}"`}
-                  checked={!muted}
-                  onCheckedChange={(next) => store.setNoticeMuted(entry.kind, !next)}
-                />
-              }
-            />
-          )
-        })}
-      </Rows>
-
-      <Note className={styles.pageNote}>
-        A lost connection is not on this list: it is the one message the app must always make.
-      </Note>
     </>
   )
 }

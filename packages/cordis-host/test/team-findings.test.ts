@@ -23,6 +23,7 @@ test('tool bridge attributes and bounds each command', async (t) => {
     sequence: 1, evidence: [], posted: [], restored: false, problem: null,
   }
   const engine: TeamEngine = {
+    notify: async () => "",
     board: refused, addIntent: refused, claim: refused, claimNext: refused, awaitWork: refused, awaitMember: refused,
     conflicts: refused, complete: refused, release: refused, handoff: refused, status: refused, send: refused,
     reviewCandidates: refused, recordReview: refused,
