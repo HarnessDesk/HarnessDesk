@@ -49,11 +49,17 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      # The per-test deadline is not about slow tests — the slowest here is
-      # ~18s. It is so that a test which hangs fails by name in two minutes
-      # instead of burning the job's twenty-five and reporting nothing.
+      # The per-test deadline is not about slow tests — most here finish in
+      # ~18s. It is so that a test which hangs fails by name well inside the
+      # job's twenty-five minutes instead of burning them and reporting
+      # nothing. Node applies this flag as a hard ceiling over the whole run,
+      # not a default a test's own longer `{ timeout }` option can widen
+      # (measured on Node 22: a file was cut here, silently, before a case's
+      # own longer timeout or its internal safety dump ever got the chance) —
+      # so it has to sit at or above the longest case in the suite, the
+      # end-to-end flow-host-evidence files' own 260s (`fixtures/flow-host-evidence.ts`'s `E2E`).
       - name: Node tests
-        run: node --test --test-timeout=120000 "packages/*/dist/test/**/*.test.js"
+        run: node --test --test-timeout=300000 "packages/*/dist/test/**/*.test.js"
 
       - name: UI typecheck
         run: pnpm --filter @harnessdesk/ui run typecheck

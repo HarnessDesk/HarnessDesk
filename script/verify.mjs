@@ -70,8 +70,15 @@ step('build', () => run('pnpm', ['run', 'build']))
 step('node tests', () =>
   run('node', [
     '--test',
-    // Same deadline CI uses: a hung test should say its name, not time out the run.
-    '--test-timeout=120000',
+    // Same deadline CI uses: a hung test should say its name, not time out
+    // the run. This is a hard ceiling over the whole invocation, not a
+    // default a test's own longer `{ timeout }` option can widen — measured
+    // on Node 22, a file was cut here, silently, before a case's own longer
+    // timeout or its internal safety dump ever got the chance. So it has to
+    // sit at or above the longest per-test override in the suite, the
+    // end-to-end flow-host-evidence files' own 260s
+    // (`test/fixtures/flow-host-evidence.ts`'s `E2E`).
+    '--test-timeout=300000',
     // The same glob CI runs, so a package that gains tests is covered here the
     // day it does. A hand-kept list of packages once left one out. It matches
     // what was built rather than what exists, which is why `build:node` ends

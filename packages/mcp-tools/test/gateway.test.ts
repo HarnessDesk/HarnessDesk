@@ -113,7 +113,7 @@ test('in-flight gateway calls reject immediately when gateway socket cleanly dis
     const inFlightMcp = sendMcp({ id: 3, method: 'tools/list' })
     await disconnectPromise
 
-    // The in-flight MCP call must resolve with an error immediately, NOT hang for 120s or hit our 5s test timeout
+    // The in-flight MCP call must resolve with an error immediately, NOT hang for 300s or hit our 5s test timeout
     const errorRes = await inFlightMcp
     assert.ok(errorRes.error, 'clean disconnect must reject in-flight request')
     assert.match(

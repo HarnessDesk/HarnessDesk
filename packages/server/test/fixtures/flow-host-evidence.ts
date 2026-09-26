@@ -175,9 +175,14 @@ export const execution = async (d: Desk, run: string): Promise<FlowExecution> =>
  *
  * The deadline sits under each case's own timeout (`E2E`), so a stuck run
  * fails its own case with where the board and the run stood — never the
- * whole file, silently, at whatever the runner's own default is (each
- * case's `E2E` replaces that default outright, so it is never the shorter of
- * the two). Each case takes a few seconds alone; 32 of these files at once
+ * whole file, silently, at whatever the runner's own `--test-timeout` is.
+ * That is not node:test's own doing: measured on Node 22, `--test-timeout`
+ * is a hard ceiling over the whole invocation, and a case's own longer
+ * `E2E` cannot widen it — a run given a *lower* runner default than `E2E`
+ * is cut there first, silently, before this deadline or the dump below it
+ * ever gets the chance. It holds here only because `script/verify.mjs` and
+ * `.github/workflows/ci.yml` are both kept at or above `E2E`. Each case
+ * takes a few seconds alone; 32 of these files at once
  * on one machine once took a case up to 85 s, which is what the margin was
  * sized for — but a busier desk than that measurement (several other
  * sessions building and testing at once, load averages of 30-50) has since

@@ -73,7 +73,7 @@ const settled = () => pause(LONGEST_SETTLE_MS + 200)
  * scheduler made it take to get there — a live watch is caught the moment its
  * event lands, at any real-time distance, and only a watch that stays
  * provably silent for the full count fails. The run's own `--test-timeout`
- * (120s, `script/verify.mjs`) is the backstop for a genuine hang, which is
+ * (300s, `script/verify.mjs`) is the backstop for a genuine hang, which is
  * what names the test rather than this throwing a guess at "long enough".
  * The proof that a watch is live, in place of a guess at how long "it is
  * probably listening by now" should be — the guess is exactly what let a
