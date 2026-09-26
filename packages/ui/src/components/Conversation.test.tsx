@@ -8,6 +8,7 @@ import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Conversation } from './Conversation'
+import styles from './Conversation.module.css'
 
 /**
  * What a conversation says when it has nothing to show.
@@ -380,4 +381,82 @@ it('the conversation’s menu offers Save as an Agent…', () => {
   if (!item) throw new Error('no Save as an Agent… in the menu')
   act(() => item.click())
   expect(document.body.querySelector('[role="dialog"][aria-label="Save as an Agent"]')).not.toBeNull()
+})
+
+/**
+ * Two of MessageScroller's rules this transcript adopted (see the PR notes):
+ * a link's own click, and a selection landing inside the transcript, both
+ * release the pin the same way scrolling away from the bottom already does
+ * — so a streamed token cannot yank the reader off what they just clicked or
+ * started reading. `scrollHeight`/`clientHeight` stay 0 in jsdom, so this
+ * reaches the same "no distance to the bottom" branch `onScroll` does; only
+ * the release itself, via `pinned`, is what these check, through whether
+ * "Jump to latest" appears.
+ */
+const jumpToLatest = (): HTMLButtonElement | undefined =>
+  [...container.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Jump to latest')
+
+const transcriptSession = (): Session =>
+  session({
+    updatedAt: 9_000,
+    turns: [
+      {
+        id: turnId('t-1'),
+        status: 'completed',
+        items: [{ id: itemId('i-1'), type: 'assistantMessage', text: 'see the log for details' }],
+      },
+    ],
+  })
+
+it('a click on a link inside the transcript releases the pin', () => {
+  render(rig(transcriptSession()).store)
+  expect(jumpToLatest()).toBeUndefined()
+
+  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const link = document.createElement('a')
+  link.href = '#'
+  link.textContent = 'the log'
+  scrollEl.appendChild(link)
+  act(() => link.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+  expect(jumpToLatest()).not.toBeUndefined()
+})
+
+it('a selection landing inside the transcript releases the pin', () => {
+  render(rig(transcriptSession()).store)
+  expect(jumpToLatest()).toBeUndefined()
+
+  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const text = document.createTreeWalker(scrollEl, NodeFilter.SHOW_TEXT).nextNode()
+  if (!text) throw new Error('no text node in the transcript to select')
+  const range = document.createRange()
+  range.selectNodeContents(text)
+  const selection = window.getSelection()
+  if (!selection) throw new Error('jsdom gave no Selection to work with')
+  act(() => {
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+
+  expect(jumpToLatest()).not.toBeUndefined()
+})
+
+it('a collapsed selection (a plain click) does not release the pin', () => {
+  render(rig(transcriptSession()).store)
+  const scrollEl = container.getElementsByClassName(styles.scroll!)[0]!
+  const text = document.createTreeWalker(scrollEl, NodeFilter.SHOW_TEXT).nextNode()
+  if (!text) throw new Error('no text node in the transcript to select')
+  const range = document.createRange()
+  range.setStart(text, 0)
+  range.setEnd(text, 0)
+  const selection = window.getSelection()
+  if (!selection) throw new Error('jsdom gave no Selection to work with')
+  act(() => {
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+
+  expect(jumpToLatest()).toBeUndefined()
 })

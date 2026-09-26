@@ -597,6 +597,28 @@ export const Conversation = ({
     setPinned(distance < NEAR_BOTTOM_PX)
   }, [])
 
+  // A reader who is selecting a word out of a streaming answer must not have
+  // it yanked out from under the cursor by the next token — release follow
+  // the moment the selection lands inside this transcript, the same way
+  // scrolling away from the bottom already does.
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const element = scroll.current
+      const selection = document.getSelection()
+      if (!element || !selection || selection.isCollapsed) return
+      if (selection.anchorNode && element.contains(selection.anchorNode)) setPinned(false)
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [])
+
+  // A link's own click does not move the scroll position, so `onScroll`
+  // never sees it — but opening one is exactly the kind of thing a streamed
+  // token should not scroll out from under.
+  const onScrollClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest?.('a')) setPinned(false)
+  }, [])
+
   // Layout effect so the jump happens in the same frame the content grows,
   // rather than as a visible lurch afterwards.
   useLayoutEffect(() => {
@@ -726,7 +748,7 @@ export const Conversation = ({
             <Text role="prose" ink="muted">Loading transcript…</Text>
           </div>
         ) : session && items.length > 0 ? (
-          <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
+          <div className={styles.scroll} ref={scroll} onScroll={onScroll} onClick={onScrollClick} style={{ padding: SCROLL_PADDING }}>
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,
