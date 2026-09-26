@@ -276,7 +276,10 @@
 
 .rank {
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr) 72px 44px 88px 92px;
+  /* The donut's own name column and the plain-table's second name column
+     collapse into one now that every pivot draws the same row shape; the new
+     72px column is the by-agent change chip, empty on the other two pivots. */
+  grid-template-columns: 15px minmax(0, 1fr) 72px 44px 88px 92px; /* desk: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px → 15px minmax(0, 1fr) 72px 44px 88px 92px, the ranked table's own columns collapsing to one shape for every pivot */
   align-items: center;
   gap: var(--hd-space-3);
 }
