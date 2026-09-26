@@ -1,12 +1,13 @@
 import { useState } from 'react'
 
+import { RuntimeMark } from '../../components/BrandIcons'
 import { CodeEditor } from '../../components/CodeEditor'
 import { FolderIcon, SendIcon } from '../../components/Icons'
 import { terminalAppearance } from '../adapters/terminal'
 import { Dialog } from '../patterns/ModalDialog'
-import { Menu, MenuItem } from '../patterns/Menu'
+import { Menu, MenuAccountGroup, MenuItem, MenuSeparator } from '../patterns/Menu'
 import { Popover } from '../patterns/Popover'
-import { PageHead, Row, RowChoice, Rows } from '../patterns/Settings'
+import { AccountMark, PageHead, Row, RowChoice, Rows, Text } from '../patterns/Settings'
 import {
   Board,
   BoardCard,
@@ -20,6 +21,10 @@ import {
   Switch,
 } from '../ui'
 import styles from './propagation-page.module.css'
+
+/** Placeholder runtimes, just enough shape for `RuntimeMark` to draw a brand. */
+const CLAUDE_RUNTIME = { id: 'claude-code', presentation: { name: 'Claude Code', brand: 'claudecode' as const } }
+const CURSOR_RUNTIME = { id: 'cursor', presentation: { name: 'Cursor', brand: 'cursor' as const } }
 
 /**
  * A browser-test fixture made only from production implementations.
@@ -69,6 +74,37 @@ export const PropagationPage = () => {
             <Menu close={close}>
               <MenuItem label="Open workspace" onSelect={() => undefined} />
               <MenuItem label="Unavailable action" disabled="No repository is open" onSelect={() => undefined} />
+              <MenuSeparator />
+              {/* Several accounts of one agent, under its heading: each nested
+                  row wears the account's colour alone (`AccountMark
+                  size="dot"`), a name, and what is left of its usage. */}
+              <MenuAccountGroup
+                label="Claude Code"
+                mark={<AccountMark size="sm"><RuntimeMark runtime={CLAUDE_RUNTIME} size={13} /></AccountMark>}
+              >
+                <MenuItem layout="account" onSelect={() => undefined}>
+                  <AccountMark size="dot" aria-hidden="true" data-tint="blue">{null}</AccountMark>
+                  <Text role="row" className="min-w-0 flex-1 truncate">dev@example.com</Text>
+                  <Text role="muted" numeric>78%</Text>
+                </MenuItem>
+                <MenuItem layout="account" onSelect={() => undefined}>
+                  <AccountMark size="dot" aria-hidden="true" data-tint="violet">{null}</AccountMark>
+                  <Text role="row" className="min-w-0 flex-1 truncate">alex@example.com</Text>
+                  <Text role="muted" numeric>42%</Text>
+                </MenuItem>
+              </MenuAccountGroup>
+              {/* One account of an agent, folded to no heading: no step-in,
+                  and the row wears its own mark rather than a dot. */}
+              <MenuAccountGroup
+                heading={false}
+                label="Cursor"
+                mark={<AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>}
+              >
+                <MenuItem layout="account" onSelect={() => undefined}>
+                  <AccountMark size="sm"><RuntimeMark runtime={CURSOR_RUNTIME} size={13} /></AccountMark>
+                  <Text role="row" className="min-w-0 flex-1 truncate">jane@example.com</Text>
+                </MenuItem>
+              </MenuAccountGroup>
             </Menu>
           )}
         </Popover>
