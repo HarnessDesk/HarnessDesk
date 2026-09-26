@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 
-import { activityOf, flowStepOf, placeCard, type Session } from '@harnessdesk/protocol'
+import { activityOf, flowStepOf, placeCard, type FlowExecution, type FlowPolicy, type Intent, type Session } from '@harnessdesk/protocol'
 
 import { BrowserPane } from '../../components/BrowserPane'
 import { Composer } from '../../components/Composer'
@@ -476,24 +476,71 @@ export const GitSurface = () => (
   </Mount>
 )
 
+/**
+ * A reviewer's card that already answered, in the same round as the Seat the
+ * run is stopped on: it stays in Ready with its own outcome whatever the run
+ * is doing now — never swept into Needs you beside a teammate who has not
+ * answered yet (the fix for #996's placement rule doing exactly that).
+ */
+const APPROVED_REVIEW_CARD: Intent = {
+  id: 2,
+  title: 'Review the retry fix',
+  detail: null,
+  state: 'done',
+  role: 'approver',
+  outcome: 'approve',
+  files: [],
+  dependsOn: [],
+  claim: null,
+  blockedReason: null,
+  handoff: null,
+  note: 'Looks right — retries once, then surfaces the error.',
+  createdAt: 1_799_000_000_000,
+  updatedAt: 1_799_000_000_000,
+}
+
 /** The front-door Goal's board holding its Seat's card, under a run stopped on that Seat's question. */
 const questionStopStore = (): AppStore => {
   const base = previewStore().getSnapshot()
   const goal = PREVIEW_FLOW_GOAL.goal.id
   const teams = new Map(base.teams)
   const board = teams.get(goal)
-  if (board) teams.set(goal, { ...board, intents: [PREVIEW_FLOW_CARD] })
+  const cards = [PREVIEW_FLOW_CARD, APPROVED_REVIEW_CARD]
+  if (board) teams.set(goal, { ...board, intents: cards })
+  /* A second, already-answered role on the same stalled run — the round that
+     opened it long done — so the catalogue proves the rule on the case that
+     broke it, not only on the one card `sceneFlowExecution` ships. */
+  const baseExecution = sceneFlowExecution('question')
+  // `FIX_DOCUMENT` is the 'agents'-format flow, whose roles are the simpler
+  // `FlowPolicyRole` this scene's added person role also is — never the
+  // legacy `FlowRole` the general `FlowExecution['document']` type also allows.
+  const baseFlow = baseExecution.document.flow as FlowPolicy
+  const execution: FlowExecution = {
+    ...baseExecution,
+    document: {
+      format: 'agents',
+      flow: {
+        ...baseFlow,
+        roles: [...baseFlow.roles, { id: 'approver', kind: 'person', outcomes: ['approve', 'reject'] }],
+      },
+    },
+    rounds: [
+      ...baseExecution.rounds,
+      { n: 2, role: 'approver', cards: [APPROVED_REVIEW_CARD.id], seats: [], evidence: [], state: 'running', cause: 'seed' },
+    ],
+  }
   /* The Goal's activity derived as the host derives it — from the same card
      placement the board draws — never written in: a header and a board that
      disagreed would show here too. */
-  const execution = sceneFlowExecution('question')
-  const step = flowStepOf(PREVIEW_FLOW_CARD, undefined, [execution])
-  const placed = placeCard({
-    intent: PREVIEW_FLOW_CARD, evidence: undefined, stranded: false, holderWaits: false,
-    forPerson: step?.kind === 'person', runStopped: step?.stopped ?? false,
+  const placements = cards.map((card) => {
+    const step = flowStepOf(card, undefined, [execution])
+    return placeCard({
+      intent: card, evidence: undefined, stranded: false, holderWaits: false,
+      forPerson: step?.kind === 'person', runStopped: step?.stopped ?? false,
+    })
   })
   const activity = activityOf(PREVIEW_FLOW_GOAL.goal, {
-    needsYou: placed.column === 'needs', busy: false, liveFlow: true, cards: [PREVIEW_FLOW_CARD], dependencies: [],
+    needsYou: placements.some((one) => one.column === 'needs'), busy: false, liveFlow: true, cards, dependencies: [],
   })
   const goals = new Map(base.goals)
   goals.set(goal, { ...PREVIEW_FLOW_GOAL, activity })
@@ -563,10 +610,13 @@ export const GroupSurface = () => (
     </Mount>
     {/* A Goal whose run stopped on its Seat's unanswered question: the room's
         header says Needs you, and the board draws the Seat's card there and
-        counts it — one rule, so the two never disagree. */}
+        counts it — one rule, so the two never disagree. A second card, a
+        reviewer who already answered on the same stalled run, stays in Ready
+        with its outcome: a finished card is never swept in beside one that
+        is not. */}
     <div className={styles.headerCases}>
       <div className={styles.headerCase} data-testid="group-run-stopped-on-a-question">
-        <span className={styles.headerCaseLabel}>A run stopped on its Seat’s unanswered question</span>
+        <span className={styles.headerCaseLabel}>A run stopped on its Seat’s unanswered question — a finished card stays finished</span>
         <Mount with={QUESTION_STOP_STORE}>
           <div className={styles.pair}>
             <Frame>

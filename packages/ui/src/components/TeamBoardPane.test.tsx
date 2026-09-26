@@ -868,6 +868,37 @@ const observed = (checks: readonly string[], cards: BoardEvidence['cards']): Boa
   cards,
 })
 
+/**
+ * A run stalled by one card must not sweep in a card that already finished.
+ * Three reviewers on one round: the first approved before a teammate's card
+ * stalled the run on its account's usage limit, and the finished one stays
+ * put — in Ready, with its outcome — while its still-unfinished siblings
+ * carry the "run stopped" reason the header count reads too.
+ */
+it('a run stalled by one card leaves a sibling that already finished alone', async () => {
+  const approved = intent({ id: 1, state: 'done', role: 'reviewer', title: 'Card #1', outcome: 'approve' })
+  const waiting = intent({ id: 2, state: 'open', role: 'reviewer', title: 'Card #2' })
+  const held = intent({ id: 3, state: 'claimed', role: 'reviewer', title: 'Card #3', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })
+  const execution = {
+    id: 'flow-run-3', goal: ROOM, version: 2, state: 'stalled',
+    reason: 'Card #2: its Seat hit its account\'s usage limit.',
+    operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'reviewer', kind: 'person', outcomes: ['approve', 'reject'] }] } },
+    rounds: [{ n: 1, role: 'reviewer', cards: [1, 2, 3], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+  }
+  const { store } = rig([approved, waiting, held], {}, observed([], []))
+  const snapshot = { ...store.getSnapshot(), flowExecutions: new Map([['flow-run-3', execution]]) }
+  const withRun = { ...store, getSnapshot: () => snapshot } as unknown as AppStore
+
+  await render(withRun)
+  expect(column('Ready').textContent).toContain('Card #1')
+  expect(column('Needs you').textContent).toContain('Card #2')
+  expect(column('Needs you').textContent).toContain('Card #3')
+  expect(column('Ready').textContent).not.toContain('Card #2')
+  expect(column('Ready').textContent).not.toContain('Card #3')
+  expect(container.textContent).toContain('0 working · 2 need you')
+})
+
 const chipsOf = (id: number): HTMLButtonElement | null =>
   container.querySelector<HTMLButtonElement>(`button[aria-label^="What the desk observed on #${id}"]`)
 
