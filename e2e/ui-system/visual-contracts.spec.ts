@@ -23,7 +23,9 @@ test('real sidebar footer fills its column and its menu is painted and clickable
       // one of them, so read the number rather than repeating it here — a
       // literal would have to be edited every time the column is re-spaced,
       // and the claim is "level with its neighbours", not "four pixels".
-      const rail = parseFloat(getComputedStyle(node.closest('[class*="sidebar_"]')!).getPropertyValue('--rail'))
+      // `--hd-rail-inset` is `PaneColumn`'s own token (foundation/tokens.css)
+      // now, not a variable the sidebar scopes for itself.
+      const rail = parseFloat(getComputedStyle(node.closest('[class*="sidebar_"]')!).getPropertyValue('--hd-rail-inset'))
       return { left: row.left - box.left, right: box.right - row.right, rail }
     })
     expect(gap.right).toBeCloseTo(gap.left, 0)
