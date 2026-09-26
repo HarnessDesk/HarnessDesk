@@ -7,6 +7,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A review's `against` can no longer wedge a Goal's findings ledger forever.**
+  `record_review` used to accept any string in `against`, but the ledger's own
+  reader has always required each one to be a full commit id — so a candidate
+  id passed in by mistake produced a line the reader would silently skip on
+  every read, and the Findings tab and the Wrap dialog said "some evidence
+  records could not be read" with no way to tell which one or fix it.
+  Recording a review now refuses a bad `against` entry immediately, naming
+  its position, with the exact rule the reader already enforces — so it can
+  never again write a line the reader would skip. And when an older,
+  already-unreadable line's card can still be told apart, the ledger notice
+  now says how many lines it is and which card's review to redo.
+
 - **An independent judge seats on an ordinary desk again.** Two things still
   made a provider read as unknown on a real machine, so a role
   `independentOf` a Codex or DeepSeek competitor could not seat. Codex's

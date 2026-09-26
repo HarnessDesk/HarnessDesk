@@ -354,6 +354,24 @@ interface Ledger {
   readonly views: readonly FindingView[]
   /** Lines this build could not read: a ledger with any is never read as holding nothing. */
   readonly unreadable: number
+  /** Which cards named an unreadable line, when that much of it could still be read. Sorted, never longer than `unreadable`. */
+  readonly unreadableCards: readonly number[]
+}
+
+/**
+ * How many evidence records could not be read, and which cards they named
+ * when that much survived — read-only, never a repair: the append-only log
+ * is not rewritten by naming what is wrong with a line in it. Used wherever
+ * a ledger's own unreadable lines are the reason a view or a receipt is
+ * incomplete, so a person can go straight to the card whose review to redo,
+ * instead of only being told that something, somewhere, could not be read.
+ */
+const unreadableNote = (ledger: Ledger, suffix: string): string => {
+  const n = ledger.unreadable
+  const cards = ledger.unreadableCards.length > 0
+    ? ` (on card${ledger.unreadableCards.length > 1 ? 's' : ''} ${ledger.unreadableCards.map((id) => `#${id}`).join(', ')})`
+    : ''
+  return `${n} evidence record${n === 1 ? '' : 's'} could not be read${cards}, so ${suffix} A person has to look.`
 }
 
 const NOT_SEATED = 'This conversation holds no Seat on a Goal, so it cannot record findings.'
@@ -418,7 +436,7 @@ export class FindingsPlane {
   async #ledger(project: string): Promise<Ledger> {
     const read = await this.#port.store.read(project, 'evidence')
     const records = read.lines.flatMap((line) => (line.type === 'evidence' && line.record.fact.kind === 'finding' ? [line.record] : []))
-    return { records, views: foldFindings(records), unreadable: read.skipped }
+    return { records, views: foldFindings(records), unreadable: read.skipped, unreadableCards: read.unreadableCards }
   }
 
   #appender(project: string): AppendPort<EvidenceRecord> {
@@ -716,7 +734,7 @@ export class FindingsPlane {
       .map((record) => (record.fact as { readonly id: string }).id))
     const records = ledger.records.filter((record) => !inRound(record) &&
       !(record.fact.kind === 'finding' && unraised.has(record.fact.id)))
-    return { records, views: foldFindings(records), unreadable: ledger.unreadable }
+    return { records, views: foldFindings(records), unreadable: ledger.unreadable, unreadableCards: ledger.unreadableCards }
   }
 
   /** The cards of this Goal's open blind rounds that are not the reader's own. */
@@ -794,9 +812,7 @@ export class FindingsPlane {
     // admitted set until its own first round closes, and a row that still said "Blocking" there would
     // disagree with this same page's own totals below.
     const rows = selected.map((view) => ({ ...view, activeBlocking: activeBlocking(view) }))
-    const problem = ledger.unreadable > 0
-      ? 'Some evidence records could not be read, so this ledger cannot be shown as complete. A person has to look.'
-      : null
+    const problem = ledger.unreadable > 0 ? unreadableNote(ledger, 'this ledger cannot be shown as complete.') : null
     const totals = problem !== null ? null : {
       all: owned.length,
       open: owned.filter((one) => !isResolved(one)).length,
@@ -969,7 +985,7 @@ export class FindingsPlane {
     const overrides = this.#port.flows.overridesOfGoal?.(goal) ?? []
     return {
       receipt: { version: 1, evidence: findings.flatMap((one) => one.evidence), findings, overrides },
-      gaps: ledger.unreadable > 0 ? ['Some evidence records could not be read, so this receipt’s findings may be incomplete.'] : [],
+      gaps: ledger.unreadable > 0 ? [unreadableNote(ledger, 'this receipt’s findings may be incomplete.')] : [],
     }
   }
 

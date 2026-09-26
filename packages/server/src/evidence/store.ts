@@ -3,7 +3,7 @@ import { mkdir, open, readdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
 import { errnoOf, NOTHING_YET } from '../errno.js'
-import { LINE_LIMIT, lineOf, lineText, type StoreFile, type StoredLine } from './records.js'
+import { cardHintOf, LINE_LIMIT, lineOf, lineText, type StoreFile, type StoredLine } from './records.js'
 
 export type { StoreFile } from './records.js'
 
@@ -45,6 +45,8 @@ export type { StoreFile } from './records.js'
 export interface StoreRead {
   readonly lines: readonly StoredLine[]
   readonly skipped: number
+  /** Which cards a skipped `evidence` line named, when its envelope was readable that far. Empty on the `seats` file. */
+  readonly unreadableCards: readonly number[]
 }
 
 /** What `merge` did with each line it was given. */
@@ -296,11 +298,12 @@ export class EvidenceStore {
     try {
       raw = await readFile(join(this.folderOf(project), FILE_OF[file]), 'utf8')
     } catch (error) {
-      if (NOTHING_YET.has(errnoOf(error))) return { lines: [], skipped: 0 }
+      if (NOTHING_YET.has(errnoOf(error))) return { lines: [], skipped: 0, unreadableCards: [] }
       throw error
     }
     const lines: StoredLine[] = []
     let skipped = 0
+    const unreadableCards = new Set<number>()
     for (const text of raw.split('\n')) {
       if (text.trim() === '') continue
       if (Buffer.byteLength(text) > LINE_LIMIT) {
@@ -315,12 +318,17 @@ export class EvidenceStore {
         continue
       }
       const line = lineOf(parsed, { file, project })
-      if (line) lines.push(line)
-      else skipped += 1
+      if (line) {
+        lines.push(line)
+        continue
+      }
+      skipped += 1
+      const card = cardHintOf(parsed)
+      if (card !== null) unreadableCards.add(card)
     }
     if (skipped > 0) {
       this.#log('some evidence records could not be read and were skipped', { project, file, skipped })
     }
-    return { lines, skipped }
+    return { lines, skipped, unreadableCards: [...unreadableCards].sort((a, b) => a - b) }
   }
 }

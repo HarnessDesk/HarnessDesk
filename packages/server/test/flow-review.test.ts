@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { test } from 'node:test'
 
 import type { EvidenceRecord, EvidenceView, ReviewInput } from '@harnessdesk/protocol'
 
 import { FlowReview, type ReviewAppendOutcome, type ReviewBinding, type ReviewSubjectPort } from '../src/flow-evidence.js'
+import { factOf } from '../src/evidence/records.js'
 import type { TeamCallScope } from '../src/team.js'
 
 /*
@@ -162,4 +164,91 @@ test('candidates offered for a card with no binding are empty, and recording aga
   const scope = scopeOf('alpha', 's1')
   assert.deepEqual(await review.candidates(9, scope), [])
   await assert.rejects(() => review.record({ intent: 9, candidate: 'anything', verdict: 'approve' }, scope), /do not hold this card/)
+})
+
+/*
+ * #1029: `against` names revisions a review was judged against, and the
+ * reader (`lineOf`'s `review` case in evidence/records.ts) has always
+ * required every one of them to be a full commit SHA — a rule the writer
+ * used to ignore, so a candidate UUID passed as `against` produced a line
+ * the reader would skip forever. `record` now refuses at write time with the
+ * reader's own predicate (`isSha`), before any candidate lookup, so a caller
+ * that would have corrupted the ledger gets a plain refusal instead.
+ */
+
+const reviewRig = async (): Promise<{ readonly port: FakePort; readonly review: FlowReview; readonly scope: TeamCallScope; readonly candidateId: string }> => {
+  const port = new FakePort()
+  const scope = scopeOf('alpha', 's1')
+  const binding: ReviewBinding = {
+    goal: 'goal-1', seat: 'seat-reviewer', answers: ['approve'], round: 1,
+    subjects: [{ card: 1, round: 1, checkout: { cwd: '/repo', branch: 'work' }, at: 'sha-a' }],
+  }
+  port.bindings.set(`3\u0000${port.key('alpha', 's1')}`, binding)
+  const review = new FlowReview(port)
+  const [candidate] = await review.candidates(3, scope)
+  return { port, review, scope, candidateId: candidate!.id }
+}
+
+test('a candidate id (a UUID) passed as `against` is refused at write time, naming its position', async () => {
+  const { review, scope, candidateId } = await reviewRig()
+  const uuid = randomUUID()
+  await assert.rejects(
+    () => review.record({ intent: 3, candidate: candidateId, verdict: 'approve', against: [uuid] }, scope),
+    /against\[0\] must be a full commit id, 40 hex characters; got a value that is not one\.$/,
+  )
+})
+
+test('a full 40-hex commit id in `against` is accepted and recorded', async () => {
+  const { review, scope, candidateId } = await reviewRig()
+  const sha = 'b'.repeat(40)
+  const record = await review.record({ intent: 3, candidate: candidateId, verdict: 'approve', against: [sha] }, scope)
+  assert.equal(record.fact.kind, 'review')
+  assert.deepEqual(record.fact.kind === 'review' ? record.fact.against : null, [sha])
+})
+
+test('an abbreviated SHA in `against` is refused, the same as the reader refuses it', async () => {
+  const { review, scope, candidateId } = await reviewRig()
+  const short = 'b'.repeat(12)
+  await assert.rejects(
+    () => review.record({ intent: 3, candidate: candidateId, verdict: 'approve', against: [short] }, scope),
+    /against\[0\] must be a full commit id, 40 hex characters/,
+  )
+})
+
+test('a second, later entry names its own position when the first is fine', async () => {
+  const { review, scope, candidateId } = await reviewRig()
+  const sha = 'c'.repeat(40)
+  await assert.rejects(
+    () => review.record({ intent: 3, candidate: candidateId, verdict: 'approve', against: [sha, 'not-a-revision'] }, scope),
+    /against\[1\] must be a full commit id, 40 hex characters/,
+  )
+})
+
+test('the write refusal and the reader’s skip agree: what one refuses, the other would never read back', async () => {
+  const samples: readonly string[] = [
+    'd'.repeat(40), // a full SHA-1
+    'd'.repeat(64), // a full SHA-256
+    randomUUID(), // a candidate id, exactly the shape #1029 reported
+    'd'.repeat(12), // an abbreviated SHA
+    'D'.repeat(40), // upper case is not how git prints one
+  ]
+  for (const sample of samples) {
+    // A fresh port and Seat per sample: idempotency would otherwise fold a second accepted call
+    // into the first one's already-durable record, hiding whether this sample's own against was read.
+    const { review, scope, candidateId } = await reviewRig()
+    let record: EvidenceRecord | null = null
+    let refused = false
+    try {
+      record = await review.record({ intent: 3, candidate: candidateId, verdict: 'approve', against: [sample] }, scope)
+    } catch {
+      refused = true
+    }
+    // Whatever the writer decided, the reader's own rule is asked to agree with it, on an otherwise
+    // well-formed `review` fact — never the writer's own boolean, which could drift on its own. Only
+    // `against` varies; a well-formed `at` here isolates that field, since `record`'s own `at` is this
+    // rig's fixture ('sha-a'), not a real revision.
+    const wouldRead = factOf({ kind: 'review', verdict: 'approve', by: 'seat-reviewer', at: 'e'.repeat(40), against: [sample] }) !== null
+    assert.equal(refused, !wouldRead, `sample ${JSON.stringify(sample)}: writer and reader disagreed`)
+    if (record) assert.equal(record.fact.kind === 'review' ? record.fact.against?.[0] : null, sample)
+  }
 })

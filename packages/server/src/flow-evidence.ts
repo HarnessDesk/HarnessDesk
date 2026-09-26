@@ -10,8 +10,28 @@ import {
   type SeatId,
 } from '@harnessdesk/protocol'
 
-import { mintId } from './evidence/records.js'
+import { AGAINST_LIMIT, isSha, mintId } from './evidence/records.js'
 import type { TeamCallScope } from './team.js'
+
+/**
+ * A review's `against` list, checked by the exact rule `lineOf`'s `review`
+ * case enforces when it reads one back — the same predicate (`isSha`) and
+ * the same limit (`AGAINST_LIMIT`), imported from where the reader keeps
+ * them, so a write-time refusal here and a read-time skip there can never
+ * drift apart. What this refuses can never become a line the reader would
+ * silently skip forever (#1029).
+ */
+const checkAgainst = (against: readonly string[] | undefined): void => {
+  if (against === undefined) return
+  if (against.length > AGAINST_LIMIT) {
+    throw new Error(`against must name at most ${AGAINST_LIMIT} revisions; got ${against.length}.`)
+  }
+  for (let i = 0; i < against.length; i++) {
+    if (!isSha(against[i])) {
+      throw new Error(`against[${i}] must be a full commit id, 40 hex characters; got a value that is not one.`)
+    }
+  }
+}
 
 /**
  * Evidence guards: what a finished round's rule may read to decide whether to
@@ -533,6 +553,7 @@ export class FlowReview implements FlowReviewPort {
    * operation's own journal makes a repeated step a no-op.
    */
   async record(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord> {
+    checkAgainst(input.against)
     this.#sweep()
     const bound = await this.#port.bindingFor(input.intent, scope)
     if (!bound) throw new Error('You do not hold this card, so no review can be recorded against it.')

@@ -154,6 +154,27 @@ test('unreadable evidence is never read as a clean, empty ledger', async () => {
   assert.match(detail.problem ?? '', /could not be read/)
 })
 
+test('an unreadable line whose card survives is named in the ledger notice (#1029)', async () => {
+  const { plane, store, file } = await rig()
+  await store.append(ROOT, 'evidence', [{ type: 'evidence', record: raise(1) }])
+  // A review-shaped line an older build wrote before #1029's write-time refusal existed: a candidate
+  // UUID where `against` wants a full commit id. `lineOf` has always skipped this; only the notice's
+  // wording is new. Its envelope and its card are otherwise well-formed, so both survive the skip.
+  const bad = {
+    id: 'bad-review-1',
+    fact: { kind: 'review', verdict: 'approve', by: 'seat-reviewer', at: 'a'.repeat(40), against: ['1d20a3f0-9d1a-4f0a-8c2e-000000000000'] },
+    card: { board: 'g1', id: 7 }, checkout: null, seat: null, round: null, observedAt: 2, posted: null,
+  }
+  await appendFile(file, `${JSON.stringify({ v: 1, type: 'evidence', record: bad })}\n`)
+
+  const page = await plane.list({ goal: 'g1' })
+  assert.match(page.problem ?? '', /^1 evidence record could not be read \(on card #7\), so this ledger cannot be shown as complete\. A person has to look\.$/)
+
+  const { gaps } = await plane.receiptWithGaps('g1')
+  assert.equal(gaps.length, 1)
+  assert.match(gaps[0]!, /^1 evidence record could not be read \(on card #7\), so this receipt.s findings may be incomplete\. A person has to look\.$/)
+})
+
 test('a Seat’s own scoped read cannot carry a person’s cursor', async () => {
   const { plane } = await rig()
   await assert.rejects(
