@@ -261,18 +261,20 @@ describe('an account read that fails (#1021)', () => {
     per[ADDED] = 'fail'
     per[OTHER] = { accounts: [], signInMethods: [] }
     await store.loadAccounts()
-    // A whole pass starts and is still out when the retry for ADDED fires.
+    // The retry for ADDED goes out first and is held.
     const added = hold(ADDED)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(added).toHaveLength(1)
+    // A whole pass starts after it and lands before it: ADDED answers, OTHER now fails.
     const other = hold(OTHER)
     const pass = store.loadAccounts()
-    await vi.advanceTimersByTimeAsync(2_000)
-    expect(added).toHaveLength(2)
-    // The pass lands: ADDED answers, OTHER now fails.
-    added[0]!({ accounts: [], signInMethods: [] })
+    await vi.advanceTimersByTimeAsync(0)
+    added[1]!({ accounts: [{ kind: 'chatgpt', label: 'ada@example.com' }], signInMethods: [] })
     other[0]!(Promise.reject(new Error('The agent is not running.')))
     await pass
-    // The retry lands last. It must not take OTHER's re-ask with it.
-    added[1]!({ accounts: [{ kind: 'chatgpt', label: 'ada@example.com' }], signInMethods: [] })
+    // The older retry lands last. It is not the news, and it must not take
+    // OTHER's re-ask with it.
+    added[0]!({ accounts: [], signInMethods: [] })
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
     per[OTHER] = { accounts: [], signInMethods: [] }
@@ -321,6 +323,62 @@ describe('an account read that fails (#1021)', () => {
     added[0]!({ accounts: [], signInMethods: [] })
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+  })
+
+  it('does not ask again beside a newer read of its own that is already out', async () => {
+    roster(ADDED)
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    const first = readsOf(ADDED)
+    // The active agent refreshes before the re-ask is due; its read is out.
+    const added = hold(ADDED)
+    const refresh = store.refreshRuntime()
+    await vi.advanceTimersByTimeAsync(2_000)
+    // The re-ask fell due while that read was out: it asked nothing beside it.
+    expect(readsOf(ADDED)).toBe(first + 1)
+    added[0]!({ accounts: [], signInMethods: [] })
+    await refresh
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(readsOf(ADDED)).toBe(first + 1)
+    expect(store.getSnapshot().accountsByRuntime[ADDED]).toEqual({ accounts: [], signInMethods: [] })
+  })
+
+  it('starts the wait over once everything has answered', async () => {
+    roster(ADDED)
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    await vi.advanceTimersByTimeAsync(2_000) // fails again: next wait 4 s
+    per[ADDED] = { accounts: [], signInMethods: [] }
+    await vi.advanceTimersByTimeAsync(4_000) // answers
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    const before = readsOf(ADDED)
+    // A fresh failure waits 2 s again, not the 8 s the old run had reached.
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(readsOf(ADDED)).toBe(before + 1)
+  })
+
+  it('a failure landing while a re-ask is set does not push it later', async () => {
+    roster(ADDED, OTHER)
+    per[ADDED] = 'fail'
+    per[OTHER] = { accounts: [], signInMethods: [] }
+    await store.loadAccounts()
+    const first = readsOf(ADDED)
+    await vi.advanceTimersByTimeAsync(1_500)
+    await store.loadAccounts() // fails ADDED again, half a second before the re-ask
+    await vi.advanceTimersByTimeAsync(500)
+    expect(readsOf(ADDED)).toBe(first + 2)
+  })
+
+  it('an agent gone from the roster goes from the map at the next read', async () => {
+    roster(ADDED, OTHER)
+    per[ADDED] = { accounts: [], signInMethods: [] }
+    per[OTHER] = { accounts: [], signInMethods: [] }
+    await store.loadAccounts()
+    expect(store.getSnapshot().accountsByRuntime[OTHER]).toBeDefined()
+    roster(ADDED)
+    await store.loadAccounts()
+    expect(store.getSnapshot().accountsByRuntime[OTHER]).toBeUndefined()
   })
 
   it('a retry that lands after a newer pass gives way to it', async () => {
