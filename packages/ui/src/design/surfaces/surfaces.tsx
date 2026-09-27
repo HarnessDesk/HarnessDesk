@@ -590,6 +590,42 @@ const seatRefusedStore = (): AppStore => {
 const SEAT_REFUSED_STORE = seatRefusedStore()
 
 /**
+ * The front-door Goal's run stopped on its time budget while its Seat was
+ * still busy: the card stays claimed, and the room's live line — beside
+ * whatever it already says about the run having stopped — carries a second
+ * line of its own for the release still waiting on that Seat's turn to end
+ * (#1027).
+ */
+const pendingReleaseStore = (): AppStore => {
+  const base = previewStore().getSnapshot()
+  const goal = PREVIEW_FLOW_GOAL.goal.id
+  const cards = [PREVIEW_FLOW_CARD]
+  const teams = new Map(base.teams)
+  const board = teams.get(goal)
+  if (board) teams.set(goal, { ...board, intents: cards })
+  const execution = sceneFlowExecution('pending-release')
+  const placed = cards.map((card) => {
+    const step = flowStepOf(card, undefined, [execution])
+    return placeCard({
+      intent: card, evidence: undefined, stranded: false, holderWaits: false,
+      forPerson: step?.kind === 'person', live: step?.live ?? false, runStopped: step?.stopped ?? false,
+    })
+  })
+  const activity = activityOf(PREVIEW_FLOW_GOAL.goal, {
+    needsYou: placed.some((one) => one.column === 'needs'), busy: false, liveFlow: true, cards, dependencies: [],
+  })
+  const goals = new Map(base.goals)
+  goals.set(goal, { ...PREVIEW_FLOW_GOAL, activity })
+  return previewStore({
+    teams,
+    goals,
+    flowExecutions: new Map([['preview-flow-run', execution]]),
+  })
+}
+
+const PENDING_RELEASE_STORE = pendingReleaseStore()
+
+/**
  * A group project: the board and the room that belongs to it, together.
  *
  * Apart they are two panes; together they are the claim the layout exists to
@@ -634,6 +670,14 @@ export const GroupSurface = () => (
             line is the tail of the room's chat, which a half-width frame
             folds away behind the room's own rail. */}
         <Mount with={SEAT_REFUSED_STORE}>
+          <Frame>
+            <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
+          </Frame>
+        </Mount>
+      </div>
+      <div className={styles.headerCase} data-testid="group-run-stopped-with-a-release-pending">
+        <span className={styles.headerCaseLabel}>A stopped run whose Seat is still busy names the pending release on a line of its own</span>
+        <Mount with={PENDING_RELEASE_STORE}>
           <Frame>
             <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
           </Frame>

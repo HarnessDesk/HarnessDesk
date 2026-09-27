@@ -1663,6 +1663,55 @@ it("names a stalled run's own reason on the live line, lines kept, as a wait on 
 })
 
 /**
+ * A release still waiting on a Seat's turn to end names the card and the
+ * Seat on a line of its own, whatever the run above it is doing (#1027;
+ * review #1050 finding 3, round 3). None of the branches above ever read a
+ * settled run's own `reason` at all, so before this the pending release went
+ * unsaid entirely for exactly this run — its own line is the only place it
+ * ever reaches the screen.
+ */
+it('shows a pending release’s own sentence on its own line for a settled run, whose own reason no branch above ever names', async () => {
+  const note = 'Waiting for Codex’s turn to end before releasing card #1.'
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'settled',
+    rounds: [], operations: [], legacyRun: null, reason: 'no rule continues from it, so this waits for you',
+    pendingReleaseNote: note,
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
+  await render(store)
+
+  // The primary line still says whatever it would without the pending release at all — here, the roster's own default, a member at work — and never the settled run's own reason.
+  expect(container.querySelector('[data-slot="room-live-line"]')?.textContent).not.toContain('no rule continues')
+  const line = container.querySelector('[data-slot="room-pending-release-line"]')!
+  expect(line.textContent).toBe(note)
+  expect(line.hasAttribute('data-settled')).toBe(true)
+})
+
+/**
+ * A trigger-started run stopped on its own time or round budget reads the
+ * trigger's own stop line, never the run's `reason` (`stopText`, above) —
+ * the #1027 case the fix is for. The pending release's sentence names the
+ * card and the Seat on its own line regardless, right under it.
+ */
+it('shows a pending release’s own sentence for a trigger-stopped run too, alongside the trigger’s own stop line', async () => {
+  const note = 'Card #1 is still claimed by Codex, whose turn has not ended, so it could not be released. Stop that Seat’s turn, or release card #1 by hand.'
+  const detail = 'Timed out: this Goal reached its time budget.'
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stopped',
+    rounds: [], operations: [], legacyRun: null, reason: 'Timed out: this Goal reached its time budget.',
+    pendingReleaseNote: note,
+  }
+  const { store } = triggerRig([], { stop: { reason: 'timed out', detail, at: Date.now() } }, [], new Map([['run-1', execution]]))
+  await render(store)
+
+  const stop = container.querySelector('[data-slot="room-live-line"]')!
+  expect(stop.getAttribute('data-kind')).toBe('stop')
+  expect(stop.textContent).toBe(detail)
+  const pending = container.querySelector('[data-slot="room-pending-release-line"]')!
+  expect(pending.textContent).toBe(note)
+})
+
+/**
  * The header reads "Needs you" over "Stopped" for an open person wait
  * (`runState`'s own ternary order); the live line now agrees, rather than
  * naming the stop while the header already moved past it.
@@ -1841,12 +1890,18 @@ const PENDING = [{
 }]
 
 /** A trigger's Goal with a live budget, and a store whose approvals can be answered. */
-const triggerRig = (approvals: readonly unknown[], budget: Record<string, unknown> = {}, waits: readonly unknown[] = []) => {
+const triggerRig = (
+  approvals: readonly unknown[],
+  budget: Record<string, unknown> = {},
+  waits: readonly unknown[] = [],
+  /** A reused Goal's own cached runs — see `rig`'s own last parameter. */
+  flowExecutions: ReadonlyMap<string, FlowExecution> = new Map(),
+) => {
   const TRIGGER_GOAL: GoalView = {
     ...GOAL,
     goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
   }
-  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
+  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL, flowExecutions)
   const base = store.getSnapshot()
   let snapshot: typeof base = { ...base, approvals: approvals as never }
   const listeners = new Set<() => void>()

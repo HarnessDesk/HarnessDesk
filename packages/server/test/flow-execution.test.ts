@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { TeamEntry, TeamSignal } from '@harnessdesk/protocol'
 
-import { BRIEF_CHANGED, INDEPENDENT } from '../src/flow-execution.js'
+import { BRIEF_CHANGED, INDEPENDENT, type StoredFlowExecution } from '../src/flow-execution.js'
 import { overlaps } from '../src/team.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
@@ -676,8 +676,19 @@ test('a hold set when one Seat’s turn ends interrupts every other Seat still i
   assert.ok(!rig.events.includes('release:seat-2'), 'held, not let go')
 })
 
-test('a trigger run that stops waits for the turns it interrupted to end before releasing their Seats, so no release is refused', async (t) => {
+/*
+ * #1027, reworked after review: no poll anywhere. A Seat still busy is
+ * deferred and retried on the host's own turn-ended signal (`retryRelease`,
+ * the same call `reArm` answers from) — simulated here exactly as the rest
+ * of this file simulates re-arming, by calling it directly rather than
+ * waiting on a real turn. `RELEASE_STALL_MS` is injected small
+ * (`goalRig(t, { releaseStallMs })`) so the one test that needs the bound to
+ * actually pass stays fast and deterministic.
+ */
+
+test('a Seat found busy is never even tried, deferred instead — and released once the turn-ended signal answers for it (#1027)', async (t) => {
   const rig = await goalRig(t)
+  // A turn an interrupt asks to stop does not end synchronously with it — this class's own `busySeats` says when it does.
   rig.turnsEndLater = true
   const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
   await rig.flows.resumeTriggered(run.id)
@@ -686,10 +697,260 @@ test('a trigger run that stops waits for the turns it interrupted to end before 
   rig.busySeats.add('seat-2')
   await rig.flows.stopRun(run.id, 'Timed out: this Goal reached its time budget.')
   await rig.flows.flush()
-  assert.deepEqual(rig.events.filter((one) => one.startsWith('refused:')), [], 'no release refused for a turn still ending')
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('refused:')), [], 'never even tried while known busy, so never refused')
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('release:')), [], 'neither Seat is released yet')
   for (const seat of ['seat-1', 'seat-2']) {
-    assert.ok(rig.events.indexOf(`interrupt:${seat}`) < rig.events.indexOf(`release:${seat}`), `${seat}: interrupted, then released`)
+    assert.ok(rig.events.includes(`interrupt:${seat}`), `${seat} was interrupted`)
   }
+
+  // seat-1's turn ends; the signal answers for it alone.
+  rig.busySeats.delete('seat-1')
+  const first = rig.sessionOf('seat-1')
+  rig.flows.retryRelease(first.runtime, first.sessionId)
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('release:')), ['release:seat-1'])
+
+  // seat-2's turn ends later; the same signal, for the other session, releases it too.
+  rig.busySeats.delete('seat-2')
+  const second = rig.sessionOf('seat-2')
+  rig.flows.retryRelease(second.runtime, second.sessionId)
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('release:')).sort(), ['release:seat-1', 'release:seat-2'])
+})
+
+test('the happy path — a Seat that is not busy — releases immediately, well under a second, no waiting at all', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const startedAt = Date.now()
+  await rig.flows.stopRun(run.id, 'Timed out: this Goal reached its time budget.')
+  await rig.flows.flush()
+  assert.ok(Date.now() - startedAt < 1_000, 'no Seat was busy, so nothing here waited on anything')
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('release:')).sort(), ['release:seat-1', 'release:seat-2'])
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('refused:')), [])
+})
+
+test('a release refused because a new turn started between the check and the call is retried, not logged as a dead end (#1027)', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  // Not busy by the Seat's own check — the race is entirely in the one call to `release` itself.
+  rig.raceReleaseOnce.add('seat-1')
+  await rig.flows.stopRun(run.id, 'Timed out: this Goal reached its time budget.')
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('refused:')), ['refused:seat-1'], 'the race was real: the call itself was refused, once')
+  assert.ok(!rig.events.includes('release:seat-1'), 'not released on that first, refused call')
+  // The turn-ended signal answers again — this time the call goes through.
+  const session = rig.sessionOf('seat-1')
+  rig.flows.retryRelease(session.runtime, session.sessionId)
+  await rig.flows.flush()
+  assert.ok(rig.events.includes('release:seat-1'), 'retried and released, rather than left as a log line')
+})
+
+test('a Seat handed new work while its release still waits is not released out from under it (#1027 ownership check)', async (t) => {
+  const rig = await goalRig(t)
+  rig.turnsEndLater = true
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  rig.busySeats.add('seat-1')
+  await rig.flows.stopRun(run.id, 'Timed out: this Goal reached its time budget.')
+  await rig.flows.flush()
+  assert.ok(!rig.events.includes('release:seat-1'))
+  // Given different work than the card it was asked to give up: card #1 opens again, and this session claims a new card instead.
+  const session = rig.sessionOf('seat-1')
+  const state = rig.team.stateFor(run.goal)
+  rig.team.installProjection({
+    ...state,
+    intents: [
+      ...state.intents.map((one) => (one.id === 1 ? { ...one, state: 'open' as const, claim: null } : one)),
+      {
+        id: 99, title: 'New work', state: 'claimed' as const, files: [], dependsOn: [], createdAt: Date.now(), updatedAt: Date.now(),
+        claim: { runtime: session.runtime as never, sessionId: session.sessionId, at: Date.now() },
+      },
+    ],
+  })
+  rig.busySeats.delete('seat-1')
+  rig.flows.retryRelease(session.runtime, session.sessionId)
+  await rig.flows.flush()
+  assert.ok(!rig.events.includes('release:seat-1'), 'dropped, not released: it holds different work now, never released mid-work')
+})
+
+const STOP_WHY = 'Timed out: this Goal reached its time budget.'
+
+test('a stopped run’s pending release names the card and the Seat in its own field, then the overdue sentence, then nothing once released — and its reason is never touched (#1027 finding 3, round 3)', async (t) => {
+  const rig = await goalRig(t, { releaseStallMs: 30 })
+  rig.turnsEndLater = true
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  rig.busySeats.add('seat-1')
+  await rig.flows.stopRun(run.id, STOP_WHY)
+  await rig.flows.flush()
+  assert.ok(!rig.events.includes('release:seat-1'))
+  const before = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(before.state, 'stopped')
+  assert.equal(before.reason, STOP_WHY, 'the run’s own reason is never touched by a pending release')
+  // Deferred, and already visible on its own field — a plain "waiting" line, never silence — but not yet the overdue sentence.
+  assert.match(before.pendingReleaseNote ?? '', /Waiting for/)
+  assert.doesNotMatch(before.pendingReleaseNote ?? '', /turn has not ended/, 'not overdue yet: the sentence is not this soon')
+  // Past the (tiny, injected) bound, with the signal never having answered.
+  const deadline = Date.now() + 2_000
+  let after = before
+  while (!(after.pendingReleaseNote ?? '').includes('turn has not ended') && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    after = rig.flows.executionsFor(run.goal)[0]!
+  }
+  assert.match(after.pendingReleaseNote ?? '', /card #1/)
+  assert.match(after.pendingReleaseNote ?? '', /turn has not ended/)
+  assert.equal(after.state, 'stopped', 'a stopped run stays stopped — the overdue sentence lives on its own field, never a state change')
+  assert.equal(after.reason, STOP_WHY, 'still untouched, even past the bound')
+  assert.ok(!rig.events.includes('release:seat-1'), 'still not released — the bound only ends the silence, never the wait itself')
+  // The signal finally answers; the field disappears, and the Seat is released.
+  rig.busySeats.delete('seat-1')
+  const session = rig.sessionOf('seat-1')
+  rig.flows.retryRelease(session.runtime, session.sessionId)
+  await rig.flows.flush()
+  assert.ok(rig.events.includes('release:seat-1'))
+  const released = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(released.pendingReleaseNote, undefined, 'the field is gone once nothing is pending any more')
+  assert.equal(released.reason, STOP_WHY, 'and the reason was never anything else')
+})
+
+test('dispose cancels a pending release’s bound timer and writes nothing after (#1027)', async (t) => {
+  const rig = await goalRig(t, { releaseStallMs: 30 })
+  rig.turnsEndLater = true
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  rig.busySeats.add('seat-1')
+  // Mocked only from here: the 30ms bound below is a virtual timer from this
+  // point on, ticked by hand rather than raced against the real clock — a
+  // slow, loaded machine can no longer let the real bound fire before
+  // `dispose()` gets to it (review #1050 finding 2, round 2).
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  await rig.flows.stopRun(run.id, STOP_WHY)
+  await rig.flows.flush()
+  assert.ok(!rig.events.includes('release:seat-1'))
+  const noteBefore = rig.flows.executionsFor(run.goal)[0]!.pendingReleaseNote
+  assert.match(noteBefore ?? '', /Waiting for/, 'deferred, with the plain waiting line already up, on its own field')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.reason, STOP_WHY, 'the run’s own reason is never touched by it')
+  const savesBefore = rig.files.saves
+  rig.flows.dispose()
+  // dispose() clears every pending release outright: its field is gone from the very next read, not merely frozen where it stood.
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.pendingReleaseNote, undefined, 'nothing is pending any more')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.reason, STOP_WHY, 'still exactly the run’s own reason')
+  // Well past the (still virtual) bound — nothing here waits on, or races, the real wall clock.
+  t.mock.timers.tick(10_000)
+  await Promise.resolve()
+  assert.equal(rig.files.saves, savesBefore, 'no write happened after dispose — the overdue timer never fired')
+  assert.equal(
+    rig.flows.executionsFor(run.goal)[0]!.pendingReleaseNote,
+    undefined,
+    'still absent past the bound: the cleared timer never brought the overdue sentence back',
+  )
+  // Nor does the signal do anything once disposed, even once the turn genuinely ends.
+  rig.busySeats.delete('seat-1')
+  const session = rig.sessionOf('seat-1')
+  rig.flows.retryRelease(session.runtime, session.sessionId)
+  await rig.flows.flush()
+  assert.ok(!rig.events.includes('release:seat-1'), 'disposed: nothing here releases a Seat any more')
+})
+
+test('a restart finds a Seat a stopped run left claimed, still open, and releases it through the same path (#1027)', async (t) => {
+  const rig = await goalRig(t)
+  rig.turnsEndLater = true
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  rig.busySeats.add('seat-1')
+  await rig.flows.stopRun(run.id, STOP_WHY)
+  await rig.flows.flush()
+  assert.ok(!rig.events.includes('release:seat-1'), 'deferred: the desk goes down before this Seat’s turn ends')
+  const before = rig.flows.executionsFor(run.goal)[0]!
+  assert.match(before.pendingReleaseNote ?? '', /Waiting for/, 'the pending release already shows on the old process’s own read')
+  assert.equal(before.reason, STOP_WHY, 'never touched by it')
+  // By the time the desk comes back, the turn has actually ended — nothing here was ever told so directly, though.
+  rig.busySeats.delete('seat-1')
+  await rig.restart()
+  assert.ok(rig.events.includes('release:seat-1'), 'swept and released on the very next start-up, without waiting for another signal')
+  const after = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(
+    after.reason,
+    STOP_WHY,
+    'the reason is the original one — never touched to begin with, so the new process has nothing to inherit',
+  )
+  assert.equal(after.pendingReleaseNote, undefined, 'and nothing is pending on the new process’s own, empty table')
+})
+
+test('a restart never sweeps a question-stalled run: its Seat keeps holding its card, for the answer still coming (#1027 finding 1)', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const session = rig.sessionOf('seat-1')
+  const asked = await rig.flows.stopForQuestion(session.runtime, session.sessionId, 'asked something and nobody answered in time')
+  assert.ok(asked)
+  await rig.flows.flush()
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(stalled.state, 'stalled')
+  const card = rig.board(run.goal).intents.find((one) => one.claim?.sessionId === session.sessionId)!.id
+  await rig.restart()
+  assert.ok(!rig.events.includes('release:seat-1'), 'a question-stalled run’s Seat is never swept: it holds its card on purpose')
+  assert.ok(!rig.events.includes('release:seat-2'))
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === card)?.claim?.sessionId, session.sessionId, 'still claimed by the same Seat after the restart')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'stalled')
+})
+
+test('a restart never sweeps a run stalled only because an old Seat’s release ran past the bound: the current round’s Seats stay put (#1027 finding 1)', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  // Made to look exactly like a run `#onReleaseOverdue` already stalled — same state, same sentence — without needing the real timer: the sweep only ever reads a run's persisted `state`.
+  const files = await rig.files.list()
+  const entry = files.find((one) => (one.raw as { id?: string } | null)?.id === run.id)!
+  const raw = entry.raw as unknown as StoredFlowExecution
+  await rig.files.save({
+    ...raw, state: 'stalled',
+    reason: 'Card #1 is still claimed by reviewer-a, whose turn has not ended, so it could not be released. Stop that Seat’s turn, or release card #1 by hand.',
+  })
+  await rig.restart()
+  assert.ok(!rig.events.includes('release:seat-1'), 'a stalled run is never swept, whatever stalled it — the run itself is not done, so its Seats are not either')
+  assert.ok(!rig.events.includes('release:seat-2'), 'the current round’s other Seat is not taken along with it')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'stalled')
+})
+
+test('a restart never releases a stopped run’s Seat once a person has handed it a different card by hand (#1027 finding 2)', async (t) => {
+  const rig = await goalRig(t)
+  rig.turnsEndLater = true
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  rig.busySeats.add('seat-1')
+  await rig.flows.stopRun(run.id, STOP_WHY)
+  await rig.flows.flush()
+  assert.ok(!rig.events.includes('release:seat-1'), 'deferred: the Seat is still busy when the run stops')
+  // Before the desk comes back, a person hands this Seat’s session a card of their own, unrelated to this run.
+  const session = rig.sessionOf('seat-1')
+  const state = rig.team.stateFor(run.goal)
+  const ownCard = state.intents.find((one) => one.claim?.sessionId === session.sessionId)!.id
+  rig.team.installProjection({
+    ...state,
+    intents: [
+      ...state.intents.map((one) => (one.id === ownCard ? { ...one, state: 'open' as const, claim: null } : one)),
+      {
+        id: 99, title: 'Someone else’s work', state: 'claimed' as const, files: [], dependsOn: [], createdAt: Date.now(), updatedAt: Date.now(),
+        claim: { runtime: session.runtime as never, sessionId: session.sessionId, at: Date.now() },
+      },
+    ],
+  })
+  await rig.restart()
+  assert.ok(!rig.events.includes('release:seat-1'), 'a hand-assigned card is never swept away: it does not belong to this run’s own rounds')
+  assert.ok(rig.events.includes('release:seat-2'), 'the other Seat, still holding this run’s own card, is swept normally')
+  assert.equal(rig.team.stateFor(run.goal).intents.find((one) => one.id === 99)?.claim?.sessionId, session.sessionId, 'the hand-assigned card is still held')
 })
 
 // ------------------------------------------------ an agreed split, enforced (#1015)
