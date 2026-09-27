@@ -51,15 +51,16 @@ const money = (windowCost: number): SpendSummary => ({
 })
 
 interface FakeSpend {
-  readonly turns: { count: number; since: number } | null
+  readonly turns: { count: number; since: number; source?: 'agent' | 'desk' } | null
   readonly requests: number
   readonly windowCost: number
 }
 
 const spendSourceFor = (fake: FakeSpend): SpendSource => ({
   spendFor: () => money(fake.windowCost),
-  turnsFor: () => fake.turns,
+  turnsFor: () => (fake.turns ? { ...fake.turns, source: fake.turns.source ?? 'agent' } : null),
   requestsFor: () => fake.requests,
+  valueFor: () => fake.windowCost,
 })
 
 const oneReport = async (billing: UsageBilling, fake: FakeSpend): Promise<UsageReport | null> => {
@@ -135,4 +136,27 @@ test('a SpendSource with no turnsFor at all — an older ledger — reports no t
   const [report] = await usage.reports()
   assert.equal(report?.turns, undefined)
   usage.dispose()
+})
+
+test('a desk-sourced runtime\'s rate is exact or null, never account-wide requests over desk-only turns', async () => {
+  const allowance = await oneReport(
+    { kinds: ['allowance'] },
+    { turns: { count: 20, since: 1, source: 'desk' }, requests: 100, windowCost: 0 },
+  )
+  assert.equal(allowance?.turns?.count, 20, 'the count itself is still honest')
+  assert.equal(allowance?.turns?.unitsPerTurn, null, 'desk-only turns never divide an account-wide request count')
+
+  const balance = await oneReport(
+    { kinds: ['balance'] },
+    { turns: { count: 15, since: 1, source: 'desk' }, requests: 0, windowCost: 30 },
+  )
+  assert.equal(balance?.turns?.unitsPerTurn, null, 'desk-only turns never divide an account-wide balance either')
+})
+
+test('an agent-sourced runtime still prices a turn — the desk-sourced rule does not blanket every runtime', async () => {
+  const report = await oneReport(
+    { kinds: ['allowance'] },
+    { turns: { count: 20, since: 1, source: 'agent' }, requests: 100, windowCost: 0 },
+  )
+  assert.equal(report?.turns?.unitsPerTurn, 5, 'an agent\'s own transcript covers standalone use exactly as well as desk use')
 })

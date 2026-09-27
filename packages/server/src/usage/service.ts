@@ -43,9 +43,11 @@ export interface SpendSource {
    * (`LedgerOptions.turnRuntimes`) — read as unknown, never as zero.
    * Optional so a `SpendSource` built before turns existed is still valid.
    */
-  turnsFor?(runtime: RuntimeId, sinceMs: number): { readonly count: number; readonly since: number } | null
+  turnsFor?(runtime: RuntimeId, sinceMs: number): { readonly count: number; readonly since: number; readonly source: 'agent' | 'desk' } | null
   /** Ledger requests (priced or not) logged since `sinceMs`, the same window `turnsFor` counted — for a per-turn rate on a requests-based allowance. */
   requestsFor?(runtime: RuntimeId, sinceMs: number): number
+  /** What the ledger's rows for this runtime are worth since `sinceMs`, the same window `turnsFor` counted — for a per-turn rate on a balance or a metered key. */
+  valueFor?(runtime: RuntimeId, sinceMs: number): number
 }
 
 export interface UsageServiceOptions {
@@ -383,13 +385,24 @@ export class UsageService {
     const known = this.#options.spend?.turnsFor?.(runtime, this.#turnsWindowStart(lanes))
     if (!known || known.count <= 0) return null
     let unitsPerTurn: number | null = null
-    if (known.count >= MIN_TURNS_FOR_RATE) {
+    // A desk-sourced runtime's turns (Cursor, and any unrecognised ACP agent)
+    // cover only what ran through this desk, while every other figure a
+    // meter has for it — Cursor's own request quota, its balance — is
+    // account-wide: a person's other machine, or Cursor used outside this
+    // desk at all, adds requests and Value that these turns never saw.
+    // Dividing one by the other is not a smaller-sample estimate, it is a
+    // number with no relationship to the one being reported, so a
+    // desk-sourced rate is always null here rather than exact-or-approximate
+    // — the owner's decision, "Turns", `docs/usage-dashboard.md`. Codex,
+    // Claude Code, Gemini CLI and Qwen Code are exempt: their own transcript
+    // is the turn boundary, and it covers standalone use exactly as well as
+    // desk use, so both sides of the rate already agree on what they cover.
+    if (known.count >= MIN_TURNS_FOR_RATE && known.source === 'agent') {
       if (billing?.kinds.includes('allowance') && this.#options.spend?.requestsFor) {
         const requests = this.#options.spend.requestsFor(runtime, known.since)
         unitsPerTurn = requests > 0 ? requests / known.count : null
       } else if (billing?.kinds.includes('balance') || billing?.kinds.includes('metered')) {
-        const days = Math.max(1, Math.ceil((this.#now() - known.since) / DAY_MS))
-        const value = this.#options.spend?.spendFor(runtime, days)?.windowCost ?? null
+        const value = this.#options.spend?.valueFor?.(runtime, known.since) ?? null
         unitsPerTurn = value !== null ? value / known.count : null
       }
       // A plain percent window has no per-turn figure yet — see the comment above.

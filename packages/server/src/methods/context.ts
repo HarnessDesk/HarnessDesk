@@ -258,7 +258,7 @@ export interface HostContext {
     register(runtime: AgentRuntime): void
     unregister(id: RuntimeId): Promise<void>
     start(runtime: AgentRuntime): Promise<void>
-    bindUsage(runtime: RuntimeId, binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string; remote?: RemoteEventsSource }): void
+    bindUsage(runtime: RuntimeId, binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean }): void
   }
 
   readonly sessions: {

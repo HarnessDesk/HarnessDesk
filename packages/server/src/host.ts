@@ -748,6 +748,8 @@ export class Host {
   readonly #remoteSources: RemoteEventsSource[] = []
   /** Runtimes with a real turn count behind them — see `ledger/desk-turns.ts`. */
   readonly #turnRuntimes = new Set<RuntimeId>()
+  /** The subset of `#turnRuntimes` whose count comes from the desk's own transcript rather than the agent's own records — see `Ledger.turnsFor`'s `source`. */
+  readonly #deskTurnRuntimes = new Set<RuntimeId>()
   #usage: UsageService | null = null
   #ledger: Ledger | null = null
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
@@ -1946,6 +1948,7 @@ export class Host {
     if (binding.deskTurns && !binding.corpus) {
       this.#remoteSources.push(new DeskTranscriptTurnsSource(runtime, this.#transcripts))
       this.#turnRuntimes.add(runtime)
+      this.#deskTurnRuntimes.add(runtime)
     }
   }
 
@@ -1954,7 +1957,12 @@ export class Host {
       stateDir: this.#state.directory,
       corpora: this.#corpora,
       remoteSources: this.#remoteSources,
-      turnRuntimes: [...this.#turnRuntimes],
+      // The live sets themselves, never a copy: an agent bound after this
+      // getter first builds the ledger (`bindUsage`, called any time an
+      // agent is added, `methods/accounts.ts` and the adopt path alike) must
+      // be turn-known immediately, not only after a restart (#1047 review).
+      turnRuntimes: this.#turnRuntimes,
+      deskTurnRuntimes: this.#deskTurnRuntimes,
       log: (message, details) => this.#logger.warn(message, details),
       onProgress: (progress) => {
         this.#push({ method: 'usage/scanProgress', params: { progress } })
@@ -1989,6 +1997,7 @@ export class Host {
         spendFor: (runtime, days) => this.#ledgerService.spendFor(runtime, days),
         turnsFor: (runtime, sinceMs) => this.#ledgerService.turnsFor(runtime, sinceMs),
         requestsFor: (runtime, sinceMs) => this.#ledgerService.requestsFor(runtime, sinceMs),
+        valueFor: (runtime, sinceMs) => this.#ledgerService.valueFor(runtime, sinceMs),
       },
       onReport: (report) => this.#push({ method: 'usage/updated', params: { report } }),
       log: (message, details) => this.#logger.warn(message, details),
