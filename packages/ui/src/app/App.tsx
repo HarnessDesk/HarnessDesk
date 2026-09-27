@@ -23,9 +23,25 @@ import { AgentsWindow } from '../components/AgentsWindow'
 import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
 import { SignIn } from '../components/SignIn'
-import { Usage } from '../components/Usage'
+import { Usage, type DashboardView } from '../components/Usage'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useTheme } from '../state/theme'
+
+/**
+ * Where an entry point that names one account lands on the Dashboard.
+ *
+ * `undefined` — ⌘U, the sidebar's own Dashboard row, ⌘K, the menu bar item —
+ * opens across every account, on Overview, the whole story. A runtime named
+ * — an account's own "Usage", a fix routed here — is "tell me about this one
+ * account", which is what the rail's per-account row used to answer by
+ * itself; now that is Plans, scoped. Exported and tested on its own: the
+ * mapping is the one part of "every entry point opens the right view" worth
+ * a unit rather than a render.
+ */
+export const dashboardRouteFor = (
+  runtime?: RuntimeId,
+): { view: DashboardView; scope: RuntimeId | null } =>
+  runtime ? { view: 'plans', scope: runtime } : { view: 'overview', scope: null }
 
 /**
  * The application shell.
@@ -91,8 +107,16 @@ export const App = () => {
   // `true` opens the sign-in page where it thinks best; a runtime id pins it.
   const [signInOpen, setSignInOpen] = useState<boolean | RuntimeId>(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // `true` opens Usage across every agent; a runtime id opens it on that one.
-  const [usageOpen, setUsageOpen] = useState<boolean | RuntimeId>(false)
+  /*
+   * The Dashboard's own open state: which view it is on and which account it
+   * is scoped to, following the same lifted-state pattern Settings' own
+   * `section` does. `false` is closed. Every entry point either opens on
+   * Overview across every account, or — a card's own "Usage", a fix routed
+   * here — scopes straight to Plans on the one account that needs it, the
+   * way clicking that account in the old rail used to.
+   */
+  const [usageOpen, setUsageOpen] = useState<false | { view: DashboardView; scope: RuntimeId | null }>(false)
+  const openUsage = useCallback((runtime?: RuntimeId) => setUsageOpen(dashboardRouteFor(runtime)), [])
   // The review workspace opens from anywhere — the Changes panel, ⌘K —
   // through one event, the way the composer takes text.
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -149,9 +173,9 @@ export const App = () => {
           setSignInOpen((subject as RuntimeId | undefined) ?? true)
           return
         case 'usage':
-          // ⌘U toggles, and always across every agent — a scoped view is
-          // something you ask for by pointing at one.
-          setUsageOpen((open) => open === false)
+          // ⌘U toggles, and always across every agent on Overview — a scoped
+          // view is something you ask for by pointing at one.
+          setUsageOpen((open) => (open === false ? dashboardRouteFor() : false))
           return
         case 'close-pane':
           store.closePane(snapshot.layout.focused)
@@ -185,10 +209,10 @@ export const App = () => {
     store.askSeatFix(null)
     const route = routeFor(asked.fix, asked.agent)
     if (route.kind === 'signIn') setSignInOpen(route.runtime)
-    else if (route.kind === 'usage') setUsageOpen(route.runtime)
+    else if (route.kind === 'usage') openUsage(route.runtime)
     else if (route.kind === 'agent') openAgents(route.agent)
     else openSettingsAt(route.section, route.focus)
-  }, [snapshot.seatFix, store, openSettingsAt, openAgents])
+  }, [snapshot.seatFix, store, openSettingsAt, openAgents, openUsage])
 
   // A clicked macOS notification lands on the conversation it was about.
   useEffect(
@@ -329,7 +353,7 @@ export const App = () => {
       actions={{
         chooseProject: chooseFolder,
         signIn: (runtime) => setSignInOpen(runtime ?? true),
-        openUsage: (runtime) => setUsageOpen(runtime),
+        openUsage,
         openRuntimes: () => openSettingsAt('runtimes', null),
         openAgents,
         reviewImports: () => {
@@ -346,7 +370,7 @@ export const App = () => {
                 onOpenSettings={(section) => openSettingsAt(section ?? 'runtimes', null)}
                 onOpenPlugins={() => openSettingsAt('plugins', null)}
                 onOpenAgents={() => openAgents()}
-                onOpenUsage={(runtime) => setUsageOpen(runtime ?? true)}
+                onOpenUsage={openUsage}
                 onBrowseFolders={chooseFolder}
                 onSignIn={(runtime) => setSignInOpen(runtime ?? true)}
                 onSearch={() => setPaletteOpen(true)}
@@ -376,9 +400,12 @@ export const App = () => {
       )}
       {usageOpen && (
         <Usage
+          view={usageOpen.view}
+          scope={usageOpen.scope}
+          onView={(view) => setUsageOpen((open) => open && { ...open, view })}
+          onScope={(scope) => setUsageOpen((open) => open && { ...open, scope })}
           onClose={() => setUsageOpen(false)}
           onSignIn={(runtime) => setSignInOpen(runtime)}
-          runtime={typeof usageOpen === 'string' ? usageOpen : null}
         />
       )}
       {agentsOpen && (
@@ -425,7 +452,7 @@ export const App = () => {
             close: () => setPaletteOpen(false),
             chooseFolder,
             openSettings: (section, focus) => openSettingsAt(section, focus ?? null),
-            openUsage: () => setUsageOpen(true),
+            openUsage: () => openUsage(),
             openAgents,
             openFrontDoor,
           }}
