@@ -86,3 +86,29 @@ test('tool bridge attributes and bounds each command', async (t) => {
   assert.deepEqual(calls.at(-1)!.input, { intent: 3, filter: 'blocking' })
   assert.equal(listed.split('\n').length, 2)
 })
+
+/**
+ * #1090: a row of `list_findings` that carries `personDecides` (a finding an
+ * earlier run on this Goal raised) says a person decides it — never that the
+ * calling Seat may decide it now, which `decide` would then refuse.
+ */
+test('list_findings says a person decides a finding an earlier run raised', async (t) => {
+  const refused = async (): Promise<never> => { throw new Error('not used here') }
+  const engine: TeamEngine = {
+    notify: async () => '',
+    board: refused, addIntent: refused, claim: refused, claimNext: refused, awaitWork: refused, awaitMember: refused,
+    conflicts: refused, complete: refused, commitWork: refused, runCheck: refused, release: refused, handoff: refused, status: refused, send: refused,
+    reviewCandidates: refused, recordReview: refused, raiseFinding: refused, repairFinding: refused, decideFinding: refused,
+    listFindings: async () => [seatRow({ raisedByYou: true, decidableNow: false, personDecides: true })],
+  }
+  setTeamEngine(engine)
+  t.after(() => setTeamEngine(null))
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(teamPlugin)
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'list_findings')
+  assert.ok(tool, 'no tool list_findings')
+  const rendered = text(await kernel.invokeTool(tool.id, { intent: 3 }, { runtime: 'fake', sessionId: 's1' } as never))
+  assert.match(rendered, /yours, from an earlier run — a person decides it/)
+})

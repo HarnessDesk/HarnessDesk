@@ -5,7 +5,8 @@ import { test } from 'node:test'
 
 import type { RaiseFindingInput } from '@harnessdesk/protocol'
 
-import { findingsRig, SHA1, SHA2 } from './fixtures/findings-rig.js'
+import { sourceDigest } from '../src/flow-execution.js'
+import { AGENTS, FIX_AND_REVIEW, findingsRig, SHA1, SHA2 } from './fixtures/findings-rig.js'
 
 /*
  * A Seat's finding commands are bound to the conversation calling, the card
@@ -162,6 +163,52 @@ test('a listing marks a Seat’s own findings, and only a later fresh Seat of th
   )
   const confirmed = await f.plane.decide({ intent: again!.id, candidate: (await f.candidate(again!.id, 'seat-5')).id, finding: raised.id, request: 'decide-1', expected: 2, state: 'repaired', note: 'Confirmed at the new head.' }, f.scope('seat-5'))
   assert.equal(confirmed.lifecycle.confirmed, true)
+})
+
+/**
+ * #1090: a finding an earlier run on the same Goal raised is left to a
+ * person — no Seat may decide it, however fresh. `readForSeat` must say so
+ * up front (`personDecides`, `decidableNow: false`) rather than let a fresh
+ * Seat of the raising Agent believe it can decide, only to be refused.
+ */
+test('a finding from a run this Goal already finished is a person’s to decide, not a fresh run’s Seat', async (t) => {
+  const f = await findingsRig(t)
+  await f.finishFixer()
+  const [review] = f.cards('reviewer')
+  const raised = await f.plane.raise(raiseInput(review!.id, (await f.candidate(review!.id, 'seat-2')).id), f.scope('seat-2'))
+  // Run 1 ends — stopped by a person — with the finding still open: no repair, no verdict.
+  await f.rig.flows.stopRun(f.run, 'Ending the run for the test.')
+  await f.rig.flows.flush()
+
+  // Run 2 starts on the very same Goal: a front-door start that reuses it.
+  f.rig.reserve = async () => {}
+  const started = await f.rig.flows.startGoal({
+    root: '/repo', sentence: 'Finish the change, again', source: FIX_AND_REVIEW, sourcePath: null,
+    compiled: f.rig.compile(FIX_AND_REVIEW, AGENTS()), requireHeld: true, goal: { id: f.goal, revision: 0 },
+    authorization: { sourceDigest: sourceDigest(FIX_AND_REVIEW), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' },
+  })
+  assert.equal(started.goal, f.goal, 'the second run lands on the first run’s own Goal')
+  assert.notEqual(started.id, f.run, 'a second run, not a continuation of the first')
+  await f.rig.flows.flush()
+
+  // Run 2's seed fixer, then its own reviewer round: a fresh Seat of the same Agent (code-reviewer).
+  await f.finishFixer()
+  const reviewerCards = f.cards('reviewer')
+  const review2 = reviewerCards[2]!
+  assert.equal(f.rig.seats.get('seat-5')?.agent?.id, 'code-reviewer', 'run 2’s reviewer round opens a fresh Seat of the raising Agent')
+
+  const mine = await f.plane.readForSeat({ intent: review2.id }, f.scope('seat-5'))
+  const mineRow = mine.find((one) => one.id === raised.id)!
+  assert.equal(mineRow.raisedByYou, true, 'the same Agent, even from another run, reads this as its own')
+  assert.equal(mineRow.decidableNow, false, 'a finding an earlier run raised is never decidable now')
+  assert.equal(mineRow.personDecides, true, 'left to a person, not any Seat')
+
+  // decide() itself refuses it, for exactly the reason the row already said.
+  const candidate2 = await f.candidate(review2.id, 'seat-5')
+  await assert.rejects(
+    f.plane.decide({ intent: review2.id, candidate: candidate2.id, finding: raised.id, request: 'decide-1', expected: 1, state: 'repaired', note: 'Trying anyway.' }, f.scope('seat-5')),
+    /belongs to another run on this Goal/,
+  )
 })
 
 test('concurrent repairs compare sequences', async (t) => {
