@@ -46,6 +46,9 @@ export interface StackedSeries {
   readonly total: number
 }
 
+/** Which of a `LedgerDay`'s own numbers a stack is built from — see `stackDailyMetric`. */
+export type ChartMetric = 'cost' | 'tokens' | 'turns'
+
 /**
  * The window as a column per day, oldest first, split by agent.
  *
@@ -55,21 +58,59 @@ export interface StackedSeries {
  * by roster order: the agent that dominates a stack should be the one at the
  * bottom of every column, so the columns can be compared to each other.
  */
-export const stackDaily = (ledger: LedgerReport | null, now: number): StackedSeries => {
+export const stackDaily = (ledger: LedgerReport | null, now: number): StackedSeries =>
+  stackDailyMetric(ledger, now, 'cost')
+
+/**
+ * `stackDaily`, generalised to any of the three quantities a `LedgerDay`
+ * carries — cost, tokens or turns — so the Overview strip's chart toggle
+ * (`docs/usage-dashboard.md`, "The Overview strip") can hand `DayColumns` a
+ * turns-per-day or tokens-per-day stack with the same shape the money chart
+ * already draws, rather than a second, parallel plotting path. `stackDaily`
+ * is this with `metric: 'cost'` fixed, kept as its own export since every
+ * existing caller names it and reads `StackedDay.total` as a cost.
+ *
+ * Series order is still by total *cost* regardless of `metric` — an agent's
+ * rank in the stack is "how much of this window is theirs" by spend, the
+ * same story whichever quantity is being drawn, so switching the toggle
+ * does not reshuffle the legend under it.
+ *
+ * A day's `turns` metric sums only the agents `SpendCoverage.turnsKnownFor`
+ * names; an agent absent from that list contributes nothing to the day
+ * rather than a guessed zero, because a mixed day (one turn-known agent, one
+ * not) is not free of turns, it is a day this chart cannot fully count —
+ * `docs/usage-dashboard.md`'s "Turns" keeps the same rule for a row's own
+ * total. It still draws a bar rather than an "unknown" hatch, since the
+ * known share is a real, if partial, reading — the "known for N of M
+ * agents" caption beside the figure is what says the rest.
+ */
+export const stackDailyMetric = (
+  ledger: LedgerReport | null,
+  now: number,
+  metric: ChartMetric,
+): StackedSeries => {
   if (!ledger) return { days: [], keys: [], peak: 0, total: 0 }
 
-  const byRuntime = new Map<RuntimeId, number>()
+  const turnsKnownFor = new Set(ledger.coverage?.turnsKnownFor ?? [])
+  const valueOf = (entry: LedgerReport['daily'][number]): number => {
+    if (metric === 'cost') return entry.cost
+    if (metric === 'tokens') return entry.tokens
+    return turnsKnownFor.has(entry.runtime) ? (entry.turns ?? 0) : 0
+  }
+
+  const costByRuntime = new Map<RuntimeId, number>()
   const byDay = new Map<number, Map<RuntimeId, number>>()
   const tokensByDay = new Map<number, number>()
   for (const entry of ledger.daily) {
-    byRuntime.set(entry.runtime, (byRuntime.get(entry.runtime) ?? 0) + entry.cost)
+    // Rank is always by cost — see the doc comment above.
+    costByRuntime.set(entry.runtime, (costByRuntime.get(entry.runtime) ?? 0) + entry.cost)
     const bucket = byDay.get(entry.day) ?? new Map<RuntimeId, number>()
-    bucket.set(entry.runtime, (bucket.get(entry.runtime) ?? 0) + entry.cost)
+    bucket.set(entry.runtime, (bucket.get(entry.runtime) ?? 0) + valueOf(entry))
     byDay.set(entry.day, bucket)
     tokensByDay.set(entry.day, (tokensByDay.get(entry.day) ?? 0) + entry.tokens)
   }
 
-  const keys = [...byRuntime.entries()]
+  const keys = [...costByRuntime.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([runtime]) => runtime)
 

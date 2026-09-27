@@ -292,3 +292,63 @@
   place-items: center;
 }
 
+
+/* --------------------------------------------------------------------------
+   The Overview strip (claude/overview-strip). Layout-only, per AGENTS.md
+   rule 11: the bordered card is `ChartFrame`/`ChartCard` (the same matted
+   card the money chart sits in), the hairlines are `Separator`, and every
+   cell is a `Button size="pattern"` — a size that carries none of the
+   primitive's own box, so nothing below is appearance this screen draws for
+   itself, only the flex layout arranging what those components already
+   drew. Kept in its own block so a parallel edit to this file's other rules
+   does not have to interleave with it.
+   -------------------------------------------------------------------------- */
+
+.strip {
+  width: 100%;
+}
+
+.stripRow {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  gap: var(--hd-space-4);
+}
+
+.stripCell {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--hd-space-1);
+  min-width: 0;
+  text-align: left;
+}
+
+.stripFigureLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  flex-wrap: wrap;
+}
+
+.stripCaption {
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .stripRow {
+    flex-wrap: wrap;
+  }
+
+  .stripCell {
+    flex-basis: 40%;
+  }
+
+  /* A hairline that no longer sits between two cells once they wrap onto
+     their own rows is a stray mark, not a divider. */
+  .stripDivider {
+    display: none;
+  }
+}

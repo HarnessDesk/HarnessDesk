@@ -17,6 +17,8 @@ import {
   previousPeriod,
   shareOf,
   stackDaily,
+  stackDailyMetric,
+  type ChartMetric,
 } from '../../lib/ledger'
 import { paletteTone, usageReadingTone, type Tone } from '../../lib/limits'
 import {
@@ -823,6 +825,13 @@ const MODE_OPTIONS = [
   { value: 'line', label: 'Line' },
 ] as const
 
+/** What each of `Spend`'s three plottable quantities is called and drawn as. */
+const METRIC_WORDS: Record<ChartMetric, { readonly title: string; readonly empty: string; readonly noun: string }> = {
+  cost: { title: 'What it cost', empty: 'Nothing spent', noun: 'Spend' },
+  turns: { title: 'Turns per day', empty: 'No turns yet', noun: 'Turns' },
+  tokens: { title: 'Tokens per day', empty: 'No tokens yet', noun: 'Tokens' },
+}
+
 export const Spend = ({
   ledger,
   wideLedger,
@@ -835,6 +844,7 @@ export const Spend = ({
   onModeChange,
   onScan,
   rangeControl,
+  metric = 'cost',
 }: {
   ledger: LedgerReport | null
   /** Twice `range`'s worth of the same window, for the previous period and its ghost line. */
@@ -850,14 +860,30 @@ export const Spend = ({
   onScan: () => void
   /** How far back to look. It belongs to this band: it changes nothing above it. */
   rangeControl?: ReactNode
+  /**
+   * Which of a day's own numbers to plot — cost (the default, every existing
+   * caller), turns or tokens. Overview's strip is the only caller that ever
+   * passes the other two: clicking its Turns or Tokens cell is both "read the
+   * number" and "now this chart plots that instead" (`OverviewStrip.tsx`).
+   * `periodTotals`/`previousPeriod`/`alignGhost` already work off whichever
+   * quantity `stackDailyMetric` put in `StackedDay.total`, so only the
+   * band's own words and number formatting change here.
+   */
+  metric?: ChartMetric
 }) => {
-  const series = useMemo(() => stackDaily(ledger, now), [ledger, now])
-  const wideSeries = useMemo(() => stackDaily(wideLedger, now), [wideLedger, now])
+  const series = useMemo(() => stackDailyMetric(ledger, now, metric), [ledger, now, metric])
+  const wideSeries = useMemo(() => stackDailyMetric(wideLedger, now, metric), [wideLedger, now, metric])
   const currency = ledger?.currency ?? 'USD'
   const money = (value: number): string => formatMoney(value, currency) ?? '—'
+  const words = METRIC_WORDS[metric]
+  const format = metric === 'cost' ? money : metric === 'tokens' ? formatTokens : (value: number) => Math.round(value).toLocaleString()
 
   const headline =
-    ledger === null ? '—' : ledger.totalCost === null ? 'unpriced' : money(series.total)
+    ledger === null
+      ? '—'
+      : metric === 'cost' && ledger.totalCost === null
+        ? 'unpriced'
+        : format(series.total)
 
   const previous = useMemo(
     () => previousPeriod(wideSeries, range, series.total),
@@ -900,9 +926,9 @@ export const Spend = ({
   const todayIndex = buckets.length - 1
 
   return (
-    <section className={styles.band} aria-label="What it cost">
+    <section className={styles.band} aria-label={words.title}>
       <BandHead
-        name="What it cost"
+        name={words.title}
         action={
           <div className={styles.costControls}>
             <Segmented
@@ -922,7 +948,9 @@ export const Spend = ({
             <div>
               <ChartTitle figure>{headline}</ChartTitle>
               <ChartHint>
-                Last {ledger?.days ?? range} days — {spendHint(ledger?.provenance)}
+                {metric === 'cost'
+                  ? `Last ${ledger?.days ?? range} days — ${spendHint(ledger?.provenance)}`
+                  : `Last ${ledger?.days ?? range} days`}
               </ChartHint>
             </div>
             {previous.change !== null && (
@@ -937,7 +965,7 @@ export const Spend = ({
             {periods.map((period) => (
               <div key={period.days} className={styles.period}>
                 <Text role="meta">{period.label}</Text>
-                <Text role="metric">{money(period.cost)}</Text>
+                <Text role="metric">{format(period.cost)}</Text>
                 {period.partial ? (
                   <Text role="meta">so far</Text>
                 ) : (
@@ -960,9 +988,9 @@ export const Spend = ({
               <DayColumns
                 buckets={buckets}
                 series={runtimes}
-                format={money}
-                label={`Spend per day for the last ${series.days.length} days`}
-                emptyLabel="Nothing spent"
+                format={format}
+                label={`${words.noun} per day for the last ${series.days.length} days`}
+                emptyLabel={words.empty}
                 mode={mode}
                 ghost={ghost}
                 today={todayIndex}
@@ -985,7 +1013,13 @@ export const Spend = ({
             <EmptyState
               tight
               className={styles.chartEmpty}
-              title={scan?.running ? 'Reading transcripts' : 'No priced usage in this window yet'}
+              title={
+                scan?.running
+                  ? 'Reading transcripts'
+                  : metric === 'cost'
+                    ? 'No priced usage in this window yet'
+                    : `${words.empty} in this window`
+              }
               description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
             />
           )}

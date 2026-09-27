@@ -17,6 +17,7 @@ import {
   type Pivot,
 } from './usage/shared'
 import { OverviewView } from './usage/OverviewView'
+import type { StripMetric } from './usage/OverviewStrip'
 import { PlansView } from './usage/PlansView'
 import { SpendView } from './usage/SpendView'
 import { ActivityView } from './usage/ActivityView'
@@ -105,6 +106,8 @@ export const Usage = ({
   const [yearLedger, setYearLedger] = useState<LedgerReport | null>(null)
   const [heatView, setHeatView] = useState<HeatView>('year')
   const [heatMetric, setHeatMetric] = useState<HeatMetric>('tokens')
+  /** The Overview strip's own chart toggle — see `OverviewStrip.tsx`. Owned here, not by the strip, the same reason `pivot` and `mode` are: it is one piece of state for a view that unmounts and remounts as the rail switches. */
+  const [stripMetric, setStripMetric] = useState<StripMetric>('value')
   const [insightReport, setInsightReport] = useState<InsightReport | null>(null)
   const [insightProblem, setInsightProblem] = useState<string | null>(null)
 
@@ -360,9 +363,11 @@ export const Usage = ({
       </WindowNav>
 
       <WindowPage wide>
-        {/* The stat strip's slot: a later PR draws it here, above the page
-            head. Nothing renders yet — no placeholder UI for a band that is
-            not built. */}
+        {/* The stat strip lives inside `OverviewView` itself, not here: it
+            reads Overview's own spend range and switches Overview's own
+            chart, so it is drawn once, by the one view it belongs to,
+            rather than a slot every view would otherwise share and only one
+            uses (`docs/usage-dashboard.md`, "The Overview strip"). */}
         <PageHead
           title={VIEW_LABEL[view]}
           blurb={blurb}
@@ -397,6 +402,9 @@ export const Usage = ({
               onHeatViewChange={setHeatView}
               heatMetric={heatMetric}
               onHeatMetricChange={setHeatMetric}
+              stripMetric={stripMetric}
+              onStripMetricChange={setStripMetric}
+              onOpenPlan={(runtime) => store.askSettings('runtimes', String(runtime))}
             />
           )}
 
