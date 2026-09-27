@@ -78,7 +78,7 @@ import {
   type Tint,
 } from '../../design'
 import { Menu, MenuItem, MenuSeparator, Popover } from '../../design'
-import styles from '../Usage.module.css'
+import styles from './usage.module.css'
 
 /**
  * Pieces shared by more than one Dashboard view: `Usage.tsx` (the shell) holds
@@ -164,6 +164,21 @@ export const ScopeControl = ({
   onScope: (scope: RuntimeId | null) => void
 }) => {
   const scopedInfo = scope === null ? null : (byId.get(scope) ?? null)
+  // One row per runtime, not per account: scope is `RuntimeId | null`, and a
+  // runtime with two accounts (`everyReport` carries one row per account)
+  // used to draw two rows that both checked once picked (review of #1057,
+  // item 5). First occurrence keeps `everyReport`'s own order — already
+  // urgency-sorted — rather than re-sorting by name.
+  const runtimes = useMemo(() => {
+    const seen = new Set<RuntimeId>()
+    const ordered: UsageReport[] = []
+    for (const report of everyReport) {
+      if (seen.has(report.runtime)) continue
+      seen.add(report.runtime)
+      ordered.push(report)
+    }
+    return ordered
+  }, [everyReport])
   return (
     <Popover
       label={
@@ -184,15 +199,15 @@ export const ScopeControl = ({
             selected={scope === null}
             onSelect={() => onScope(null)}
           />
-          {everyReport.length > 0 && <MenuSeparator />}
-          {everyReport.map((report) => {
+          {runtimes.length > 0 && <MenuSeparator />}
+          {runtimes.map((report) => {
             const info = byId.get(report.runtime) ?? null
             const name = info?.presentation.name ?? String(report.runtime)
             return (
               <MenuItem
-                key={`${report.runtime}:${report.account ?? ''}`}
+                key={report.runtime}
                 icon={info ? <RuntimeMark runtime={info} size={14} /> : <UsageIcon size={14} />}
-                label={report.account ? `${name} · ${report.account}` : name}
+                label={name}
                 selected={scope === report.runtime}
                 onSelect={() => onScope(report.runtime)}
               />
@@ -212,6 +227,14 @@ export const ScopeControl = ({
  * card's figure. A report with no plan lane at all (pay-as-you-go, a prepaid
  * balance) earns a place here only once its balance itself is spent; a quiet
  * balance sitting well above zero is not something to triage.
+ *
+ * Read on the report's own lanes, never a borrowed or unverified sign-in's —
+ * `lib/usage.ts`'s note on `drawnReport` says alerts and the strip must never
+ * decide on another sign-in's figures, and this is exactly that: the rail's
+ * "N low" count. Every account-wide lane counts, not only the headline: a
+ * healthy Session hiding a low Weekly used to read as nothing wrong. A
+ * model-scoped lane (`lane.scope`) counts only when it is the headline
+ * itself — a spent model is not a spent account.
  */
 export const reportNeedsAttention = (
   report: UsageReport,
@@ -219,9 +242,12 @@ export const reportNeedsAttention = (
   preference?: AccountPrefs,
 ): boolean => {
   if (report.error) return true
-  const drawn = drawnReport(report)
-  const view = describeReport(drawn, { now, maxLanes: 0, preference })
-  if (view.hero) return view.hero.tone !== 'good'
+  const view = describeReport(report, { now, maxLanes: Number.POSITIVE_INFINITY, preference })
+  if (view.blocked || view.gated) return true
+  if (view.pace && !view.pace.willLastToReset) return true
+  const accountWide = [view.hero, ...view.lanes.filter((lane) => lane.scope === null)]
+  if (accountWide.some((lane) => lane !== null && lane.tone !== 'good')) return true
+  if (view.hero) return false
   const balance = balanceOf(report.credits)
   return balance !== null && balance.remaining <= 0
 }
