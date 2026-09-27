@@ -34,6 +34,9 @@ export const DESK_TOOLS: Readonly<Record<string, Readonly<Record<string, Ceiling
     await_member: 'read',
     check_conflicts: 'read',
     complete_claim: 'read',
+    /* Writes a commit — the host does it, not the agent, but it is a change
+       to the repository all the same, so it needs a ceiling that edits. */
+    commit_work: 'edit',
     release_claim: 'read',
     get_context: 'read',
     get_team_status: 'read',

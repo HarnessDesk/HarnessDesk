@@ -1,6 +1,17 @@
 import { useState } from 'react'
 
-import { runtimeId, type LedgerDay, type LedgerReport, type LedgerRow, type PlanSuggestion, type RuntimeId, type UsageBilling, type UsageReport } from '@harnessdesk/protocol'
+import {
+  NO_CAPABILITIES,
+  runtimeId,
+  type LedgerDay,
+  type LedgerReport,
+  type LedgerRow,
+  type PlanSuggestion,
+  type RuntimeId,
+  type RuntimeInfo,
+  type UsageBilling,
+  type UsageReport,
+} from '@harnessdesk/protocol'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
@@ -144,6 +155,10 @@ import {
   SummaryList,
 } from '../ui'
 import { ConversationEmptyState } from '../patterns/ConversationEmptyState'
+import { entriesFromSilent, NotReportingList } from '../../components/usage/NotReporting'
+import { PlansTable, ShapeFilters } from '../../components/usage/PlansTable'
+import type { SilentAgent } from '../../components/usage/shared'
+import { planRows, shapeCountsOf, type PlanRow } from '../../lib/plans-table'
 import {
   Counts,
   GroupLine,
@@ -2150,6 +2165,340 @@ const PlanCardBoard = () => (
   </>
 )
 
+/**
+ * The Plans table (`claude/plans-table`): the real `ShapeFilters`, `PlansTable`
+ * and `NotReportingList` against hand-built `UsageReport`s, with inert
+ * callbacks — no store, the way `PlanCardBoard` above reads pure props. Each
+ * shape's own case opens its row (`initialExpanded`), which is how the five
+ * shape bodies (`AllowanceBody`, `BalanceBody`, `KeyBody`, `FreeBody`, and
+ * `Card` for Windows) actually get mounted here, through `PlansTable`'s own
+ * `ExpandedBody` switch — never redrawn a second way for the catalogue.
+ */
+const PLANS_NOW = new Date('2026-09-26T12:00:00').getTime()
+const PLANS_DAY = 86_400_000
+
+const plansInfo = (id: string, name: string): RuntimeInfo =>
+  ({ id: runtimeId(id), name, capabilities: { ...NO_CAPABILITIES }, presentation: { name } }) as unknown as RuntimeInfo
+
+const PLANS_CLAUDE = plansInfo('claude', 'Claude Code')
+const PLANS_CODEX = plansInfo('codex', 'Codex')
+const PLANS_CURSOR = plansInfo('cursor', 'Cursor')
+const PLANS_GEMINI = plansInfo('gemini', 'Antigravity')
+
+const plansReport = (over: Partial<UsageReport>): UsageReport =>
+  ({
+    runtime: PLANS_CLAUDE.id,
+    account: null,
+    plan: null,
+    lanes: [],
+    credits: null,
+    spend: null,
+    reached: null,
+    source: { kind: 'runtime', label: 'from its own API' },
+    fetchedAt: PLANS_NOW - 60_000,
+    staleAfterMs: 600_000,
+    error: null,
+    ...over,
+  }) as UsageReport
+
+/** One report per catalogue case — the smallest fixture that puts a row in exactly the state its case name says. */
+const PLANS_CASES = {
+  windows: plansReport({
+    runtime: PLANS_CLAUDE.id,
+    account: 'windows@harnessdesk.app',
+    plan: 'Max 20x',
+    lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 42, windowMinutes: 10_080, resetsAt: PLANS_NOW + 2 * PLANS_DAY }],
+    billing: { kinds: ['windows'] },
+  }),
+  allowance: plansReport({
+    runtime: PLANS_CURSOR.id,
+    account: 'allowance@harnessdesk.app',
+    plan: 'Pro',
+    lanes: [
+      {
+        id: 'monthly',
+        label: 'Requests',
+        usedPercent: 62.4,
+        windowMinutes: 30 * 24 * 60,
+        resetsAt: PLANS_NOW + 12 * PLANS_DAY,
+        unit: 'requests',
+        used: 312,
+        limit: 500,
+        layer: 'plan',
+      },
+    ],
+    billing: { kinds: ['allowance'] },
+    turns: { count: 80, unitsPerTurn: 3.2, since: PLANS_NOW - 14 * PLANS_DAY },
+  }),
+  balance: plansReport({
+    runtime: PLANS_CODEX.id,
+    account: 'balance@harnessdesk.app',
+    credits: { remaining: 8.8, unit: 'USD' },
+    spend: {
+      currency: 'USD',
+      todayCost: null,
+      windowCost: null,
+      windowDays: 7,
+      todayTokens: null,
+      windowTokens: null,
+      provenance: 'vendorMetered',
+      coverage: { priced: 3, unpriced: 0, unmetered: 0, estimated: 0, daysCovered: 3, daysRequested: 3 },
+      daily: [
+        { day: PLANS_NOW - 2 * PLANS_DAY, cost: 1.1, tokens: null },
+        { day: PLANS_NOW - PLANS_DAY, cost: 0.9, tokens: null },
+        { day: PLANS_NOW, cost: 1.2, tokens: null },
+      ],
+    },
+    billing: { kinds: ['balance'] },
+  }),
+  key: plansReport({
+    runtime: PLANS_CLAUDE.id,
+    account: 'key@harnessdesk.app',
+    spend: {
+      currency: 'USD',
+      todayCost: 1.4,
+      windowCost: 22.4,
+      windowDays: 30,
+      todayTokens: 180_000,
+      windowTokens: 2_400_000,
+      provenance: 'listPrice',
+      coverage: null,
+    },
+    billing: { kinds: ['metered'], budget: { amount: 50, currency: 'USD', period: 'month' } },
+  }),
+  free: plansReport({
+    runtime: PLANS_CURSOR.id,
+    account: 'free@harnessdesk.app',
+    plan: 'Hobby',
+    spend: {
+      currency: 'USD',
+      todayCost: null,
+      windowCost: null,
+      windowDays: 30,
+      todayTokens: null,
+      windowTokens: 1_140_000,
+      provenance: 'listPrice',
+      coverage: null,
+    },
+    turns: { count: 64, unitsPerTurn: null, since: PLANS_NOW - 14 * PLANS_DAY },
+    billing: { kinds: ['free'] },
+  }),
+  low: plansReport({
+    runtime: PLANS_CLAUDE.id,
+    account: 'low@harnessdesk.app',
+    plan: 'Pro',
+    lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 88, windowMinutes: 10_080, resetsAt: PLANS_NOW + PLANS_DAY }],
+    billing: { kinds: ['windows'] },
+  }),
+  out: plansReport({
+    runtime: PLANS_CLAUDE.id,
+    account: 'out@harnessdesk.app',
+    plan: 'Pro',
+    lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10_080, resetsAt: PLANS_NOW + PLANS_DAY }],
+    billing: { kinds: ['windows'] },
+  }),
+  overage: plansReport({
+    runtime: PLANS_CURSOR.id,
+    account: 'overage@harnessdesk.app',
+    plan: 'Pro',
+    lanes: [
+      {
+        id: 'requests',
+        label: 'Requests',
+        usedPercent: 62.6,
+        windowMinutes: 30 * 24 * 60,
+        resetsAt: PLANS_NOW + 12 * PLANS_DAY,
+        unit: 'requests',
+        used: 313,
+        limit: 500,
+        layer: 'plan',
+      },
+      {
+        id: 'overage',
+        label: 'On-demand usage',
+        usedPercent: 25,
+        windowMinutes: 30 * 24 * 60,
+        resetsAt: PLANS_NOW + 12 * PLANS_DAY,
+        unit: 'usd',
+        used: 5,
+        limit: 20,
+        layer: 'overage',
+      },
+    ],
+    billing: { kinds: ['allowance', 'metered'], overage: { enabled: true, spent: 5, currency: 'USD' } },
+  }),
+  'key-no-budget': plansReport({
+    runtime: PLANS_GEMINI.id,
+    account: 'key-no-budget@harnessdesk.app',
+    spend: {
+      currency: 'USD',
+      todayCost: 0.6,
+      windowCost: 9.2,
+      windowDays: 30,
+      todayTokens: 90_000,
+      windowTokens: 980_000,
+      provenance: 'listPrice',
+      coverage: null,
+    },
+    billing: { kinds: ['metered'] },
+  }),
+  'balance-negative': plansReport({
+    runtime: PLANS_CODEX.id,
+    account: 'balance-negative@harnessdesk.app',
+    credits: { remaining: -2.15, unit: 'USD' },
+    billing: { kinds: ['balance'] },
+  }),
+  'balance-no-draw': plansReport({
+    runtime: PLANS_CODEX.id,
+    account: 'balance-no-draw@harnessdesk.app',
+    credits: { remaining: 15, unit: 'USD' },
+    billing: { kinds: ['balance'] },
+  }),
+  // A report the table has a row for — an agent that answered but whose own
+  // `primaryShapeOf` is `'none'` (no billing, no lanes, no balance) — distinct
+  // from `PLANS_NOT_REPORTING_AGENT` below, which never sent one at all.
+  // "Not reporting" reads on the row itself now, never "No limit".
+  'not-reporting-row': plansReport({
+    runtime: PLANS_GEMINI.id,
+    account: 'not-reporting-row@harnessdesk.app',
+  }),
+} satisfies Readonly<Record<string, UsageReport>>
+
+type PlansCaseKey = keyof typeof PLANS_CASES
+
+const PLANS_BY_ID = new Map<RuntimeInfo['id'], RuntimeInfo>([
+  [PLANS_CLAUDE.id, PLANS_CLAUDE],
+  [PLANS_CODEX.id, PLANS_CODEX],
+  [PLANS_CURSOR.id, PLANS_CURSOR],
+  [PLANS_GEMINI.id, PLANS_GEMINI],
+])
+
+const PLANS_NOT_REPORTING_AGENT: SilentAgent = {
+  info: plansInfo('gemini-cli', 'Gemini CLI'),
+  reason: 'It reports its plan once an account is connected.',
+}
+
+const plansInertCallbacks = {
+  onRefreshAccount: () => {},
+  onStopTracking: () => {},
+  onOpenPlanSettings: () => {},
+}
+
+const PlansCase = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <div>
+    <div className={styles.caseLabel}>{label}</div>
+    {children}
+  </div>
+)
+
+const PlansTableBoard = () => {
+  const allRows: readonly PlanRow[] = planRows(Object.values(PLANS_CASES), PLANS_NOW)
+  const rowFor = (key: PlansCaseKey): PlanRow => allRows.find((row) => row.report.account === PLANS_CASES[key].account)!
+  const oneUp = (key: PlansCaseKey, expanded = true) => {
+    const row = rowFor(key)
+    return (
+      <PlansTable
+        rows={[row]}
+        byId={PLANS_BY_ID}
+        now={PLANS_NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        initialExpanded={expanded ? row.key : null}
+        {...plansInertCallbacks}
+      />
+    )
+  }
+  return (
+    <>
+      <Specimen
+        measure="page"
+        caption="Every account, least left first, and the shape body each row opens into, in every state"
+      >
+        <div
+          className={styles.stack}
+          data-catalog-states="windows allowance balance key free not-reporting not-reporting-row low out overage key-no-budget balance-negative balance-no-draw filter-applied row-expanded"
+        >
+          <PlansCase label="Windows — a plan lane">
+            <div data-catalog-case="windows">{oneUp('windows')}</div>
+          </PlansCase>
+          <PlansCase label="Allowance — a request-metered plan">
+            <div data-catalog-case="allowance">{oneUp('allowance')}</div>
+          </PlansCase>
+          <PlansCase label="Balance — a prepaid account with a draw rate">
+            <div data-catalog-case="balance">{oneUp('balance')}</div>
+          </PlansCase>
+          <PlansCase label="Key — a metered account with its own budget">
+            <div data-catalog-case="key">{oneUp('key')}</div>
+          </PlansCase>
+          <PlansCase label="Free — local, nothing to run out of">
+            <div data-catalog-case="free">{oneUp('free')}</div>
+          </PlansCase>
+          <PlansCase label="Not reporting — never answered runtime/account">
+            <div data-catalog-case="not-reporting">
+              <NotReportingList entries={entriesFromSilent([PLANS_NOT_REPORTING_AGENT])} />
+            </div>
+          </PlansCase>
+          <PlansCase label='Not reporting — a report with no shape at all, its own row reads "Not reporting," never "No limit"'>
+            <div data-catalog-case="not-reporting-row">{oneUp('not-reporting-row')}</div>
+          </PlansCase>
+          <PlansCase label="Low — an amber row">
+            <div data-catalog-case="low">{oneUp('low')}</div>
+          </PlansCase>
+          <PlansCase label="Out — a spent window">
+            <div data-catalog-case="out">{oneUp('out')}</div>
+          </PlansCase>
+          <PlansCase label="On overage — metered spend already in use">
+            <div data-catalog-case="overage">{oneUp('overage')}</div>
+          </PlansCase>
+          <PlansCase label="Key, no budget — &ldquo;No limit&rdquo; rather than an empty bar">
+            <div data-catalog-case="key-no-budget">{oneUp('key-no-budget')}</div>
+          </PlansCase>
+          <PlansCase label="Balance, spent — Out, never a reset">
+            <div data-catalog-case="balance-negative">{oneUp('balance-negative')}</div>
+          </PlansCase>
+          <PlansCase label='Balance, no draw yet — runway reads "—"'>
+            <div data-catalog-case="balance-no-draw">{oneUp('balance-no-draw')}</div>
+          </PlansCase>
+          <PlansCase label="Filtered to Balances">
+            <div data-catalog-case="filter-applied">
+              <ShapeFilters counts={shapeCountsOf(allRows.map((row) => row.shape))} value="balance" onChange={() => {}} />
+              <PlansTable
+                rows={allRows}
+                byId={PLANS_BY_ID}
+                now={PLANS_NOW}
+                filter="balance"
+                preferenceFor={() => ({})}
+                {...plansInertCallbacks}
+              />
+            </div>
+          </PlansCase>
+          <PlansCase label="A row already open">
+            <div data-catalog-case="row-expanded">
+              <PlansTable
+                rows={allRows}
+                byId={PLANS_BY_ID}
+                now={PLANS_NOW}
+                filter="all"
+                preferenceFor={() => ({})}
+                initialExpanded={rowFor('allowance').key}
+                {...plansInertCallbacks}
+              />
+            </div>
+          </PlansCase>
+        </div>
+      </Specimen>
+      <Rule>
+        A row is thin on purpose: mark, name, the shape and status chips, a bar, a percent, the
+        vendor&rsquo;s own unit, an approximate turn count and the reset. The account&rsquo;s own
+        story &mdash; the lanes, the pace, the money &mdash; belongs to the shape body a row expands
+        into, one of five plus the existing Windows card. <code>reportNeedsAttention</code> decides
+        Low, not a second reading of the headline&rsquo;s own tone, so a healthy headline pinned over
+        a low account-wide lane still turns the row amber.
+      </Rule>
+    </>
+  )
+}
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'stat',
@@ -2269,5 +2618,11 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Dialog · ConfirmDialog',
     about: 'A surface that takes the window until it is answered.',
     render: DialogBoard,
+  },
+  {
+    id: 'plans-table',
+    title: 'Plans table',
+    about: 'Every account, least left first, and the shape body each row opens into, in every state.',
+    render: PlansTableBoard,
   },
 ]

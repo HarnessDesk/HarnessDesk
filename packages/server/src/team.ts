@@ -435,6 +435,8 @@ export interface TeamFlows {
   refuseCompletion?(room: string, intent: Intent, caller: TeamCallScope): Promise<string | null>
   /** Why this card cannot complete yet — its role's grant can commit and its checkout is still dirty — or null. */
   refuseDirty?(room: string, intent: Intent): Promise<string | null>
+  /** `commit_work`: the host commits this card's own work for its Seat — the answer, or null when no flow run bound the card. */
+  commitWork?(room: string, intent: Intent, message: string): Promise<string | null>
   /**
    * The review rounds on this board still open and blind: several reviewers
    * judging at once, none of whom may read another's card, context or
@@ -2563,6 +2565,30 @@ export class Team {
   #findingsPlane(): TeamFindings {
     if (!this.#findings) throw new Error('This desk keeps no findings ledger.')
     return this.#findings
+  }
+
+  /**
+   * `commit_work` (#1074): the host commits the caller's card's own work in
+   * its Seat's checkout, so an agent whose sandbox keeps `.git` read-only
+   * never has to be given it. Only the card's holder may ask, and only for a
+   * card a flow run bound — which decides whether its Seat may commit at all
+   * and what counts as its own work (`FlowExecutions.commitWork`).
+   */
+  async commitWork(intentId: number, message: string, scope: TeamCallScope): Promise<string> {
+    const caller = this.#caller(scope)
+    const board = await this.#boardOf(caller)
+    const intent = board.intents.find((entry) => entry.id === intentId)
+    if (!intent) return `There is no intent #${intentId}.`
+    if (
+      intent.state !== 'claimed' ||
+      !intent.claim ||
+      intent.claim.runtime !== caller.runtime ||
+      intent.claim.sessionId !== caller.sessionId
+    ) {
+      return `Refused: you do not hold #${intentId}, so you cannot commit for it.`
+    }
+    const answer = (await this.#flows?.commitWork?.(board.id, intent, message)) ?? null
+    return answer ?? `Refused: #${intentId} is not a flow card, so commit_work has nothing to commit for it; commit with git.`
   }
 
   async complete(

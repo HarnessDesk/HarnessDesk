@@ -212,6 +212,12 @@ export interface HarnessContext {
       },
       scope?: ScopeQuery,
     ): Promise<string>
+    /**
+     * The host commits the caller's card's own work — what changed since it
+     * was claimed — in its checkout, with `message`, so an agent never needs
+     * write access to `.git` to commit (#1074). Answers the commit, or why not.
+     */
+    commitWork(intent: number, message: string, scope?: ScopeQuery): Promise<string>
     release(
       intent: number,
       args: { readonly reason?: string; readonly blocked?: boolean },

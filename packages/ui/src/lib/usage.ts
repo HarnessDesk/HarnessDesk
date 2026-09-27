@@ -470,6 +470,71 @@ const rank = (report: UsageReport): number => {
   return report.spend ? 1_000 : 1_001
 }
 
+/** A prepaid balance a card can actually print: every figure in it nameable. */
+export interface Balance {
+  readonly remaining: number
+  /** Null where the source knows what is left but not what is gone. */
+  readonly used: number | null
+  readonly unit: string
+}
+
+/**
+ * The balance a card may print, or none at all.
+ *
+ * `UsageCredits.remaining` is typed `number | null` and `NaN` is a number to
+ * both `typeof` and that type, so a naive read would print "NaN credits" in
+ * the place a figure goes. A balance nobody can name is no balance: this mutes
+ * rather than captioning a figure as money. `used` is read on its own,
+ * because a source may know what is left without knowing what is gone. A zero
+ * balance is still a balance (#85) — only what is not finite is none.
+ *
+ * The one reading every surface shares — the Dashboard card, the Plans
+ * table's own `runwayDaysOf`/`ownUnitOf`, and the shape bodies — so a fresh
+ * rule (like B6's "unknown is never zero") only has to be written once.
+ */
+export const balanceOf = (credits: UsageReport['credits']): Balance | null => {
+  if (!credits) return null
+  const remaining = credits.remaining
+  if (typeof remaining !== 'number' || !Number.isFinite(remaining)) return null
+  const used = typeof credits.used === 'number' && Number.isFinite(credits.used) ? credits.used : null
+  return { remaining, used, unit: credits.unit }
+}
+
+/**
+ * Whether an account's headline is worth attention: spent or low, in this
+ * module's own words for it — the same tone `toneForRemaining` gives a card's
+ * figure. A report with no plan lane at all (pay-as-you-go, a prepaid
+ * balance) earns a place here only once its balance itself is spent; a quiet
+ * balance sitting well above zero is not something to triage.
+ *
+ * Read on the report's own lanes, never a borrowed or unverified sign-in's:
+ * alerts and the Plans table's status chip must never decide on another
+ * sign-in's figures. Every account-wide lane counts, not only the headline —
+ * a healthy Session hiding a low Weekly used to read as nothing wrong. A
+ * model-scoped lane (`lane.scope`) counts only when it is the headline
+ * itself — a spent model is not a spent account.
+ *
+ * The one rule both Overview's "N low" count and the Plans table's own status
+ * chip read (`plans-table.ts`'s `statusOf`) — it used to be a second copy
+ * there, disagreeing on `report.error`, `view.gated`, a `severity: 'critical'`
+ * lane, and exactly this "healthy Session, low Weekly" case.
+ */
+export const reportNeedsAttention = (
+  report: UsageReport,
+  now: number,
+  preference?: UsagePreference,
+): boolean => {
+  if (report.error) return true
+  const view = describeReport(report, { now, maxLanes: Number.POSITIVE_INFINITY, preference })
+  if (view.blocked || view.gated) return true
+  if (view.pace && !view.pace.willLastToReset) return true
+  const accountWide = [view.hero, ...view.lanes.filter((lane) => lane.scope === null)]
+  if (accountWide.some((lane) => lane !== null && lane.tone !== 'good')) return true
+  if (view.hero) return false
+  const balance = balanceOf(report.credits)
+  return balance !== null && balance.remaining <= 0
+}
+
 export interface RunwaySummary {
   readonly exhausted: readonly UsageReport[]
   readonly low: readonly UsageReport[]

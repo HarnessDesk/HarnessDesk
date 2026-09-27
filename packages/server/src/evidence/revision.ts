@@ -8,6 +8,7 @@ import type { Freshness, Sha } from '@harnessdesk/protocol'
 import { isRevisionName } from '../git-revision.js'
 import { repositoryRoot } from '../worktree.js'
 import { isSha } from './records.js'
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 
 /**
  * What git says about a checkout, for evidence: which commit a fact is bound
@@ -21,7 +22,7 @@ import { isSha } from './records.js'
 const run = promisify(execFile)
 
 const git = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await run('git', ['-C', cwd, ...args], {
+  const { stdout } = await run('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
     timeout: 20_000,
     maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
@@ -344,7 +345,7 @@ export const diffOf = async (
       : options.upstream !== undefined ? (options.upstream !== null && isSha(options.upstream) ? options.upstream : null)
         : await upstreamOf(cwd)
     const log = await gitOr(cwd, [
-      'log', '--first-parent', '--no-merges', '--numstat', '--format=%x00%H', `${began}..${end}`,
+      'log', '--first-parent', '--no-merges', '--no-ext-diff', '--no-textconv', '--numstat', '--format=%x00%H', `${began}..${end}`,
       ...(setAside ? ['--not', setAside] : []), '--',
     ])
     if (log === null) return null
@@ -375,7 +376,7 @@ export const diffOf = async (
   if (!base) return null
   const from = (await gitOr(cwd, ['merge-base', base, revision.head]))?.trim() ?? ''
   if (!isSha(from)) return null
-  const shortstat = (await gitOr(cwd, ['diff', '--shortstat', from, revision.head])) ?? ''
+  const shortstat = (await gitOr(cwd, ['diff', '--no-ext-diff', '--no-textconv', '--shortstat', from, revision.head])) ?? ''
   const number = (pattern: RegExp): number => Number(pattern.exec(shortstat)?.[1] ?? 0)
   return {
     files: number(/(\d+) files? changed/),

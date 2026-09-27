@@ -8,6 +8,7 @@ import type { NamedCheck, Sha } from '@harnessdesk/protocol'
 
 import { parseYaml } from '../yaml.js'
 import { isSha } from './records.js'
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 
 /**
  * A project's named checks: `.harnessdesk/checks.yml`, the commands the desk
@@ -105,7 +106,7 @@ const run = promisify(execFile)
  */
 const git = async (project: string, args: readonly string[]): Promise<Buffer | null> => {
   try {
-    const { stdout } = await run('git', ['-C', project, ...args], {
+    const { stdout } = await run('git', ['-C', project, ...HARDENED_GIT_CONFIG, ...args], {
       encoding: 'buffer',
       timeout: 20_000,
       maxBuffer: CHECKS_FILE_LIMIT + 64 * 1024,

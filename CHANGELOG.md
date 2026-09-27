@@ -7,6 +7,29 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A Seat that may edit can commit its card's work even where its sandbox
+  keeps `.git` read-only.** Codex's workspace sandbox refuses writes to a
+  checkout's `.git`, so a Seat held at `edit` wrote its files and then had
+  every `git commit` refused with "Operation not permitted" — and since a card
+  that can commit may not finish with its own work uncommitted, the card
+  retried until the run stalled. Agents now have a `commit_work` tool: the
+  desk itself commits the card's own work — every file changed since the card
+  was claimed, and nothing that was already uncommitted before — with the
+  agent's message, in the Seat's checkout or lane, and answers the new commit.
+  The sandbox is not widened. The commit runs no hook, filesystem monitor,
+  filter or signing program the repository configures; it refuses work a git
+  filter such as LFS would touch rather than commit it raw, leaves submodules
+  alone, and refuses while another committing card shares the checkout. The
+  desk's own automatic git in a checkout an agent can write — evidence reads,
+  status, lane creation — now runs none of the repository's hooks, its
+  filesystem monitor or an external diff program; a filter it configures can
+  still run there. Verbs you trigger yourself, like bringing a branch home,
+  still run your hooks. The shipped Researcher,
+  Requirements analyst and Implementer briefs use the tool, the uncommitted-work
+  refusal names it, and when a card's finish is refused for uncommitted work
+  turn after turn until the run gives up, the stop now says the Seat could not
+  commit its work instead of only that it "ended its turn 3 times". (#1074)
+
 - **A Seat still busy when a flow round fails, or a run stops, is no longer left
   holding its card forever, and it never sits there silently either.** Releasing
   a Seat interrupts its live turn; a Seat still found busy — or refused because
@@ -66,6 +89,19 @@ move is real work and is not news to a person weighing an upgrade.
   against Paid when every account in scope shares Paid's currency and has a
   fee set, a per-turn price, how many agents a figure is known for — never a
   repeat of the number beside it.
+
+- **Plans is a table now, sorted by what is left, filtered by shape.** The
+  card grid read fine at a handful of accounts and badly past that: nothing
+  about it could be sorted, filtered, or scanned at a glance for the one
+  about to run out. A row of shape chips (Windows, Allowances, Balances,
+  Keys, Free, Not reporting), each with its own count, sits above one table —
+  mark, account, a status chip, a "left" bar, the percent, the figure in the
+  vendor's own unit, an approximate turn count, and the reset — and a row
+  expands in place, on click or on Enter, into that account's own shape body:
+  the existing card for a windows plan, and five new ones for an allowance, a
+  prepaid balance, a metered key with its own budget, a free/local agent, and
+  an agent that reports nothing at all, each with its source, its age, and
+  the one thing to do about it.
 
 - **The Dashboard's rail lists views, and the account you're looking at is a
   choice in the header.** The rail used to hold one row per account, which

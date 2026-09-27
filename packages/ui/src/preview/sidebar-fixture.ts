@@ -178,7 +178,162 @@ export const previewUsage: UsageReport[] = [
     fetchedAt: Date.now() - 90_000,
     staleAfterMs: 600_000,
     error: null,
-    billing: { kinds: ['allowance', 'metered'] },
+    // On-demand spend enabled and already in use: the Plans table's own
+    // "On overage" status, distinct from a plain "Ready".
+    billing: { kinds: ['allowance', 'metered'], overage: { enabled: true, spent: 5, currency: 'USD' } },
+  },
+  /*
+   * Three more accounts, one per shape the Plans table's own filter chips
+   * name and the five above do not already cover — Windows (Claude, Codex)
+   * and Allowance (Cursor) are already real reports; Balance, Key and Free
+   * need one of their own. Each rides an existing, already-tracked runtime
+   * rather than inventing a fourth `RuntimeInfo` this fixture's `runtimes`
+   * array does not register — a report for an unregistered runtime draws
+   * with no mark and no name, which is a bug in a fixture, not a shape.
+   */
+  {
+    // Balance: a prepaid account with a real draw rate, so the table's own
+    // runway bar (balance ÷ a recent daily draw, against 30 days) has
+    // something to plot rather than reading as "no history yet".
+    runtime: CODEX,
+    account: 'balance@harnessdesk.app',
+    plan: null,
+    lanes: [],
+    credits: { remaining: 8.8, unit: 'USD' },
+    spend: {
+      currency: 'USD',
+      todayCost: null,
+      windowCost: null,
+      windowDays: 7,
+      todayTokens: null,
+      windowTokens: null,
+      provenance: 'vendorMetered',
+      coverage: null,
+      daily: [
+        { day: Date.now() - 3 * 86_400_000, cost: 1.1, tokens: null },
+        { day: Date.now() - 2 * 86_400_000, cost: 0.9, tokens: null },
+        { day: Date.now() - 1 * 86_400_000, cost: 1.2, tokens: null },
+      ],
+    },
+    reached: null,
+    source: { kind: 'api', label: 'from its own balance API' },
+    fetchedAt: Date.now() - 5 * 60_000,
+    staleAfterMs: 600_000,
+    error: null,
+    billing: { kinds: ['balance'] },
+  },
+  {
+    // Key: a metered account with a person's own budget set — the bar reads
+    // what is left of that budget, never a vendor limit.
+    runtime: CLAUDE,
+    account: 'key@harnessdesk.app',
+    plan: null,
+    lanes: [],
+    credits: null,
+    spend: {
+      currency: 'USD',
+      todayCost: 1.4,
+      windowCost: 22.4,
+      windowDays: 30,
+      todayTokens: 180_000,
+      windowTokens: 2_400_000,
+      provenance: 'listPrice',
+      coverage: null,
+    },
+    reached: null,
+    source: { kind: 'ledger', label: 'from its own token ledger' },
+    fetchedAt: Date.now() - 8 * 60_000,
+    staleAfterMs: 600_000,
+    error: null,
+    billing: {
+      kinds: ['metered'],
+      budget: { amount: 50, currency: 'USD', period: 'month' },
+    },
+  },
+  {
+    // Free: local, no window and no balance to run out of — tokens and turns
+    // are the whole story, and the table draws no bar at all for it.
+    runtime: CURSOR,
+    account: 'free-tier@harnessdesk.app',
+    plan: 'Hobby',
+    lanes: [],
+    credits: null,
+    spend: {
+      currency: 'USD',
+      todayCost: null,
+      windowCost: null,
+      windowDays: 30,
+      todayTokens: null,
+      windowTokens: 1_140_000,
+      provenance: 'listPrice',
+      coverage: null,
+    },
+    reached: null,
+    source: { kind: 'ledger', label: 'from its own token ledger' },
+    fetchedAt: Date.now() - 12 * 60_000,
+    staleAfterMs: 600_000,
+    error: null,
+    turns: { count: 64, unitsPerTurn: null, since: Date.now() - 14 * 86_400_000 },
+    billing: { kinds: ['free'] },
+  },
+  {
+    // Not reporting: signed in, answered, and has nothing at all to say —
+    // the Plans table's own "Not reporting" row, distinct from an agent that
+    // has never answered `runtime/account` (`silentAgentsOf`, which this
+    // fixture's three registered runtimes are all past).
+    runtime: CODEX,
+    account: 'unused@harnessdesk.app',
+    plan: null,
+    lanes: [],
+    credits: null,
+    spend: null,
+    reached: null,
+    source: { kind: 'runtime', label: 'from its own API' },
+    fetchedAt: Date.now() - 20 * 60_000,
+    staleAfterMs: 600_000,
+    error: null,
+  },
+  {
+    // Balance, spent: a negative remaining reads Out, with "top up to
+    // continue" rather than a reset — a balance does not come back on its
+    // own the way a window does.
+    runtime: CLAUDE,
+    account: 'spent-balance@harnessdesk.app',
+    plan: null,
+    lanes: [],
+    credits: { remaining: -2.15, unit: 'USD' },
+    spend: null,
+    reached: null,
+    source: { kind: 'api', label: 'from its own balance API' },
+    fetchedAt: Date.now() - 6 * 60_000,
+    staleAfterMs: 600_000,
+    error: null,
+    billing: { kinds: ['balance'] },
+  },
+  {
+    // Key, no budget set: "No limit" rather than a bar with nothing to
+    // measure against — the vendor sets no cap on a metered key at all.
+    runtime: CURSOR,
+    account: 'key-no-budget@harnessdesk.app',
+    plan: null,
+    lanes: [],
+    credits: null,
+    spend: {
+      currency: 'USD',
+      todayCost: 0.6,
+      windowCost: 9.2,
+      windowDays: 30,
+      todayTokens: 90_000,
+      windowTokens: 980_000,
+      provenance: 'listPrice',
+      coverage: null,
+    },
+    reached: null,
+    source: { kind: 'ledger', label: 'from its own token ledger' },
+    fetchedAt: Date.now() - 15 * 60_000,
+    staleAfterMs: 600_000,
+    error: null,
+    billing: { kinds: ['metered'] },
   },
 ] as unknown as UsageReport[]
 

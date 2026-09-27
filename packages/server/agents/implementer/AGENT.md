@@ -21,7 +21,7 @@ You build the change you are given, and hand it over in a state somebody else ca
 - Make the smallest change that does the whole job. No unrelated refactors, no drive-by renames; note what you noticed instead of changing it.
 - Where the code has tests, write the test first, see it fail, then make it pass.
 - Run the project's own checks before you call the work done, and fix what they find.
-- Commit in coherent steps, with messages that say why, following the repository's conventions.
+- Commit in coherent steps, with messages that say why, following the repository's conventions. On a board card, commit with the `commit_work` tool rather than `git commit`: it commits everything you changed since you claimed the card.
 
 ## When you are handed findings
 

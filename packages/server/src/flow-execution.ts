@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises'
+import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 import { DEFAULT_FLOW_BUDGET } from '@harnessdesk/protocol'
@@ -47,6 +47,7 @@ import type { PublicationEntry, PublicationJournal, StoredPublication } from './
 import type { TriggerClosure } from './intake/consent.js'
 import { effectiveBudget } from './intake/definition.js'
 import { readSplit, type Team } from './team.js'
+import { canonicalDestination } from './git-worktree.js'
 
 /**
  * A flow run as execution state on one Goal.
@@ -290,6 +291,15 @@ export interface FlowExecutionPort {
     readonly dirtyFiles?: number | null
     readonly dirtyPaths?: readonly string[] | null
   }>
+  /**
+   * Commits a card's own work in its Seat's checkout, for the Seat
+   * (`commit_work`, #1074): the paths dirty now and not in `before`, with
+   * `message`, git run hardened — see `card-commit.ts`. Answers the commit,
+   * or one sentence saying why nothing was committed.
+   */
+  commitWork?(cwd: string, before: readonly string[], message: string): Promise<
+    { readonly commit: string; readonly paths: readonly string[] } | { readonly refused: string }
+  >
   /**
    * Runs a flow's check command through the bounded runner, and records its
    * result as that card's check evidence, awaited before this resolves — a
@@ -623,6 +633,15 @@ class JournalWriteError extends Error {
   }
 }
 
+/** A folder's real path, as the host compares folders; one that does not exist yet by its nearest real ancestor. */
+const realPathOf = async (path: string): Promise<string> => {
+  try {
+    return await realpath(path)
+  } catch {
+    return canonicalDestination(path)
+  }
+}
+
 const done = (card: Intent | undefined): boolean => card?.state === 'done' || card?.state === 'abandoned'
 
 /** What a run records when its Seat's question on `card` went unanswered: one sentence, written and recognised here. */
@@ -697,6 +716,18 @@ export class FlowExecutions {
   /** Set when a run file names no readable Goal: nothing new starts anywhere. */
   #corrupt: string | null = null
   #rearms = new Map<string, number[]>()
+  /**
+   * Cards whose finish was refused for uncommitted work, by `goal#card`: the
+   * Seat's turn it was last refused on (counted by its re-arms) and on how
+   * many turns in a row. What lets the re-arm breaker say the Seat could not
+   * commit its work, rather than only that its turns kept ending (#1074).
+   */
+  readonly #uncommitted = new Map<string, { readonly turn: number; readonly turns: number }>()
+
+  /** A Seat's re-arms inside the last hour: what its re-arm budget is spent against. */
+  #spentOf(seat: string): number[] {
+    return (this.#rearms.get(seat) ?? []).filter((at) => this.#now() - at < 60 * 60 * 1000)
+  }
   /** Told when a round of a run with findings bookkeeping closes: the findings plane's close processing. */
   readonly #closeListeners = new Set<(run: string, round: number) => void | Promise<void>>()
   /** Close processing a listener started, so `idle()` waits for it as it waits for the run queues. */
@@ -1491,8 +1522,83 @@ export class FlowExecutions {
     const now = head.dirtyPaths ?? null
     if (now === null) return null
     const added = pathsAddedSince(now, before)
-    if (added.length === 0) return null
-    return `You have ${added.length} uncommitted file${added.length === 1 ? '' : 's'} from this card's work. Commit them, then finish again.`
+    const key = `${goal}#${card}`
+    if (added.length === 0) {
+      this.#uncommitted.delete(key)
+      return null
+    }
+    const turn = this.#spentOf(String(seat.id)).length
+    const last = this.#uncommitted.get(key)
+    const turns = last?.turn === turn ? last.turns : last?.turn === turn - 1 ? last.turns + 1 : 1
+    this.#uncommitted.set(key, { turn, turns })
+    return `You have ${added.length} uncommitted file${added.length === 1 ? '' : 's'} from this card's work. Commit them with commit_work, then finish again.`
+  }
+
+  /**
+   * `commit_work` for a card a v2 run bound (#1074): the host commits the
+   * card's own work — what is dirty now and was not at claim — in the Seat's
+   * checkout, so an agent whose sandbox keeps `.git` read-only can still
+   * commit, and none has to be given `.git` to do it. Only a Seat whose
+   * binding may commit (`mayCommit`), the same rule `refuseDirty` holds a
+   * finish to. Null for a card no v2 run bound, which is not this tool's.
+   */
+  async commitWork(goal: string, card: number, message: string): Promise<string | null> {
+    const run = this.#runOfCard(goal, card)
+    if (!run || run.document.format !== 'agents') return null
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    const role = run.document.flow.roles.find((one) => one.id === round?.role)
+    if (role?.kind !== 'agent') return null
+    const binding = bindingsFor(run, role.id)[round!.cards.indexOf(card)]
+    if (!binding || !mayCommit(binding.agent, binding.grant)) {
+      return `Refused: the Seat for card #${card} may only read, so it cannot commit.`
+    }
+    const before = this.#team.dirtyPathsOf(goal, card)
+    if (!before) {
+      return `Refused: card #${card} has no record of what was already uncommitted when it was claimed, so its own work cannot be told apart; nothing was committed.`
+    }
+    const { seat } = this.#seatForCard(run, card)
+    if (!seat) return `Refused: card #${card} has no Seat to commit for.`
+    /* "Dirty now and not at my claim" is only this card's own work when
+       nobody else can be writing the same checkout: another open card whose
+       Seat may commit, sharing it, leaves changes this one cannot tell from
+       its own, and committing them would put another card's work under this
+       one's name. */
+    if (await this.#committerSharing(seat.checkout.cwd, goal, card)) {
+      return "Refused: another card is working in this checkout, so its changes can't be told apart from yours; nothing was committed. Ask the person to commit, or isolate the role."
+    }
+    if (!this.#port.commitWork) return 'Refused: this desk cannot commit for a Seat.'
+    const made = await this.#port.commitWork(seat.checkout.cwd, before, message)
+    if ('refused' in made) return made.refused
+    return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.`
+  }
+
+  /**
+   * Whether another open card, whose Seat may commit, works in the checkout
+   * at `cwd` — any run's. Folders are compared by their real paths, the way
+   * the host compares folders, so one checkout named through a link
+   * (`/tmp` and `/private/tmp`) is still one checkout.
+   */
+  async #committerSharing(cwd: string, goal: string, card: number): Promise<boolean> {
+    const mine = await realPathOf(cwd)
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running' || run.document.format !== 'agents') continue
+      const intents = this.#team.stateFor(run.goal).intents
+      for (const round of run.rounds) {
+        const role = run.document.flow.roles.find((one) => one.id === round.role)
+        if (role?.kind !== 'agent') continue
+        const bindings = bindingsFor(run, role.id)
+        for (const [index, other] of round.cards.entries()) {
+          if (run.goal === goal && other === card) continue
+          const binding = bindings[index]
+          if (!binding || !mayCommit(binding.agent, binding.grant)) continue
+          const intent = intents.find((one) => one.id === other)
+          if (!intent || done(intent)) continue
+          const { seat } = this.#seatForCard(run, other)
+          if (seat && !seat.closed && (await realPathOf(seat.checkout.cwd)) === mine) return true
+        }
+      }
+    }
+    return false
   }
 
   /**
@@ -3179,9 +3285,21 @@ export class FlowExecutions {
       return
     }
     const budget = policyOf(run).rearm ?? 3
-    const spent = (this.#rearms.get(String(seat.id)) ?? []).filter((at) => this.#now() - at < 60 * 60 * 1000)
+    const spent = this.#spentOf(String(seat.id))
     if (spent.length >= budget) {
-      await this.#stall(id, `The Seat for card #${card.id} ended its turn ${spent.length} times inside the hour, so it is not being handed its card again.`)
+      /* A Seat refused its finish for uncommitted work on the very turns that
+         tripped the breaker is not a Seat that stopped early: it tried to
+         finish and could not commit — almost always its own environment
+         refusing writes to the repository, which no retry will change. Said
+         as that, so the person is not left with a count (#1074). */
+      const uncommitted = this.#uncommitted.get(`${run.goal}#${card.id}`)
+      const couldNotCommit = uncommitted !== undefined && uncommitted.turn === spent.length && uncommitted.turns >= 2
+      await this.#stall(
+        id,
+        couldNotCommit
+          ? `The Seat for card #${card.id} could not commit its work: its finish was refused for uncommitted files on ${uncommitted.turns} turns in a row, most likely because its environment refused writes to the repository and it did not commit with commit_work. It is not being handed its card again.`
+          : `The Seat for card #${card.id} ended its turn ${spent.length} times inside the hour, so it is not being handed its card again.`,
+      )
       return
     }
     if (!await this.#sameSeat(id, seat, card.id, round.role, why)) return

@@ -19,6 +19,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { isSha } from './git-revision.js'
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 /**
  * The repository's past, read for the history pane: the log, the refs, one
@@ -39,7 +40,7 @@ const run = promisify(execFile)
    `git --no-replace-objects` does. The environment is built per call, since
    PATH is read at the call. */
 const git = async (root: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await run('git', ['-C', root, ...args], {
+  const { stdout } = await run('git', ['-C', root, ...HARDENED_GIT_CONFIG, ...args], {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
     env: { ...process.env, GIT_NO_REPLACE_OBJECTS: '1' },
@@ -410,8 +411,8 @@ export const commit = async (root: string, sha: string): Promise<GitCommitDetail
   const base = parents[0] ?? (await emptyTree(root))
 
   const [numstat, nameStatus] = await Promise.all([
-    asked(root, ['diff', '--numstat', '-z', '--no-color', '--no-ext-diff', base, sha]),
-    asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]),
+    asked(root, ['diff', '--numstat', '-z', '--no-color', '--no-ext-diff', '--no-textconv', base, sha]),
+    asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', '--no-textconv', base, sha]),
   ])
 
   // `--numstat -z`: "added\tremoved\tpath\0", except a rename, which is
@@ -502,14 +503,14 @@ export const commitDiff = async (root: string, sha: string, path: string): Promi
      name-status the file list is built from, so the patch shows what the list
      said — a rename, and only what changed across it. */
   const entry = (
-    known?.entries ?? listed(await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]))
+    known?.entries ?? listed(await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', '--no-textconv', base, sha]))
   ).find((file) => file.path === normalisedPath)
   /* Renames only. A rename's two paths are one file; a copy's are two, and
      naming the source brought the source's own edits into the copy's patch
      (review, round 1). A copy opens as the file it made. */
   const paths = entry?.letter === 'R' && entry.oldPath ? [entry.oldPath, normalisedPath] : [normalisedPath]
   // a/ and b/ whatever the repository's diff settings say, as in git.ts (#171).
-  return (await asked(root, ['diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', base, sha, '--', ...paths])) ?? ''
+  return (await asked(root, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', base, sha, '--', ...paths])) ?? ''
 }
 
 // ------------------------------------------------------------ createBranch

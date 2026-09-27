@@ -7,6 +7,57 @@ the rule is the last line of its section.
 
 ---
 
+## The host commits for an agent; an agent is never given `.git`
+
+A Seat whose grant can commit (`edit` and above) commits its card's own work
+through `commit_work`, which the host answers: it commits, in the Seat's
+checkout, the paths dirty now that were not dirty when the card was claimed,
+with the agent's message. A sandbox that keeps `.git` read-only — Codex's
+workspace sandbox does — is left exactly as it is. Widening it to the git
+directory would let the agent write `.git/config` and `.git/hooks`, and the
+next git run outside the sandbox — the host's own, the person's, a
+publishing Seat's — would run whatever it put there with that process's
+access; in a lane the common directory is the main repository's own `.git`.
+There is no narrower grant that still commits: the index, its lock, `HEAD`
+and `config` all sit at the root of the git directory.
+
+That commit runs git with `core.hooksPath=/dev/null`, `core.fsmonitor=false`,
+`core.sshCommand=ssh` and signing off, with every filter driver the
+configuration names switched off by name, with `GIT_CONFIG_NOSYSTEM=1` and
+`GIT_CONFIG_GLOBAL=/dev/null`, and with none of the host's own `GIT_*`
+variables. The agent supplies no flag, no `-c` and no path: the paths are
+the ones git's own status names, passed as literal pathspecs through a file,
+and the message is written to a file and stored verbatim, at most 8000
+characters. Work a filter would touch — an LFS-tracked file, say — is refused
+in one sentence and nothing is committed, because with every filter off it
+would go into history raw. A submodule is never looked into: it is its own
+repository. And the tool refuses while another open card whose Seat may
+commit works in the same checkout, since "changed since my claim" would then
+include that card's work too; isolating the role is the way through.
+
+Git the host runs on its own in a checkout an agent can write — evidence
+reads, status, cutting a lane, diffs — carries a narrower floor
+(`git-hardening.ts`): no hook, no filesystem monitor, no external diff, the
+default ssh, and no signing. It does not switch filters or textconv off: a
+filter the repository configures still runs when a host status re-reads a
+stat-dirty file, and host diffs pass `--no-ext-diff --no-textconv` themselves.
+Verbs a person triggers — bringing a branch home, the git client's commit,
+checkout and worktree verbs — run with the person's hooks, as their own git
+would; a hook path a repository sets (husky's is a tracked folder) is one an
+agent can edit, which is why nothing automatic runs hooks.
+
+The author is the checkout's configured identity, read the way git resolves
+it — `user.name` and `user.email` across system, global and repository
+configuration — and handed to the commit as `GIT_AUTHOR_*` and
+`GIT_COMMITTER_*`, because the commit itself runs with global configuration
+off. A checkout with no configured identity is refused in one sentence; the
+desk never makes one up.
+
+Rule: an agent's sandbox is never widened to a git directory; a commit it
+needs is the host's, run hardened.
+
+---
+
 ## Insight measures remain source-qualified
 
 Historical usage is read from runtime-owned local records rather than quota

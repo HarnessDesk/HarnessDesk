@@ -30,7 +30,7 @@ test('tool bridge attributes and bounds each command', async (t) => {
   const engine: TeamEngine = {
     notify: async () => "",
     board: refused, addIntent: refused, claim: refused, claimNext: refused, awaitWork: refused, awaitMember: refused,
-    conflicts: refused, complete: refused, release: refused, handoff: refused, status: refused, send: refused,
+    conflicts: refused, complete: refused, commitWork: refused, release: refused, handoff: refused, status: refused, send: refused,
     reviewCandidates: refused, recordReview: refused,
     raiseFinding: async (input, scope) => { calls.push({ verb: 'raise', input, scope }); return view() },
     repairFinding: async (input, scope) => {
