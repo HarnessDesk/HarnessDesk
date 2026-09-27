@@ -126,9 +126,12 @@ export const CONTEXT_CAST = [
   },
   {
     id: 'context-dsh',
-    name: 'DeepSeek Harness',
+    // Matches the real registry's own name for this agent
+    // (packages/server/src/agent-registry.ts), not this rig's docs shorthand
+    // "DeepSeek Harness" — the footer has to read as the app's own does.
+    name: 'DeepSeek',
     brand: 'deepseek',
-    tagline: 'DeepSeek Harness, over ACP.',
+    tagline: "DeepSeek's agent harness, speaking ACP directly.",
     models: 'deepseek-chat:DeepSeek Chat',
     conversation: ['Retry the checkout call on a 502', 'Added 502 to the retryable set and capped the backoff.'],
     usage: {
