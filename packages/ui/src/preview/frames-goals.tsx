@@ -26,6 +26,7 @@ import { ShapeStep } from '../components/ShapeStep'
 import { TriggerCreate } from '../components/TriggerCreate'
 import { TriggerMenu } from '../components/TriggerMenu'
 import { defaultAgentRole, defaultRule } from '../lib/shapes'
+import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
 import { PREVIEW_FLOW_SOURCE } from './flow-fixture'
 import { PREVIEW_FINDINGS, findingDetail } from './findings-fixture'
@@ -107,7 +108,7 @@ const INSIGHT_REPORT = insightReportFor(PREVIEW_GOAL.goal.id)
 const DIALOG_OPTIONS = [
   'off', 'goal create', 'goal assign', 'goal wrap', 'finding carry', 'finding decision',
   'finding detail', 'finding publications', 'add member', 'add work', 'hand out', 'shape save',
-  'shape editor', 'trigger create', 'front door',
+  'shape editor', 'trigger create', 'front door', 'findings rail',
 ] as const
 type DialogOption = (typeof DIALOG_OPTIONS)[number]
 
@@ -117,54 +118,65 @@ type DialogOption = (typeof DIALOG_OPTIONS)[number]
  * member, add work, hand work out, save a shape, the shape editor itself
  * (a `Dialog`), every time (`TriggerCreate`, also a `Dialog`), the front
  * door — off by default, one option each. Plain frames below it show the
- * parts a Goal's own page or rail already draws inline: the findings rail, a
- * round's status, a receipt as it reads once wrapped and its accounting
- * (loading and loaded), one shape step, one rule and the graph they compose,
- * and the `/`-menu every composer opens.
+ * parts a Goal's own page or rail already draws inline: a round's status, a
+ * receipt as it reads once wrapped and its accounting (loading and loaded),
+ * one shape step, one rule and the graph they compose, and the `/`-menu
+ * every composer opens. The findings rail joins the dial rather than sitting
+ * as its own frame: it names the same Goal `TeamRoomPane`'s own rail already
+ * shows findings for, behind its "Findings" row — a second copy open by
+ * default doubled the "Open" tab and `finding-open-1` row the existing
+ * findings.spec.ts reaches for expecting one.
  */
 export const GoalFrames = () => {
   const [dialog, setDialog] = useState<DialogOption>('off')
   return (
     <>
       <div className="my-4 flex flex-wrap items-center gap-3">
-        <Dial label="goals dialog" value={dialog} options={DIALOG_OPTIONS} onChange={setDialog} />
+        <Dial label="goals sheet" value={dialog} options={DIALOG_OPTIONS} onChange={setDialog} />
       </div>
-      {dialog === 'goal create' && <GoalCreate root={PREVIEW_ROOT} onClose={() => setDialog('off')} />}
-      {dialog === 'goal assign' && <GoalAssign view={PREVIEW_GOAL} card={PREVIEW_INTENTS[0]?.id ?? 1} onClose={() => setDialog('off')} />}
-      {dialog === 'goal wrap' && <GoalWrap view={PREVIEW_GOAL} onClose={() => setDialog('off')} />}
-      {dialog === 'finding carry' && <FindingCarry source={CARRY_SOURCE} />}
-      {dialog === 'finding decision' && <FindingDecision goal={PREVIEW_GOAL.goal.id} view={RUN_VIEW} onClose={() => setDialog('off')} />}
-      {dialog === 'finding detail' && (
-        <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={findingDetail('finding-open-1').finding.id} decide={RUN_VIEW} onClose={() => setDialog('off')} />
-      )}
-      {dialog === 'finding publications' && <FindingPublications goal={PREVIEW_GOAL.goal.id} run="run-preview" stamp="preview-stamp" />}
-      {dialog === 'add member' && <AddMember room={PREVIEW_GOAL.goal.id} root={PREVIEW_ROOT} onClose={() => setDialog('off')} />}
-      {dialog === 'add work' && <AddWork room={PREVIEW_GOAL.goal.id} intents={PREVIEW_INTENTS} onClose={() => setDialog('off')} />}
-      {dialog === 'hand out' && (
-        <HandOut room={PREVIEW_GOAL.goal.id} intents={PREVIEW_INTENTS} peers={[]} onClose={() => setDialog('off')} onTrouble={() => {}} />
-      )}
-      {dialog === 'shape save' && <ShapeSave input={SHAPE_SAVE_INPUT} onSaved={() => setDialog('off')} onClose={() => setDialog('off')} />}
-      {dialog === 'shape editor' && (
-        <ShapeEditor
-          root={PREVIEW_ROOT}
-          context={{ kind: 'project', root: PREVIEW_ROOT }}
-          initialSource={PREVIEW_FLOW_SOURCE['fix']}
-          onClose={() => setDialog('off')}
-          onStarted={() => setDialog('off')}
-        />
-      )}
-      {dialog === 'trigger create' && (
-        <TriggerCreate root={PREVIEW_ROOT} opens={{ agent: 'code-reviewer' }} onSaved={() => setDialog('off')} onClose={() => setDialog('off')} />
-      )}
-      {dialog === 'front door' && (
-        <FrontDoor context={{ kind: 'project', root: PREVIEW_ROOT }} onClose={() => setDialog('off')} onStarted={() => setDialog('off')} />
+      {/* Bare, position:fixed, and not inside a `Frame` (which carries
+          its own `Boundary`) — without one here a throw would unmount
+          every frame this page draws, not just this file's own. */}
+      <Boundary>
+        {dialog === 'goal create' && <GoalCreate root={PREVIEW_ROOT} onClose={() => setDialog('off')} />}
+        {dialog === 'goal assign' && <GoalAssign view={PREVIEW_GOAL} card={PREVIEW_INTENTS[0]?.id ?? 1} onClose={() => setDialog('off')} />}
+        {dialog === 'goal wrap' && <GoalWrap view={PREVIEW_GOAL} onClose={() => setDialog('off')} />}
+        {dialog === 'finding carry' && <FindingCarry source={CARRY_SOURCE} />}
+        {dialog === 'finding decision' && <FindingDecision goal={PREVIEW_GOAL.goal.id} view={RUN_VIEW} onClose={() => setDialog('off')} />}
+        {dialog === 'finding detail' && (
+          <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={findingDetail('finding-open-1').finding.id} decide={RUN_VIEW} onClose={() => setDialog('off')} />
+        )}
+        {dialog === 'finding publications' && <FindingPublications goal={PREVIEW_GOAL.goal.id} run="run-preview" stamp="preview-stamp" />}
+        {dialog === 'add member' && <AddMember room={PREVIEW_GOAL.goal.id} root={PREVIEW_ROOT} onClose={() => setDialog('off')} />}
+        {dialog === 'add work' && <AddWork room={PREVIEW_GOAL.goal.id} intents={PREVIEW_INTENTS} onClose={() => setDialog('off')} />}
+        {dialog === 'hand out' && (
+          <HandOut room={PREVIEW_GOAL.goal.id} intents={PREVIEW_INTENTS} peers={[]} onClose={() => setDialog('off')} onTrouble={() => {}} />
+        )}
+        {dialog === 'shape save' && <ShapeSave input={SHAPE_SAVE_INPUT} onSaved={() => setDialog('off')} onClose={() => setDialog('off')} />}
+        {dialog === 'shape editor' && (
+          <ShapeEditor
+            root={PREVIEW_ROOT}
+            context={{ kind: 'project', root: PREVIEW_ROOT }}
+            initialSource={PREVIEW_FLOW_SOURCE['fix']}
+            onClose={() => setDialog('off')}
+            onStarted={() => setDialog('off')}
+          />
+        )}
+        {dialog === 'trigger create' && (
+          <TriggerCreate root={PREVIEW_ROOT} opens={{ agent: 'code-reviewer' }} onSaved={() => setDialog('off')} onClose={() => setDialog('off')} />
+        )}
+        {dialog === 'front door' && (
+          <FrontDoor context={{ kind: 'project', root: PREVIEW_ROOT }} onClose={() => setDialog('off')} onStarted={() => setDialog('off')} />
+        )}
+      </Boundary>
+      {dialog === 'findings rail' && (
+        <Frame title="Goal — its findings rail">
+          <div className="max-h-[480px] overflow-y-auto p-4">
+            <GoalFindings goal={PREVIEW_GOAL.goal.id} />
+          </div>
+        </Frame>
       )}
 
-      <Frame title="Goal — its findings rail">
-        <div className="max-h-[480px] overflow-y-auto p-4">
-          <GoalFindings goal={PREVIEW_GOAL.goal.id} />
-        </div>
-      </Frame>
       <Frame title="Finding — a review round's status">
         <div className="p-4">
           <FindingRoundStatus view={RUN_VIEW} />
@@ -212,7 +224,7 @@ export const GoalFrames = () => {
           <ShapeGraph policy={SHAPE_POLICY_WITH_RULE.policy} selected={null} onSelect={() => {}} onPositions={() => {}} onEditRule={() => {}} />
         </div>
       </Frame>
-      <Frame title="The `/` and `@` menu">
+      <Frame title="The / and @ menu">
         <div className="w-[320px] p-4">
           <TriggerMenu title="Agents" items={TRIGGER_MENU_ITEMS} activeIndex={0} onHover={() => {}} onPick={() => {}} />
         </div>

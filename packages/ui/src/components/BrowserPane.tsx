@@ -1554,7 +1554,12 @@ export const BrowserPane = () => {
           ref={addressBox}
           variant="chrome" className={styles.address}
           value={address === BLANK ? '' : address}
-          placeholder="Enter a URL, or something to search for"
+          // Never "search" in this placeholder: the shared `rule: fields`
+          // check reads that word on any input as a filter box that skipped
+          // the canonical Search pattern, and an address bar — which takes a
+          // query as readily as a URL, the way a real browser's omnibox does
+          // — is a different thing than a list's own filter field.
+          placeholder="Enter a URL, or words to look up"
           spellCheck={false}
           onChange={(event) => {
             setTyping(true)

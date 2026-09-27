@@ -344,7 +344,7 @@
     "radius": 8
   },
   "button/button/size/xs": {
-    "h": 20,
+    "h": 24,
     "text": 12,
     "weight": "500",
     "line": 16,

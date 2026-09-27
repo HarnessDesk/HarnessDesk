@@ -7,7 +7,7 @@ import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
 import { CommitProvenance, CommitSeatLabels } from '../components/CommitProvenance'
 import { ProjectProvenance } from '../components/ProjectProvenance'
-import { AgentsView, ChangesView, TrajectoryView } from '../components/Details'
+import { ActivityView, AgentsView, ChangesView, TrajectoryView } from '../components/Details'
 import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
 import { ProjectChecks } from '../components/ProjectChecks'
@@ -99,39 +99,6 @@ previewMutable.patch({
       at: Date.now(),
     },
   ],
-})
-/* One finished, one running: `BackgroundTasksView`'s own empty return is
-   "Background tasks" and nothing under it, which is the ordinary case for a
-   session that has run none — but the frame that shows this panel exists to
-   show the populated state. */
-previewMutable.patch({
-  tasks: new Map([
-    [
-      PREVIEW_SESSION_KEY,
-      [
-        {
-          id: 'task-preview-1',
-          label: 'pnpm test',
-          kind: 'command',
-          state: 'completed',
-          command: 'pnpm test',
-          cwd: PREVIEW_ROOT,
-          startedAt: Date.now() - 90_000,
-          endedAt: Date.now() - 60_000,
-          summary: 'Passed, 214 tests.',
-        },
-        {
-          id: 'task-preview-2',
-          label: 'pnpm build',
-          kind: 'command',
-          state: 'running',
-          command: 'pnpm build',
-          cwd: PREVIEW_ROOT,
-          startedAt: Date.now() - 20_000,
-        },
-      ],
-    ],
-  ]) as never,
 })
 /* `Panes`'s own default layout — the one `emptySnapshot()` gives every store
    until something opens a session into it — is one pane showing the empty
@@ -866,6 +833,19 @@ const Preview = () => {
               }}
             >
               <AgentsView />
+            </PaneProvider>
+          </div>
+        </Frame>
+        <Frame title="Side panel — Activity, this week's audit">
+          <div className="h-[420px]">
+            <PaneProvider
+              scope={{
+                paneId: 'preview' as never,
+                view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+                sessionKey: PREVIEW_SESSION_KEY,
+              }}
+            >
+              <ActivityView />
             </PaneProvider>
           </div>
         </Frame>

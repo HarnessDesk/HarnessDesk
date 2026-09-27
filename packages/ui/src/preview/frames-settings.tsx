@@ -12,6 +12,7 @@ import { PluginsSection } from '../components/PluginsSection'
 import { SchemaForm } from '../components/SchemaForm'
 import { SetupDesk } from '../components/SetupDesk'
 import { SkillSheet } from '../components/SkillSheet'
+import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
 import { libraryColumnsFor, LIBRARY } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
@@ -51,39 +52,55 @@ const SCHEMA_FIXTURE = {
   required: ['level'],
 } as const
 
-const DIALOG_OPTIONS = ['off', 'new agent', 'update ceiling', 'install plugin', 'skill sheet'] as const
+const DIALOG_OPTIONS = ['off', 'new agent', 'update ceiling', 'install plugin', 'skill sheet', 'plugins'] as const
 type DialogOption = (typeof DIALOG_OPTIONS)[number]
 
 /**
  * The settings-and-agents batch: sections that read the store on their own
- * (Archive, Extensions, Plugins, Ceilings) sit as plain frames; the sheets and
- * dialogs among them (a new Agent, a ceiling update, installing a plugin, a
- * skill's own sheet) are off by default and chosen from one dial, the same
- * pattern the worktree dialogs above already use — a dialog covers the page,
- * so two of them can never both be open here.
+ * (Archive, Extensions, Ceilings) sit as plain frames; the sheets and dialogs
+ * among them (a new Agent, a ceiling update, installing a plugin, a skill's
+ * own sheet) are off by default and chosen from one dial, the same pattern
+ * the worktree dialogs above already use — a dialog covers the page, so two
+ * of them can never both be open here. Plugins joins the dial for a
+ * different reason: its own two tabs always read "Installed · N" and
+ * "Capabilities · N", and Playwright's default substring name match reads
+ * "All" inside "Installed" — open by default, it collided with the one
+ * "All" tab findings.spec.ts reaches for on the Goal rail.
  */
 export const SettingsFrames = () => {
   const [dialog, setDialog] = useState<DialogOption>('off')
   return (
     <>
       <div className="my-4 flex flex-wrap items-center gap-3">
-        <Dial label="settings dialog" value={dialog} options={DIALOG_OPTIONS} onChange={setDialog} />
+        <Dial label="settings sheet" value={dialog} options={DIALOG_OPTIONS} onChange={setDialog} />
       </div>
-      {dialog === 'new agent' && <AgentNew root={PREVIEW_ROOT} onCreated={() => setDialog('off')} onClose={() => setDialog('off')} />}
-      {dialog === 'update ceiling' && <CeilingUpdate entry={LEGACY_PERMISSION_AGENT} onClose={() => setDialog('off')} />}
-      {dialog === 'install plugin' && <InstallPlugin onClose={() => setDialog('off')} />}
-      {dialog === 'skill sheet' && (
-        <SkillSheet
-          entry={LIBRARY.entries[0] as never}
-          columns={LIBRARY_COLUMNS}
-          usage={null}
-          hosts={{ skill: new Set(['claude' as never]), mcp: new Set() }}
-          cwd={PREVIEW_ROOT}
-          home="/home/u"
-          onFlow={() => {}}
-          onChanged={() => {}}
-          onClose={() => setDialog('off')}
-        />
+      {/* Bare, position:fixed, and not inside a `Frame` (which carries its
+          own `Boundary`) — without one here a throw would unmount every
+          frame this page draws, not just this file's own. */}
+      <Boundary>
+        {dialog === 'new agent' && <AgentNew root={PREVIEW_ROOT} onCreated={() => setDialog('off')} onClose={() => setDialog('off')} />}
+        {dialog === 'update ceiling' && <CeilingUpdate entry={LEGACY_PERMISSION_AGENT} onClose={() => setDialog('off')} />}
+        {dialog === 'install plugin' && <InstallPlugin onClose={() => setDialog('off')} />}
+        {dialog === 'skill sheet' && (
+          <SkillSheet
+            entry={LIBRARY.entries[0] as never}
+            columns={LIBRARY_COLUMNS}
+            usage={null}
+            hosts={{ skill: new Set(['claude' as never]), mcp: new Set() }}
+            cwd={PREVIEW_ROOT}
+            home="/home/u"
+            onFlow={() => {}}
+            onChanged={() => {}}
+            onClose={() => setDialog('off')}
+          />
+        )}
+      </Boundary>
+      {dialog === 'plugins' && (
+        <Frame title="Settings › Plugins">
+          <div className="max-h-[560px] overflow-y-auto p-4">
+            <PluginsSection />
+          </div>
+        </Frame>
       )}
       <Frame title="Settings › Archive">
         <div className="max-h-[560px] overflow-y-auto p-4">
@@ -93,11 +110,6 @@ export const SettingsFrames = () => {
       <Frame title="Settings › Extensions">
         <div className="max-h-[560px] overflow-y-auto p-4">
           <ExtensionsSection />
-        </div>
-      </Frame>
-      <Frame title="Settings › Plugins">
-        <div className="max-h-[560px] overflow-y-auto p-4">
-          <PluginsSection />
         </div>
       </Frame>
       <Frame title="Settings › Ceilings">

@@ -52,7 +52,7 @@ import { EMPTY_FINDINGS_STATE, findingDetail, findingsListState } from './findin
 import type { FindingFilter } from '../lib/findings'
 import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { emptySnapshot, type AppSnapshot, type AppStore, type AuditRow } from '../state/store'
 import {
   NARROW_WINDOW,
   activate,
@@ -564,6 +564,19 @@ export const LIBRARY = {
   ],
   gaps: [],
 }
+
+/**
+ * What `loadAudit` answers here — the audit tab's own week, one session
+ * begun, a turn finished, an approval decided, a skill installed.
+ */
+const AUDIT_DAY = 86_400_000
+const AUDIT_ROWS: readonly AuditRow[] = [
+  { at: now - 3 * AUDIT_DAY, runtime: 'codex', sessionId: 's1', kind: 'session/started' },
+  { at: now - 3 * AUDIT_DAY + 90_000, runtime: 'codex', sessionId: 's1', kind: 'turn/completed', status: 'completed', steps: 4, durationMs: 62_000 },
+  { at: now - AUDIT_DAY, runtime: 'claude', sessionId: 's2', kind: 'approval/decided', approvalType: 'command', decision: 'approve' },
+  { at: now - AUDIT_DAY + 4_000, runtime: 'claude', sessionId: 's2', kind: 'library/write', op: 'skill/create', name: 'code-review', status: 'completed' },
+  { at: now - 3_600_000, runtime: 'codex', sessionId: 's3', kind: 'approval/autoDecided', decision: 'deny', rule: 'no writes outside the workspace' },
+]
 
 /**
  * What `library/definition` answers here. Real frontmatter and real prose,
@@ -1760,6 +1773,18 @@ class PreviewStore {
   }
 
   readFinding = async (_goal: string, finding: string): Promise<FindingDetailPage> => findingDetail(finding)
+
+  /**
+   * The audit tab's own rows (`Activity.tsx`, mounted as `ActivityView`).
+   * `loadAudit` is a *store* verb, not a transport method the floor's
+   * `audit/query` answer already covers — the fallback proxy resolves an
+   * unimplemented verb to `undefined`, and `Activity` only guards against
+   * `null` (`useState`'s own start), so an unimplemented `loadAudit` reached
+   * `rows.length` on `undefined` and threw, caught only by this page's own
+   * error boundary. A real implementation, even a small one, is the fix —
+   * the same shape the real `Store.loadAudit` returns, never the floor.
+   */
+  loadAudit = async (): Promise<readonly AuditRow[]> => AUDIT_ROWS
 
   /**
    * `GoalReceiptCost` and `InsightCost` both wait on this before they draw a
