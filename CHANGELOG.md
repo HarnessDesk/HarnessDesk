@@ -8,13 +8,19 @@ move is real work and is not news to a person weighing an upgrade.
 ## Unreleased
 
 - **A Seat still busy when a flow round fails, or a run stops, is no longer
-  left holding its card forever.** Releasing a Seat interrupts its live turn
-  and waits up to 10 seconds for it to end before releasing it; a Seat still
-  busy past that wait used to have its release refused and only logged,
-  leaving it claimed on its card and its paths with nothing on screen to
-  explain why. The release is now retried, detached from whatever asked for
-  it, the moment the Seat's own turn actually ends, however long that takes —
-  a claim is never abandoned just because the bounded wait ran out. (#1027)
+  left holding its card forever, and it never sits there silently either.**
+  Releasing a Seat interrupts its live turn; a Seat still found busy — or
+  refused because a new turn started right as it was called — used to have
+  that refusal only logged, leaving it claimed on its card and its paths with
+  nothing on screen to explain why. The release now waits on the same signal
+  the desk already uses to notice a turn ended, and goes through the moment
+  it does, however long that takes — never a poll, and never abandoned. While
+  it waits, and for a minute past that if the signal still has not come, the
+  run says in plain words which card is still held and which Seat it is
+  waiting on. A Seat handed new work while its old release still waits is
+  never released out from under it, and a Seat left claimed by a run that had
+  already stopped when the desk last quit is found and released the next
+  time it starts. (#1027)
 
 - **A finished card's diff no longer keeps changing after it's done.** On a
   shared, non-isolated checkout, `Observer.observe` re-diffed a card from

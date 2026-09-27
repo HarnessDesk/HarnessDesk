@@ -154,6 +154,19 @@ export interface TriggerGoalRequest {
 /** A Goal id a trigger reserves: the same shape `create` mints. */
 export const TRIGGER_GOAL_ID = /^goal-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
+/**
+ * `release` refused because the Seat is inside a turn right now — typed so a
+ * caller that wants to wait it out (a v2 release still watching for the
+ * turn-ended signal, #1027) can tell this apart from every other reason
+ * `release` refuses, none of which lift on their own.
+ */
+export class SeatBusyRefusal extends Error {
+  constructor() {
+    super("Stop this Seat's current turn before releasing it")
+    this.name = 'SeatBusyRefusal'
+  }
+}
+
 /** Goals coordinate transactions; Team owns card and channel rules. */
 export class GoalPlane {
   readonly #assignments: Assignments
@@ -533,7 +546,7 @@ export class GoalPlane {
       const record = this.port.seats.byId(id)
       if (!record || record.board !== goal || record.restored) throw new Error('That Seat is not kept on this Goal.')
       if (record.closed) return
-      if (this.port.busy(record.session)) throw new Error("Stop this Seat's current turn before releasing it")
+      if (this.port.busy(record.session)) throw new SeatBusyRefusal()
       /* Read before `#complete` ever closes this Seat: once it does, its
          session may no longer be live, and there is nothing left to ask
          (review round 2 on #1042). Bounded the same way every other stop

@@ -178,6 +178,16 @@ export interface FlowExecution {
    * resolved it when the preview was taken and the token bound it.
    */
   readonly target?: FlowStartTarget
+  /**
+   * A plain-word sentence naming a card and the Seat still holding it, while
+   * this run has a release waiting on that Seat's turn to end — set the
+   * moment a release is found still busy, cleared once it goes through, and
+   * present regardless of `state`: a release can still be pending on a run
+   * that has already stopped or settled. Nothing is ever released silently
+   * (#1027); once the wait runs long enough this becomes the reason a
+   * running run stalls, in the same words.
+   */
+  readonly pendingReleaseNote?: string | null
 }
 
 /**

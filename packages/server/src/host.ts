@@ -2179,6 +2179,9 @@ export class Host {
     this.#attachmentAbort.abort()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
+    // Cancels every v2 release still waiting on a Seat's turn to end: no
+    // timer of this class's own outlives the process (#1027).
+    this.#flows.dispose()
     // No save preview survives the host: an apply from here on refuses, and one in flight finishes on its queue.
     this.#authoring.close()
     /* Triggers stop first: no new admission, no poll, no budget sweep and no
@@ -5715,6 +5718,9 @@ export class Host {
          handed its order again. Budgeted, because a seat that cannot start is
          a seat that would otherwise be re-armed forever. */
       void this.#flows.reArm(runtime, String(event.sessionId))
+      // The same turn-ended signal answers a v2 release still waiting on this
+      // Seat, rather than a poll of its own guessing when to ask again (#1027).
+      this.#flows.retryRelease(runtime, String(event.sessionId))
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))

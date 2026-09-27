@@ -34,6 +34,7 @@ import type {
 
 import { ConfinedTree } from './confined-tree.js'
 import { cardVars, guardHolds } from './flow.js'
+import { SeatBusyRefusal } from './goals/plane.js'
 import {
   evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
 } from './flow-evidence.js'
@@ -151,10 +152,15 @@ export class TriggerRefusal extends Error {
 }
 
 /** Why a trigger's run holds instead of dispatching: its dispatch is held until its firing is recorded. */
-/** How long a released trigger Seat's interrupted turn is waited for before its release is tried anyway. */
-export const RELEASE_WAIT_MS = 10_000
-/** How often a still-busy Seat is asked again, both inside the bound above and in the unbounded retry past it (#1027). */
-const RELEASE_POLL_MS = 50
+/**
+ * How long a release waits on a still-busy Seat's own turn-ended signal
+ * before it stops being silent about it: past this, the run stalls (if it
+ * can) and its `pendingReleaseNote` says which card and which Seat, rather
+ * than the wait continuing to say nothing (#1027). The wait itself is not
+ * bounded by this — a Seat's turn ending later still releases it — only the
+ * point where a person is told stops being that far off.
+ */
+export const RELEASE_STALL_MS = 60_000
 export const CHECK_INTERRUPTED = 'This check was stopped part-way when unattended work was paused or stopped. Inspect its effects, then choose Run again.'
 /** Why a Seat of a run pinned to one commit was given no work: its checkout is somewhere else. */
 export const NOT_AT_TARGET = (card: number): string =>
@@ -367,6 +373,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   ...(run.intake ? { intake: run.intake } : {}),
   ...(run.requireHeld ? { requireHeld: true as const } : {}),
   ...(run.target ? { target: run.target } : {}),
+  ...(run.pendingReleaseNote ? { pendingReleaseNote: run.pendingReleaseNote } : {}),
 })
 
 /** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
@@ -584,6 +591,8 @@ const now = (): number => Date.now()
 
 export interface FlowExecutionsOptions {
   readonly now?: () => number
+  /** How long a pending release waits, past `RELEASE_STALL_MS`, before it stops being silent about it (#1027). Tests inject a small value; production leaves it at the default. */
+  readonly releaseStallMs?: number
   /**
    * Every fact attributable to a Goal, in append order, each with its
    * freshness computed now — the evidence store's own sequence, never the
@@ -609,6 +618,22 @@ export interface FlowExecutionsOptions {
   }
 }
 
+/** The card and claim a Seat held when its release was asked for — snapshotted so a retry never releases a Seat handed something else in the meantime (#1027). */
+interface PendingSeatClaim {
+  readonly card: number
+  readonly runtime: string
+  readonly sessionId: string
+}
+
+/** One Seat's release, waiting on its turn-ended signal (`retryRelease`) rather than a poll. */
+interface PendingRelease {
+  readonly goal: string
+  readonly run: string
+  readonly claim: PendingSeatClaim | null
+  readonly timer: ReturnType<typeof setTimeout>
+  readonly startedAt: number
+}
+
 /** Runs on Goals. `Flows` hands every Goal-born run and every card of one to this. */
 export class FlowExecutions {
   readonly #files: ExecutionFiles
@@ -617,8 +642,13 @@ export class FlowExecutions {
   readonly #now: () => number
   readonly #facts: FlowExecutionsOptions['facts'] | null
   readonly #triggered: FlowExecutionsOptions['triggered'] | null
+  readonly #releaseStallMs: number
   readonly #queue = new SerialRun()
   #runs = new Map<string, StoredFlowExecution>()
+  /** Seats whose release is waiting on their own turn-ended signal (#1027); keyed by Seat id. */
+  readonly #pendingReleases = new Map<string, PendingRelease>()
+  /** Set once, at the top of `dispose()`, before anything below it can yield — every release path checks it, and once set nothing here schedules another timer or writes another document. */
+  #disposed = false
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
   readonly #checks = new Map<string, Set<AbortController>>()
   /** Goals a broken run file names: no new round opens on them until it is restored. */
@@ -644,6 +674,24 @@ export class FlowExecutions {
     this.#now = options.now ?? now
     this.#facts = options.facts ?? null
     this.#triggered = options.triggered ?? null
+    this.#releaseStallMs = options.releaseStallMs ?? RELEASE_STALL_MS
+  }
+
+  /**
+   * Terminal, and the first thing that happens here: set before anything
+   * below it can yield, so nothing checking it afterward ever reads stale.
+   * Every pending release's one timer is cancelled — there is no other timer
+   * or subscription this mechanism owns, since it is answered from the same
+   * host event `reArm` already is, never a poll or a listener of its own —
+   * and the table itself is cleared, so a stray, in-flight `retryRelease`
+   * call finds nothing to act on. Nothing here writes a document again once
+   * this has run (`#disposed` is checked at the top of every release path).
+   */
+  dispose(): void {
+    if (this.#disposed) return
+    this.#disposed = true
+    for (const pending of this.#pendingReleases.values()) clearTimeout(pending.timer)
+    this.#pendingReleases.clear()
   }
 
   async idle(): Promise<void> {
@@ -1577,70 +1625,184 @@ export class FlowExecutions {
   }
 
   /**
-   * Releases Seats. `interrupt` — a trigger's run, or a round that failed —
-   * interrupts each one's live turn first, keeping what it said: a Seat the
-   * run lets go never keeps working unmetered after the run stopped (review
-   * #898).
+   * Releases Seats, for a run named by `runId`. `interrupt` — a trigger's
+   * run, or a round that failed — interrupts each one's live turn first,
+   * keeping what it said: a Seat the run lets go never keeps working
+   * unmetered after the run stopped (review #898).
    *
-   * A Seat still busy once that wait runs out — or one this call never
-   * interrupted at all, simply still mid-turn when its run ended — is not
-   * tried, logged on refusal and left exactly as claimed: `GoalPlane.release`
-   * refuses a busy Seat outright, and moving on from that refusal is how a
-   * Seat kept its card and its paths with nothing on screen to say why
-   * (#1027). It is instead handed to `#releaseOnceIdle`, detached from this
-   * call, which keeps the claim exactly as it is until the Seat's own turn
-   * ends and the release can actually go through — never abandoned, and
-   * never a second attempt that just repeats the same refusal.
+   * A Seat still busy right after that is never tried and abandoned:
+   * `#attemptRelease` hands it to the pending-release table instead, which
+   * this class's own turn-ended signal (`retryRelease`, wired from the same
+   * host event `reArm` answers) retries the moment the Seat is heard from
+   * again — no poll, and no bound on how long the wait itself may run,
+   * because a released Seat's own turn does end (#1027).
    */
-  async #release(goal: string, ids: readonly string[], interrupt = false): Promise<void> {
+  async #release(goal: string, ids: readonly string[], interrupt: boolean, runId: string): Promise<void> {
+    if (this.#disposed) return
     for (const id of ids) {
+      if (this.#disposed) return
       const record = this.#port.seatOf(id)
+      const claim = record ? this.#claimOf(goal, record) : null
       if (interrupt && record) {
         await this.#port.interrupt?.(record).catch((error: unknown) => {
           this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
         })
-        // An interrupt asks; the turn ends a moment later. The release waits for it, bounded, rather than being refused.
-        for (let waited = 0; waited < RELEASE_WAIT_MS && this.#port.busy?.(record); waited += RELEASE_POLL_MS) {
-          await new Promise((resolve) => setTimeout(resolve, RELEASE_POLL_MS))
-        }
       }
-      if (record && this.#port.busy?.(record)) {
-        this.#releaseOnceIdle(goal, id)
-        continue
+      await this.#attemptRelease(goal, runId, id, claim)
+    }
+  }
+
+  /**
+   * The card and the claim a Seat held when a release was asked for it —
+   * captured once, at hand-off, so a retry can tell "still the same work"
+   * from "given something new while it waited" (#1027 ownership check). Null
+   * when the Seat named no card at all; nothing to protect there.
+   */
+  #claimOf(goal: string, record: SeatRecord): PendingSeatClaim | null {
+    const intent = this.#team
+      .stateFor(goal)
+      .intents.find((one) => one.claim?.runtime === record.session.runtime && one.claim?.sessionId === record.session.sessionId)
+    return intent ? { card: intent.id, runtime: record.session.runtime, sessionId: record.session.sessionId } : null
+  }
+
+  /** Whether a Seat's claim, read now, is still exactly the one captured at hand-off. */
+  #claimStillHeld(goal: string, record: SeatRecord, claim: PendingSeatClaim): boolean {
+    const now = this.#claimOf(goal, record)
+    return now !== null && now.card === claim.card && now.runtime === claim.runtime && now.sessionId === claim.sessionId
+  }
+
+  /**
+   * One attempt to release a Seat: called at hand-off (`#release`) and again
+   * on every retry (`retryRelease`, the restart sweep). A Seat gone, or
+   * holding different work now than the claim it was asked to give up, is
+   * dropped rather than released — never a Seat mid-work it was just handed
+   * (#1027 ownership check). A Seat found (or caught, on the actual call)
+   * still busy is deferred, not logged as a dead end: `GoalPlane.release`
+   * refusing a busy Seat, including one a new turn started on between this
+   * check and the call, is exactly the case that must not become a log line
+   * and nothing else.
+   */
+  async #attemptRelease(goal: string, runId: string, id: string, claim: PendingSeatClaim | null): Promise<void> {
+    if (this.#disposed) return
+    const record = this.#port.seatOf(id)
+    if (!record || record.closed) {
+      await this.#settlePending(id)
+      return
+    }
+    if (claim && !this.#claimStillHeld(goal, record, claim)) {
+      this.#port.log('a flow Seat’s release was dropped: it holds different work now', { goal, seat: id })
+      await this.#settlePending(id)
+      return
+    }
+    if (this.#port.busy?.(record)) {
+      await this.#deferRelease(goal, runId, id, claim)
+      return
+    }
+    try {
+      await this.#port.release(goal, id)
+      await this.#settlePending(id)
+    } catch (error) {
+      // Typed, not guessed at: a new turn started on this Seat between the
+      // check above and this very call is answered with the same refusal a
+      // Seat found busy up front is, and it deserves the same fate — waited
+      // out, never a log line and nothing else (#1027).
+      if (error instanceof SeatBusyRefusal) {
+        await this.#deferRelease(goal, runId, id, claim)
+        return
       }
-      try {
-        await this.#port.release(goal, id)
-      } catch (error) {
-        this.#port.log('a flow Seat could not be released', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+      this.#port.log('a flow Seat could not be released', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+      await this.#settlePending(id)
+    }
+  }
+
+  /**
+   * Records a Seat's release as pending its turn ending, and starts the one
+   * timer this whole mechanism owns: not a retry, only the point past which
+   * silence stops being acceptable (`#onReleaseOverdue`, `RELEASE_STALL_MS`).
+   * A Seat already pending keeps its first entry — and the timer already
+   * running for it — rather than restarting the clock on every retry that
+   * still finds it busy.
+   */
+  async #deferRelease(goal: string, runId: string, id: string, claim: PendingSeatClaim | null): Promise<void> {
+    if (this.#disposed || this.#pendingReleases.has(id)) return
+    const timer = setTimeout(() => void this.#onReleaseOverdue(id), this.#releaseStallMs)
+    this.#pendingReleases.set(id, { goal, run: runId, claim, timer, startedAt: this.#now() })
+    await this.#notePending(runId, id, claim, null)
+  }
+
+  /** Clears a Seat's pending release, wherever it ended: released, dropped, or logged as a plain failure. */
+  async #settlePending(id: string): Promise<void> {
+    const pending = this.#pendingReleases.get(id)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.#pendingReleases.delete(id)
+    await this.#clearPendingNote(pending.run)
+  }
+
+  /**
+   * The host's own turn-ended signal, answered wherever a release is
+   * waiting on it — the same event `reArm` answers, from the same call
+   * (`Flows.retryRelease`), never a poll of this class's own. A session this
+   * class holds nothing pending for is a no-op straight through. Never
+   * called from inside a run's own queue — always the run's own, since
+   * `#attemptRelease` may write the run it retries on (`#notePending`).
+   */
+  retryRelease(runtime: string, sessionId: string): void {
+    if (this.#disposed) return
+    for (const [id, pending] of [...this.#pendingReleases]) {
+      const record = this.#port.seatOf(id)
+      if (record && record.session.runtime === runtime && record.session.sessionId === sessionId) {
+        void this.#queue.within(pending.run, () => this.#attemptRelease(pending.goal, pending.run, id, pending.claim))
       }
     }
   }
 
   /**
-   * Waits, polling unbounded, for a Seat still busy past `#release`'s own
-   * check to fall idle, then releases it — the retry a bounded wait alone
-   * cannot promise (#1027). Detached: nothing awaits this, because the round
-   * or run that asked for the release has already moved on by the time this
-   * settles, however long that takes. Stops instead the moment the Seat is
-   * gone — closed some other way, or dropped from the registry entirely —
-   * rather than releasing a claim nobody is waiting on any more; `release`
-   * itself is a no-op on a Seat already closed, so a race with another
-   * release of the same Seat is harmless either way.
+   * Past `RELEASE_STALL_MS` with no turn-ended signal: the wait itself does
+   * not stop, but silence does. The run's `pendingReleaseNote` is set to a
+   * sentence naming the card and the Seat, and — only while the run can
+   * still take one — it stalls with the same sentence, so a person reads it
+   * wherever they are looking (#1027). Fired from its own timer, so — like
+   * `retryRelease` — it holds no queue of its own and takes the run's here.
    */
-  #releaseOnceIdle(goal: string, id: string): void {
-    void (async () => {
-      for (;;) {
-        const record = this.#port.seatOf(id)
-        if (!record || record.closed) return
-        if (!this.#port.busy?.(record)) break
-        await new Promise((resolve) => setTimeout(resolve, RELEASE_POLL_MS))
-      }
-      try {
-        await this.#port.release(goal, id)
-      } catch (error) {
-        this.#port.log('a flow Seat could not be released once its turn ended', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
-      }
-    })()
+  async #onReleaseOverdue(id: string): Promise<void> {
+    if (this.#disposed) return
+    const pending = this.#pendingReleases.get(id)
+    if (!pending) return
+    const record = this.#port.seatOf(id)
+    const seatName = record ? (this.#port.presentationOf?.(record.session.runtime) ?? record.session.runtime) : 'a Seat'
+    const cardText = pending.claim ? `Card #${pending.claim.card}` : 'A card'
+    const doneWith = pending.claim ? `card #${pending.claim.card}` : 'the card'
+    const sentence = `${cardText} is still claimed by ${seatName}, whose turn has not ended, so it could not be released. Stop that Seat’s turn, or release ${doneWith} by hand.`
+    await this.#queue.within(pending.run, async () => {
+      await this.#notePending(pending.run, id, pending.claim, sentence)
+      const run = this.#runs.get(pending.run)
+      if (run && run.state === 'running') await this.#stall(pending.run, sentence)
+    })
+  }
+
+  /**
+   * Writes (or clears) a run's `pendingReleaseNote`. Never queues its own
+   * write — like `#stall`, it is only ever called from somewhere already
+   * holding the run's queue, so a second `within` here would wait on itself.
+   */
+  async #notePending(runId: string, seatId: string, claim: PendingSeatClaim | null, sentence: string | null): Promise<void> {
+    const run = this.#runs.get(runId)
+    if (!run) return
+    const record = this.#port.seatOf(seatId)
+    const seatName = record ? (this.#port.presentationOf?.(record.session.runtime) ?? record.session.runtime) : 'a Seat'
+    const cardText = claim ? `card #${claim.card}` : 'a card'
+    const note = sentence ?? `Waiting for ${seatName}’s turn to end, to release ${cardText}.`
+    if (run.pendingReleaseNote === note) return
+    await this.#put({ ...run, pendingReleaseNote: note })
+  }
+
+  /** Drops a run's `pendingReleaseNote` once nothing on it is pending any more. Same rule as `#notePending`: no queue of its own. */
+  async #clearPendingNote(runId: string): Promise<void> {
+    if ([...this.#pendingReleases.values()].some((one) => one.run === runId)) return
+    const run = this.#runs.get(runId)
+    if (!run || run.pendingReleaseNote == null) return
+    await this.#put({ ...run, pendingReleaseNote: null })
   }
 
   // ---------------------------------------------------------------- start
@@ -2205,7 +2367,7 @@ export class FlowExecutions {
          while the run stands stalled — the sibling of a refused card working
          anyway (#1015). So its turn is interrupted first, whoever started the
          run. */
-      await this.#release(run.goal, openedNow, true)
+      await this.#release(run.goal, openedNow, true, id)
       await this.#stall(id, reason)
       return false
     }
@@ -2674,7 +2836,7 @@ export class FlowExecutions {
     const open = [...new Set(run.rounds.flatMap((round) => round.seats))]
       .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
     // A trigger's run interrupts every Seat it lets go: no turn it started outlives its stop.
-    await this.#release(run.goal, open, run.intake !== undefined)
+    await this.#release(run.goal, open, run.intake !== undefined, id)
     this.#team.nudgeRoom(run.goal)
   }
 
@@ -2884,6 +3046,27 @@ export class FlowExecutions {
       if (run.state !== 'running') continue
       await this.#queue.within(run.id, () => this.#reconcile(run.id)).catch((error: unknown) => {
         this.#port.log('a flow run could not be reconciled', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
+    /*
+     * A run that already stopped or settled may still have a Seat its own
+     * round opened, closed on nothing but still holding its claim: the
+     * pending release that was waiting on its turn-ended signal (#1027) had
+     * nothing left to wait in once this process quit, and no restart
+     * before this one ever asked again. Swept the same way `#finish` first
+     * found these Seats, and released through the very same path — never a
+     * second, different way of letting one go, and never guessed at: only a
+     * Seat still open and still holding a claim is touched.
+     */
+    for (const run of [...this.#runs.values()]) {
+      if (run.state === 'running' || run.goal === '') continue
+      const open = [...new Set(run.rounds.flatMap((round) => round.seats))].filter((seat) => {
+        const record = this.#port.seatOf(seat)
+        return record !== null && record.closed === null && this.#claimOf(run.goal, record) !== null
+      })
+      if (open.length === 0) continue
+      await this.#queue.within(run.id, () => this.#release(run.goal, open, false, run.id)).catch((error: unknown) => {
+        this.#port.log('a leftover claimed Seat could not be swept at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
       })
     }
   }
