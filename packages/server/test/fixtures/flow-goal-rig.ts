@@ -132,6 +132,8 @@ export interface GoalRig {
    * Goal plane refuses it.
    */
   turnsEndLater: boolean
+  /** How much later a turn ends once interrupted, when `turnsEndLater` is set. */
+  turnEndDelayMs: number
   /** Called once an order is accepted — where a test says a turn has started. */
   onOrder: ((seat: SeatRecord) => void) | null
   /** Called as a Seat is put back on its picks — where a test says a person started a turn meanwhile. */
@@ -191,7 +193,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     goalSerial: new Serial(), seatAsked: null, strictAsks: [] as boolean[], holdsCeilings: true, reserve: null,
-    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null, onReseat: null,
+    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), onOrder: null, onReseat: null,
     orderTexts: new Map<string, string[]>(),
     origins: new Map<string, GoalOrigin>(),
     triggerGate: null,
@@ -309,7 +311,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     busy: (seat) => rig.busySeats.has(String(seat.id)),
     interrupt: async (seat) => {
       rig.events.push(`interrupt:${seat.id}`)
-      if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), 120)
+      if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), rig.turnEndDelayMs)
       else rig.busySeats.delete(String(seat.id))
     },
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,

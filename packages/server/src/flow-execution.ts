@@ -152,7 +152,9 @@ export class TriggerRefusal extends Error {
 
 /** Why a trigger's run holds instead of dispatching: its dispatch is held until its firing is recorded. */
 /** How long a released trigger Seat's interrupted turn is waited for before its release is tried anyway. */
-const RELEASE_WAIT_MS = 10_000
+export const RELEASE_WAIT_MS = 10_000
+/** How often a still-busy Seat is asked again, both inside the bound above and in the unbounded retry past it (#1027). */
+const RELEASE_POLL_MS = 50
 export const CHECK_INTERRUPTED = 'This check was stopped part-way when unattended work was paused or stopped. Inspect its effects, then choose Run again.'
 /** Why a Seat of a run pinned to one commit was given no work: its checkout is somewhere else. */
 export const NOT_AT_TARGET = (card: number): string =>
@@ -1575,23 +1577,36 @@ export class FlowExecutions {
   }
 
   /**
-   * Releases Seats. `interrupt` — a trigger's run — interrupts each one's
-   * live turn first, keeping what it said: a Seat the run lets go never
-   * keeps working unmetered after the run stopped (review #898).
+   * Releases Seats. `interrupt` — a trigger's run, or a round that failed —
+   * interrupts each one's live turn first, keeping what it said: a Seat the
+   * run lets go never keeps working unmetered after the run stopped (review
+   * #898).
+   *
+   * A Seat still busy once that wait runs out — or one this call never
+   * interrupted at all, simply still mid-turn when its run ended — is not
+   * tried, logged on refusal and left exactly as claimed: `GoalPlane.release`
+   * refuses a busy Seat outright, and moving on from that refusal is how a
+   * Seat kept its card and its paths with nothing on screen to say why
+   * (#1027). It is instead handed to `#releaseOnceIdle`, detached from this
+   * call, which keeps the claim exactly as it is until the Seat's own turn
+   * ends and the release can actually go through — never abandoned, and
+   * never a second attempt that just repeats the same refusal.
    */
   async #release(goal: string, ids: readonly string[], interrupt = false): Promise<void> {
     for (const id of ids) {
-      if (interrupt) {
-        const record = this.#port.seatOf(id)
-        if (record) {
-          await this.#port.interrupt?.(record).catch((error: unknown) => {
-            this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
-          })
-          // An interrupt asks; the turn ends a moment later. The release waits for it, bounded, rather than being refused.
-          for (let waited = 0; waited < RELEASE_WAIT_MS && this.#port.busy?.(record); waited += 50) {
-            await new Promise((resolve) => setTimeout(resolve, 50))
-          }
+      const record = this.#port.seatOf(id)
+      if (interrupt && record) {
+        await this.#port.interrupt?.(record).catch((error: unknown) => {
+          this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+        })
+        // An interrupt asks; the turn ends a moment later. The release waits for it, bounded, rather than being refused.
+        for (let waited = 0; waited < RELEASE_WAIT_MS && this.#port.busy?.(record); waited += RELEASE_POLL_MS) {
+          await new Promise((resolve) => setTimeout(resolve, RELEASE_POLL_MS))
         }
+      }
+      if (record && this.#port.busy?.(record)) {
+        this.#releaseOnceIdle(goal, id)
+        continue
       }
       try {
         await this.#port.release(goal, id)
@@ -1599,6 +1614,33 @@ export class FlowExecutions {
         this.#port.log('a flow Seat could not be released', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
       }
     }
+  }
+
+  /**
+   * Waits, polling unbounded, for a Seat still busy past `#release`'s own
+   * check to fall idle, then releases it — the retry a bounded wait alone
+   * cannot promise (#1027). Detached: nothing awaits this, because the round
+   * or run that asked for the release has already moved on by the time this
+   * settles, however long that takes. Stops instead the moment the Seat is
+   * gone — closed some other way, or dropped from the registry entirely —
+   * rather than releasing a claim nobody is waiting on any more; `release`
+   * itself is a no-op on a Seat already closed, so a race with another
+   * release of the same Seat is harmless either way.
+   */
+  #releaseOnceIdle(goal: string, id: string): void {
+    void (async () => {
+      for (;;) {
+        const record = this.#port.seatOf(id)
+        if (!record || record.closed) return
+        if (!this.#port.busy?.(record)) break
+        await new Promise((resolve) => setTimeout(resolve, RELEASE_POLL_MS))
+      }
+      try {
+        await this.#port.release(goal, id)
+      } catch (error) {
+        this.#port.log('a flow Seat could not be released once its turn ended', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+      }
+    })()
   }
 
   // ---------------------------------------------------------------- start

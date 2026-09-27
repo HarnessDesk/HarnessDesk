@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { TeamEntry, TeamSignal } from '@harnessdesk/protocol'
 
-import { BRIEF_CHANGED, INDEPENDENT } from '../src/flow-execution.js'
+import { BRIEF_CHANGED, INDEPENDENT, RELEASE_WAIT_MS } from '../src/flow-execution.js'
 import { overlaps } from '../src/team.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
@@ -690,6 +690,51 @@ test('a trigger run that stops waits for the turns it interrupted to end before 
   for (const seat of ['seat-1', 'seat-2']) {
     assert.ok(rig.events.indexOf(`interrupt:${seat}`) < rig.events.indexOf(`release:${seat}`), `${seat}: interrupted, then released`)
   }
+})
+
+/*
+ * Real timers throughout, deliberately: `#release`'s own bounded wait
+ * (`RELEASE_WAIT_MS`) is not injectable, so proving a Seat still busy past it
+ * is retried rather than abandoned means actually waiting past it. What
+ * follows is not a blind sleep past a guessed duration, though — `stopRun`
+ * itself only returns once `#release` has made its own bounded attempt, and
+ * the assertion after it polls for the one event the fix is about, bounded
+ * generously past when the Seat's own turn is scripted to end.
+ */
+test('a Seat still busy well past the interrupted-turn wait is released once its turn actually ends, never left claimed for good (#1027)', { timeout: 20_000 }, async (t) => {
+  const rig = await goalRig(t)
+  rig.turnsEndLater = true
+  // Ends only well after `#release`'s own bounded wait gives up on it — the
+  // case that used to be tried once regardless, refused by GoalPlane, and
+  // only logged: the Seat kept its card and its paths with nothing on
+  // screen to say why.
+  rig.turnEndDelayMs = RELEASE_WAIT_MS + 500
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  rig.busySeats.add('seat-1')
+
+  // `stopRun` awaits `#release`'s own bounded wait for seat-1 (up to
+  // `RELEASE_WAIT_MS`), which is still busy throughout it, before moving on
+  // to seat-2 and returning.
+  await rig.flows.stopRun(run.id, 'Timed out: this Goal reached its time budget.')
+  await rig.flows.flush()
+  assert.deepEqual(
+    rig.events.filter((one) => one.startsWith('refused:')),
+    [],
+    'never tried while still known busy, so never refused and logged as the only trace of it',
+  )
+  assert.ok(!rig.events.includes('release:seat-1'), 'not released yet — its turn has not ended even now')
+  assert.ok(rig.events.includes('release:seat-2'), 'the sibling that was never busy is released exactly as before')
+
+  // The retry is detached from `stopRun`, which has already returned: wait
+  // for the Seat's own turn to end (scripted 500ms past the bound above) and
+  // the retry to actually release it, bounded well past that.
+  const deadline = Date.now() + 5_000
+  while (!rig.events.includes('release:seat-1') && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  assert.ok(rig.events.includes('release:seat-1'), 'released once its turn actually ended, past the bound that used to give up on it for good')
 })
 
 // ------------------------------------------------ an agreed split, enforced (#1015)
