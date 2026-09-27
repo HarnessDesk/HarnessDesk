@@ -227,10 +227,6 @@ export const Usage = ({
       ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.`
       : `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine.`
 
-  const scopeControl = (
-    <ScopeControl everyReport={everyReport} byId={byId} scope={scope} onScope={onScope} />
-  )
-
   return (
     <AppWindow label="Dashboard">
       <WindowNav onBack={onClose}>
@@ -292,7 +288,7 @@ export const Usage = ({
         <PageHead
           title={scoped ? scoped.presentation.name : VIEW_LABEL[view]}
           blurb={blurb}
-          actions={scopeControl}
+          actions={<ScopeControl everyReport={everyReport} byId={byId} scope={scope} onScope={onScope} />}
         />
 
         <div className={styles.body}>

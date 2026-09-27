@@ -7,6 +7,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The Dashboard's rail lists views, and the account you're looking at is a
+  choice in the header.** The rail used to hold one row per account, which
+  duplicated the card list a click away, mixed a plan's percentage with a
+  prepaid balance and a bare dash in one column, and answered "look at one
+  account" — a filter — with what read as navigation. It now holds five real
+  pages — Overview, Plans, Spend, Activity, Projects — each a click from ⌘U,
+  the sidebar's Dashboard row, ⌘K or the menu bar item (all landing on
+  Overview); an account's own "Usage" opens Plans, scoped to it, the way
+  clicking that account in the old rail used to. Picking an account from the
+  new "All accounts ▾" header control scopes whichever view is open, and the
+  choice survives a switch between them.
+
 - **A run stopped at its round budget now says how to let it continue.** The
   control already existed — the Findings tab's "Decide this run" opens
   "Authorise another round" for exactly this stop — but nothing on the stall

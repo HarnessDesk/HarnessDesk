@@ -83,7 +83,7 @@ them in `docs/decisions.md`.
     every one of them enforced by `node script/design-audit.mjs --strict`:
     - Never import another screen's `*.module.css`. If two screens need the
       same thing, it belongs in `design/ui` or a named `design/patterns` contract.
-      Six existing screen families retain exactly eleven additional co-owners,
+      Seven existing screen families retain exactly sixteen additional co-owners,
       capped by `STYLESHEET_OWNERS` in `script/design-audit.mjs`. Their
       `@design-owners` comments document membership but cannot authorize another
       importer. Expanding that debt requires changing this rule and the fixed
