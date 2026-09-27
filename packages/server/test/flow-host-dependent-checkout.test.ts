@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
+import type { FlowPreview, Lane } from '@harnessdesk/protocol'
 import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import {
-  answer, board, claimed, cwdOf, desk, type Desk, E2E, execution, git, review, start, TASK, whenChanged, write,
+  answer, board, claimed, cwdOf, desk, type Desk, E2E, execution, git, review, settled, start, TASK, whenChanged, write,
 } from './fixtures/flow-host-evidence.js'
 
 /*
@@ -52,20 +53,25 @@ messaging: board-only
  * Every message a Seat was sent, by its session id. Each Seat ends the turn
  * its brief started as soon as it has read it, as an agent with nothing to
  * ask does, so the card order the desk left for the end of that turn is sent.
+ * `idle` ends whatever turn each Seat is still in, as an agent that has
+ * finished its card does.
  */
-const ordersOf = (d: Desk): Map<string, string[]> => {
+const ordersOf = (d: Desk): { readonly sent: Map<string, string[]>; readonly idle: () => void } => {
   const sent = new Map<string, string[]>()
+  const sessions = new Set<{ finish(): void }>()
   for (const runtime of d.runtimes) {
     runtime.onSend = (session, text, opts) => {
       sent.set(String(session.id), [...(sent.get(String(session.id)) ?? []), text])
+      sessions.add(session)
       if (opts?.recordAs === 'notice' && text.startsWith('Do the ')) setImmediate(() => session.finish())
     }
   }
-  return sent
+  return { sent, idle: () => { for (const session of sessions) session.finish() } }
 }
 
 test('a tester after an isolated dev opens in a checkout that holds the dev’s commit', E2E, async (t) => {
   const d = await desk(t)
+  const seats = ordersOf(d)
   const run = await start(d, RELAY, TASK)
   const [dev] = await claimed(d, run.goal, 'dev', 1)
   const devLane = cwdOf(d, dev!)
@@ -78,12 +84,39 @@ test('a tester after an isolated dev opens in a checkout that holds the dev’s 
   assert.equal(await readFile(join(where, 'attempt.txt'), 'utf8'), 'the dev’s change\n', 'and holds the dev’s file')
   assert.notEqual(where, devLane, 'never the dev’s own lane')
   assert.notEqual(await git(d.root, 'rev-parse', 'HEAD'), head, 'the person’s own checkout was not moved')
+  const laneOf = async (cwd: string): Promise<Lane> => {
+    const found = (await d.host.call('lane/list', {}) as readonly Lane[]).find((one) => one.cwd === cwd)
+    assert.ok(found, `a lane is recorded for ${cwd}`)
+    return found
+  }
+  assert.equal((await laneOf(where)).reading, true, 'the tester’s lane is marked as one only a reader holds')
+  assert.equal((await laneOf(where)).state, 'active')
   await review(d, tester!, 'approve', head)
+  const done = await settled(d, run.id)
+  // Its Seat closes: the reader's lane lets its ports and browser profile go; the dev's declared lane is left alone.
+  seats.idle()
+  const seat = done.rounds.find((one) => one.role === 'tester')!.seats[0]!
+  await d.host.call('goal/release', { goal: run.goal, seat }).catch(() => {})
+  const released = await whenChanged(d, async () => {
+    const lane = await laneOf(where)
+    return lane.state === 'released' ? lane : null
+  }, 'the tester’s lane to be let go')
+  assert.equal(released.reading, true)
+  assert.notEqual((await laneOf(devLane)).state, 'released', 'a lane the file asked for is kept for a person')
+})
+
+test('the dry run marks a reading step it will open at an isolated step’s commit, and only that one', async (t) => {
+  const d = await desk(t)
+  const relay = await d.host.call('flow/preview', { root: d.root, source: RELAY, vars: TASK }) as FlowPreview
+  assert.deepEqual(relay.seats.map((one) => [one.role, one.isolate, one.atPredecessor === true]), [['dev', true, false], ['tester', false, true]])
+  // Two analysts hand the next round two commits: each is named in its order, and no one is cut a lane at one of them.
+  const debate = await d.host.call('flow/preview', { root: d.root, source: DEBATE, vars: TASK }) as FlowPreview
+  assert.ok(debate.seats.every((one) => one.atPredecessor !== true))
 })
 
 test('debate siblings in isolated lanes: each next-round card is told where both positions are, and reaches both', E2E, async (t) => {
   const d = await desk(t)
-  const sent = ordersOf(d)
+  const { sent } = ordersOf(d)
   const run = await start(d, DEBATE, TASK)
   const first = await claimed(d, run.goal, 'analyst', 2)
   const positions: string[] = []

@@ -15,6 +15,7 @@ import {
   type StartContext,
 } from '@harnessdesk/protocol'
 
+import { rolesAtPredecessor } from './flow-handed.js'
 import { compileFlowPolicy, parseFlowPolicy, reviewsIn } from './flow-policy.js'
 
 /**
@@ -209,6 +210,7 @@ export class FlowPreviews {
     if (compiled.document.format !== 'agents') problems.push({ level: 'error', at: 'format', text: LEGACY_START })
     const seats: FlowPreviewSeat[] = []
     if (compiled.document.format === 'agents') {
+      const atPredecessor = rolesAtPredecessor(compiled)
       for (const role of compiled.document.flow.roles) {
         if (role.kind !== 'agent') continue
         const bindings = compiled.bindings.filter((one) => one.role === role.id).sort((a, b) => a.index - b.index)
@@ -217,7 +219,10 @@ export class FlowPreviews {
             ...(unattended ? { unattended: true } : {}),
             ...(requireHeld ? { requireHeld: true as const } : {}),
           })
-          seats.push({ role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate, reviews: reviewsIn(binding) })
+          seats.push({
+            role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate,
+            ...(atPredecessor.has(role.id) ? { atPredecessor: true as const } : {}), reviews: reviewsIn(binding),
+          })
           if (plan.blocked) {
             problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
           } else if (plan.winner === null) {

@@ -50,7 +50,8 @@ export class LaneAllocator {
   listLanes(): readonly Lane[] { return this.list() }
   forSeat(seat: string): Lane | null { return this.list().find((lane) => lane.seat === seat) ?? null }
 
-  allocate(goal: string, id: string, prefs: LanePreferences, base?: string): Promise<Lane> {
+  /** `cut.base`: the commit the lane's branch is cut from; `cut.reading`: marks a lane let go when its reading Seat closes (#1053). */
+  allocate(goal: string, id: string, prefs: LanePreferences, cut: { readonly base?: string; readonly reading?: true } = {}): Promise<Lane> {
     return this.#serial.run(async () => {
       lanePreferences(prefs)
       if (!/^[A-Za-z0-9-]{1,100}$/.test(id)) throw new Error('The host did not name a lane.')
@@ -63,14 +64,15 @@ export class LaneAllocator {
         const ports = firstBlock(prefs, [...this.port.list(), ...rejected])
         if (!ports) throw new Error(NO_BLOCK)
         const reservation: Lane = { id, goal, seat: null, cwd: '', branch: '', ports,
-          browserProfile: prefs.browserProfile ? `lane-${randomUUID()}` : null, state: 'reserved', createdAt: this.now() }
+          browserProfile: prefs.browserProfile ? `lane-${randomUUID()}` : null, state: 'reserved', createdAt: this.now(),
+          ...(cut.reading ? { reading: true as const } : {}) }
         const available = await this.port.available(ports, deadline)
         if (this.now() >= deadline) throw new Error(DEADLINE)
         if (!available) { rejected.push(reservation); continue }
         await this.port.save(reservation)
         let result = reservation
         try {
-          const checkout = await this.port.create(id, goal, base)
+          const checkout = await this.port.create(id, goal, cut.base)
           result = { ...reservation, ...checkout, state: 'active' }
           await this.port.save(result)
           return structuredClone(result)
@@ -127,6 +129,7 @@ export function laneOf(value: unknown): Lane {
   if (typeof lane.id !== 'string' || !/^[A-Za-z0-9-]{1,100}$/.test(lane.id) || typeof lane.goal !== 'string' || !lane.goal || lane.goal.length > 4096 ||
       !(lane.seat === null || typeof lane.seat === 'string' && lane.seat.length > 0 && lane.seat.length <= 200) || typeof lane.cwd !== 'string' || typeof lane.branch !== 'string' ||
       !['reserved', 'active', 'retained', 'released'].includes(lane.state) || !Number.isSafeInteger(lane.createdAt) || lane.createdAt < 0 ||
+      !(lane.reading === undefined || lane.reading === true) ||
       !(lane.browserProfile === null || typeof lane.browserProfile === 'string' && /^lane-[a-f0-9-]{36}$/.test(lane.browserProfile)) || !lane.ports) return bad()
   try { lanePreferences({ start: lane.ports.start, width: lane.ports.end - lane.ports.start + 1, browserProfile: true }) } catch { return bad() }
   if (lane.state === 'active' && (!lane.cwd || !lane.branch)) return bad()

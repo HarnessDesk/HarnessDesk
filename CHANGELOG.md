@@ -17,7 +17,10 @@ move is real work and is not news to a person weighing an upgrade.
   commits (a debate round reading both positions, a judge comparing attempts)
   is told each one's commit, branch and folder. If that work cannot be
   reached — its worktree is gone, or it was never committed — the run stops
-  before the step opens and says which step and why. (#1053)
+  before the step opens and says which step and why. The dry run marks each
+  step that will get a worktree this way, and a reading step's worktree lets
+  its ports and browser profile go as soon as that step's conversation
+  closes. (#1053)
 
 - **An effort mismatch found only once a conversation opened is worded
   truthfully, and one runtime's levels are no longer copied onto another

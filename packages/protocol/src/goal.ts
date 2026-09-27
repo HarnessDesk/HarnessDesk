@@ -293,6 +293,12 @@ export interface Lane {
   readonly browserProfile: string | null
   readonly state: 'reserved' | 'active' | 'retained' | 'released'
   readonly createdAt: number
+  /**
+   * A lane no flow file asked for, opened only so a Seat that reads is given
+   * the commit it was handed (#1053): let go when that Seat closes, rather
+   * than held until a person releases it.
+   */
+  readonly reading?: true
 }
 
 export const DEFAULT_LANE_PREFERENCES: LanePreferences = { start: 30000, width: 20, browserProfile: true }

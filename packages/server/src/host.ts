@@ -1638,6 +1638,20 @@ export class Host {
         const lane = this.#lanes.forSeat(seat)
         if (lane) await this.#lanes.retain(lane.id)
       },
+      /* A lane opened only so a reading Seat had the commit it was handed
+         goes when that Seat does: its ports and browser profile are freed.
+         Its folder stays, since the card's recorded stop is read against it.
+         A port still in use leaves it retained, for a person to release. */
+      releaseReadingLane: async (seat: SeatId) => {
+        const lane = this.#lanes.forSeat(seat)
+        if (!lane?.reading || lane.state === 'released') return
+        try {
+          await this.#lanes.release(lane.id)
+        } catch (error) {
+          this.#logger.warn('a reading lane could not be let go; it stays retained', { lane: lane.id, error: error instanceof Error ? error.message : String(error) })
+          await this.#lanes.retain(lane.id)
+        }
+      },
       wake: (goal: string) => this.#team.nudgeRoom(goal),
       stopFlows: (goal: string) => this.#flows.stopGoal(goal),
       flowLive: (goal: string) => this.#flows.executionsFor(goal).some((run) => run.state === 'running' || run.state === 'stalled'),

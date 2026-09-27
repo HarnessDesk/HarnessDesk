@@ -823,7 +823,7 @@ export class GoalPlane {
    * (#1053). A base always isolates: the project's own checkout is never
    * moved to it.
    */
-  seat(input: GoalSeatRequest & { readonly base?: string }): Promise<SeatRecord> {
+  seat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true }): Promise<SeatRecord> {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
       const goal = this.store.read(input.goal).goal
@@ -831,7 +831,9 @@ export class GoalPlane {
       const policy = { unattended: goal.origin.kind === 'trigger', ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
       // A Goal pinned to a commit seats nobody in the project's own checkout: each Seat gets its own, cut from that commit.
       const isolate = input.base !== undefined || goal.at !== undefined || (input.isolate ?? goal.checkout === 'isolated')
-      const record = await this.#withLane(goal, isolate, (where) => this.port.seatAgent(input, where, policy), input.base)
+      const record = await this.#withLane(goal, isolate, (where) => this.port.seatAgent(input, where, policy), {
+        ...(input.base !== undefined ? { base: input.base } : {}), ...(input.base !== undefined && input.reading ? { reading: true as const } : {}),
+      })
       if (input.card !== undefined) {
         try {
           await this.port.claim(input.goal, input.card, record)
@@ -1155,10 +1157,10 @@ export class GoalPlane {
     await this.port.finishWrap(operation)
   }
 
-  async #withLane(goal: Goal, isolate: boolean, open: (where: Goal) => Promise<SeatRecord>, base?: string): Promise<SeatRecord> {
+  async #withLane(goal: Goal, isolate: boolean, open: (where: Goal) => Promise<SeatRecord>, cut: { readonly base?: string; readonly reading?: true } = {}): Promise<SeatRecord> {
     if (!isolate) return open(goal)
     if (!this.#lanes || !this.#lanePreferences) throw new Error('Read the lane settings before seating this Goal.')
-    const lane = await this.#lanes.allocate(goal.id, randomUUID(), this.#lanePreferences(), base)
+    const lane = await this.#lanes.allocate(goal.id, randomUUID(), this.#lanePreferences(), cut)
     try {
       const seat = await open({ ...goal, cwd: lane.cwd })
       if (seat.board !== goal.id || seat.checkout.cwd !== lane.cwd) throw new Error('The recorded Seat did not use its allocated checkout. Finish recovery before dispatching work.')

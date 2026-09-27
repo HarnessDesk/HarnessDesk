@@ -348,7 +348,7 @@ const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; rea
     <>
       <Row
         mark={winner ? <RuntimeMark runtime={markFor(winner, snapshot.runtimes)} size={16} /> : <BriefIcon size={16} />}
-        title={`${name} — ${seat.role}${seat.isolate ? ', isolated' : ''}`}
+        title={`${name} — ${seat.role}${seat.atPredecessor ? ', in a worktree of its own at the commit it is handed' : seat.isolate ? ', isolated' : ''}`}
         desc={reason ?? undefined}
         control={seat.plan.ceiling ? <CeilingChip ceiling={seat.plan.ceiling} /> : <Text role="meta">Unavailable</Text>}
       />

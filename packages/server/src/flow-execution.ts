@@ -38,6 +38,7 @@ import {
   evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
 } from './flow-evidence.js'
 import { decideLoop, QUESTION_STOP } from './findings/rounds.js'
+import { handedCheckout, writes } from './flow-handed.js'
 import { reviewsIn } from './flow-policy.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
@@ -218,7 +219,7 @@ export interface FlowExecutionPort {
    */
   canReadProvider?(runtime: string): boolean
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
-  openSeat(input: GoalSeatRequest & { readonly base?: string }): Promise<SeatRecord>
+  openSeat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true }): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
   canDispatch(goal: string): { ok: true } | { ok: false; reason: string }
   /** `at`, host-only: the commit every Seat of the new Goal works at, each in a checkout of its own cut from it. */
@@ -1278,7 +1279,7 @@ export class FlowExecutions {
     // A card that judges is never judged: a reviewer's own checkout is not a
     // subject whatever its grant, exactly as `reviewBinding` offers it only
     // what it depends on.
-    return binding !== undefined && binding.grant !== 'read' && !reviewsIn(binding)
+    return binding !== undefined && writes(binding)
   }
 
   /**
@@ -2212,13 +2213,16 @@ export class FlowExecutions {
     const board = this.#team.stateFor(run.goal)
     const shared = board.cwd ?? board.root
     const apart = (cwd: string): boolean => isolate || cwd !== shared
+    // Work no checkout can be given stops the round, unless the card shares that work's own tree.
     for (const one of closure.unsettled) {
       const seat = this.#seatForCard(run, one.card).seat
       if (!seat || apart(seat.checkout.cwd)) return UNREACHABLE(round.cards, one.card, one.why)
     }
     const handed = closure.subjects.map((one) => ({ card: one.card, at: one.at, branch: one.checkout.branch, cwd: one.checkout.cwd }))
-    if (!handed.some((one) => apart(one.cwd))) return { base: null, handed: [] }
-    return { base: new Set(handed.map((one) => one.at)).size === 1 ? handed[0]!.at : null, handed }
+    // The one rule a dry run states too (`rolesAtPredecessor`), so what it said is what runs.
+    const where = handedCheckout(isolate, handed.map((one) => ({ apart: one.cwd !== shared })))
+    if (where === 'own') return { base: null, handed: [] }
+    return { base: where === 'lane' ? handed[0]!.at : null, handed }
   }
 
   async #seatRound(
@@ -2303,7 +2307,9 @@ export class FlowExecutions {
           goal: run.goal, agent: binding.agent.id,
           ...(candidates.length ? { seats: candidates } : {}),
           grant: { kind: 'ceiling', level: binding.grant }, card, isolate: isolate || base !== null,
-          ...(base !== null ? { base } : {}),
+          /* A lane the file did not ask for, for a Seat that only reads, is
+             let go — ports and browser profile — when that Seat closes. */
+          ...(base !== null ? { base, ...(!isolate && binding.grant === 'read' ? { reading: true as const } : {}) } : {}),
           // The run's own frozen policy, read from its record every time — never the request that started it.
           ...(run.requireHeld === true ? { requireHeld: true as const } : {}),
         })

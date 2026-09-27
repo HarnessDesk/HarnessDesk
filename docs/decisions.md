@@ -935,7 +935,19 @@ exactly as it was.
 This adds lanes a flow file does not spell out, which #1024 declined to do for
 committing siblings. The difference is what the lane is for: #1024's would
 have hidden a refused shape, while this one is the only way to give a card the
-work its own order names, and it never shares or moves anyone else's tree.
+work its own order names, and it never shares or moves anyone else's tree. It
+is not hidden either: the dry run computes the same rule from the file alone
+(`rolesAtPredecessor`, beside the `handedCheckout` the run seats by) and marks
+each such Seat, so the start screen says what runs. For that, a run cuts a
+lane only for exactly one predecessor card; several are always named, even
+when they happen to share a commit, so the file decides and the run agrees.
+
+A reading Seat still gets the whole lane — ports and a browser profile — since
+the browser tools are read-level and its own shell may run the project's tests
+on `PORT`. What it does not do is hold them: a lane opened only for a reader
+is marked `reading`, and is let go the moment its Seat closes, or left
+retained for a person when a port is still in use. A UC4-shaped loop therefore
+holds one reader's ports at a time, not one per round.
 
 **The rule:** one commit handed is a lane cut from it; several are named in
 the order; work that cannot be reached stops the round, never a Seat on stale

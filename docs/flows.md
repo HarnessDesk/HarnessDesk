@@ -570,6 +570,18 @@ naming the role and the two ways out: isolate it, or lower its grant to
 safely, so one writer beside reviewers that only read is fine, and a round
 opens exactly one role, so no two roles run at once.
 
+One lane the file does not spell out is taken on purpose: a card handed one
+earlier step's commit that was written in another checkout opens in a
+worktree of its own cut from that commit (see *A card's checkout holds the
+work it is handed* below). The dry run marks each such Seat, "in a worktree
+of its own at the commit it is handed", so the start screen still says what
+runs. A reading Seat's lane of this kind lets its ports and browser profile go
+as soon as that Seat closes; its folder stays, since the card's recorded stop
+is read against it. A committing card seated this way — not isolated, after an
+isolated writer — commits on that lane's own `harnessdesk/lane-…` branch, a
+branch the file never named. Nothing is stranded: the next card is handed
+that commit the same way, and a person merges it like any lane's branch.
+
 **Files and splits.** A rule's `then` may name the paths its card owns while
 claimed, `files: [src/api/**]`, and claiming a card claims them: the board
 refuses a claim — an agent's, the host's own for an opening Seat, or a
