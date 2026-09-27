@@ -2159,7 +2159,7 @@ it('leads a wait with the light only when a person is needed, and keeps its Open
   expect(line.querySelector('[data-slot="dot"]')).toBeNull()
   const open = [...line.querySelectorAll('button')].find((one) => one.textContent === 'Open')
   expect(open, 'the wait keeps its Open').toBeDefined()
-  expect(open?.closest('[data-slot="turn-work-live-trail"]')).not.toBeNull()
+  expect(open?.closest('[data-mark="turn-work-live-trail"]')).not.toBeNull()
   expect(open?.closest('[role="status"]')).toBeNull()
 })
 

@@ -32,3 +32,25 @@ it('offers the image-only tile used by a composer preview', () => {
   expect(attachment?.className).toContain('size-20')
   expect(media?.className).toContain('group-data-[orientation=tile]/attachment:size-full')
 })
+
+it('draws a picture as the img itself: a lone one contained under the image token, one in a tile covering it, every image prop passed through', () => {
+  act(() => root.render(
+    <>
+      <AttachmentMedia variant="picture" src="data:image/png;base64,AA" alt="Lone" loading="lazy" draggable={false} aria-describedby="note" data-case="lone" />
+      <AttachmentMedia variant="picture" fill src="data:image/png;base64,AA" alt="Tile" data-case="tile" />
+    </>,
+  ))
+  const lone = container.querySelector<HTMLImageElement>('[data-case="lone"]')
+  const tile = container.querySelector<HTMLImageElement>('[data-case="tile"]')
+  expect(lone?.tagName).toBe('IMG')
+  expect(lone?.className).toContain('max-h-(--hd-image-max-height)')
+  expect(lone?.className).toContain('object-contain')
+  expect(lone?.getAttribute('alt')).toBe('Lone')
+  expect(lone?.getAttribute('loading')).toBe('lazy')
+  expect(lone?.getAttribute('draggable')).toBe('false')
+  expect(lone?.getAttribute('aria-describedby')).toBe('note')
+  expect(tile?.className).toContain('size-full')
+  expect(tile?.className).toContain('object-cover')
+  expect(tile?.className).not.toContain('max-h-(--hd-image-max-height)')
+  expect(tile?.hasAttribute('data-fill')).toBe(true)
+})

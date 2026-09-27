@@ -108,28 +108,55 @@ const Attachment = ({
   </div>
 )
 
-/** The thumbnail or the file glyph. `image` lets an `<img>` fill it. */
-const AttachmentMedia = ({
-  className,
-  variant = 'icon',
-  children,
-  ...props
-}: React.ComponentProps<'span'> & { variant?: 'icon' | 'image' }) => (
-  <span
-    data-slot="attachment-media"
-    data-variant={variant}
-    className={cn(
-      'flex shrink-0 items-center justify-center overflow-hidden rounded-(--hd-radius-sm) bg-(--hd-muted) text-(--hd-muted-foreground)',
-      variant === 'image'
-        ? 'size-9 group-data-[orientation=vertical]/attachment:h-16 group-data-[orientation=vertical]/attachment:w-full group-data-[orientation=tile]/attachment:size-full group-data-[orientation=tile]/attachment:rounded-(--hd-radius-lg) [&_img]:size-full [&_img]:object-cover'
-        : 'size-8 [&_svg]:size-4',
-      className,
-    )}
-    {...props}
-  >
-    {children ?? <FileIcon aria-hidden />}
-  </span>
-)
+type AttachmentMediaProps =
+  | (React.ComponentProps<'span'> & { variant?: 'icon' | 'image' })
+  | (React.ComponentProps<'img'> & { variant: 'picture'; fill?: boolean })
+
+/**
+ * The thumbnail or the file glyph. `image` is a framed tile an `<img>` fills.
+ *
+ * `picture` is the thumbnail itself: the `<img>`, with every image prop
+ * reaching it and no frame of its own — whatever holds it (a transcript's
+ * tile, an `image` tile in a draft) is the frame. Two shapes, one per layout.
+ * A lone picture keeps its proportions, contained under
+ * `--hd-image-max-height`, the ceiling that keeps one photo from becoming a
+ * wall of it; a picture in a tile (`fill`) covers the tile.
+ */
+const AttachmentMedia = (allProps: AttachmentMediaProps) => {
+  if (allProps.variant === 'picture') {
+    const { className, variant, fill = false, ...props } = allProps
+    return (
+      <img
+        data-slot="attachment-media"
+        data-variant={variant}
+        data-fill={fill ? '' : undefined}
+        className={cn(
+          'block',
+          fill ? 'size-full object-cover' : 'h-auto w-auto max-w-full max-h-(--hd-image-max-height) object-contain',
+          className,
+        )}
+        {...props}
+      />
+    )
+  }
+  const { className, variant = 'icon', children, ...props } = allProps
+  return (
+    <span
+      data-slot="attachment-media"
+      data-variant={variant}
+      className={cn(
+        'flex shrink-0 items-center justify-center overflow-hidden rounded-(--hd-radius-sm) bg-(--hd-muted) text-(--hd-muted-foreground)',
+        variant === 'image'
+          ? 'size-9 group-data-[orientation=vertical]/attachment:h-16 group-data-[orientation=vertical]/attachment:w-full group-data-[orientation=tile]/attachment:size-full group-data-[orientation=tile]/attachment:rounded-(--hd-radius-lg) [&_img]:size-full [&_img]:object-cover'
+          : 'size-8 [&_svg]:size-4',
+        className,
+      )}
+      {...props}
+    >
+      {children ?? <FileIcon aria-hidden />}
+    </span>
+  )
+}
 
 const AttachmentContent = ({ className, ...props }: React.ComponentProps<'span'>) => (
   <span
