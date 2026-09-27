@@ -243,6 +243,8 @@ export class CheckRuns {
     const { lines } = await this.#parts.store.read(project, 'evidence')
     for (const line of [...lines].reverse()) {
       if (line.type !== 'evidence' || line.record.restored || line.record.card?.board !== room || line.record.card.id !== card) continue
+      // A Seat's `run_check` ran in a checkout cut for it and removed after (#1082).
+      if (line.record.fact.kind === 'check' && line.record.fact.advisory) continue
       if (line.record.checkout) return line.record.checkout.cwd
     }
     return null

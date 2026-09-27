@@ -7,6 +7,43 @@ the rule is the last line of its section.
 
 ---
 
+## The host runs a declared check for an agent; an agent is never given the network
+
+A Seat that only reads — a reviewer, a tester, an acceptance check — can ask
+the host to run one of its flow's own declared checks through `run_check`, by
+name, on the committed change its card was handed, and learn whether it
+passed. Codex's sandbox refuses a child process a listening socket, so a test
+that starts a real server failed in every Codex-seated review while passing on
+the host's check, and reviewers could not tell a broken change from their own
+sandbox. Turning on the sandbox's network access would let the child bind —
+and would also open outbound network to everything the agent runs, which is a
+far larger grant than "the suite may start its own server".
+
+A host that runs commands on an agent's behalf is itself a way out of the
+agent's sandbox, so the tool is held to what a review needs and no more. Only
+a Seat whose grant cannot write may call it: a Seat that can write could put a
+test in its tree that reads secrets or calls the network, have the host run
+it, read what it printed, and repeat. The check never runs in anybody's
+working tree: the host cuts a fresh detached checkout at the handed commit
+(the card's seating's base, one of the commits it was handed, or its
+checkout's committed `HEAD`), with hooks off, and removes it afterwards, on a
+timeout or an abort too — so a writer's uncommitted edits in a shared checkout
+are never what runs. The agent names a declared check and never writes a
+command. It gets three runs a turn and ten a card, one at a time, and none
+while the run is paused or not live.
+
+Its result is recorded on the card as advisory (`advisory: true`, `counted:
+false`): the board shows it apart, and no rule's check guard reads it, for or
+against. Otherwise a Seat could re-run a flaky suite until it passed, or
+supersede a failing check card, and open a rule for a commit whose committed
+code fails. What a rule needs is still decided by the flow's own check card. A
+repository's own named checks file is not offered: each of those needs a
+person's approval on this machine, which an agent cannot give.
+
+Rule: when an agent's sandbox refuses what a declared check needs, the host
+runs the check on the committed change, for a Seat that cannot write, as
+advisory evidence; the sandbox is not widened.
+
 ## The host commits for an agent; an agent is never given `.git`
 
 A Seat whose grant can commit (`edit` and above) commits its card's own work
