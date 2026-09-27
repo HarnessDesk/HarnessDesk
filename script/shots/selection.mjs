@@ -7,11 +7,14 @@
  * makes the boundary cheap to exercise without launching Electron.
  */
 export const selectScenes = ({ all, context, names, requested }) => {
-  const selected = all ? (context ? names.filter((name) => name.startsWith('ring-')) : names) : requested
-  if (!context) return selected
-  const ordinary = selected.filter((name) => !name.startsWith('ring-'))
-  if (ordinary.length > 0) {
-    throw new Error(`HD_SHOTS_CONTEXT=1 only permits ring-* scenes; refused: ${ordinary.join(', ')}`)
+  if (context) {
+    // Validate explicit names before `--all` picks its complete scene set.
+    // Otherwise `--all --scene desk` would silently ignore a request that
+    // must never run against the expanded context rig.
+    const ordinary = requested.filter((name) => !name.startsWith('ring-'))
+    if (ordinary.length > 0) {
+      throw new Error(`HD_SHOTS_CONTEXT=1 only permits ring-* scenes; refused: ${ordinary.join(', ')}`)
+    }
   }
-  return selected
+  return all ? (context ? names.filter((name) => name.startsWith('ring-')) : names) : requested
 }
