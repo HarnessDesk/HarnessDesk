@@ -20,6 +20,12 @@
   column-gap: var(--hd-space-2);
 }
 
+/* A note that does not fit beside its reading drops to the next line whole -
+   "resets Tue 11:47 PM" as one piece, never split at its own inner space. */
+.rowReading > [data-role='meta'] {
+  white-space: nowrap;
+}
+
 .window {
   margin-bottom: var(--hd-space-0-5);
 }

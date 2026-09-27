@@ -211,7 +211,7 @@ panel says so in a sentence and still shows the rows it does have. Nothing is
 guessed to fill the gap. (cursor-agent 2026.08.31 added cache read and write
 splits to turn usage, allowing the cache chip to populate when reported).
 
-![The Cursor Agent context panel: a dashed ring, "Context window unknown", the sentence "Cursor Agent does not report its context window size", last turn 1.2K in and 80 out, 1.3K this session](images/ring-cursor.png)
+![The Cursor context panel: a dashed ring, "Context window unknown", the sentence "Cursor does not report its context window size", last turn 1.2K in at 90% cached and 80 out, 1.3K this session](images/ring-cursor.png)
 
 **DeepSeek Harness** — the composition, on its own bar. The shares are of the
 segments (14 + 86 = 100), the footnote names who priced them and says plainly
