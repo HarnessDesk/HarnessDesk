@@ -1558,7 +1558,7 @@ export class Flows implements TeamFlows {
       /* Down the person's own path: a check is the desk acting for them, and
          a completion that did not go through the board's referee would be a
          second way for a card to finish. */
-      this.#team.intentAction(run.room, intent, 'done', note, outcome)
+      await this.#team.intentAction(run.room, intent, 'done', note, outcome)
     }
   }
 

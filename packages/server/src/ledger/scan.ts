@@ -989,6 +989,30 @@ interface ClineUsage {
  * sessions of their own in the same table, so only `usage` is read, or every
  * subagent would count twice. Like OpenCode's, the figure is a session total,
  * and falls on the day the session was last touched.
+ *
+ * Cline's own SDK (`sdk/packages/core/src/services/usage.ts`, doc comment on
+ * `getCurrentContextSize`) says plainly: "Provider usage is normalized so
+ * `inputTokens` is already the full prompt size, including any
+ * cache-read/cache-write portions." That is what lands in `metadata_json`,
+ * because `SessionAccumulatedUsage` (`runtime-host.ts`) is filled straight
+ * from the same normalized usage — confirmed against the vendored provider
+ * adapters Cline pins (`sdk/packages/llms/package.json`): `@ai-sdk/anthropic`
+ * (`convert-anthropic-usage.ts`: `inputTokens.total = noCache +
+ * cacheCreationTokens + cacheReadTokens`), `@ai-sdk/openai`
+ * (`convert-openai-chat-usage.ts`: `total = prompt_tokens`, which OpenAI
+ * already counts cache hits inside of), and `@ai-sdk/openai-compatible`
+ * (`convert-openai-compatible-chat-usage.ts`, the same `total = prompt_tokens`
+ * shape) — the last of which is what Cline's own default gateway provider
+ * uses too (`sdk/packages/llms/src/providers/vendors/cline.ts` builds it with
+ * `createOpenAICompatible`). Every format Cline can be run against normalizes
+ * to the same "total includes cache" shape, so unlike Codex (which only ever
+ * has to subtract a cache **read**), Cline's `inputTokens` can double-count a
+ * cache **write** too — exactly the disjoint-bucket split Cline's own
+ * `legacyTokenUsageFromUsageEvent()` (`services/agent-events.ts`) performs for
+ * its legacy telemetry: `tokensIn = max(0, inputTokens - cacheReadTokens -
+ * cacheWriteTokens)`. Nothing in `sessions.db` names which provider a session
+ * used, but nothing needs to: the bug is not format-specific, so every
+ * session gets the same correction rather than a per-format branch.
  */
 export const scanClineDatabase = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
   let size = target.size
@@ -1011,15 +1035,23 @@ export const scanClineDatabase = async (target: ScanTarget, insight?: InsightSca
     }
     const at = parseTime(session.updated_at ?? undefined) ?? parseTime(session.started_at ?? undefined)
     if (at === null) continue
+    const cacheRead = positive(usage.cacheReadTokens)
+    const cacheWrite = positive(usage.cacheWriteTokens)
     const tokens = {
-      input: positive(usage.inputTokens),
+      // Cline's own `inputTokens` is the full prompt, cache reads and cache
+      // writes included (see the doc comment above) — netted out the same
+      // way Cline's own legacy telemetry conversion does.
+      input: Math.max(0, positive(usage.inputTokens) - cacheRead - cacheWrite),
       output: positive(usage.outputTokens),
       cacheRead: positive(usage.cacheReadTokens),
       cacheWrite: positive(usage.cacheWriteTokens),
       reasoning: 0,
     }
     const observed = {
-      input: observedCount(usage.inputTokens), output: observedCount(usage.outputTokens),
+      // Mirrors `tokens.input`'s correction, but stays null (not zero) when
+      // the source record never carried `inputTokens` at all.
+      input: observedCount(usage.inputTokens) === null ? null : Math.max(0, observedCount(usage.inputTokens)! - cacheRead - cacheWrite),
+      output: observedCount(usage.outputTokens),
       cacheRead: observedCount(usage.cacheReadTokens), cacheWrite: observedCount(usage.cacheWriteTokens),
     }
     const cost =

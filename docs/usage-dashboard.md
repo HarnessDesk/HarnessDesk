@@ -323,9 +323,10 @@ empty stall. `tokenUsage` — `inputTokens`, `outputTokens`, `cacheReadTokens`,
 event, and it is a **disjoint** shape: `inputTokens` excludes both cache
 counters, the same as Claude's own usage block and unlike Codex's, where the
 cached share sits inside `input_tokens`. That makes a cache-hit rate for
-`cursor` the same formula the other four disjoint-counter scanners already use
+`cursor` the same formula every other disjoint-counter scanner already uses
 — `cacheRead / (input + cacheRead)` — never the one measured shape this doc
-used to leave undefined only for Cline.
+used to leave undefined for Cline, before Cline's own normalisation was
+measured too (see "Tokens" above).
 
 `requestsCosts` is Cursor's own accounting of how many "requests" of a
 request-based plan's quota one event consumed: a plain call reads `1`, a cheap
@@ -434,15 +435,21 @@ a card can be built without naming the vendor behind it.
   `input + output + cacheRead + cacheWrite` — reasoning is already inside
   `output` for every scanner in `ledger/scan.ts`, so it is never added a
   second time, only kept so a caller can say "of which N reasoning" without
-  a second total that could disagree with the first. Four of the five
-  scanners — Codex, Claude, Gemini/Qwen and OpenCode — also normalise `input`
-  to exclude the cache before it is stored, so for those four a cache-hit
-  rate is always `cacheRead / (input + cacheRead)` — the share of the *input*
-  side that came from cache — never `cacheRead / tokens`, which would dilute
-  it with output that was never a candidate for the cache at all. Cline is
-  the fifth: its `input` is stored as Cline's own database records it, and
-  whether that already includes cache reads hasn't been measured, so a
-  cache-hit rate for `cline` is not defined yet.
+  a second total that could disagree with the first. All five scanners here
+  — Codex, Claude, Gemini/Qwen, OpenCode and Cline — normalise `input` to
+  exclude the cache before it is stored, so a cache-hit rate is always
+  `cacheRead / (input + cacheRead)` — the share of the *input* side that came
+  from cache — never `cacheRead / tokens`, which would dilute it with output
+  that was never a candidate for the cache at all. Cline was the last to be
+  measured: its `metadata_json.usage.inputTokens` is the full prompt Cline's
+  own SDK normalizes every provider format to (Anthropic, OpenAI,
+  OpenAI-compatible and Cline's own default gateway alike — its provider
+  adapters, and its own `sdk/packages/core/src/services/usage.ts` doc
+  comment, say so plainly),
+  cache reads *and* cache writes both folded in, with nothing in
+  `sessions.db` naming which format a given session used. Since the fold-in
+  is not format-specific, `scanClineDatabase` nets out both fields from every
+  session rather than guessing a format from data that does not carry one.
 
 `UsageReport.billing.kinds` names which of these a plan actually has —
 `'windows' | 'allowance' | 'balance' | 'metered' | 'free'` — as a set, because
