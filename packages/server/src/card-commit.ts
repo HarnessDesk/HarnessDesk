@@ -16,6 +16,8 @@ import { HARDENED_GIT_CONFIG } from './git-hardening.js'
  * card's own work in the Seat's checkout, with git run so nothing the
  * repository says can run code (`HARDENED_GIT_CONFIG`, plus no system or
  * global configuration and every configured filter driver switched off).
+ * Work that goes through a filter (LFS) is refused rather than committed raw,
+ * and a submodule's changes are never looked at: it is its own repository.
  *
  * Only the card's own work: the paths dirty now that were not dirty when the
  * card was claimed (`IntentClaim.dirtyPaths`, read in the same
@@ -121,6 +123,46 @@ const identityOf = async (cwd: string): Promise<{ readonly name: string; readonl
   return name && email ? { name, email } : null
 }
 
+/** Runs a read-only git with `input` on its standard input. */
+const gitWithInput = (cwd: string, args: readonly string[], input: string, env: NodeJS.ProcessEnv): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const child = execFile('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], { timeout: 60_000, maxBuffer: 16 * 1024 * 1024, env }, (error, stdout) =>
+      error ? reject(error) : resolve(stdout),
+    )
+    child.stdin?.end(input)
+  })
+
+/**
+ * Whether any file among `paths` has a filter attribute. A filter — LFS is
+ * the common one — is a program that turns a file into what is stored, and
+ * the commit runs with every filter off (no global configuration, where LFS
+ * is set up, and the repository's own blanked), so committing such a file
+ * would store it raw: a large file straight into history instead of its
+ * pointer. Such work is refused rather than committed wrong. A folder git
+ * lists as untracked is looked into, file by file. Attributes are read the way
+ * the person's own git reads them; reading them runs nothing.
+ */
+const filteredAmong = async (top: string, paths: readonly string[]): Promise<boolean> => {
+  const env = { ...readEnv(), GIT_LITERAL_PATHSPECS: '1' }
+  const files: string[] = []
+  for (const path of paths) {
+    if (!path.endsWith('/')) {
+      files.push(path)
+      continue
+    }
+    const inside = await git(top, ['ls-files', '-z', '--others', '--exclude-standard', '--', path], { env })
+    files.push(...inside.split('\0').filter(Boolean))
+  }
+  if (files.length === 0) return false
+  const out = await gitWithInput(top, ['check-attr', '-z', '--stdin', 'filter'], files.join('\0') + '\0', env)
+  const fields = out.split('\0')
+  for (let index = 0; index + 2 < fields.length; index += 3) {
+    const value = fields[index + 2]
+    if (value !== 'unspecified' && value !== 'unset') return true
+  }
+  return false
+}
+
 /** One `git status --porcelain=v1` line's path, exactly as `revisionAt` reads it. */
 const displayPath = (line: string): string => {
   const rest = line.slice(3)
@@ -160,7 +202,8 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
     return { refused: 'Refused: this Seat’s checkout is not a git repository, so there is nothing to commit.' }
   }
   const filters = await filtersOff(top)
-  const status = ['status', '--porcelain=v1', '--untracked-files=normal']
+  // A submodule is its own repository: its changes are never this card's to commit from here.
+  const status = ['status', '--porcelain=v1', '--untracked-files=normal', '--ignore-submodules=all']
   let shown: string[]
   let entries: { readonly path: string; readonly from: string | null }[]
   try {
@@ -178,6 +221,11 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
   const own = entries.filter((_entry, index) => !seen.has(shown[index]!))
   if (own.length === 0) return { refused: 'Nothing to commit: no file changed since this card was claimed is uncommitted.' }
   const paths = [...new Set(own.flatMap((entry) => (entry.from ? [entry.path, entry.from] : [entry.path])))]
+  const filtered = await filteredAmong(top, paths).catch(() => null)
+  if (filtered === null) return { refused: 'Refused: the checkout’s git attributes could not be read, so nothing was committed.' }
+  if (filtered) {
+    return { refused: 'Refused: some of this card’s files go through a git filter (such as LFS), so nothing was committed. Commit them yourself, or ask the person to.' }
+  }
   const identity = await identityOf(top)
   if (!identity) {
     return { refused: 'Refused: this checkout has no git author (user.name and user.email), so nothing was committed. Set one, then call commit_work again.' }

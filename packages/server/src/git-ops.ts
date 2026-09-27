@@ -5,7 +5,6 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { FileChange, Turn } from '@harnessdesk/protocol'
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 /**
  * The few things the host does *to* a repository, as opposed to reading it
@@ -20,7 +19,7 @@ const run = promisify(execFile)
 
 /** `signal`, on top of the 20s timeout, kills this process early rather than leaving it to run the full 20s (`topLevel`, #948). */
 const git = async (root: string, args: readonly string[], signal?: AbortSignal): Promise<string> => {
-  const { stdout } = await run('git', ['-C', root, ...HARDENED_GIT_CONFIG, ...args], {
+  const { stdout } = await run('git', ['-C', root, ...args], {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
     ...(signal ? { signal } : {}),

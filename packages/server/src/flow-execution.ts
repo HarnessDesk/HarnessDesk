@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 
 import { DEFAULT_FLOW_BUDGET } from '@harnessdesk/protocol'
 import type {
@@ -1548,10 +1548,41 @@ export class FlowExecutions {
     }
     const { seat } = this.#seatForCard(run, card)
     if (!seat) return `Refused: card #${card} has no Seat to commit for.`
+    /* "Dirty now and not at my claim" is only this card's own work when
+       nobody else can be writing the same checkout: another open card whose
+       Seat may commit, sharing it, leaves changes this one cannot tell from
+       its own, and committing them would put another card's work under this
+       one's name. */
+    if (this.#committerSharing(seat.checkout.cwd, goal, card)) {
+      return "Refused: another card is working in this checkout, so its changes can't be told apart from yours; nothing was committed. Ask the person to commit, or isolate the role."
+    }
     if (!this.#port.commitWork) return 'Refused: this desk cannot commit for a Seat.'
-    const done = await this.#port.commitWork(seat.checkout.cwd, before, message)
-    if ('refused' in done) return done.refused
-    return `Committed ${done.paths.length} file${done.paths.length === 1 ? '' : 's'} as ${done.commit}.`
+    const made = await this.#port.commitWork(seat.checkout.cwd, before, message)
+    if ('refused' in made) return made.refused
+    return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.`
+  }
+
+  /** Whether another open card, whose Seat may commit, works in the checkout at `cwd` — any run's. */
+  #committerSharing(cwd: string, goal: string, card: number): boolean {
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running' || run.document.format !== 'agents') continue
+      const intents = this.#team.stateFor(run.goal).intents
+      for (const round of run.rounds) {
+        const role = run.document.flow.roles.find((one) => one.id === round.role)
+        if (role?.kind !== 'agent') continue
+        const bindings = bindingsFor(run, role.id)
+        for (const [index, other] of round.cards.entries()) {
+          if (run.goal === goal && other === card) continue
+          const binding = bindings[index]
+          if (!binding || !mayCommit(binding.agent, binding.grant)) continue
+          const intent = intents.find((one) => one.id === other)
+          if (!intent || done(intent)) continue
+          const { seat } = this.#seatForCard(run, other)
+          if (seat && !seat.closed && resolve(seat.checkout.cwd) === resolve(cwd)) return true
+        }
+      }
+    }
+    return false
   }
 
   /**

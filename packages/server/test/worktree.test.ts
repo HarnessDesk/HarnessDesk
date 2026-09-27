@@ -526,27 +526,25 @@ test('a worktree git will not put back is reported as gone, not as left in place
 })
 
 /**
- * A repository's hooks are code anybody who could write its `.git` put there
- * — an agent without a sandbox, say — so the host's own git runs none of them
- * (git-hardening.ts, #1074). Bringing a branch home switches the main
- * checkout without its post-checkout hook, which used to run, and fail, as
- * the host's own process.
+ * Git runs a post-checkout hook after the switch and returns the hook's exit
+ * status as checkout's own, so a failing hook reads as a refused checkout
+ * that has in fact happened. Where the main checkout is afterwards decides
+ * it: the branch is home, and there is nothing to put back. What git said is
+ * not dropped, though: it reaches the caller as a warning.
  */
-test('bringing a branch home runs no hook the repository configures', async (t) => {
+test('a failing post-checkout hook after the switch still brings the branch home, and says what git reported', async (t) => {
   const { repo, worktrees } = await fixture(t)
   const tree = await worktrees.create(repo, { name: 'hooked' })
   const hooks = join(repo, '..', 'hooks')
-  const marker = join(repo, '..', 'hook-ran')
   await mkdir(hooks)
-  await writeFile(join(hooks, 'post-checkout'), `#!/bin/sh\ntouch '${marker}'\necho "the hook says no" >&2\nexit 1\n`, { mode: 0o755 })
+  await writeFile(join(hooks, 'post-checkout'), '#!/bin/sh\necho "the hook says no" >&2\nexit 1\n', { mode: 0o755 })
   await git(repo, 'config', 'core.hooksPath', hooks)
 
   const home = await worktrees.bringHome(tree.path)
 
   assert.equal(home.branch, 'harnessdesk/hooked')
   assert.equal(home.from, 'main')
-  assert.equal(home.warning ?? null, null, 'no hook ran, so there is nothing it reported')
-  await assert.rejects(stat(marker), 'the hook never ran')
+  assert.match(home.warning ?? '', /the hook says no/, "git's words for the hook reach the caller")
   assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/hooked', 'the switch happened')
   await assert.rejects(stat(tree.path), 'the side checkout is gone')
   assert.equal((await worktrees.list(repo)).length, 1, 'and git no longer lists it')

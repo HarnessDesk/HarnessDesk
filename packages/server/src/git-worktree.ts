@@ -11,7 +11,6 @@ import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@ha
 import { changes, worktreeHome, WorktreeDirtyError, samePath } from './worktree.js'
 
 import { parsePorcelain } from './porcelain.js'
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 /**
  * Worktrees, as a git client manages them.
@@ -44,7 +43,7 @@ const run = promisify(execFile)
 const SLOW = 120_000
 
 const git = async (cwd: string, args: readonly string[], timeout = 20_000): Promise<string> => {
-  const { stdout } = await run('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], { timeout, maxBuffer: 16 * 1024 * 1024 })
+  const { stdout } = await run('git', ['-C', cwd, ...args], { timeout, maxBuffer: 16 * 1024 * 1024 })
   return stdout
 }
 
@@ -54,7 +53,7 @@ const git = async (cwd: string, args: readonly string[], timeout = 20_000): Prom
  * this module announce that it pruned nothing while git pruned three.
  */
 const gitSaid = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout, stderr } = await run('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
+  const { stdout, stderr } = await run('git', ['-C', cwd, ...args], {
     timeout: 20_000,
     maxBuffer: 16 * 1024 * 1024,
   })

@@ -361,3 +361,40 @@ test('commit_work on a read-only card is refused, and nothing is committed', asy
   assert.deepEqual(rig.commits, [])
 })
 
+
+/*
+ * Review of #1075: "dirty now and not at my claim" is only a card's own work
+ * when nobody else can be writing the same checkout. Two committing cards in
+ * one shared checkout cannot tell each other's changes apart, so commit_work
+ * refuses there rather than commit one card's work under the other's name —
+ * and an isolated pair, each in its own lane, commits as usual.
+ */
+const PAIR = (isolate: boolean) => `
+version: 2
+name: Two writers
+roles:
+  author: { kind: agent, uses: writer, count: 2, grant: edit${isolate ? ', isolate: true' : ''} }
+seed: { role: author, title: Write something }
+rules: []
+`
+
+test('commit_work is refused while another committing card works in the same checkout', async (t) => {
+  const rig = await goalRig(t)
+  await rig.start(PAIR(false), [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const answer = await rig.team.commitWork(1, 'Mine', rig.sessionOf('seat-1'))
+  assert.equal(answer, "Refused: another card is working in this checkout, so its changes can't be told apart from yours; nothing was committed. Ask the person to commit, or isolate the role.")
+  assert.deepEqual(rig.commits, [])
+  // Once the other card is finished, the checkout is this card's alone again.
+  await rig.team.complete(2, { outcome: 'done' }, rig.sessionOf('seat-2'))
+  assert.match(await rig.team.commitWork(1, 'Mine', rig.sessionOf('seat-1')), /^Committed 1 file/)
+})
+
+test('an isolated pair commits, each in its own lane', async (t) => {
+  const rig = await goalRig(t)
+  await rig.start(PAIR(true), [agent('writer', ['done'])])
+  await rig.flows.flush()
+  assert.match(await rig.team.commitWork(1, 'Mine', rig.sessionOf('seat-1')), /^Committed 1 file/)
+  assert.equal(rig.commits.length, 1)
+  assert.notEqual(rig.commits[0]!.cwd, '/repo', 'in the lane, not the shared checkout')
+})

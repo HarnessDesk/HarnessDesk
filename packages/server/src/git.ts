@@ -153,7 +153,7 @@ export const diff = async (
   options: { readonly path?: string; readonly staged?: boolean } = {},
 ): Promise<string> => {
   // The a/ and b/ every reader of a patch expects, whatever diff.noprefix or diff.mnemonicPrefix says (#171).
-  const args = ['diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/']
+  const args = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/']
   if (options.staged) args.push('--cached')
   if (options.path) args.push('--', options.path.replaceAll('\\', '/'))
   try {

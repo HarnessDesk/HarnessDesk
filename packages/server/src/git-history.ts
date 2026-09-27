@@ -411,8 +411,8 @@ export const commit = async (root: string, sha: string): Promise<GitCommitDetail
   const base = parents[0] ?? (await emptyTree(root))
 
   const [numstat, nameStatus] = await Promise.all([
-    asked(root, ['diff', '--numstat', '-z', '--no-color', '--no-ext-diff', base, sha]),
-    asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]),
+    asked(root, ['diff', '--numstat', '-z', '--no-color', '--no-ext-diff', '--no-textconv', base, sha]),
+    asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', '--no-textconv', base, sha]),
   ])
 
   // `--numstat -z`: "added\tremoved\tpath\0", except a rename, which is
@@ -503,14 +503,14 @@ export const commitDiff = async (root: string, sha: string, path: string): Promi
      name-status the file list is built from, so the patch shows what the list
      said — a rename, and only what changed across it. */
   const entry = (
-    known?.entries ?? listed(await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', base, sha]))
+    known?.entries ?? listed(await asked(root, ['diff', '--name-status', '-z', '--no-color', '--no-ext-diff', '--no-textconv', base, sha]))
   ).find((file) => file.path === normalisedPath)
   /* Renames only. A rename's two paths are one file; a copy's are two, and
      naming the source brought the source's own edits into the copy's patch
      (review, round 1). A copy opens as the file it made. */
   const paths = entry?.letter === 'R' && entry.oldPath ? [entry.oldPath, normalisedPath] : [normalisedPath]
   // a/ and b/ whatever the repository's diff settings say, as in git.ts (#171).
-  return (await asked(root, ['diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', base, sha, '--', ...paths])) ?? ''
+  return (await asked(root, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', base, sha, '--', ...paths])) ?? ''
 }
 
 // ------------------------------------------------------------ createBranch

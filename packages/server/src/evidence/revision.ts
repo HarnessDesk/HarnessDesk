@@ -345,7 +345,7 @@ export const diffOf = async (
       : options.upstream !== undefined ? (options.upstream !== null && isSha(options.upstream) ? options.upstream : null)
         : await upstreamOf(cwd)
     const log = await gitOr(cwd, [
-      'log', '--first-parent', '--no-merges', '--numstat', '--format=%x00%H', `${began}..${end}`,
+      'log', '--first-parent', '--no-merges', '--no-ext-diff', '--no-textconv', '--numstat', '--format=%x00%H', `${began}..${end}`,
       ...(setAside ? ['--not', setAside] : []), '--',
     ])
     if (log === null) return null
@@ -376,7 +376,7 @@ export const diffOf = async (
   if (!base) return null
   const from = (await gitOr(cwd, ['merge-base', base, revision.head]))?.trim() ?? ''
   if (!isSha(from)) return null
-  const shortstat = (await gitOr(cwd, ['diff', '--shortstat', from, revision.head])) ?? ''
+  const shortstat = (await gitOr(cwd, ['diff', '--no-ext-diff', '--no-textconv', '--shortstat', from, revision.head])) ?? ''
   const number = (pattern: RegExp): number => Number(pattern.exec(shortstat)?.[1] ?? 0)
   return {
     files: number(/(\d+) files? changed/),

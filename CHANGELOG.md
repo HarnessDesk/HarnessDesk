@@ -17,10 +17,14 @@ move is real work and is not news to a person weighing an upgrade.
   was claimed, and nothing that was already uncommitted before — with the
   agent's message, in the Seat's checkout or lane, and answers the new commit.
   The sandbox is not widened. The commit runs no hook, filesystem monitor,
-  filter or signing program the repository configures, and the desk's own
-  git in a checkout an agent can write runs none of its hooks or its
-  filesystem monitor — so bringing a branch home no longer runs the
-  repository's post-checkout hook. The shipped Researcher,
+  filter or signing program the repository configures; it refuses work a git
+  filter such as LFS would touch rather than commit it raw, leaves submodules
+  alone, and refuses while another committing card shares the checkout. The
+  desk's own automatic git in a checkout an agent can write — evidence reads,
+  status, lane creation — now runs none of the repository's hooks, its
+  filesystem monitor or an external diff program; a filter it configures can
+  still run there. Verbs you trigger yourself, like bringing a branch home,
+  still run your hooks. The shipped Researcher,
   Requirements analyst and Implementer briefs use the tool, the uncommitted-work
   refusal names it, and when a card's finish is refused for uncommitted work
   turn after turn until the run gives up, the stop now says the Seat could not
