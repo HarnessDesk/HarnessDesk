@@ -60,6 +60,7 @@ export const Usage = ({
   onScope: onScopeProp,
   onClose,
   onSignIn,
+  onOpenPlanSettings,
 }: {
   /** The rail's own row, owned by the caller so any entry point can redirect it. */
   view?: DashboardView
@@ -70,6 +71,8 @@ export const Usage = ({
   onClose: () => void
   /** Opening the sign-in window from the agent that has nothing to report. */
   onSignIn?: (runtime: RuntimeId) => void
+  /** Opens an account's own Plan card in Settings — Plans' Key body and money row read it (review of #1069, B5). Falls back to `onSignIn`'s own door (Settings › Runtimes) when the caller has nothing more specific. */
+  onOpenPlanSettings?: (runtime: RuntimeId) => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -422,6 +425,7 @@ export const Usage = ({
               onRefreshAccount={(runtime) => void store.refreshUsage(runtime)}
               onStopTracking={(runtime) => store.setUsageTracked(runtime, false)}
               onTrack={(runtime) => store.setUsageTracked(runtime, true)}
+              onOpenPlanSettings={onOpenPlanSettings ?? (() => {})}
             />
           )}
 

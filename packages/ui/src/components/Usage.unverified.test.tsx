@@ -117,9 +117,20 @@ const render = async (report: UsageReport, scope: RuntimeInfo['id'] | null = nul
   )
 }
 
+/** The Plans table's own row now collapses every account by default — expand it to reach the shape body (`Card`, reused for the windows shape) underneath. Idempotent: a re-render onto the same root keeps React's `expanded` state, so a row already open is left alone rather than toggled shut. */
+const expandRow = async (name: string): Promise<void> => {
+  const row = [...document.querySelectorAll<HTMLElement>('button[aria-expanded]')].find((node) =>
+    node.textContent?.includes(name),
+  )
+  expect(row).toBeDefined()
+  if (row?.getAttribute('aria-expanded') === 'true') return
+  await act(async () => row?.click())
+}
+
 const card = async (report: UsageReport): Promise<string> => {
   await render(report)
-  const article = [...document.querySelectorAll('[data-slot="card"]')].find((node) =>
+  await expandRow('Antigravity')
+  const article = [...document.querySelectorAll('article[data-slot="card"]')].find((node) =>
     node.textContent?.includes('Antigravity'),
   )
   expect(article).toBeDefined()
@@ -141,7 +152,8 @@ const scopeMenuRow = async (report: UsageReport): Promise<string> => {
 describe("another sign-in's figures", () => {
   it('carries spent readings and model warnings into the text tone', async () => {
     await render(reportWith([group('gemini-weekly', 'Gemini Models', 100)], 'gemini-weekly'))
-    let article = [...document.querySelectorAll<HTMLElement>('[data-slot="card"]')].find((node) =>
+    await expandRow('Antigravity')
+    let article = [...document.querySelectorAll<HTMLElement>('article[data-slot="card"]')].find((node) =>
       node.textContent?.includes('Antigravity'),
     )
     const headline = [...(article?.querySelectorAll<HTMLElement>('[data-slot="text"]') ?? [])].find(
@@ -156,7 +168,8 @@ describe("another sign-in's figures", () => {
         'gemini-weekly',
       ),
     )
-    article = [...document.querySelectorAll<HTMLElement>('[data-slot="card"]')].find((node) =>
+    await expandRow('Antigravity')
+    article = [...document.querySelectorAll<HTMLElement>('article[data-slot="card"]')].find((node) =>
       node.textContent?.includes('Antigravity'),
     )
     const warning = [...(article?.querySelectorAll<HTMLElement>('[data-slot="text"]') ?? [])].find((node) =>

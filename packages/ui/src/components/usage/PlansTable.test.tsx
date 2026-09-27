@@ -1,0 +1,393 @@
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { NO_CAPABILITIES, runtimeId, type RuntimeId, type RuntimeInfo, type UsageBilling, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
+
+import { entriesFromReports, entriesFromSilent, NotReportingList } from './NotReporting'
+import { PlansTable, ShapeFilters } from './PlansTable'
+import { planRows, primaryShapeOf, shapeCountsOf } from '../../lib/plans-table'
+
+const NOW = new Date('2026-09-26T12:00:00').getTime()
+const DAY = 86_400_000
+
+const info = (id: string, name: string): RuntimeInfo =>
+  ({
+    id: runtimeId(id),
+    name,
+    capabilities: { ...NO_CAPABILITIES },
+    presentation: { name },
+  }) as unknown as RuntimeInfo
+
+const lane = (over: Partial<UsageLane> & Pick<UsageLane, 'id' | 'usedPercent'>): UsageLane => ({
+  label: over.label ?? over.id,
+  windowMinutes: 10_080,
+  resetsAt: NOW + 2 * DAY,
+  ...over,
+})
+
+const billing = (kinds: UsageBilling['kinds'], over: Partial<UsageBilling> = {}): UsageBilling => ({ kinds, ...over })
+
+const report = (over: Partial<UsageReport>): UsageReport => ({
+  runtime: runtimeId('a'),
+  account: null,
+  plan: null,
+  lanes: [],
+  credits: null,
+  spend: null,
+  reached: null,
+  source: { kind: 'runtime', label: 'from its own API' },
+  fetchedAt: NOW,
+  staleAfterMs: 5 * 60_000,
+  error: null,
+  ...over,
+})
+
+let host: HTMLDivElement
+let root: Root
+
+beforeEach(() => {
+  host = document.createElement('div')
+  document.body.append(host)
+  root = createRoot(host)
+})
+
+afterEach(() => {
+  act(() => root.unmount())
+  host.remove()
+})
+
+const mount = (element: React.ReactElement): void => {
+  act(() => root.render(element))
+}
+
+const rowFor = (name: string): HTMLElement => {
+  const found = [...document.querySelectorAll<HTMLElement>('button[aria-expanded]')].find((node) =>
+    node.textContent?.includes(name),
+  )
+  expect(found).toBeDefined()
+  return found as HTMLElement
+}
+
+describe('ShapeFilters', () => {
+  it('shows one chip per shape, each with its own count, plus All', () => {
+    const counts = shapeCountsOf(
+      [
+        report({ billing: billing(['windows']) }),
+        report({ billing: billing(['windows']) }),
+        report({ billing: billing(['allowance']) }),
+        report({ billing: billing(['balance']) }),
+      ].map(primaryShapeOf),
+      2,
+    )
+    mount(<ShapeFilters counts={counts} value="all" onChange={() => {}} />)
+    const text = host.textContent ?? ''
+    expect(text).toContain('All 6')
+    expect(text).toContain('Windows 2')
+    expect(text).toContain('Allowances 1')
+    expect(text).toContain('Balances 1')
+    expect(text).toContain('Keys 0')
+    expect(text).toContain('Free 0')
+    expect(text).toContain('Not reporting 2')
+  })
+
+  it('reports the picked filter on change', () => {
+    const onChange = vi.fn()
+    const counts = shapeCountsOf([report({ billing: billing(['windows']) })].map(primaryShapeOf))
+    mount(<ShapeFilters counts={counts} value="all" onChange={onChange} />)
+    const windows = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Windows'))
+    act(() => windows?.click())
+    expect(onChange).toHaveBeenCalledWith('windows')
+  })
+})
+
+/** `planRows` at a fixed clock, the same thing `PlansView` hands `PlansTable` now (review of #1069, B3). */
+const rowsFor = (reports: readonly UsageReport[]): ReturnType<typeof planRows> => planRows(reports, NOW)
+
+const byIdOf = (...infos: readonly RuntimeInfo[]): ReadonlyMap<RuntimeId, RuntimeInfo> =>
+  new Map(infos.map((one) => [one.id, one]))
+
+describe('PlansTable', () => {
+  it('expands a row on Enter and collapses it on Escape', () => {
+    const codex = info('codex', 'OpenAI Codex')
+    const reports = [report({ runtime: codex.id, account: 'me@example.com', lanes: [lane({ id: 'weekly', usedPercent: 40 })], billing: billing(['windows']) })]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(codex)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    const row = rowFor('me@example.com')
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('article[data-slot="card"]')).toBeNull()
+
+    act(() => row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    expect(rowFor('me@example.com').getAttribute('aria-expanded')).toBe('true')
+    expect(document.querySelector('article[data-slot="card"]')).not.toBeNull()
+
+    act(() => rowFor('me@example.com').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(rowFor('me@example.com').getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('article[data-slot="card"]')).toBeNull()
+  })
+
+  it('expands and collapses on click too, one row at a time', () => {
+    const codex = info('codex', 'OpenAI Codex')
+    const claude = info('claude', 'Claude Code')
+    const reports = [
+      report({ runtime: codex.id, account: 'a@example.com', lanes: [lane({ id: 'weekly', usedPercent: 10 })], billing: billing(['windows']) }),
+      report({ runtime: claude.id, account: 'b@example.com', lanes: [lane({ id: 'weekly', usedPercent: 20 })], billing: billing(['windows']) }),
+    ]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(codex, claude)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('a@example.com').click())
+    expect(rowFor('a@example.com').getAttribute('aria-expanded')).toBe('true')
+    expect(rowFor('b@example.com').getAttribute('aria-expanded')).toBe('false')
+
+    // Opening the second closes the first — one open at a time.
+    act(() => rowFor('b@example.com').click())
+    expect(rowFor('a@example.com').getAttribute('aria-expanded')).toBe('false')
+    expect(rowFor('b@example.com').getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('renders each shape\'s own body when expanded', () => {
+    const windows = info('windows-agent', 'Windows Agent')
+    const allowance = info('allowance-agent', 'Allowance Agent')
+    const balance = info('balance-agent', 'Balance Agent')
+    const key = info('key-agent', 'Key Agent')
+    const free = info('free-agent', 'Free Agent')
+
+    const reports = [
+      report({ runtime: windows.id, account: 'w@example.com', billing: billing(['windows']), lanes: [lane({ id: 'weekly', label: 'Weekly', usedPercent: 40 })] }),
+      report({
+        runtime: allowance.id,
+        account: 'al@example.com',
+        billing: billing(['allowance']),
+        lanes: [lane({ id: 'monthly', usedPercent: 62.4, unit: 'requests', used: 312, limit: 500 })],
+        turns: { count: 40, unitsPerTurn: 3.2, since: NOW - 14 * DAY },
+      }),
+      report({ runtime: balance.id, account: 'bal@example.com', billing: billing(['balance']), credits: { remaining: 0.88, unit: 'USD' } }),
+      report({
+        runtime: key.id,
+        account: 'k@example.com',
+        billing: billing(['metered'], { budget: { amount: 50, currency: 'USD', period: 'month' } }),
+        spend: { currency: 'USD', todayCost: null, windowCost: 22.4, windowDays: 30, todayTokens: null, windowTokens: null, provenance: 'listPrice', coverage: null },
+      }),
+      report({
+        runtime: free.id,
+        account: 'f@example.com',
+        billing: billing(['free']),
+        spend: { currency: 'USD', todayCost: null, windowCost: null, windowDays: 30, todayTokens: null, windowTokens: 1_100_000, provenance: 'listPrice', coverage: null },
+      }),
+    ]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(windows, allowance, balance, key, free)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+
+    act(() => rowFor('w@example.com').click())
+    expect(document.querySelector('article[data-slot="card"]')).not.toBeNull()
+    act(() => rowFor('w@example.com').click()) // collapse before opening the next
+
+    act(() => rowFor('al@example.com').click())
+    expect(host.textContent ?? '').toContain('turns')
+    act(() => rowFor('al@example.com').click())
+
+    act(() => rowFor('bal@example.com').click())
+    expect(host.textContent ?? '').toContain('$0.88')
+    expect(host.textContent ?? '').toContain('No balance history yet.')
+    act(() => rowFor('bal@example.com').click())
+
+    act(() => rowFor('k@example.com').click())
+    expect(host.textContent ?? '').toContain('spent this month')
+    expect(host.textContent ?? '').toContain('budget left')
+    act(() => rowFor('k@example.com').click())
+
+    act(() => rowFor('f@example.com').click())
+    expect(host.textContent ?? '').toContain('Tokens this period')
+    expect(host.textContent ?? '').toContain('1.1M tokens')
+    // Free never shows a meter, whatever else is on the frame — scoped to the
+    // Free body itself, since every other row's own table bar is still on
+    // screen regardless of which row is expanded.
+    const freeFrame = document.querySelector('[data-shape="free"]')
+    expect(freeFrame).not.toBeNull()
+    expect(freeFrame?.querySelector('[data-slot="segment-meter"]')).toBeNull()
+    expect(freeFrame?.querySelector('[role="progressbar"]')).toBeNull()
+  })
+
+  it('builds real table semantics — column headers, and a row whose first cell holds the disclosure', () => {
+    const codex = info('codex', 'OpenAI Codex')
+    const reports = [report({ runtime: codex.id, account: 'me@example.com', lanes: [lane({ id: 'weekly', usedPercent: 40 })], billing: billing(['windows']) })]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(codex)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    expect(host.querySelector('table')).not.toBeNull()
+    const headers = [...host.querySelectorAll('th')].map((node) => node.textContent)
+    expect(headers).toEqual(['Account', 'Shape', 'Status', 'Left', '%', 'Amount', '≈ Turns', 'Resets'])
+    const row = rowFor('me@example.com')
+    expect(row.closest('td')?.parentElement?.tagName).toBe('TR')
+    expect(row.getAttribute('aria-controls')).toBeTruthy()
+  })
+
+  // Escape inside the expanded body — its own Refresh button, say — collapses
+  // the row rather than reaching the window's own Escape handler
+  // (review of #1069, N3).
+  it('collapses on Escape from inside the expanded body, and returns focus to the row', () => {
+    const codex = info('codex', 'OpenAI Codex')
+    const reports = [report({ runtime: codex.id, account: 'me@example.com', lanes: [lane({ id: 'weekly', usedPercent: 40 })], billing: billing(['windows']) })]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(codex)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('me@example.com').click())
+    expect(rowFor('me@example.com').getAttribute('aria-expanded')).toBe('true')
+    const bodyId = rowFor('me@example.com').getAttribute('aria-controls')
+    const body = document.getElementById(bodyId ?? '')
+    expect(body).not.toBeNull()
+    const insideButton = body?.querySelector('button')
+    expect(insideButton).toBeTruthy()
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => insideButton?.dispatchEvent(event))
+    expect(event.defaultPrevented).toBe(true)
+    expect(rowFor('me@example.com').getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(rowFor('me@example.com'))
+  })
+
+  it('threads onOpenPlanSettings through the Key body\'s footer', () => {
+    const key = info('key-agent', 'Key Agent')
+    const onOpenPlanSettings = vi.fn()
+    const reports = [report({ runtime: key.id, account: 'k@example.com', billing: billing(['metered']) })]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(key)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={onOpenPlanSettings}
+      />,
+    )
+    act(() => rowFor('k@example.com').click())
+    const setBudget = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Set a budget')
+    expect(setBudget).toBeDefined()
+    act(() => setBudget?.click())
+    expect(onOpenPlanSettings).toHaveBeenCalledWith(key.id)
+  })
+
+  it('shows an empty state when the filter matches nothing', () => {
+    const reports: UsageReport[] = []
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf()}
+        now={NOW}
+        filter="metered"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    expect(host.textContent ?? '').toContain('No account matches this filter')
+  })
+
+  it('shows the not-reporting body for a row with no shape at all', () => {
+    const silent = info('silent-agent', 'Silent Agent')
+    const reports = [report({ runtime: silent.id, account: 'nothing@example.com' })]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(silent)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('nothing@example.com').click())
+    expect(host.textContent ?? '').toContain('This agent reports no plan usage here.')
+  })
+})
+
+describe('NotReportingList', () => {
+  it('renders nothing with no entries', () => {
+    mount(<NotReportingList entries={[]} />)
+    expect(host.textContent ?? '').toBe('')
+  })
+
+  it('gives a silent agent its reason and a sign-in fix', () => {
+    const codex = info('codex', 'OpenAI Codex')
+    const onSignIn = vi.fn()
+    const entries = entriesFromSilent([{ info: codex, reason: 'It reports its plan once an account is connected.' }], onSignIn)
+    mount(<NotReportingList entries={entries} />)
+    expect(host.textContent ?? '').toContain('It reports its plan once an account is connected.')
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Sign in to OpenAI Codex'))
+    expect(button).toBeDefined()
+    act(() => button?.click())
+    expect(onSignIn).toHaveBeenCalledWith(codex.id)
+  })
+
+  it('gives a shape-less report its reason and a refresh fix', () => {
+    const codex = info('codex', 'OpenAI Codex')
+    const onRefresh = vi.fn()
+    const entries = entriesFromReports([report({ runtime: codex.id, account: 'x@example.com' })], byIdOf(codex), onRefresh)
+    mount(<NotReportingList entries={entries} />)
+    expect(host.textContent ?? '').toContain('This agent reports no plan usage here.')
+    const button = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Refresh')
+    expect(button).toBeDefined()
+    act(() => button?.click())
+    expect(onRefresh).toHaveBeenCalledWith(codex.id)
+  })
+
+  it('draws a word rather than a button when there is nothing to do', () => {
+    const codex = info('codex', 'OpenAI Codex')
+    const entries = entriesFromSilent([{ info: codex, reason: 'It reports its plan once an account is connected.' }])
+    mount(<NotReportingList entries={entries} />)
+    expect(host.textContent ?? '').toContain('—')
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Sign in'))).toBe(false)
+  })
+})
