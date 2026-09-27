@@ -464,11 +464,68 @@ export const mayCommit = (agent: AgentDefinition, grant: CeilingLevel): boolean 
 export const reviewsIn = (binding: Pick<FlowBinding, 'agent' | 'grant'>): boolean =>
   binding.agent.produces.includes('review') && !(binding.agent.produces.includes('diff') && mayCommit(binding.agent, binding.grant))
 
-/** Resolve frozen Agent content for a v2 policy. Broken higher-precedence entries never fall back. */
-export const compileFlowPolicy = (document: FlowDocument, agents: readonly AgentEntry[]): CompiledFlow => {
+/** The names a `check:` evidence guard may write and have them read as this flow's own: a check role's id, or its exact command. */
+export const checkGuardNames = (policy: FlowPolicy): ReadonlySet<string> => {
+  const out = new Set<string>()
+  for (const role of policy.roles) if (role.kind === 'check') { out.add(role.id); out.add(role.check.run) }
+  return out
+}
+
+/**
+ * A `check:` evidence guard's value, resolved the way it is naturally
+ * written: a value equal to a check role's own id names that role's command,
+ * so `evidence: [{ check: gate }]` matches exactly as `evidence: [{ check:
+ * "node --test" }]` would — the guard is matched against the observed fact's
+ * own `run`, never a role's id, so writing the id unresolved could never
+ * match (#1094). Anything else — the command itself, or a string this flow
+ * does not declare, which may legitimately name a project's own check
+ * (`.harnessdesk/checks.yml`) run from a card's own menu — passes through
+ * unchanged, to be matched literally as it always was.
+ */
+export const resolveCheckGuard = (policy: FlowPolicy, value: string): string => {
+  const role = policy.roles.find((one) => one.kind === 'check' && one.id === value)
+  return role && role.kind === 'check' ? role.check.run : value
+}
+
+/**
+ * A rule's `check:` evidence guard, named unmatchably (#1094): a value that
+ * names neither a check role's id (which `resolveCheckGuard` reads as that
+ * role's own command) nor any check role's command, nor a project's own
+ * declared check (`.harnessdesk/checks.yml`, passed in as `projectCheckRuns`
+ * when the flow's own roles leave something unexplained), can never be
+ * observed — the round it guards would wait forever with nothing telling
+ * anyone why. Judged when the flow is compiled, never when its text is
+ * parsed, so a run saved before this check re-parses its own source and
+ * restores rather than being blocked by a false refusal — the same reasoning
+ * `fileProblems` above follows (#1026).
+ */
+const checkGuardProblems = (policy: FlowPolicy, projectCheckRuns: readonly string[], problems: FlowProblem[]): void => {
+  const known = checkGuardNames(policy)
+  const projectKnown = new Set(projectCheckRuns)
+  policy.rules.forEach((rule, index) => {
+    for (const guard of rule.when?.evidence ?? []) {
+      if (!('check' in guard) || known.has(guard.check) || projectKnown.has(guard.check)) continue
+      problems.push(problem(
+        'error',
+        `rules[${index}].when.evidence`,
+        `Rule "${rule.id}" waits for a check called "${guard.check}", but no check in this flow runs that — name a check role or its command.`,
+      ))
+    }
+  })
+}
+
+/**
+ * Resolve frozen Agent content for a v2 policy. Broken higher-precedence
+ * entries never fall back. `projectCheckRuns` is the calling project's own
+ * declared checks (`.harnessdesk/checks.yml`), read by the caller only when
+ * this flow leaves an evidence guard's `check:` value unexplained by its own
+ * roles — absent here, an unexplained value is simply refused.
+ */
+export const compileFlowPolicy = (document: FlowDocument, agents: readonly AgentEntry[], projectCheckRuns: readonly string[] = []): CompiledFlow => {
   if (document.format === 'legacy') return { document, bindings: [], problems: [] }
   const problems: FlowProblem[] = []
   fileProblems(document.flow, problems)
+  checkGuardProblems(document.flow, projectCheckRuns, problems)
   const bindings: CompiledFlow['bindings'][number][] = []
   const entries = new Map<string, AgentEntry>()
   for (const entry of agents) if (!entries.has(entry.id)) entries.set(entry.id, entry)
