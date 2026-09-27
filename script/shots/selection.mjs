@@ -7,6 +7,11 @@
  * makes the boundary cheap to exercise without launching Electron.
  */
 export const selectScenes = ({ all, context, names, requested }) => {
-  if (!all) return requested
-  return context ? names.filter((name) => name.startsWith('ring-')) : names
+  const selected = all ? (context ? names.filter((name) => name.startsWith('ring-')) : names) : requested
+  if (!context) return selected
+  const ordinary = selected.filter((name) => !name.startsWith('ring-'))
+  if (ordinary.length > 0) {
+    throw new Error(`HD_SHOTS_CONTEXT=1 only permits ring-* scenes; refused: ${ordinary.join(', ')}`)
+  }
+  return selected
 }

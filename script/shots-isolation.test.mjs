@@ -33,6 +33,10 @@ test('the context rig can never republish ordinary scenes with its extra seats',
     selectScenes({ all: false, context: true, names: scenes, requested: ['ring-cursor'] }),
     ['ring-cursor'],
   )
+  assert.throws(
+    () => selectScenes({ all: false, context: true, names: scenes, requested: ['desk'] }),
+    /HD_SHOTS_CONTEXT=1 only permits ring-\* scenes/,
+  )
 })
 
 test('native appearance relaunch keeps the packaged executable selected for the sweep', () => {
