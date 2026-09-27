@@ -51,6 +51,22 @@ move is real work and is not news to a person weighing an upgrade.
   result shows, so a shared checkout's own file names never reach a
   renderer. (#1049)
 
+- **Overview leads with a strip: Value, Turns and Tokens for the same
+  window the Spend chart below draws, with Paid beside them.** Paid is the
+  cash that actually left — each account's fee prorated across the window,
+  plus any metered overage spent since the cycle started, shown beside the
+  figure rather than folded in when that cycle start falls outside the
+  window — never counting an account with no fee set as $0 (its own caption
+  says "fee not set for N" and opens that account's Plan card instead). Paid
+  has no period-over-period delta: there is no billing history to compare
+  against yet, so Value, Turns and Tokens carry the deltas alone. Value and
+  Turns are also buttons: clicking one switches the chart beneath the strip
+  between cost, turns and tokens per day. A cache-hit chip rides the Tokens
+  figure, and every cell's own caption says what needs saying — a ratio
+  against Paid when every account in scope shares Paid's currency and has a
+  fee set, a per-turn price, how many agents a figure is known for — never a
+  repeat of the number beside it.
+
 - **The Dashboard's rail lists views, and the account you're looking at is a
   choice in the header.** The rail used to hold one row per account, which
   duplicated the card list a click away, mixed a plan's percentage with a

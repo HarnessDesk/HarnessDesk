@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
-import { runtimeId, type LedgerDay, type LedgerReport, type PlanSuggestion } from '@harnessdesk/protocol'
+import { runtimeId, type LedgerDay, type LedgerReport, type LedgerRow, type PlanSuggestion, type RuntimeId, type UsageBilling, type UsageReport } from '@harnessdesk/protocol'
+import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
   AgentIcon,
@@ -1436,6 +1437,256 @@ const ChartKitBoard = () => {
   )
 }
 
+/**
+ * The Overview strip (`components/usage/OverviewStrip.tsx`) — Paid, Value,
+ * Turns and Tokens for the same 7/30/90-day window the Spend chart draws.
+ * Mounted here as the production component, fed hand-built reports and a
+ * ledger rather than a live store — the same boundary `ChartKitBoard`'s own
+ * doc comment names: this page loads with no store at all (`main.tsx`), and
+ * `OverviewStrip` never reaches for one, so the real component is the
+ * fixture. `docs/usage-dashboard.md`, "The Overview strip".
+ */
+const STRIP_NOW = new Date('2026-09-20T18:00:00').getTime()
+const STRIP_CLAUDE = runtimeId('claude')
+const STRIP_CODEX = runtimeId('codex')
+
+const stripLedger = ({
+  range,
+  turnsPartial = false,
+}: {
+  range: number
+  turnsPartial?: boolean
+}): LedgerReport => {
+  const midnight = new Date(STRIP_NOW)
+  midnight.setHours(0, 0, 0, 0)
+  const daily: LedgerDay[] = []
+  for (let index = 0; index < range; index += 1) {
+    const day = midnight.getTime() - index * 86_400_000
+    const claudeTurns = 3 + (index % 3)
+    const codexTurns = 2 + (index % 2)
+    daily.push({
+      day,
+      runtime: STRIP_CLAUDE,
+      cost: 8 + (index % 5),
+      tokens: 12_400 + index * 41,
+      turns: turnsPartial ? undefined : claudeTurns,
+      input: 6_200,
+      output: 5_800,
+      cacheRead: 14_100,
+      cacheWrite: 240,
+      requests: 6,
+    })
+    daily.push({
+      day,
+      runtime: STRIP_CODEX,
+      cost: 5 + (index % 3),
+      tokens: 9_100 + index * 29,
+      turns: codexTurns,
+      input: 4_300,
+      output: 4_900,
+      cacheRead: 9_050,
+      cacheWrite: 110,
+      requests: 4,
+    })
+  }
+  const sum = (pick: (entry: LedgerDay) => number | undefined): number =>
+    daily.reduce((total, entry) => total + (pick(entry) ?? 0), 0)
+  const sumFor = (runtime: RuntimeId, pick: (entry: LedgerDay) => number | undefined): number =>
+    daily
+      .filter((entry) => entry.runtime === runtime)
+      .reduce((total, entry) => total + (pick(entry) ?? 0), 0)
+  // One row per runtime — real ledger rows, not `[]`, so `ledgerRuntimeIds`
+  // (`lib/overview-strip.ts`) has something to name: the Turns and Tokens
+  // captions both read the runtimes the ledger has *rows* for, not the
+  // accounts in scope.
+  const rows: LedgerRow[] = [STRIP_CLAUDE, STRIP_CODEX].map((runtime) => ({
+    key: String(runtime),
+    label: String(runtime),
+    runtime,
+    tokens: sumFor(runtime, (entry) => entry.tokens),
+    cost: sumFor(runtime, (entry) => entry.cost),
+    hasUnpriced: false,
+  }))
+  return {
+    days: range,
+    currency: 'USD',
+    totalCost: sum((entry) => entry.cost),
+    totalTokens: sum((entry) => entry.tokens),
+    provenance: 'listPrice',
+    coverage: {
+      priced: daily.length,
+      unpriced: 0,
+      unmetered: 0,
+      estimated: 0,
+      daysCovered: range,
+      daysRequested: range,
+      earliestDay: midnight.getTime() - (range + 60) * 86_400_000,
+      turnsKnownFor: turnsPartial ? [STRIP_CLAUDE] : [STRIP_CLAUDE, STRIP_CODEX],
+    },
+    rows,
+    daily,
+    scannedAt: STRIP_NOW,
+    totals: {
+      input: sum((entry) => entry.input),
+      output: sum((entry) => entry.output),
+      cacheRead: sum((entry) => entry.cacheRead),
+      cacheWrite: sum((entry) => entry.cacheWrite),
+      reasoning: 0,
+      requests: sum((entry) => entry.requests),
+      turns: turnsPartial ? undefined : sum((entry) => entry.turns),
+    },
+  }
+}
+
+const stripReport = (runtime: RuntimeId, account: string, billing?: UsageBilling): UsageReport => ({
+  runtime,
+  account,
+  plan: 'Pro',
+  lanes: [],
+  credits: null,
+  spend: null,
+  reached: null,
+  source: { kind: 'runtime', label: 'from its own cache' },
+  fetchedAt: STRIP_NOW,
+  staleAfterMs: 300_000,
+  error: null,
+  billing,
+})
+
+const MONTHLY_FEE = (amount: number, currency = 'USD'): UsageBilling => ({
+  kinds: ['windows'],
+  fee: { amount, currency, period: 'month', source: 'user' },
+})
+
+/** One case's own reports, ledger and (twice-as-wide) previous-period ledger. */
+const StripCase = ({
+  reports,
+  ledger,
+  range = 30,
+}: {
+  reports: readonly UsageReport[]
+  ledger: LedgerReport | null
+  range?: number
+}) => {
+  const [metric, setMetric] = useState<StripMetric>('value')
+  const wideLedger = ledger ? stripLedger({ range: range * 2, turnsPartial: ledger.totals?.turns === undefined }) : null
+  return (
+    <OverviewStrip
+      reports={reports}
+      ledger={ledger}
+      wideLedger={wideLedger}
+      range={range}
+      now={STRIP_NOW}
+      metric={metric}
+      onMetricChange={setMetric}
+      onOpenPlan={() => {}}
+    />
+  )
+}
+
+const OverviewStripBoard = () => (
+  <>
+    <div className={styles.matrix}>
+      <Case label="every account priced — Paid, Value, Turns and Tokens all known">
+        <StripCase
+          reports={[
+            stripReport(STRIP_CLAUDE, 'work', {
+              ...MONTHLY_FEE(20),
+              overage: { enabled: true, spent: 4.2, currency: 'USD' },
+            }),
+            stripReport(STRIP_CODEX, 'work', MONTHLY_FEE(20)),
+          ]}
+          ledger={stripLedger({ range: 30 })}
+        />
+      </Case>
+      <Case label="fee not set for one of two accounts">
+        <StripCase
+          reports={[
+            stripReport(STRIP_CLAUDE, 'work', MONTHLY_FEE(20)),
+            stripReport(STRIP_CODEX, 'work', { kinds: ['windows'] }),
+          ]}
+          ledger={stripLedger({ range: 30 })}
+        />
+      </Case>
+    </div>
+    <div className={styles.matrix}>
+      <Case label="no account has a fee set — Paid reads “—”">
+        <StripCase
+          reports={[
+            stripReport(STRIP_CLAUDE, 'work', { kinds: ['windows'] }),
+            stripReport(STRIP_CODEX, 'work', { kinds: ['windows'] }),
+          ]}
+          ledger={stripLedger({ range: 30 })}
+        />
+      </Case>
+      <Case label="turns known for only one of two agents">
+        <StripCase
+          reports={[
+            stripReport(STRIP_CLAUDE, 'work', MONTHLY_FEE(20)),
+            stripReport(STRIP_CODEX, 'work', MONTHLY_FEE(20)),
+          ]}
+          ledger={stripLedger({ range: 30, turnsPartial: true })}
+        />
+      </Case>
+    </div>
+    <div className={styles.matrix}>
+      <Case label="two accounts, two currencies — the main one leads, the other is named">
+        <StripCase
+          reports={[
+            stripReport(STRIP_CLAUDE, 'work', MONTHLY_FEE(20, 'USD')),
+            stripReport(STRIP_CODEX, 'eu', MONTHLY_FEE(18, 'EUR')),
+          ]}
+          ledger={stripLedger({ range: 30 })}
+        />
+      </Case>
+      <Case label="nothing scanned yet — every figure is “—”, never $0">
+        <StripCase
+          reports={[stripReport(STRIP_CLAUDE, 'work', MONTHLY_FEE(20)), stripReport(STRIP_CODEX, 'work', MONTHLY_FEE(20))]}
+          ledger={null}
+        />
+      </Case>
+    </div>
+    <div className={styles.matrix}>
+      <Case label="Value costs less than Paid — the ×paid chip is amber, never green">
+        <StripCase
+          reports={[
+            stripReport(STRIP_CLAUDE, 'work', MONTHLY_FEE(260)),
+            stripReport(STRIP_CODEX, 'work', MONTHLY_FEE(260)),
+          ]}
+          ledger={stripLedger({ range: 30 })}
+        />
+      </Case>
+      <Case label="overage spent this cycle, shown beside Paid rather than folded in">
+        <StripCase
+          reports={[
+            stripReport(STRIP_CLAUDE, 'work', {
+              ...MONTHLY_FEE(20),
+              overage: { enabled: true, spent: 50, currency: 'USD' },
+            }),
+            stripReport(STRIP_CODEX, 'work', MONTHLY_FEE(20)),
+          ]}
+          ledger={stripLedger({ range: 30 })}
+        />
+      </Case>
+    </div>
+    <Rule>
+      Every figure here comes from the real <code>OverviewStrip</code>, fed the same
+      <code>LedgerReport</code>/<code>UsageReport</code> shapes <code>Usage.tsx</code> loads — nothing on this board
+      is redrawn by hand. Paid is never $0 for an account with no fee set: it is left out of the sum and
+      counted in the caption instead (&ldquo;fee not set for N&rdquo;, linking to that account's own Plan
+      card), and the figure itself reads &ldquo;—&rdquo; only when <em>no</em> account in scope has one. Paid
+      carries no delta of its own — there is no billing history yet to compare a past Paid against — and
+      overage spent this cycle is folded into the figure only when its own cycle started at or after the
+      window opened; otherwise it is named beside the figure (&ldquo;+ $50 overage this cycle&rdquo;),
+      never dropped. Value's ratio and Turns' per-turn price against Paid only appear when every account
+      in scope has a fee, in one currency, matching the ledger's own — otherwise Value falls back to a
+      plain per-day average and Turns to its own coverage caption, and the ratio chip is neutral at 1× or
+      above and amber below it, never green (there is no state this figure calls good news). Value, Turns
+      and Tokens are also a <code>ToggleGroup</code>: clicking one switches the Spend chart below between
+      cost, turns and tokens per day (<code>lib/ledger.ts</code>'s <code>stackDailyMetric</code>).
+    </Rule>
+  </>
+)
 
 // --- what the registry brought ---------------------------------------------
 
@@ -2006,6 +2257,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'The chart kit',
     about: 'The other size: a figure that is the subject of its own panel.',
     render: ChartKitBoard,
+  },
+  {
+    id: 'overview-strip',
+    title: 'The Overview strip',
+    about: 'Paid, Value, Turns and Tokens for the Overview\'s own spend window — the real component, every state.',
+    render: OverviewStripBoard,
   },
   {
     id: 'dialog',

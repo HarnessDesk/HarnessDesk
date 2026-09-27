@@ -95,6 +95,10 @@ export const previewUsage: UsageReport[] = [
     fetchedAt: Date.now() - 4 * 60_000,
     staleAfterMs: 600_000,
     error: null,
+    // A fee, for the Overview strip's Paid cell (`OverviewStrip.tsx`) — one
+    // of two accounts here with a price set, so the strip's own "fee not set
+    // for N" caption has something real to count against.
+    billing: { kinds: ['windows'], fee: { amount: 200, currency: 'USD', period: 'month', source: 'user' } },
   },
   {
     runtime: CODEX,
@@ -111,6 +115,7 @@ export const previewUsage: UsageReport[] = [
     fetchedAt: Date.now() - 40_000,
     staleAfterMs: 600_000,
     error: null,
+    billing: { kinds: ['windows'], fee: { amount: 20, currency: 'USD', period: 'month', source: 'vendor' } },
   },
   {
     /*
@@ -193,7 +198,17 @@ export const previewLedger = (days: number, groupBy: string): unknown => {
   const midnight = new Date()
   midnight.setHours(0, 0, 0, 0)
   const start = midnight.getTime()
-  const daily: { day: number; runtime: RuntimeId; cost: number; tokens: number }[] = []
+  const daily: {
+    day: number
+    runtime: RuntimeId
+    cost: number
+    tokens: number
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+    turns?: number
+  }[] = []
   const yearRequest = days > 180
   const notScannedCount = yearRequest ? Math.floor(days * 0.11) : 0
   for (let index = days - 1; index >= 0; index -= 1) {
@@ -213,10 +228,47 @@ export const previewLedger = (days: number, groupBy: string): unknown => {
     if (yearRequest && index % 13 === 0 && index % 3 !== 0) continue
     const swell = index === 4 ? 3.4 : index === 11 ? 2.1 : 1
     const wobble = 0.55 + ((index * 37) % 100) / 100
-    daily.push({ day, runtime: CLAUDE, cost: 41 * wobble * swell, tokens: 4_100_000 * wobble })
-    daily.push({ day, runtime: CODEX, cost: 12 * wobble, tokens: 1_800_000 * wobble })
+    const claudeTokens = 4_100_000 * wobble
+    daily.push({
+      day,
+      runtime: CLAUDE,
+      cost: 41 * wobble * swell,
+      tokens: claudeTokens,
+      input: claudeTokens * 0.28,
+      output: claudeTokens * 0.32,
+      cacheRead: claudeTokens * 0.38,
+      cacheWrite: claudeTokens * 0.02,
+      // Claude Code reads its own turn boundary — see "Turns",
+      // `docs/usage-dashboard.md` — so this account is turn-known.
+      turns: 6 + (index % 4),
+    })
+    const codexTokens = 1_800_000 * wobble
+    daily.push({
+      day,
+      runtime: CODEX,
+      cost: 12 * wobble,
+      tokens: codexTokens,
+      input: codexTokens * 0.33,
+      output: codexTokens * 0.29,
+      cacheRead: codexTokens * 0.36,
+      cacheWrite: codexTokens * 0.02,
+      turns: 4 + (index % 3),
+    })
     if (index < days / 2) {
-      daily.push({ day, runtime: CURSOR, cost: 3.2 * wobble, tokens: 320_000 * wobble })
+      const cursorTokens = 320_000 * wobble
+      // Cursor keeps no local transcript of its own (rule 3, AGENTS.md), so
+      // it has no readable turn boundary here — turns stay unset, the
+      // Overview strip's own "known for N of M agents" case.
+      daily.push({
+        day,
+        runtime: CURSOR,
+        cost: 3.2 * wobble,
+        tokens: cursorTokens,
+        input: cursorTokens * 0.4,
+        output: cursorTokens * 0.35,
+        cacheRead: cursorTokens * 0.24,
+        cacheWrite: cursorTokens * 0.01,
+      })
     }
   }
   // The same "22 of 30 days scanned" the coverage sentence already claims,
@@ -264,12 +316,28 @@ export const previewLedger = (days: number, groupBy: string): unknown => {
       daysCovered: scannedDays,
       daysRequested: days,
       earliestDay: earliestDay.getTime(),
+      // Cursor is left out — see the "turns" comment above `daily.push` for
+      // Cursor: this is the Overview strip's "known for N of M agents" case.
+      turnsKnownFor: [CLAUDE, CODEX],
     },
     rows: [...byKey.entries()]
       .map(([key, row]) => ({ key, ...row, hasUnpriced: key.includes('composer') }))
       .sort((a, b) => b.cost - a.cost),
     daily: covered,
     scannedAt: Date.now() - 20 * 60_000,
+    totals: {
+      input: covered.reduce((sum, entry) => sum + entry.input, 0),
+      output: covered.reduce((sum, entry) => sum + entry.output, 0),
+      cacheRead: covered.reduce((sum, entry) => sum + entry.cacheRead, 0),
+      cacheWrite: covered.reduce((sum, entry) => sum + entry.cacheWrite, 0),
+      reasoning: 0,
+      requests: covered.length,
+      // `undefined` unless every runtime this window covers is turn-known —
+      // Cursor's rows carry no `turns` at all, so the sum stays partial.
+      turns: covered.every((entry) => entry.runtime !== CURSOR)
+        ? covered.reduce((sum, entry) => sum + (entry.turns ?? 0), 0)
+        : undefined,
+    },
   }
 }
 
