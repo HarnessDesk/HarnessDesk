@@ -1383,11 +1383,18 @@ export class AppStore {
   /** A stuck host must not hold account loading or sign-in discovery forever. */
   async #requestAccount(id: RuntimeId) {
     let timer: ReturnType<typeof setTimeout> | undefined
+    const controller = new AbortController()
     const deadline = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(`runtime/account timed out after ${ACCOUNT_READ_TIMEOUT_MS}ms`)), ACCOUNT_READ_TIMEOUT_MS)
+      timer = setTimeout(() => {
+        reject(new Error(`runtime/account timed out after ${ACCOUNT_READ_TIMEOUT_MS}ms`))
+        controller.abort()
+      }, ACCOUNT_READ_TIMEOUT_MS)
     })
     try {
-      return await Promise.race([this.transport.request('runtime/account', { runtime: id }), deadline])
+      return await Promise.race([
+        this.transport.request('runtime/account', { runtime: id }, { signal: controller.signal }),
+        deadline,
+      ])
     } finally {
       if (timer !== undefined) clearTimeout(timer)
     }

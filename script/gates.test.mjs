@@ -61,6 +61,7 @@ import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
+import ts from 'typescript'
 
 /**
  * A clean scan, derived rather than listed.
@@ -2903,6 +2904,35 @@ test('a method name held in a variable is not a caller either', () => {
 /** The server's test files that run in invocations of their own, at a wider cap (#1000, #1003). */
 const CARVED_OUT = ['flow-host-evidence-*.test.js', 'intake-*.test.js']
 
+const stringValue = (node) => node && ts.isStringLiteral(node) ? node.text : null
+
+/** Read actual `step(name, () => run(command, args))` calls, not matching text nearby. */
+const runsInStep = (source, stepName) => {
+  const file = ts.createSourceFile('verify.mjs', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+  const runs = []
+  const visit = (node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'step' && stringValue(node.arguments[0]) === stepName) {
+      const callback = node.arguments[1]
+      if (callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
+        const findRuns = (child) => {
+          if (ts.isCallExpression(child) && ts.isIdentifier(child.expression) && child.expression.text === 'run') {
+            const args = child.arguments[1]
+            runs.push({ command: stringValue(child.arguments[0]), args: args && ts.isArrayLiteralExpression(args) ? args.elements.map(stringValue) : [] })
+          }
+          ts.forEachChild(child, findRuns)
+        }
+        findRuns(callback.body)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return runs
+}
+
+/** Extract step-level CI `run:` keys; block-scalar contents are more indented. */
+const ciRunLines = (source) => source.split('\n').filter((line) => /^        run:\s*/.test(line))
+
 test('the test glob is written one way everywhere it is run (#256)', () => {
   // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
   const repo = repoRoot
@@ -2929,42 +2959,40 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
     const carveOut = `${top}/server/${dist}/${tests}/${name}`
     for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
       const text = fs.readFileSync(path.join(repo, file), 'utf8')
-      assert.ok(text.includes(shape), `${file} reads dist by the same directory shape prune-dist.mjs writes (${shape})`)
-      // Read with actual comments removed: line filtering let a block comment
-      // quote the expected glob and stand in for the run (#1063).
-      const code = file.endsWith('.mjs')
-        ? withoutComments(text, file)
-        : text.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n')
-      // Read with the exclusion taken out: the exclusion itself spells the
-      // same path, and on its own it satisfied the old check — `node --test`
-      // exits 0 on a glob that matches nothing (#1052's review, round 2).
-      const runs = code
-        .split(`! -path '${carveOut}'`)
-        .join('')
-        .split(`! -path "${carveOut}"`)
-        .join('')
-      const escaped = carveOut.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const actuallyRuns = file.endsWith('.mjs')
-        ? (() => {
-            const stepName = name.startsWith('intake-') ? 'intake tests' : 'flow-host-evidence tests'
-            const start = runs.indexOf(`step('${stepName}'`)
-            const end = runs.indexOf('\nstep(', start + 1)
-            const step = runs.slice(start, end)
-            return start !== -1 && end !== -1 && step.includes("run('node'") && step.includes("'--test'") && step.includes(`'${carveOut}'`)
-          })()
-        : runs.split('\n').some((line) => new RegExp(`^\\s*run:\\s*node --test --test-timeout=600000 "${escaped}"\\s*$`).test(line))
-      assert.ok(actuallyRuns, `${file} runs the carved-out files with its test command and exact sub-glob (${carveOut})`)
-      // By the same path glob, not by name: a bare `-name` exclusion also
-      // drops a same-named file in another package, which the server-only
-      // run never picks up, so it ran nowhere (#1052's review, round 1 —
-      // `packages/protocol`'s intake-wire.test.js).
-      assert.ok(
-        text.includes(`! -path '${carveOut}'`) || text.includes(`! -path "${carveOut}"`),
-        `${file} excludes from the rest exactly the files the separate run is given (${carveOut}), so each runs once and none is dropped`,
-      )
-      assert.ok(!text.includes(`! -name '${name}'`) && !text.includes(`! -name "${name}"`), `${file} does not exclude ${name} by bare name`)
+      const stepName = name.startsWith('intake-') ? 'intake tests' : 'flow-host-evidence tests'
+      if (file.endsWith('.mjs')) {
+        const dedicated = runsInStep(text, stepName)
+        assert.ok(dedicated.some(({ command, args }) => command === 'node' && args.includes('--test') && args.includes(carveOut)),
+          `${file} passes the exact carved-out glob as an argument to node --test (${carveOut})`)
+
+        const main = runsInStep(text, 'node tests')
+        const shell = main.flatMap(({ command, args }) => command === 'bash' && args.includes('-c') ? args.filter((arg) => typeof arg === 'string') : [])
+        assert.ok(shell.some((command) => command.includes(`find ${shape}`)),
+          `${file} runs the generated directory shape in the node test command (${shape})`)
+        assert.ok(shell.some((command) => command.includes(`! -path '${carveOut}'`) || command.includes(`! -path "${carveOut}"`)),
+          `${file} excludes the exact carved-out path from the main run (${carveOut})`)
+        assert.ok(shell.every((command) => !command.includes(`! -name '${name}'`) && !command.includes(`! -name "${name}"`)),
+          `${file} does not exclude ${name} by bare name`)
+      } else {
+        const commands = ciRunLines(text)
+        const escaped = carveOut.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        assert.ok(commands.some((line) => new RegExp(`^\\s*run:\\s*node --test --test-timeout=600000 "${escaped}"\\s*$`).test(line)),
+          `${file} runs the carved-out files with its test command and exact sub-glob (${carveOut})`)
+        const main = commands.filter((line) => line.includes('run: bash -c'))
+        assert.ok(main.some((line) => line.includes(shape)), `${file} runs the generated directory shape (${shape})`)
+        assert.ok(main.some((line) => line.includes(`! -path 'packages/server/dist/test/${name}'`)),
+          `${file} excludes ${name} from the main run by exact path`)
+        assert.ok(main.every((line) => !line.includes(`! -name '${name}'`) && !line.includes(`! -name "${name}"`)),
+          `${file} does not exclude ${name} by bare name`)
+      }
     }
   }
+})
+
+test('carved-out run detection ignores comments and unrelated strings (#1063)', () => {
+  const decoys = `/* step('flow-host-evidence tests', () => run('node', ['--test', 'packages/server/dist/test/flow-host-evidence-*.test.js'])) */\nconst note = \`step('flow-host-evidence tests', () => run('node', ['--test', 'packages/server/dist/test/flow-host-evidence-*.test.js']))\`;`
+  assert.deepEqual(runsInStep(decoys, 'flow-host-evidence tests'), [])
+  assert.deepEqual(ciRunLines(`# run: node --test --test-timeout=600000 "packages/server/dist/test/flow-host-evidence-*.test.js"\n- name: "run: node --test --test-timeout=600000 packages/server/dist/test/flow-host-evidence-*.test.js"\n        run: |\n          run: node --test --test-timeout=600000 packages/server/dist/test/flow-host-evidence-*.test.js\n          run: bash -c "node --test packages/*/dist/test"`), ['        run: |'])
 })
 
 test('each carved-out run is given files, and only files (#1003)', (t) => {

@@ -219,9 +219,11 @@ describe('an account read that fails (#1021)', () => {
   it('lets an account read time out so a host that never answers can be re-asked', async () => {
     roster(ADDED)
     let reads = 0
-    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    let readSignal: AbortSignal | undefined
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, _params: unknown, options?: { signal?: AbortSignal }) => {
       if (method !== 'runtime/account') return null
       reads += 1
+      readSignal = options?.signal
       return new Promise(() => {})
     }) as never)
 
@@ -229,6 +231,7 @@ describe('an account read that fails (#1021)', () => {
     await vi.advanceTimersByTimeAsync(10_000)
     await loading
     expect(store.getSnapshot().accountsByRuntime[ADDED]).toBeUndefined()
+    expect(readSignal?.aborted).toBe(true)
 
     // The timed-out read enters the ordinary retry path instead of holding
     // the account pass forever.
