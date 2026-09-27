@@ -6,7 +6,7 @@ import type { FindingAnchor, FindingCategory, FindingView } from '@harnessdesk/p
  *
  * The state and every decision live in the host's team plane — claiming is a
  * transaction there, message routing applies one set of guards there — and
- * this plugin is the doorway: eighteen tools, delivered to Codex as dynamic
+ * this plugin is the doorway: twenty tools, delivered to Codex as dynamic
  * tools and to every ACP agent over the MCP bridge, exactly like any other
  * plugin tool. The projection layer is what makes coordination cross-vendor
  * without asking any vendor for anything.
@@ -295,6 +295,22 @@ export const teamPlugin: HarnessPlugin = {
             },
             scope,
           ),
+      })
+
+      ctx.tools.register({
+        name: 'commit_work',
+        description:
+          'Commit your card’s own work, with this message. The desk commits for you — every file you changed since you claimed the card, and nothing that was already uncommitted before — so use this rather than `git commit`, which your environment may refuse. It answers the new commit. Commit before `complete_claim`: a card that can commit cannot finish with its own work uncommitted.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The card you hold.' },
+            message: { type: 'string', description: 'The commit message: a subject line, then a blank line and a body if you need one.' },
+          },
+          required: ['intent', 'message'],
+        },
+        execute: (args: { intent: number; message: string }, scope) =>
+          ctx.team.commitWork(Number(args.intent), String(args.message ?? ''), scope),
       })
 
       ctx.tools.register({

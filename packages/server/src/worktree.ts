@@ -10,6 +10,7 @@ import { defaultStateDir } from './state.js'
 import { assertAbsolute } from './workspace.js'
 
 import { parsePorcelain } from './porcelain.js'
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 /**
  * Git worktrees, one per conversation that asks for one.
@@ -58,8 +59,30 @@ const describeChanges = (changes: WorktreeChanges): string => {
   return parts.join(', ') || 'no changes'
 }
 
+/**
+ * Git the host runs on its own — reading a checkout, cutting a lane for a
+ * conversation or a flow — with the hardened floor (`git-hardening.ts`): no
+ * hook or filesystem monitor the repository configures runs here. A hook
+ * path a repository sets (husky's is a tracked folder) is one an agent in
+ * that checkout can edit, so running hooks on an operation nobody asked for
+ * would run agent-written code as the host.
+ */
 const git = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await run('git', ['-C', cwd, ...args], {
+  const { stdout } = await run('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
+    timeout: 30_000,
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  return stdout
+}
+
+/**
+ * Git for a verb the person triggered themselves — bringing a branch home —
+ * which runs with their hooks, as their own git would: a post-checkout hook
+ * is how a repository sets itself up after a switch, and the person chose
+ * this switch. Only the filesystem monitor is off, as it is for every read.
+ */
+const personGit = async (cwd: string, args: readonly string[]): Promise<string> => {
+  const { stdout } = await run('git', ['-C', cwd, '-c', 'core.fsmonitor=false', ...args], {
     timeout: 30_000,
     maxBuffer: 8 * 1024 * 1024,
   })
@@ -501,14 +524,14 @@ export const bringHome = async (
   // the folder. Named now, while the folder is still there, so a refusal can
   // say what putting the worktree back did not bring back.
   const ignored = await ignoredIn(target)
-  await git(main, ['worktree', 'remove', target]).catch((error: unknown) => {
+  await personGit(main, ['worktree', 'remove', target]).catch((error: unknown) => {
     // The first thing this changes, and git can refuse it — a locked worktree,
     // a submodule, a file written in between — before anything has moved.
     throw new Error(`${basename(main)} could not remove the worktree at ${target}, so nothing moved. ${gitSaid(error)}`)
   })
   let warning: string | undefined
   try {
-    await git(main, ['checkout', entry.branch])
+    await personGit(main, ['checkout', entry.branch])
   } catch (error) {
     // A post-checkout hook runs after the switch, and git returns its exit
     // status as checkout's own: a failing hook reads as a refusal that did
@@ -543,7 +566,7 @@ export const putBack = async (
   ignored: readonly string[],
   listFn: (main: string, stateDir: string) => Promise<Worktree[]> = list,
 ): Promise<never> => {
-  const failed = await git(main, ['worktree', 'add', target, branch]).then(
+  const failed = await personGit(main, ['worktree', 'add', target, branch]).then(
     () => null,
     (error: unknown) => error,
   )

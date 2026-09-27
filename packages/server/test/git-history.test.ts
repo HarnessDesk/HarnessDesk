@@ -435,12 +435,13 @@ const loggedGit = async (t: TestContext, mode: 'real' | 'echo' | 'refuse' | 'bro
   const real = (await promisify(execFile)('sh', ['-c', 'command -v git'])).stdout.trim()
   const dir = await mkdtemp(join(tmpdir(), 'hd-logged-git-'))
   const log = join(dir, 'calls.log')
-  const asking = 'if [ "$3" = rev-parse ] && [ "$4" = --show-object-format ]; then'
+  // Matched anywhere in the call, since the host puts its hardening `-c`s (git-hardening.ts) before the command.
+  const asking = 'case "$*" in *" rev-parse --show-object-format"*)'
   const echo = {
     real: '',
-    echo: `${asking} echo --show-object-format; exit 0; fi\n`,
-    refuse: `${asking} echo 'error: unknown option' >&2; exit 129; fi\n`,
-    broken: `${asking} echo 'fatal: unable to read config file' >&2; exit 128; fi\n`,
+    echo: `${asking} echo --show-object-format; exit 0;; esac\n`,
+    refuse: `${asking} echo 'error: unknown option' >&2; exit 129;; esac\n`,
+    broken: `${asking} echo 'fatal: unable to read config file' >&2; exit 128;; esac\n`,
   }[mode]
   await writeFile(join(dir, 'git'), `#!/bin/sh\necho "$*" >> '${log}'\n${echo}exec '${real}' "$@"\n`, { mode: 0o755 })
   const was = process.env['PATH']
