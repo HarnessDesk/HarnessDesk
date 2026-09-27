@@ -757,8 +757,8 @@ component edit changes what the browser actually renders. `e2e/ui-system/
 rules.spec.ts` asks the running catalogue and `/preview.html`'s real screens
 these nine questions directly, in every theme and interface, and mutates the
 page under test to prove each check is not vacuous. Where the rendered app
-disagrees with the rule as written, the spec is left red and the violation is
-named below rather than hidden — the sections that follow say which.
+disagreed with a rule, the app was fixed, or the rule was scoped where the
+difference is a deliberate interface choice; the sections below say which.
 
 ### Names
 
@@ -773,24 +773,23 @@ not names and sit outside the rule; `figure`/`metric` are deliberately
 semibold.
 
 Enforced by `rules.spec.ts` ("rule: names"), reading `data-role` and
-`data-slot="page-title"` across every mounted screen. **Live violation:**
-`components/Publication.tsx` sets its pull-request title as `<Text role="row"
-weight="semibold">` — a name at 13px wearing the weight `weight` was written
-for lifting a search match inside a line, not for a title.
+`data-slot="page-title"` across every mounted screen. The spec found one
+name out of rule: the pull-request card's title (`components/Publication.tsx`)
+wore `weight="semibold"`, the weight `weight` exists for lifting a search
+match inside a line. It now takes its row role's own 13/500.
 
 ### Group labels
 
-`GroupLabel`'s computed `text-transform` is never `uppercase` and its weight
-is regular, in every group-label role — see "One title, one group label"
-above, where the design audit's `uppercaseLabel` already refuses the
-capitals in source. This asserts the rendered result, including the weight.
+`GroupLabel`'s computed `text-transform` is never `uppercase`, in every
+group-label role — see "One title, one group label" above, where the design
+audit's `uppercaseLabel` already refuses the capitals in source. Its weight is
+the interface's label weight, `--hd-label-weight`: regular in Desk, and
+medium in Studio, which varies only the weight and the air above a rail's
+group, on purpose. Size, ink and case are the same in both.
 
-Enforced by `rules.spec.ts` ("rule: group labels"). **Live violation:**
-Studio's `--hd-label-weight` computes 500 (medium), not regular —
-`group-label.tsx`'s own comment calls this a deliberate, Studio-only
-variation, which is in tension with the rule as #838 states it (no
-interface carve-out). Left failing rather than narrowed; the token or the
-rule needs a decision.
+Enforced by `rules.spec.ts` ("rule: group labels"), which asserts the
+rendered result in both interfaces and both themes, with a mutation each for
+capitals and for a heavier weight.
 
 ### Destination rows
 
@@ -893,11 +892,14 @@ readings generally. `rules.spec.ts` ("rule: health takes no tone") looks for
 the app's own word for that state, "Healthy", rendered in the resolved
 `--hd-success-ink`.
 
-**Live violation:** `components/ProjectProvenance.tsx` renders `<Chip
-tone="success" label="Healthy" />` — `lib/provenance.ts`'s `captureWords`
-hands back `tone: 'success'` whenever capture health is `'healthy'`.
-`components/AgentCards.tsx`'s context-window meter does the same thing for a
-healthy reading. Left failing rather than hidden.
+The spec found one: a healthy capture (`lib/provenance.ts`'s `captureWords`)
+read "Healthy" in the success tone. It now reads untoned, so a degraded
+capture is the one that stands out.
+
+A budget meter (`AgentCardMeter`: context or plan left) is not a health
+reading in this sense. Its fill is a verdict on how much is left, and green
+there is documented as "plenty left". Whether a budget with plenty left
+should also be untoned is an open question for the owner (#1061).
 
 ## Adding to the app
 

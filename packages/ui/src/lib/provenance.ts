@@ -1,9 +1,13 @@
 import type { CaptureHealth, CommitProvenance, WorkspaceEntry } from '@harnessdesk/protocol'
 
-/** Capture is a local observation, never a check verdict. */
-export const captureWords = (health: CaptureHealth): { label: string; tone: 'success' | 'warning' | 'neutral' } =>
+/**
+ * Capture is a local observation, never a check verdict. Health takes no
+ * tone: a healthy capture is the normal state and reads untoned, so the one
+ * that is degraded is the one that stands out.
+ */
+export const captureWords = (health: CaptureHealth): { label: string; tone: 'warning' | 'neutral' } =>
   health.state === 'healthy'
-    ? { label: 'Healthy', tone: 'success' }
+    ? { label: 'Healthy', tone: 'neutral' }
     : health.state === 'degraded'
       ? { label: 'Degraded', tone: 'warning' }
       : { label: 'Stopped', tone: 'neutral' }

@@ -98,12 +98,9 @@ const PROBE_HELPERS = `
  * Measured on `/preview.html`'s full set of mounted screens, across every
  * theme and interface (the pairs are named in tokens, not in the interface
  * layer, so they do not vary by dial — this proves that rather than assumes
- * it). Two real violations turned up and are asserted, not hidden:
- *
- * 1. `components/Publication.tsx`'s pull-request title is
- *    `<Text role="row" weight="semibold">` — a name at 13px wearing the
- *    weight `weight` was written for lifting a search match, not a title.
- * 2. Studio's group-label weight — see the group-labels rule below.
+ * it). The pull-request card's title (`components/Publication.tsx`) was the
+ * one name wearing `weight="semibold"` — the weight `weight` exists for
+ * lifting a search match, not a title — and now takes its row role's own.
  */
 const NAME_PAIRS: Record<string, { size: number; weight: number }> = {
   wordmark: { size: 20, weight: 600 },
@@ -175,43 +172,40 @@ test.describe('rule: names', () => {
  * `docs/design.md` "One title, one group label" — this asserts the rendered
  * result) and the weight is regular in every instance.
  *
- * Measured across theme and interface: **Studio fails this today.**
- * `foundation/tokens.css`'s `body[data-hd-interface='studio']` block sets
- * `--hd-label-weight: var(--hd-weight-medium)` (500), and `GroupLabel`'s own
- * class reads that token — so every group label in Studio computes 500, not
- * regular. `group-label.tsx`'s own comment calls this out as a deliberate,
- * Studio-only variation ("the interfaces may vary the label's weight"), but
- * the rule as written in #838 says weight is regular "in every group-label
- * role" with no interface carve-out. Left failing rather than narrowed —
- * the controller decides whether the rule or the Studio token is wrong.
+ * The weight is the interface's label weight: regular in Desk, and in
+ * Studio the medium its `--hd-label-weight` sets on purpose
+ * (`foundation/tokens.css`: "Studio varies only the weight and the air
+ * above a rail's group"). Size, ink and case are the same in both.
  */
 type GroupLabelFinding = { text: string; transform: string; weight: number }
 
-const groupLabelViolations = (page: Page) =>
-  page.evaluate(() => {
+/** The label weight each interface sets: regular in Desk, medium in Studio. */
+const LABEL_WEIGHT = { desk: 400, studio: 500 } as const
+
+const groupLabelViolations = (page: Page, expectedWeight: number = LABEL_WEIGHT.desk) =>
+  page.evaluate((expected) => {
     const out: GroupLabelFinding[] = []
     for (const el of document.querySelectorAll('[data-slot="group-label"]')) {
       const cs = getComputedStyle(el)
       const transform = cs.textTransform
       const weight = Number(cs.fontWeight)
-      if (transform === 'uppercase' || weight !== 400) {
+      if (transform === 'uppercase' || weight !== expected) {
         out.push({ text: (el.textContent ?? '').trim().slice(0, 40), transform, weight })
       }
     }
     return out
-  })
+  }, expectedWeight)
 
 test.describe('rule: group labels', () => {
-  test('rule: group labels — text-transform is never uppercase and weight is regular, in every theme and interface', async ({ page }) => {
+  test('rule: group labels — text-transform is never uppercase and the weight is the interface\'s label weight (regular in Desk), in every theme', async ({ page }) => {
     await gotoPreview(page)
     const findings: (GroupLabelFinding & { where: string })[] = []
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
         await setPreviewDials(page, theme, look)
-        for (const finding of await groupLabelViolations(page)) findings.push({ ...finding, where: `${theme}/${look}` })
+        for (const finding of await groupLabelViolations(page, LABEL_WEIGHT[look])) findings.push({ ...finding, where: `${theme}/${look}` })
       }
     }
-    // Real violation: Studio's --hd-label-weight is 500 (see header comment).
     expect(findings).toEqual([])
   })
 
@@ -223,6 +217,16 @@ test.describe('rule: group labels', () => {
     const after = await groupLabelViolations(page)
     expect(after.length).toBeGreaterThan(before.length)
     expect(after.every((f) => f.transform === 'uppercase')).toBe(true)
+  })
+
+  test('rule: group labels — the checker catches a group label set heavier than its interface\'s weight', async ({ page }) => {
+    await gotoPreview(page)
+    await setPreviewDials(page, 'light', 'desk')
+    expect(await groupLabelViolations(page, LABEL_WEIGHT.desk)).toEqual([])
+    await page.addStyleTag({ content: '[data-slot="group-label"] { font-weight: 600 !important; }' })
+    const after = await groupLabelViolations(page, LABEL_WEIGHT.desk)
+    expect(after.length).toBeGreaterThan(0)
+    expect(after.every((f) => f.weight === 600)).toBe(true)
   })
 })
 
@@ -761,15 +765,9 @@ test.describe('rule: monospace', () => {
  * (`lib/provenance.ts`'s `captureWords`, `state === 'healthy'`), must not
  * compute the resolved `--hd-success-ink` colour.
  *
- * **This is a real, live violation**, reachable on `/preview.html`'s
- * "Project — capture" frame with no mutation needed:
- * `components/ProjectProvenance.tsx` renders `<Chip tone="success"
- * label="Healthy" />` for a healthy capture — `lib/provenance.ts`'s
- * `captureWords` hands back `tone: 'success'` for `state === 'healthy'`. A
- * second call site does the same thing for a healthy context-window
- * reading: `components/AgentCards.tsx`'s `meterOf`/`seatMeter` both resolve
- * `tone: 'success'` when the fill is neither `bad` nor `warn`. Left failing
- * on purpose; not narrowed to hide it.
+ * Reachable on `/preview.html`'s "Project — capture" frame, which reads a
+ * healthy capture: `lib/provenance.ts`'s `captureWords` gave it the success
+ * tone until this rule found it, and now gives it none.
  */
 type HealthFinding = { text: string; tag: string }
 
@@ -796,7 +794,6 @@ test.describe('rule: health takes no tone', () => {
     // The capture frame loads its health asynchronously; give it a beat.
     await expect.poll(async () => page.locator('text=Healthy').count()).toBeGreaterThan(0)
     const findings = await healthToneViolations(page)
-    // Real violation: components/ProjectProvenance.tsx's Chip (see header comment).
     expect(findings).toEqual([])
   })
 
