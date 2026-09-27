@@ -157,6 +157,14 @@ export interface SpendCoverage {
    * which drew every day before its own boot the same way — still validates.
    */
   readonly earliestDay?: number | null
+  /**
+   * Which runtimes among the ones this window covers have a real turn count
+   * behind them — see `LedgerRow.turns`. A runtime not listed here had no
+   * readable turn boundary (`docs/usage-dashboard.md`, "Turns"), and a caller
+   * says so ("turns known for N of M agents") rather than reading a missing
+   * runtime as zero turns. Optional so an old report still validates.
+   */
+  readonly turnsKnownFor?: readonly RuntimeId[]
 }
 
 export interface SpendSummary {
@@ -244,12 +252,22 @@ export interface UsageReport {
   /** See `UsageBilling`, above `UsageCredits`. */
   readonly billing?: UsageBilling
   /**
-   * How many turns this account has run and at what rate, when a source
-   * counts turns rather than tokens or a percentage (Cursor's request-based
-   * plans). `unitsPerTurn` is null when the source does not say what a turn
-   * costs against its own unit. `since` bounds what the count covers — never
-   * a plan's whole lifetime unless the source says so. Distinct from `spend`
-   * and `credits`, which price the same work in money; this counts the turns
+   * How many turns this account has run and at what rate — filled from the
+   * ledger's own turn count (`LedgerRow.turns`, "Turns" in
+   * `docs/usage-dashboard.md`) whenever the runtime is one
+   * `SpendCoverage.turnsKnownFor` names, whatever shape the plan's `lanes`
+   * are otherwise. Absent, never zero, when the ledger has no readable turn
+   * boundary for this runtime.
+   *
+   * `unitsPerTurn` prices one turn in the lane's own unit: ledger requests
+   * per turn for a requests-based allowance (Cursor), Value per turn (list
+   * price or the agent's own vendor cost) for a balance or a metered key, and
+   * `null` for a plain percent window, which has no history of lane
+   * snapshots to divide by turns yet. It is also `null` under ten turns in
+   * the window — too few to call a rate. `since` bounds what the count
+   * covers: the current billing cycle when the report knows one, else the
+   * last 14 days — never a plan's whole lifetime. Distinct from `spend` and
+   * `credits`, which price the same work in money; this counts the turns
    * themselves.
    */
   readonly turns?: { readonly count: number; readonly unitsPerTurn: number | null; readonly since: number } | null
@@ -308,6 +326,14 @@ export interface LedgerRow {
    *
    * `requests` is the call count the group's `tokens` and `cost` were summed
    * over — the same count `SpendCoverage.priced` / `unpriced` partition.
+   *
+   * `turns` is a different count again — see "Turns",
+   * `docs/usage-dashboard.md` — one person-or-agent prompt answered by the
+   * agent, never an API request. It is `undefined` unless *every* runtime
+   * this row groups is one `SpendCoverage.turnsKnownFor` names: a row that
+   * mixes a turn-known runtime with one that is not would otherwise read as
+   * a real count that is actually only a partial one, which is the same lie
+   * a missing runtime reading as zero would be.
    */
   readonly input?: number
   readonly output?: number
@@ -315,6 +341,7 @@ export interface LedgerRow {
   readonly cacheWrite?: number
   readonly reasoning?: number
   readonly requests?: number
+  readonly turns?: number
 }
 
 /** One agent's contribution to one day, for the stacked chart. */
@@ -333,6 +360,8 @@ export interface LedgerDay {
   readonly cacheWrite?: number
   readonly reasoning?: number
   readonly requests?: number
+  /** `undefined` unless `runtime` is one `SpendCoverage.turnsKnownFor` names — see `LedgerRow.turns`. */
+  readonly turns?: number
 }
 
 export interface LedgerReport {
@@ -359,6 +388,8 @@ export interface LedgerReport {
     readonly cacheWrite: number
     readonly reasoning: number
     readonly requests: number
+    /** `undefined` unless every runtime this window covers is turn-known — see `LedgerRow.turns`. */
+    readonly turns?: number
   }
 }
 
