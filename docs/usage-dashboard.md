@@ -987,9 +987,10 @@ hard way somewhere and is cheaper to design out than to fix:
 
 **The headline is the account, not a model.** When a source reports both
 account-wide windows and model-scoped ones, the binding lane is chosen from the
-account-wide lanes only, and the scoped ones stay in the list below. The reason
-is that a spent model is not a spent account: Claude Code's Fable window can sit
-at 0% all week while every other model answers normally, and a card headlined
+account-wide lanes only; scoped lanes appear in the visible rows when they fit,
+and any others are included in the `+N more` count. The reason is that a spent
+model is not a spent account: Claude Code's Fable window can sit at 0% all week
+while every other model answers normally, and a card headlined
 `0% left` would send you to another agent you do not need. The scoped fact
 still gets said, in one line under the bar — *Fable is spent — other models
 still work* — and only an account-wide limit turns the card red, raises the
@@ -1009,15 +1010,16 @@ reports a weekly limit for its Gemini models and another for its Claude and
 GPT ones, and nothing for the account; Gemini CLI reports one per model. Same
 rule, other shape: a spent scope is stepped around while any other still has
 room, so the headline is a scope that can still run a turn, and the spent one
-stays in the list, red, with its reset. Only when every scope is spent is the
-account out, and then the scope that comes back first is the headline, because
-when is the only question left. (Until 2026-09-17 such a report was treated as
-blocked by its tightest scope, on the stated assumption that no source had this
-shape; Gemini CLI already did.) Seating an Agent asks the same question, plus
-one: a candidate whose model has a spent lane of its own is passed over for
-another (#778). A lane counts as the model's own when its scope is exactly the
-model id, as Gemini CLI reports it; a scope that names a group, like
-Antigravity's, matches no candidate.
+spent lane is shown in red with its reset when it fits among the visible rows;
+otherwise it is included in the `+N more` count. Only when every scope is spent
+is the account out, and then the scope that comes back first is the headline,
+because when is the only question left. (Until 2026-09-17 such a report was
+treated as blocked by its tightest scope, on the stated assumption that no
+source had this shape; Gemini CLI already did.) Seating an Agent asks the same
+question, plus one: a candidate whose model has a spent lane of its own is
+passed over for another (#778). A lane counts as the model's own when its scope
+is exactly the model id, as Gemini CLI reports it; a scope that names a group,
+like Antigravity's, matches no candidate.
 
 **How far back the money goes.** The spend band picks its own window: a week is
 what you are spending now, a month is the cycle most plans bill on, and a quarter
