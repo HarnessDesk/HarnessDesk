@@ -49,6 +49,33 @@ const turnStartedAt = (turn: unknown): number | null => {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+/**
+ * Whether a stored turn is one the desk should count at all: a person's (or
+ * another agent's) own prompt, or the one shape that stands in for it --
+ * `AgentSession.send(recordAs: 'notice')`, which sends a real prompt but
+ * records it as a `NoticeItem` so it never shows as a person's own words
+ * (`docs/usage-dashboard.md`, "Turns"). Everything else a `NoticeItem` can
+ * open a turn with -- a replay's own reconstruction of housekeeping, an
+ * interrupted turn nobody answered -- is not a prompt anyone sent, and is
+ * told apart from a real `recordAs: 'notice'` turn the only way that is
+ * possible from the stored shape alone: a real one was answered, so it has
+ * more than the one notice item, or the runtime marked it `completed`. A
+ * turn queued but never run has no `Turn` object at all (`send` only builds
+ * one once it is actually dispatched), so nothing here has to filter that
+ * case out separately.
+ */
+const countsAsPrompt = (turn: unknown): boolean => {
+  if (typeof turn !== 'object' || turn === null) return false
+  const items = (turn as { items?: unknown }).items
+  if (!Array.isArray(items) || items.length === 0) return false
+  const first = items[0] as { type?: unknown } | undefined
+  if (typeof first !== 'object' || first === null) return false
+  if (first.type === 'userMessage') return true
+  if (first.type !== 'notice') return false
+  const status = (turn as { status?: unknown }).status
+  return items.length > 1 || status === 'completed'
+}
+
 export class DeskTranscriptTurnsSource implements RemoteEventsSource {
   readonly runtime: string
   readonly #transcripts: DeskTranscriptReader
@@ -80,6 +107,7 @@ export class DeskTranscriptTurnsSource implements RemoteEventsSource {
       if (!Array.isArray(stored.turns)) continue
       const project = projectRootOf(typeof stored.cwd === 'string' ? stored.cwd : '')
       for (const turn of stored.turns) {
+        if (!countsAsPrompt(turn)) continue
         const at = turnStartedAt(turn)
         if (at === null || at < range.from || at >= range.to) continue
         const day = startOfLocalDay(at)
