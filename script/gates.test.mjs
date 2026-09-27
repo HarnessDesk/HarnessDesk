@@ -2930,24 +2930,30 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
     for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
       const text = fs.readFileSync(path.join(repo, file), 'utf8')
       assert.ok(text.includes(shape), `${file} reads dist by the same directory shape prune-dist.mjs writes (${shape})`)
-      // Read with the exclusion taken out: the exclusion now spells the same
-      // path, and on its own it satisfied this check, so a separate run whose
-      // glob matched nothing passed here — and `node --test` exits 0 on a
-      // glob that matches nothing (#1052's review, round 2).
-      // Comments are taken out too: one quoting the path is not a run of it
-      // (#1052's review, round 3).
-      const runs = text
-        .split('\n')
-        .filter((line) => !/^\s*(\/\/|#)/.test(line))
-        .join('\n')
+      // Read with actual comments removed: line filtering let a block comment
+      // quote the expected glob and stand in for the run (#1063).
+      const code = file.endsWith('.mjs')
+        ? withoutComments(text, file)
+        : text.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n')
+      // Read with the exclusion taken out: the exclusion itself spells the
+      // same path, and on its own it satisfied the old check — `node --test`
+      // exits 0 on a glob that matches nothing (#1052's review, round 2).
+      const runs = code
         .split(`! -path '${carveOut}'`)
         .join('')
         .split(`! -path "${carveOut}"`)
         .join('')
-      assert.ok(
-        runs.includes(carveOut),
-        `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
-      )
+      const escaped = carveOut.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const actuallyRuns = file.endsWith('.mjs')
+        ? (() => {
+            const stepName = name.startsWith('intake-') ? 'intake tests' : 'flow-host-evidence tests'
+            const start = runs.indexOf(`step('${stepName}'`)
+            const end = runs.indexOf('\nstep(', start + 1)
+            const step = runs.slice(start, end)
+            return start !== -1 && end !== -1 && step.includes("run('node'") && step.includes("'--test'") && step.includes(`'${carveOut}'`)
+          })()
+        : runs.split('\n').some((line) => new RegExp(`^\\s*run:\\s*node --test --test-timeout=600000 "${escaped}"\\s*$`).test(line))
+      assert.ok(actuallyRuns, `${file} runs the carved-out files with its test command and exact sub-glob (${carveOut})`)
       // By the same path glob, not by name: a bare `-name` exclusion also
       // drops a same-named file in another package, which the server-only
       // run never picks up, so it ran nowhere (#1052's review, round 1 —
