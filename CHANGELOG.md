@@ -7,6 +7,17 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A run stopped at its round budget now says how to let it continue.** The
+  control already existed — the Findings tab's "Decide this run" opens
+  "Authorise another round" for exactly this stop — but nothing on the stall
+  itself pointed there, so a person reading "This run reached its limit of N
+  rounds." or "Round N ended with M open findings." had no way to find it.
+  Both messages now end with "To let it continue, open Findings and choose
+  Authorise another round.", in the button's own words, and only for the
+  stops that action actually answers — never a design problem or a pending
+  regression or security claim, which need a person's judgment first, not
+  another round. (#1051)
+
 - **A step after an isolated one now works on that step's actual commit.** A
   flow step that depends on an isolated step's finished work — a tester after
   a developer working in its own worktree, say — used to open in the project's

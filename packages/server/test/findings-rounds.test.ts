@@ -28,8 +28,24 @@ test('ceiling wins over green merge', () => {
   assert.deepEqual(decideLoop(sample({ closed: 2 })), { idle: 0, next: 'merge-card', reason: null })
   const third = decideLoop(sample({ closed: 3 }))
   assert.equal(third.next, 'person', 'the third closed round stops at the person even with every guard green')
-  assert.equal(third.reason, 'Round 3 ended with 0 open findings.')
+  assert.equal(third.reason, 'Round 3 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.')
   assert.equal(decideLoop(sample({ closed: 1, unresolved: 2 })).next, 'continue')
+})
+
+test('a round-ceiling stop, plain or with a review series, names the exact way past it: Authorise another round', () => {
+  const withReview = decideLoop(sample({ closed: 3 }))
+  assert.match(withReview.reason!, /Authorise another round/, 'authorizeExtraRound answers exactly this stop, so its own button is named here')
+  const plain = decideLoop(sample({ closed: 3, plain: true }))
+  assert.match(plain.reason!, /Authorise another round/)
+})
+
+test('a stop another round cannot actually clear names no way forward', () => {
+  // A design problem: granting one more round would only run straight back into the same two rejected repairs.
+  assert.doesNotMatch(decideLoop(sample({ unresolvedRepairs: [2] })).reason!, /Authorise another round/)
+  // A pending regression or security claim: it is the claim, not the round count, that is waited on.
+  assert.doesNotMatch(decideLoop(sample({ pendingException: true })).reason!, /Authorise another round/)
+  // Rounds without new evidence: the ceiling another round raises is not the allowance this stop counts against.
+  assert.doesNotMatch(decideLoop(sample({ newProgress: false, idle: 1, idleLimit: 2 })).reason!, /Authorise another round/)
 })
 
 const view = (id: string, fact: EvidenceRecord['fact'], over: Partial<EvidenceRecord> = {}): EvidenceView => ({
