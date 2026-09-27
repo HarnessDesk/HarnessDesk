@@ -6,7 +6,7 @@ import type { RunwaySummary } from '../../lib/usage'
 import { Row, Rows, Button, SectionHead } from '../../design'
 import { RuntimeMark } from '../BrandIcons'
 import { BandHead, Card, Runway, AsleepAlert, type SilentAgent } from './shared'
-import styles from '../Usage.module.css'
+import styles from './usage.module.css'
 
 /**
  * Plans: every account, whether it will last, and what is missing.
@@ -95,13 +95,16 @@ export const PlansView = ({
       </section>
     )}
 
-    {silent.length > 0 && (
-      <section className={styles.band} aria-label="Doesn't report usage">
-        <SectionHead level="heading" name="Doesn’t report usage" />
-        {silent
-          .filter((agent) => scoped === null || scoped.id === agent.info.id)
-          .map((agent) => <AsleepAlert key={agent.info.id} silent={agent} onSignIn={onSignIn} />)}
-      </section>
-    )}
+    {(() => {
+      const scopedSilent = silent.filter((agent) => scoped === null || scoped.id === agent.info.id)
+      return (
+        scopedSilent.length > 0 && (
+          <section className={styles.band} aria-label="Doesn't report usage">
+            <SectionHead level="heading" name="Doesn’t report usage" />
+            {scopedSilent.map((agent) => <AsleepAlert key={agent.info.id} silent={agent} onSignIn={onSignIn} />)}
+          </section>
+        )
+      )
+    })()}
   </>
 )

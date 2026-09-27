@@ -1,7 +1,7 @@
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { runtimeId, sessionKey, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
+import { runtimeId, sessionKey, type RuntimeId, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
 import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
@@ -390,7 +390,7 @@ const Preview = () => {
   const [dashboardView, setDashboardView] = useState<DashboardView>(
     (DASHBOARD_VIEW_PARAM as DashboardView | null) ?? 'overview',
   )
-  const [dashboardScope, setDashboardScope] = useState<string | null>(null)
+  const [dashboardScope, setDashboardScope] = useState<RuntimeId | null>(null)
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <section aria-label="Provenance preview">
@@ -620,9 +620,9 @@ const Preview = () => {
         <div className="relative h-[900px]" style={{ transform: 'translateZ(0)' }}>
           <Usage
             view={dashboardView}
-            scope={dashboardScope as never}
+            scope={dashboardScope}
             onView={setDashboardView}
-            onScope={(scope) => setDashboardScope(scope as unknown as string | null)}
+            onScope={setDashboardScope}
             onClose={() => {}}
             onSignIn={() => {}}
           />

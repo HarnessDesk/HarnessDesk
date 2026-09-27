@@ -2,7 +2,7 @@ import type { LedgerReport, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol
 
 import { Segmented } from '../../design'
 import { BandHead, PIVOTS, RANGES, Ranked, Spend, type Pivot, type TintOf } from './shared'
-import styles from '../Usage.module.css'
+import styles from './usage.module.css'
 
 /**
  * Spend: what it cost, and where it went — full width, over 7, 30 or 90 days.

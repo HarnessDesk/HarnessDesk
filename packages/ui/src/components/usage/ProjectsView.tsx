@@ -1,9 +1,9 @@
-import type { RuntimeId } from '@harnessdesk/protocol'
+import type { InsightReport, RuntimeId } from '@harnessdesk/protocol'
 
 import { Segmented } from '../../design'
 import { InsightUsage } from '../InsightUsage'
 import { BandHead } from './shared'
-import styles from '../Usage.module.css'
+import styles from './usage.module.css'
 
 const INSIGHT_OPTIONS = [
   { value: 'goal', label: 'By Goal' },
@@ -17,12 +17,17 @@ export const ProjectsView = ({
   insightView,
   onInsightViewChange,
   onGoal,
+  insightReport,
+  insightProblem,
 }: {
   root: string | null
   scope: RuntimeId | null
   insightView: 'goal' | 'agent'
   onInsightViewChange: (view: 'goal' | 'agent') => void
   onGoal: (goal: string) => void
+  /** Loaded once per scope/root by `Usage.tsx` — see `InsightUsage`. */
+  insightReport: InsightReport | null
+  insightProblem: string | null
 }) => (
   <section className={styles.band} aria-label="Project usage">
     <BandHead
@@ -36,6 +41,6 @@ export const ProjectsView = ({
         />
       }
     />
-    <InsightUsage root={root} runtime={scope} view={insightView} onGoal={onGoal} />
+    <InsightUsage root={root} runtime={scope} view={insightView} onGoal={onGoal} report={insightReport} problem={insightProblem} />
   </section>
 )

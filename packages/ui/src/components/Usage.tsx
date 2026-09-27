@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type { LedgerReport, RuntimeId, UsageReport } from '@harnessdesk/protocol'
+import type { InsightReport, LedgerReport, RuntimeId, UsageReport } from '@harnessdesk/protocol'
 
 import { prefsForUsage } from '../lib/accounts'
 import { byUrgency, costClause, formatAge, runway } from '../lib/usage'
@@ -21,6 +21,8 @@ import { PlansView } from './usage/PlansView'
 import { SpendView } from './usage/SpendView'
 import { ActivityView } from './usage/ActivityView'
 import { ProjectsView } from './usage/ProjectsView'
+import type { HeatMetric } from '../lib/heat'
+import type { HeatView } from './UsageActivity'
 import styles from './Usage.module.css'
 
 /**
@@ -51,10 +53,10 @@ const VIEW_LABEL: Readonly<Record<DashboardView, string>> = {
 }
 
 export const Usage = ({
-  view = 'overview',
-  scope = null,
-  onView = () => undefined,
-  onScope = () => undefined,
+  view: viewProp,
+  scope: scopeProp,
+  onView: onViewProp,
+  onScope: onScopeProp,
   onClose,
   onSignIn,
 }: {
@@ -70,6 +72,15 @@ export const Usage = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  // Falls back to state of its own when the caller supplies neither prop —
+  // the catalogue's `DashboardSurface` mounts this uncontrolled, and without
+  // this its rail and scope menu did nothing (review of #1057, item 6).
+  const [ownView, setOwnView] = useState<DashboardView>('overview')
+  const [ownScope, setOwnScope] = useState<RuntimeId | null>(null)
+  const view = viewProp ?? ownView
+  const scope = scopeProp ?? ownScope
+  const onView = onViewProp ?? setOwnView
+  const onScope = onScopeProp ?? setOwnScope
   const [now, setNow] = useState(() => Date.now())
   const [pivot, setPivot] = useState<Pivot>('runtime')
   const [range, setRange] = useState<number>(DEFAULT_RANGE)
@@ -83,6 +94,19 @@ export const Usage = ({
   const [wideLedger, setWideLedger] = useState<LedgerReport | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [insightView, setInsightView] = useState<'goal' | 'agent'>('goal')
+  /**
+   * "When it ran"'s own query and toggles, owned here rather than by the
+   * band itself: Overview and Activity each mount `UsageActivity`, and
+   * before this every switch between them fired a fresh 365-day query and
+   * reset the Year/By agent and Tokens/Cost toggles (review of #1057, item
+   * 4). The two ledger effects above already make this shape; this is the
+   * third.
+   */
+  const [yearLedger, setYearLedger] = useState<LedgerReport | null>(null)
+  const [heatView, setHeatView] = useState<HeatView>('year')
+  const [heatMetric, setHeatMetric] = useState<HeatMetric>('tokens')
+  const [insightReport, setInsightReport] = useState<InsightReport | null>(null)
+  const [insightProblem, setInsightProblem] = useState<string | null>(null)
 
   useEffect(dismissOverlays, [])
   useEscapeSurface(true, onClose)
@@ -125,6 +149,45 @@ export const Usage = ({
       cancelled = true
     }
   }, [store, scope, range, snapshot.scan?.finishedAt])
+
+  useEffect(() => {
+    let cancelled = false
+    void store
+      .ledger({ days: 365, groupBy: 'runtime', ...(scope ? { runtime: scope } : {}) })
+      .then((report) => {
+        if (!cancelled) setYearLedger(report)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [store, scope, snapshot.scan?.finishedAt])
+
+  const projectRoot = snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null
+
+  // Project usage, loaded once per scope/root — not per `insightView` — so
+  // switching Projects' own By Goal/By Agent toggle, or switching away and
+  // back to Projects, issues no new read (review of #1057, item 4).
+  useEffect(() => {
+    let cancelled = false
+    setInsightReport(null)
+    setInsightProblem(null)
+    if (!projectRoot) return () => {
+      cancelled = true
+    }
+    const to = Date.now()
+    const from = to - 30 * 86_400_000
+    void store
+      .readUsageInsight({ root: projectRoot, from, to, ...(scope ? { runtime: scope } : {}) })
+      .then((next) => {
+        if (!cancelled) setInsightReport(next)
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setInsightProblem(error instanceof Error ? error.message : 'Recorded usage could not be read.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [store, projectRoot, scope])
 
   const off = useMemo(() => new Set(snapshot.usageOff), [snapshot.usageOff])
   const tracked = useMemo(
@@ -219,13 +282,28 @@ export const Usage = ({
   const borrowed = reports.find(
     (report) => report.lanes.length === 0 && (report.unverified?.lanes.length ?? 0) > 0,
   )
+  // The whole-dashboard sentence is Overview's alone — every other view
+  // already names itself in the rail and the title, so the same blurb under
+  // all five read as a caption for a screen the reader was not looking at
+  // (review of #1057, NIT 4). The borrowed-sign-in disclaimer is not that
+  // sentence: it is a safety-relevant fact that varies per report, so it
+  // earns its own one-liner (rule 9) on every view, not only Overview's.
+  const overview = view === 'overview'
   const blurb = scoped
     ? borrowed?.unverified
-      ? `One agent's plans, spend and history, read on this machine. Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
-      : `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
+      ? overview
+        ? `One agent's plans, spend and history, read on this machine. Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
+        : `Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
+      : overview
+        ? `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
+        : undefined
     : borrowed
-      ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.`
-      : `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine.`
+      ? overview
+        ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.`
+        : `A card headed by another sign-in shows that sign-in’s.`
+      : overview
+        ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine.`
+        : undefined
 
   return (
     <AppWindow label="Dashboard">
@@ -286,7 +364,7 @@ export const Usage = ({
             head. Nothing renders yet — no placeholder UI for a band that is
             not built. */}
         <PageHead
-          title={scoped ? scoped.presentation.name : VIEW_LABEL[view]}
+          title={VIEW_LABEL[view]}
           blurb={blurb}
           actions={<ScopeControl everyReport={everyReport} byId={byId} scope={scope} onScope={onScope} />}
         />
@@ -302,6 +380,7 @@ export const Usage = ({
               now={now}
               summary={summary}
               silent={silent}
+              scope={scope}
               onGoToPlans={() => onView('plans')}
               onRefreshAccount={(runtime) => void store.refreshUsage(runtime)}
               onStopTracking={(runtime) => store.setUsageTracked(runtime, false)}
@@ -313,6 +392,11 @@ export const Usage = ({
               onScan={() => void store.scanUsage()}
               pivot={pivot}
               onPivotChange={setPivot}
+              yearLedger={yearLedger}
+              heatView={heatView}
+              onHeatViewChange={setHeatView}
+              heatMetric={heatMetric}
+              onHeatMetricChange={setHeatMetric}
             />
           )}
 
@@ -352,16 +436,28 @@ export const Usage = ({
           )}
 
           {view === 'activity' && (
-            <ActivityView byId={byId} scope={scope} now={now} scanFinishedAt={snapshot.scan?.finishedAt} />
+            <ActivityView
+              byId={byId}
+              scope={scope}
+              now={now}
+              scanFinishedAt={snapshot.scan?.finishedAt}
+              yearLedger={yearLedger}
+              heatView={heatView}
+              onHeatViewChange={setHeatView}
+              heatMetric={heatMetric}
+              onHeatMetricChange={setHeatMetric}
+            />
           )}
 
           {view === 'projects' && (
             <ProjectsView
-              root={snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null}
+              root={projectRoot}
               scope={scope}
               insightView={insightView}
               onInsightViewChange={setInsightView}
               onGoal={(goal) => store.openGoal(goal)}
+              insightReport={insightReport}
+              insightProblem={insightProblem}
             />
           )}
         </div>
