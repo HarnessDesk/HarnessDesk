@@ -2005,7 +2005,7 @@ export const Settings = ({
       >
         {showYou && (
           <WindowNavIdentity
-            face={<ProfileFace size={28} />}
+            face={<ProfileFace size={24} />}
             name={yourName}
             selected={section === 'profile'}
             onClick={() => onSection('profile')}

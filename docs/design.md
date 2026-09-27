@@ -798,35 +798,32 @@ capitals and for a heavier weight.
 
 ### Destination rows
 
-A navigation row stands the same height everywhere it appears: the sidebar's
-session row (`components/SessionTree.tsx`), the settings/usage rail row
-(`AppWindow.tsx`'s `WindowNavItem`), and a dropdown menu item
-(`design/ui/dropdown-menu.tsx`). The rail row and the menu item carry the
-Tailwind `size="navigation"` recipe (`min-h-(--hd-nav-h)`, `py-1`, the
-reading size at `--hd-line-sm`) with nothing else added; the sidebar's
-session row carries the same recipe plus `Sidebar.module.css`'s own
-`.rowWrap`/`.row` rules (flex alignment, width, gap — no height or padding
-of their own). It is one height, not one recipe repeated three times.
+A navigation row is at least `--hd-nav-h` tall wherever it appears, and
+every row of one kind stands at one height. There are three kinds:
 
-Measured rather than assumed, on every instance of every kind, not one
-sample per kind: at Studio, `--hd-nav-h` is a literal 34px and every row of
-every kind lands on exactly that. At Desk the honest picture is not as
-clean as one sample suggested: every sidebar session row and the menu item
-render 30px, a pixel over the calc'd floor (29px), as the row's line height
-plus its padding are bound to; but of the settings/usage rail's own rows,
-only its identity row (`WindowNavIdentity`, "You, at the top of the rail",
-the one row with a face) is also 30px — the rest of its ordinary
-`WindowNavItem` rows sit exactly on the 29px floor. **At Desk the rail's
-own rows do not agree with each other, and disagree with the sidebar and
-the menu item.** Left failing rather than narrowed to hide it: the rule
-holds as **every destination row of every kind is at least `--hd-nav-h`
-tall, every row of one kind agrees with its own siblings, and the kinds
-agree with each other**, checked per theme and interface and per instance
-— which is true at Studio and false at Desk today. `row-height.spec.ts`
-already proves `--hd-row-h` and `--hd-nav-h` resolve to the same token
-across every palette and interface; `rules.spec.ts` ("rule: destination
-rows") measures the rows themselves, every one of them, not the token
-alias.
+- the sidebar's session row (`components/SessionTree.tsx`);
+- the settings and usage rail row (`AppWindow.tsx`'s `WindowNavItem` and `WindowNavIdentity`);
+- a dropdown menu item (`design/ui/dropdown-menu.tsx`).
+
+All three are `Button size="navigation"` or the menu's own row, floored at
+`--hd-nav-h`.
+
+In Studio the kinds also agree with each other: `--hd-nav-h` is a literal
+34px, and `design/foundation/tokens.css` gives Studio "one height for every row in
+a navigation column". Desk does not promise that:
+
+- the sidebar's session rows and a menu item are 30px, because their 20px line, 4+4px block padding and 1+1px border add up past the 29px floor;
+- the rail's rows have no block padding and sit on the 29px floor.
+
+Whether Desk should converge is #1073.
+
+The settings rail's identity row was the one row out of step with its own
+kind. Its 28px face in a 29px row with 1px borders pushed it to 30px. It
+now draws the seat's 24px face, the size the sidebar's seat row uses.
+
+Enforced by `rules.spec.ts` ("rule: destination rows"), on every visible row
+of every kind, in both themes and interfaces. Mutations cover a row shrunk
+under the floor and one row taller than its siblings.
 
 ### Fields
 
