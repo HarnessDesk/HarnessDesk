@@ -737,17 +737,19 @@ export class FindingsPlane {
     return rows.map((view) => this.#seatRowOf(view, caller, bound))
   }
 
-  /** `raisedByYou`/`decidableNow` for one row of `readForSeat` — `decidableNow` mirrors `decide`'s own checks exactly, so the two never disagree. */
+  /** `raisedByYou`/`decidableNow`/`personDecides` for one row of `readForSeat`. `decidableNow` mirrors who `decide` lets decide it; a call can still be refused for what only the call knows (a blind round still open, a stale `expected`). */
   #seatRowOf(
     view: FindingView, caller: Caller,
     bound: { readonly run: string; readonly round: number; readonly reviews: boolean },
   ): FindingSeatRow {
     const raiser = this.#port.seats.byId(view.origin.seat)
     const raisedByYou = Boolean(raiser?.agent && caller.seat.agent && raiser.agent.id === caller.seat.agent.id)
-    const decidableNow = raisedByYou && !isResolved(view) && bound.reviews &&
+    // A finding an earlier run on this Goal raised is left to a person: `decide` refuses any Seat for it.
+    const otherRun = view.origin.run !== bound.run && view.origin.goal === caller.goal
+    const decidableNow = raisedByYou && !isResolved(view) && bound.reviews && !otherRun &&
       String(caller.seat.id) !== view.origin.seat &&
       !(view.origin.run === bound.run && bound.round <= view.origin.round)
-    return { ...view, raisedByYou, decidableNow }
+    return { ...view, raisedByYou, decidableNow, ...(raisedByYou && otherRun ? { personDecides: true } : {}) }
   }
 
   /**

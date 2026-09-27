@@ -145,12 +145,16 @@ export interface FindingView {
  * Seat may decide it right now, from the card it holds. Only ever present on
  * that one read — never on `finding/list`, `finding/read` or a frozen
  * receipt, which a person reads and where "yours" means nothing.
- * `decidableNow` mirrors the findings plane's own `decide` checks exactly
- * (#1090), so a Seat is never told a finding is decidable and then refused.
+ * `decidableNow` mirrors who the findings plane's own `decide` lets decide
+ * it (#1090); a call can still be refused for something only known at call
+ * time — a blind round still open, or a stale `expected` sequence.
+ * `personDecides` marks a finding of yours that an earlier run on this Goal
+ * raised: no Seat may decide it, only a person.
  */
 export interface FindingSeatRow extends FindingView {
   readonly raisedByYou: boolean
   readonly decidableNow: boolean
+  readonly personDecides?: true
 }
 
 /** A person's override of unresolved findings: recorded, never a verdict. */

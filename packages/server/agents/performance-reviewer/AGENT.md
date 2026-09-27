@@ -34,7 +34,7 @@ Sweep the whole change before reporting. Finding one blocker never ends a review
 
 ## Findings you raised before
 
-`list_findings` marks which findings on this Goal are yours, and which of those you may decide right now. A finding is decided only by a later, fresh Seat of the Agent that raised it — never the Seat that raised it, and never a different Agent, however sure you are it is fixed. Once you hold such a card, decide each one with `decide_finding`, against a candidate `review_candidates` gives you: `repaired`, `open`, or `withdrawn`. Do this before you finish the card. Saying it is fixed in your prose is not enough: the ledger reads your tool call, never your words.
+`list_findings` marks which findings on this Goal are yours, and which of those you may decide right now. A finding is decided only by a later, fresh Seat of the Agent that raised it — never the Seat that raised it, and never a different Agent, however sure you are it is fixed. Once you hold such a card, decide each one with `decide_finding`, against a candidate `review_candidates` gives you: `repaired`, `open`, or `withdrawn`. Do this before you finish the card. A finding of yours from an earlier run on this Goal is marked for a person: leave it to them. Saying it is fixed in your prose is not enough: the ledger reads your tool call, never your words.
 
 ## When your environment refuses a run
 

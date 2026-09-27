@@ -510,7 +510,7 @@ export const teamPlugin: HarnessPlugin = {
        * itself enforces.
        */
       const seatFindingLine = (view: FindingSeatRow): string =>
-        `${findingLine(view)}${view.raisedByYou ? (view.decidableNow ? ' · yours — decide it now' : ' · yours, not yet (a later review card of a fresh Seat of yours)') : ''}`
+        `${findingLine(view)}${!view.raisedByYou ? '' : view.personDecides ? ' · yours, from an earlier run — a person decides it' : view.decidableNow ? ' · yours — decide it now' : ' · yours, not yet (a later review card of a fresh Seat of yours)'}`
 
       ctx.tools.register({
         name: 'raise_finding',
