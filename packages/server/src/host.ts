@@ -152,6 +152,7 @@ import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
 import { waitFor } from './flow.js'
 import { Flows, runCheck } from './flows.js'
+import { goalViewForWire } from './goals/wire.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
 import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
@@ -1571,7 +1572,7 @@ export class Host {
         if (options?.install !== false && !this.#publishingTeamProjection) {
           this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster, { final: this.#goalFinal(view.goal.id) })
         }
-        this.#push({ method: 'goal/changed', params: { view } })
+        this.#push({ method: 'goal/changed', params: { view: goalViewForWire(view) } })
       },
       activity: (goal, previous, activity, sentence) => this.#push({
         method: 'goal/activity', params: { goal, previous, activity, sentence },
@@ -2990,7 +2991,7 @@ export class Host {
     try {
       const view = await this.#goals.view(operation.goal)
       this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster, { final: true })
-      this.#push({ method: 'goal/changed', params: { view } })
+      this.#push({ method: 'goal/changed', params: { view: goalViewForWire(view) } })
     } catch (error) {
       this.#logger.warn('a wrapped Goal could not be announced after its receipt was stored', {
         goal: operation.goal,
@@ -3760,7 +3761,7 @@ export class Host {
         if (outcome === 'restored') {
           const view = await this.#goals.view(document.goal.id)
           this.#team.installProjection(view.board, undefined, { final: true })
-          this.#push({ method: 'goal/changed', params: { view } })
+          this.#push({ method: 'goal/changed', params: { view: goalViewForWire(view) } })
         }
       }
       for (const lane of goalLanes) {

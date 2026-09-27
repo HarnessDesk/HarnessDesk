@@ -1,17 +1,9 @@
 import type { GoalView } from '@harnessdesk/protocol'
 
-import { cardsForWire } from '../team.js'
+import { goalViewForWire } from '../goals/wire.js'
 import type { MethodsUnder } from './context.js'
 
-/**
- * The one seam between what `GoalPlane.view` answers (raw — its board is
- * also what `Team`'s own copy re-syncs from, `dirtyPaths` and all) and what
- * a `goal/*` method actually hands a client. Every method below that
- * returns a `GoalView` goes through this, so a claim's dirty-paths snapshot
- * never reaches a renderer, whichever of them a caller used to read it.
- */
-export const goalViewForWire = (view: GoalView): GoalView =>
-  ({ ...view, board: { ...view.board, intents: cardsForWire(view.board.intents) } })
+export { goalViewForWire }
 
 export const goalMethods = {
   'goal/list': async (ctx, params) => (await ctx.goals.list(params.root)).map(goalViewForWire),

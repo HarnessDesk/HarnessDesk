@@ -241,6 +241,12 @@ test('a flow card claimed with a dirty checkout keeps its dirty-paths snapshot o
   }
 
   const first = await open()
+  // A failed assertion before the planned dispose below must not leave this host running and hang the file.
+  let firstOpen = true
+  t.after(async () => { if (firstOpen) await first.dispose() })
+  // Every goal/changed push the renderer would receive, to prove none carries the snapshot.
+  const pushed: unknown[] = []
+  first.addBroadcaster((notification) => { if (notification.method === 'goal/changed') pushed.push(notification.params) })
   await first.call('workspace/open', { path: repo.dir })
   // Dirt already in the checkout before anything claims a card — a person's own untracked file.
   await writeFile(join(repo.dir, '.env'), 'secret\n')
@@ -263,9 +269,12 @@ test('a flow card claimed with a dirty checkout keeps its dirty-paths snapshot o
   const card = board.intents[0]!.id
   const claim = board.intents[0]!.claim!
   assert.equal('dirtyPaths' in claim, false, "goal/read's board never carries it, even here")
+  assert.ok(pushed.length > 0, 'the claim pushed at least one goal/changed')
+  assert.equal(JSON.stringify(pushed).includes('dirtyPaths'), false, 'no goal/changed push carries the dirty-paths snapshot')
   const before = first.teamPlane.dirtyPathsOf(goal, card)
   assert.deepEqual(before, ['.env'], "the pre-existing dirt is what the claim snapshotted")
 
+  firstOpen = false
   await first.dispose()
   const second = await open()
   t.after(() => second.dispose())
