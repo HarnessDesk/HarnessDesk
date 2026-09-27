@@ -344,7 +344,9 @@ test('a checks commit between the generation read and spawn runs only the comman
       `const { existsSync, writeFileSync } = require('node:fs')\n` +
       `const { spawnSync } = require('node:child_process')\n` +
       `const args = process.argv.slice(2)\n` +
-      `if (args[0] === '-C' && args[1] === ${JSON.stringify(r.repo.dir)} && args[2] === 'symbolic-ref' && !existsSync(${JSON.stringify(held)})) {\n` +
+      // The host's hardened git puts \`-c key=value\` pairs ahead of the subcommand; match past them.
+      `const bare = args.filter((arg, at) => arg !== '-c' && args[at - 1] !== '-c')\n` +
+      `if (bare[0] === '-C' && bare[1] === ${JSON.stringify(r.repo.dir)} && bare[2] === 'symbolic-ref' && !existsSync(${JSON.stringify(held)})) {\n` +
       `  writeFileSync(${JSON.stringify(held)}, '')\n` +
       `  writeFileSync(${JSON.stringify(entered)}, '')\n` +
       `  const cell = new Int32Array(new SharedArrayBuffer(4))\n` +

@@ -1193,7 +1193,8 @@ test('(G5) through the host: a remembered folder’s git top level is asked once
   const first = tempDir('hd-agent-watch-first-')
   const second = tempDir('hd-agent-watch-second-')
   const topLevelAsks = async (folder: string): Promise<number> =>
-    (await readFile(asked, 'utf8')).split('\n').filter((line) => line === `-C ${folder} rev-parse --show-toplevel`).length
+    // The host's hardened git puts `-c key=value` pairs ahead of the subcommand; count past them.
+    (await readFile(asked, 'utf8')).split('\n').filter((line) => line.replace(/(?:-c \S+ )+/g, '') === `-C ${folder} rev-parse --show-toplevel`).length
 
   // Two asks per open of a new folder, with the same words: the open's own
   // `git status` asks where the top is, and so does the roster's watch.
