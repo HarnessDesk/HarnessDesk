@@ -39,6 +39,15 @@ export interface LedgerOptions {
   readonly corpora: readonly CorpusSpec[]
   /** Sources that live on a server rather than in a file — see `remote.ts`. */
   readonly remoteSources?: readonly RemoteEventsSource[]
+  /**
+   * Which runtimes have a real turn count behind them — see "Turns",
+   * `docs/usage-dashboard.md`, and `TURN_CAPABLE_KINDS` (`scan.ts`) for the
+   * scanners that can tell. Explicit rather than inferred from `corpora`'s
+   * kinds alone, because the desk's own transcript (`desk-turns.ts`) also
+   * earns a runtime a place here without a `CorpusSpec` at all — the host's
+   * wiring computes the whole list once, for every source it registered.
+   */
+  readonly turnRuntimes?: readonly RuntimeId[]
   readonly databasePath?: string
   readonly onProgress?: (progress: ScanProgress) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
@@ -130,6 +139,7 @@ export class Ledger {
   readonly #store: LedgerStore
   readonly #pricing: Pricing
   readonly #insightByteLimit: number
+  readonly #turnRuntimes: ReadonlySet<string>
   #progress: ScanProgress = IDLE
   #scanning: Promise<void> | null = null
   #warmed: Promise<void> | null = null
@@ -137,6 +147,7 @@ export class Ledger {
   constructor(options: LedgerOptions) {
     this.#options = options
     this.#insightByteLimit = options.insightByteLimit ?? INSIGHT_BYTE_LIMIT
+    this.#turnRuntimes = new Set(options.turnRuntimes ?? [])
     this.#store = new LedgerStore(options.databasePath ?? join(options.stateDir, 'usage.sqlite'))
     const paths = defaultPricingPaths(options.stateDir)
     this.#pricing =
@@ -511,6 +522,38 @@ export class Ledger {
     this.#options.onProgress?.(progress)
   }
 
+  /**
+   * `sum` when every runtime in `runtimes` is one this ledger was told has a
+   * real turn count (`#turnRuntimes`); `undefined` otherwise — never a
+   * partial number passed off as a whole one. `runtimes` empty (no row
+   * contributed at all) is also undefined: there is nothing to know.
+   */
+  #turnsIfKnown(runtimes: ReadonlySet<string>, sum: number): number | undefined {
+    if (runtimes.size === 0) return undefined
+    for (const runtime of runtimes) {
+      if (!this.#turnRuntimes.has(runtime)) return undefined
+    }
+    return sum
+  }
+
+  /**
+   * How many turns one runtime ran since `sinceMs` — `null` when this ledger
+   * was never told it has a real turn count at all (`LedgerOptions.turnRuntimes`),
+   * which `UsageService` reads as "unknown", never as zero.
+   */
+  turnsFor(runtime: RuntimeId, sinceMs: number): { readonly count: number; readonly since: number } | null {
+    if (!this.#turnRuntimes.has(runtime)) return null
+    const rows = this.#store.since(startOfDay(sinceMs), runtime)
+    const count = rows.reduce((sum, row) => sum + (row.turns ?? 0), 0)
+    return { count, since: sinceMs }
+  }
+
+  /** How many ledger requests (priced or not) one runtime logged since `sinceMs` — the same window `turnsFor` counted, for a per-turn rate. */
+  requestsFor(runtime: RuntimeId, sinceMs: number): number {
+    const rows = this.#store.since(startOfDay(sinceMs), runtime)
+    return rows.reduce((sum, row) => sum + row.requests, 0)
+  }
+
   #price(row: UsageRow): Priced {
     const tokens = row.input + row.output + row.cacheRead + row.cacheWrite
     // What the agent billed is what it cost, a free model's zero included.
@@ -579,6 +622,7 @@ export class Ledger {
         daysCovered: this.#store.daysCovered(from, runtime),
         daysRequested: days,
         earliestDay: this.#store.earliestDay(runtime),
+        turnsKnownFor: this.#turnRuntimes.has(runtime) ? [runtimeId(runtime)] : [],
       },
       daily: [...byDay.entries()]
         .sort(([a], [b]) => a - b)
@@ -600,7 +644,11 @@ export class Ledger {
     // The split behind `totalTokens`, summed alongside it — never a second
     // pass over `rows`, and never a number that could disagree with the total
     // it is part of.
-    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 0 }
+    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 0, turns: 0 }
+    // Every runtime any row in this window belongs to, so `totals.turns` can
+    // be withheld the same way a mixed group's is — a window scanning one
+    // turn-known agent and one that is not must not read as a real total.
+    const allRuntimes = new Set<string>()
     interface Group {
       label: string
       /** Distinct paths behind one basename, so a collision can be told apart. */
@@ -615,6 +663,7 @@ export class Ledger {
       cacheWrite: number
       reasoning: number
       requests: number
+      turns: number
     }
     const groups = new Map<string, Group>()
     const daily = new Map<string, LedgerDay>()
@@ -632,6 +681,8 @@ export class Ledger {
       totals.cacheWrite += row.cacheWrite
       totals.reasoning += row.reasoning
       totals.requests += row.requests
+      totals.turns += row.turns ?? 0
+      allRuntimes.add(row.runtime)
 
       // A model or a project is one thing however many agents touched it —
       // "what did this project cost" is the question the pivot is named for,
@@ -656,6 +707,7 @@ export class Ledger {
         cacheWrite: 0,
         reasoning: 0,
         requests: 0,
+        turns: 0,
       }
       group.cost += cost.cost
       group.tokens += cost.tokens
@@ -667,6 +719,7 @@ export class Ledger {
       group.cacheWrite += row.cacheWrite
       group.reasoning += row.reasoning
       group.requests += row.requests
+      group.turns += row.turns ?? 0
       groups.set(key, group)
 
       const dayKey = `${row.day}:${row.runtime}`
@@ -681,7 +734,9 @@ export class Ledger {
         cacheWrite: 0,
         reasoning: 0,
         requests: 0,
+        turns: 0,
       }
+      const dayTurns = (bucket.turns ?? 0) + (row.turns ?? 0)
       daily.set(dayKey, {
         day: row.day,
         runtime: runtimeId(row.runtime),
@@ -693,6 +748,7 @@ export class Ledger {
         cacheWrite: (bucket.cacheWrite ?? 0) + row.cacheWrite,
         reasoning: (bucket.reasoning ?? 0) + row.reasoning,
         requests: (bucket.requests ?? 0) + row.requests,
+        ...(this.#turnRuntimes.has(row.runtime) ? { turns: dayTurns } : {}),
       })
     }
 
@@ -721,31 +777,40 @@ export class Ledger {
       daysCovered: this.#store.daysCovered(from, request.runtime),
       daysRequested: days,
       earliestDay: this.#store.earliestDay(request.runtime),
+      turnsKnownFor: [...allRuntimes]
+        .filter((runtime) => this.#turnRuntimes.has(runtime))
+        .sort()
+        .map((runtime) => runtimeId(runtime)),
     }
     const ordered: LedgerRow[] = [...groups.entries()]
-      .map(([key, group]) => ({
-        key,
-        label: group.label,
-        // Named only when one agent owns the row; a shared project belongs to
-        // no single mark, and showing one of them would be a lie.
-        runtime:
-          request.groupBy === 'runtime'
-            ? null
-            : group.runtimes.size === 1
-              ? runtimeId([...group.runtimes][0] as string)
-              : null,
-        tokens: group.tokens,
-        cost: anyPriced ? group.cost : null,
-        hasUnpriced: group.unpriced,
-        input: group.input,
-        output: group.output,
-        cacheRead: group.cacheRead,
-        cacheWrite: group.cacheWrite,
-        reasoning: group.reasoning,
-        requests: group.requests,
-      }))
+      .map(([key, group]) => {
+        const turnsKnown = this.#turnsIfKnown(group.runtimes, group.turns)
+        return {
+          key,
+          label: group.label,
+          // Named only when one agent owns the row; a shared project belongs
+          // to no single mark, and showing one of them would be a lie.
+          runtime:
+            request.groupBy === 'runtime'
+              ? null
+              : group.runtimes.size === 1
+                ? runtimeId([...group.runtimes][0] as string)
+                : null,
+          tokens: group.tokens,
+          cost: anyPriced ? group.cost : null,
+          hasUnpriced: group.unpriced,
+          input: group.input,
+          output: group.output,
+          cacheRead: group.cacheRead,
+          cacheWrite: group.cacheWrite,
+          reasoning: group.reasoning,
+          requests: group.requests,
+          ...(turnsKnown !== undefined ? { turns: turnsKnown } : {}),
+        }
+      })
       .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0) || (b.tokens ?? 0) - (a.tokens ?? 0))
 
+    const totalTurnsKnown = this.#turnsIfKnown(allRuntimes, totals.turns)
     const scannedAt = Number(this.#store.meta('scannedAt') ?? '')
     return {
       days,
@@ -760,7 +825,15 @@ export class Ledger {
       rows: ordered,
       daily: [...daily.values()].sort((a, b) => a.day - b.day),
       scannedAt: Number.isFinite(scannedAt) && scannedAt > 0 ? scannedAt : null,
-      totals,
+      totals: {
+        input: totals.input,
+        output: totals.output,
+        cacheRead: totals.cacheRead,
+        cacheWrite: totals.cacheWrite,
+        reasoning: totals.reasoning,
+        requests: totals.requests,
+        ...(totalTurnsKnown !== undefined ? { turns: totalTurnsKnown } : {}),
+      },
     }
   }
 }
@@ -781,5 +854,6 @@ const projectPath = (path: string): string => {
 
 export { Pricing } from './pricing.js'
 export type { RemoteEventsSource } from './remote.js'
-export { corpusRoot, defaultCorpora, type CorpusKind, type CorpusSpec } from './scan.js'
+export { corpusRoot, defaultCorpora, TURN_CAPABLE_KINDS, type CorpusKind, type CorpusSpec } from './scan.js'
 export { LedgerStore } from './store.js'
+export { DeskTranscriptTurnsSource, type DeskTranscriptExport, type DeskTranscriptReader } from './desk-turns.js'
