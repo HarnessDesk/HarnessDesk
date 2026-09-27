@@ -15,9 +15,12 @@ export interface ProjectTriggersProps {
 
 type StateWords = { readonly label: string; readonly tone: 'neutral' | 'brand' | 'success' | 'warning' | 'danger' | 'info' }
 
+/* Armed is the resting, nothing-to-report state a trigger is meant to be
+   in — health takes no tone, so it reads untoned like Off, and Changed and
+   Refused are what stand out. */
 const STATE_WORDS: Readonly<Record<TriggerView['state'], StateWords>> = {
   off: { label: 'Off', tone: 'neutral' },
-  armed: { label: 'Armed', tone: 'success' },
+  armed: { label: 'Armed', tone: 'neutral' },
   changed: { label: 'Changed', tone: 'warning' },
   refused: { label: 'Refused', tone: 'danger' },
   paused: { label: 'Paused', tone: 'info' },
