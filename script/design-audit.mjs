@@ -47,8 +47,11 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * `rawType` started here at 34 and is now zero, so it has left: a category
  * that has reached the floor is an ordinary category, and holding it at a
  * ceiling of nought would say the same thing in a more complicated way.
+ * `screenAppearance` left the same way (#838): it started at 895, and at zero
+ * the Git pane's three own declarations became named exemptions
+ * (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`) rather than a ceiling of three.
  */
-const BURN_DOWN = new Set(['patternClass', 'screenAppearance', 'singleAreaPrimitive', 'uppercaseLabel'])
+const BURN_DOWN = new Set(['patternClass', 'singleAreaPrimitive', 'uppercaseLabel'])
 
 /**
  * Everywhere UI is written, not just the screens.
@@ -2070,6 +2073,45 @@ const SCREEN_APPEARANCE_EXEMPTIONS = new Set([
 ])
 
 const screenAppearanceName = (file) => file.replaceAll('\\', '/').split('/packages/ui/src/').at(-1)
+
+/**
+ * The three declarations the owner exempted by name when `screenAppearance`
+ * became a hard zero (#838): each is the Git pane's own and has no second
+ * screen to share a part with, so a part made for it would be a one-screen
+ * part — the thing `singleAreaPrimitive` exists to refuse. The exemption is
+ * the exact declaration — sheet, selector, property and value — never the
+ * sheet: a new appearance declaration anywhere in `GitPane.module.css`, or one
+ * of these three changing its value, is a finding again. An entry that no
+ * longer matches a declaration is itself a finding (`staleScreenAppearanceExemptions`),
+ * so the list cannot outlive what it names.
+ */
+export const SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS = [
+  {
+    sheet: 'components/GitPane.module.css',
+    selector: '.tableHead',
+    property: 'height',
+    value: 'var(--hd-control-h-sm)',
+    reason: 'The head of the commit table, the only table in the app with a head bar above its scrolling rows; a header bar and a data row answer different questions (#835), so it is the small control rung, not the table row height.',
+  },
+  {
+    sheet: 'components/GitPane.module.css',
+    selector: '.tableHead',
+    property: 'padding-right',
+    value: 'var(--hd-space-3)',
+    reason: "The same head's end inset, which is the commit rows' own, so its columns line up with the rows scrolling under it.",
+  },
+  {
+    sheet: 'components/GitPane.module.css',
+    selector: '.detail',
+    property: 'min-height',
+    value: 'var(--hd-history-detail-min-h)',
+    reason: 'The floor of the opened commit, the one resizable detail this pane has: a content floor sized to what it holds, not a chrome rung another pane could share.',
+  },
+]
+
+const isExemptDeclaration = (name, selector, property, value) =>
+  SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS.some((entry) =>
+    entry.sheet === name && entry.selector === selector && entry.property === property && entry.value === value)
 const unprefixedProperty = (property) => property.replace(/^-(?:webkit|moz)-/, '')
 
 /**
@@ -2153,9 +2195,21 @@ export const screenPropertySideOf = (property, value) => {
  * are named above rather than hidden in the directory walk.
  */
 export const screenAppearanceOf = (file, css) => {
-  if (!isScreenSheet(file) || SCREEN_APPEARANCE_EXEMPTIONS.has(screenAppearanceName(file))) return []
-  return declarationsOf(css).filter(({ property, value }) => screenPropertySideOf(property, value) === 'appearance')
+  const name = screenAppearanceName(file)
+  if (!isScreenSheet(file) || SCREEN_APPEARANCE_EXEMPTIONS.has(name)) return []
+  return declarationsIn(css).declarations
+    .filter(({ valid, property, value }) => valid && screenPropertySideOf(property, value) === 'appearance')
+    .filter(({ property, value, rule }) => !isExemptDeclaration(name, rule.prelude, property, value))
+    .map(({ property, value }) => ({ property, value }))
 }
+
+/** Named exemptions that no longer match a declaration in their sheet. */
+export const staleScreenAppearanceExemptions = (readSheet) =>
+  SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS.filter((entry) => {
+    const css = readSheet(entry.sheet)
+    return css == null || !declarationsIn(css).declarations.some(({ valid, property, value, rule }) =>
+      valid && rule.prelude === entry.selector && property === entry.property && value === entry.value)
+  })
 
 /** Ordinary declarations in a screen sheet that are on neither explicit side. */
 export const screenUnclassifiedOf = (file, css) => {
@@ -4304,6 +4358,15 @@ for (const file of tsxFiles()) {
   }
 }
 
+
+// A named exemption outliving the declaration it names is a finding of its
+// own, or the list would quietly exempt whatever takes that spelling next.
+for (const entry of staleScreenAppearanceExemptions((sheet) => {
+  const file = path.join(UI_SRC, sheet)
+  return fs.existsSync(file) ? read(file) : null
+})) {
+  findings.screenAppearance.push(`${entry.sheet}: ${entry.selector} { ${entry.property}: ${entry.value} } is a named exemption that matches nothing; delete it`)
+}
 
 const counts = Object.fromEntries(SECTIONS.map(([key]) => [key, findings[key].length]))
 const total = Object.values(counts).reduce((sum, n) => sum + n, 0)

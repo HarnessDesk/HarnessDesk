@@ -863,10 +863,13 @@ a confirm from the catalogue, and fails on four of them:
 
 ### What the audit refuses
 
-`pnpm design:audit --strict` holds nineteen categories at a baseline.
-Eighteen are at zero; `screenAppearance` sits at 656 declarations —
-appearance a screen still draws for itself instead of composing it, in
-whichever of three spellings it chose.
+`pnpm design:audit --strict` holds every category at zero, except three
+burn-down ceilings that may only fall: `patternClass`, `uppercaseLabel` and
+`singleAreaPrimitive` (the first two are already at zero). `screenAppearance`
+— appearance a screen draws for itself instead of composing it, in whichever
+of three spellings it chose — is a hard zero since #838. It began at 895. The
+Git pane's three own declarations are named exemptions, each with its reason,
+rather than a ceiling of three (see below).
 
 Every ordinary property has to match one of two explicit tables after its
 vendor prefix is stripped, wherever it is spelled. `APPEARANCE_PROPERTIES`
@@ -897,6 +900,20 @@ table header or a card heading, which is why `patternClass` could safely keep
 only `empty`; the declaration says what the screen actually owns. Markdown's
 prose ratio ladder and the diff viewer remain named specialized-renderer
 exemptions, in both the stylesheet and the `.tsx` that renders each.
+
+Three single declarations are exempt by name, in
+`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`. Each is `GitPane.module.css`'s own:
+
+- the commit table's head height (`--hd-control-h-sm`);
+- the same head's end inset, which is the rows' own, so the columns line up;
+- the opened commit's floor (`--hd-history-detail-min-h`).
+
+Each has no second screen to share a part with, so a part made for it would
+be a one-screen part. The exemption is the exact declaration: sheet, selector,
+property and value. A new appearance declaration in that sheet is a finding,
+and so is one of these three taking another value. A named exemption that
+matches nothing is a finding of its own, so the list cannot outlive what it
+names.
 
 The same boundary reaches into `design/patterns/` — typed, product-specific
 composition contracts — but not into `design/ui/`, the shadcn-registry
@@ -1102,6 +1119,13 @@ simply unable to see:
   `screenAppearance` settled at 656 after also merging main past #920
   (Agents and Goals brought onto shared design parts, which changed several
   unrelated screen-appearance findings of its own).
+- From 656 the count fell by composition, never by moving declarations:
+  - the three families: column inset, message rhythm and status dot (#1016);
+  - the image cap, the loading row, the rename box and the ticking digits (#1046);
+  - many smaller conversions in between.
+
+  At 3, all of them the Git pane's own, the owner chose named exemptions over
+  a ceiling, and `screenAppearance` left the burn-down set: a hard zero (#838).
 
 All four have the same shape as the line-height ratios before them: name the
 spellings you happen to remember, and everything else is invisible —
