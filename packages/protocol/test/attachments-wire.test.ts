@@ -69,3 +69,9 @@ test('session/create, resume and fork refuse a client-supplied `knownCwd`: only 
   assert.throws(() => request('session/resume', { runtime: 'fake', sessionId: 's', options: { knownCwd: '/' } }), ValidationError)
   assert.throws(() => request('session/fork', { runtime: 'fake', sessionId: 's', options: { knownCwd: '/' } }), ValidationError)
 })
+
+test('session/create, resume and fork refuse a client-supplied `gitDirs`: only the host widens what a conversation may write', () => {
+  assert.throws(() => request('session/create', { runtime: 'fake', options: { cwd: '/work', gitDirs: ['/'] } }), ValidationError)
+  assert.throws(() => request('session/resume', { runtime: 'fake', sessionId: 's', options: { gitDirs: ['/'] } }), ValidationError)
+  assert.throws(() => request('session/fork', { runtime: 'fake', sessionId: 's', options: { gitDirs: [] } }), ValidationError)
+})

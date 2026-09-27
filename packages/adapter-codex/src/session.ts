@@ -34,6 +34,7 @@ import {
   settingsUpdateFor,
   startParamsLike,
   stateFromThreadSettings,
+  WORKSPACE_PROFILE,
   type Catalog,
   type LikeParams,
   type ThreadState,
@@ -91,6 +92,16 @@ export interface CodexSessionDeps {
    */
   readonly route?: ResolvedModelRoute | null
   readonly environment?: Readonly<Record<string, string>> | undefined
+  /**
+   * A Seat whose grant can commit: its checkout's git directories, from the
+   * host (`SessionOptions.gitDirs`). Codex's workspace sandbox keeps `.git`
+   * read-only inside a writable folder, and a linked worktree's refs live
+   * outside it altogether, so held at the workspace profile such a Seat
+   * wrote its files and then could not commit them (#1074). With these, the
+   * workspace profile is a workspace sandbox that can also write exactly
+   * these (`setOption`). Absent for every other conversation.
+   */
+  readonly gitDirs?: readonly string[]
   /**
    * Starts a new thread set up like the one given and registers it with the
    * runtime, as `createSession` would — see `CodexRuntime.#startBeside`.
@@ -304,6 +315,11 @@ export class CodexSession implements AgentSession {
     if (!option) throw new OptionRefusedError(`This session has no option named ${JSON.stringify(id)}.`, id, value, true)
     const refusal = refuseOptionValue(option, value)
     if (refusal) throw new OptionRefusedError(refusal, id, value, false)
+    const gitDirs = this.deps.gitDirs ?? []
+    if (id === 'permissions' && value === WORKSPACE_PROFILE && gitDirs.length > 0) {
+      await this.#workspaceThatCommits(option, value, gitDirs)
+      return
+    }
     const update = settingsUpdateFor(id, value, this.#state, this.#catalog)
     const moves = movesAnything(this.#state, update)
     const before = this.#announced
@@ -313,6 +329,40 @@ export class CodexSession implements AgentSession {
       throw new Error(
         `Codex took the change to ${option.label} (${labelOf(option, value)}) without saying where it landed — the last it said was ${labelOf(held, held.currentValue)}.`,
       )
+    }
+    this.deps.emit({ type: 'session/options', sessionId: this.id, options: this.options() })
+  }
+
+  /**
+   * The workspace profile for a Seat that may commit: a workspace sandbox
+   * whose writable roots are its checkout's git directories — the same
+   * sandbox with only what a commit needs added, no network. Codex keeps the
+   * profile's `.git` protection whatever `sandbox_workspace_write` says, and
+   * refuses a profile defined in a thread's own `config` once it has started
+   * (both measured on 0.155.0), so the policy is given whole, and Codex
+   * reports it as the workspace profile. Held only once Codex says every one
+   * of those directories is writable; anything else is refused out loud, so
+   * the ceiling reads as not held rather than a Seat that cannot commit.
+   */
+  async #workspaceThatCommits(option: ConfigOption, value: OptionValue, gitDirs: readonly string[]): Promise<void> {
+    if (!writesAll(this.#state.sandbox, gitDirs)) {
+      const before = this.#announced
+      await this.deps.server.request('thread/settings/update', {
+        threadId: this.id,
+        sandboxPolicy: {
+          type: 'workspaceWrite',
+          writableRoots: [...gitDirs],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+      })
+      if (this.#announced === before && !(await this.#nextAnnouncement())) {
+        throw new Error(`Codex took the change to ${option.label} (${labelOf(option, value)}) without saying where it landed.`)
+      }
+      if (!writesAll(this.#state.sandbox, gitDirs)) {
+        throw new Error(`Codex did not let ${option.label} (${labelOf(option, value)}) write the repository's git directory, so this conversation could not commit its work.`)
+      }
     }
     this.deps.emit({ type: 'session/options', sessionId: this.id, options: this.options() })
   }
@@ -756,6 +806,10 @@ const movesAnything = (
 }
 
 /** A value as its control words it: the choice's label, or the value itself where the control has none. */
+/** Whether a sandbox is a workspace sandbox that can write every one of `dirs`. */
+const writesAll = (sandbox: CodexProtocol.v2.SandboxPolicy | null, dirs: readonly string[]): boolean =>
+  sandbox?.type === 'workspaceWrite' && dirs.every((dir) => sandbox.writableRoots.includes(dir))
+
 const labelOf = (option: ConfigOption, value: OptionValue): string =>
   (option.type === 'select' ? option.choices.find((choice) => choice.value === value)?.label : undefined) ??
   String(value)

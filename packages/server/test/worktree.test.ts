@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
 import {
   WorktreeDirtyError,
   Worktrees,
+  commitDirsFor,
   isManagedWorktree,
   parseWorktreeList,
   putBack,
@@ -738,3 +739,24 @@ test('parseWorktreeList handles CRLF line endings from git worktree list on Wind
   })
 })
 
+
+/**
+ * Issue #1074: what a Seat that may commit must be able to write besides its
+ * files. An ordinary checkout keeps everything in its own `.git`; a linked
+ * worktree keeps its index and HEAD in its gitdir and its refs, objects and
+ * their lock files in the repository's common dir, so both. Real paths, since
+ * a sandbox matches real paths and the checkout may be named through a link
+ * (`/tmp`, `/var`). A grant that cannot commit gets nothing.
+ */
+test('a Seat that may commit is given its checkout’s git directories, and one that may not is given none', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const tree = await worktrees.create(repo, { name: 'Lane' })
+  const linked = join(tmpdir(), basename(join(repo, '..')), 'repo')
+
+  assert.deepEqual(await commitDirsFor('edit', repo), [join(repo, '.git')])
+  assert.deepEqual(await commitDirsFor('merge', linked), [join(repo, '.git')], 'named through a link, answered with the real path')
+  const gitdir = (await git(tree.path, 'rev-parse', '--path-format=absolute', '--git-dir')).trim()
+  assert.deepEqual(await commitDirsFor('edit', tree.path), [await realpath(gitdir), join(repo, '.git')])
+  assert.deepEqual(await commitDirsFor('read', repo), [], 'a read-only Seat keeps .git read-only')
+  assert.deepEqual(await commitDirsFor('edit', tmpdir()), [], 'nothing outside a repository')
+})

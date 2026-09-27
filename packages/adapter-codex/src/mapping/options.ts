@@ -302,6 +302,14 @@ const sandboxKey = (policy: CodexProtocol.v2.SandboxPolicy): string => {
   return JSON.stringify(Object.keys(fields).sort().map((key) => [key, fields[key]]))
 }
 
+/**
+ * Codex's built-in workspace profile — what the `edit` ceiling holds. A Seat
+ * opened with its checkout's git directories is put in a workspace sandbox
+ * that can also write those instead (`CodexSession.setOption`, #1074), which
+ * Codex reports as this same profile.
+ */
+export const WORKSPACE_PROFILE = ':workspace'
+
 export const CODEX_CEILINGS = {
   read: {
     settings: [
@@ -312,10 +320,10 @@ export const CODEX_CEILINGS = {
   },
   edit: {
     settings: [
-      { option: 'permissions', value: ':workspace' },
+      { option: 'permissions', value: WORKSPACE_PROFILE },
       { option: 'approvalsReviewer', value: 'user' },
     ],
-    how: 'Workspace sandbox: it changes files here, but cannot commit, reach the network or listen on a port; anything past it asks you',
+    how: 'Workspace sandbox: it changes files here and commits them, but cannot reach the network or listen on a port; anything past it asks you',
   },
 } as const satisfies Partial<Record<CeilingLevel, CeilingControl>>
 

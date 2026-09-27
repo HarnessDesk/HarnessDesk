@@ -124,6 +124,17 @@ export type SessionOptions = Partial<SessionSettings> & {
    * refuse. `cwd` on a resume is never read in its place.
    */
   readonly knownCwd?: string
+  /**
+   * The git directories a Seat whose grant can commit must be able to write
+   * besides its files: a checkout's own `.git`, or a linked worktree's gitdir
+   * and the repository's common dir, where refs, objects and their lock files
+   * live. Real paths. Host-only, like `knownCwd`: refused on the wire and
+   * stripped by the handlers, because it widens what a conversation may
+   * write. A runtime whose sandbox keeps `.git` read-only inside a writable
+   * folder makes exactly these writable when it lets the conversation change
+   * files, and never when it can only read; one without that rule ignores it.
+   */
+  readonly gitDirs?: readonly string[]
 }
 
 /**

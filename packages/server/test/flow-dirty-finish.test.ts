@@ -294,3 +294,43 @@ test('a flow card claimed with a dirty checkout keeps its dirty-paths snapshot o
     'a snapshot that survived the restart is the one this finish is checked against',
   )
 })
+
+/*
+ * Issue #1074. A Seat whose own environment refuses its commits (a sandbox
+ * that keeps `.git` read-only) is refused its finish on every turn, and the
+ * run's re-arm breaker then gave up with only "ended its turn 3 times": no
+ * hint that the real blocker was work it could not commit. The stall names
+ * that reason when the finish was refused for uncommitted work on the turns
+ * that tripped it — and only then.
+ */
+test('a Seat refused its finish for uncommitted work turn after turn stalls saying it could not commit', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  rig.heads.set('/repo', { at: 'sha-0', dirty: true, dirtyPaths: ['notes.md'] })
+  const session = rig.sessionOf('seat-1')
+  for (let turn = 0; turn < 4; turn++) {
+    const answer = await rig.team.complete(1, { outcome: 'done' }, session)
+    assert.match(String(answer), /uncommitted file/)
+    await rig.flows.reArm(session.runtime, session.sessionId)
+    await rig.flows.flush()
+  }
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.match(String(stalled.reason), /could not commit its work/)
+  assert.match(String(stalled.reason), /environment refused writes to the repository/)
+  assert.doesNotMatch(String(stalled.reason), /^The Seat for card #1 ended its turn/)
+})
+
+test('a Seat whose turns simply end stalls with the plain re-arm sentence', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const session = rig.sessionOf('seat-1')
+  for (let turn = 0; turn < 4; turn++) {
+    await rig.flows.reArm(session.runtime, session.sessionId)
+    await rig.flows.flush()
+  }
+  const stalled = rig.flows.executionsFor(run.goal)[0]!
+  assert.match(String(stalled.reason), /^The Seat for card #1 ended its turn 3 times inside the hour/)
+  assert.doesNotMatch(String(stalled.reason), /commit/)
+})

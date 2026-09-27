@@ -7,6 +7,22 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A Codex Seat that may edit can now commit its own work.** Codex's
+  workspace sandbox keeps a checkout's `.git` read-only even inside the folder
+  it lets an agent change, so a Seat held at `edit` wrote its files and then
+  had every `git commit` or `git checkout -b` refused with "Operation not
+  permitted" — and since a card that can commit may not finish with its own
+  work uncommitted, the card retried until the run stalled. A Seat whose grant
+  can commit is now held in a workspace sandbox that can also write its
+  checkout's git directory — its own `.git`, or, in an isolated lane, the
+  lane's git directory and the repository's shared one where branches and
+  objects live — and nothing more: no network, nothing outside the checkout. A
+  read-only Seat keeps `.git` read-only. And when a card's finish is refused
+  for uncommitted work turn after turn until the run gives up on it, the stop
+  now says the Seat could not commit its work, most likely because its
+  environment refused writes to the repository, instead of only that it
+  "ended its turn 3 times". (#1074)
+
 - **A Seat still busy when a flow round fails, or a run stops, is no longer left
   holding its card forever, and it never sits there silently either.** Releasing
   a Seat interrupts its live turn; a Seat still found busy — or refused because

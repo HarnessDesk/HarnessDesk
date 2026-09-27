@@ -697,6 +697,18 @@ export class FlowExecutions {
   /** Set when a run file names no readable Goal: nothing new starts anywhere. */
   #corrupt: string | null = null
   #rearms = new Map<string, number[]>()
+  /**
+   * Cards whose finish was refused for uncommitted work, by `goal#card`: the
+   * Seat's turn it was last refused on (counted by its re-arms) and on how
+   * many turns in a row. What lets the re-arm breaker say the Seat could not
+   * commit its work, rather than only that its turns kept ending (#1074).
+   */
+  readonly #uncommitted = new Map<string, { readonly turn: number; readonly turns: number }>()
+
+  /** A Seat's re-arms inside the last hour: what its re-arm budget is spent against. */
+  #spentOf(seat: string): number[] {
+    return (this.#rearms.get(seat) ?? []).filter((at) => this.#now() - at < 60 * 60 * 1000)
+  }
   /** Told when a round of a run with findings bookkeeping closes: the findings plane's close processing. */
   readonly #closeListeners = new Set<(run: string, round: number) => void | Promise<void>>()
   /** Close processing a listener started, so `idle()` waits for it as it waits for the run queues. */
@@ -1491,7 +1503,15 @@ export class FlowExecutions {
     const now = head.dirtyPaths ?? null
     if (now === null) return null
     const added = pathsAddedSince(now, before)
-    if (added.length === 0) return null
+    const key = `${goal}#${card}`
+    if (added.length === 0) {
+      this.#uncommitted.delete(key)
+      return null
+    }
+    const turn = this.#spentOf(String(seat.id)).length
+    const last = this.#uncommitted.get(key)
+    const turns = last?.turn === turn ? last.turns : last?.turn === turn - 1 ? last.turns + 1 : 1
+    this.#uncommitted.set(key, { turn, turns })
     return `You have ${added.length} uncommitted file${added.length === 1 ? '' : 's'} from this card's work. Commit them, then finish again.`
   }
 
@@ -3179,9 +3199,21 @@ export class FlowExecutions {
       return
     }
     const budget = policyOf(run).rearm ?? 3
-    const spent = (this.#rearms.get(String(seat.id)) ?? []).filter((at) => this.#now() - at < 60 * 60 * 1000)
+    const spent = this.#spentOf(String(seat.id))
     if (spent.length >= budget) {
-      await this.#stall(id, `The Seat for card #${card.id} ended its turn ${spent.length} times inside the hour, so it is not being handed its card again.`)
+      /* A Seat refused its finish for uncommitted work on the very turns that
+         tripped the breaker is not a Seat that stopped early: it tried to
+         finish and could not commit — almost always its own environment
+         refusing writes to the repository, which no retry will change. Said
+         as that, so the person is not left with a count (#1074). */
+      const uncommitted = this.#uncommitted.get(`${run.goal}#${card.id}`)
+      const couldNotCommit = uncommitted !== undefined && uncommitted.turn === spent.length && uncommitted.turns >= 2
+      await this.#stall(
+        id,
+        couldNotCommit
+          ? `The Seat for card #${card.id} could not commit its work: its finish was refused for uncommitted files on ${uncommitted.turns} turns in a row, most likely because its environment refused writes to the repository. It is not being handed its card again.`
+          : `The Seat for card #${card.id} ended its turn ${spent.length} times inside the hour, so it is not being handed its card again.`,
+      )
       return
     }
     if (!await this.#sameSeat(id, seat, card.id, round.role, why)) return

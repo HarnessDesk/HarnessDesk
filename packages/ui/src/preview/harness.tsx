@@ -795,7 +795,7 @@ class PreviewStore {
             read: { settings: [{ option: 'permissions', value: ':read-only' }], how: 'Read-only sandbox; anything past it asks you' },
             edit: {
               settings: [{ option: 'permissions', value: ':workspace' }],
-              how: 'Workspace sandbox: it changes files here, but cannot commit, reach the network or listen on a port; anything past it asks you',
+              how: 'Workspace sandbox: it changes files here and commits them, but cannot reach the network or listen on a port; anything past it asks you',
             },
           },
         } as RuntimeInfo,

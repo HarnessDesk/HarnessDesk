@@ -270,11 +270,13 @@ const goalShape = <T extends Record<string, unknown>>(
  * approved filter (phase 12), computed from trust and ceiling by the host
  * and never accepted from a client — present at all, even `null`, it is a
  * claim about what a conversation loads, so it is refused rather than
- * ignored. The handlers strip it as well, for a caller that is not the wire.
+ * ignored. `gitDirs` widens what a conversation may write, and only a Seat's
+ * grant decides that (#1074). The handlers strip these as well, for a caller
+ * that is not the wire.
  */
 const withoutHostOnly = <T>(read: Validator<T>): Validator<T> => (value: unknown, path = '') => {
   const object = isObject(value, path)
-  for (const key of ['attachments', 'knownCwd']) {
+  for (const key of ['attachments', 'knownCwd', 'gitDirs']) {
     if (Object.hasOwn(object, key)) throw new ValidationError(`${path}.${key}`, 'set by the host only')
   }
   return read(value, path)

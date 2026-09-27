@@ -4,7 +4,7 @@ import { mkdir, realpath, rm } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
-import type { RepoInfo, Worktree, WorktreeChanges } from '@harnessdesk/protocol'
+import { reaches, type CeilingLevel, type RepoInfo, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
 import { defaultStateDir } from './state.js'
 import { assertAbsolute } from './workspace.js'
@@ -146,6 +146,34 @@ export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
   if (samePath(dir, common)) return { root: await canonical(here), worktree: false }
   const main = await mainCheckoutOf(path)
   return main === null ? null : { root: main, worktree: true }
+}
+
+/**
+ * The git directories a Seat whose grant can commit must be able to write
+ * besides its files (#1074), handed to its runtime as `SessionOptions.gitDirs`.
+ *
+ * An ordinary checkout keeps everything in its own `.git`. A linked worktree
+ * keeps its index and HEAD in its gitdir, `<common>/worktrees/<name>`, and
+ * its refs, objects and their lock files in the repository's common dir, so a
+ * commit needs both — and neither is inside the checkout a sandbox makes
+ * writable. Real paths, since a sandbox matches real paths and a checkout can
+ * be named through a link (`/tmp`, `/var` on macOS). Empty for a grant that
+ * cannot commit, which keeps `.git` read-only, and outside a repository.
+ */
+export const commitDirsFor = async (grant: CeilingLevel, cwd: string): Promise<string[]> => {
+  if (!reaches(grant, 'edit')) return []
+  let out: string
+  try {
+    out = await git(cwd, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'])
+  } catch {
+    return []
+  }
+  const dirs: string[] = []
+  for (const line of out.split('\n').map((one) => one.trim()).filter(Boolean)) {
+    const dir = await canonical(line)
+    if (!dirs.includes(dir)) dirs.push(dir)
+  }
+  return dirs
 }
 
 /** The first `worktree` line of the porcelain listing is always the main one. */
