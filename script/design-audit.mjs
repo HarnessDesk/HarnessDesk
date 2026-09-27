@@ -2109,9 +2109,9 @@ export const SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS = [
   },
 ]
 
-const isExemptDeclaration = (name, selector, property, value) =>
+const isExemptDeclaration = (name, chain, property, value) =>
   SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS.some((entry) =>
-    entry.sheet === name && entry.selector === selector && entry.property === property && entry.value === value)
+    entry.sheet === name && chain === `\n${entry.selector}` && entry.property === property && entry.value === value)
 const unprefixedProperty = (property) => property.replace(/^-(?:webkit|moz)-/, '')
 
 /**
@@ -2199,7 +2199,10 @@ export const screenAppearanceOf = (file, css) => {
   if (!isScreenSheet(file) || SCREEN_APPEARANCE_EXEMPTIONS.has(name)) return []
   return declarationsIn(css).declarations
     .filter(({ valid, property, value }) => valid && screenPropertySideOf(property, value) === 'appearance')
-    .filter(({ property, value, rule }) => !isExemptDeclaration(name, rule.prelude, property, value))
+    // The rule's whole chain, not its own selector: the same declaration under
+    // an `@media`, a `@container` or a parent rule is another rule, and is
+    // not what the exemption names.
+    .filter(({ property, value, rule }) => !isExemptDeclaration(name, rule.chain, property, value))
     .map(({ property, value }) => ({ property, value }))
 }
 
@@ -2208,7 +2211,7 @@ export const staleScreenAppearanceExemptions = (readSheet) =>
   SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS.filter((entry) => {
     const css = readSheet(entry.sheet)
     return css == null || !declarationsIn(css).declarations.some(({ valid, property, value, rule }) =>
-      valid && rule.prelude === entry.selector && property === entry.property && value === entry.value)
+      valid && rule.chain === `\n${entry.selector}` && property === entry.property && value === entry.value)
   })
 
 /** Ordinary declarations in a screen sheet that are on neither explicit side. */
@@ -4365,7 +4368,7 @@ for (const entry of staleScreenAppearanceExemptions((sheet) => {
   const file = path.join(UI_SRC, sheet)
   return fs.existsSync(file) ? read(file) : null
 })) {
-  findings.screenAppearance.push(`${entry.sheet}: ${entry.selector} { ${entry.property}: ${entry.value} } is a named exemption that matches nothing; delete it`)
+  findings.screenAppearance.push(`${entry.sheet}: stale exemption ${entry.selector} ${entry.property} ${entry.value}, which matches nothing; delete it`)
 }
 
 const counts = Object.fromEntries(SECTIONS.map(([key]) => [key, findings[key].length]))
@@ -4475,6 +4478,12 @@ if (isMain) {
     if (verbose && key === 'screenAppearance') {
       const bySheet = new Map()
       for (const line of list) {
+        // A stale exemption is not a count: print it whole, so its "delete
+        // it" reaches the reader instead of being folded into a sheet total.
+        if (line.includes(': stale exemption ')) {
+          console.log(`        ${line}`)
+          continue
+        }
         const sheet = line.slice(0, line.lastIndexOf(': '))
         bySheet.set(sheet, (bySheet.get(sheet) ?? 0) + 1)
       }

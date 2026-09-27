@@ -1608,6 +1608,11 @@ test('the Git pane\'s named exemptions cover exactly their own declarations, nev
   // So is a named one under another selector, or with another value.
   assert.equal(screenAppearanceOf(file, '.rowHead { height: var(--hd-control-h-sm); }').length, 1)
   assert.equal(screenAppearanceOf(file, '.tableHead { height: var(--hd-control-h); }').length, 1)
+  // The same declaration under an at-rule or a parent is another rule, not
+  // the one named — it styles something else, or under another condition.
+  assert.equal(screenAppearanceOf(file, `${named}\n@media (width < 600px) { .tableHead { height: var(--hd-control-h-sm); } }`).length, 1)
+  assert.equal(screenAppearanceOf(file, `${named}\n@container hd-git-tools (width < 40rem) { .detail { min-height: var(--hd-history-detail-min-h); } }`).length, 1)
+  assert.equal(screenAppearanceOf(file, `${named}\n.row { .tableHead { padding-right: var(--hd-space-3); } }`).length, 1)
   // And the same declaration in another screen's sheet is not exempt.
   const other = path.join(root, 'packages/ui/src/components/Other.module.css')
   assert.equal(screenAppearanceOf(other, named).length, 3)
@@ -1621,6 +1626,8 @@ test('a named exemption that matches nothing is reported, so the list cannot out
   const [first] = SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS
   const without = named.replace(`${first.selector} { ${first.property}: ${first.value}; }`, '')
   assert.deepEqual(staleScreenAppearanceExemptions(() => without), [first])
+  // Moved under an at-rule, it no longer names that rule: stale.
+  assert.deepEqual(staleScreenAppearanceExemptions(() => `${without}\n@media print { ${first.selector} { ${first.property}: ${first.value}; } }`), [first])
   assert.equal(staleScreenAppearanceExemptions(() => null).length, 3)
 })
 
