@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import {
+  matchPlanSuggestion,
   runtimeId,
   sessionKey,
   type AgentAttachmentsView,
@@ -1531,12 +1532,12 @@ class PreviewStore {
   #plans = new Map<string, { fee?: PlanFeeEntry; budget?: PlanBudgetEntry }>([
     // Max 20x has no vendor page that gives it its own number (see
     // `plan-prices.ts`), so this is the "set, with nothing to suggest" case —
-    // someone typed $200 themselves.
+    // someone typed $200 themselves. The "budget on a key account" case is
+    // demonstrated on the catalogue's plan-card board with props instead of a
+    // second account wedged into this shared fixture (BLOCKING 3's fix: a
+    // runtime only ever carries one account's report, so a second account
+    // here would show nothing real).
     [this.#planKey('claude', 'shane@harnessdesk.app'), { fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() } }],
-    // A key account's own spending cap, unrelated to any vendor limit — the
-    // "budget on a key account" case the Settings › Agents preview shows,
-    // on codex's second, key-flavoured account (see `signin-fixture.ts`).
-    [this.#planKey('codex', 'API key'), { budget: { amount: 50, currency: 'USD', period: 'month', setAt: Date.now() } }],
   ])
   readonly #planSuggestions: PlanSuggestion[] = [
     { runtime: runtimeId('claude'), planMatch: 'Pro', amount: 20, currency: 'USD', period: 'month', sourceUrl: 'https://claude.com/pricing', checkedAt: '2026-09-26' },
@@ -1558,12 +1559,10 @@ class PreviewStore {
     this.patch({ usage })
   }
 
-  readPlans = async (): Promise<PlanRead> => ({
-    entries: [...this.#plans.entries()].map(([key, entry]) => {
-      const separator = key.indexOf(':')
-      return { runtime: runtimeId(key.slice(0, separator)), account: key.slice(separator + 1), entry }
-    }),
-    suggestions: this.#planSuggestions,
+  readPlan = async ({ runtime, account, plan }: { runtime: string; account: string; plan?: string | null }): Promise<PlanRead> => ({
+    entry: this.#plans.get(this.#planKey(runtime, account)) ?? null,
+    suggestion: matchPlanSuggestion(this.#planSuggestions, runtimeId(runtime), plan ?? null),
+    refusal: null,
   })
 
   setPlan = async (input: { runtime: string; account: string; fee?: { amount: number; currency: string; period: 'month' | 'year' } | null; budget?: { amount: number; currency: string } | null }): Promise<{ fee?: PlanFeeEntry; budget?: PlanBudgetEntry }> => {

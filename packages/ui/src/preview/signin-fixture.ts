@@ -39,13 +39,14 @@ const RUNTIMES: readonly RuntimeInfo[] = [
 const oauth = (label: string, planType?: string) => ({ kind: 'oauth', label, email: label, ...(planType ? { planType } : {}) })
 
 const ACCOUNTS: Record<string, AccountStatus> = {
-  // Codex alone carries two identities at once here — the ChatGPT
-  // subscription and an API key beside it — which is exactly the case
-  // `Account`'s own doc comment describes, and the one place this fixture
-  // can show the Plan card's "budget on a key account" row without
-  // reassigning a runtime the Sign in dialog's own scenes already use for
-  // something else (`deepseek` illustrates "key only" with no account yet).
-  codex: { accounts: [oauth('shane@harnessdesk.app', 'Pro'), { kind: 'apiKey', label: 'API key' }], signInMethods: [] },
+  // `UsageService` keeps exactly one report per runtime, so a runtime never
+  // really carries two accounts with reports of their own — the second,
+  // key-flavoured Codex account this fixture used to add distorted the
+  // Runtimes preview's own grouping on a premise the real host can't
+  // produce. The Plan card's "budget on a key account" row is demonstrated
+  // on the catalogue board instead, with props rather than a second account
+  // wedged into this shared fixture.
+  codex: { accounts: [oauth('shane@harnessdesk.app', 'plus')], signInMethods: [] },
   claude: { accounts: [oauth('shane@harnessdesk.app', 'Max 20x')], signInMethods: [] },
   cursor: { accounts: [oauth('dev@example.com')], signInMethods: [] },
   deepseek: {
@@ -111,12 +112,10 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
   credentialProtection: 'macOS Keychain',
   // One lane spent on the first account, so the rail shows the limit tone.
   // `plan` on the codex and claude reports is what Settings › Agents' Plan
-  // card reads to offer a suggestion or surface a stored fee (see
-  // `harness.tsx`'s `#plans`/`#planSuggestions`) — the first codex report's
-  // "plus" matches a suggestion (not set yet), the claude report's "Max 20x"
-  // has none (this account already set its own $200), and codex's second,
-  // key-flavoured account demonstrates the monthly-budget row a key account
-  // gets.
+  // card reads to pick a matching suggestion (see `harness.tsx`'s
+  // `#plans`/`#planSuggestions`) — the codex report's "plus" matches its own
+  // account's `planType` above, and the claude report's "Max 20x" has none
+  // (this account already set its own $200 in `harness.tsx`'s `#plans`).
   usage: [{
     runtime: runtimeId('codex'),
     account: 'shane@harnessdesk.app',
@@ -129,13 +128,6 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
     plan: 'Max 20x',
     lanes: [],
     reached: null,
-  }, {
-    runtime: runtimeId('codex'),
-    account: 'API key',
-    plan: null,
-    lanes: [],
-    reached: null,
-    billing: { kinds: ['metered'] },
   }],
   logins: scene === 'code'
     ? {
