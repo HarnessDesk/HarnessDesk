@@ -663,6 +663,13 @@ rules:
    * ships.
    */
   const ringScene = async (runtime) => {
+    // Cropping only ever reads the light frame (`cropRing`), and isolating
+    // the page forces a light background regardless of theme — a dark
+    // capture here would be silently wrong rather than merely unwritten, so
+    // this refuses instead of trusting the caller to remember `--theme light`.
+    if (THEMES.length !== 1 || THEMES[0] !== 'light') {
+      throw new Error(`${runtime}: ring-* scenes are light-only — pass --theme light (got ${THEMES.join(', ')})`)
+    }
     const key = await seat(cdp, { work: REPO, runtime, picks: {} })
     await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
     // The native Codex adapter asks before it runs a tool; the camera fixture
@@ -693,6 +700,10 @@ rules:
       const popup = document.querySelector('[data-slot="popover-popup"]')
       if (!popup) return null
       const bg = getComputedStyle(document.documentElement).getPropertyValue('--hd-background').trim() || '#e7e7e8'
+      // Tagged rather than only styled, so \`restoreRing\` can undo exactly
+      // this and nothing a later scene in the same run did of its own.
+      document.documentElement.setAttribute('data-hd-ring-bg', '')
+      document.body.setAttribute('data-hd-ring-bg', '')
       document.documentElement.style.setProperty('background', bg, 'important')
       document.body.style.setProperty('background', bg, 'important')
       const keep = new Set()
@@ -702,7 +713,10 @@ rules:
         if (node === popup) return
         for (const child of Array.from(node.children)) {
           if (keep.has(child)) hide(child)
-          else child.style.setProperty('visibility', 'hidden', 'important')
+          else {
+            child.setAttribute('data-hd-ring-hidden', '')
+            child.style.setProperty('visibility', 'hidden', 'important')
+          }
         }
       }
       hide(document.body)
@@ -712,14 +726,38 @@ rules:
     return bg
   }
 
+  /**
+   * Undoes exactly what `ringScene` did to the live page — the forced
+   * background and every `visibility: hidden`, by the tag each carries —
+   * so a scene run after a `ring-*` one in the same `--all`/multi-scene
+   * invocation does not inherit a blank page. Cropping already happened by
+   * the time this runs, so it only ever touches the live DOM, never a file.
+   */
+  const restoreRing = () => cdp.eval(`(() => {
+    for (const node of document.querySelectorAll('[data-hd-ring-hidden]')) {
+      node.style.removeProperty('visibility')
+      node.removeAttribute('data-hd-ring-hidden')
+    }
+    for (const node of document.querySelectorAll('[data-hd-ring-bg]')) {
+      node.style.removeProperty('background')
+      node.removeAttribute('data-hd-ring-bg')
+    }
+    return true
+  })()`).catch(() => {})
+
   /** The isolated frame, trimmed to its card and re-bordered a little margin. */
   const cropRing = (name) => {
     const raw = `${OUT}/${name}-light.png`
-    rmSync(`${OUT}/${name}-dark.png`, { force: true })
     const dest = `${APP}/docs/images/${name}.png`
     const bg = ringBackgrounds[name] ?? '#e7e7e8'
     execFileSync('magick', [raw, '-trim', '+repage', '-bordercolor', bg, '-border', '40', dest])
     rmSync(raw, { force: true })
+  }
+
+  /** Crop, then give the live page back — every ring-* scene's `finish`. */
+  const finishRing = async (name) => {
+    cropRing(name)
+    await restoreRing()
   }
 
   const SCENES = {
@@ -822,32 +860,37 @@ rules:
     /**
      * The composer's context ring, popped open and everything else on screen
      * made to disappear — `docs/context-usage.md`'s own four photographs.
-     * `HD_SHOTS_NATIVE_CODEX=0`, `--all` and multi-theme runs are not this
-     * scene's business: run each with `--theme light` on its own, the way
-     * the doc's images are singular, not a light/dark pair.
+     * Present in `SCENES` only under `HD_SHOTS_CONTEXT=1` (the rig's own
+     * pattern, see `PROVENANCE_SHOTS` above): the seats these need only
+     * exist once `seed.mjs` ran with that flag, and a plain `--all` must
+     * still shoot every scene that does not, rather than stopping here.
+     * `HD_SHOTS_NATIVE_CODEX=0` and multi-theme runs are not this scene's
+     * business either: `ringScene` refuses anything but `--theme light`.
      */
-    'ring-codex': { leaveOverlay: true, expect: 'Reported by', run: async () => {
-      if (!NATIVE_CODEX) throw new Error('ring-codex needs the native Codex adapter (HD_SHOTS_NATIVE_CODEX unset or 1)')
-      if (process.env['FAKE_CODEX_WINDOWS'] !== '1') {
-        throw new Error('ring-codex needs FAKE_CODEX_WINDOWS=1 set before launch, for the plan-usage rows')
-      }
-      ringBackgrounds['ring-codex'] = await ringScene('codex')
-    }, finish: () => cropRing('ring-codex') },
+    ...(process.env['HD_SHOTS_CONTEXT'] === '1' ? {
+      'ring-codex': { leaveOverlay: true, expect: 'Reported by', run: async () => {
+        if (!NATIVE_CODEX) throw new Error('ring-codex needs the native Codex adapter (HD_SHOTS_NATIVE_CODEX unset or 1)')
+        if (process.env['FAKE_CODEX_WINDOWS'] !== '1') {
+          throw new Error('ring-codex needs FAKE_CODEX_WINDOWS=1 set before launch, for the plan-usage rows')
+        }
+        ringBackgrounds['ring-codex'] = await ringScene('codex')
+      }, finish: () => finishRing('ring-codex') },
 
-    'ring-claude-code': { leaveOverlay: true, expect: 'Reported by', run: async () => {
-      requireContextAgent('context-claude-code')
-      ringBackgrounds['ring-claude-code'] = await ringScene('context-claude-code')
-    }, finish: () => cropRing('ring-claude-code') },
+      'ring-claude-code': { leaveOverlay: true, expect: 'Reported by', run: async () => {
+        requireContextAgent('context-claude-code')
+        ringBackgrounds['ring-claude-code'] = await ringScene('context-claude-code')
+      }, finish: () => finishRing('ring-claude-code') },
 
-    'ring-cursor': { leaveOverlay: true, expect: 'does not report', run: async () => {
-      requireContextAgent('context-cursor')
-      ringBackgrounds['ring-cursor'] = await ringScene('context-cursor')
-    }, finish: () => cropRing('ring-cursor') },
+      'ring-cursor': { leaveOverlay: true, expect: 'does not report', run: async () => {
+        requireContextAgent('context-cursor')
+        ringBackgrounds['ring-cursor'] = await ringScene('context-cursor')
+      }, finish: () => finishRing('ring-cursor') },
 
-    'ring-dsh': { leaveOverlay: true, expect: 'Reported by', run: async () => {
-      requireContextAgent('context-dsh')
-      ringBackgrounds['ring-dsh'] = await ringScene('context-dsh')
-    }, finish: () => cropRing('ring-dsh') },
+      'ring-dsh': { leaveOverlay: true, expect: 'Reported by', run: async () => {
+        requireContextAgent('context-dsh')
+        ringBackgrounds['ring-dsh'] = await ringScene('context-dsh')
+      }, finish: () => finishRing('ring-dsh') },
+    } : {}),
 
     /** What every agent has left, and what it has cost. */
     dashboard: { expect: 'What is left', run: async () => {
