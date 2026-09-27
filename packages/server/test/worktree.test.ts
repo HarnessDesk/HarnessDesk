@@ -2,14 +2,13 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
 import {
   WorktreeDirtyError,
   Worktrees,
-  commitDirsFor,
   isManagedWorktree,
   parseWorktreeList,
   putBack,
@@ -527,25 +526,27 @@ test('a worktree git will not put back is reported as gone, not as left in place
 })
 
 /**
- * Git runs a post-checkout hook after the switch and returns the hook's exit
- * status as checkout's own, so a failing hook reads as a refused checkout
- * that has in fact happened. Where the main checkout is afterwards decides
- * it: the branch is home, and there is nothing to put back. What git said is
- * not dropped, though: it reaches the caller as a warning.
+ * A repository's hooks are code anybody who could write its `.git` put there
+ * — an agent without a sandbox, say — so the host's own git runs none of them
+ * (git-hardening.ts, #1074). Bringing a branch home switches the main
+ * checkout without its post-checkout hook, which used to run, and fail, as
+ * the host's own process.
  */
-test('a failing post-checkout hook after the switch still brings the branch home, and says what git reported', async (t) => {
+test('bringing a branch home runs no hook the repository configures', async (t) => {
   const { repo, worktrees } = await fixture(t)
   const tree = await worktrees.create(repo, { name: 'hooked' })
   const hooks = join(repo, '..', 'hooks')
+  const marker = join(repo, '..', 'hook-ran')
   await mkdir(hooks)
-  await writeFile(join(hooks, 'post-checkout'), '#!/bin/sh\necho "the hook says no" >&2\nexit 1\n', { mode: 0o755 })
+  await writeFile(join(hooks, 'post-checkout'), `#!/bin/sh\ntouch '${marker}'\necho "the hook says no" >&2\nexit 1\n`, { mode: 0o755 })
   await git(repo, 'config', 'core.hooksPath', hooks)
 
   const home = await worktrees.bringHome(tree.path)
 
   assert.equal(home.branch, 'harnessdesk/hooked')
   assert.equal(home.from, 'main')
-  assert.match(home.warning ?? '', /the hook says no/, "git's words for the hook reach the caller")
+  assert.equal(home.warning ?? null, null, 'no hook ran, so there is nothing it reported')
+  await assert.rejects(stat(marker), 'the hook never ran')
   assert.equal((await git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')).trim(), 'harnessdesk/hooked', 'the switch happened')
   await assert.rejects(stat(tree.path), 'the side checkout is gone')
   assert.equal((await worktrees.list(repo)).length, 1, 'and git no longer lists it')
@@ -739,24 +740,3 @@ test('parseWorktreeList handles CRLF line endings from git worktree list on Wind
   })
 })
 
-
-/**
- * Issue #1074: what a Seat that may commit must be able to write besides its
- * files. An ordinary checkout keeps everything in its own `.git`; a linked
- * worktree keeps its index and HEAD in its gitdir and its refs, objects and
- * their lock files in the repository's common dir, so both. Real paths, since
- * a sandbox matches real paths and the checkout may be named through a link
- * (`/tmp`, `/var`). A grant that cannot commit gets nothing.
- */
-test('a Seat that may commit is given its checkout’s git directories, and one that may not is given none', async (t) => {
-  const { repo, worktrees } = await fixture(t)
-  const tree = await worktrees.create(repo, { name: 'Lane' })
-  const linked = join(tmpdir(), basename(join(repo, '..')), 'repo')
-
-  assert.deepEqual(await commitDirsFor('edit', repo), [join(repo, '.git')])
-  assert.deepEqual(await commitDirsFor('merge', linked), [join(repo, '.git')], 'named through a link, answered with the real path')
-  const gitdir = (await git(tree.path, 'rev-parse', '--path-format=absolute', '--git-dir')).trim()
-  assert.deepEqual(await commitDirsFor('edit', tree.path), [await realpath(gitdir), join(repo, '.git')])
-  assert.deepEqual(await commitDirsFor('read', repo), [], 'a read-only Seat keeps .git read-only')
-  assert.deepEqual(await commitDirsFor('edit', tmpdir()), [], 'nothing outside a repository')
-})

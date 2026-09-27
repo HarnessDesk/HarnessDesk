@@ -88,6 +88,8 @@ export interface GoalRig {
   readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null; readonly dirtyPaths?: readonly string[] | null }>
   /** Checkouts whose `headOf` throws instead of answering — a git read that failed outright. */
   readonly headOfFails: Set<string>
+  /** Every `commit_work` the engine asked the host to make, in order; each answers a fixed commit. */
+  readonly commits: { readonly cwd: string; readonly before: readonly string[]; readonly message: string }[]
   /** Every message the engine's own `port.log` was called with, in order. */
   readonly logs: string[]
   /** What `runCheck` answers for a command, keyed by its exact text; unset commands "pass" (exit 0). */
@@ -208,6 +210,7 @@ export const goalRig = async (
     readableProviders: new Set<string>(), goals: new Map<string, string>(),
     heads: new Map<string, { at: string | null; dirty: boolean; dirtyFiles?: number | null; dirtyPaths?: readonly string[] | null }>(),
     headOfFails: new Set<string>(),
+    commits: [] as { cwd: string; before: readonly string[]; message: string }[],
     logs: [] as string[],
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
@@ -365,6 +368,10 @@ export const goalRig = async (
       const found = rig.heads.get(cwd) ?? { at: null, dirty: false }
       const dirtyPaths = dirtyOf(cwd)
       return { ...found, dirtyFiles: dirtyPaths.length, dirtyPaths }
+    },
+    commitWork: async (cwd, before, message) => {
+      rig.commits.push({ cwd, before, message })
+      return { commit: 'c'.repeat(40), paths: ['notes.md'] }
     },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)

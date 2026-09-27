@@ -19,6 +19,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { isSha } from './git-revision.js'
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 /**
  * The repository's past, read for the history pane: the log, the refs, one
@@ -39,7 +40,7 @@ const run = promisify(execFile)
    `git --no-replace-objects` does. The environment is built per call, since
    PATH is read at the call. */
 const git = async (root: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await run('git', ['-C', root, ...args], {
+  const { stdout } = await run('git', ['-C', root, ...HARDENED_GIT_CONFIG, ...args], {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
     env: { ...process.env, GIT_NO_REPLACE_OBJECTS: '1' },

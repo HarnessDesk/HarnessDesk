@@ -7,6 +7,46 @@ the rule is the last line of its section.
 
 ---
 
+## The host commits for an agent; an agent is never given `.git`
+
+A Seat whose grant can commit (`edit` and above) commits its card's own work
+through `commit_work`, which the host answers: it commits, in the Seat's
+checkout, the paths dirty now that were not dirty when the card was claimed,
+with the agent's message. A sandbox that keeps `.git` read-only — Codex's
+workspace sandbox does — is left exactly as it is. Widening it to the git
+directory would let the agent write `.git/config` and `.git/hooks`, and the
+next git run outside the sandbox — the host's own, the person's, a
+publishing Seat's — would run whatever it put there with that process's
+access; in a lane the common directory is the main repository's own `.git`.
+There is no narrower grant that still commits: the index, its lock, `HEAD`
+and `config` all sit at the root of the git directory.
+
+That commit runs git with `core.hooksPath=/dev/null`, `core.fsmonitor=false`,
+`core.sshCommand=ssh` and signing off, with every filter driver the
+configuration names switched off by name, with `GIT_CONFIG_NOSYSTEM=1` and
+`GIT_CONFIG_GLOBAL=/dev/null`, and with none of the host's own `GIT_*`
+variables. The agent supplies no flag, no `-c` and no path: the paths are
+the ones git's own status names, passed as literal pathspecs through a file,
+and the message is written to a file and stored verbatim, at most 8000
+characters. Every git the host runs in a checkout an agent can write carries
+the same `-c` floor (`git-hardening.ts`); the person's own git-client verbs
+(`git-actions.ts`) do not, because a hook there is the person's own.
+
+The author is the checkout's configured identity, read the way git resolves
+it — `user.name` and `user.email` across system, global and repository
+configuration — and handed to the commit as `GIT_AUTHOR_*` and
+`GIT_COMMITTER_*`, because the commit itself runs with global configuration
+off. A checkout with no configured identity is refused in one sentence; the
+desk never makes one up. Global configuration being off also means a filter
+the person set up globally, such as a large-file filter, does not apply to
+this commit; that is the price of a commit nothing configurable can run code
+in.
+
+Rule: an agent's sandbox is never widened to a git directory; a commit it
+needs is the host's, run hardened.
+
+---
+
 ## Insight measures remain source-qualified
 
 Historical usage is read from runtime-owned local records rather than quota

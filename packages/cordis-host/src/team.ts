@@ -57,6 +57,8 @@ export interface TeamEngine {
     args: { readonly note?: string; readonly handoff?: string; readonly outcome?: string; readonly split?: readonly (readonly string[])[] },
     scope: TeamScope,
   ): Promise<string>
+  /** The host commits the caller's card's own work in its checkout, with this message (#1074). */
+  commitWork(intent: number, message: string, scope: TeamScope): Promise<string>
   release(
     intent: number,
     args: { readonly reason?: string; readonly blocked?: boolean },
@@ -222,6 +224,11 @@ export class TeamService extends Service {
   ): Promise<string> {
     const plugin = this.gate()
     return engine().complete(intent, args, asTeamScope(scope, plugin))
+  }
+
+  async commitWork(intent: number, message: string, scope?: ScopeQuery): Promise<string> {
+    const plugin = this.gate()
+    return engine().commitWork(intent, message, asTeamScope(scope, plugin))
   }
 
   async release(

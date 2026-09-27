@@ -811,6 +811,16 @@ shared-tree rule above reads. A Seat that may only read is never checked; it
 could not have committed anything, so reading it as dirty would be a dead
 end.
 
+The refusal names `commit_work`, and that is how such a Seat commits: the
+host commits the card's own work — the paths dirty now that were not in the
+claim's snapshot below — in the Seat's checkout, with the agent's message.
+An agent never needs to write `.git` for it, which matters because a
+sandbox may keep `.git` read-only, and giving an agent `.git` would give it
+the repository's hooks and configuration, which the next unsandboxed git
+runs. When a finish is refused for uncommitted work on turn after turn until
+the run's re-arm budget gives up, the stall says the Seat could not commit its
+work, rather than only that its turns kept ending (#1074).
+
 A Goal's checkout is shared by default, and most shipped flows are not
 isolated, so the check is never "is the whole tree clean" — a person's own
 untracked file, a half-finished edit sitting there from before the card was

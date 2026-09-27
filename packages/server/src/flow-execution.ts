@@ -291,6 +291,15 @@ export interface FlowExecutionPort {
     readonly dirtyPaths?: readonly string[] | null
   }>
   /**
+   * Commits a card's own work in its Seat's checkout, for the Seat
+   * (`commit_work`, #1074): the paths dirty now and not in `before`, with
+   * `message`, git run hardened — see `card-commit.ts`. Answers the commit,
+   * or one sentence saying why nothing was committed.
+   */
+  commitWork?(cwd: string, before: readonly string[], message: string): Promise<
+    { readonly commit: string; readonly paths: readonly string[] } | { readonly refused: string }
+  >
+  /**
    * Runs a flow's check command through the bounded runner, and records its
    * result as that card's check evidence, awaited before this resolves — a
    * card is never marked done on an unsaved fact. `problem` is set only when
@@ -1512,7 +1521,37 @@ export class FlowExecutions {
     const last = this.#uncommitted.get(key)
     const turns = last?.turn === turn ? last.turns : last?.turn === turn - 1 ? last.turns + 1 : 1
     this.#uncommitted.set(key, { turn, turns })
-    return `You have ${added.length} uncommitted file${added.length === 1 ? '' : 's'} from this card's work. Commit them, then finish again.`
+    return `You have ${added.length} uncommitted file${added.length === 1 ? '' : 's'} from this card's work. Commit them with commit_work, then finish again.`
+  }
+
+  /**
+   * `commit_work` for a card a v2 run bound (#1074): the host commits the
+   * card's own work — what is dirty now and was not at claim — in the Seat's
+   * checkout, so an agent whose sandbox keeps `.git` read-only can still
+   * commit, and none has to be given `.git` to do it. Only a Seat whose
+   * binding may commit (`mayCommit`), the same rule `refuseDirty` holds a
+   * finish to. Null for a card no v2 run bound, which is not this tool's.
+   */
+  async commitWork(goal: string, card: number, message: string): Promise<string | null> {
+    const run = this.#runOfCard(goal, card)
+    if (!run || run.document.format !== 'agents') return null
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    const role = run.document.flow.roles.find((one) => one.id === round?.role)
+    if (role?.kind !== 'agent') return null
+    const binding = bindingsFor(run, role.id)[round!.cards.indexOf(card)]
+    if (!binding || !mayCommit(binding.agent, binding.grant)) {
+      return `Refused: the Seat for card #${card} may only read, so it cannot commit.`
+    }
+    const before = this.#team.dirtyPathsOf(goal, card)
+    if (!before) {
+      return `Refused: card #${card} has no record of what was already uncommitted when it was claimed, so its own work cannot be told apart; nothing was committed.`
+    }
+    const { seat } = this.#seatForCard(run, card)
+    if (!seat) return `Refused: card #${card} has no Seat to commit for.`
+    if (!this.#port.commitWork) return 'Refused: this desk cannot commit for a Seat.'
+    const done = await this.#port.commitWork(seat.checkout.cwd, before, message)
+    if ('refused' in done) return done.refused
+    return `Committed ${done.paths.length} file${done.paths.length === 1 ? '' : 's'} as ${done.commit}.`
   }
 
   /**
@@ -3211,7 +3250,7 @@ export class FlowExecutions {
       await this.#stall(
         id,
         couldNotCommit
-          ? `The Seat for card #${card.id} could not commit its work: its finish was refused for uncommitted files on ${uncommitted.turns} turns in a row, most likely because its environment refused writes to the repository. It is not being handed its card again.`
+          ? `The Seat for card #${card.id} could not commit its work: its finish was refused for uncommitted files on ${uncommitted.turns} turns in a row, most likely because its environment refused writes to the repository and it did not commit with commit_work. It is not being handed its card again.`
           : `The Seat for card #${card.id} ended its turn ${spent.length} times inside the hour, so it is not being handed its card again.`,
       )
       return

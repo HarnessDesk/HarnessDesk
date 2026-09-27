@@ -124,7 +124,8 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { Worktrees, commitDirsFor, openRepositoryRoot, repositoryOf } from './worktree.js'
+import { Worktrees, openRepositoryRoot, repositoryOf } from './worktree.js'
+import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
@@ -1207,6 +1208,8 @@ export class Host {
           ? { at: revision.head, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles, dirtyPaths: revision.dirtyPaths }
           : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
+      // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
+      commitWork: (cwd, before, message) => commitCardWork(cwd, before, message),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
     }, {
       /**
@@ -1598,10 +1601,9 @@ export class Host {
       },
       openLegacySeat: async (input, goal) => {
         const cwd = goal.cwd
-        const grant = ceilingOfPermission(input.permission)
-        const opened = await this.#openSeat(input.spec, { cwd, title: input.title, grant })
+        const opened = await this.#openSeat(input.spec, { cwd, title: input.title })
         try {
-          const held = await this.#holdSeat(opened.runtime, opened.sessionId, grant)
+          const held = await this.#holdSeat(opened.runtime, opened.sessionId, ceilingOfPermission(input.permission))
           const record = await this.#evidence.seats.opened({
             agent: null,
             briefDigest: null,
@@ -5144,14 +5146,9 @@ export class Host {
       readonly title: string
       readonly environment?: Readonly<Record<string, string>>
       readonly attachments?: SessionAttachments
-      /** The level the seat is about to be held at; one that can commit is handed its checkout's git directories. */
-      readonly grant?: CeilingLevel
     },
   ): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
-    // A sandbox that keeps `.git` read-only would let the seat write its files
-    // and then refuse its commit, which its card needs to finish (#1074).
-    const gitDirs = where.grant ? await commitDirsFor(where.grant, where.cwd) : []
     // The lane is found by its checkout, from the desk's own lane record; the
     // cwd is the confinement and every runtime takes it. The six values go to
     // a runtime that can take them per session, and are said in the standing
@@ -5176,7 +5173,6 @@ export class Host {
         ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
         ...(where.attachments ? { attachments: where.attachments } : {}),
-        ...(gitDirs.length > 0 ? { gitDirs } : {}),
         options: {
           ...(seat.effort ? { effort: seat.effort } : {}),
           ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),

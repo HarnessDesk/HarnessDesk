@@ -33,8 +33,7 @@ test("Codex holds read and edit with controls its own options accept, and every 
     assert.ok(control.settings.some((one) => one.option === 'approvalsReviewer' && one.value === 'user'), level)
   }
   assert.deepEqual(Object.keys(CODEX_CEILINGS).sort(), ['edit', 'read'])
-  // A Seat held at edit is handed its checkout's git directories, so it commits its work (#1074).
-  assert.match(CODEX_CEILINGS.edit.how, /commits them, but cannot reach the network/)
+  assert.match(CODEX_CEILINGS.edit.how, /cannot commit/)
 })
 
 /**

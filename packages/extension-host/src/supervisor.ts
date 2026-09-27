@@ -555,6 +555,13 @@ export class PluginHostProcess {
             reply({ response: request.request, result: await plane.conflicts(paths, scope) })
             return
           }
+          case 'team/commitWork': {
+            reply({
+              response: request.request,
+              result: await plane.commitWork(Number(params['intent']), String(params['message'] ?? ''), scope),
+            })
+            return
+          }
           case 'team/complete': {
             const { note, handoff, outcome, split } = params as {
               note?: string

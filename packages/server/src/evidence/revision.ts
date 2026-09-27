@@ -8,6 +8,7 @@ import type { Freshness, Sha } from '@harnessdesk/protocol'
 import { isRevisionName } from '../git-revision.js'
 import { repositoryRoot } from '../worktree.js'
 import { isSha } from './records.js'
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 
 /**
  * What git says about a checkout, for evidence: which commit a fact is bound
@@ -21,7 +22,7 @@ import { isSha } from './records.js'
 const run = promisify(execFile)
 
 const git = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await run('git', ['-C', cwd, ...args], {
+  const { stdout } = await run('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
     timeout: 20_000,
     maxBuffer: 8 * 1024 * 1024,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },

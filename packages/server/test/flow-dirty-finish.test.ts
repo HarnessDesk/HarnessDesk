@@ -73,7 +73,7 @@ test("the same checkout with the agent leaving its own new file uncommitted is r
   // The pre-existing file is still dirty, and the agent leaves one new file of its own uncommitted too.
   rig.heads.set('/repo', { at: 'sha-0', dirty: true, dirtyPaths: ['.env', 'notes.md'] })
   const answer = await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
-  assert.match(String(answer), /^You have 1 uncommitted file from this card's work\. Commit them, then finish again\.$/)
+  assert.match(String(answer), /^You have 1 uncommitted file from this card's work\. Commit them with commit_work, then finish again\.$/)
   assert.equal(rig.board(run.goal).intents.find((one) => one.id === 1)?.state, 'claimed', 'not finished')
 })
 
@@ -290,7 +290,7 @@ test('a flow card claimed with a dirty checkout keeps its dirty-paths snapshot o
   const answer = await second.teamPlane.complete(card, {}, { runtime: claim.runtime, sessionId: claim.sessionId })
   assert.match(
     String(answer),
-    /^You have 1 uncommitted file from this card's work\. Commit them, then finish again\.$/,
+    /^You have 1 uncommitted file from this card's work\. Commit them with commit_work, then finish again\.$/,
     'a snapshot that survived the restart is the one this finish is checked against',
   )
 })
@@ -317,7 +317,7 @@ test('a Seat refused its finish for uncommitted work turn after turn stalls sayi
   }
   const stalled = rig.flows.executionsFor(run.goal)[0]!
   assert.match(String(stalled.reason), /could not commit its work/)
-  assert.match(String(stalled.reason), /environment refused writes to the repository/)
+  assert.match(String(stalled.reason), /environment refused writes to the repository and it did not commit with commit_work/)
   assert.doesNotMatch(String(stalled.reason), /^The Seat for card #1 ended its turn/)
 })
 
@@ -334,3 +334,30 @@ test('a Seat whose turns simply end stalls with the plain re-arm sentence', asyn
   assert.match(String(stalled.reason), /^The Seat for card #1 ended its turn 3 times inside the hour/)
   assert.doesNotMatch(String(stalled.reason), /commit/)
 })
+
+/*
+ * Issue #1074: the host commits a card's own work for its Seat, so an agent
+ * whose sandbox keeps `.git` read-only never has to be given it. The engine
+ * hands the host the claim's own snapshot, so only what changed since is
+ * committed (the git itself is card-commit.test.ts's).
+ */
+test('commit_work on an edit card has the host commit its checkout, against the snapshot taken at claim', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'sha-0', dirty: true, dirtyPaths: ['.env'] })
+  await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  rig.heads.set('/repo', { at: 'sha-0', dirty: true, dirtyPaths: ['.env', 'notes.md'] })
+  const answer = await rig.team.commitWork(1, 'Answer the question', rig.sessionOf('seat-1'))
+  assert.equal(answer, `Committed 1 file as ${'c'.repeat(40)}.`)
+  assert.deepEqual(rig.commits, [{ cwd: '/repo', before: ['.env'], message: 'Answer the question' }])
+})
+
+test('commit_work on a read-only card is refused, and nothing is committed', async (t) => {
+  const rig = await goalRig(t)
+  await rig.start(WRITER_READ, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const answer = await rig.team.commitWork(1, 'Sneak a change in', rig.sessionOf('seat-1'))
+  assert.equal(answer, 'Refused: the Seat for card #1 may only read, so it cannot commit.')
+  assert.deepEqual(rig.commits, [])
+})
+

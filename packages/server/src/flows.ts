@@ -651,6 +651,11 @@ export class Flows implements TeamFlows {
     return (await this.#executions?.refuseDirty(room, intent.id)) ?? null
   }
 
+  /** `commit_work` for a card a v2 run bound, or null when none did. See `FlowExecutions.commitWork`. */
+  async commitWork(room: string, intent: Intent, message: string): Promise<string | null> {
+    return (await this.#executions?.commitWork(room, intent.id, message)) ?? null
+  }
+
   /**
    * An old run held because its check may already have run: the person has
    * looked, and asks for it to run. The only way such a check runs again.

@@ -325,8 +325,6 @@ export interface HostContext {
         readonly environment?: Readonly<Record<string, string>>
         /** Phase 12's frozen, isolated skill/server filter, prepared before this call — never computed from the session it opens. */
         readonly attachments?: SessionAttachments
-        /** The level `hold` will hold it at: one that can commit may also write its checkout's git directories (#1074). */
-        readonly grant?: CeilingLevel
       },
     ): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */

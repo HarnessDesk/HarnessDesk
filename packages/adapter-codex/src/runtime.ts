@@ -926,7 +926,6 @@ export class CodexRuntime implements AgentRuntime {
       created: true,
       route: options.route ?? null,
       environment: options.environment,
-      ...(options.gitDirs && options.gitDirs.length > 0 ? { gitDirs: options.gitDirs } : {}),
     })
     return this.#applyAfterStart(session, after)
   }
@@ -1159,8 +1158,6 @@ export class CodexRuntime implements AgentRuntime {
       /** The model route it was opened on, which a thread set up like it needs again. */
       readonly route?: ResolvedModelRoute | null
       readonly environment?: Readonly<Record<string, string>> | undefined
-      /** A committing Seat's git directories — see `CodexSessionDeps.gitDirs`. */
-      readonly gitDirs?: readonly string[]
     } = {},
   ): Promise<CodexSession> {
     const created = opened.created ?? false
@@ -1178,7 +1175,6 @@ export class CodexRuntime implements AgentRuntime {
       created,
       route: opened.route ?? null,
       environment: opened.environment,
-      ...(opened.gitDirs ? { gitDirs: opened.gitDirs } : {}),
       startBeside: (like) => this.#startBeside(like),
       interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
       ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
