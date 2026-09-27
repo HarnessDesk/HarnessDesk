@@ -30,6 +30,24 @@ test('usage/plan/set refuses a bad period, a non-numeric amount, or a missing ru
   assert.throws(() => request('usage/plan/set', { runtime: 'claude-code', fee: { amount: 20, currency: 'USD', period: 'month' } }), ValidationError)
 })
 
-test('usage/plan/read takes no meaningful params', () => {
-  assert.doesNotThrow(() => request('usage/plan/read', {}))
+/**
+ * `runtime` never carries the `plan-store.ts` row-key separator, and
+ * `account` is never empty and never past a sane length — both apply to
+ * `usage/plan/read` and `usage/plan/set` alike, since both key the same row.
+ */
+test('usage/plan/set refuses an empty account, an over-length account, or a runtime containing ":"', () => {
+  assert.throws(() => request('usage/plan/set', { runtime: 'claude-code', account: '', fee: { amount: 20, currency: 'USD', period: 'month' } }), ValidationError)
+  assert.throws(() => request('usage/plan/set', { runtime: 'claude-code', account: '   ', fee: { amount: 20, currency: 'USD', period: 'month' } }), ValidationError)
+  assert.throws(() => request('usage/plan/set', { runtime: 'claude-code', account: 'x'.repeat(257), fee: { amount: 20, currency: 'USD', period: 'month' } }), ValidationError)
+  assert.throws(() => request('usage/plan/set', { runtime: 'claude:code', account: 'dev@example.com', fee: { amount: 20, currency: 'USD', period: 'month' } }), ValidationError)
+  assert.doesNotThrow(() => request('usage/plan/set', { runtime: 'claude-code', account: 'x'.repeat(256), fee: { amount: 20, currency: 'USD', period: 'month' } }))
+})
+
+test('usage/plan/read takes { runtime, account }, and an optional plan string to match a suggestion against', () => {
+  assert.doesNotThrow(() => request('usage/plan/read', { runtime: 'claude-code', account: 'dev@example.com' }))
+  assert.doesNotThrow(() => request('usage/plan/read', { runtime: 'claude-code', account: 'dev@example.com', plan: 'Pro' }))
+  assert.doesNotThrow(() => request('usage/plan/read', { runtime: 'claude-code', account: 'dev@example.com', plan: null }))
+  assert.throws(() => request('usage/plan/read', {}), ValidationError)
+  assert.throws(() => request('usage/plan/read', { runtime: 'claude-code', account: '' }), ValidationError)
+  assert.throws(() => request('usage/plan/read', { runtime: 'claude:code', account: 'dev@example.com' }), ValidationError)
 })

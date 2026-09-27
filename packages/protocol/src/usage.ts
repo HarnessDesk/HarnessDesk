@@ -570,9 +570,29 @@ export interface PlanAccountEntry {
   readonly entry: PlanEntry
 }
 
+/**
+ * `plan` is the account's own plan string, when the card already knows one —
+ * the caller's own report for this exact account, never a sibling
+ * account's, so the suggestion this returns can never be for the wrong
+ * account's plan.
+ */
+export interface PlanReadParams {
+  readonly runtime: RuntimeId
+  readonly account: string
+  readonly plan?: string | null
+}
+
+/**
+ * One account's own stored plan, looked up on the host by the same
+ * `accountKeyFor` function `usage/plan/set` writes with — never a runtime's
+ * single cached report, which only ever remembers one account per runtime.
+ * `refusal` is `plans.json`'s own read failure, where and why, so a corrupt
+ * file is shown rather than silently hiding the whole Plan card (BLOCKING 2).
+ */
 export interface PlanRead {
-  readonly entries: readonly PlanAccountEntry[]
-  readonly suggestions: readonly PlanSuggestion[]
+  readonly entry: PlanEntry | null
+  readonly suggestion: PlanSuggestion | null
+  readonly refusal: string | null
 }
 
 /**

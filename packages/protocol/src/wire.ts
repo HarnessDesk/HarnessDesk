@@ -114,6 +114,7 @@ import type {
   LedgerReport,
   PlanEntry,
   PlanRead,
+  PlanReadParams,
   PlanSetInput,
   ScanProgress,
   UsageReport,
@@ -878,12 +879,18 @@ export interface HostMethods {
   /** Starts a ledger scan if one is not already running; progress arrives as an event. */
   'usage/scan': { params: { readonly full?: boolean }; result: ScanProgress }
   /**
-   * What a person has set for each account's plan fee and key budget, plus
-   * the suggested public prices a click could apply. Never applied on its
+   * One account's own stored plan fee/budget, plus the one suggested public
+   * price that matches its plan string, when known. Never applied on its
    * own — `usage/plan/set` is the only thing that writes one.
    */
-  'usage/plan/read': { params: Record<string, never>; result: PlanRead }
-  /** Sets — or, given `null`, clears — one account's fee and/or budget. `undefined` leaves a field as stored. */
+  'usage/plan/read': { params: PlanReadParams; result: PlanRead }
+  /**
+   * Sets — or, given `null`, clears — one account's fee and/or budget.
+   * `undefined` leaves a field as stored. The host accepts a budget on any
+   * account; which accounts *offer* one — a key, a metered account, or one
+   * that already has a budget stored — is a UI choice (`showBudget` in
+   * `SettingsAgents.tsx`/`PlanCard.tsx`), not a rule enforced here.
+   */
   'usage/plan/set': { params: PlanSetInput; result: PlanEntry }
   /** Source-qualified historical usage. These reads never mutate a receipt, Goal, or source corpus. */
   'insight/goal': { params: { readonly goal: GoalId }; result: InsightReport }
