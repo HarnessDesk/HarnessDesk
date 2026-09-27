@@ -48,7 +48,7 @@ const buildEntries = (modules: Record<string, ModuleNamespace>, dir: string): re
 const componentModules = import.meta.glob(['../components/**/*.tsx', '!../components/**/*.test.tsx'], {
   eager: true,
 }) as Record<string, ModuleNamespace>
-const panelModules = import.meta.glob(['../panels/*.tsx', '!../panels/*.test.tsx'], { eager: true }) as Record<
+const panelModules = import.meta.glob(['../panels/**/*.tsx', '!../panels/**/*.test.tsx'], { eager: true }) as Record<
   string,
   ModuleNamespace
 >

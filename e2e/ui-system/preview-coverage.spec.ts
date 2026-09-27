@@ -7,20 +7,18 @@ import { expect, test, type Page } from '@playwright/test'
  * screens over a fixture, and between the preview page's frames and every
  * dial's own options, and every board `design.html` lists, a component that
  * ships in `components/` or `panels/` should turn up in at least one of
- * them — a file that never renders is a file nobody looking at these two
- * pages can see broke, restyled, or removed by accident. This walks both
- * pages, collects every component *reference* React actually mounted as a
- * fiber's own `type`, and fails by naming the file whose every export came
- * back unmatched.
+ * them — a component that never renders is a component nobody looking at
+ * these two pages can see broke, restyled, or removed by accident. This
+ * walks both pages, collects every component *reference* React actually mounted as a
+ * fiber's own `type`, and fails by naming every exported visual component
+ * that came back unmatched.
  *
- * Coverage is per *file*, not per export: a file with four exports where
- * only one is ever mounted directly (the other three are its own internal
- * dialogs, reached from the first) still counts as covered, because the
- * import graph proves the other three are reachable from something that did
- * render. `EXEMPT` is the last resort for a file that genuinely cannot be
- * mounted here — a hook or a helper with no component to find, chiefly, and
- * the panel system's own chassis, which composes correctly only inside the
- * full window shell — and every entry says why.
+ * Coverage is per exported visual component: a sibling component cannot be
+ * excused just because its module happens to export another component that
+ * rendered. Hooks and helpers have lower-case export names, so they are not
+ * visual components and do not enter this inventory. `EXEMPT` is the last
+ * resort for a named visual component that genuinely cannot be mounted here,
+ * and every entry says why.
  *
  * The match is by *reference*, not by name (`packages/ui/src/preview/
  * coverage-registry.ts`, built from `import.meta.glob`). A name collides the
@@ -34,72 +32,61 @@ import { expect, test, type Page } from '@playwright/test'
  */
 
 /**
- * A file this spec cannot cover, and the reason — read once, reported once.
+ * A visual component this spec cannot cover, and the reason — read once,
+ * reported once. Keys are `${file}#${exportName}`, so an exemption cannot
+ * silently excuse a sibling export from the same file.
  *
- * Four are structural, not a missing frame: a hook or a plain helper never
- * appears as a fiber's own type, so no amount of mounting finds it by this
- * method — `useImportOffer`, `useOptionConfirm` and `useTabStrip` (with its
- * sibling helper `stripEdges`) are each a file's *only* non-icon export, and
- * `Icons.tsx`'s one export that is not itself an icon, `copyIconMarkup`,
- * returns a markup string rather than JSX. One more is the panel system's
- * own chassis — `Workbench`, the window's sidebar/dock/resize/drag wiring —
- * which composes correctly only inside the full window shell `preview.html`
- * deliberately never mounts a second copy of (see this file's own header
- * comment and `main.tsx`'s "real screens... never the app shell").
- *
- * `panels/PanelActions.tsx` and `panels/views.tsx` are deliberately *not*
- * here: both render once `Panes` mounts a docked view (`frames-panels.tsx`'s
- * "split tree" option), and the check below fails loudly if either turns up
- * actually uncovered — the old exemption for them predated that dial option
- * and the reference-based match that can now tell their real components from
- * a same-named one elsewhere.
+ * The one exemption is structural rather than a missing frame: the panel
+ * system's own chassis, `Workbench`, composes correctly only inside the full
+ * window shell that `preview.html` deliberately never mounts a second copy
+ * of (see this file's own header comment and `main.tsx`'s "real screens...
+ * never the app shell").
  */
 const EXEMPT: Readonly<Record<string, string>> = {
-  'components/Icons.tsx': 'Its one non-icon export, copyIconMarkup, returns a markup string, never JSX — it cannot appear as a fiber type.',
-  'components/ImportOffer.tsx': 'Exports only the hook useImportOffer; a hook is never a fiber type.',
-  'components/OptionConfirm.tsx': 'Exports only the hook useOptionConfirm; a hook is never a fiber type.',
-  'components/TabStrip.tsx': 'Exports only the hook useTabStrip and the plain helper stripEdges; neither is a fiber type.',
-  'panels/Workbench.tsx': "The window's own chassis — sidebar, docks, resize and drag wiring — not a screen; already exercised by the real app and packages/desktop.",
+  'panels/Workbench.tsx#Workbench': "The window's own chassis — sidebar, docks, resize and drag wiring — not a screen; already exercised by the real app and packages/desktop.",
 }
 
 /** Icon components are a flat façade over lucide (rule 11): drawing every one somewhere is not what this gate is for. */
 const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
+const isVisualComponentName = (name: string): boolean => !isIconName(name) && /^[A-Z]/.test(name)
 
 /**
  * Runs inside the page. Imports `coverage-registry.ts` fresh (this page's own
  * module graph, so every reference it holds is `===` to whatever that same
- * page mounted), builds a reference → file(s) map from every non-icon export,
+ * page mounted), builds a reference → component map from every visual export,
  * then walks every element's fiber chain — the same walk `rendered2.mjs`
  * uses — matching each ancestor's `type` (and a forwardRef's `.render`, and a
  * memo's `.type`, the two wrapper shapes a plain name/reference check would
- * otherwise miss) against that map. Returns the full file list once (it does
- * not change page to page) and the set of files this page load covered.
+ * otherwise miss) against that map. Returns the full component list once (it
+ * does not change page to page) and the set this page load covered.
  */
-const collectCoverage = (page: Page): Promise<{ allFiles: readonly string[]; covered: readonly string[] }> =>
+const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]; covered: readonly string[] }> =>
   page.evaluate(async () => {
     const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
+    const isVisualComponentName = (name: string): boolean => !isIconName(name) && /^[A-Z]/.test(name)
     const mod = (await import('/src/preview/coverage-registry.ts')) as {
       coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
     }
-    const refToFiles = new Map<unknown, string[]>()
-    const allFiles: string[] = []
+    const refToComponents = new Map<unknown, string[]>()
+    const allComponents: string[] = []
     for (const entry of mod.coverageRegistry) {
-      const names = Object.keys(entry.exports).filter((name) => !isIconName(name))
+      const names = Object.keys(entry.exports).filter(isVisualComponentName)
       if (names.length === 0) continue
-      allFiles.push(entry.file)
       for (const name of names) {
         const value = entry.exports[name]
         if (value === null || (typeof value !== 'function' && typeof value !== 'object')) continue
-        const list = refToFiles.get(value)
-        if (list) list.push(entry.file)
-        else refToFiles.set(value, [entry.file])
+        const component = `${entry.file}#${name}`
+        allComponents.push(component)
+        const list = refToComponents.get(value)
+        if (list) list.push(component)
+        else refToComponents.set(value, [component])
       }
     }
 
     const covered = new Set<string>()
     const credit = (candidate: unknown): void => {
-      const files = refToFiles.get(candidate)
-      if (files) for (const file of files) covered.add(file)
+      const components = refToComponents.get(candidate)
+      if (components) for (const component of components) covered.add(component)
     }
     for (const el of document.querySelectorAll('*')) {
       const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'))
@@ -116,7 +103,7 @@ const collectCoverage = (page: Page): Promise<{ allFiles: readonly string[]; cov
         fiber = fiber.return
       }
     }
-    return { allFiles, covered: [...covered] }
+    return { allComponents, covered: [...covered] }
   })
 
 /**
@@ -138,18 +125,20 @@ const collectCoverage = (page: Page): Promise<{ allFiles: readonly string[]; cov
 const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly string[]> =>
   page.evaluate(async (delay) => {
     const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
+    const isVisualComponentName = (name: string): boolean => !isIconName(name) && /^[A-Z]/.test(name)
     const mod = (await import('/src/preview/coverage-registry.ts')) as {
       coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
     }
-    const refToFiles = new Map<unknown, string[]>()
+    const refToComponents = new Map<unknown, string[]>()
     for (const entry of mod.coverageRegistry) {
       for (const name of Object.keys(entry.exports)) {
-        if (isIconName(name)) continue
+        if (!isVisualComponentName(name)) continue
         const value = entry.exports[name]
         if (value === null || (typeof value !== 'function' && typeof value !== 'object')) continue
-        const list = refToFiles.get(value)
-        if (list) list.push(entry.file)
-        else refToFiles.set(value, [entry.file])
+        const component = `${entry.file}#${name}`
+        const list = refToComponents.get(value)
+        if (list) list.push(component)
+        else refToComponents.set(value, [component])
       }
     }
     const covered = new Set<string>()
@@ -162,8 +151,8 @@ const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly
         while (fiber) {
           const type = fiber.type
           const credit = (candidate: unknown): void => {
-            const files = refToFiles.get(candidate)
-            if (files) for (const file of files) covered.add(file)
+            const components = refToComponents.get(candidate)
+            if (components) for (const component of components) covered.add(component)
           }
           credit(type)
           if (type && typeof type === 'object') {
@@ -198,10 +187,10 @@ const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly
   }, settleMs)
 
 test.describe('preview coverage', () => {
-  test('every components/ and panels/ file renders in preview.html or design.html', async ({ page }) => {
+  test('every exported components/ and panels/ component renders in preview.html or design.html', async ({ page }) => {
     test.setTimeout(90_000)
     const covered = new Set<string>()
-    let allFiles: readonly string[] = []
+    let allComponents: readonly string[] = []
 
     // -- preview.html: the page's own frames, then every dial's every option.
     // `?composer` and `?empty` gate two more frames the plain page never
@@ -211,7 +200,7 @@ test.describe('preview coverage', () => {
       await page.goto(`/preview.html${query}`)
       await page.waitForTimeout(1200)
       const result = await collectCoverage(page)
-      allFiles = result.allFiles
+      allComponents = result.allComponents
       for (const file of result.covered) covered.add(file)
     }
 
@@ -234,15 +223,15 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     }
 
-    const uncovered = allFiles.filter((file) => !covered.has(file) && !(file in EXEMPT))
+    const uncovered = allComponents.filter((component) => !covered.has(component) && !(component in EXEMPT))
 
-    expect(uncovered, `Uncovered files (add a frame/dial in packages/ui/src/preview, or an EXEMPT entry): ${uncovered.join(', ')}`).toEqual([])
+    expect(uncovered, `Uncovered components (add a frame/dial in packages/ui/src/preview, or an EXEMPT entry): ${uncovered.join(', ')}`).toEqual([])
 
     // The guard on the guard: an EXEMPT entry that has since become reachable
     // is a stale claim, not a harmless one — it hides the day a fix or a new
     // dial actually covered the file, and the next person to read EXEMPT
     // trusts a reason that no longer holds.
-    const staleExemptions = Object.keys(EXEMPT).filter((file) => covered.has(file))
+    const staleExemptions = Object.keys(EXEMPT).filter((component) => covered.has(component))
     expect(staleExemptions, `EXEMPT entries that now render (remove them from EXEMPT): ${staleExemptions.join(', ')}`).toEqual([])
   })
 
