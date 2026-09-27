@@ -260,7 +260,10 @@ export const OverviewStrip = ({
 /** A caption's own actionable half — plain text everywhere else, an inline link only where it does something. */
 const CaptionLink = ({ onClick, children }: { onClick?: () => void; children: ReactNode }) =>
   onClick ? (
-    <Button variant="link" size="content" onClick={onClick}>
+    // `chip` is the size that pairs the caption's type step with the target
+    // floor (`min-h-(--hd-target-min)`); a bare caption-height link sat under
+    // it at 15px (target-floor.spec).
+    <Button variant="link" size="chip" onClick={onClick}>
       {children}
     </Button>
   ) : (
