@@ -599,6 +599,9 @@ const AgentAccounts = ({
     return answer !== undefined && answer.accounts.length === 0
   })
   const pending = extras.filter((entry) => snapshot.accountsByRuntime[entry.id] === undefined)
+  // The ones still expected to answer: an account that could not start will
+  // not, and its own row already says "Unavailable" (#1038).
+  const answering = pending.filter((entry) => snapshot.healthByRuntime[entry.id]?.state !== 'unavailable')
   const canSignIn = (status?.signInMethods ?? []).some((method) => method.flow !== 'external')
   // A key has to be typed somewhere, so those methods hand off to the sign-in
   // page instead of being started from a button with nowhere to type.
@@ -847,8 +850,8 @@ const AgentAccounts = ({
                   /* Whether a session would start is the whole agent's
                      answer, and an extra account still answering may yet
                      say yes — so only this account's absence is claimed. */
-                  pending.length > 0 ? (
-                    `${pending.length === 1 ? 'Another account has' : 'Other accounts have'} not answered yet.`
+                  answering.length > 0 ? (
+                    `${answering.length === 1 ? 'Another account has' : 'Other accounts have'} not answered yet.`
                   ) : (
                     `${info.presentation.name} has no credential here yet, so a session sent to it would not start.`
                   )

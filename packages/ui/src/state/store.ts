@@ -1339,43 +1339,73 @@ export class AppStore {
    * whose read failed once sat at "Not answered yet" with nothing on any
    * surface to press (#1021). A failure now keeps the last answer that
    * arrived, if one did, and asks again on its own — soon at first, then
-   * less often, until a pass comes back whole.
+   * less often — until it answers.
+   *
+   * Only the agents that failed are asked again, and their answers merged
+   * in: re-reading the whole roster for one agent that never answers would
+   * be a status call to every agent, every minute, for as long as the window
+   * is open. An agent that is unavailable is not asked at all; its health
+   * coming back up is what re-reads it.
    */
   #accountRetry: ReturnType<typeof setTimeout> | null = null
   #accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
 
   async loadAccounts(): Promise<void> {
     const generation = ++this.#accountsGeneration
-    const entries = await Promise.all(
-      this.#snapshot.runtimes.map(async (runtime) => {
+    const entries = await this.#readAccounts(this.#snapshot.runtimes.map((runtime) => runtime.id))
+    if (generation !== this.#accountsGeneration) return
+    this.#applyAccounts(entries, { whole: true })
+  }
+
+  async #retryAccounts(ids: readonly RuntimeId[]): Promise<void> {
+    // Not a pass of its own: a full pass that starts meanwhile is newer, and
+    // it answers for these agents too — this one then gives way to it.
+    const generation = this.#accountsGeneration
+    const known = new Set(this.#snapshot.runtimes.map((runtime) => runtime.id))
+    const entries = await this.#readAccounts(ids.filter((id) => known.has(id)))
+    if (generation !== this.#accountsGeneration) return
+    this.#applyAccounts(entries, { whole: false })
+  }
+
+  #readAccounts(ids: readonly RuntimeId[]) {
+    return Promise.all(
+      ids.map(async (id) => {
         const answer = await this.transport
-          .request('runtime/account', { runtime: runtime.id })
+          .request('runtime/account', { runtime: id })
           .then(
             (status) => ({ failed: false as const, status }),
             () => ({ failed: true as const, status: null }),
           )
-        return [runtime.id, answer] as const
+        return [id, answer] as const
       }),
     )
-    if (generation !== this.#accountsGeneration) return
+  }
+
+  #applyAccounts(
+    entries: readonly (readonly [RuntimeId, { readonly failed: boolean; readonly status: AccountStatus | null }])[],
+    { whole }: { readonly whole: boolean },
+  ): void {
     const previous = this.#snapshot.accountsByRuntime
-    const accountsByRuntime: Partial<Record<RuntimeId, AccountStatus>> = {}
-    let failed = false
+    // A whole pass rebuilds the map, so an agent that went away goes with it;
+    // a retry only touches the agents it asked.
+    const accountsByRuntime: Partial<Record<RuntimeId, AccountStatus>> = whole ? {} : { ...previous }
+    const failed: RuntimeId[] = []
     for (const [id, answer] of entries) {
       // A failed read says nothing new about who is signed in, so the last
       // answer stands rather than being thrown away for no answer at all.
       const status = answer.failed ? previous[id] : answer.status
-      if (answer.failed) failed = true
       if (status) accountsByRuntime[id] = status
+      else delete accountsByRuntime[id]
+      if (answer.failed && this.#snapshot.healthByRuntime[id]?.state !== 'unavailable') failed.push(id)
     }
     this.#patch({ accountsByRuntime })
     this.#scheduleAccountRetry(failed)
   }
 
-  #scheduleAccountRetry(failed: boolean): void {
+  #scheduleAccountRetry(failed: readonly RuntimeId[]): void {
     if (this.#accountRetry) clearTimeout(this.#accountRetry)
     this.#accountRetry = null
-    if (!failed) {
+    if (failed.length === 0) {
       this.#accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
       return
     }
@@ -1383,7 +1413,7 @@ export class AppStore {
     this.#accountRetryDelay = Math.min(delay * 2, ACCOUNT_RETRY_LAST_MS)
     this.#accountRetry = setTimeout(() => {
       this.#accountRetry = null
-      void this.loadAccounts()
+      void this.#retryAccounts(failed)
     }, delay)
   }
 
