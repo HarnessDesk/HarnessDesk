@@ -741,7 +741,7 @@ rail lists **views**, not accounts:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/dashboard-dark.png" />
-    <img src="images/app/dashboard-light.png" alt="The dashboard: a rail of views down the left, an account scope in the header beside the view title, and Overview's accounts summary, spend-and-split bento, and activity heatmap below it." />
+    <img src="images/app/dashboard-light.png" alt="The dashboard: a rail of views down the left, an account scope in the header beside the view title, Overview's Paid/Value/Turns/Tokens strip, the accounts that need attention, and what it cost beside where it went." />
   </picture>
 </p>
 
