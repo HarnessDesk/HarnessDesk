@@ -62,11 +62,11 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   bar: 'packages/ui/src/components/Sidebar.tsx',
   bubble: 'packages/ui/src/components/Items.tsx',
   button: 'packages/ui/src/components/SignIn.tsx',
-  chart: 'packages/ui/src/components/Usage.tsx',
+  chart: 'packages/ui/src/components/usage/shared.tsx',
   composer: 'packages/ui/src/components/RoomComposer.tsx',
   checkbox: 'packages/ui/src/components/AddWork.tsx',
   dialog: 'packages/ui/src/components/Composer.tsx',
-  delta: 'packages/ui/src/components/Usage.tsx',
+  delta: 'packages/ui/src/components/usage/shared.tsx',
   'disclosure-chevron': 'packages/ui/src/components/TurnWork.tsx',
   'dropdown-menu': 'packages/ui/src/components/TeamBoardPane.tsx',
   'empty-state': 'packages/ui/src/components/Library.tsx',
@@ -91,7 +91,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   toast: 'packages/ui/src/app/App.tsx',
   'toggle-group': 'packages/ui/src/components/Library.tsx',
   'tool-pane': 'packages/ui/src/components/BrowserPane.tsx',
-  tone: 'packages/ui/src/components/Usage.tsx',
+  tone: 'packages/ui/src/components/usage/shared.tsx',
   tooltip: 'packages/ui/src/components/Sidebar.tsx',
 }
 

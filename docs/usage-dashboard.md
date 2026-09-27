@@ -714,11 +714,13 @@ what a header control does, not what a rail does.
 A rail of views has none of these problems: five rows, five real pages, an
 icon and — on Plans alone, because it alone earns one — a count. **Scope moved
 to the header** instead: an "All accounts ▾" control beside every view's own
-title, built on the same select the account switcher already draws with, lists
-every account and "All accounts". Picking one scopes whichever view is open
-exactly as clicking that account in the old rail did, and — unlike the old
-rail — the choice now survives a switch between views, because it is one piece
-of state the window remembers rather than five copies of "which page is this."
+title, built on the same `Popover` + `Menu` a card's own "…" already draws —
+not a new select, which would be a second thing to learn — and lists one row
+per runtime (scope is by runtime, not by account) alongside "All accounts".
+Picking one scopes whichever view is open exactly as clicking that account in
+the old rail did, and — unlike the old rail — the choice now survives a switch
+between views, because it is one piece of state the window remembers rather
+than five copies of "which page is this."
 The accounts you have switched off sit at the bottom of **Plans**, each
 offering to be tracked again; that is where the rail's own "Not tracked" group
 went.
