@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -220,7 +220,15 @@ test('a flow card claimed with a dirty checkout keeps its dirty-paths snapshot o
   const repo = await makeRepo('hd-flow-restart-dirty-')
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-flow-restart-state-'))
   const builtinAgents = tempDir('hd-flow-restart-builtins-')
-  t.after(() => rm(stateDir, { recursive: true, force: true }))
+  /* Every host still open is disposed before its state folder is removed:
+     `t.after` hooks run in the order they are registered, and a folder
+     removed under a host still writing its evidence failed now and then
+     with ENOTEMPTY, and left that host running and the file hanging. */
+  const running = new Set<Host>()
+  t.after(async () => {
+    for (const host of running) await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
 
   await mkdir(join(stateDir, 'agents', 'implementer'), { recursive: true })
   await writeFile(join(stateDir, 'agents', 'implementer', 'AGENT.md'), [
@@ -236,14 +244,12 @@ test('a flow card claimed with a dirty checkout keeps its dirty-paths snapshot o
   const open = async (): Promise<Host> => {
     const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents, catalogRefreshMs: 0 })
     host.register(new FakeRuntime())
+    running.add(host)
     await host.start()
     return host
   }
 
   const first = await open()
-  // A failed assertion before the planned dispose below must not leave this host running and hang the file.
-  let firstOpen = true
-  t.after(async () => { if (firstOpen) await first.dispose() })
   // Every goal/changed push the renderer would receive, to prove none carries the snapshot.
   const pushed: unknown[] = []
   first.addBroadcaster((notification) => { if (notification.method === 'goal/changed') pushed.push(notification.params) })
@@ -274,10 +280,9 @@ test('a flow card claimed with a dirty checkout keeps its dirty-paths snapshot o
   const before = first.teamPlane.dirtyPathsOf(goal, card)
   assert.deepEqual(before, ['.env'], "the pre-existing dirt is what the claim snapshotted")
 
-  firstOpen = false
+  running.delete(first)
   await first.dispose()
   const second = await open()
-  t.after(() => second.dispose())
   await second.call('workspace/open', { path: repo.dir })
 
   const after = second.teamPlane.dirtyPathsOf(goal, card)
@@ -380,21 +385,42 @@ rules: []
 
 test('commit_work is refused while another committing card works in the same checkout', async (t) => {
   const rig = await goalRig(t)
-  await rig.start(PAIR(false), [agent('writer', ['done'])])
+  // Two Goals over one checkout: the shape a start allows, where one run alone would have to isolate.
+  await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
+  const other = await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
   await rig.flows.flush()
+  assert.equal(rig.seats.get('seat-1')!.checkout.cwd, rig.seats.get('seat-2')!.checkout.cwd, 'the control: one checkout')
   const answer = await rig.team.commitWork(1, 'Mine', rig.sessionOf('seat-1'))
   assert.equal(answer, "Refused: another card is working in this checkout, so its changes can't be told apart from yours; nothing was committed. Ask the person to commit, or isolate the role.")
   assert.deepEqual(rig.commits, [])
   // Once the other card is finished, the checkout is this card's alone again.
-  await rig.team.complete(2, { outcome: 'done' }, rig.sessionOf('seat-2'))
+  const otherCard = rig.board(other.goal).intents[0]!.id
+  assert.match(String(await rig.team.complete(otherCard, { outcome: 'done' }, rig.sessionOf('seat-2'))), /^Completed/)
   assert.match(await rig.team.commitWork(1, 'Mine', rig.sessionOf('seat-1')), /^Committed 1 file/)
+})
+
+test('one checkout named through a link is still one checkout', async (t) => {
+  const rig = await goalRig(t)
+  await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
+  await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const real = await realpath(tempDir('hd-commit-real-'))
+  const link = join(tempDir('hd-commit-link-'), 'checkout')
+  await symlink(real, link)
+  for (const [seat, cwd] of [['seat-1', real], ['seat-2', link]] as const) {
+    const record = rig.seats.get(seat)!
+    rig.seats.set(seat, { ...record, checkout: { ...record.checkout, cwd } })
+  }
+  assert.match(await rig.team.commitWork(1, 'Mine', rig.sessionOf('seat-1')), /^Refused: another card is working in this checkout/)
+  assert.deepEqual(rig.commits, [])
 })
 
 test('an isolated pair commits, each in its own lane', async (t) => {
   const rig = await goalRig(t)
-  await rig.start(PAIR(true), [agent('writer', ['done'])])
+  const run = await rig.start(PAIR(true), [agent('writer', ['done'])])
   await rig.flows.flush()
+  assert.deepEqual([rig.team.dirtyPathsOf(run.goal, 1), rig.team.dirtyPathsOf(run.goal, 2)], [[], []], 'both claims keep their snapshot')
   assert.match(await rig.team.commitWork(1, 'Mine', rig.sessionOf('seat-1')), /^Committed 1 file/)
-  assert.equal(rig.commits.length, 1)
-  assert.notEqual(rig.commits[0]!.cwd, '/repo', 'in the lane, not the shared checkout')
+  assert.match(await rig.team.commitWork(2, 'Theirs', rig.sessionOf('seat-2')), /^Committed 1 file/)
+  assert.deepEqual(rig.commits.map((one) => one.cwd), ['/repo/.lanes/1', '/repo/.lanes/2'], 'each in its own lane')
 })

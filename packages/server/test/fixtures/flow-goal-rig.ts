@@ -291,11 +291,20 @@ export const goalRig = async (
       const state = team.stateFor(input.goal)
       const overlap = team.refuseOverlap(input.goal, state.intents, input.card, runtime, sessionId)
       if (overlap) throw new Error(`Refused: ${overlap}`)
+      /* `stateFor` is the wire-safe board, every claim's snapshot stripped;
+         installed back as it is, it erased the snapshot of every card claimed
+         before this one — a card a second Seat opened after then read as
+         never snapshotted. The real host's claim writes the Goal document,
+         which keeps them (#1074 review). */
       team.installProjection({
         ...state,
-        intents: state.intents.map((card) => card.id === input.card
-          ? { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now(), dirtyPaths: dirtyOf(cwd) } }
-          : card),
+        intents: state.intents.map((card) => {
+          if (card.id === input.card) {
+            return { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now(), dirtyPaths: dirtyOf(cwd) } }
+          }
+          const kept = team.dirtyPathsOf(input.goal, card.id)
+          return card.claim && kept !== undefined ? { ...card, claim: { ...card.claim, dirtyPaths: kept } } : card
+        }),
       })
     }
     return record

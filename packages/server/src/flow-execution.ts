@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises'
-import { isAbsolute, join, resolve } from 'node:path'
+import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 
 import { DEFAULT_FLOW_BUDGET } from '@harnessdesk/protocol'
 import type {
@@ -47,6 +47,7 @@ import type { PublicationEntry, PublicationJournal, StoredPublication } from './
 import type { TriggerClosure } from './intake/consent.js'
 import { effectiveBudget } from './intake/definition.js'
 import { readSplit, type Team } from './team.js'
+import { canonicalDestination } from './git-worktree.js'
 
 /**
  * A flow run as execution state on one Goal.
@@ -629,6 +630,15 @@ class JournalWriteError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause), { cause })
     this.name = 'JournalWriteError'
+  }
+}
+
+/** A folder's real path, as the host compares folders; one that does not exist yet by its nearest real ancestor. */
+const realPathOf = async (path: string): Promise<string> => {
+  try {
+    return await realpath(path)
+  } catch {
+    return canonicalDestination(path)
   }
 }
 
@@ -1553,7 +1563,7 @@ export class FlowExecutions {
        Seat may commit, sharing it, leaves changes this one cannot tell from
        its own, and committing them would put another card's work under this
        one's name. */
-    if (this.#committerSharing(seat.checkout.cwd, goal, card)) {
+    if (await this.#committerSharing(seat.checkout.cwd, goal, card)) {
       return "Refused: another card is working in this checkout, so its changes can't be told apart from yours; nothing was committed. Ask the person to commit, or isolate the role."
     }
     if (!this.#port.commitWork) return 'Refused: this desk cannot commit for a Seat.'
@@ -1562,8 +1572,14 @@ export class FlowExecutions {
     return `Committed ${made.paths.length} file${made.paths.length === 1 ? '' : 's'} as ${made.commit}.`
   }
 
-  /** Whether another open card, whose Seat may commit, works in the checkout at `cwd` — any run's. */
-  #committerSharing(cwd: string, goal: string, card: number): boolean {
+  /**
+   * Whether another open card, whose Seat may commit, works in the checkout
+   * at `cwd` — any run's. Folders are compared by their real paths, the way
+   * the host compares folders, so one checkout named through a link
+   * (`/tmp` and `/private/tmp`) is still one checkout.
+   */
+  async #committerSharing(cwd: string, goal: string, card: number): Promise<boolean> {
+    const mine = await realPathOf(cwd)
     for (const run of this.#runs.values()) {
       if (run.state !== 'running' || run.document.format !== 'agents') continue
       const intents = this.#team.stateFor(run.goal).intents
@@ -1578,7 +1594,7 @@ export class FlowExecutions {
           const intent = intents.find((one) => one.id === other)
           if (!intent || done(intent)) continue
           const { seat } = this.#seatForCard(run, other)
-          if (seat && !seat.closed && resolve(seat.checkout.cwd) === resolve(cwd)) return true
+          if (seat && !seat.closed && (await realPathOf(seat.checkout.cwd)) === mine) return true
         }
       }
     }
