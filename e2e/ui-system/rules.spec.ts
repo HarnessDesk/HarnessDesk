@@ -210,6 +210,8 @@ test.describe('rule: group labels', () => {
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
         await setPreviewDials(page, theme, look)
+        // A check that measures nothing must fail, not pass by default.
+        expect(await page.locator('[data-slot="group-label"]:visible').count(), `${theme}/${look}: no group label was found`).toBeGreaterThan(0)
         for (const finding of await groupLabelViolations(page, LABEL_WEIGHT[look])) findings.push({ ...finding, where: `${theme}/${look}` })
       }
     }
@@ -890,6 +892,7 @@ test.describe('rule: monospace', () => {
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
         await setPreviewDials(page, theme, look)
+        expect(await page.locator('[data-slot="text"][data-role]:visible').count(), `${theme}/${look}: no named text role was found`).toBeGreaterThan(0)
         for (const finding of await monospaceViolations(page)) findings.push({ ...finding, where: `${theme}/${look}` })
       }
     }
