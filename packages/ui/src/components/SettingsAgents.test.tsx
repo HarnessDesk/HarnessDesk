@@ -569,6 +569,43 @@ it("an extra account that has not answered is not \"waiting to be signed in\"", 
   expect(button('Remove')).toBeTruthy()
 })
 
+it('an extra account that could not start says so on its page, as the list does (#1038)', async () => {
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  const titleOf = (desc: string): string | undefined =>
+    [...document.body.querySelectorAll('[data-slot="row"]')]
+      .find((row) => row.querySelector('[data-slot="row-desc"]')?.textContent === desc)
+      ?.querySelector('[data-slot="row-title"]')?.textContent ?? undefined
+
+  // Control: still starting, it has only not answered yet.
+  await mountList({ accountsByRuntime: accounts })
+  await act(async () => line('Alpha').click())
+  expect(titleOf('/tmp/alpha-2')).toBe('Not answered yet')
+  act(() => root.unmount())
+  root = createRoot(container)
+
+  await mountList({
+    accountsByRuntime: accounts,
+    healthByRuntime: { 'alpha#2': { state: 'unavailable', reason: 'crashed', message: 'It exited before it was ready.' } },
+  })
+  expect(grouped()['Needs attention']).toContain('Alpha')
+  await act(async () => line('Alpha').click())
+  expect(titleOf('/tmp/alpha-2')).toBe('Unavailable')
+})
+
+it("an extra account that could not start is not one the page is waiting on (#1038)", async () => {
+  const accounts = { ...ROSTER.accountsByRuntime, alpha: signedIn([], ['browser']) }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({
+    accountsByRuntime: accounts,
+    healthByRuntime: { 'alpha#2': { state: 'unavailable', reason: 'crashed', message: 'It exited before it was ready.' } },
+  })
+  await act(async () => line('Alpha').click())
+  // Nothing else is going to answer, so the claim is back.
+  expect(document.body.textContent).toContain('would not start')
+  expect(document.body.textContent).not.toContain('not answered yet.')
+})
+
 it('removing an extra account that has not answered asks first — it may be signed in', async () => {
   const removed: string[] = []
   const accounts = { ...ROSTER.accountsByRuntime }

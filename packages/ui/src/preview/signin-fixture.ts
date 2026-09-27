@@ -155,10 +155,22 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
 /**
  * The same roster for Settings › Runtimes, with one agent that did not start
  * as well — so the page's "Needs attention" group holds every kind of
- * attention at once: signed out, at a limit, and unavailable.
+ * attention at once: signed out, at a limit, and unavailable — and two that
+ * have not answered yet.
  */
 export const runtimesSeed = (): Partial<AppSnapshot> => ({
   ...signInSeed('refused'),
+  // Two that have not answered yet (#1038): a second Codex account, whose
+  // row on Codex's own page names its credential home, and a whole agent,
+  // which the list puts under a heading of its own.
+  runtimes: [
+    ...RUNTIMES,
+    agent('codex#2', 'Codex', 'Coding agent that reads, edits and runs code', {
+      slot: { agent: runtimeId('codex'), home: '/home/dev/.harnessdesk/accounts/codex-a1b2c3', removable: true, canAdd: true },
+    }),
+    agent('amp', 'Amp', 'Frontier coding agent'),
+  ],
+  home: '/home/dev',
   healthByRuntime: {
     [runtimeId('opencode')]: {
       state: 'unavailable',

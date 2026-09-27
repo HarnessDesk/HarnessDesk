@@ -438,6 +438,14 @@ export class TranscriptStore {
         items: kept.items,
         diff: turn.diff ?? kept.diff ?? null,
         plan: turn.plan ?? kept.plan,
+        // The host's own stored time, never the backend read's: a replay
+        // that opens this turn again re-stamps `startedAt` at the moment it
+        // was replayed (see the ACP adapter), and letting that win would
+        // re-date a turn from months ago to today every time the session is
+        // reopened -- and, since desk turn counting buckets by day, count it
+        // again on whatever day it happens to be reopened (#1047 review).
+        startedAt: kept.startedAt ?? turn.startedAt ?? null,
+        completedAt: kept.completedAt ?? turn.completedAt ?? null,
       }
     })
     const usage = restorableUsage(session, stored, pairs)
