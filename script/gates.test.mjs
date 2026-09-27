@@ -2874,10 +2874,15 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
         text.includes(carveOut),
         `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
       )
+      // By the same path glob, not by name: a bare `-name` exclusion also
+      // drops a same-named file in another package, which the server-only
+      // run never picks up, so it ran nowhere (#1052's review, round 1 —
+      // `packages/protocol`'s intake-wire.test.js).
       assert.ok(
-        text.includes(`! -name '${name}'`) || text.includes(`! -name "${name}"`),
-        `${file} excludes those same files from the rest by name, so nothing here runs them twice`,
+        text.includes(`! -path '${carveOut}'`) || text.includes(`! -path "${carveOut}"`),
+        `${file} excludes from the rest exactly the files the separate run is given (${carveOut}), so each runs once and none is dropped`,
       )
+      assert.ok(!text.includes(`! -name '${name}'`) && !text.includes(`! -name "${name}"`), `${file} does not exclude ${name} by bare name`)
     }
   }
 })

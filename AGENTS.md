@@ -179,9 +179,10 @@ pnpm verify
 
 It validates the lockfile with `pnpm install --frozen-lockfile`, runs the build,
 every test suite (Node packages, gate scripts, UI and desktop) plus the
-flow-host-evidence and the intake end-to-end files in runs of their own, at a
-wider per-file timeout than the rest (Node 22 caps `--test-timeout` per file, cumulatively,
-where these legitimately run long; it is a per-test default on newer Node),
+server's flow-host-evidence and intake test files in runs of their own, at a
+wider per-file timeout than the rest (Node 22 caps `--test-timeout` per
+file, cumulatively, where these legitimately run long; it is a per-test
+default on newer Node),
 the UI typecheck,
 the layering rule, the half-applied-fixes check, the tracked-secrets scan, the reachable-methods check, the
 third-party notices check, the design-system gates, the UI-system architecture gate, interface drift, the

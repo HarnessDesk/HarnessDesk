@@ -64,11 +64,14 @@ jobs:
       # everything else fits inside it.
       #
       # The exclusion is a `find`, not a second glob, because node's own
-      # glob matching has no negation syntax. Still the same glob as before,
-      # minus the files the next two steps cover, so a package that gains
-      # tests is covered here the day it does.
+      # glob matching has no negation syntax. It names each carved-out step
+      # by the very path glob that step is given (`-path`, not `-name`): a
+      # bare name also dropped `packages/protocol`'s `intake-wire.test.js`,
+      # which the server-only step below never picks up, so it ran nowhere.
+      # Still the same glob as before, minus the files the next two steps
+      # cover, so a package that gains tests is covered here the day it does.
       - name: Node tests
-        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -name 'flow-host-evidence-*.test.js' ! -name 'intake-*.test.js')"
+        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js')"
 
       # The worst of these four files, flow-host-evidence-review.test.ts,
       # has 7 end-to-end cases and took 33s measured with nothing else

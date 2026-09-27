@@ -82,13 +82,16 @@ step('node tests', () =>
     // everything else fits inside it.
     //
     // The exclusion is a `find`, not a second glob, because node's own glob
-    // matching has no negation syntax. Still the same glob CI runs, minus
+    // matching has no negation syntax. It names each carved-out run by the
+    // very path glob that run is given (`-path`, not `-name`): a bare name
+    // also dropped `packages/protocol`'s `intake-wire.test.js`, which the
+    // server-only run below never picks up, so it ran nowhere. Still the same glob CI runs, minus
     // the files the next two steps cover, so a package that gains tests is
     // covered here the day it does — a hand-kept list of packages once left
     // one out. It matches what was built rather than what exists, which is
     // why `build:node` ends by pruning dist of every output whose source is
     // gone (script/prune-dist.mjs).
-    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -name 'flow-host-evidence-*.test.js' ! -name 'intake-*.test.js')",
+    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js')",
   ]),
   // What it reads is what the build writes: over the dist a failed build left, it ran and printed ok (#208).
   { needs: 'build' },
