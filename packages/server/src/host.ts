@@ -124,7 +124,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { Worktrees, createDetached, openRepositoryRoot, remove as removeWorktree, repositoryOf } from './worktree.js'
+import { Worktrees, createDetached, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
@@ -2077,6 +2077,12 @@ export class Host {
     await this.#applyPluginSettings()
     await this.#evidence.load().catch((error: unknown) => {
       this.#logger.error('the Seat records this desk keeps could not be read', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+    // A `run_check` checkout a crash left behind goes now: nothing of this launch can be using one yet (#1082).
+    await removeCheckoutsLeftBehind(this.#state.directory).catch((error: unknown) => {
+      this.#logger.warn('a run_check checkout left behind could not be removed', {
         error: error instanceof Error ? error.message : String(error),
       })
     })

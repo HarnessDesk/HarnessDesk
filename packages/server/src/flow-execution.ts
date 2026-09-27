@@ -520,6 +520,8 @@ export const BRIEF_CHANGED = 'The Agent brief changed. Start a new run to use it
 /** How many `run_check` runs one card may ask for in one turn, and in all (#1082). */
 export const RUN_CHECK_PER_TURN = 3
 export const RUN_CHECK_PER_CARD = 10
+/** What a failing `run_check` always adds: its checkout is clean, so what the repository ignores is not in it. */
+export const RUN_CHECK_CLEAN = 'This ran in a clean checkout of the commit, without ignored files such as installed dependencies, so a failure here may come from that rather than the change.'
 
 export const CHECK_CWD_OUTSIDE = 'This check points outside the project. Choose a folder inside the project and review it again.'
 export const CHECK_UNPLANNED = 'This check’s checkouts were not recorded when its round opened, so it was not run. Start a new run.'
@@ -1667,14 +1669,17 @@ export class FlowExecutions {
     }
     const { seat } = this.#seatForCard(run, card)
     if (!seat) return `Refused: card #${card} has no Seat, so it was handed no commit to check.`
-    // The commit under review: what the card's seating was handed, else its own checkout's committed HEAD.
+    /* The commit under review: what the card's seating was handed, else the
+       commit its checkout was at when the card was claimed — never HEAD now,
+       which a writer sharing the checkout could move and then ask for. */
     const seating = run.seatPlans?.[String(round.n)]
+    const claimed = this.#team.stateFor(goal).intents.find((one) => one.id === card)?.claim?.head ?? null
     const handed = seating?.base
       ? [seating.base]
       : seating && seating.handed.length > 0
         ? [...new Set(seating.handed.map((one) => one.at))]
-        : [(await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)).at].filter((one): one is string => one !== null)
-    if (handed.length === 0) return `Refused: card #${card}'s checkout has no commit yet, and a check runs on one.`
+        : claimed ? [claimed] : []
+    if (handed.length === 0) return `Refused: no commit was recorded when card #${card} was claimed, so there is nothing to check.`
     const at = commit === null ? (handed.length === 1 ? handed[0]! : null) : handed.find((one) => one === commit || (commit.length >= 7 && one.startsWith(commit))) ?? null
     if (at === null) {
       return commit === null
@@ -1739,11 +1744,13 @@ export class FlowExecutions {
         : exit === null
           ? `${chosen.name} did not run to an exit`
           : `${chosen.name} ${exit === 0 ? 'passed' : 'failed'} (exit ${exit})`
+    const failed = timedOut || exit !== 0
     const recorded = outcome.problem ?? (outcome.evidence
       ? 'It is recorded on this card as advisory check evidence, which no rule counts.'
       : 'Nothing was recorded.')
     return [
       `${verdict}, which the flow's check would read as “${said}”. It ran \`${check.run}\` on commit ${at} — the committed change, not anyone's uncommitted edits — in a checkout of its own, now removed. ${recorded}`,
+      ...(failed ? [RUN_CHECK_CLEAN] : []),
       ...(tail ? ['What it printed last:', tail] : []),
     ].join('\n\n')
   }

@@ -316,7 +316,7 @@ export const teamPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'run_check',
         description:
-          'For a Seat that only reads — a reviewer, a tester, an acceptance check: run one of your card’s flow’s declared checks, its test suite say, by name, on the committed change your card was handed. The desk runs it outside your environment, in a fresh checkout of that commit, so it can start servers and bind ports your environment may refuse; your own uncommitted edits are not in it. It answers passed or failed with the last of what it printed, and notes the result on your card as advisory evidence, which no rule counts. Only a check the flow declares can run; you cannot pass a command. A few runs a turn.',
+          'For a Seat that only reads — a reviewer, a tester, an acceptance check: run one of your card’s flow’s declared checks, its test suite say, by name, on the committed change your card was handed. The desk runs it outside your environment, in a fresh checkout of that commit, so it can start servers and bind ports your environment may refuse; your own uncommitted edits are not in it, and neither is anything the repository ignores, such as installed dependencies, so a failure there may come from that rather than the change. It answers passed or failed with the last of what it printed, and notes the result on your card as advisory evidence, which no rule counts. Only a check the flow declares can run; you cannot pass a command. A few runs a turn.',
         inputSchema: {
           type: 'object',
           properties: {

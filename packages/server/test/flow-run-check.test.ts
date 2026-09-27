@@ -9,8 +9,9 @@ import type { BoardEvidence, Evidence, EvidenceRecord, EvidenceView, FlowExecuti
 
 import { TAIL_LIMIT } from '../src/evidence/run.js'
 import { evidenceGuard } from '../src/flow-evidence.js'
-import { RUN_CHECK_PER_CARD, RUN_CHECK_PER_TURN } from '../src/flow-execution.js'
+import { RUN_CHECK_CLEAN, RUN_CHECK_PER_CARD, RUN_CHECK_PER_TURN } from '../src/flow-execution.js'
 import { Host, StateStore } from '../src/index.js'
+import { createDetached } from '../src/worktree.js'
 import { makeRepo, type Repo } from './fixtures/evidence-desk.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
@@ -292,4 +293,51 @@ test('an advisory check fact neither satisfies nor overturns a rule’s check gu
   assert.equal(judge([fact('counted-pass', 0, false)]), 'matched', 'the same fact, counted, would open the rule')
   assert.equal(judge([fact('advisory-pass', 0, true)]), 'waiting', 'a passing advisory run never opens it')
   assert.equal(judge([fact('counted-pass', 0, false), fact('advisory-fail', 1, true)]), 'matched', 'nor does a failing one overturn a counted pass')
+})
+
+test('run_check checks the commit recorded when the card was claimed, not wherever its shared checkout is now', async (t) => {
+  const rig = await goalRig(t)
+  const claimed = 'a'.repeat(40)
+  rig.heads.set('/repo', { at: claimed, dirty: false })
+  await rig.start(REVIEW, [agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  // A writer sharing the checkout commits after the reviewer's claim.
+  const later = 'b'.repeat(40)
+  rig.heads.set('/repo', { at: later, dirty: false })
+  const answer = await rig.team.runCheck(1, { name: 'gate' }, rig.sessionOf('seat-1'))
+  assert.match(answer, new RegExp(`on commit ${claimed}`), answer)
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('checkout:')), [`checkout:${claimed}`])
+  assert.equal(
+    await rig.team.runCheck(1, { name: 'gate', commit: later }, rig.sessionOf('seat-1')),
+    `Refused: card #1 was not handed ${later}; it was handed ${claimed}.`,
+    'a commit the card was not handed is refused',
+  )
+})
+
+test('a failing run_check says its checkout is clean, without ignored files, so the failure may not be the change', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'a'.repeat(40), dirty: false })
+  rig.checkOutcomes.set('pnpm test', { exit: 1, timedOut: false, tail: 'Cannot find module' })
+  await rig.start(REVIEW, [agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  const answer = await rig.team.runCheck(1, { name: 'gate' }, rig.sessionOf('seat-1'))
+  assert.match(answer, /^gate failed \(exit 1\)/)
+  assert.ok(answer.includes(RUN_CHECK_CLEAN), answer)
+})
+
+test('a run_check checkout a crash left behind is removed when the desk starts again, and nothing else in that folder is', async (t) => {
+  const repo = await makeRepo('hd-flow-run-check-left-')
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-flow-run-check-left-state-'))
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+  const head = await repo.git('rev-parse', 'HEAD')
+  const left = await createDetached(repo.dir, { name: `check-${head.slice(0, 12)}`, at: head, stateDir })
+  const other = await createDetached(repo.dir, { name: 'kept', at: head, stateDir })
+  assert.ok(existsSync(left) && existsSync(other))
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-flow-run-check-left-builtins-'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  await host.start()
+  assert.equal(existsSync(left), false, 'the check checkout is gone')
+  const listed = await repo.git('worktree', 'list', '--porcelain')
+  assert.equal(listed.includes(left.split('/').pop()!), false, 'and git no longer lists it')
+  assert.ok(existsSync(other), 'a folder that is not a check checkout is left alone')
 })

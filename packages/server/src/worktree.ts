@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
-import { mkdir, realpath, rm } from 'node:fs/promises'
+import { mkdir, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -350,6 +350,50 @@ export const createDetached = async (
   const path = join(home, `${slugify(options.name)}-${randomBytes(4).toString('hex')}`)
   await git(main, ['worktree', 'add', '--detach', path, options.at])
   return path
+}
+
+/** A `run_check` checkout's folder name: `createDetached`'s, for `check-<sha12>`. */
+const CHECK_FOLDER = /^check-[0-9a-f]{12}-[0-9a-f]{8}$/
+
+/**
+ * The `run_check` checkouts a crash left behind (#1082): every `check-…`
+ * folder in HarnessDesk's own worktree folder, removed with hardened git —
+ * `worktree remove --force`, then `prune` — and the folder itself taken away
+ * if git would not. Nothing else there is touched. Answers what it removed.
+ */
+export const removeCheckoutsLeftBehind = async (stateDir: string): Promise<string[]> => {
+  const root = join(stateDir, 'worktrees')
+  const removed: string[] = []
+  let homes: string[]
+  try {
+    homes = await readdir(root)
+  } catch {
+    return removed
+  }
+  for (const home of homes) {
+    let entries: string[]
+    try {
+      entries = await readdir(join(root, home))
+    } catch {
+      continue
+    }
+    for (const entry of entries.filter((name) => CHECK_FOLDER.test(name))) {
+      const path = join(root, home, entry)
+      let common: string | null = null
+      try {
+        common = (await git(path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim() || null
+      } catch {
+        common = null
+      }
+      if (common) {
+        await run('git', ['--git-dir', common, ...HARDENED_GIT_CONFIG, 'worktree', 'remove', '--force', path], { timeout: 30_000 }).catch(() => undefined)
+      }
+      await rm(path, { recursive: true, force: true })
+      if (common) await run('git', ['--git-dir', common, ...HARDENED_GIT_CONFIG, 'worktree', 'prune'], { timeout: 30_000 }).catch(() => undefined)
+      removed.push(path)
+    }
+  }
+  return removed
 }
 
 /** What would be lost if this worktree were removed right now. */

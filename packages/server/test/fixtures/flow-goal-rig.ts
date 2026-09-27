@@ -303,7 +303,7 @@ export const goalRig = async (
         ...state,
         intents: state.intents.map((card) => {
           if (card.id === input.card) {
-            return { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now(), dirtyPaths: dirtyOf(cwd) } }
+            return { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now(), dirtyPaths: dirtyOf(cwd), head: rig.heads.get(cwd)?.at ?? null } }
           }
           const kept = team.dirtyPathsOf(input.goal, card.id)
           return card.claim && kept !== undefined ? { ...card, claim: { ...card.claim, dirtyPaths: kept } } : card
