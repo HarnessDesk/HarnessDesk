@@ -151,6 +151,7 @@ const remoteTeamEngine: TeamEngine = {
   awaitMember: (scope, options) => askHost('team/awaitMember', { scope, ...options }),
   conflicts: (paths, scope) => askHost('team/conflicts', { scope, paths }),
   complete: (intent, args, scope) => askHost('team/complete', { scope, intent, ...args }),
+  commitWork: (intent, message, scope) => askHost('team/commitWork', { scope, intent, message }),
   release: (intent, args, scope) => askHost('team/release', { scope, intent, ...args }),
   handoff: (intent, scope) => askHost('team/handoff', { scope, intent }),
   status: (scope) => askHost('team/status', { scope }),

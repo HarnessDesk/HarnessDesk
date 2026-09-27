@@ -344,7 +344,11 @@ test('a checks commit between the generation read and spawn runs only the comman
       `const { existsSync, writeFileSync } = require('node:fs')\n` +
       `const { spawnSync } = require('node:child_process')\n` +
       `const args = process.argv.slice(2)\n` +
-      `if (args[0] === '-C' && args[1] === ${JSON.stringify(r.repo.dir)} && args[2] === 'symbolic-ref' && !existsSync(${JSON.stringify(held)})) {\n` +
+      // The host's git carries its hardening (`HARDENED_GIT_CONFIG`, #1075)
+      // as `-c key=value` pairs after `-C`: the verb is past them, as git reads it.
+      `let verb = 2\n` +
+      `while (args[verb] === '-c') verb += 2\n` +
+      `if (args[0] === '-C' && args[1] === ${JSON.stringify(r.repo.dir)} && args[verb] === 'symbolic-ref' && !existsSync(${JSON.stringify(held)})) {\n` +
       `  writeFileSync(${JSON.stringify(held)}, '')\n` +
       `  writeFileSync(${JSON.stringify(entered)}, '')\n` +
       `  const cell = new Int32Array(new SharedArrayBuffer(4))\n` +

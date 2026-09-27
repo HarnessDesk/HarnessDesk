@@ -249,8 +249,17 @@ for (const [look, theme] of [
       const headingStyle = getComputedStyle(node)
       const figures = [...dialog.querySelectorAll<HTMLElement>('[data-role="figure"]')]
         .map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color }))
+      // Overview's own strip (Paid/Value/Turns/Tokens, `OverviewStrip.tsx`)
+      // now sits between the blurb and "What is left" — the first thing
+      // under the blurb's own rhythm gap is the strip, not the heading,
+      // whenever it is on the page (every Overview render; not Plans/Spend/
+      // Activity/Projects, which this same heading text also matches, so an
+      // absent strip there falls back to the heading itself).
+      const strip = dialog.querySelector<HTMLElement>('[aria-label="What it cost, in brief"]')
+      const firstUnderBlurb = strip ?? node
       return {
-        blurbToHeading: textBox.top - blurb.getBoundingClientRect().bottom,
+        blurbToFirst: firstUnderBlurb.getBoundingClientRect().top - blurb.getBoundingClientRect().bottom,
+        stripToHeading: strip ? textBox.top - strip.getBoundingClientRect().bottom : null,
         headingToCard: card.getBoundingClientRect().top - textBox.top,
         foreground: getComputedStyle(pageTitle).color,
         danger: headingStyle.getPropertyValue('--hd-danger-ink').trim(),
@@ -261,12 +270,23 @@ for (const [look, theme] of [
     })
     await testInfo.attach('dashboard-reading-layout', { body: JSON.stringify(measurement, null, 2), contentType: 'application/json' })
 
-    // At rest the first band sits in the page's rhythm under the blurb. It
-    // used to stand 55px down, behind a strip-high padding the sticky head
-    // carried to cover the title strip once stuck — empty space at rest. The
-    // head now paints that cover above itself instead (its ::before).
-    expect.soft(measurement.blurbToHeading).toBeGreaterThanOrEqual(20)
-    expect.soft(measurement.blurbToHeading).toBeLessThanOrEqual(34)
+    // At rest the first thing under the blurb sits in the page's rhythm —
+    // the strip now, the heading before it existed. It used to stand 55px
+    // down, behind a strip-high padding the sticky head carried to cover the
+    // title strip once stuck — empty space at rest. The head now paints
+    // that cover above itself instead (its ::before).
+    expect.soft(measurement.blurbToFirst).toBeGreaterThanOrEqual(20)
+    expect.soft(measurement.blurbToFirst).toBeLessThanOrEqual(34)
+    // And the strip itself sits in the same band rhythm above the heading —
+    // not merely "some positive gap", which a 1px collision would still
+    // pass. The same band the blurb-to-first check keeps, widened by the
+    // couple of pixels Studio's own page padding adds over Desk's (measured:
+    // Desk 20–34px, Studio 35px) — still a tight band, and still soft like
+    // its neighbours.
+    if (measurement.stripToHeading !== null) {
+      expect.soft(measurement.stripToHeading).toBeGreaterThanOrEqual(20)
+      expect.soft(measurement.stripToHeading).toBeLessThanOrEqual(36)
+    }
     expect(measurement.headingToCard).toBeGreaterThan(0)
 
     const sticky = await firstBand.evaluate(async node => {
@@ -302,14 +322,45 @@ for (const [look, theme] of [
     expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
     expect(measurement.figures.find(figure => figure.reading === '10%')?.color).toBe(measurement.warning)
     // Overview lists only the accounts that need attention (#1057); the
-    // healthy account's reading is judged where every account is, on Plans.
+    // healthy account's reading is judged where every account is, on Plans —
+    // now a table, one row per account (claude/plans-table), whose own
+    // percent column carries the same rule the card's headline figure did:
+    // a plain reading takes no judgement colour, only low and spent are
+    // claims (`usageReadingTone`).
     await dashboard.locator('nav button[class*="winNavItem"]', { hasText: 'Plans' }).click()
-    await expect(dashboard.getByRole('heading', { name: 'What is left', exact: true })).toBeVisible()
-    const planFigures = await dashboard.locator('[data-role="figure"]').evaluateAll(nodes =>
-      nodes.map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color })))
-    for (const reading of ['78%']) {
-      expect(planFigures.find(figure => figure.reading === reading)?.color, reading).toBe(measurement.foreground)
-    }
+    const plansTable = dashboard.getByRole('table')
+    await expect(plansTable).toBeVisible()
+    // The percent column is the table's own reading: a header now names it
+    // ("%"), so the cell is found by role and column rather than a
+    // test-only marker (claude/plans-table review, N1) — one cell per row,
+    // scoped under the row that carries this account's own name.
+    const percentCellFor = (account: string) =>
+      plansTable.getByRole('row', { name: new RegExp(account) }).getByRole('cell').nth(4)
+    // `data-tone` is set synchronously with the render — no CSS transition to
+    // settle before it can be read, unlike the computed colour it selects
+    // (see `inkOf`'s own long comment on why a colour read cannot be trusted
+    // right after a change here). It is the same attribute `usageReadingTone`
+    // draws the colour from, so asserting it is asserting the ink without the
+    // timing hazard.
+    const readingAndTone = (locator: Locator) =>
+      locator.evaluate(node => ({
+        reading: node.textContent,
+        tone: node.querySelector('[data-slot="text"]')?.getAttribute('data-tone') ?? null,
+      }))
+
+    const healthy = await readingAndTone(percentCellFor('normal@example.com'))
+    expect(healthy.reading, 'healthy').toBe('78%')
+    expect(healthy.tone, 'healthy').toBeNull()
+    // The table's own low and spent percent cells carry the same judgement
+    // the Overview headline figures do above — the tone the table now draws
+    // is guarded where it is actually drawn, not only upstream (claude/plans-
+    // table review, N2).
+    const low = await readingAndTone(percentCellFor('warning@example.com'))
+    expect(low.reading, 'low').toBe('10%')
+    expect(low.tone, 'low').toBe('warning')
+    const out = await readingAndTone(percentCellFor('bad@example.com'))
+    expect(out.reading, 'out').toBe('0%')
+    expect(out.tone, 'out').toBe('danger')
   })
 
   test(`${look} selected view row text meets AA in ${theme}`, async ({ page }, testInfo) => {
@@ -399,3 +450,5 @@ test('no band head covers what it heads, first band or not', async ({ page }) =>
   })
   expect(overlaps).toEqual([])
 })
+
+

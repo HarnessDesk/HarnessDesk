@@ -125,6 +125,7 @@ import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
 import { Worktrees, openRepositoryRoot, repositoryOf } from './worktree.js'
+import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
@@ -1207,6 +1208,8 @@ export class Host {
           ? { at: revision.head, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles, dirtyPaths: revision.dirtyPaths }
           : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
+      // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
+      commitWork: (cwd, before, message) => commitCardWork(cwd, before, message),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
     }, {
       /**

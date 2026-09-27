@@ -730,8 +730,9 @@ rail lists **views**, not accounts:
 1. **Overview** — the whole story on one screen: an accounts summary limited
    to what needs looking at first, a bento of what it cost beside where it
    went, and when it ran.
-2. **Plans** — every account's own card, whether it will last, the accounts
-   not being tracked, and the agents that report nothing.
+2. **Plans** — every account in one table, sorted by what is left, filtered
+   by shape, expanding into its own shape's story; below it, whether it will
+   last, the accounts not being tracked, and the agents that report nothing.
 3. **Spend** — what it cost and where it went, full width, over 7, 30 or 90
    days.
 4. **Activity** — when it ran, full width.
@@ -740,7 +741,7 @@ rail lists **views**, not accounts:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/dashboard-dark.png" />
-    <img src="images/app/dashboard-light.png" alt="The dashboard: a rail of views down the left, an account scope in the header beside the view title, and Overview's accounts summary, spend-and-split bento, and activity heatmap below it." />
+    <img src="images/app/dashboard-light.png" alt="The dashboard: a rail of views down the left, an account scope in the header beside the view title, Overview's Paid/Value/Turns/Tokens strip, the accounts that need attention, and what it cost beside where it went." />
   </picture>
 </p>
 
@@ -775,19 +776,149 @@ The accounts you have switched off sit at the bottom of **Plans**, each
 offering to be tracked again; that is where the rail's own "Not tracked" group
 went.
 
-**Why cards and not a table.** A table sorts well and reads badly: the binding
-number, its reset, its pace and its bar are one thought, and splitting them
-across columns makes the reader assemble them. Cards also degrade honestly —
-an agent with no meter is a card that says why, which a table row cannot do
-without an empty cell that reads as zero.
+**Plans is a table now, not a card grid.** The grid was right for a handful of
+accounts and wrong for the roster this screen was built to hold: read once
+you have four or five of them, "one card per account" is a scroll before the
+one that is about to bite is even on screen, and a grid cannot be sorted,
+filtered or scanned the way a list of comparable rows can. `lib/plans-table.ts`
+is where every rule below lives, pure and unit-tested off React —
+`PlansTable.tsx` only draws what it decides.
 
-**Why ordered by least left.** Alphabetical order optimises for finding a
-known agent; you open this screen because something is about to run out.
-The agent that is about to bite comes first, and an agent with nothing to
-report sorts last.
+**The shape filters are the page-per-shape idea without extra pages.** A chip
+row above the table — `All · Windows N · Allowances N · Balances N · Keys N ·
+Free N · Not reporting N` — each with its own count from `shapeCountsOf`, built
+on the design system's `Segmented`. An account's primary shape is the first of
+`billing.kinds` `primaryShapeOf` finds, in the fixed order windows → allowance
+→ balance → metered → free; a report with no `billing`, no lanes and no
+balance reads as `'none'` — "not reporting" — rather than falling through
+silently. Picking a chip filters the table to that shape alone; "Not
+reporting" also reaches every agent that has never answered at all
+(`silentAgentsOf`), which the table has no row for regardless of the filter,
+so those still show in the list underneath (see "Not reporting" below).
 
-**The card, rule by rule.** Each of these is a bug that was found the hard way
-somewhere and is cheaper to design out than to fix:
+**One table, one row per account, least left first.** Alphabetical order
+optimises for finding a known agent; you open this screen because something
+is about to run out, so `sortRows` puts the account about to bite first — any
+`'out'` row leads regardless of its percentage, then by what is left (a tie
+breaks by status severity, then the soonest reset, then the runtime and the
+account, so the order is stable across refreshes), then the shapes with
+nothing measurable, `'none'` last of all. Built on `design/ui/table` — a real
+`<table>`, with column headers (Account, Shape, Status, Left, %, Amount, ≈
+Turns, Resets) and a disclosure `Button` in the row's first cell
+(`aria-expanded`/`aria-controls`), not a `Button` standing in for the whole
+row: a screen reader used to announce one long button name with a meter
+nested inside it. A container query drops Shape, the bar, Amount and ≈ Turns
+below about 640px, keeping Account, Status, % and Resets — "which one, how
+bad, when." Each row carries the mark and name (`presentation.name` — rule 8,
+never a runtime id), the account, a shape chip, a status chip
+(`Ready`/`Low`/`Out`/`On overage`/`No limit`, from `statusOf`, which reads
+**one** needs-attention rule — `reportNeedsAttention` (`lib/usage.ts`), the
+same one Overview's "N low" count reads — never a second, disagreeing
+judgement of whether an account is in trouble; the row and its expanded
+body's own chip cannot say two different things because both are `statusOf`),
+a "left" bar, its percent, the figure in the vendor's own unit ("312 of 500
+requests", "$0.88 balance", "$22.40 of $50 budget" — or "—" rather than
+"$0.00" when the spend behind a figure is unknown), an approximate turn count
+("~97", only where `turns.unitsPerTurn` is known **and** the lane's own unit
+is one a turn count can honestly divide — requests for an allowance, the
+report's own currency for a balance or a key's budget — never for a plain
+percent window, which has no rate to approximate with), and the binding
+lane's own reset. Enter, Space or a click on the disclosure expands the row
+in place into that account's own shape body, drawn as a full-width row of its
+own; Escape collapses it, whether focus is on the row or inside the body
+itself (moving focus back to the row's own button); one is open at a time.
+
+**Each shape's bar means something different, because the shapes are not the
+same kind of fact.** Windows and Allowance draw the binding lane's own percent
+left — the same figure the card's headline promotes. Balance has no window at
+all, so its bar is a **runway**: the balance divided by the mean of the
+window's own non-zero days, plotted against a flat 30-day scale — a fresh
+account with no spend history yet draws no bar rather than a false "plenty."
+Key draws what is left of a person's own budget, when one is set, and no bar
+at all without one — a vendor limit is not this account's own cap. Free draws
+no bar, ever: there is nothing in it to run out of, and an empty track would
+say the opposite of what the row means.
+
+**The six shape bodies share one frame** — mark, name, account, plan chip,
+shape chip and status chip in the header; source, age and one action in the
+footer; a Value · Fee row where `moneyRowOf` has one. This row shows only
+what this PR decides: **Value** is `spend.windowCost`, the ledger's own
+figure for the runtime, never drawn as `$0.00` when it is unknown ("unpriced"
+instead); **Fee** is the plan's own recurring charge exactly as set — "$20.00
+a month · you set this" for a person's own figure, or a "Fee not set" link to
+the account's own Plan card in Settings when none is. **Paid** — the fee
+prorated across the window, plus overage only when it applies to this period
+— is a follow-up: `paid.ts` (#1068, in this package's own `lib/`) owns that
+definition, and this row
+does not compute a second one that could disagree with it (an earlier
+version of this row added the whole `fee.amount` regardless of period,
+always added overage, and divided by a window of a different length than the
+fee's own — none of which survived review). **Windows** reuses the existing
+card body verbatim — the binding-window headline, its segmented meter, the
+pace badge, the lanes table, "Then: extra usage" — `Card` (`shared.tsx`)
+gained two additive slots, `shapeChip` and `moneyRow`, for exactly this
+rather than being redrawn. **Allowance** headlines in the vendor's own unit
+("312 of 500 requests left"), an "≈ 97 turns" chip beside it, the lanes by
+layer — plan, then overage, with on-demand shown as the next layer only when
+there is no overage lane of its own to repeat ("off", or what it has spent)
+— and a per-turn row: units a turn, and the effective price of one unit when
+the plan has a fee and the lane's own unit and reset cadence can honestly
+bear that division (`feePerUnitOf`: `requests` or `credits` only, and the
+fee's period has to match the lane's own cycle — never a `percent` or `usd`
+lane, and never a yearly fee divided by a monthly limit). **Balance** is
+"$12.10 left," the runway in days (the balance divided by the mean cost over
+the days the report actually covers, zero days included, rather than only
+the days something was spent — leaving idle days out overstated the draw),
+and the daily rate; negative reads Out, with "top up to continue," and says
+plainly it has no balance history yet — there is no balance-history store
+behind this PR (see "What's left," below). Its footer is "Refresh": no
+adapter reports a real top-up URL today, so a "Top up ↗" that only refreshed
+was a promise the row could not keep. **Key** is spend this month, the
+budget bar when one is set (or "Spend not known yet" when it is set but the
+spend behind it is not, never "No budget set." on an account that has one),
+or "No budget · Set a budget on this account's Plan card in Settings," and
+its footer — "Set a budget" or "Edit budget" — opens that Plan card, threaded
+in as `onOpenPlanSettings` from `Usage` down to here (Settings › Runtimes,
+focused on the agent — the closest existing door to it). **Free** is tokens
+and turns this period and nothing else — no meter, ever, and no line
+restating that in different words. **Not reporting** is not a shape body at
+all: a row whose own `primaryShapeOf` is `'none'` expands into the same list
+the section below draws for one entry, because there is no story past "here
+is why, and here is the one fix."
+
+**Placement, and why it costs the design audit nothing.** The five bodies and
+the table itself are screen-owned — `components/usage/PlanFrame.tsx`,
+`ShapeBodies.tsx`, `PlansTable.tsx`, `NotReporting.tsx` — beside
+`PlansView.tsx`, `OverviewView.tsx` and the rest, all drawing from the one
+`usage.module.css` a screen family already owns. They were tried one level
+deeper, in a `plans/` subfolder, first: `script/design-audit.mjs`'s
+`ownsStylesheet` only allows a screen file to reach its own
+`<Name>.module.css` or the one named after its *immediate* parent folder, and
+`plans/` answered to neither, so it read as one screen reaching into
+another's stylesheet. Flattened beside the other `*View.tsx` files, it reaches
+`usage.module.css` the same way they already do. The row's hover fill and the
+money row's own inset are composed, not drawn — `Button`'s `variant="row"
+size="table-row"` for the first, `CardContent` for the second — because a raw
+`background`/`padding` declaration in a screen's own stylesheet is exactly the
+appearance the design system already owns (`docs/design-system.md`; the audit
+calls the family out by name). `node script/design-audit.mjs --strict` holds
+this PR to the same count `main` already has.
+
+**Not reporting.** One list, fed by two populations that read the same way:
+an agent `silentAgentsOf` has never heard answer `runtime/account` (the fix is
+signing in), and an account that answered but whose own `primaryShapeOf` is
+`'none'` — a report with no billing shape, no lanes and no balance at all (the
+fix is a refresh, in case the source simply has not caught up yet). Each row
+is the agent's mark, its name, the reason, and the one fix — a button where
+the person can act, a word otherwise. It is reachable through its own filter
+chip and is drawn under the table whenever either population is non-empty,
+independent of which chip is picked; the table itself has a row only for the
+second population, since the first has no report to have a row from at all.
+
+**The card, rule by rule** below still describes exactly what it always did —
+Overview's own grid draws it unchanged, and so does the Windows shape body
+above, reused rather than redrawn. Each of these is a bug that was found the
+hard way somewhere and is cheaper to design out than to fix:
 
 - The headline says **"left"** in the word beside it. A bare percentage next
   to a bar is ambiguous, and a display preference silently flips it.
@@ -1023,6 +1154,103 @@ documents), the quartile breakpoints, the current and best streak, the
 busiest day and weekday — lives in
 [`lib/heat.ts`](../packages/ui/src/lib/heat.ts) and is tested without a
 browser.
+
+## The Overview strip
+
+One bordered object above "What is left", four cells on hairlines: **Paid**,
+**Value**, **Turns** and **Tokens**, all four for the same window the Spend
+chart below draws — the Overview's own 7/30/90-day range, the one range
+control this screen already has. Value, Turns and Tokens are also buttons:
+clicking one switches that chart between cost, turns and tokens per day
+(`stackDailyMetric`, `lib/ledger.ts`), so reading the figure and choosing what
+the chart plots are the same click. Paid is not a chart measure — there is no
+"paid per day" series the ledger keeps — so its cell is a plain figure, and
+its caption is the one that opens Settings instead.
+
+**Paid** is cash that actually left, not a list-price estimate: for every
+account in the strip's scope, its `billing.fee` prorated across the days of
+the window — split by calendar day, so a window crossing a month boundary
+(or a leap-year February) charges each day its own month's fair share rather
+than the window's average of two different month lengths — plus
+`billing.overage.spent` when the account's own billing cycle started at or
+after the window opened, so the whole of what that cumulative,
+no-daily-breakdown figure counts happened inside the window. The cycle start
+comes from the report itself (`cycleStartFromLanes`, a lane's own `resetsAt`
+minus its `windowMinutes`), never assumed from `fee.period` — a monthly fee
+is not generally billed from the calendar 1st, and overage is usually
+metered monthly even under a yearly fee. When the cycle start falls before
+the window, or the report does not say, the overage is never dropped: it is
+named *beside* the figure instead ("+ $50 overage this cycle"), because
+Paid cannot honestly fold in a figure covering money spent partly outside
+what is on screen. Paid has no delta of its own: there is no billing history
+to compare a past cycle against yet, so any change would only be measuring
+today's fee applied to the past. The arithmetic is
+[`lib/paid.ts`](../packages/ui/src/lib/paid.ts).
+
+An account with no fee set is never folded into the sum as $0 — it is left
+out, and counted instead: the caption reads "fee not set for N", linking to
+that account's own Plan card (Settings › Agents › the account, the same page
+`billing.fee` is set on). When *no* account in scope has a fee, the figure
+itself reads "—" and the caption becomes "Set plan prices", both pointing at
+Settings rather than reading as an answer. Paid never sums two currencies:
+the figure leads with the ledger's own currency when a known account shares
+it, else whichever currency's sum is largest, and the caption names each
+other currency's own total ("+ €20") rather than silently converting,
+silently dropping, or merely flagging that more exists.
+
+**Value** is the ledger's own total cost for the window — the same figure
+the Spend chart's own headline shows, labelled by provenance exactly as that
+chart's hint is (`provenanceLabel`, "List-price equivalent" and its
+neighbours), because Value is a list-price estimate first and only sometimes
+a bill. Unpriced is never $0: with no public price to draw on at all, the
+figure reads "unpriced", the same word the Spend headline already uses. Its
+caption compares Value against Paid — `{ratio}× paid` (Value ÷ Paid) — only
+when the two answer the same question: every account in scope has a fee set,
+in one currency, matching the ledger's own currency
+(`paidScopeMatchesLedger`). Dividing anyway when scope does not match would
+inflate the ratio with fee-less accounts' Value or silently convert across
+currencies, so outside that match the caption falls back to `{amount} a
+day`, the window's own average, the same as when Paid is not known at all.
+The ratio's own tone is neutral at 1× or above and the warning tone below
+it — never the success tone: this figure is never good news the way "nothing
+is wrong" is, only, below 1×, a fact worth noticing (`docs/decisions.md`).
+Its delta is neutral: a rising cost is a fact about the work done, not by
+itself good or bad news the way a rising bill is.
+
+**Turns** is `LedgerReport.totals.turns` for the window — unknown, never
+zero, whenever the window mixes a turn-known runtime with one that is not
+(`docs/usage-dashboard.md`, "Turns", above). Its caption prices a turn
+against Paid when both sides are real *and* scope-matched, the same test
+Value's ratio uses (`{amount} paid a turn`), and falls back to "known for N
+of M agents" when coverage is partial and Paid cannot answer either — "N of
+M" here counts the runtimes the ledger actually has rows for
+(`ledgerRuntimeIds`), not every account in scope, since an account with
+nothing recorded this window is neither known nor unknown. Its delta is
+neutral, and suppressed outright whenever either the current or the previous
+period mixes a turn-unknown runtime — a rise measured against a partial
+figure on either side overstates or understates it.
+
+**Tokens** is `LedgerReport.totalTokens`, with a cache-hit chip riding the
+figure's own line: `cacheRead / (input + cacheRead)`, the share of the
+*input* side that came from cache — never `cacheRead / tokens`, which would
+dilute it with output that was never a cache candidate — and never drawn at
+all with nothing on the input side to divide by. Its caption reads "known
+for N of M agents" under its *own* coverage, `tokenCoverage` — deliberately
+not the Turns cell's `turnsKnownFor`: the two ask different questions of
+different sources (a turn boundary is not a token count), and do not
+generally travel together, so a runtime can be turn-unknown yet still fully
+tokens-known. `tokenCoverage` reads the ledger's own rows directly: a
+runtime counts as tokens-known only when *none* of its rows in the window
+carries a null token count. Otherwise the caption splits the total in words,
+now naming cache as its own share so the split still adds to the figure:
+`{n}% input · {n}% output · {n}% cache` (plain input/output when there is no
+cache at all). Its delta is neutral.
+
+The arithmetic behind Value, Turns and Tokens — the percentage change against
+the previous period, the cache-hit rate, the coverage and split captions —
+lives in
+[`lib/overview-strip.ts`](../packages/ui/src/lib/overview-strip.ts) and is
+tested without a browser, the same as everything else on this page.
 
 ## Will it last
 
