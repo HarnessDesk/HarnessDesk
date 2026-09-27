@@ -15,12 +15,15 @@ move is real work and is not news to a person weighing an upgrade.
   nothing on screen to explain why. The release now waits on the same signal
   the desk already uses to notice a turn ended, and goes through the moment
   it does, however long that takes — never a poll, and never abandoned. While
-  it waits, and for a minute past that if the signal still has not come, the
-  run says in plain words which card is still held and which Seat it is
-  waiting on. A Seat handed new work while its old release still waits is
-  never released out from under it, and a Seat left claimed by a run that had
-  already stopped when the desk last quit is found and released the next
-  time it starts. (#1027)
+  a stopped or failed run's release waits, and for a minute past that if the
+  signal still has not come, that run's own reason names which card is still
+  held and which Seat it is waiting on, and reads normally again once the
+  release goes through. A Seat handed new work while its old release still
+  waits is never released out from under it, nor is one a person has since
+  handed a different card of their own by hand. A Seat a stopped or settled
+  run left claimed when the desk last quit is found and released the next
+  time it starts — a run only waiting on a person's answer, or one already
+  stalled on its own reason, is left exactly as it was. (#1027)
 
 - **A finished card's diff no longer keeps changing after it's done.** On a
   shared, non-isolated checkout, `Observer.observe` re-diffed a card from
