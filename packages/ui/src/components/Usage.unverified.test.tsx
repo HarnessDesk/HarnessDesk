@@ -107,7 +107,11 @@ const render = async (report: UsageReport, scope: RuntimeInfo['id'] | null = nul
   await act(async () =>
     root.render(
       <StoreProvider store={storeWith(report)}>
-        <Usage onClose={() => {}} onSignIn={() => {}} runtime={scope} />
+        {/* Plans draws every account's card unconditionally, the way this
+            whole page used to; Overview limits its cards to what needs
+            attention first, which is a different (and separately tested)
+            question from what these cases are about. */}
+        <Usage view="plans" onClose={() => {}} onSignIn={() => {}} scope={scope} />
       </StoreProvider>,
     ),
   )
@@ -122,11 +126,13 @@ const card = async (report: UsageReport): Promise<string> => {
   return article?.textContent ?? ''
 }
 
-/** The Dashboard rail's row for the agent: its name, then its figure. */
-const railRow = async (report: UsageReport): Promise<string> => {
+/** The header's account scope menu: its row for the agent, opened. */
+const scopeMenuRow = async (report: UsageReport): Promise<string> => {
   await render(report)
-  const row = [...document.querySelectorAll('button')].find((node) =>
-    node.textContent?.startsWith('Antigravity'),
+  const trigger = document.querySelector<HTMLButtonElement>('[title="Scope the dashboard to one account"]')!
+  await act(async () => trigger.click())
+  const row = [...document.querySelectorAll('[role="menuitemradio"]')].find((node) =>
+    node.textContent?.includes('Antigravity'),
   )
   expect(row).toBeDefined()
   return row?.textContent ?? ''
@@ -192,14 +198,13 @@ describe("another sign-in's figures", () => {
     ).toBe('ready')
   })
 
-  it('stay off the rail, which names the agent (#769, review round 2)', async () => {
-    // The rail row says "Antigravity" and nothing else about whose figures they
-    // are, so a red 0% there would be another sign-in's quota under the agent's
-    // name. It answers from the agent's own lanes, of which there are none.
-    const row = await railRow(
+  it('stay off the header’s account menu, which names the agent only (#769, review round 2)', async () => {
+    // The header's scope menu says "Antigravity" and nothing else about whose
+    // figures they are, so a red 0% there would be another sign-in's quota
+    // under the agent's name — it never reads a figure at all.
+    const row = await scopeMenuRow(
       reportWith([group('gemini-weekly', 'Gemini Models', 100), group('3p-weekly', 'Claude and GPT models', 100)], 'gemini-weekly'),
     )
-    expect(row).toContain('—')
     expect(row).not.toContain('%')
   })
 

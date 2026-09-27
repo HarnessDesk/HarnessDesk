@@ -57,6 +57,7 @@ import {
   Dot,
   Download,
   Ellipsis,
+  CalendarDays,
   ExternalLink,
   File,
   FileDiff,
@@ -79,6 +80,7 @@ import {
   Image,
   Import,
   Info,
+  LayoutDashboard,
   LayoutPanelLeft,
   ListPlus,
   ListTodo,
@@ -425,6 +427,10 @@ export const ClockIcon = icon(Clock, 'ClockIcon')
 export const UsageIcon = icon(Gauge, 'UsageIcon')
 /** Money already spent, as distinct from a plan's remaining share. */
 export const CostIcon = icon(CircleDollarSign, 'CostIcon')
+/** The Dashboard's Overview row — the whole story on one screen. */
+export const OverviewIcon = icon(LayoutDashboard, 'OverviewIcon')
+/** The Dashboard's Activity row — "when it ran", drawn as a calendar heatmap. */
+export const ActivityIcon = icon(CalendarDays, 'ActivityIcon')
 export const SortNameIcon = icon(ArrowDownAZ, 'SortNameIcon')
 /** What happened, in order. */
 export const HistoryIcon = icon(History, 'HistoryIcon')

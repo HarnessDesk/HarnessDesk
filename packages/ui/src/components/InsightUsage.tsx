@@ -10,17 +10,30 @@ export interface InsightUsageProps {
   readonly runtime: RuntimeId | null
   readonly view: 'goal' | 'agent'
   readonly onGoal: (goal: string) => void
+  /**
+   * Supplied once by `Usage.tsx`, which owns this fetch — keyed on scope and
+   * root, not on `view` — so switching views on the Dashboard does not
+   * refetch it (review of #1057, item 4). Omitted (never passed) falls back
+   * to this component's own fetch, which is what keeps a bare mount (a
+   * test) working.
+   */
+  readonly report?: InsightReport | null
+  readonly problem?: string | null
 }
 
-export const InsightUsage = ({ root, runtime, view, onGoal }: InsightUsageProps) => {
-  const store = useStore(); const [report, setReport] = useState<InsightReport | null>(null); const [problem, setProblem] = useState<string | null>(null)
+export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedReport, problem: suppliedProblem }: InsightUsageProps) => {
+  const store = useStore(); const [ownReport, setOwnReport] = useState<InsightReport | null>(null); const [ownProblem, setOwnProblem] = useState<string | null>(null)
+  const owned = suppliedReport === undefined
   useEffect(() => {
-    setReport(null); setProblem(null)
+    if (!owned) return
+    setOwnReport(null); setOwnProblem(null)
     if (!root) return
     let current = true; const to = Date.now(); const from = to - 30 * 86_400_000
-    void store.readUsageInsight({ root, from, to, ...(runtime ? { runtime } : {}) }).then((next) => { if (current) setReport(next) }).catch((error: unknown) => { if (current) setProblem(error instanceof Error ? error.message : 'Recorded usage could not be read.') })
+    void store.readUsageInsight({ root, from, to, ...(runtime ? { runtime } : {}) }).then((next) => { if (current) setOwnReport(next) }).catch((error: unknown) => { if (current) setOwnProblem(error instanceof Error ? error.message : 'Recorded usage could not be read.') })
     return () => { current = false }
-  }, [store, root, runtime, view])
+  }, [store, root, runtime, view, owned])
+  const report = owned ? ownReport : (suppliedReport ?? null)
+  const problem = owned ? ownProblem : (suppliedProblem ?? null)
   if (!root) return <Note>Choose a project to see its Goals.</Note>
   if (problem) return <Note tone="warn">{problem}</Note>
   if (!report) return <Note>Reading recorded usage…</Note>
