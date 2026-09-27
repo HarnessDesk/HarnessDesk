@@ -1,5 +1,7 @@
 import type { PlanEntry, UsageBilling, UsageReport } from '@harnessdesk/protocol'
 
+import type { PlanStore } from './plan-store.js'
+
 /**
  * Folds a stored plan entry into one report's `billing`, `source: 'user'`.
  *
@@ -19,4 +21,35 @@ export const mergePlanIntoReport = (report: UsageReport, stored: PlanEntry | nul
   if (fee === billing?.fee && budget === billing?.budget) return report
   const nextBilling: UsageBilling = { kinds: billing?.kinds ?? [], ...billing, fee, budget }
   return { ...report, billing: nextBilling }
+}
+
+/**
+ * The one merge every report passes through (`UsageService`'s `overlay`
+ * option) — `usage/reports`, `usage/refresh` and every `usage/updated` push
+ * all funnel through `UsageService#finish`, so a fee or budget set on an
+ * account is never visible on one path and gone on the next.
+ *
+ * Reads `plans.json` fresh on every call rather than once at startup — a
+ * `Use $20/mo` click has to show up on the very next report — and a file
+ * that cannot be read is logged and never blocks the report it would have
+ * decorated: one broken overlay must not take usage down (BLOCKING 2).
+ * `report.account === null` (no signed-in identity to key on) skips the
+ * read entirely; nothing is ever stored for that account.
+ */
+export const planOverlay = (
+  plans: Pick<PlanStore, 'entryFor'>,
+  log?: (message: string, details?: Record<string, unknown>) => void,
+): ((report: UsageReport) => Promise<UsageReport>) => {
+  return async (report) => {
+    if (report.account === null) return report
+    try {
+      const stored = await plans.entryFor(report.runtime, report.account)
+      return mergePlanIntoReport(report, stored)
+    } catch (error) {
+      log?.('plans.json could not be read; usage reports are unmerged', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return report
+    }
+  }
 }

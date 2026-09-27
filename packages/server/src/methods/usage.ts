@@ -1,30 +1,20 @@
-import type { UsageReport } from '@harnessdesk/protocol'
-
-import { mergePlanIntoReport } from '../usage/plan-merge.js'
-import type { HostContext, MethodsUnder } from './context.js'
-
 /**
- * Folds each report's stored plan fee/budget in, when the account has one.
- * `report.account` is null for an agent with no signed-in identity to key on
- * (a bare API key with no account label) — nothing is stored for those, so
- * they pass through unchanged.
+ * A stored plan fee/budget is folded into every report by `UsageService`'s
+ * own overlay (`planOverlay`, wired up in `host.ts`) — once, on the one path
+ * every report leaves through, `reports()`, `refresh()` and the `onReport`
+ * push behind `usage/updated` alike. Nothing merges here any more
+ * (BLOCKING 1): a handler that re-merged per request is exactly how a
+ * pushed report used to lose the stored plan the moment it bypassed this file.
  */
-const withPlans = async (ctx: HostContext, reports: readonly UsageReport[]): Promise<readonly UsageReport[]> =>
-  Promise.all(
-    reports.map(async (report) => {
-      if (report.account === null) return report
-      const stored = await ctx.plans.entryFor(report.runtime, report.account)
-      return mergePlanIntoReport(report, stored)
-    }),
-  )
+import type { MethodsUnder } from './context.js'
 
 /** Plan usage across every metered runtime, and the token ledger behind it. */
 export const usageMethods = {
-  'usage/reports': async (ctx) => withPlans(ctx, await ctx.usage().reports()),
+  'usage/reports': async (ctx) => ctx.usage().reports(),
 
-  'usage/refresh': async (ctx, params) => withPlans(ctx, await ctx.usage().refresh(params.runtime)),
+  'usage/refresh': async (ctx, params) => ctx.usage().refresh(params.runtime),
 
-  'usage/plan/read': (ctx) => ctx.plans.read(),
+  'usage/plan/read': (ctx, params) => ctx.plans.read(params),
 
   'usage/plan/set': (ctx, params) => ctx.plans.set(params),
 

@@ -22,60 +22,72 @@ const report: UsageReport = {
   error: null,
 }
 
-const contextWith = (stored: PlanEntry | null, reports: readonly UsageReport[]): HostContext =>
-  ({
-    usage: () => ({ reports: async () => reports, refresh: async () => reports }),
-    plans: {
-      read: async () => ({ entries: [], suggestions: [] }),
-      set: async (input: unknown) => input as PlanEntry,
-      entryFor: async () => stored,
-    },
-  }) as unknown as HostContext
-
-test('usage/reports merges a stored fee and budget into the report, source "user"', async () => {
-  const stored: PlanEntry = {
-    fee: { amount: 20, currency: 'USD', period: 'month', source: 'user', setAt: 1 },
-    budget: { amount: 50, currency: 'USD', period: 'month', setAt: 1 },
-  }
-  const ctx = contextWith(stored, [report])
+/**
+ * `usage/reports` and `usage/refresh` no longer merge a stored plan in —
+ * that now happens exactly once, inside `UsageService` itself (its
+ * `overlay` option, wired up in `host.ts`), so every report these methods
+ * hand back is already whatever `ctx.usage()` gives them (BLOCKING 1: a
+ * per-request merge here is exactly what let a pushed `usage/updated`
+ * report skip it). `UsageService`'s own tests cover the merge; this file
+ * only has to show these methods are a straight pass-through.
+ */
+test('usage/reports is a straight pass-through to ctx.usage().reports()', async () => {
+  const ctx = { usage: () => ({ reports: async () => [report], refresh: async () => [report] }) } as unknown as HostContext
   const result = await usageMethods['usage/reports'](ctx)
-  assert.equal(result.length, 1)
-  assert.deepEqual(result[0]?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' })
-  assert.deepEqual(result[0]?.billing?.budget, { amount: 50, currency: 'USD', period: 'month' })
+  assert.deepEqual(result, [report])
 })
 
-test('usage/refresh merges the same way as usage/reports', async () => {
-  const stored: PlanEntry = { fee: { amount: 100, currency: 'USD', period: 'month', source: 'user', setAt: 1 } }
-  const ctx = contextWith(stored, [report])
-  const result = await usageMethods['usage/refresh'](ctx, {})
-  assert.deepEqual(result[0]?.billing?.fee, { amount: 100, currency: 'USD', period: 'month', source: 'user' })
-})
-
-test('an account-less report (no signed-in identity) is never asked about — nothing to key a stored entry on', async () => {
-  const anonymous: UsageReport = { ...report, account: null }
-  let asked = false
+test('usage/refresh is a straight pass-through to ctx.usage().refresh(runtime)', async () => {
+  let askedRuntime: string | undefined
   const ctx = {
-    usage: () => ({ reports: async () => [anonymous] }),
-    plans: { entryFor: async () => { asked = true; return null } },
+    usage: () => ({
+      reports: async () => [report],
+      refresh: async (runtime?: string) => {
+        askedRuntime = runtime
+        return [report]
+      },
+    }),
   } as unknown as HostContext
-  const result = await usageMethods['usage/reports'](ctx)
-  assert.equal(asked, false)
-  assert.equal(result[0]?.billing, undefined)
+  const result = await usageMethods['usage/refresh'](ctx, { runtime: CLAUDE })
+  assert.deepEqual(result, [report])
+  assert.equal(askedRuntime, CLAUDE)
 })
 
-test('usage/plan/read and usage/plan/set reach the context\'s plan store directly', async () => {
+test('usage/plan/read passes params through and hands back the context\'s answer whole', async () => {
+  const stored: PlanEntry = { fee: { amount: 20, currency: 'USD', period: 'month', source: 'user', setAt: 1 } }
+  let askedParams: unknown = null
+  const ctx = {
+    plans: {
+      read: async (params: unknown) => {
+        askedParams = params
+        return { entry: stored, suggestion: null, refusal: null }
+      },
+    },
+  } as unknown as HostContext
+  const read = await usageMethods['usage/plan/read'](ctx, { runtime: CLAUDE, account: 'dev@example.com', plan: 'Pro' })
+  assert.deepEqual(read, { entry: stored, suggestion: null, refusal: null })
+  assert.deepEqual(askedParams, { runtime: CLAUDE, account: 'dev@example.com', plan: 'Pro' })
+})
+
+test('usage/plan/read hands back a refusal from the context untouched', async () => {
+  const ctx = {
+    plans: { read: async () => ({ entry: null, suggestion: null, refusal: '~/.harnessdesk/plans.json was not read: it is not JSON' }) },
+  } as unknown as HostContext
+  const read = await usageMethods['usage/plan/read'](ctx, { runtime: CLAUDE, account: 'dev@example.com' })
+  assert.equal(read.entry, null)
+  assert.match(read.refusal ?? '', /plans\.json was not read/)
+})
+
+test('usage/plan/set reaches the context\'s plan store directly', async () => {
   let setCalled: unknown = null
   const ctx = {
     plans: {
-      read: async () => ({ entries: [], suggestions: [] }),
       set: async (input: unknown) => {
         setCalled = input
         return { fee: undefined, budget: undefined }
       },
     },
   } as unknown as HostContext
-  const read = await usageMethods['usage/plan/read'](ctx)
-  assert.deepEqual(read, { entries: [], suggestions: [] })
   await usageMethods['usage/plan/set'](ctx, { runtime: CLAUDE, account: 'dev@example.com', fee: null })
   assert.deepEqual(setCalled, { runtime: CLAUDE, account: 'dev@example.com', fee: null })
 })

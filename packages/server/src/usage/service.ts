@@ -41,6 +41,14 @@ export interface UsageServiceOptions {
   readonly onReport: (report: UsageReport) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
   readonly now?: () => number
+  /**
+   * Runs over every report before it is cached, returned or pushed —
+   * `reports()`, `refresh()`, `cached()` and `onReport` all see whatever this
+   * returns, and never the report without it. This is the one seam a stored
+   * plan fee/budget folds in through (`host.ts`'s `planOverlay`), so a report
+   * can never leave this service unmerged on one path and merged on another.
+   */
+  readonly overlay?: (report: UsageReport) => Promise<UsageReport>
 }
 
 const DEFAULT_STALE_AFTER_MS = 5 * 60_000
@@ -137,6 +145,19 @@ export class UsageService {
   }
 
   /**
+   * The one place a report is cached and pushed — every exit out of `#build`
+   * and `settleSpend` funnels through here, so the overlay (a stored plan
+   * fee/budget, when the host supplies one) is applied exactly once and
+   * never skipped on one path while another remembers it.
+   */
+  async #finish(id: RuntimeId, report: UsageReport): Promise<UsageReport> {
+    const overlaid = this.#options.overlay ? await this.#options.overlay(report) : report
+    this.#cache.set(id, overlaid)
+    if (!this.#disposed) this.#options.onReport(overlaid)
+    return overlaid
+  }
+
+  /**
    * Restates the money after the ledger has learned something new.
    *
    * A finished scan changes the spend half of every report and nothing else,
@@ -156,8 +177,7 @@ export class UsageService {
       }
       if (spend === null && cached.spend === null) continue
       const restated: UsageReport = { ...cached, spend }
-      this.#cache.set(id, restated)
-      if (!this.#disposed) this.#options.onReport(restated)
+      await this.#finish(id, restated)
     }
   }
 
@@ -273,18 +293,14 @@ export class UsageService {
         error,
         unverified: { ...previous.unverified, error: { message: unverifiedFailure } },
       }
-      this.#cache.set(id, kept)
-      if (!this.#disposed) this.#options.onReport(kept)
-      return kept
+      return this.#finish(id, kept)
     }
 
     // One provider being down does not blank a card. The last good reading
     // stands with its own age, and the failure is shown beside it.
     if (lanes.length === 0 && !unverified && error && previous && (previous.lanes.length > 0 || previous.unverified)) {
       const kept: UsageReport = { ...previous, spend, error }
-      this.#cache.set(id, kept)
-      if (!this.#disposed) this.#options.onReport(kept)
-      return kept
+      return this.#finish(id, kept)
     }
 
     if (lanes.length === 0 && !credits && !spend && !error && !unverified) {
@@ -317,9 +333,7 @@ export class UsageService {
       ...(unverified ? { unverified } : {}),
       ...(billing ? { billing } : {}),
     }
-    this.#cache.set(id, report)
-    if (!this.#disposed) this.#options.onReport(report)
-    return report
+    return this.#finish(id, report)
   }
 
   /**
