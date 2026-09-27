@@ -38,6 +38,16 @@ export interface UsageRow {
    * the cost is ours to work out from the tokens.
    */
   readonly vendorCost?: number | null
+  /**
+   * One person-or-agent prompt answered by the agent — never an API request
+   * or a tool call, and never this row's own `requests`. Optional and
+   * defaulting to 0: only the scanners with a reliable turn boundary
+   * (`ledger/scan.ts`) ever set it, and a row nobody counted turns for is
+   * simply not part of a turn-known runtime's total — see
+   * `SpendCoverage.turnsKnownFor`, which is what tells the two apart from a
+   * genuine zero.
+   */
+  readonly turns?: number
 }
 
 export interface FileCursor {
@@ -76,6 +86,7 @@ CREATE TABLE IF NOT EXISTS usage (
   cacheWrite INTEGER NOT NULL DEFAULT 0,
   reasoning INTEGER NOT NULL DEFAULT 0,
   requests INTEGER NOT NULL DEFAULT 0,
+  turns INTEGER NOT NULL DEFAULT 0,
   vendorCost REAL,
   -- 1 when the agent priced these requests. Part of the key, because a row is a
   -- sum, and a sum of requests the agent priced and requests it did not has no
@@ -99,35 +110,48 @@ export class LedgerStore {
     this.#migrate()
   }
 
+  #columns(): Set<unknown> {
+    return new Set(
+      (this.#db.prepare('PRAGMA table_info(usage)').all() as { name?: unknown }[]).map((column) => column.name),
+    )
+  }
+
   /**
    * A ledger written before rows could carry an agent's own cost has no
    * `vendorCost`, and one written before that cost was part of the key has a key
    * too narrow to keep priced and unpriced requests apart. Either is rebuilt in
    * place with its rows: empty where the column is new, which is what those
    * rows meant, and unvendored unless they carry a cost.
+   *
+   * A ledger written before turns were counted at all simply has no `turns`
+   * column, and that one is a plain additive column — no key changes, no row
+   * ever needs a different one — so it is added in place rather than rebuilt;
+   * every existing row reads its own new column as the 0 it always was, which
+   * is the honest answer for a row no scanner ever counted a turn into.
    */
   #migrate(): void {
-    const columns = new Set(
-      (this.#db.prepare('PRAGMA table_info(usage)').all() as { name?: unknown }[]).map((column) => column.name),
-    )
-    if (columns.has('vendored')) return
-    const carried = columns.has('vendorCost')
-    this.#db.exec('BEGIN IMMEDIATE')
-    try {
-      this.#db.exec('DROP INDEX IF EXISTS usage_day; DROP INDEX IF EXISTS usage_runtime_day')
-      this.#db.exec('ALTER TABLE usage RENAME TO usage_old')
-      this.#db.exec(SCHEMA)
-      this.#db.exec(`
-        INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
-        SELECT file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests,
-          ${carried ? 'vendorCost' : 'NULL'}, ${carried ? 'CASE WHEN vendorCost IS NULL THEN 0 ELSE 1 END' : '0'}
-        FROM usage_old
-      `)
-      this.#db.exec('DROP TABLE usage_old')
-      this.#db.exec('COMMIT')
-    } catch (error) {
-      this.#db.exec('ROLLBACK')
-      throw error
+    if (!this.#columns().has('vendored')) {
+      const carried = this.#columns().has('vendorCost')
+      this.#db.exec('BEGIN IMMEDIATE')
+      try {
+        this.#db.exec('DROP INDEX IF EXISTS usage_day; DROP INDEX IF EXISTS usage_runtime_day')
+        this.#db.exec('ALTER TABLE usage RENAME TO usage_old')
+        this.#db.exec(SCHEMA)
+        this.#db.exec(`
+          INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
+          SELECT file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests,
+            ${carried ? 'vendorCost' : 'NULL'}, ${carried ? 'CASE WHEN vendorCost IS NULL THEN 0 ELSE 1 END' : '0'}
+          FROM usage_old
+        `)
+        this.#db.exec('DROP TABLE usage_old')
+        this.#db.exec('COMMIT')
+      } catch (error) {
+        this.#db.exec('ROLLBACK')
+        throw error
+      }
+    }
+    if (!this.#columns().has('turns')) {
+      this.#db.exec('ALTER TABLE usage ADD COLUMN turns INTEGER NOT NULL DEFAULT 0')
     }
   }
 
@@ -165,8 +189,8 @@ export class LedgerStore {
 
   #insertRowStatement(): StatementSync {
     return this.#db.prepare(`
-      INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, turns, vendorCost, vendored)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(file, day, runtime, model, project, vendored) DO UPDATE SET
         input = input + excluded.input,
         output = output + excluded.output,
@@ -174,6 +198,7 @@ export class LedgerStore {
         cacheWrite = cacheWrite + excluded.cacheWrite,
         reasoning = reasoning + excluded.reasoning,
         requests = requests + excluded.requests,
+        turns = turns + excluded.turns,
         vendorCost = CASE
           WHEN vendorCost IS NULL AND excluded.vendorCost IS NULL THEN NULL
           ELSE COALESCE(vendorCost, 0) + COALESCE(excluded.vendorCost, 0)
@@ -194,6 +219,7 @@ export class LedgerStore {
       row.cacheWrite,
       row.reasoning,
       row.requests,
+      row.turns ?? 0,
       row.vendorCost ?? null,
       row.vendorCost === null || row.vendorCost === undefined ? 0 : 1,
     )
