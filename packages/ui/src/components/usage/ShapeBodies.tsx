@@ -63,10 +63,15 @@ export const AllowanceBody = ({
             ? laneAmount(Math.max(0, lane.limit - lane.used), lane.unit)
             : ownUnitOf(row.shape, report, row.view)}
         </Text>
-        {/* "left" alone, never beside a used figure on the same line — a
-            lane's own row below already pairs "left" with "of N used"
-            (review of #1069, N6): this line only ever means what remains. */}
-        <Text role="muted">{lane?.unit ? `of ${lane.limit != null ? laneAmount(lane.limit, lane.unit) : '—'} left` : 'left'}</Text>
+        {/* Only when the figure is a bare amount ("312") does the subtitle
+            say what it is a remainder of ("of 500 left") — the fallback
+            figure (`ownUnitOf`'s own "91% left") already says "left" itself,
+            so a second, unconditional "left" here repeated the word on the
+            same line for exactly the lanes with no `limit`/`used` to report
+            (review of #1069, N6, round 2). */}
+        <Text role="muted">
+          {lane && lane.limit != null && lane.used != null ? `of ${laneAmount(lane.limit, lane.unit)} left` : ''}
+        </Text>
         <span className={styles.fill} />
         {row.approxTurns !== '—' && <Chip label={`≈ ${row.approxTurns.replace('~', '')} turns`} tone="neutral" />}
       </div>
