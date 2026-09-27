@@ -212,6 +212,7 @@ export function evidenceValues(records: readonly EvidenceRecord[]): Readonly<Rec
     seen.set(path, set)
   }
   for (const { fact } of records) {
+    if (fact.kind === 'check' && fact.advisory) continue
     if (fact.kind === 'check') { put('check.at', fact.at); put('check.name', fact.name); put('check.exit', fact.exit) }
     else if (fact.kind === 'ci') put('ci.at', fact.at)
     else if (fact.kind === 'review') { put('review.at', fact.at); put('review.verdict', fact.verdict); put('review.by', fact.by) }
@@ -248,6 +249,8 @@ const choicesFor = (guard: FlowEvidenceGuard, context: FlowEvidenceContext): Fac
     const { record } = view
     if (record.restored || record.card?.board !== context.goal || !cards.has(record.card.id)) continue
     const fact = record.fact
+    // A Seat's own `run_check` informs its review and is never a rule's evidence, for or against (#1082).
+    if (fact.kind === 'check' && fact.advisory) continue
     const fresh = view.freshness.state === 'fresh'
     const one = (question: string, at: string, passed: boolean | null): void => { out.push({ id: record.id, question, at, fresh, passed }) }
     if ('check' in guard && fact.kind === 'check' && fact.run === guard.check) {

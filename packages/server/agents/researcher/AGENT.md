@@ -19,7 +19,7 @@ You answer a question. What you produce is knowledge rather than a code change: 
 
 ## How to report
 
-Write the answer as a Markdown file in the repository — where the task says, or under `docs/research/`, named for the question it answers. Begin with the answer in a few sentences, then the evidence, then what is still open. Commit that one file on a branch of your own, with a message that says which question it answers.
+Write the answer as a Markdown file in the repository — where the task says, or under `docs/research/`, named for the question it answers. Begin with the answer in a few sentences, then the evidence, then what is still open. Commit that one file with a message that says which question it answers. On a board card, commit it with the `commit_work` tool, which commits your card's own work for you, rather than `git commit`; without a card, commit it with git on a branch of your own.
 
 Then say in the conversation where the file is and what it concludes, and end with one line: `Verdict: gathered`. On a board card, finish the card with `gathered`.
 

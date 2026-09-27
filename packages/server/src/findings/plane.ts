@@ -24,6 +24,7 @@ import type {
   FindingCategory,
   FindingReadInput,
   FindingReceipt,
+  FindingSeatRow,
   FindingView,
   RaiseFindingInput,
   RepairFindingInput,
@@ -152,8 +153,8 @@ export interface FindingFlows {
   seriesOfGoal?(goal: string): readonly FindingSeries[]
   /** Every person override this Goal has recorded, across every run: what a wrap freezes into its receipt. */
   overridesOfGoal?(goal: string): readonly FindingOverride[]
-  /** A person's "Another round": one further transition past a recorded stop. */
-  authorizeExtraRound?(run: string, round: number, reason: string): Promise<FlowExecution>
+  /** A person's "Another round": `count` further transitions (default 1) past a recorded stop. */
+  authorizeExtraRound?(run: string, round: number, reason: string, count?: number): Promise<FlowExecution>
   /** A person admitting or declining a pending regression or security exception. */
   recordExceptionDecision?(run: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution>
   /** A person's recorded merge-anyway disagreement. */
@@ -397,6 +398,7 @@ interface Caller {
   readonly sessionId: string
   readonly goal: string
 }
+
 const IN_ROUND = 'This finding is being decided in a review round that is still open. Record this once that round closes.'
 const STALE = (now: number) => `This finding changed since you read it; it is at sequence ${now}. Read it again before recording this.`
 
@@ -711,8 +713,13 @@ export class FindingsPlane {
     })
   }
 
-  /** A Seat's read of its own Goal's findings: bounded, never truncated. */
-  async readForSeat(value: unknown, scope: TeamCallScope): Promise<readonly FindingView[]> {
+  /**
+   * A Seat's read of its own Goal's findings: bounded, never truncated. Each
+   * row also says whether the calling Seat's Agent raised it and whether
+   * this Seat may decide it right now — a brief's "decide the findings you
+   * raised" is only followable if the listing says which those are (#1090).
+   */
+  async readForSeat(value: unknown, scope: TeamCallScope): Promise<readonly FindingSeatRow[]> {
     const input = readInputOf(value)
     const caller = this.#caller(scope)
     const bound = this.#port.flows.binding(caller.goal, input.intent, caller)
@@ -727,7 +734,22 @@ export class FindingsPlane {
     if (ledger.unreadable > 0 && input.filter !== 'all') {
       throw new Error('Some evidence records could not be read, so the open findings cannot be listed as complete. A person has to look.')
     }
-    return rows
+    return rows.map((view) => this.#seatRowOf(view, caller, bound))
+  }
+
+  /** `raisedByYou`/`decidableNow`/`personDecides` for one row of `readForSeat`. `decidableNow` mirrors who `decide` lets decide it; a call can still be refused for what only the call knows (a blind round still open, a stale `expected`). */
+  #seatRowOf(
+    view: FindingView, caller: Caller,
+    bound: { readonly run: string; readonly round: number; readonly reviews: boolean },
+  ): FindingSeatRow {
+    const raiser = this.#port.seats.byId(view.origin.seat)
+    const raisedByYou = Boolean(raiser?.agent && caller.seat.agent && raiser.agent.id === caller.seat.agent.id)
+    // A finding an earlier run on this Goal raised is left to a person: `decide` refuses any Seat for it.
+    const otherRun = view.origin.run !== bound.run && view.origin.goal === caller.goal
+    const decidableNow = raisedByYou && !isResolved(view) && bound.reviews && !otherRun &&
+      String(caller.seat.id) !== view.origin.seat &&
+      !(view.origin.run === bound.run && bound.round <= view.origin.round)
+    return { ...view, raisedByYou, decidableNow, ...(raisedByYou && otherRun && !isResolved(view) ? { personDecides: true } : {}) }
   }
 
   /**
@@ -1078,8 +1100,9 @@ export class FindingsPlane {
         evidence,
       }))
     }
+    const agentOf = (seat: string): string | null => this.#port.seats.byId(seat)?.agent?.id ?? null
     return {
-      text: packets.map(renderPacket).join('\n\n'),
+      text: packets.map((one) => renderPacket(one, agentOf)).join('\n\n'),
       pinned: later.map(({ subject }) => ({ cwd: subject.checkout.cwd, at: subject.at })),
       // Ids and revisions only, the same frozen reference the rendered text carries — never a finding's own body.
       leads: packets.map((packet) => ({
@@ -1149,6 +1172,7 @@ export class FindingsPlane {
       open: owned.filter((one) => !isResolved(one)).length,
       blocking: owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).length,
       reason: snapshot.findings?.stopped?.reason ?? publication.reason,
+      ceilingStop: snapshot.findings?.stopped?.ceiling ?? false,
       publication: publication.publication,
       reviewersFinished, reviewersTotal,
       pendingExceptions: [...pendingOf(series)],
@@ -1222,7 +1246,7 @@ export class FindingsPlane {
       const series = this.#port.flows.seriesOfGoal?.(input.goal) ?? snapshot.findings.series
       switch (input.action.kind) {
         case 'another-round':
-          await ops.authorizeExtraRound(input.round, reason)
+          await ops.authorizeExtraRound(input.round, reason, input.action.rounds ?? 1)
           break
         case 'admit-exceptions':
         case 'decline-exceptions': {
@@ -1443,7 +1467,7 @@ export function closeRound(input: {
   const closed = state.closedRounds.length + 1
   const decision = decideLoop({
     closed,
-    limit: Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + 1 : 0),
+    limit: Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + (state.extraRound.count ?? 1) : 0),
     idle: state.idleRounds,
     idleLimit: state.budget.withoutProgress,
     newProgress: progress.newProgress,
@@ -1467,14 +1491,30 @@ export function closeRound(input: {
     idleRounds: decision.idle,
     progress: progress.progress,
     series,
-    stopped: reason !== null && (unreadable !== null || decision.next === 'person') ? { round: round.n, reason } : null,
+    stopped: reason !== null && (unreadable !== null || decision.next === 'person')
+      ? { round: round.n, reason, ceiling: unreadable === null && decision.ceiling }
+      : null,
   }
 }
 
-/** A packet as a reviewer's order carries it: the findings in question first, then the delta, then the contract. */
-export const renderPacket = (packet: RepairPacket): string => {
-  const line = (view: FindingView): string =>
-    `- ${view.id} · ${view.lifecycle.state === 'repaired' ? 'repair claimed, not yet confirmed' : view.lifecycle.state} · sequence ${view.sequence}: ${view.title}\n  ${view.body.replace(/\n/g, '\n  ')}`
+/**
+ * A packet as a reviewer's order carries it: the findings in question first,
+ * then the delta, then the contract.
+ *
+ * One packet is cached per round (`ReviewPacketPin`), not per Seat, and a
+ * round can seat more than one Agent under the same role (#1090's own
+ * report: a Codex and a DeepSeek test-reviewer, both in round 15) — so this
+ * cannot say "yours" for a reader it does not know yet. `agentOf` instead
+ * names the Agent that actually raised each finding, plainly, so whichever
+ * Agent reads it can tell its own findings from a role-sibling's without
+ * guessing.
+ */
+export const renderPacket = (packet: RepairPacket, agentOf: (seat: string) => string | null = () => null): string => {
+  const line = (view: FindingView): string => {
+    const agent = agentOf(view.origin.seat)
+    const raised = agent ? `, raised by ${agent}` : ''
+    return `- ${view.id} · ${view.lifecycle.state === 'repaired' ? 'repair claimed, not yet confirmed' : view.lifecycle.state} · sequence ${view.sequence}${raised}: ${view.title}\n  ${view.body.replace(/\n/g, '\n  ')}`
+  }
   return [
     `This review continues an earlier one of ${packet.series}. Judge the change since ${packet.from.slice(0, 12)}, up to ${packet.to.slice(0, 12)}, and the findings still in question — nothing else.`,
     packet.warning,
@@ -1483,6 +1523,6 @@ export const renderPacket = (packet: RepairPacket): string => {
     packet.findings.length > 0 ? `Findings in question:\n${packet.findings.map(line).join('\n')}` : null,
     `The change:\n\`\`\`diff\n${packet.diff}\`\`\``,
     packet.evidence.length > 0 ? `Evidence this review must still honour: ${packet.evidence.join(', ')}.` : null,
-    'Decide each finding you raised with decide_finding, and raise anything new with raise_finding.',
+    'Decide each finding raised by you above with decide_finding, against a candidate from review_candidates — repaired, open, or withdrawn — and raise anything new with raise_finding.',
   ].filter((one): one is string => Boolean(one)).join('\n\n')
 }

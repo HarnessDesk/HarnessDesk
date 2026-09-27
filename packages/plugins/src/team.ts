@@ -1,12 +1,12 @@
 import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
-import type { FindingAnchor, FindingCategory, FindingView } from '@harnessdesk/protocol'
+import type { FindingAnchor, FindingCategory, FindingSeatRow, FindingView } from '@harnessdesk/protocol'
 
 /**
  * Working together: the shared board and messages between conversations.
  *
  * The state and every decision live in the host's team plane — claiming is a
  * transaction there, message routing applies one set of guards there — and
- * this plugin is the doorway: eighteen tools, delivered to Codex as dynamic
+ * this plugin is the doorway: twenty tools, delivered to Codex as dynamic
  * tools and to every ACP agent over the MCP bridge, exactly like any other
  * plugin tool. The projection layer is what makes coordination cross-vendor
  * without asking any vendor for anything.
@@ -298,6 +298,46 @@ export const teamPlugin: HarnessPlugin = {
       })
 
       ctx.tools.register({
+        name: 'commit_work',
+        description:
+          'Commit your card’s own work, with this message. The desk commits for you — every file you changed since you claimed the card, and nothing that was already uncommitted before — so use this rather than `git commit`, which your environment may refuse. It answers the new commit. Commit before `complete_claim`: a card that can commit cannot finish with its own work uncommitted.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The card you hold.' },
+            message: { type: 'string', description: 'The commit message: a subject line, then a blank line and a body if you need one.' },
+          },
+          required: ['intent', 'message'],
+        },
+        execute: (args: { intent: number; message: string }, scope) =>
+          ctx.team.commitWork(Number(args.intent), String(args.message ?? ''), scope),
+      })
+
+      ctx.tools.register({
+        name: 'run_check',
+        description:
+          'For a Seat that only reads — a reviewer, a tester, an acceptance check: run one of your card’s flow’s declared checks, its test suite say, by name, on the committed change your card was handed. The desk runs it outside your environment, in a fresh checkout of that commit, so it can start servers and bind ports your environment may refuse; your own uncommitted edits are not in it, and neither is anything the repository ignores, such as installed dependencies, so a failure there may come from that rather than the change. It answers passed or failed with the last of what it printed, and notes the result on your card as advisory evidence, which no rule counts. Only a check the flow declares can run; you cannot pass a command. A few runs a turn.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The card you hold.' },
+            name: { type: 'string', description: 'The declared check to run. May be left out when the flow declares only one; a refusal names the ones it declares.' },
+            commit: { type: 'string', description: 'Only when your card was handed several commits: which one to check. A refusal names them.' },
+          },
+          required: ['intent'],
+        },
+        execute: (args: { intent: number; name?: string; commit?: string }, scope) =>
+          ctx.team.runCheck(
+            Number(args.intent),
+            {
+              ...(args.name !== undefined ? { name: String(args.name) } : {}),
+              ...(args.commit !== undefined ? { commit: String(args.commit) } : {}),
+            },
+            scope,
+          ),
+      })
+
+      ctx.tools.register({
         name: 'release_claim',
         description:
           'Hand an intent you hold back to the board unfinished — because you are stopping, or because it turned out blocked (`blocked: true`, with the reason). Its files are freed either way.',
@@ -460,6 +500,18 @@ export const teamPlugin: HarnessPlugin = {
         `${view.id} — ${view.title || 'details not recorded'} · ${view.lifecycle.state}${view.lifecycle.state === 'repaired' && !view.lifecycle.confirmed ? ' (claimed, not yet confirmed)' : view.lifecycle.confirmed ? ' (confirmed)' : ''}` +
         `${view.blocking ? ' · blocking' : ''} · sequence ${view.sequence}${view.problem ? ` · cannot be trusted: ${view.problem}` : ''}`
 
+      /**
+       * `list_findings`'s own line: `findingLine` plus which findings are
+       * this Seat's Agent's own, and which of those it may decide right now
+       * from the card it holds — `list_findings` is the one place a Seat can
+       * tell "decide the findings you raised" apart from "someone raised
+       * this" (#1090). `decidableNow` is never true where `raisedByYou` is
+       * not: the plane computes both from the same authorization `decide`
+       * itself enforces.
+       */
+      const seatFindingLine = (view: FindingSeatRow): string =>
+        `${findingLine(view)}${!view.raisedByYou ? '' : view.personDecides ? ' · yours, from an earlier run — a person decides it' : view.decidableNow ? ' · yours — decide it now' : ' · yours, not yet (a later review card of a fresh Seat of yours)'}`
+
       ctx.tools.register({
         name: 'raise_finding',
         description:
@@ -549,7 +601,7 @@ export const teamPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'list_findings',
         description:
-          'The findings on your Goal, for the card you hold: each id, its title, where it stands, whether it blocks, and its sequence (pass that as `expected` when you repair or decide it). `filter` is all, open or blocking. More than 200 is refused rather than cut short.',
+          'The findings on your Goal, for the card you hold: each id, its title, where it stands, whether it blocks, its sequence (pass that as `expected` when you repair or decide it), and — yours alone — whether you raised it and may decide it right now. `filter` is all, open or blocking. More than 200 is refused rather than cut short.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -563,7 +615,7 @@ export const teamPlugin: HarnessPlugin = {
             intent: Number(args['intent']),
             ...(args['filter'] !== undefined ? { filter: String(args['filter']) as 'all' | 'open' | 'blocking' } : {}),
           }, scope)
-          return views.length === 0 ? 'There are no findings of that kind on this Goal.' : views.map(findingLine).join('\n')
+          return views.length === 0 ? 'There are no findings of that kind on this Goal.' : views.map(seatFindingLine).join('\n')
         },
       })
 

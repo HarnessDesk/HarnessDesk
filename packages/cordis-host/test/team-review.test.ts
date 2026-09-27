@@ -31,7 +31,7 @@ const engine = (): TeamEngine & { readonly candidateCalls: unknown[]; readonly r
     awaitWork: async () => 'x',
     awaitMember: async () => 'x',
     conflicts: async () => 'x',
-    complete: async () => 'x',
+    complete: async () => 'x', commitWork: async () => 'x', runCheck: async () => 'x',
     release: async () => 'x',
     handoff: async () => 'x',
     status: async () => 'x',

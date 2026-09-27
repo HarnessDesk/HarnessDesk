@@ -67,7 +67,7 @@ Full positioning: [VISION.md](VISION.md).
 - **Plugins.** Twelve built in — git, files, search, task list, team,
   checkpoints, guardrails, the browser, the iOS Simulator, Android, the web
   fetcher and the test runner. A plugin's tools reach *every* agent:
-  HarnessDesk offers each one an MCP server carrying its 71 built-in plugin
+  HarnessDesk offers each one an MCP server carrying its 73 built-in plugin
   tools, so a capability written once is available wherever you are working.
 
 ## What it looks like
@@ -113,7 +113,7 @@ rates.
   <a href="docs/images/app/dashboard-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/dashboard-dark.png" />
-      <img src="docs/images/app/dashboard-light.png" width="900" alt="The usage dashboard: a card per account showing what is left of each plan, which windows reset when, which lane is spent, and what the work has cost." />
+      <img src="docs/images/app/dashboard-light.png" width="900" alt="The Dashboard's Overview: a rail of views — Overview, Plans, Spend, Activity, Projects — an All accounts scope in the header, a Paid/Value/Turns/Tokens strip, the accounts that need attention, and what it cost beside where it went." />
     </picture>
   </a>
 </p>
@@ -127,7 +127,7 @@ changing them.
   <a href="docs/images/app/git-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/git-dark.png" />
-      <img src="docs/images/app/git-light.png" width="900" alt="The repository pane beside a conversation: a branch graph with two feature branches and a merge back into main, drawn over the real git history of the open folder." />
+      <img src="docs/images/app/git-light.png" width="900" alt="The repository pane beside a new session: a branch graph with two feature branches and a merge back into main, drawn over the real git history of the open folder." />
     </picture>
   </a>
 </p>

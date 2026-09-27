@@ -7,6 +7,94 @@ the rule is the last line of its section.
 
 ---
 
+## The host runs a declared check for an agent; an agent is never given the network
+
+A Seat that only reads — a reviewer, a tester, an acceptance check — can ask
+the host to run one of its flow's own declared checks through `run_check`, by
+name, on the committed change its card was handed, and learn whether it
+passed. Codex's sandbox refuses a child process a listening socket, so a test
+that starts a real server failed in every Codex-seated review while passing on
+the host's check, and reviewers could not tell a broken change from their own
+sandbox. Turning on the sandbox's network access would let the child bind —
+and would also open outbound network to everything the agent runs, which is a
+far larger grant than "the suite may start its own server".
+
+A host that runs commands on an agent's behalf is itself a way out of the
+agent's sandbox, so the tool is held to what a review needs and no more. Only
+a Seat whose grant cannot write may call it: a Seat that can write could put a
+test in its tree that reads secrets or calls the network, have the host run
+it, read what it printed, and repeat. The check never runs in anybody's
+working tree: the host cuts a fresh detached checkout at the handed commit
+(the card's seating's base, one of the commits it was handed, or its
+checkout's committed `HEAD`), with hooks off, and removes it afterwards, on a
+timeout or an abort too — so a writer's uncommitted edits in a shared checkout
+are never what runs. The agent names a declared check and never writes a
+command. It gets three runs a turn and ten a card, one at a time, and none
+while the run is paused or not live.
+
+Its result is recorded on the card as advisory (`advisory: true`, `counted:
+false`): the board shows it apart, and no rule's check guard reads it, for or
+against. Otherwise a Seat could re-run a flaky suite until it passed, or
+supersede a failing check card, and open a rule for a commit whose committed
+code fails. What a rule needs is still decided by the flow's own check card. A
+repository's own named checks file is not offered: each of those needs a
+person's approval on this machine, which an agent cannot give.
+
+Rule: when an agent's sandbox refuses what a declared check needs, the host
+runs the check on the committed change, for a Seat that cannot write, as
+advisory evidence; the sandbox is not widened.
+
+## The host commits for an agent; an agent is never given `.git`
+
+A Seat whose grant can commit (`edit` and above) commits its card's own work
+through `commit_work`, which the host answers: it commits, in the Seat's
+checkout, the paths dirty now that were not dirty when the card was claimed,
+with the agent's message. A sandbox that keeps `.git` read-only — Codex's
+workspace sandbox does — is left exactly as it is. Widening it to the git
+directory would let the agent write `.git/config` and `.git/hooks`, and the
+next git run outside the sandbox — the host's own, the person's, a
+publishing Seat's — would run whatever it put there with that process's
+access; in a lane the common directory is the main repository's own `.git`.
+There is no narrower grant that still commits: the index, its lock, `HEAD`
+and `config` all sit at the root of the git directory.
+
+That commit runs git with `core.hooksPath=/dev/null`, `core.fsmonitor=false`,
+`core.sshCommand=ssh` and signing off, with every filter driver the
+configuration names switched off by name, with `GIT_CONFIG_NOSYSTEM=1` and
+`GIT_CONFIG_GLOBAL=/dev/null`, and with none of the host's own `GIT_*`
+variables. The agent supplies no flag, no `-c` and no path: the paths are
+the ones git's own status names, passed as literal pathspecs through a file,
+and the message is written to a file and stored verbatim, at most 8000
+characters. Work a filter would touch — an LFS-tracked file, say — is refused
+in one sentence and nothing is committed, because with every filter off it
+would go into history raw. A submodule is never looked into: it is its own
+repository. And the tool refuses while another open card whose Seat may
+commit works in the same checkout, since "changed since my claim" would then
+include that card's work too; isolating the role is the way through.
+
+Git the host runs on its own in a checkout an agent can write — evidence
+reads, status, cutting a lane, diffs — carries a narrower floor
+(`git-hardening.ts`): no hook, no filesystem monitor, no external diff, the
+default ssh, and no signing. It does not switch filters or textconv off: a
+filter the repository configures still runs when a host status re-reads a
+stat-dirty file, and host diffs pass `--no-ext-diff --no-textconv` themselves.
+Verbs a person triggers — bringing a branch home, the git client's commit,
+checkout and worktree verbs — run with the person's hooks, as their own git
+would; a hook path a repository sets (husky's is a tracked folder) is one an
+agent can edit, which is why nothing automatic runs hooks.
+
+The author is the checkout's configured identity, read the way git resolves
+it — `user.name` and `user.email` across system, global and repository
+configuration — and handed to the commit as `GIT_AUTHOR_*` and
+`GIT_COMMITTER_*`, because the commit itself runs with global configuration
+off. A checkout with no configured identity is refused in one sentence; the
+desk never makes one up.
+
+Rule: an agent's sandbox is never widened to a git directory; a commit it
+needs is the host's, run hardened.
+
+---
+
 ## Insight measures remain source-qualified
 
 Historical usage is read from runtime-owned local records rather than quota

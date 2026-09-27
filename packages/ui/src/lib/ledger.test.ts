@@ -12,6 +12,7 @@ import {
   previousPeriod,
   shareOf,
   stackDaily,
+  stackDailyMetric,
 } from './ledger'
 
 const DAY = 86_400_000
@@ -23,8 +24,9 @@ const CLAUDE = runtimeId('claude')
 
 const report = (
   days: number,
-  daily: { day: number; runtime: RuntimeId; cost: number; tokens?: number }[],
+  daily: { day: number; runtime: RuntimeId; cost: number; tokens?: number; turns?: number }[],
   earliestDay?: number | null,
+  turnsKnownFor?: readonly RuntimeId[],
 ): LedgerReport =>
   ({
     days,
@@ -40,6 +42,7 @@ const report = (
       daysCovered: days,
       daysRequested: days,
       ...(earliestDay !== undefined ? { earliestDay } : {}),
+      ...(turnsKnownFor !== undefined ? { turnsKnownFor } : {}),
     },
     rows: [],
     daily: daily.map((entry) => ({ ...entry, tokens: entry.tokens ?? 0 })),
@@ -94,6 +97,47 @@ describe('stackDaily', () => {
 
   it('answers with nothing for no ledger at all', () => {
     expect(stackDaily(null, NOON)).toEqual({ days: [], keys: [], peak: 0, total: 0 })
+  })
+})
+
+describe('stackDailyMetric turns honesty', () => {
+  it('marks a day unknown, not zero, when every runtime that spent that day is turn-unknown', () => {
+    const ledger = report(
+      2,
+      [
+        { day: TODAY, runtime: CODEX, cost: 1, turns: 3 },
+        { day: TODAY - DAY, runtime: CLAUDE, cost: 2, turns: 5 },
+      ],
+      null,
+      // Only CLAUDE is turn-known — CODEX's day is turns-unknown, not 0.
+      [CLAUDE],
+    )
+    const series = stackDailyMetric(ledger, NOON, 'turns')
+    expect(series.days[0]?.unknown).toBe(false) // CLAUDE's day
+    expect(series.days[1]?.unknown).toBe(true) // CODEX-only day
+    expect(series.days[1]?.total).toBe(0)
+  })
+
+  it('keeps a mixed day drawn, not unknown, when at least one runtime that day is turn-known', () => {
+    const ledger = report(
+      1,
+      [
+        { day: TODAY, runtime: CODEX, cost: 1, turns: 3 },
+        { day: TODAY, runtime: CLAUDE, cost: 2, turns: 5 },
+      ],
+      null,
+      [CLAUDE],
+    )
+    const series = stackDailyMetric(ledger, NOON, 'turns')
+    expect(series.days[0]?.unknown).toBe(false)
+    // Only CLAUDE's 5 turns count; CODEX contributes 0 to the known total.
+    expect(series.days[0]?.total).toBe(5)
+  })
+
+  it('never marks a cost or tokens day unknown for this reason — only turns', () => {
+    const ledger = report(1, [{ day: TODAY, runtime: CODEX, cost: 1, turns: 3 }], null, [])
+    expect(stackDailyMetric(ledger, NOON, 'cost').days[0]?.unknown).toBe(false)
+    expect(stackDailyMetric(ledger, NOON, 'tokens').days[0]?.unknown).toBe(false)
   })
 })
 

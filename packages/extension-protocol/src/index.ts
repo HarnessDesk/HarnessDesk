@@ -6,6 +6,7 @@ import type {
   EvidenceRecord,
   ExtensionEvent,
   FindingReadInput,
+  FindingSeatRow,
   PersonNoticeInput,
   FindingView,
   HookInvocation,
@@ -339,6 +340,14 @@ export interface ChildToHostMethods {
     params: { readonly scope: TeamCallScope; readonly paths: readonly string[] }
     result: string
   }
+  'team/commitWork': {
+    params: { readonly scope: TeamCallScope; readonly intent: number; readonly message: string }
+    result: string
+  }
+  'team/runCheck': {
+    params: { readonly scope: TeamCallScope; readonly intent: number; readonly name?: string; readonly commit?: string }
+    result: string
+  }
   'team/complete': {
     params: {
       readonly scope: TeamCallScope
@@ -398,7 +407,7 @@ export interface ChildToHostMethods {
   /** The raising Agent's verdict on its own finding, from a later review card. */
   'team/decideFinding': { params: { readonly scope: TeamCallScope; readonly input: DecideFindingInput }; result: FindingView }
   /** This conversation's Goal's findings, bounded, for the card it holds. */
-  'team/listFindings': { params: { readonly scope: TeamCallScope; readonly input: FindingReadInput }; result: readonly FindingView[] }
+  'team/listFindings': { params: { readonly scope: TeamCallScope; readonly input: FindingReadInput }; result: readonly FindingSeatRow[] }
   'team/notify': { params: { readonly scope: TeamCallScope } & PersonNoticeInput; result: string }
 }
 

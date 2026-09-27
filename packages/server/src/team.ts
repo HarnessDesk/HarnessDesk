@@ -13,6 +13,7 @@ import {
   type DecideFindingInput,
   type EvidenceRecord,
   type FindingReadInput,
+  type FindingSeatRow,
   type FindingView,
   type Intent,
   type IntentClaim,
@@ -435,6 +436,10 @@ export interface TeamFlows {
   refuseCompletion?(room: string, intent: Intent, caller: TeamCallScope): Promise<string | null>
   /** Why this card cannot complete yet — its role's grant can commit and its checkout is still dirty — or null. */
   refuseDirty?(room: string, intent: Intent): Promise<string | null>
+  /** `commit_work`: the host commits this card's own work for its Seat — the answer, or null when no flow run bound the card. */
+  commitWork?(room: string, intent: Intent, message: string): Promise<string | null>
+  /** `run_check`: the host runs one of this card's flow's declared checks in its checkout — the answer, or null when no flow run bound the card. */
+  runCheck?(room: string, intent: Intent, name: string | null, commit: string | null): Promise<string | null>
   /**
    * The review rounds on this board still open and blind: several reviewers
    * judging at once, none of whom may read another's card, context or
@@ -454,7 +459,7 @@ export interface TeamFindings {
   raise(input: unknown, scope: TeamCallScope): Promise<FindingView>
   repair(input: unknown, scope: TeamCallScope): Promise<FindingView>
   decide(input: unknown, scope: TeamCallScope): Promise<FindingView>
-  readForSeat(input: unknown, scope: TeamCallScope): Promise<readonly FindingView[]>
+  readForSeat(input: unknown, scope: TeamCallScope): Promise<readonly FindingSeatRow[]>
 }
 
 /**
@@ -2555,7 +2560,7 @@ export class Team {
     return this.#findingsPlane().decide(input, scope)
   }
 
-  async listFindings(input: FindingReadInput, scope: TeamCallScope): Promise<readonly FindingView[]> {
+  async listFindings(input: FindingReadInput, scope: TeamCallScope): Promise<readonly FindingSeatRow[]> {
     this.#caller(scope)
     return this.#findingsPlane().readForSeat(input, scope)
   }
@@ -2563,6 +2568,57 @@ export class Team {
   #findingsPlane(): TeamFindings {
     if (!this.#findings) throw new Error('This desk keeps no findings ledger.')
     return this.#findings
+  }
+
+  /**
+   * `commit_work` (#1074): the host commits the caller's card's own work in
+   * its Seat's checkout, so an agent whose sandbox keeps `.git` read-only
+   * never has to be given it. Only the card's holder may ask, and only for a
+   * card a flow run bound — which decides whether its Seat may commit at all
+   * and what counts as its own work (`FlowExecutions.commitWork`).
+   */
+  async commitWork(intentId: number, message: string, scope: TeamCallScope): Promise<string> {
+    const caller = this.#caller(scope)
+    const board = await this.#boardOf(caller)
+    const intent = board.intents.find((entry) => entry.id === intentId)
+    if (!intent) return `There is no intent #${intentId}.`
+    if (
+      intent.state !== 'claimed' ||
+      !intent.claim ||
+      intent.claim.runtime !== caller.runtime ||
+      intent.claim.sessionId !== caller.sessionId
+    ) {
+      return `Refused: you do not hold #${intentId}, so you cannot commit for it.`
+    }
+    const answer = (await this.#flows?.commitWork?.(board.id, intent, message)) ?? null
+    return answer ?? `Refused: #${intentId} is not a flow card, so commit_work has nothing to commit for it; commit with git.`
+  }
+
+  /**
+   * `run_check` (#1082): the host runs one of the flow's declared checks, by
+   * name, on the commit the caller's card was handed, in a checkout of its
+   * own, and answers pass or fail with the last of its output. A Seat's own
+   * sandbox may refuse what a check needs — a child process's listening
+   * socket — and the host's does not. Only the card's holder may ask, only a
+   * Seat that cannot write, and only for a card a flow run bound
+   * (`FlowExecutions.runCheckFor`, which says why each limit is there).
+   */
+  async runCheck(intentId: number, args: { readonly name?: string; readonly commit?: string }, scope: TeamCallScope): Promise<string> {
+    const { name, commit } = args
+    const caller = this.#caller(scope)
+    const board = await this.#boardOf(caller)
+    const intent = board.intents.find((entry) => entry.id === intentId)
+    if (!intent) return `There is no intent #${intentId}.`
+    if (
+      intent.state !== 'claimed' ||
+      !intent.claim ||
+      intent.claim.runtime !== caller.runtime ||
+      intent.claim.sessionId !== caller.sessionId
+    ) {
+      return `Refused: you do not hold #${intentId}, so you cannot run a check for it.`
+    }
+    const answer = (await this.#flows?.runCheck?.(board.id, intent, name?.trim() ? name.trim() : null, commit?.trim() ? commit.trim() : null)) ?? null
+    return answer ?? `Refused: #${intentId} is not a flow card, so it has no declared checks to run.`
   }
 
   async complete(

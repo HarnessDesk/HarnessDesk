@@ -548,10 +548,10 @@ export class Flows implements TeamFlows {
     return this.#executions?.recordRoundClose(run, round, next) ?? Promise.resolve()
   }
 
-  /** A person's "Another round": one more transition past a recorded stop, never a budget reset. */
-  authorizeExtraRound(run: string, round: number, reason: string): Promise<FlowExecution> {
+  /** A person's "Another round": `count` more transitions (default 1) past a recorded stop, never a budget reset. */
+  authorizeExtraRound(run: string, round: number, reason: string, count?: number): Promise<FlowExecution> {
     if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
-    return this.#executions.authorizeExtraRound(run, round, reason)
+    return this.#executions.authorizeExtraRound(run, round, reason, count)
   }
 
   /** A person admitting or declining a pending regression or security exception. */
@@ -649,6 +649,16 @@ export class Flows implements TeamFlows {
   /** Why this card cannot complete yet — its role's grant can commit and its checkout is still dirty — or null. See `FlowExecutions.refuseDirty`. */
   async refuseDirty(room: string, intent: Intent): Promise<string | null> {
     return (await this.#executions?.refuseDirty(room, intent.id)) ?? null
+  }
+
+  /** `commit_work` for a card a v2 run bound, or null when none did. See `FlowExecutions.commitWork`. */
+  async commitWork(room: string, intent: Intent, message: string): Promise<string | null> {
+    return (await this.#executions?.commitWork(room, intent.id, message)) ?? null
+  }
+
+  /** `run_check` for a card a v2 run bound, or null when none did. See `FlowExecutions.runCheckFor`. */
+  async runCheck(room: string, intent: Intent, name: string | null, commit: string | null): Promise<string | null> {
+    return (await this.#executions?.runCheckFor(room, intent.id, name, commit)) ?? null
   }
 
   /**

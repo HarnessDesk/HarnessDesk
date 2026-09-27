@@ -8,6 +8,13 @@
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-3);
+  /* A flex item defaults to `min-width: auto` — its content's own min-content
+     size, not the container's. The table's Account column has no ceiling of
+     its own, so without this the whole page grew to fit it instead of the
+     table's own `overflow-x-auto` (design/ui/table.tsx) ever getting a
+     chance to scroll, and the header above it "overflowed" the same way for
+     the same reason (review of #1069, B8: the narrow frame was broken). */
+  min-width: 0;
 }
 
 .bandHead {
@@ -27,6 +34,33 @@
    there, a sticky head covered the top of what it heads. */
 .firstBandHead {
   margin-bottom: calc(-1 * var(--hd-space-8)); /* desk: 0 → -32, the first head sits on its own cards */
+}
+
+/* `SectionHead`'s own box (`design/patterns/Settings.module.css`'s
+   `.sectionHead`) is `display: flex` with no wrap, sized for a short action —
+   the Plans filter row is `ShapeFilters`, six chips plus the total, which ran
+   off a narrow window's edge rather than giving up a line. The attribute
+   selector (`[data-section-head]`, which `SectionHead` always sets) rather
+   than a plain class beats that rule on specificity regardless of which
+   stylesheet's build order happens to load last (review of #1069, B8). */
+.firstBandHead[data-section-head] {
+  flex-wrap: wrap;
+}
+
+/* The band head wrapping (above) moves the whole filter row to its own line
+   once it no longer fits beside the title; below that, the filter row's own
+   chips still had nowhere to go — `Segmented` (`design/patterns/Settings.tsx`)
+   is `inline-flex` with no wrap, correctly so for a Settings toggle group
+   that never runs eight chips deep. `ShapeFilters` does, so this screen (not
+   the shared primitive every other segmented control also uses) asks its own
+   instance to wrap, through the slot the primitive already exposes (review of
+   #1069, B8). */
+.shapeFiltersWrap {
+  min-width: 0;
+}
+
+.shapeFiltersWrap :global([data-slot='toggle-group']) {
+  flex-wrap: wrap;
 }
 
 .cards {
@@ -292,3 +326,219 @@
   place-items: center;
 }
 
+
+/* --------------------------------------------------------------------------
+   The Overview strip (claude/overview-strip). Layout-only, per AGENTS.md
+   rule 11: the bordered card is `ChartFrame`/`ChartCard` (the same matted
+   card the money chart sits in), the hairlines are `Separator`, and every
+   cell is a `Button size="pattern"` — a size that carries none of the
+   primitive's own box, so nothing below is appearance this screen draws for
+   itself, only the flex layout arranging what those components already
+   drew. Kept in its own block so a parallel edit to this file's other rules
+   does not have to interleave with it.
+   -------------------------------------------------------------------------- */
+
+.strip {
+  width: 100%;
+  container: hd-overview-strip / inline-size;
+}
+
+.stripRow {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  gap: var(--hd-space-4);
+}
+
+.stripCell {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--hd-space-1);
+  min-width: 0;
+  text-align: left;
+}
+
+.stripFigureLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  flex-wrap: wrap;
+}
+
+.stripCaption {
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .stripRow {
+    flex-wrap: wrap;
+  }
+
+  .stripCell {
+    flex-basis: 40%;
+  }
+
+  /* A hairline that no longer sits between two cells once they wrap onto
+     their own rows is a stray mark, not a divider. */
+  .stripDivider {
+    display: none;
+  }
+}
+
+/* Two-up still crowds a caption like "Metered and list-price" or "fee not
+   set for 3" into too few characters per line — one cell per row gives each
+   caption the width to wrap at a word boundary instead of breaking mid-word
+   or running to four lines. A container query, not another `@media` step:
+   the strip can be this narrow inside a wide window (a split pane, the
+   inspector open beside it), which the viewport alone cannot see — and
+   `flex-wrap` has to be repeated here rather than assumed from the `@media`
+   step above: that step reads the *viewport*, so a wide window with a
+   narrow container would set `flex-basis: 100%` on a row that was never
+   told to wrap at all, which only shrinks four cells onto one crowded line
+   instead of stacking them. */
+@container hd-overview-strip (max-width: 360px) {
+  .stripRow {
+    flex-wrap: wrap;
+  }
+
+  .stripCell {
+    flex-basis: 100%;
+  }
+
+  .stripDivider {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Plans table (claude/plans-table). Kept in its own block so a parallel edit
+ * to the rules above — the Overview stat strip — never has to read past this
+ * line to know it is untouched.
+ * ------------------------------------------------------------------------ */
+
+.plansTable {
+  overflow: hidden;
+}
+
+/* The scroll container `Table` itself renders (`design/ui/table.tsx`,
+   `data-slot="table-container"`) is what narrows: a named size container so
+   the query below can drop columns by the table's own width, not the
+   window's — a split pane or a narrower Studio layout wants the same
+   columns dropped at the same point the whole-window frame does. */
+.plansTableScroll {
+  container-type: inline-size;
+}
+
+/* The disclosure control's own box: `Button`'s `variant="row" size="table-row"`
+   supplies the row's fixed height and hover/press fill (design/ui/button.tsx)
+   — the `flex`/`gap-(--hd-space-1-5)`/`w-full` utilities on the element are
+   what tell tailwind-merge to replace its default `inline-flex`/`gap-1.5`
+   with these, the same collision `Segmented`'s own comment documents. It sits
+   inside the Account column's own cell now (review of #1069, B8), not
+   standing in for the whole row. */
+.plansDisclosure {
+  width: 100%;
+}
+
+.plansName {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.plansBar {
+  min-width: 0;
+  width: 100%;
+}
+
+.colAccount {
+  width: auto;
+  min-width: 0;
+}
+
+/* The four columns a narrow window gives up first: the shape chip (already
+   said again in the expanded body's own header), the bar (the percent
+   column keeps the reading), the vendor's own unit and the turn estimate —
+   Account, Status, %, and Resets are what answers "which one, how bad, when"
+   (review of #1069, B8). */
+.colShape {
+  width: 92px;
+  min-width: 0;
+}
+
+.colLeft {
+  width: 100px;
+  min-width: 0;
+}
+
+.colAmount {
+  width: 160px;
+  min-width: 0;
+}
+
+.colTurns {
+  width: 48px;
+  min-width: 0;
+}
+
+@container (max-width: 640px) {
+  .colShape,
+  .colLeft,
+  .colAmount,
+  .colTurns {
+    display: none;
+  }
+
+  /* With four columns gone, the remaining four (Account, Status, %, Resets)
+     fit the container without their own scrollbar only if the table stops
+     sizing columns off content — `table-layout: fixed` divides the width by
+     what each column declares. Status and Resets get enough for their
+     longest word ("On overage", "18d"); Account (the one column with no
+     width of its own) takes whatever is left, which is what lets its name
+     actually truncate instead of pushing the rest off-screen. */
+  :global([data-slot='table']) {
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .colStatus {
+    width: 76px;
+  }
+
+  .colPercent {
+    width: 40px;
+  }
+
+  .colResets {
+    width: 40px;
+  }
+}
+
+/* The frame every shape body but Windows (which reuses `Card`) is drawn in. */
+.frame {
+  min-width: 0;
+}
+
+.frameHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+}
+
+.frameBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+
+/* `CardContent` (design/ui/card.tsx) is the wrapping element, for its own
+   horizontal inset — this class lays out what goes inside it. */
+.frameMoney {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--hd-space-1-5) var(--hd-space-3);
+}

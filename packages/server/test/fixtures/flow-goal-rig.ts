@@ -88,9 +88,13 @@ export interface GoalRig {
   readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null; readonly dirtyPaths?: readonly string[] | null }>
   /** Checkouts whose `headOf` throws instead of answering — a git read that failed outright. */
   readonly headOfFails: Set<string>
+  /** Every `commit_work` the engine asked the host to make, in order; each answers a fixed commit. */
+  readonly commits: { readonly cwd: string; readonly before: readonly string[]; readonly message: string }[]
   /** Every message the engine's own `port.log` was called with, in order. */
   readonly logs: string[]
   /** What `runCheck` answers for a command, keyed by its exact text; unset commands "pass" (exit 0). */
+  /** Every checkout `checkoutAt` cut for a `run_check`, in order. */
+  readonly checkouts: string[]
   readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
   /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
   checkEvidenceFails: boolean
@@ -208,7 +212,9 @@ export const goalRig = async (
     readableProviders: new Set<string>(), goals: new Map<string, string>(),
     heads: new Map<string, { at: string | null; dirty: boolean; dirtyFiles?: number | null; dirtyPaths?: readonly string[] | null }>(),
     headOfFails: new Set<string>(),
+    commits: [] as { cwd: string; before: readonly string[]; message: string }[],
     logs: [] as string[],
+    checkouts: [] as string[],
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
     checksRunUntilStopped: null,
@@ -288,11 +294,20 @@ export const goalRig = async (
       const state = team.stateFor(input.goal)
       const overlap = team.refuseOverlap(input.goal, state.intents, input.card, runtime, sessionId)
       if (overlap) throw new Error(`Refused: ${overlap}`)
+      /* `stateFor` is the wire-safe board, every claim's snapshot stripped;
+         installed back as it is, it erased the snapshot of every card claimed
+         before this one — a card a second Seat opened after then read as
+         never snapshotted. The real host's claim writes the Goal document,
+         which keeps them (#1074 review). */
       team.installProjection({
         ...state,
-        intents: state.intents.map((card) => card.id === input.card
-          ? { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now(), dirtyPaths: dirtyOf(cwd) } }
-          : card),
+        intents: state.intents.map((card) => {
+          if (card.id === input.card) {
+            return { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now(), dirtyPaths: dirtyOf(cwd), head: rig.heads.get(cwd)?.at ?? null } }
+          }
+          const kept = team.dirtyPathsOf(input.goal, card.id)
+          return card.claim && kept !== undefined ? { ...card, claim: { ...card.claim, dirtyPaths: kept } } : card
+        }),
       })
     }
     return record
@@ -366,6 +381,18 @@ export const goalRig = async (
       const dirtyPaths = dirtyOf(cwd)
       return { ...found, dirtyFiles: dirtyPaths.length, dirtyPaths }
     },
+    commitWork: async (cwd, before, message) => {
+      rig.commits.push({ cwd, before, message })
+      return { commit: 'c'.repeat(40), paths: ['notes.md'] }
+    },
+    // A `run_check` checkout: a folder named for the commit, whose head is that commit, gone once removed.
+    checkoutAt: async (cwd, at) => {
+      const path = `${cwd}/.check/${at.slice(0, 8)}-${rig.checkouts.length}`
+      rig.checkouts.push(path)
+      rig.heads.set(path, { at, dirty: false })
+      rig.events.push(`checkout:${at}`)
+      return { cwd: path, remove: async () => { rig.heads.delete(path); rig.events.push(`checkout-removed:${at}`) } }
+    },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
       if (rig.checksRunUntilStopped) {
@@ -385,7 +412,10 @@ export const goalRig = async (
         if (head.at) {
           pushFact(
             card.goal,
-            { kind: 'check', name: card.name, run: command, exit: outcome.exit, timedOut: outcome.timedOut, at: head.at, dirty: head.dirty, tail: outcome.tail },
+            {
+              kind: 'check', name: card.name, run: command, exit: outcome.exit, timedOut: outcome.timedOut, at: head.at,
+              ...(card.advisory ? { counted: false, advisory: true as const } : {}), dirty: head.dirty, tail: outcome.tail,
+            },
             { card: { board: card.goal, id: card.card }, round: card.round },
           )
         }

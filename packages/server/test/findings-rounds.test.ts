@@ -25,10 +25,11 @@ const sample = (over: Partial<LoopSample> = {}): LoopSample => ({
 })
 
 test('ceiling wins over green merge', () => {
-  assert.deepEqual(decideLoop(sample({ closed: 2 })), { idle: 0, next: 'merge-card', reason: null })
+  assert.deepEqual(decideLoop(sample({ closed: 2 })), { idle: 0, next: 'merge-card', reason: null, ceiling: false })
   const third = decideLoop(sample({ closed: 3 }))
   assert.equal(third.next, 'person', 'the third closed round stops at the person even with every guard green')
   assert.equal(third.reason, 'Round 3 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.')
+  assert.equal(third.ceiling, true, 'the round-ceiling stop is the one a count past one may answer at once')
   assert.equal(decideLoop(sample({ closed: 1, unresolved: 2 })).next, 'continue')
 })
 
@@ -39,13 +40,19 @@ test('a round-ceiling stop, plain or with a review series, names the exact way p
   assert.match(plain.reason!, /Authorise another round/)
 })
 
-test('a stop another round cannot actually clear names no way forward', () => {
+test('a stop another round cannot actually clear names no way forward, and is never the ceiling', () => {
   // A design problem: granting one more round would only run straight back into the same two rejected repairs.
-  assert.doesNotMatch(decideLoop(sample({ unresolvedRepairs: [2] })).reason!, /Authorise another round/)
+  const design = decideLoop(sample({ unresolvedRepairs: [2] }))
+  assert.doesNotMatch(design.reason!, /Authorise another round/)
+  assert.equal(design.ceiling, false, 'a count past one round buys nothing against a design problem')
   // A pending regression or security claim: it is the claim, not the round count, that is waited on.
-  assert.doesNotMatch(decideLoop(sample({ pendingException: true })).reason!, /Authorise another round/)
+  const exception = decideLoop(sample({ pendingException: true }))
+  assert.doesNotMatch(exception.reason!, /Authorise another round/)
+  assert.equal(exception.ceiling, false)
   // Rounds without new evidence: the ceiling another round raises is not the allowance this stop counts against.
-  assert.doesNotMatch(decideLoop(sample({ newProgress: false, idle: 1, idleLimit: 2 })).reason!, /Authorise another round/)
+  const idle = decideLoop(sample({ newProgress: false, idle: 1, idleLimit: 2 }))
+  assert.doesNotMatch(idle.reason!, /Authorise another round/)
+  assert.equal(idle.ceiling, false)
 })
 
 const view = (id: string, fact: EvidenceRecord['fact'], over: Partial<EvidenceRecord> = {}): EvidenceView => ({

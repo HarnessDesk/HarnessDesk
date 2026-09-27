@@ -120,7 +120,7 @@ export const findingsRig = async (
       })),
       seriesOfGoal: (goal) => rig.flows.seriesOfGoal(goal),
       overridesOfGoal: (goal) => rig.flows.overridesOfGoal(goal),
-      authorizeExtraRound: (run, round, reason) => rig.flows.authorizeExtraRound(run, round, reason),
+      authorizeExtraRound: (run, round, reason, count) => rig.flows.authorizeExtraRound(run, round, reason, count),
       recordExceptionDecision: (run, findings, admit) => rig.flows.recordExceptionDecision(run, findings, admit),
       recordOverride: (run, override) => rig.flows.recordOverride(run, override),
       stopRun: (run, reason) => rig.flows.stopRun(run, reason),

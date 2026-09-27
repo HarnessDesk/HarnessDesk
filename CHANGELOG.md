@@ -7,6 +7,85 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A reviewer that already raised a finding is now told plainly how to close
+  it on a later round.** A blocking finding could be fixed, confirmed fixed in
+  two reviewers' own prose, and still sit Open forever: only the Agent that
+  raised a finding may decide it, and only from a later, fresh Seat of its
+  own — never told anywhere before now, so a reviewer's "this is closed" in
+  its report never reached the ledger. `list_findings` now marks which
+  findings on a Goal are the calling Agent's own and which of those it may
+  decide right now, and every finding-raising Agent's brief (API, code,
+  performance, security and test reviewer) says outright: decide each one you
+  raised with `decide_finding`, against a candidate from `review_candidates`,
+  before finishing the card — prose alone never closes it. A later review's
+  own packet now names the raising Agent beside each finding still in
+  question, since more than one Agent can hold the same role across a Goal's
+  rounds. (Refs #1089, #1090)
+
+- **"Decide it yourself" in Findings hardened against ever losing a typed
+  reason, and against ever sending one to the wrong finding.** The person's
+  own draft reason now lives with the finding's own dialog rather than the
+  panel inside it, and is cleared the moment that dialog is asked to show a
+  different finding — belt-and-suspenders for a decision a person only gets
+  to make once a finding has already been through a full round of review.
+  (#1089, #1090)
+
+- **"Authorise another round" in Findings now takes a count, so a converging
+  loop no longer needs a click per round.** The action used to let exactly one
+  round past a stop, so a run against a round budget of 20 could need about
+  fifteen presses in a row to keep going, each one reopening the same dialog.
+  The dialog now has a small number field next to the button, 1 to 20, that
+  relabels it ("Authorise 3 more rounds") and widens the round ceiling by that
+  many at once; the run still stops at the new limit, and the stop still names
+  the way forward. Leaving the field at its default authorises one round,
+  exactly as before, and the authorization survives a restart the same way a
+  single round's did. (#1083)
+
+- **A reviewer whose sandbox will not let a server start no longer fails the
+  change for it.** Codex's sandbox refuses a child process a listening socket,
+  so every test that started a real server failed inside a Codex-seated review
+  or acceptance turn while passing on the desk's own check — and one
+  acceptance card answered not-met for that alone. A Seat that only reads now
+  has a `run_check` tool: the desk runs one of the flow's declared checks, by
+  name, on the committed change the card was handed, in a fresh checkout it
+  cuts for that one run and removes after, with the check's own timeout and
+  output cap, and answers passed or failed with the last of its output; a
+  failure there says the checkout is clean, without ignored files such as
+  installed dependencies, so it may come from that rather than the change. The
+  commit is the one the card was handed or, failing that, the one recorded
+  when it was claimed, never wherever the checkout is now. A check checkout a
+  crash left behind is removed the next time the app starts. It never runs a
+  command the agent writes or anybody's uncommitted edits; a Seat that can
+  write is refused and pointed to the flow's own check card; it allows three
+  runs a turn and ten a card, and none while the run is paused. Its result
+  shows on the card as advisory evidence, which no rule's check guard counts,
+  for or against. The sandbox is not widened. The shipped reviewers and the
+  Requirements analyst use the tool for anything that needs a running server,
+  and say that a refusal from their own sandbox is not a failing verdict.
+
+- **A Seat that may edit can commit its card's work even where its sandbox
+  keeps `.git` read-only.** Codex's workspace sandbox refuses writes to a
+  checkout's `.git`, so a Seat held at `edit` wrote its files and then had
+  every `git commit` refused with "Operation not permitted" — and since a card
+  that can commit may not finish with its own work uncommitted, the card
+  retried until the run stalled. Agents now have a `commit_work` tool: the
+  desk itself commits the card's own work — every file changed since the card
+  was claimed, and nothing that was already uncommitted before — with the
+  agent's message, in the Seat's checkout or lane, and answers the new commit.
+  The sandbox is not widened. The commit runs no hook, filesystem monitor,
+  filter or signing program the repository configures; it refuses work a git
+  filter such as LFS would touch rather than commit it raw, leaves submodules
+  alone, and refuses while another committing card shares the checkout. The
+  desk's own automatic git in a checkout an agent can write — evidence reads,
+  status, lane creation — now runs none of the repository's hooks, its
+  filesystem monitor or an external diff program; a filter it configures can
+  still run there. Verbs you trigger yourself, like bringing a branch home,
+  still run your hooks. The shipped Researcher,
+  Requirements analyst and Implementer briefs use the tool, the uncommitted-work
+  refusal names it, and when a card's finish is refused for uncommitted work
+  turn after turn until the run gives up, the stop now says the Seat could not
+  commit its work instead of only that it "ended its turn 3 times". (#1074)
+
 - **A Seat still busy when a flow round fails, or a run stops, is no longer left
   holding its card forever, and it never sits there silently either.** Releasing
   a Seat interrupts its live turn; a Seat still found busy — or refused because
@@ -50,6 +129,35 @@ move is real work and is not news to a person weighing an upgrade.
   claim so it survives a restart, but never a value any board or `goal/read`
   result shows, so a shared checkout's own file names never reach a
   renderer. (#1049)
+
+- **Overview leads with a strip: Value, Turns and Tokens for the same
+  window the Spend chart below draws, with Paid beside them.** Paid is the
+  cash that actually left — each account's fee prorated across the window,
+  plus any metered overage spent since the cycle started, shown beside the
+  figure rather than folded in when that cycle start falls outside the
+  window — never counting an account with no fee set as $0 (its own caption
+  says "fee not set for N" and opens that account's Plan card instead). Paid
+  has no period-over-period delta: there is no billing history to compare
+  against yet, so Value, Turns and Tokens carry the deltas alone. Value and
+  Turns are also buttons: clicking one switches the chart beneath the strip
+  between cost, turns and tokens per day. A cache-hit chip rides the Tokens
+  figure, and every cell's own caption says what needs saying — a ratio
+  against Paid when every account in scope shares Paid's currency and has a
+  fee set, a per-turn price, how many agents a figure is known for — never a
+  repeat of the number beside it.
+
+- **Plans is a table now, sorted by what is left, filtered by shape.** The
+  card grid read fine at a handful of accounts and badly past that: nothing
+  about it could be sorted, filtered, or scanned at a glance for the one
+  about to run out. A row of shape chips (Windows, Allowances, Balances,
+  Keys, Free, Not reporting), each with its own count, sits above one table —
+  mark, account, a status chip, a "left" bar, the percent, the figure in the
+  vendor's own unit, an approximate turn count, and the reset — and a row
+  expands in place, on click or on Enter, into that account's own shape body:
+  the existing card for a windows plan, and five new ones for an allowance, a
+  prepaid balance, a metered key with its own budget, a free/local agent, and
+  an agent that reports nothing at all, each with its source, its age, and
+  the one thing to do about it.
 
 - **The Dashboard's rail lists views, and the account you're looking at is a
   choice in the header.** The rail used to hold one row per account, which

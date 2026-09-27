@@ -406,6 +406,13 @@ export const App = () => {
           onScope={(scope) => setUsageOpen((open) => open && { ...open, scope })}
           onClose={() => setUsageOpen(false)}
           onSignIn={(runtime) => setSignInOpen(runtime)}
+          // Settings › Runtimes, focused on the agent — the same door
+          // `routeFor`'s `install`/`runtime` case opens from the refusal
+          // sheet (`seat-fixes.ts`). It is the closest existing entry point
+          // to "that account's own Plan card"; nothing in Settings' own
+          // navigation can be handed a specific account key from outside it
+          // yet (review of #1069, B5).
+          onOpenPlanSettings={(runtime) => openSettingsAt('runtimes', runtime)}
         />
       )}
       {agentsOpen && (

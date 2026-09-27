@@ -7,6 +7,7 @@ import type { RunwaySummary } from '../../lib/usage'
 import { Button, Segmented, Text } from '../../design'
 import { UsageActivity, type HeatView } from '../UsageActivity'
 import { BandHead, Card, PIVOTS, Ranked, Spend, type Pivot, type SilentAgent, type TintOf } from './shared'
+import { OverviewStrip, stripChartMetric, type StripMetric } from './OverviewStrip'
 import styles from './usage.module.css'
 
 /**
@@ -19,6 +20,7 @@ import styles from './usage.module.css'
  * here: Overview triages, it does not replace.
  */
 export const OverviewView = ({
+  reports,
   attention,
   byId,
   agentTints,
@@ -43,6 +45,9 @@ export const OverviewView = ({
   onHeatViewChange,
   heatMetric,
   onHeatMetricChange,
+  stripMetric,
+  onStripMetricChange,
+  onOpenPlan,
 }: {
   reports: readonly UsageReport[]
   attention: readonly UsageReport[]
@@ -71,10 +76,26 @@ export const OverviewView = ({
   onHeatViewChange: (view: HeatView) => void
   heatMetric: HeatMetric
   onHeatMetricChange: (metric: HeatMetric) => void
+  /** The strip's own chart toggle — see `OverviewStrip.tsx`. */
+  stripMetric: StripMetric
+  onStripMetricChange: (metric: StripMetric) => void
+  /** "fee not set" / "Set plan prices" — the strip's own link into Settings › Agents. */
+  onOpenPlan: (runtime: RuntimeId) => void
 }) => {
   const scopedSilent = silent.filter((agent) => scope === null || scope === agent.info.id)
   return (
     <>
+      <OverviewStrip
+        reports={reports}
+        ledger={ledger}
+        wideLedger={wideLedger}
+        range={range}
+        now={now}
+        metric={stripMetric}
+        onMetricChange={onStripMetricChange}
+        onOpenPlan={onOpenPlan}
+      />
+
       <BandHead name="What is left" note={summary.headline ?? undefined} className={styles.firstBandHead} />
       <section className={styles.band} aria-label="What is left">
         {attention.length > 0 ? (
@@ -119,6 +140,7 @@ export const OverviewView = ({
             mode={mode}
             onModeChange={onModeChange}
             onScan={onScan}
+            metric={stripChartMetric(stripMetric)}
           />
         </div>
         <div className={styles.bentoSide}>

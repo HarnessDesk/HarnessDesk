@@ -161,6 +161,12 @@ export type Evidence =
       readonly digest?: Sha
       /** False unless HEAD was proven to stay on this commit throughout the run; then it is evidence for neither revision. */
       readonly counted?: boolean
+      /**
+       * A Seat's own `run_check` of a declared check, on the committed change
+       * in a checkout cut for it (#1082): it informs a review, is always
+       * `counted: false`, and no rule's check guard ever reads it.
+       */
+      readonly advisory?: true
       /** True when the checkout held changes not committed: the result is about no commit at all. */
       readonly dirty: boolean
       /** The last of what it printed, so a failure can say why. At most 4,000 characters. */
