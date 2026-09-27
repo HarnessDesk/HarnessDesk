@@ -86,6 +86,30 @@ export interface IntentClaim {
    * commits were made in it. Null when there was none.
    */
   readonly upstream?: string | null
+  /**
+   * Paths the checkout already showed changed or untracked the moment this
+   * claim began — a shared checkout's own pre-existing dirt, kept only so a
+   * finish can tell it apart from what this card's own holder left behind.
+   *
+   * Host-only: it is stored with the claim so it survives a restart, but it
+   * is never a value a renderer sees. `Team`'s own projection (`#stateOf`)
+   * and `GoalPlane.view`'s board both strip it before a card list becomes a
+   * wire result (`cardsForWire`), so a shared checkout's own file names — a
+   * `.env`, anything else `git status` would name — never reach a person who
+   * only opened a board. Held paths only, and only to be diffed against a
+   * later read of the same checkout, capped at 500 entries past which the
+   * whole list is dropped to `null` rather than carried in full (a `git
+   * status` an unignored `node_modules` turns into tens of thousands of
+   * lines). Null when the read failed at claim time, or past that cap;
+   * absent on a claim written before this existed — either way, a finish
+   * with no snapshot to compare against is never refused for dirt it cannot
+   * attribute (#1049). Two things it cannot see: a path already dirty at
+   * claim that the same card's own work touches again reads as pre-existing
+   * dirt, not new; and a new file inside a folder that was already untracked
+   * at claim is invisible, because `git status` names the folder, not what
+   * is later added inside it.
+   */
+  readonly dirtyPaths?: readonly string[] | null
 }
 
 /**

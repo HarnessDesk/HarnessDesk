@@ -25,6 +25,32 @@ move is real work and is not news to a person weighing an upgrade.
   starts — a run only waiting on a person's answer, or one already stalled on
   its own reason, is left exactly as it was. (#1027)
 
+- **A card whose role can commit can no longer finish with uncommitted work
+  of its own left behind.** A flow card whose Agent may commit (`edit` and
+  above) used to be able to call `complete_claim` while its own checkout
+  still held changes never committed — tracked or untracked — and the round
+  closed as a success anyway. The work stayed outside every branch and
+  outside the evidence ledger, with nothing telling the person; only reading
+  the raw evidence record showed a zero diff. `complete_claim`, and a review
+  that finishes a card the same way, now refuse that finish and say how many
+  files are uncommitted — but a Goal's checkout is shared by default, so the
+  check compares the checkout now against a snapshot taken the moment the
+  card was claimed and counts only a path dirty since: a person's own
+  untracked file, or another card's leftover work on the same shared
+  checkout, is never held against a card that never touched it. A card whose
+  role cannot commit at all is never checked, a claim with no snapshot (from
+  before this shipped, a failed read, or a checkout with more than 500 dirty
+  paths, which is dropped rather than carried in full) is never refused for
+  dirt it cannot attribute, and a person's own hand finish is untouched,
+  since they may have decided the leftovers do not matter. A prose-only round
+  — one whose role produces no diff at all — is untouched too: that is
+  legitimate, not the defect. Read what the desk observed on the card, and
+  its diff is drawn stale when new dirt was left behind, even after a person
+  finishes it by hand. The snapshot itself is host-only — stored with the
+  claim so it survives a restart, but never a value any board or `goal/read`
+  result shows, so a shared checkout's own file names never reach a
+  renderer. (#1049)
+
 - **The Dashboard's rail lists views, and the account you're looking at is a
   choice in the header.** The rail used to hold one row per account, which
   duplicated the card list a click away, mixed a plan's percentage with a
