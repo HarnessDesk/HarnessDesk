@@ -77,11 +77,14 @@ export interface GoalRig {
   readonly goals: Map<string, string>
   /**
    * What `headOf` answers for a checkout's `cwd`, keyed by that path; unset
-   * cwds read as no repository. `dirtyFiles` defaults to `1` when `dirty` is
-   * true and no count was given, `0` otherwise — a test names an exact count
-   * only when that count itself is what it is proving.
+   * cwds read as no repository, and no dirt. `dirtyPaths` names the exact
+   * paths `git status` would show; a test that only says `dirty: true` gets
+   * one unspecified path (`dirtyOf`). This same read is what a claim's own
+   * snapshot (`IntentClaim.dirtyPaths`) is taken from, at the moment a card
+   * is claimed — so setting `heads` before a claim is what a test uses to
+   * shape that snapshot, and setting it again afterward is new dirt since.
    */
-  readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null }>
+  readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null; readonly dirtyPaths?: readonly string[] | null }>
   /** Checkouts whose `headOf` throws instead of answering — a git read that failed outright. */
   readonly headOfFails: Set<string>
   /** Every message the engine's own `port.log` was called with, in order. */
@@ -190,7 +193,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     team, dir, peers, events: [] as string[], seats: new Map<string, SeatRecord>(), lanes: new Map<string, Lane>(),
     digests: new Map<string, string>(), providers: new Map<string, string>(), presentations: new Map<string, string>(),
     readableProviders: new Set<string>(), goals: new Map<string, string>(),
-    heads: new Map<string, { at: string | null; dirty: boolean; dirtyFiles?: number | null }>(),
+    heads: new Map<string, { at: string | null; dirty: boolean; dirtyFiles?: number | null; dirtyPaths?: readonly string[] | null }>(),
     headOfFails: new Set<string>(),
     logs: [] as string[],
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
@@ -225,6 +228,18 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     const record: EvidenceRecord = { id: `fact-${factSeq}`, fact, observedAt: Date.now(), ...extra }
     rig.facts.set(goal, [...(rig.facts.get(goal) ?? []), record])
     return record
+  }
+  /**
+   * A checkout's dirty paths, as `git status` would answer it: `rig.heads`'s
+   * own `dirtyPaths` when a test named them, else one unspecified path when
+   * it only said `dirty: true` — a test that cares which paths counts them
+   * by name instead. Read at claim time (the snapshot `IntentClaim` keeps)
+   * and at `headOf` (a finish's live read) alike, so both agree with
+   * whatever one `rig.heads` entry says a checkout holds right now.
+   */
+  const dirtyOf = (cwd: string): readonly string[] => {
+    const found = rig.heads.get(cwd)
+    return found?.dirtyPaths ?? (found?.dirty ? ['(unspecified)'] : [])
   }
   /* Inside the Goal queue, as `GoalPlane.seat` and `GoalPlane.release` run: the host's own order. */
   const openSeat = async (input: Parameters<FlowExecutionPort['openSeat']>[0]): Promise<SeatRecord> => {
@@ -263,7 +278,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       team.installProjection({
         ...state,
         intents: state.intents.map((card) => card.id === input.card
-          ? { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now() } }
+          ? { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now(), dirtyPaths: dirtyOf(cwd) } }
           : card),
       })
     }
@@ -330,8 +345,8 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     headOf: async (cwd) => {
       if (rig.headOfFails.has(cwd)) throw new Error('simulated git failure')
       const found = rig.heads.get(cwd) ?? { at: null, dirty: false }
-      const dirtyFiles = found.dirtyFiles !== undefined ? found.dirtyFiles : found.dirty ? 1 : 0
-      return { ...found, dirtyFiles }
+      const dirtyPaths = dirtyOf(cwd)
+      return { ...found, dirtyFiles: dirtyPaths.length, dirtyPaths }
     },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)

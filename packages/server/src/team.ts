@@ -322,7 +322,12 @@ export interface TeamPort {
    * work began: its commit, and the remote's copy of its branch; null
    * outside a repository. Absent, claims record neither.
    */
-  startOf?(cwd: string): Promise<{ readonly head: string | null; readonly upstream: string | null } | null>
+  startOf?(cwd: string): Promise<{
+    readonly head: string | null
+    readonly upstream: string | null
+    /** Paths already dirty in this checkout the moment a claim reads it — `IntentClaim.dirtyPaths`'s source. Null when that read failed. */
+    readonly dirtyPaths?: readonly string[] | null
+  } | null>
   /**
    * The folder a session works in now, read straight off the registry rather
    * than through any board: where a card's claim just ended looks for its
@@ -2422,7 +2427,7 @@ export class Team {
         sessionId: caller.sessionId,
         at: Date.now(),
         leaseUntil: Date.now() + LEASE_MS,
-        ...(start ? { head: start.head, upstream: start.upstream } : {}),
+        ...(start ? { head: start.head, upstream: start.upstream, dirtyPaths: start.dirtyPaths ?? null } : {}),
       },
       blockedReason: null,
       blockedBy: null,

@@ -2,7 +2,7 @@ import type { Evidence, EvidenceRecord, Sha } from '@harnessdesk/protocol'
 
 import { readPullRequest, type GhInCheckout } from './forge.js'
 import { factKey, mintId } from './records.js'
-import { diffOf, projectOf, revisionOf } from './revision.js'
+import { diffOf, pathsAddedSince, projectOf, revisionOf } from './revision.js'
 import type { EvidenceStore } from './store.js'
 
 /**
@@ -68,6 +68,17 @@ export interface Look {
    * or stopped with a known `until`.
    */
   readonly skipDiff?: boolean
+  /**
+   * Paths already dirty in this checkout the moment the card was claimed —
+   * `IntentClaim.dirtyPaths`. Given as a list, the diff fact's own `dirty`
+   * counts only a path dirty now that was not dirty then (`pathsAddedSince`),
+   * so a checkout shared with other work is never marked stale for dirt this
+   * card's own holder never made. Absent (no claim ever recorded one — a
+   * card settled before this existed) or null (the read failed at claim
+   * time) both fall back to the whole checkout's own `dirty`, as it always
+   * answered.
+   */
+  readonly sinceDirtyPaths?: readonly string[] | null
 }
 
 export class Observer {
@@ -121,10 +132,24 @@ export class Observer {
       ...(look.upstream !== undefined ? { upstream: look.upstream } : {}),
       ...(look.until !== undefined ? { until: look.until } : {}),
     })
-    // Whether the checkout still held changes not committed at this same look,
-    // from the read this look already made — never a second probe. A hand
-    // finish left dirty is not refused (#1049), but its diff is drawn stale.
-    if (diff) facts.push({ kind: 'diff', ...diff, dirty: revision.dirty })
+    /*
+     * Whether the checkout held changes not committed at this same look, from
+     * the read this look already made — never a second probe. A hand finish
+     * left dirty is not refused (#1049), but its diff is drawn stale.
+     *
+     * A checkout shared with other work is not this card's own dirt: given
+     * `sinceDirtyPaths` — the snapshot taken when the card was claimed — only
+     * a path dirty now that was not dirty then counts (`pathsAddedSince`),
+     * so a person's own untracked file elsewhere in the tree never marks a
+     * cleanly finished card stale. With no snapshot to compare against, the
+     * whole checkout's own `dirty` answers as it always did.
+     */
+    const dirty = look.sinceDirtyPaths === undefined || look.sinceDirtyPaths === null
+      ? revision.dirty
+      : revision.dirtyPaths === null
+        ? true
+        : pathsAddedSince(revision.dirtyPaths, look.sinceDirtyPaths).length > 0
+    if (diff) facts.push({ kind: 'diff', ...diff, dirty })
     const forge = await readPullRequest(look.cwd, this.#gh)
     if (forge.kind === 'unreachable') {
       this.#log('the forge could not be read for a card', { room: look.room, card: look.card, why: forge.why })

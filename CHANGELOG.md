@@ -8,19 +8,26 @@ move is real work and is not news to a person weighing an upgrade.
 ## Unreleased
 
 - **A card whose role can commit can no longer finish with uncommitted work
-  left behind.** A flow card whose Agent may commit (`edit` and above) used
-  to be able to call `complete_claim` while its own checkout still held
-  changes never committed — tracked or untracked — and the round closed as a
-  success anyway. The work stayed outside every branch and outside the
-  evidence ledger, with nothing telling the person; only reading the raw
-  evidence record showed a zero diff. `complete_claim`, and a review that
-  finishes a card the same way, now refuse that finish and say how many files
-  are uncommitted; a card whose role cannot commit at all is never checked,
-  and neither is a person's own hand finish, who may have decided the
-  leftovers do not matter. A prose-only round — one whose role produces no
-  diff at all — is untouched: that is legitimate, not the defect. Read what
-  the desk observed on the card and its diff is drawn stale when it was left
-  dirty, even after a person finishes it by hand. (#1049)
+  of its own left behind.** A flow card whose Agent may commit (`edit` and
+  above) used to be able to call `complete_claim` while its own checkout
+  still held changes never committed — tracked or untracked — and the round
+  closed as a success anyway. The work stayed outside every branch and
+  outside the evidence ledger, with nothing telling the person; only reading
+  the raw evidence record showed a zero diff. `complete_claim`, and a review
+  that finishes a card the same way, now refuse that finish and say how many
+  files are uncommitted — but a Goal's checkout is shared by default, so the
+  check compares the checkout now against a snapshot taken the moment the
+  card was claimed and counts only a path dirty since: a person's own
+  untracked file, or another card's leftover work on the same shared
+  checkout, is never held against a card that never touched it. A card whose
+  role cannot commit at all is never checked, a claim with no snapshot (from
+  before this shipped, or a failed read) is never refused for dirt it cannot
+  attribute, and a person's own hand finish is untouched, since they may have
+  decided the leftovers do not matter. A prose-only round — one whose role
+  produces no diff at all — is untouched too: that is legitimate, not the
+  defect. Read what the desk observed on the card, and its diff is drawn
+  stale when new dirt was left behind, even after a person finishes it by
+  hand. (#1049)
 
 - **A step after an isolated one now works on that step's actual commit.** A
   flow step that depends on an isolated step's finished work — a tester after

@@ -86,6 +86,17 @@ export interface IntentClaim {
    * commits were made in it. Null when there was none.
    */
   readonly upstream?: string | null
+  /**
+   * Paths the checkout already showed changed or untracked the moment this
+   * claim began — a shared checkout's own pre-existing dirt, kept only so a
+   * finish can tell it apart from what this card's own holder left behind.
+   * Never shown; held paths only, and only to be diffed against a later
+   * read of the same checkout. Null when the read failed at claim time;
+   * absent on a claim written before this existed — either way, a finish
+   * with no snapshot to compare against is never refused for dirt it cannot
+   * attribute (#1049).
+   */
+  readonly dirtyPaths?: readonly string[] | null
 }
 
 /**

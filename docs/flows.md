@@ -807,16 +807,33 @@ implementer Agent and the right answer there is words, so `complete_claim` on
 an empty diff is left alone. What is refused is finishing *dirty*:
 `complete_claim`, and a review that finishes a card the same way, checks a
 committing Seat's own checkout — `edit` and above, the same ceiling the
-shared-tree rule above reads — and refuses the finish while it still holds
-changes never committed, tracked or untracked, naming how many files. A Seat
-that may only read is never checked; it could not have committed anything, so
-reading it as dirty would be a dead end. The read is the same one the desk's
-own evidence observer already takes of a checkout (`headOf`, never a second
-git probe), bounded and fail-open: a read that cannot answer never blocks the
-finish, only logs. A person finishing a card by hand through the board is not
-refused this way — they may have decided the leftovers do not matter — but the
-board still shows it: a diff fact recorded while its checkout was dirty draws
-stale, the same way a check that ran on uncommitted changes always has.
+shared-tree rule above reads. A Seat that may only read is never checked; it
+could not have committed anything, so reading it as dirty would be a dead
+end.
+
+A Goal's checkout is shared by default, and most shipped flows are not
+isolated, so the check is never "is the whole tree clean" — a person's own
+untracked file, a half-finished edit sitting there from before the card was
+even claimed, or unignored build output would refuse every finish on that
+checkout for dirt nobody on the card made. Instead, the moment a card is
+claimed, the desk takes a snapshot of every path `git status` already shows
+changed or untracked in that checkout (`IntentClaim.dirtyPaths`, read the same
+way `head` and `upstream` already are). Finishing compares the checkout now
+against that snapshot and refuses only for a path dirty now that was not
+dirty then, naming how many. A path already dirty at claim is never counted
+even if the card's own work touched it again — the two reads cannot tell that
+apart, and that is a stated limit, not a hidden one. A claim with no snapshot
+— written before this existed, or one whose read failed at claim time — is
+never refused for dirt it cannot attribute: it fails open. The live read at
+finish is the same one the desk's own evidence observer already takes of a
+checkout (`headOf`, never a second probe beyond the one already needed for
+the snapshot), bounded and fail-open there too: a read that cannot answer
+never blocks the finish, only logs. A person finishing a card by hand through
+the board is not refused this way at all — they may have decided the
+leftovers do not matter — but the board still shows it: a diff fact recorded
+while the checkout held a path dirty since the claim draws stale, the same
+way a check that ran on uncommitted changes always has; pre-existing dirt
+from before the claim never draws it stale on its own.
 
 **The catalogue** a project's Flows section and `/race` both read is layered
 — a project's own `.harnessdesk/flows`, then this Mac's, then the ones that

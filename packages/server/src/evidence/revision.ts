@@ -51,6 +51,40 @@ export interface Revision {
    * read as a clean checkout.
    */
   readonly dirtyFiles: number | null
+  /**
+   * The same files, named, from the one `git status` read `dirty` and
+   * `dirtyFiles` already come from — never a second probe. What lets a
+   * caller tell a checkout's own pre-existing dirt apart from what a card's
+   * own work added since a snapshot of this same list was taken at claim
+   * (`pathsAddedSince`, `IntentClaim.dirtyPaths`). Null exactly when
+   * `dirtyFiles` is.
+   */
+  readonly dirtyPaths: readonly string[] | null
+}
+
+/**
+ * One `git status --porcelain=v1` line's path — the part after its two
+ * status letters and the space, and after a rename's ` -> ` when there is
+ * one, since a rename's own new name is the path this checkout now holds.
+ */
+const pathOfStatusLine = (line: string): string => {
+  const rest = line.slice(3)
+  const arrow = rest.indexOf(' -> ')
+  return arrow === -1 ? rest : rest.slice(arrow + 4)
+}
+
+/**
+ * Paths dirty now that were not already dirty in an earlier snapshot of the
+ * same checkout — the comparison a completion gate and the board's own
+ * staleness reading both need, so a shared checkout's own pre-existing dirt
+ * is never blamed on a card that did not make it. A path already dirty in
+ * `before` stays uncounted even if this card's own work touched it again:
+ * the two reads cannot tell that apart, and this is that limit, stated
+ * rather than hidden.
+ */
+export const pathsAddedSince = (now: readonly string[], before: readonly string[]): readonly string[] => {
+  const seen = new Set(before)
+  return now.filter((path) => !seen.has(path))
 }
 
 /**
@@ -96,8 +130,8 @@ export const headOf = async (cwd: string): Promise<Sha | null> => {
 export const revisionAt = async (cwd: string, head: Sha): Promise<Revision> => {
   const branch = (await gitOr(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim() || null
   const status = await gitOr(cwd, ['status', '--porcelain=v1', '--untracked-files=normal'])
-  const dirtyFiles = status === null ? null : status.split('\n').filter((line) => line.trim() !== '').length
-  return { head, branch, dirty: dirtyFiles === null || dirtyFiles > 0, dirtyFiles }
+  const dirtyPaths = status === null ? null : status.split('\n').filter((line) => line.trim() !== '').map(pathOfStatusLine)
+  return { head, branch, dirty: dirtyPaths === null || dirtyPaths.length > 0, dirtyFiles: dirtyPaths?.length ?? null, dirtyPaths }
 }
 
 /** Null outside a repository, or in one with no commit yet: there is no revision to bind a fact to. */

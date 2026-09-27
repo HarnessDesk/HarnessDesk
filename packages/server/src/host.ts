@@ -1037,7 +1037,7 @@ export class Host {
       // Built inside the Goal's queue, from the Team's copy as it is when the save runs.
       startOf: async (cwd) => {
         const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])
-        return revision ? { head: revision.head, upstream } : null
+        return revision ? { head: revision.head, upstream, dirtyPaths: revision.dirtyPaths } : null
       },
       cwdOf: (runtime, sessionId) => this.#sessionCwd(runtime, sessionId),
       // A refused save is put back before the Goal's queue runs anything else.
@@ -1202,7 +1202,9 @@ export class Host {
       log: (message, details) => this.#logger.warn(message, details ?? {}),
       headOf: async (cwd) => {
         const revision = await revisionOf(cwd)
-        return revision ? { at: revision.head, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles } : { at: null, dirty: false, dirtyFiles: null }
+        return revision
+          ? { at: revision.head, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles, dirtyPaths: revision.dirtyPaths }
+          : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
     }, {
@@ -2807,7 +2809,17 @@ export class Host {
 
   async #claimGoalCard(goal: string, card: number, opening: SeatOpening): Promise<void> {
     const { runtime, sessionId } = opening.session
-    const upstream = await upstreamTipOf(opening.checkout.cwd).catch(() => null)
+    /* Read fresh at the moment of claiming, same as `upstream` — a shared
+       checkout may have moved since its Seat opened. This snapshot is what a
+       finish later compares against (`IntentClaim.dirtyPaths`,
+       `FlowExecutions.refuseDirty`) to tell a card's own leftover work apart
+       from a checkout's pre-existing dirt; a failed read leaves it null,
+       which is a finish's own signal to never refuse for dirt it cannot
+       attribute (#1049). */
+    const [upstream, dirtyPaths] = await Promise.all([
+      upstreamTipOf(opening.checkout.cwd).catch(() => null),
+      revisionOf(opening.checkout.cwd).then((revision) => revision?.dirtyPaths ?? null).catch(() => null),
+    ])
     await this.#goalPlaneWrite(goal, (intents) => {
       const current = intents.find((one) => one.id === card)
       if (!current) throw new Error('Choose an existing card.')
@@ -2824,7 +2836,7 @@ export class Host {
         ...intent,
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
-        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream },
+        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream, dirtyPaths },
         // A live claim measures to HEAD, not to wherever it last stopped.
         until: null,
         updatedAt: at,

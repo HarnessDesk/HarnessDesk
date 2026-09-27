@@ -33,6 +33,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { ConfinedTree } from './confined-tree.js'
+import { pathsAddedSince } from './evidence/revision.js'
 import { cardVars, guardHolds } from './flow.js'
 import {
   evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
@@ -268,11 +269,17 @@ export interface FlowExecutionPort {
    * A checkout's live branch head and whether it holds uncommitted changes,
    * read fresh — never the stale head a Seat was opened with. Null head
    * outside a repository or before its first commit. `dirtyFiles` is the
-   * count behind `dirty`, for a refusal that has to name it; null when that
-   * count itself could not be read, which a caller that needs a real number
-   * must never take for zero.
+   * count behind `dirty`; `dirtyPaths` names them, so a refusal can compare
+   * them against a claim's own snapshot and count only what is new since.
+   * Both are null exactly when that read could not answer, which a caller
+   * that needs a real count or list must never take for zero or empty.
    */
-  headOf(cwd: string, branch: string | null): Promise<{ readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null }>
+  headOf(cwd: string, branch: string | null): Promise<{
+    readonly at: string | null
+    readonly dirty: boolean
+    readonly dirtyFiles?: number | null
+    readonly dirtyPaths?: readonly string[] | null
+  }>
   /**
    * Runs a flow's check command through the bounded runner, and records its
    * result as that card's check evidence, awaited before this resolves — a
@@ -1377,17 +1384,29 @@ export class FlowExecutions {
    * Why `complete_claim` (or a review that finishes a card the same way) may
    * not finish this card yet: its Seat may commit (`mayCommit` — the grant
    * capped by the Agent's own ceiling reaches `edit`) and its own checkout
-   * still holds changes never committed, tracked or untracked. `null`
-   * finishes it as before.
+   * now holds paths dirty that were not dirty yet when this card was
+   * claimed. `null` finishes it as before.
+   *
+   * A Goal's checkout is shared by default — most shipped flows are not
+   * isolated — so counting the whole working tree would refuse a card for a
+   * person's own untracked file, a half-finished edit, or unignored build
+   * output nobody on this card touched. `IntentClaim.dirtyPaths`, taken the
+   * moment the card was claimed, is the snapshot this compares against
+   * (`pathsAddedSince`): only a path dirty now that was not dirty then
+   * counts, and a path already dirty at claim is never counted even if this
+   * card's own work touched it again — the two reads cannot tell that apart.
    *
    * Checked only where a grant could ever have produced the work in the
-   * first place: `null` for a card no v2 run bound, and for one whose Seat
-   * cannot commit at all — a read-only role could not have left anything
-   * uncommitted, so reading it as dirty would only ever be a dead end. Reads
-   * the checkout the same way a subject's own freshness does (`#heads`,
-   * `headOf`) — never a fresh git probe of its own — and a read that fails,
-   * or answers no count, never blocks a finish it cannot confirm is wrong:
-   * `null`, logged (issue #1049).
+   * first place, and only where there is a snapshot to compare against:
+   * `null` for a card no v2 run bound, for one whose Seat cannot commit at
+   * all (a read-only role could not have left anything uncommitted, so
+   * reading it as dirty would only ever be a dead end), and for a claim with
+   * no recorded snapshot — written before this existed, or a read that
+   * failed at claim time — since a finish with nothing to compare against is
+   * never refused for dirt it cannot attribute. Reads the checkout the same
+   * way a subject's own freshness does (`#heads`, `headOf`) — never a fresh
+   * git probe of its own — and a read that fails, or answers no list, never
+   * blocks a finish it cannot confirm is wrong: `null`, logged (#1049).
    */
   async refuseDirty(goal: string, card: number): Promise<string | null> {
     const run = this.#runOfCard(goal, card)
@@ -1398,9 +1417,11 @@ export class FlowExecutions {
     const index = round!.cards.indexOf(card)
     const binding = bindingsFor(run, role.id)[index]
     if (!binding || !mayCommit(binding.agent, binding.grant)) return null
+    const before = this.#team.stateFor(goal).intents.find((one) => one.id === card)?.claim?.dirtyPaths
+    if (!before) return null
     const { seat } = this.#seatForCard(run, card)
     if (!seat) return null
-    let head: { readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null }
+    let head: { readonly at: string | null; readonly dirty: boolean; readonly dirtyPaths?: readonly string[] | null }
     try {
       head = await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)
     } catch (error) {
@@ -1409,9 +1430,11 @@ export class FlowExecutions {
       })
       return null
     }
-    const files = head.dirtyFiles ?? null
-    if (files === null || files === 0) return null
-    return `Your checkout has uncommitted changes (${files} file${files === 1 ? '' : 's'}). Commit them, or remove them if they aren't part of this work, then finish again.`
+    const now = head.dirtyPaths ?? null
+    if (now === null) return null
+    const added = pathsAddedSince(now, before)
+    if (added.length === 0) return null
+    return `You have ${added.length} uncommitted file${added.length === 1 ? '' : 's'} from this card's work. Commit them, then finish again.`
   }
 
   /**
