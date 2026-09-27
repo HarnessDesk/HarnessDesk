@@ -7,6 +7,29 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A finished card's diff no longer keeps changing after it's done.** On a
+  shared, non-isolated checkout, `Observer.observe` re-diffed a card from
+  where its own work began all the way to the checkout's HEAD *as it stands
+  now* — so once a later card, taking its own turn on the same branch,
+  committed, every earlier card that had already finished picked up that
+  commit too. In UC5's "Pair build", four prose-only cards that never wrote
+  anything all showed the contract card's own file changes once it landed.
+  Every way a card's claim clears — finished, released, abandoned, blocked,
+  taken over, or a Goal wrapped away — now reads its checkout's HEAD once, at
+  that moment, and records it on the card itself as where it stopped; a diff
+  observed once the card is no longer held is bounded to that point, never to
+  HEAD as the checkout stands whenever a board happens to reopen, and a
+  bound that cannot be computed at all answers with no diff rather than a
+  different one. A card still claimed is unaffected and keeps measuring to
+  HEAD as before; an isolated lane, where each card already has its own
+  checkout, was never affected either way. A card with no recorded stop —
+  one that finished before this shipped, or whose checkout could not be read
+  in time — is never diffed unbounded to make up for that: it keeps whatever
+  it last showed, or none at all if it never had a diff, rather than being
+  measured against a branch that has since moved on. Abandoning, finishing or
+  releasing a card can now wait up to 10 s for a slow git to report where the
+  card stopped. (#1035, #1042)
+
 - **"What it cost" draws a line as well as bars, against its own past.** A
   Bars/Line toggle beside the range control is remembered per user. Either
   view now carries a dashed line for the previous period of the same length,

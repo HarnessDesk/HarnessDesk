@@ -12,6 +12,7 @@ import {
 import type { SeatOpening } from '../evidence/records.js'
 import { memoryPath } from '../memory/git.js'
 import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
+import { STOP_HEAD_TIMEOUT_MS } from '../team.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
@@ -55,6 +56,13 @@ export interface GoalPlanePort extends GoalOperationPort {
   }
   confine(input: GoalCreateInput): Promise<{ root: string; cwd: string }>
   known(runtime: string, session: string): Promise<{ project: string; busy: boolean } | null>
+  /**
+   * The live cwd of a session's checkout, straight off the registry rather
+   * than the folder its Seat opened in — a live session's checkout can move.
+   * Null once that session is no longer live, or the host keeps none. Read
+   * before a release closes its Seat (issue #1042 P1).
+   */
+  sessionCwd?(session: SessionPointer): string | null
   claimable(goal: string, card: number, session: SessionPointer): boolean
   /** Why this card is not claimable when its files overlap a live claim, naming the paths and the card holding them. */
   overlap?(goal: string, card: number, session: SessionPointer): string | null
@@ -526,11 +534,37 @@ export class GoalPlane {
       if (!record || record.board !== goal || record.restored) throw new Error('That Seat is not kept on this Goal.')
       if (record.closed) return
       if (this.port.busy(record.session)) throw new Error("Stop this Seat's current turn before releasing it")
-      const operation = { kind: 'release', id: randomUUID(), goal, seat: id, reason: 'released' } as const
+      /* Read before `#complete` ever closes this Seat: once it does, its
+         session may no longer be live, and there is nothing left to ask
+         (review round 2 on #1042). Bounded the same way every other stop
+         capture is, so a stuck checkout still lets this release through. */
+      const until = await this.#readStop(record.session)
+      const operation = { kind: 'release', id: randomUUID(), goal, seat: id, reason: 'released', until } as const
       await this.#stage(document, operation)
       await this.#complete(operation)
       await this.refresh(goal)
     })
+  }
+
+  /**
+   * Where a Seat's checkout stands right now, for a release to carry into
+   * the same write that clears its claim (`Host#releaseGoalCard`), rather
+   * than a second write after the fact — the write that write's own caller
+   * is already waiting on, on the very queue a second write would have to
+   * queue behind (issue #1042 P1/P2). A failed, timed-out or empty read
+   * answers null, never a guess.
+   */
+  async #readStop(session: SessionPointer): Promise<string | null> {
+    const cwd = this.port.sessionCwd?.(session) ?? null
+    if (!cwd) return null
+    const timedOut = Symbol('release-stop-timeout')
+    let timer: ReturnType<typeof setTimeout>
+    const timeout = new Promise<typeof timedOut>((resolve) => {
+      timer = setTimeout(() => resolve(timedOut), STOP_HEAD_TIMEOUT_MS)
+    })
+    const read = await Promise.race([this.port.revision(cwd).catch(() => null), timeout])
+    clearTimeout(timer!)
+    return read !== timedOut && read?.head ? read.head : null
   }
 
   async preview(goal: string, choices: WrapChoices): Promise<WrapPreview> {
@@ -988,7 +1022,7 @@ export class GoalPlane {
       if (operation.kind === 'assignment') {
         const seat = this.port.seats.byId(operation.opening.id)
         if (seat && !seat.closed && !seat.restored) await this.port.closeId(seat.id, 'released')
-        if (seat) await this.port.releaseClaim(operation.goal, seat.id)
+        if (seat) await this.port.releaseClaim(operation.goal, seat.id, null)
       }
       await this.port.finish(operation.goal, operation.id)
     } catch (error) {
@@ -1067,7 +1101,15 @@ export class GoalPlane {
     this.#editable(document)
     const landing = this.port.intakeHeld?.(goal)
     if (landing) throw new Error(typeof landing === 'string' ? landing : INTAKE_LANDING)
-    const operation = { kind: 'wrap', id: randomUUID(), goal, stamp, receipt } as const
+    /* Read every receipt Seat's stop now, before any of them ever closes
+       below (`#closeWrapSeats`) — once a Seat closes, there may be no live
+       session left to ask (issue #1042 P2). Persisted on the operation
+       itself, so a crash replay carries the exact reads made here, the way
+       `release`'s own `until` already does, rather than trying — and likely
+       failing — to read a checkout again long after this process, or the
+       one that held it, may be gone. */
+    const stops = await this.#readWrapStops(receipt.seats)
+    const operation = { kind: 'wrap', id: randomUUID(), goal, stamp, receipt, stops } as const
     await this.store.save({
       ...document,
       operation,
@@ -1075,12 +1117,24 @@ export class GoalPlane {
     }, document.goal.revision)
   }
 
+  /** Every receipt Seat's checkout stop, read once, by Seat id — see `#stageWrap`. A Seat this plane no longer knows gives nothing. */
+  async #readWrapStops(seats: readonly SeatId[]): Promise<Readonly<Record<string, string | null>>> {
+    const entries = await Promise.all(seats.map(async (id): Promise<readonly [string, string | null]> => {
+      const seat = this.port.seats.byId(id)
+      return [id, seat ? await this.#readStop(seat.session) : null]
+    }))
+    return Object.fromEntries(entries)
+  }
+
   async #closeWrapSeats(goal: string, ids: readonly string[]): Promise<void> {
+    const document = this.store.read(goal)
+    const stops = document.operation?.kind === 'wrap' ? document.operation.stops : undefined
     for (const id of ids) {
       const seat = this.port.seats.byId(id)
       if (!seat || seat.board !== goal || seat.restored) throw new Error('A reviewed Seat no longer belongs to this Goal. Finish recovery before wrapping again.')
       if (!seat.closed) await this.port.closeId(id, 'wrapped')
-      await this.port.releaseClaim(goal, id)
+      // What `#stageWrap` already read, before this Seat or any other closed.
+      await this.port.releaseClaim(goal, id, stops?.[id] ?? null)
       await this.port.refuseMail(goal, id)
       await this.port.retainLane(id)
     }
