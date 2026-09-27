@@ -991,10 +991,15 @@ test('a seat that comes back on another effort is closed, and with no other cand
   await assert.rejects(
     () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
     (error: Error) => {
+      // Read back, claude did not refuse an effort — it opened and is running
+      // one, just not the one asked for. "does not offer" would be false here
+      // (#1023): the true sentence is the same one an "otherwise opened"
+      // model or thinking mismatch gets, still fatal because an asked-for
+      // effort is the seat's own instruction to fix (#1013).
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  claude=opus-5/high — claude does not offer High effort.',
+          '  claude=opus-5/high — claude runs it at medium effort, not high.',
       )
       return true
     },
@@ -1121,7 +1126,7 @@ test('a runtime that outright refuses an asked-for effort is never quietly passe
         error.message,
         'No seat could be opened for this Agent:\n' +
           '  cursor=gpt-5/xhigh — cursor does not offer Extra high effort.' +
-          ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
+          ' One more candidate was not tried: the effort asked for is this seat\'s to fix, not a reason to try another agent.',
       )
       return true
     },
@@ -2025,8 +2030,8 @@ test('a seat that runs another effort than asked is closed, and no later candida
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  claude=opus-5/high — claude does not offer High effort.' +
-          ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
+          '  claude=opus-5/high — claude runs it at medium effort, not high.' +
+          ' One more candidate was not tried: the effort asked for is this seat\'s to fix, not a reason to try another agent.',
       )
       return true
     },
@@ -2130,7 +2135,7 @@ test('through the host: when every candidate fails the refusal names each, and n
         // this real host — unlike a made-up id, which would read differently.
         '  devin=m1 — devin is not installed',
         '  seatfake=small/medium+thinking — seatfake runs it without thinking, which was asked for (Small has no thinking mode)',
-        '  seatfake=small/high — Seat Fake does not offer High effort.',
+        '  seatfake=small/high — seatfake runs it at medium effort, not high.',
       ].join('\n'),
     )
     return true
@@ -2364,9 +2369,12 @@ for (const [order, how] of [
     await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
 
     await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+      // Codex never refused an effort here — it opened and settled on `low`
+      // instead of `high` — so the true sentence names what it actually runs,
+      // not "does not offer" (#1023).
       assert.equal(
         error.message,
-        'No seat could be opened for this Agent:\n' + '  codex=gpt-5.5/high — Codex does not offer High effort.',
+        'No seat could be opened for this Agent:\n' + '  codex=gpt-5.5/high — codex runs it at low effort, not high.',
       )
       return true
     })
@@ -2387,8 +2395,8 @@ for (const [order, how] of [
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  codex=gpt-5.5/high — Codex does not offer High effort.' +
-          ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
+          '  codex=gpt-5.5/high — codex runs it at low effort, not high.' +
+          ' One more candidate was not tried: the effort asked for is this seat\'s to fix, not a reason to try another agent.',
       )
       return true
     })
@@ -2673,7 +2681,7 @@ for (const [left, words] of [
         assert.equal(
           error.message,
           'No seat could be opened for this Agent:\n' +
-            `  claude=opus-5/high — claude does not offer High effort. (${words})`,
+            `  claude=opus-5/high — claude runs it at medium effort, not high. (${words})`,
         )
         return true
       },
@@ -2722,7 +2730,7 @@ test('through the host: a runtime that cannot delete keeps what it keeps, archiv
     assert.equal(
       error.message,
       'No seat could be opened for this Agent:\n' +
-        "  keeper=small/high — Seat Fake does not offer High effort. (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is archived here)",
+        "  keeper=small/high — keeper runs it at medium effort, not high. (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is archived here)",
     )
     return true
   })
@@ -2759,16 +2767,17 @@ const heldAtNaming = async (t: TestContext) => {
 
 /**
  * The refusal of a seating whose one candidate, `seatfake=small/high`, was
- * left as it is for `words`. `runtimeName` is "Seat Fake" — the runtime's own
- * presentation name — unless the runtime is gone by the time this is said, in
- * which case nothing on the desk can answer with a name and the raw id
- * ("seatfake") is what is left to say it with.
+ * left as it is for `words`. The sentence is the read-back difference
+ * (`openedOtherwise`), always by the raw runtime id ("seatfake") — it is
+ * built from the seat itself, never a presentation name, so it reads the
+ * same whether or not the runtime is still on the desk to be asked for one
+ * (#1023).
  */
-const refusedLeaving = (words: string, runtimeName = 'Seat Fake') => (error: Error) => {
+const refusedLeaving = (words: string, runtimeName = 'seatfake') => (error: Error) => {
   assert.equal(
     error.message,
     'No seat could be opened for this Agent:\n' +
-      `  seatfake=small/high — ${runtimeName} does not offer High effort. (${words})`,
+      `  seatfake=small/high — ${runtimeName} runs it at medium effort, not high. (${words})`,
   )
   return true
 }
@@ -2927,7 +2936,7 @@ test('through the host: once the candidate is being deleted, a window that asks 
   await assert.rejects(seating, (error: Error) => {
     assert.equal(
       error.message,
-      'No seat could be opened for this Agent:\n  seatfake=small/high — Seat Fake does not offer High effort.',
+      'No seat could be opened for this Agent:\n  seatfake=small/high — seatfake runs it at medium effort, not high.',
     )
     return true
   })
@@ -3006,7 +3015,7 @@ for (const [archiveHistory, where] of [
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          `  refuser=small/high — Seat Fake does not offer High effort. (the conversation it opened could not be deleted: “The thread is locked by another writer”; ${where})`,
+          `  refuser=small/high — refuser runs it at medium effort, not high. (the conversation it opened could not be deleted: “The thread is locked by another writer”; ${where})`,
       )
       return true
     })
@@ -3034,7 +3043,7 @@ test("through the host: a runtime that cannot delete but keeps an archive has it
     assert.equal(
       error.message,
       'No seat could be opened for this Agent:\n' +
-        "  keeper=small/high — Seat Fake does not offer High effort. (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is in keeper's own archive)",
+        "  keeper=small/high — keeper runs it at medium effort, not high. (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is in keeper's own archive)",
     )
     return true
   })
@@ -3058,7 +3067,7 @@ test('through the host: when archiving fails as well, the line says so rather th
     assert.equal(
       error.message,
       'No seat could be opened for this Agent:\n' +
-        "  keeper=small/high — Seat Fake does not offer High effort. (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; archiving it failed, so it may still be listed)",
+        "  keeper=small/high — keeper runs it at medium effort, not high. (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; archiving it failed, so it may still be listed)",
     )
     return true
   })
@@ -3451,7 +3460,7 @@ test('a refusal carries every candidate as a surface shows it, beside the senten
         error.wireData?.candidates.map((one) => [one.label, one.reason?.kind, one.fix?.kind, one.left?.kind ?? null]),
         [
           ['Cursor · gemini-3.8-flash · High', 'signedOut', 'signIn', null],
-          ['Claude · opus-5 · High', 'noEffort', 'seats', 'kept'],
+          ['Claude · opus-5 · High', 'openedOtherwise', 'seats', 'kept'],
         ],
       )
       return true

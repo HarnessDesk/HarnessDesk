@@ -22,7 +22,7 @@ export const teamMethods = {
   },
 
   'team/intent': async (ctx, params) => {
-    ctx.team.intentAction(
+    await ctx.team.intentAction(
       params.room,
       params.id,
       params.action,

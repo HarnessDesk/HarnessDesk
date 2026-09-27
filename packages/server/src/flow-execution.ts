@@ -2471,7 +2471,7 @@ export class FlowExecutions {
     }
     await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'finished', card, seat: null }))
     const said = check.exits[String(outcome.result.exit)] ?? check.otherwise
-    this.#team.intentAction(run.goal, card, 'done', outcome.result.tail.slice(0, 400) || undefined, said)
+    await this.#team.intentAction(run.goal, card, 'done', outcome.result.tail.slice(0, 400) || undefined, said)
     return true
   }
 

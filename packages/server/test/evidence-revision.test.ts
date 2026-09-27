@@ -117,6 +117,33 @@ test("a branch's diff is its committed work against the base it came from", asyn
 })
 
 /*
+ * Issue #1035, review round 2: a diff bounded to `since..until` is a card
+ * that has stopped, never diffed against a live HEAD again. When that range
+ * cannot be computed at all — here, standing in for history rewritten out
+ * from under it — the answer must be null, not a diff against the base
+ * branch: a different question, answered in the same shape, would be worse
+ * than no answer.
+ */
+test('a diff bounded by `until` answers nothing when the range cannot be computed, never falling back to the base branch', async () => {
+  const { dir, git } = await makeRepo()
+  await git('checkout', '-q', '-b', 'a')
+  await writeFile(join(dir, 'a.txt'), 'a\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'a work')
+  const since = await git('rev-parse', 'HEAD')
+  await git('checkout', '-q', 'main')
+  await git('checkout', '-q', '-b', 'b')
+  await writeFile(join(dir, 'b.txt'), 'b\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'b work')
+  const until = await git('rev-parse', 'HEAD')
+  // `since` is not an ancestor of `until` — an unrecoverable range, standing in for a rewritten one.
+  assert.equal(await diffOf(dir, since, { until }), null)
+  // The very same `since`, asked with no `until` at all, legitimately falls back to a diff against the base branch — proving the null above is `until`'s own doing, not a broken checkout or a broken `since`.
+  assert.notEqual(await diffOf(dir, since), null)
+})
+
+/*
  * Work committed straight onto the default branch has no merge base behind
  * it — the branch *is* its base — so the diff is measured from where the work
  * began: the commit its Seat opened on. Without that, `{ diff: true }` could

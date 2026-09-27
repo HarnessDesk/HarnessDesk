@@ -137,6 +137,20 @@ it('a session that has never been used is not reported as a broken one', () => {
   expect(container.textContent).not.toContain('Nothing to show')
 })
 
+it('loads in the same column as every other empty state, clear of the composer', () => {
+  render(rig(session(), new Map(), { loadingSessions: new Set([KEY]) } as Partial<AppSnapshot>).store)
+
+  const empty = container.querySelector<HTMLElement>('[data-slot="conversation-empty-state"]')
+  expect(empty?.textContent).toContain('Loading transcript')
+  expect(empty?.dataset.direction).toBe('row')
+  // The loading row and the empty states it can give way to share one parent
+  // shape, so the word does not jump when loading ends in one of them.
+  const column = empty?.parentElement
+  expect(column?.dataset.slot).toBe('pane-column')
+  expect(column?.dataset.inset).toBe('reading')
+  expect(column?.style.padding).toContain('--composer-h')
+})
+
 it('says plainly when an agent could not restore a conversation that was used', () => {
   // Used — `updatedAt` moved — and yet no turns came back. That is the case
   // the sentence was written for: an agent with no serving store, and no host

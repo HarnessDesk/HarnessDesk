@@ -847,8 +847,7 @@ export class Host {
             return this.#team.hasRoom(room) ? this.#team.stateFor(room) : null
           }
         },
-        cwdOf: (runtime, sessionId) =>
-          this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null,
+        cwdOf: (runtime, sessionId) => this.#sessionCwd(runtime, sessionId),
         push: (notification) => this.#push(notification),
         log: (message, details) => this.#logger.warn(message, details ?? {}),
         canMutateBoard: (goal) => {
@@ -1023,6 +1022,7 @@ export class Host {
         const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])
         return revision ? { head: revision.head, upstream } : null
       },
+      cwdOf: (runtime, sessionId) => this.#sessionCwd(runtime, sessionId),
       // A refused save is put back before the Goal's queue runs anything else.
       mutate: (snapshot, refused) => this.#goalSerial.run(async () => {
         try {
@@ -1481,6 +1481,7 @@ export class Host {
         const project = await this.#boardRootOf(held.cwd)
         return project ? { project, busy: isBusy(held) } : null
       },
+      sessionCwd: (session) => this.#sessionCwd(session.runtime, session.sessionId),
       claimable: (goal: string, card: number, session) => this.#goalClaimable(goal, card, session.runtime, session.sessionId),
       overlap: (goal: string, card: number, session) => this.#team.refuseOverlap(goal, this.#goalIntents(goal), card, session.runtime, session.sessionId),
       // A truly plain conversation (never kept as any Agent's Seat) has
@@ -1620,8 +1621,8 @@ export class Host {
       claim: async (goal: string, card: number, opening: SeatOpening) => {
         await this.#claimGoalCard(goal, card, opening)
       },
-      releaseClaim: async (goal: string, seat: SeatId) => {
-        await this.#releaseGoalCard(goal, seat)
+      releaseClaim: async (goal: string, seat: SeatId, until: string | null) => {
+        await this.#releaseGoalCard(goal, seat, until)
       },
       refuseMail: async (goal: string, seat: SeatId) => {
         const record = this.#evidence.seats.byId(seat)
@@ -2590,6 +2591,11 @@ export class Host {
     }
   }
 
+  /** The folder a live session works in, straight off the registry; null when that session is not live. */
+  #sessionCwd(runtime: string, sessionId: string): string | null {
+    return this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null
+  }
+
   /** A Goal's cards as they stand: the Team's copy, the one writer, once it holds the board; the document until then. */
   #goalIntents(goal: string): readonly Intent[] {
     return this.#team.hasRoom(goal) ? this.#team.stateFor(goal).intents : this.#goalStore.read(goal).board.intents
@@ -2731,6 +2737,8 @@ export class Host {
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
         claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream },
+        // A live claim measures to HEAD, not to wherever it last stopped.
+        until: null,
         updatedAt: at,
         blockedBy: null,
         blockedReason: null,
@@ -2738,7 +2746,14 @@ export class Host {
     })
   }
 
-  async #releaseGoalCard(goal: string, seat: SeatId): Promise<void> {
+  /**
+   * `until` is where the checkout stood, read by `GoalPlane.release` before
+   * it ever closed this Seat (issue #1042 P1) — carried into this same patch
+   * rather than a second write after the fact, which would have to queue
+   * behind this one on the Goal queue its caller already holds (P2). Null on
+   * a failed, timed-out or empty read: nothing is recorded, never a guess.
+   */
+  async #releaseGoalCard(goal: string, seat: SeatId, until: string | null): Promise<void> {
     const record = this.#evidence.seats.byId(seat)
     if (!record) return
     await this.#goalPlaneWrite(goal, (intents) => {
@@ -2754,6 +2769,7 @@ export class Host {
         ...intent,
         state: blocked ? 'blocked' as const : 'open' as const,
         claim: null,
+        ...(until ? { until } : {}),
         blockedBy: blocked ? 'graph' as const : null,
         blockedReason: null,
         updatedAt: at,
@@ -2832,6 +2848,14 @@ export class Host {
       .map((intent) => ({ id: intent.id, ...unreviewed }))
     const receipt: GoalReceipt = setAside.length === 0 ? operation.receipt
       : { ...operation.receipt, cards: [...operation.receipt.cards, ...setAside] }
+    /*
+     * Every card a receipt Seat held already lost its claim, and had its stop
+     * recorded, before this ever ran (`GoalPlane#stageWrap` reads it, and
+     * `Host#releaseGoalCard` records it in the same write that clears the
+     * claim — issue #1042 P2). Nothing here still carries a claim to lose a
+     * checkout for: a second read this late would find no session left to
+     * ask for any of them, which is exactly why it no longer tries.
+     */
     const board = {
       ...document.board,
       intents: document.board.intents.map((intent) => {

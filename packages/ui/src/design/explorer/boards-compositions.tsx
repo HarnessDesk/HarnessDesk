@@ -142,6 +142,7 @@ import {
   SummaryItem,
   SummaryList,
 } from '../ui'
+import { ConversationEmptyState } from '../patterns/ConversationEmptyState'
 import {
   Counts,
   GroupLine,
@@ -162,7 +163,7 @@ import {
   WorkbenchRail,
   WorkbenchScrim,
 } from '../patterns/DockPanel'
-import { CodeText, Row, Rows, SectionHead, Text } from '../patterns/Settings'
+import { CodeText, Row, Rows, SectionHead, Spinner, Text } from '../patterns/Settings'
 import { HeatGrid, HeatLegend, type HeatGridRow } from '../ui/heat-grid'
 import {
   agentLevels,
@@ -996,6 +997,25 @@ const EmptyBoard = () => (
           />
         </Rows>
       </div>
+      {/* The conversation pane's own two shapes, exactly as Conversation.tsx
+          mounts them: a title over a sentence, and the loading row. */}
+      <div className="flex flex-col gap-1">
+        <Text role="meta">conversation pane — a column, and the loading row</Text>
+        <div className="flex h-48 rounded-(--hd-radius-lg) border border-(--hd-border)">
+          <ConversationEmptyState data-catalog-variant="column">
+            <Text as="div" role="page" weight="medium">What should we build?</Text>
+            <Text as="p" role="prose" className="m-0">
+              Describe what you want done in harnessdesk.
+            </Text>
+          </ConversationEmptyState>
+        </div>
+        <div className="flex h-32 rounded-(--hd-radius-lg) border border-(--hd-border)">
+          <ConversationEmptyState row data-catalog-variant="row">
+            <Spinner size="sm" tone="brand" />
+            <Text role="prose" ink="muted">Loading transcript…</Text>
+          </ConversationEmptyState>
+        </div>
+      </div>
     </div>
     <Rule>
       An empty state is a menu, not an apology: it takes the space the missing content would have
@@ -1640,6 +1660,36 @@ const AdoptedBoard = () => {
             </Attachment>
           ))}
         </AttachmentGroup>
+
+        {/* AttachmentMedia `picture`: the img itself, no frame of its own, as
+            the transcript and a draft draw an attached image. A lone picture
+            taller than the cap stops at --hd-image-max-height; in a tile, it
+            covers the tile. */}
+        <div className={styles.caseLabel} style={{ marginTop: 'var(--hd-space-3)' }}>
+          attachment media &mdash; picture, a lone one contained under --hd-image-max-height
+        </div>
+        <AttachmentMedia
+          variant="picture"
+          data-catalog-variant="picture"
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='900'%3E%3Crect width='600' height='900' fill='%23888'/%3E%3C/svg%3E"
+          alt="Sample photo, taller than the cap"
+        />
+        <div className={styles.caseLabel} style={{ marginTop: 'var(--hd-space-3)' }}>
+          attachment media &mdash; picture, fill: covering its tile, one of several
+        </div>
+        <div className="flex h-24 gap-(--hd-space-2)">
+          {['%23888', '%23aaa'].map((fill, index) => (
+            <div key={fill} className="w-32 overflow-hidden rounded-(--hd-radius-md)">
+              <AttachmentMedia
+                variant="picture"
+                fill
+                {...(index === 0 ? { 'data-catalog-variant': 'picture-fill' } : {})}
+                src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect width='400' height='300' fill='${fill}'/%3E%3C/svg%3E`}
+                alt="Sample photo in a grid"
+              />
+            </div>
+          ))}
+        </div>
 
         <div className={styles.caseLabel} style={{ marginTop: 'var(--hd-space-3)' }}>
           data-table &mdash; press a heading, tick a row

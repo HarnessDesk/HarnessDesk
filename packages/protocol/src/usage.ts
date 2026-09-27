@@ -287,24 +287,24 @@ export interface LedgerRow {
    * kept only so a caller can show "of which N reasoning" without minting a
    * second total that would double-count if added in.
    *
-   * Five of the six scanners also normalise `input` to exclude the cache
-   * before it is stored: Codex subtracts `cached_input_tokens` out of
-   * `input_tokens`, Claude's `input_tokens` already excludes both cache
-   * fields on arrival, Gemini/Qwen subtract `cached` from `prompt` before
-   * adding the tool-use tokens back in, OpenCode does the same (see
-   * `fromGeminiCounts` and the Codex/Claude/OpenCode scans in
-   * `ledger/scan.ts`), and Cursor's own usage events carry `inputTokens`
-   * disjoint from both cache counters already — confirmed against the real
-   * endpoint (`usage/cursor-events.ts`), the same shape as Claude's rather
-   * than Codex's. For those five, a cache-hit rate is always
-   * `cacheRead / (input + cacheRead)` — the share of the *input* side that
-   * came from cache — never `cacheRead / tokens`, which would dilute it with
-   * output that was never a cache candidate.
-   *
-   * Cline is the sixth, and the odd one out: its `input` is stored exactly
-   * as Cline's own database records it, and whether that figure already
-   * includes cache reads has not been measured here, so a cache-hit rate for
-   * the `cline` runtime is not defined yet.
+   * All six scanners normalise `input` to exclude the cache before it is
+   * stored: Codex subtracts `cached_input_tokens` out of `input_tokens`,
+   * Claude's `input_tokens` already excludes both cache fields on arrival,
+   * Gemini/Qwen subtract `cached` from `prompt` before adding the tool-use
+   * tokens back in, OpenCode does the same (see `fromGeminiCounts` and the
+   * Codex/Claude/OpenCode scans in `ledger/scan.ts`), and Cursor's own usage
+   * events carry `inputTokens` disjoint from both cache counters already —
+   * confirmed against the real endpoint (`usage/cursor-events.ts`), the same
+   * shape as Claude's rather than Codex's. Cline is the sixth: its
+   * `metadata_json.usage.inputTokens` is the FULL prompt Cline's own SDK
+   * normalizes every provider format to (Anthropic, OpenAI, OpenAI-compatible
+   * and Cline's own gateway alike — see the doc comment on
+   * `scanClineDatabase` in `ledger/scan.ts` for the upstream evidence), cache
+   * reads *and* cache writes both folded in, so `scanClineDatabase` nets both
+   * out the same way Codex nets out its one cache field. For all six, a
+   * cache-hit rate is always `cacheRead / (input + cacheRead)` — the share of
+   * the *input* side that came from cache — never `cacheRead / tokens`, which
+   * would dilute it with output that was never a cache candidate.
    *
    * `requests` is the call count the group's `tokens` and `cost` were summed
    * over — the same count `SpendCoverage.priced` / `unpriced` partition.

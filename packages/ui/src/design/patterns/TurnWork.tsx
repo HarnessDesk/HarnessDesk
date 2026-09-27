@@ -3,7 +3,7 @@ import type * as React from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { revealMotion } from '../ui/motion'
-import { inkTone } from '../ui/tone'
+import { Text } from './Settings'
 
 /**
  * The anatomy of a turn's work in the transcript.
@@ -37,7 +37,7 @@ const TurnWorkHeader = ({
  * row's own ink; a running one steps back to the neutral tone's secondary
  * tier, because the clock is ticking and is not yet the record; trouble is
  * the warning tone, and it survives the header's hover (`quietHover`). Both
- * are `inkTone`, the same inks `Text tone=` draws.
+ * are `Text`'s own `tone`, the same inks `inkTone` draws everywhere else.
  */
 type TurnWorkState = 'done' | 'running' | 'trouble'
 
@@ -46,16 +46,17 @@ const TurnWorkHeaderLabel = ({
   state = 'done',
   className,
   ...props
-}: React.ComponentProps<'span'> & { state?: TurnWorkState }) => (
-  <span
-    data-slot="turn-work-header-label"
+}: React.ComponentProps<typeof Text> & { state?: TurnWorkState }) => (
+  <Text
+    as="span"
+    role="muted"
+    numeric
     data-state={state}
-    className={cn(
-      'shrink-0 tabular-nums',
-      state === 'trouble' && inkTone({ tone: 'warning' }),
-      state === 'running' && inkTone({ tone: 'neutral' }),
-      className,
-    )}
+    tone={state === 'trouble' ? 'warning' : state === 'running' ? 'neutral' : undefined}
+    // Done keeps the row's own ink rather than `muted`'s secondary tier —
+    // the row is the record once the clock stops.
+    ink={state === 'done' ? 'primary' : undefined}
+    className={cn('shrink-0', className)}
     {...props}
   />
 )
@@ -145,9 +146,11 @@ const TurnWorkLive = ({
       <span data-slot="turn-work-live" role="status" aria-live="polite" className="inline-flex min-w-0">
         {words}
       </span>
-      <span data-slot="turn-work-live-trail" className="tabular-nums">
+      {/* Composes `Text`, so its slot reads `text` like every other one;
+          `data-mark` is this trail's own hook for a test or a screen. */}
+      <Text as="span" role="prose" ink="muted" numeric data-mark="turn-work-live-trail">
         {trail}
-      </span>
+      </Text>
     </div>
   )
 }
