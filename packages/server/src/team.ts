@@ -1201,7 +1201,7 @@ export class Team {
    * `roomsFor`, and simply vanished from the tree at the next launch.
    */
   states(): TeamState[] {
-    return [...this.#boards.values()].map((board) => this.#stateOf(board))
+    return [...this.#boards.values()].map((board) => this.#wireStateOf(board))
   }
 
   hasRoom(id: string): boolean {
@@ -1211,7 +1211,7 @@ export class Team {
   stateFor(id: string): TeamState {
     const board = this.#boards.get(id)
     return board
-      ? this.#stateOf(board)
+      ? this.#wireStateOf(board)
       : {
           id,
           name: '',
@@ -1594,7 +1594,7 @@ export class Team {
        until something unrelated made it ask again. */
     const key = keyOf(runtime, sessionId)
     for (const board of this.#boards.values()) {
-      if (board.members.includes(key)) this.#port.changed(this.#stateOf(board))
+      if (board.members.includes(key)) this.#notify(this.#stateOf(board))
     }
   }
 
@@ -3403,6 +3403,14 @@ export class Team {
 
   // ------------------------------------------------------------------ innards
 
+  /**
+   * The raw projection: every claim's `dirtyPaths` intact. This is what a
+   * save carries — `#commit` and `goalPlaneWrite` both build the document a
+   * Goal persists from this, and a restart must read the same snapshot back
+   * (#1049) — so it must never run through `cardsForWire`. A caller handing
+   * this to a renderer strips it itself: `stateFor`, `states`, `roomsFor`
+   * do, and `#notify` does for every `team/changed` push.
+   */
   #stateOf(board: Board): TeamState {
     return {
       id: board.id,
@@ -3411,7 +3419,7 @@ export class Team {
       members: [...board.members],
       root: board.root,
       ...(board.cwd && board.cwd !== board.root ? { cwd: board.cwd } : {}),
-      intents: cardsForWire(board.intents),
+      intents: [...board.intents],
       channel: [...board.channel],
       messaging: board.messaging,
       nicknames: { ...board.nicknames },
@@ -3423,6 +3431,23 @@ export class Team {
       plans: [...board.plans],
       problem: this.#problem,
     }
+  }
+
+  /** `#stateOf`, wire-safe: every claim's `dirtyPaths` gone (`cardsForWire`). */
+  #wireStateOf(board: Board): TeamState {
+    const state = this.#stateOf(board)
+    return { ...state, intents: cardsForWire(state.intents) }
+  }
+
+  /**
+   * Every `team/changed` push goes through here, never `this.#port.changed`
+   * directly: the state a save just built (`#commit`, `goalPlaneWrite`) is
+   * the raw projection, kept whole so the document on disk matches what a
+   * restart reads back, and this is the one seam where that same object is
+   * made wire-safe before a renderer ever sees it.
+   */
+  #notify(state: TeamState): void {
+    this.#port.changed({ ...state, intents: cardsForWire(state.intents) })
   }
 
   /** A room by its id, or nothing. Rooms are made on purpose, never on sight. */
@@ -3531,7 +3556,7 @@ export class Team {
   roomsFor(root: string): readonly TeamState[] {
     return [...this.#boards.values()]
       .filter((board) => board.root === root)
-      .map((board) => this.#stateOf(board))
+      .map((board) => this.#wireStateOf(board))
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
@@ -4875,7 +4900,7 @@ export class Team {
         if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
         if (!this.#settleSave(entry, error)) return
         this.#problem = error.message
-        this.#port.changed(this.#stateOf(this.#boards.get(board.id) ?? board))
+        this.#notify(this.#stateOf(this.#boards.get(board.id) ?? board))
       }
       this.#writes = this.#writes
         .then(() => this.#port.mutate!(begin, refused))
@@ -4885,14 +4910,14 @@ export class Team {
             this.#settleSave(entry, null)
             this.#problem = null
             const now = this.#boards.get(board.id) ?? board
-            this.#port.changed(saved ?? this.#stateOf(now))
+            this.#notify(saved ?? this.#stateOf(now))
             this.#wake(now)
           },
           (error: unknown) => refused(error instanceof Error ? error : new Error(String(error))),
         )
       return entry.outcome
     }
-    this.#port.changed(state)
+    this.#notify(state)
     /* Every card that becomes claimable becomes claimable here. Waking from
        the commit is what makes a wait free: nobody polls, and a seat is in
        its claim within a tick of the write that opened its card. */
@@ -4991,7 +5016,7 @@ export class Team {
     } catch (error) {
       undo()
       if (carried && !carried.settled && !this.#queuedSave.has(goal)) this.#queuedSave.set(goal, carried)
-      this.#port.changed(this.#stateOf(this.#boards.get(goal) ?? board))
+      this.#notify(this.#stateOf(this.#boards.get(goal) ?? board))
       throw error
     }
     if (carried) this.#settleSave(carried, null)
@@ -5007,7 +5032,7 @@ export class Team {
        2 on #1042). The caller records `until` itself, in the same patch this
        write already carries, before it ever reaches this queue. */
     const now = this.#boards.get(goal) ?? board
-    this.#port.changed(this.#stateOf(now))
+    this.#notify(this.#stateOf(now))
     this.#wake(now)
     return true
   }
@@ -5125,7 +5150,7 @@ export class Team {
   #pushStates(root: string | null): void {
     const boards = root !== null ? [this.#boards.get(root)].filter(Boolean) : [...this.#boards.values()]
     for (const board of boards) {
-      if (board) this.#port.changed(this.#stateOf(board))
+      if (board) this.#notify(this.#stateOf(board))
     }
   }
 }

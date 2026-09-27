@@ -12,7 +12,7 @@ import {
 import type { SeatOpening } from '../evidence/records.js'
 import { memoryPath } from '../memory/git.js'
 import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
-import { cardsForWire, STOP_HEAD_TIMEOUT_MS } from '../team.js'
+import { STOP_HEAD_TIMEOUT_MS } from '../team.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
@@ -238,12 +238,22 @@ export class GoalPlane {
       .map((one) => this.view(one.goal.id)))
   }
 
+  /**
+   * Raw, deliberately: `board.intents` here still carries every claim's
+   * `dirtyPaths`. This method is not only how a `goal/*` wire method answers
+   * — `changed` (host.ts) reads this same `view.board` to re-sync `Team`'s
+   * own copy of the board (`installProjection`), and `Team`'s copy is what a
+   * restart reloads from and what `FlowExecutions.refuseDirty` compares
+   * against (`Team.dirtyPathsOf`). Stripping it here once cost a Goal-backed
+   * card its snapshot on every restart, the same way an unstripped
+   * `Team#stateOf` once cost every board a save. The strip for an actual
+   * client belongs one layer up, in `methods/goals.ts`, on the value a
+   * `goal/*` method actually returns — never here.
+   */
   async view(id: string): Promise<GoalView> {
     const document = this.store.read(id)
     const members = goalMembers(document, this.port.seats.all())
-    const raw = { ...this.port.board(id), ...memberProjection(document, this.port.seats.all()) }
-    // Host-only past this line: a claim's `dirtyPaths` never rides in a `GoalView`.
-    const board = { ...raw, intents: cardsForWire(raw.intents) }
+    const board = { ...this.port.board(id), ...memberProjection(document, this.port.seats.all()) }
     let evidence: BoardEvidence | null = null
     let problem = this.#recoveryProblems.get(id) ?? this.store.problem
     try {

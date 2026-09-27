@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
+import type { FlowExecution, FlowPreview, GoalView } from '@harnessdesk/protocol'
+
+import { Host, StateStore } from '../src/index.js'
 import { Team, type TeamPeer, type TeamPort } from '../src/team.js'
+import { makeRepo } from './fixtures/evidence-desk.js'
+import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
+import { silent } from './fixtures/harness.js'
+import { tempDir } from './scratch.js'
 
 /*
  * Issue #1049. A flow card whose role can commit (`edit` and above) finished
@@ -195,4 +202,86 @@ test("a claimed card's dirty-paths snapshot never reaches a board snapshot", asy
   assert.equal('dirtyPaths' in claim!, false, "team/state's board never carries it")
   // The snapshot is still there for the finish check to compare against.
   assert.deepEqual(rig.team.dirtyPathsOf(run.goal, 1), ['.env'])
+})
+
+/*
+ * `goalRig`'s claim path is a fake Team port standing in for the real one,
+ * and its "survives a restart" case above (`Team` alone, over a legacy
+ * room) never touches a Goal's own document. A Goal board's save goes
+ * `Team#commit`/`goalPlaneWrite` → the host's `mutate` → `#saveTeamProjection`
+ * → `#writeGoalBoard`, a different path — one that used to run the wire-safe,
+ * stripped projection straight into the document, so a flow card's
+ * dirty-paths snapshot never reached disk at all and every such card failed
+ * open after a restart. This drives a real flow through a real `Host`, a
+ * real git checkout, and a real restart to prove the snapshot is durable on
+ * that path too.
+ */
+test('a flow card claimed with a dirty checkout keeps its dirty-paths snapshot on a Goal board across a restart', async (t) => {
+  const repo = await makeRepo('hd-flow-restart-dirty-')
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-flow-restart-state-'))
+  const builtinAgents = tempDir('hd-flow-restart-builtins-')
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
+
+  await mkdir(join(stateDir, 'agents', 'implementer'), { recursive: true })
+  await writeFile(join(stateDir, 'agents', 'implementer', 'AGENT.md'), [
+    '---', 'name: implementer', 'ceiling: edit', 'produces: [diff]', 'prefer: [fake]', '---', 'Do the work.', '',
+  ].join('\n'), 'utf8')
+
+  const source = [
+    'version: 2', 'name: Solo writer', 'roles:',
+    '  writer: { kind: agent, uses: implementer, grant: edit }',
+    'seed: { role: writer, title: Write something }', 'rules: []', '',
+  ].join('\n')
+
+  const open = async (): Promise<Host> => {
+    const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents, catalogRefreshMs: 0 })
+    host.register(new FakeRuntime())
+    await host.start()
+    return host
+  }
+
+  const first = await open()
+  await first.call('workspace/open', { path: repo.dir })
+  // Dirt already in the checkout before anything claims a card — a person's own untracked file.
+  await writeFile(join(repo.dir, '.env'), 'secret\n')
+
+  const preview = await first.call('flow/preview', { root: repo.dir, source }) as FlowPreview
+  assert.ok(preview.token, `the flow previews clean: ${JSON.stringify(preview.problems)}`)
+  const started = await first.call('flow/start-goal', {
+    root: repo.dir, source, token: preview.token!, sentence: 'Finish the change',
+  }) as FlowExecution
+  const goal = started.goal
+
+  const readBoard = async (host: Host) => (await host.call('goal/read', { goal }) as GoalView).board
+  const deadline = Date.now() + 10_000
+  let board = await readBoard(first)
+  while (board.intents.length !== 1 || board.intents[0]?.state !== 'claimed') {
+    if (Date.now() > deadline) throw new Error(`the seed card never claimed: ${JSON.stringify(board.intents)}`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    board = await readBoard(first)
+  }
+  const card = board.intents[0]!.id
+  const claim = board.intents[0]!.claim!
+  assert.equal('dirtyPaths' in claim, false, "goal/read's board never carries it, even here")
+  const before = first.teamPlane.dirtyPathsOf(goal, card)
+  assert.deepEqual(before, ['.env'], "the pre-existing dirt is what the claim snapshotted")
+
+  await first.dispose()
+  const second = await open()
+  t.after(() => second.dispose())
+  await second.call('workspace/open', { path: repo.dir })
+
+  const after = second.teamPlane.dirtyPathsOf(goal, card)
+  assert.deepEqual(after, ['.env'], 'the snapshot is durable — read back from the Goal document a fresh host loaded, not carried in memory')
+  const rereadClaim = (await readBoard(second)).intents.find((one) => one.id === card)?.claim
+  assert.equal('dirtyPaths' in rereadClaim!, false, "goal/read still never carries it, after the restart too")
+
+  // The agent's own new, uncommitted file — dirt that was not there at claim time.
+  await writeFile(join(repo.dir, 'left-behind.txt'), 'x\n')
+  const answer = await second.teamPlane.complete(card, {}, { runtime: claim.runtime, sessionId: claim.sessionId })
+  assert.match(
+    String(answer),
+    /^You have 1 uncommitted file from this card's work\. Commit them, then finish again\.$/,
+    'a snapshot that survived the restart is the one this finish is checked against',
+  )
 })

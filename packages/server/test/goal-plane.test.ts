@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import type { BoardEvidence, FlowExecution, GoalCitation, RuntimeId, SeatRecord } from '@harnessdesk/protocol'
 
 import { GoalPlane, type GoalMemorySupport, type GoalPlanePort } from '../src/goals/plane.js'
+import { goalViewForWire } from '../src/methods/goals.js'
 import { UNOBSERVED_LOADING_REFUSAL } from '../src/goals/assignments.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { MemoryPlane } from '../src/memory/plane.js'
@@ -124,7 +125,19 @@ test('an evidence read failure is visible and never makes settled work ready', a
   assert.notEqual(view.activity, 'ready-to-wrap')
 })
 
-test("goal/read never carries a claimed card's dirty-paths snapshot", async () => {
+/*
+ * `GoalPlane.view` is not only how a `goal/*` method answers a client: its
+ * `board` is what `changed` (host.ts) hands straight to `Team.
+ * installProjection` to re-sync Team's own copy of the board, which a
+ * restart reloads from and which `FlowExecutions.refuseDirty` reads a
+ * claim's dirty-paths snapshot from. Stripping it here — where the first
+ * version of this fix put it — silently carried the strip into that
+ * install path too, and cost a Goal-backed flow card its snapshot on every
+ * restart, never refusing a finish that should have been. So `view` itself
+ * must stay raw; only `goalViewForWire` (`methods/goals.ts`), applied to
+ * what a `goal/*` method actually returns, may drop it.
+ */
+test('GoalPlane.view keeps a claim whole, dirtyPaths included — installProjection depends on it', async () => {
   const proof = await rig()
   const document = proof.store.read('g1')
   await proof.store.save({
@@ -141,7 +154,12 @@ test("goal/read never carries a claimed card's dirty-paths snapshot", async () =
   const view = await proof.plane.view('g1')
   const claim = view.board.intents.find((one) => one.id === 1)?.claim
   assert.ok(claim, 'the card is claimed')
-  assert.equal('dirtyPaths' in claim!, false, 'a shared checkout\'s own file names never reach a renderer')
+  assert.deepEqual(claim!.dirtyPaths, ['.env', 'notes.md'], "view() itself is host-only and raw — the wire strip is a separate seam")
+
+  const wired = goalViewForWire(view)
+  const wiredClaim = wired.board.intents.find((one) => one.id === 1)?.claim
+  assert.ok(wiredClaim, 'still claimed')
+  assert.equal('dirtyPaths' in wiredClaim!, false, "goalViewForWire is what a goal/* method actually returns to a client")
 })
 
 test('creation persists an empty Goal without seating; dependency waits still allow a sentence edit', async () => {
