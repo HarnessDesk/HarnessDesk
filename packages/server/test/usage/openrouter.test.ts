@@ -101,13 +101,13 @@ test('no key configured is silence', async () => {
 
 test('a 401 from either endpoint is an auth failure, and the key never appears in it', async () => {
   const meter = new OpenRouterMeter({
-    env: { OPENROUTER_API_KEY: 'sk-or-v1-the-secret-value' },
+    env: { OPENROUTER_API_KEY: 'sk-or-v1-the-secret-value' }, // hd-secrets-ok: a shape-only fixture value, never a real credential
     fetch: served({ '/api/v1/key': { status: 401 }, '/api/v1/credits': { body: { data: { total_credits: 1, total_usage: 0 } } } }),
     now: () => NOW,
   })
   await assert.rejects(meter.read(), (error: unknown) => {
     assert.ok(error instanceof MeterAuthError)
-    assert.ok(!(error as Error).message.includes('sk-or-v1-the-secret-value'))
+    assert.ok(!(error as Error).message.includes('sk-or-v1-the-secret-value')) // hd-secrets-ok: a shape-only fixture value, never a real credential
     return true
   })
 })
