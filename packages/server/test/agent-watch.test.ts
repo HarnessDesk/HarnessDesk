@@ -1193,7 +1193,12 @@ test('(G5) through the host: a remembered folder’s git top level is asked once
   const first = tempDir('hd-agent-watch-first-')
   const second = tempDir('hd-agent-watch-second-')
   const topLevelAsks = async (folder: string): Promise<number> =>
-    (await readFile(asked, 'utf8')).split('\n').filter((line) => line === `-C ${folder} rev-parse --show-toplevel`).length
+    (await readFile(asked, 'utf8'))
+      .split('\n')
+      // The host's own git carries its hardening (`HARDENED_GIT_CONFIG`, #1075)
+      // as `-c key=value` pairs; the question asked is the same either way.
+      .map((line) => line.replace(/ -c \S*/g, ''))
+      .filter((line) => line === `-C ${folder} rev-parse --show-toplevel`).length
 
   // Two asks per open of a new folder, with the same words: the open's own
   // `git status` asks where the top is, and so does the roster's watch.
