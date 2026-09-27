@@ -57,9 +57,10 @@ precedence over that automatic choice. Any spent account-wide window is a hard
 block and leads over a live shorter window or a pin; when several are spent,
 the longest is shown because it is the hold that cannot be stepped around.
 Ties keep the source's order, and a window with no measurable percentage is
-considered only when no measurable candidate exists. The full lane list
-remains on the card, so a lower longer-term balance stays visible even when
-the shorter window is the headline. A spent model-scoped lane still cannot
+considered only when no measurable candidate exists. The card shows the lane
+rows that fit and reports additional lanes as `+N more`. A lower longer-term
+balance stays visible when its lane fits in those rows, even when the shorter
+window is the headline. A spent model-scoped lane still cannot
 speak for the account — see
 [The headline is the account, not a model](#the-headline-is-the-account-not-a-model).
 
@@ -996,12 +997,12 @@ banner, or counts as an exhausted agent in the line at the top.
 
 Among live account-wide windows, automatic selection leads with the shortest
 window, not the smallest remaining percentage. The choice from #715 gives the
-near-term window first position; the lane list below the headline still shows
-the longer window and its own remaining share. For example, Session at 29% left
-leads when Weekly has 12% left, while Weekly remains visible as the tighter
-amber lane. A valid account-level pin can choose another live window. A spent
-account-wide window overrides both because it blocks work regardless of the
-shorter window or the pin.
+near-term window first position; the displayed lane rows below the headline
+show each lane's own remaining share. For example, Session at 29% left leads
+when Weekly has 12% left, while Weekly remains visible as the tighter amber
+lane in this two-lane report. A valid account-level pin can choose another live
+window. A spent account-wide window overrides both because it blocks work
+regardless of the shorter window or the pin.
 
 **With no account-wide lane, the scopes are alternatives.** Antigravity
 reports a weekly limit for its Gemini models and another for its Claude and
