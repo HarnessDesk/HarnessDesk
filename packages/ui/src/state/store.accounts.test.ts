@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { runtimeId, type HostMethodName } from '@harnessdesk/protocol'
 
@@ -140,6 +140,203 @@ describe('two account reads in flight at once', () => {
     held[0]?.(null)
     await stale
 
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+  })
+})
+
+describe('an account read that fails (#1021)', () => {
+  const OTHER = runtimeId('claude-2b4c6d')
+  const handlers = (): { onNotification: (n: unknown) => void } =>
+    (store.transport as unknown as { handlers: { onNotification: (n: unknown) => void } }).handlers
+  /** Puts agents in the roster the way the app gets them: over the wire. */
+  const roster = (...ids: string[]): void => {
+    handlers().onNotification({
+      method: 'sync',
+      params: { sessions: [], runtimes: ids.map((id) => ({ id, name: id, presentation: { name: id } })) },
+    })
+  }
+  /** Answers per agent: a status, or `'fail'` to refuse, or a held promise's resolver slot. */
+  let per: Record<string, unknown>
+  const readsOf = (id: string): number => reads.filter((one) => one === id).length
+  let reads: string[]
+
+  beforeEach(() => {
+    // Every test here runs on fake timers, so no retry outlives its store.
+    vi.useFakeTimers()
+    per = {}
+    reads = []
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { runtime?: string }) => {
+      if (method !== 'runtime/account') return null
+      const id = String(params?.runtime)
+      reads.push(id)
+      const answer = per[id]
+      if (answer === 'fail') throw new Error('The agent is not running.')
+      if (typeof answer === 'function') return (answer as () => Promise<unknown>)()
+      return answer ?? null
+    }) as never)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('keeps the last answer rather than forgetting who was signed in', async () => {
+    roster(ADDED)
+    per[ADDED] = { accounts: [{ kind: 'chatgpt', label: 'ada@example.com' }], signInMethods: [] }
+    await store.loadAccounts()
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+  })
+
+  it('asks again on its own, less often each time, and stops once it is answered', async () => {
+    roster(ADDED)
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    expect(store.getSnapshot().accountsByRuntime[ADDED]).toBeUndefined()
+    const first = readsOf(ADDED)
+
+    // Nothing else happens on the desk; the store asks again by itself.
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(readsOf(ADDED)).toBe(first + 1)
+    // Still failing: the next ask waits twice as long.
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(readsOf(ADDED)).toBe(first + 1)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(readsOf(ADDED)).toBe(first + 2)
+
+    // The agent answers; the status arrives and the asking stops.
+    per[ADDED] = { accounts: [], signInMethods: [] }
+    await vi.advanceTimersByTimeAsync(8_000)
+    expect(readsOf(ADDED)).toBe(first + 3)
+    expect(store.getSnapshot().accountsByRuntime[ADDED]).toEqual({ accounts: [], signInMethods: [] })
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(readsOf(ADDED)).toBe(first + 3)
+  })
+
+  it('asks again only the agent that failed, and keeps the others as they answered', async () => {
+    roster(ADDED, OTHER)
+    per[ADDED] = 'fail'
+    per[OTHER] = { accounts: [{ kind: 'chatgpt', label: 'grace@example.com' }], signInMethods: [] }
+    await store.loadAccounts()
+    const others = readsOf(OTHER)
+
+    // An hour of an agent that never answers costs its siblings nothing.
+    await vi.advanceTimersByTimeAsync(3_600_000)
+    expect(readsOf(ADDED)).toBeGreaterThan(10)
+    expect(readsOf(OTHER)).toBe(others)
+    expect(store.getSnapshot().accountsByRuntime[OTHER]?.accounts).toHaveLength(1)
+  })
+
+  it('does not ask an agent that could not start; its coming back up does', async () => {
+    roster(ADDED)
+    handlers().onNotification({
+      method: 'runtime/healthChanged',
+      params: { runtime: ADDED, health: { state: 'unavailable', reason: 'crashed', message: 'It exited.' } },
+    })
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    const first = readsOf(ADDED)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(readsOf(ADDED)).toBe(first)
+    // Up again: that is what asks, and the answer lands.
+    per[ADDED] = { accounts: [], signInMethods: [] }
+    handlers().onNotification({ method: 'runtime/healthChanged', params: { runtime: ADDED, health: { state: 'ready' } } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(readsOf(ADDED)).toBeGreaterThan(first)
+    expect(store.getSnapshot().accountsByRuntime[ADDED]).toEqual({ accounts: [], signInMethods: [] })
+  })
+
+  /** Holds every read of `id` until released, in the order they were asked. */
+  const hold = (id: string): Array<(value: unknown) => void> => {
+    const waiting: Array<(value: unknown) => void> = []
+    per[id] = () => new Promise((resolve) => waiting.push(resolve))
+    return waiting
+  }
+
+  it('a failure a newer pass found is still asked again when an older retry lands after it', async () => {
+    roster(ADDED, OTHER)
+    per[ADDED] = 'fail'
+    per[OTHER] = { accounts: [], signInMethods: [] }
+    await store.loadAccounts()
+    // A whole pass starts and is still out when the retry for ADDED fires.
+    const added = hold(ADDED)
+    const other = hold(OTHER)
+    const pass = store.loadAccounts()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(added).toHaveLength(2)
+    // The pass lands: ADDED answers, OTHER now fails.
+    added[0]!({ accounts: [], signInMethods: [] })
+    other[0]!(Promise.reject(new Error('The agent is not running.')))
+    await pass
+    // The retry lands last. It must not take OTHER's re-ask with it.
+    added[1]!({ accounts: [{ kind: 'chatgpt', label: 'ada@example.com' }], signInMethods: [] })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+    per[OTHER] = { accounts: [], signInMethods: [] }
+    const before = readsOf(OTHER)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(readsOf(OTHER)).toBeGreaterThan(before)
+  })
+
+  it('stops asking an agent that goes down after its re-ask was set', async () => {
+    roster(ADDED)
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    const first = readsOf(ADDED)
+    handlers().onNotification({
+      method: 'runtime/healthChanged',
+      params: { runtime: ADDED, health: { state: 'unavailable', reason: 'crashed', message: 'It exited.' } },
+    })
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(readsOf(ADDED)).toBe(first)
+  })
+
+  it('an agent removed while its re-ask is out does not come back when the answer lands', async () => {
+    roster(ADDED, OTHER)
+    per[ADDED] = 'fail'
+    per[OTHER] = { accounts: [], signInMethods: [] }
+    await store.loadAccounts()
+    const added = hold(ADDED)
+    await vi.advanceTimersByTimeAsync(2_000)
+    handlers().onNotification({ method: 'runtime/removed', params: { runtime: ADDED } })
+    added[0]!({ accounts: [{ kind: 'chatgpt', label: 'ada@example.com' }], signInMethods: [] })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().accountsByRuntime[ADDED]).toBeUndefined()
+    expect(store.getSnapshot().accountsByRuntime[OTHER]).toBeDefined()
+  })
+
+  it("a re-ask that lands after the agent's own refresh answered does not overwrite it", async () => {
+    roster(ADDED)
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    const added = hold(ADDED)
+    await vi.advanceTimersByTimeAsync(2_000)
+    // The active agent refreshes, and its read answers first.
+    per[ADDED] = { accounts: [{ kind: 'chatgpt', label: 'ada@example.com' }], signInMethods: [] }
+    await store.refreshRuntime()
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+    added[0]!({ accounts: [], signInMethods: [] })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+  })
+
+  it('a retry that lands after a newer pass gives way to it', async () => {
+    roster(ADDED)
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    // The retry's read is held; a whole pass starts and answers meanwhile.
+    let release: (value: unknown) => void = () => {}
+    per[ADDED] = () => new Promise((resolve) => { release = resolve })
+    await vi.advanceTimersByTimeAsync(2_000)
+    per[ADDED] = { accounts: [{ kind: 'chatgpt', label: 'ada@example.com' }], signInMethods: [] }
+    await store.loadAccounts()
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+    // The older retry lands last, with an older answer. It is not the news.
+    release({ accounts: [], signInMethods: [] })
+    await vi.advanceTimersByTimeAsync(0)
     expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
   })
 })
