@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 
 import { plainCipher, type CredentialCipher } from '../credentials.js'
 import { errnoOf, NOTHING_YET } from '../errno.js'
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 
 /**
  * The commands a person has approved on this machine.
@@ -108,7 +109,7 @@ const run = promisify(execFile)
 export const incarnationOf = async (project: string): Promise<string> => {
   let target = project
   try {
-    const { stdout } = await run('git', ['-C', project, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    const { stdout } = await run('git', ['-C', project, ...HARDENED_GIT_CONFIG, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
       timeout: 20_000,
       env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
     })

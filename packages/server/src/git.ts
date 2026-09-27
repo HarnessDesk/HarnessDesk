@@ -5,6 +5,7 @@ import { promisify } from 'node:util'
 
 import { parsePorcelain } from './porcelain.js'
 import type { GitConclusion, GitFileStatus, GitStatus } from '@harnessdesk/protocol'
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 /** Git status and diffs for the changes view. Read-only: nothing here mutates a repo. */
 
@@ -19,7 +20,7 @@ const run = promisify(execFile)
  * is handing it one.
  */
 const git = async (root: string, args: string[], signal?: AbortSignal): Promise<string> => {
-  const { stdout } = await run('git', ['-C', root, ...args], {
+  const { stdout } = await run('git', ['-C', root, ...HARDENED_GIT_CONFIG, ...args], {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
     ...(signal ? { signal } : {}),
@@ -152,7 +153,7 @@ export const diff = async (
   options: { readonly path?: string; readonly staged?: boolean } = {},
 ): Promise<string> => {
   // The a/ and b/ every reader of a patch expects, whatever diff.noprefix or diff.mnemonicPrefix says (#171).
-  const args = ['diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/']
+  const args = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/']
   if (options.staged) args.push('--cached')
   if (options.path) args.push('--', options.path.replaceAll('\\', '/'))
   try {

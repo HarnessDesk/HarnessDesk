@@ -7,6 +7,29 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A Seat that may edit can commit its card's work even where its sandbox
+  keeps `.git` read-only.** Codex's workspace sandbox refuses writes to a
+  checkout's `.git`, so a Seat held at `edit` wrote its files and then had
+  every `git commit` refused with "Operation not permitted" — and since a card
+  that can commit may not finish with its own work uncommitted, the card
+  retried until the run stalled. Agents now have a `commit_work` tool: the
+  desk itself commits the card's own work — every file changed since the card
+  was claimed, and nothing that was already uncommitted before — with the
+  agent's message, in the Seat's checkout or lane, and answers the new commit.
+  The sandbox is not widened. The commit runs no hook, filesystem monitor,
+  filter or signing program the repository configures; it refuses work a git
+  filter such as LFS would touch rather than commit it raw, leaves submodules
+  alone, and refuses while another committing card shares the checkout. The
+  desk's own automatic git in a checkout an agent can write — evidence reads,
+  status, lane creation — now runs none of the repository's hooks, its
+  filesystem monitor or an external diff program; a filter it configures can
+  still run there. Verbs you trigger yourself, like bringing a branch home,
+  still run your hooks. The shipped Researcher,
+  Requirements analyst and Implementer briefs use the tool, the uncommitted-work
+  refusal names it, and when a card's finish is refused for uncommitted work
+  turn after turn until the run gives up, the stop now says the Seat could not
+  commit its work instead of only that it "ended its turn 3 times". (#1074)
+
 - **A Seat still busy when a flow round fails, or a run stops, is no longer left
   holding its card forever, and it never sits there silently either.** Releasing
   a Seat interrupts its live turn; a Seat still found busy — or refused because
@@ -50,6 +73,22 @@ move is real work and is not news to a person weighing an upgrade.
   claim so it survives a restart, but never a value any board or `goal/read`
   result shows, so a shared checkout's own file names never reach a
   renderer. (#1049)
+
+- **Overview leads with a strip: Value, Turns and Tokens for the same
+  window the Spend chart below draws, with Paid beside them.** Paid is the
+  cash that actually left — each account's fee prorated across the window,
+  plus any metered overage spent since the cycle started, shown beside the
+  figure rather than folded in when that cycle start falls outside the
+  window — never counting an account with no fee set as $0 (its own caption
+  says "fee not set for N" and opens that account's Plan card instead). Paid
+  has no period-over-period delta: there is no billing history to compare
+  against yet, so Value, Turns and Tokens carry the deltas alone. Value and
+  Turns are also buttons: clicking one switches the chart beneath the strip
+  between cost, turns and tokens per day. A cache-hit chip rides the Tokens
+  figure, and every cell's own caption says what needs saying — a ratio
+  against Paid when every account in scope shares Paid's currency and has a
+  fee set, a per-turn price, how many agents a figure is known for — never a
+  repeat of the number beside it.
 
 - **The Dashboard's rail lists views, and the account you're looking at is a
   choice in the header.** The rail used to hold one row per account, which

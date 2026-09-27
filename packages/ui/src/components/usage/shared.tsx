@@ -5,6 +5,7 @@ import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, Us
 import { burnWord } from '../../lib/burn'
 import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
+import { agentCoverage, ledgerRuntimeIds } from '../../lib/overview-strip'
 import {
   alignGhost,
   axisTicks as axisTicksFor,
@@ -17,6 +18,8 @@ import {
   previousPeriod,
   shareOf,
   stackDaily,
+  stackDailyMetric,
+  type ChartMetric,
 } from '../../lib/ledger'
 import { paletteTone, usageReadingTone, type Tone } from '../../lib/limits'
 import {
@@ -823,6 +826,13 @@ const MODE_OPTIONS = [
   { value: 'line', label: 'Line' },
 ] as const
 
+/** What each of `Spend`'s three plottable quantities is called and drawn as. */
+const METRIC_WORDS: Record<ChartMetric, { readonly title: string; readonly empty: string; readonly noun: string }> = {
+  cost: { title: 'What it cost', empty: 'Nothing spent', noun: 'Spend' },
+  turns: { title: 'Turns per day', empty: 'No turns yet', noun: 'Turns' },
+  tokens: { title: 'Tokens per day', empty: 'No tokens yet', noun: 'Tokens' },
+}
+
 export const Spend = ({
   ledger,
   wideLedger,
@@ -835,6 +845,7 @@ export const Spend = ({
   onModeChange,
   onScan,
   rangeControl,
+  metric = 'cost',
 }: {
   ledger: LedgerReport | null
   /** Twice `range`'s worth of the same window, for the previous period and its ghost line. */
@@ -850,14 +861,38 @@ export const Spend = ({
   onScan: () => void
   /** How far back to look. It belongs to this band: it changes nothing above it. */
   rangeControl?: ReactNode
+  /**
+   * Which of a day's own numbers to plot — cost (the default, every existing
+   * caller), turns or tokens. Overview's strip is the only caller that ever
+   * passes the other two: clicking its Turns or Tokens cell is both "read the
+   * number" and "now this chart plots that instead" (`OverviewStrip.tsx`).
+   * `periodTotals`/`previousPeriod`/`alignGhost` already work off whichever
+   * quantity `stackDailyMetric` put in `StackedDay.total`, so only the
+   * band's own words and number formatting change here.
+   */
+  metric?: ChartMetric
 }) => {
-  const series = useMemo(() => stackDaily(ledger, now), [ledger, now])
-  const wideSeries = useMemo(() => stackDaily(wideLedger, now), [wideLedger, now])
+  const series = useMemo(() => stackDailyMetric(ledger, now, metric), [ledger, now, metric])
+  const wideSeries = useMemo(() => stackDailyMetric(wideLedger, now, metric), [wideLedger, now, metric])
   const currency = ledger?.currency ?? 'USD'
   const money = (value: number): string => formatMoney(value, currency) ?? '—'
+  const words = METRIC_WORDS[metric]
+  const format = metric === 'cost' ? money : metric === 'tokens' ? formatTokens : (value: number) => Math.round(value).toLocaleString()
 
+  // A window that mixes a turn-known runtime with one that is not has no
+  // honest sum at all (`LedgerReport.totals.turns` is `undefined` in exactly
+  // that case) — the headline reads "—", the same word every other unknown
+  // figure on this page uses, rather than a number that is quietly only
+  // part of the truth.
+  const turnsPartial = metric === 'turns' && ledger !== null && ledger.totals?.turns === undefined
   const headline =
-    ledger === null ? '—' : ledger.totalCost === null ? 'unpriced' : money(series.total)
+    ledger === null
+      ? '—'
+      : metric === 'cost' && ledger.totalCost === null
+        ? 'unpriced'
+        : turnsPartial
+          ? '—'
+          : format(series.total)
 
   const previous = useMemo(
     () => previousPeriod(wideSeries, range, series.total),
@@ -877,14 +912,23 @@ export const Spend = ({
     [series],
   )
 
+  const turnsKnownSet = useMemo(() => new Set(ledger?.coverage?.turnsKnownFor ?? []), [ledger])
   const runtimes = useMemo(
     () =>
       series.keys.map((runtime) => ({
         key: String(runtime),
+        runtime,
         label: byId.get(runtime)?.presentation.name ?? String(runtime),
         tint: tintOf(String(runtime)),
       })),
     [series.keys, byId, tintOf],
+  )
+  // The legend explains a series' colour; a turns-unknown runtime draws no
+  // segment on a turns chart (`stackDailyMetric` zeroes its contribution), so
+  // naming it in the legend would explain a colour that is not on the chart.
+  const legendRuntimes = useMemo(
+    () => (metric === 'turns' ? runtimes.filter((entry) => turnsKnownSet.has(entry.runtime)) : runtimes),
+    [runtimes, metric, turnsKnownSet],
   )
 
   const buckets = useMemo(
@@ -900,9 +944,9 @@ export const Spend = ({
   const todayIndex = buckets.length - 1
 
   return (
-    <section className={styles.band} aria-label="What it cost">
+    <section className={styles.band} aria-label={words.title}>
       <BandHead
-        name="What it cost"
+        name={words.title}
         action={
           <div className={styles.costControls}>
             <Segmented
@@ -922,14 +966,17 @@ export const Spend = ({
             <div>
               <ChartTitle figure>{headline}</ChartTitle>
               <ChartHint>
-                Last {ledger?.days ?? range} days — {spendHint(ledger?.provenance)}
+                {metric === 'cost'
+                  ? `Last ${ledger?.days ?? range} days — ${spendHint(ledger?.provenance)}`
+                  : `Last ${ledger?.days ?? range} days`}
               </ChartHint>
             </div>
-            {previous.change !== null && (
+            {!turnsPartial && previous.change !== null && (
               <Delta
                 value={Math.round(previous.change)}
                 better="down"
                 caption={`vs the ${range} days before`}
+                tone={metric === 'cost' ? undefined : 'neutral'}
               />
             )}
           </ChartHead>
@@ -937,15 +984,17 @@ export const Spend = ({
             {periods.map((period) => (
               <div key={period.days} className={styles.period}>
                 <Text role="meta">{period.label}</Text>
-                <Text role="metric">{money(period.cost)}</Text>
+                <Text role="metric">{format(period.cost)}</Text>
                 {period.partial ? (
                   <Text role="meta">so far</Text>
                 ) : (
+                  !turnsPartial &&
                   period.change !== null && (
                     <Delta
                       value={Math.round(period.change)}
                       better="down"
                       caption={`vs the ${period.days} days before`}
+                      tone={metric === 'cost' ? undefined : 'neutral'}
                     />
                   )
                 )}
@@ -960,9 +1009,9 @@ export const Spend = ({
               <DayColumns
                 buckets={buckets}
                 series={runtimes}
-                format={money}
-                label={`Spend per day for the last ${series.days.length} days`}
-                emptyLabel="Nothing spent"
+                format={format}
+                label={`${words.noun} per day for the last ${series.days.length} days`}
+                emptyLabel={words.empty}
                 mode={mode}
                 ghost={ghost}
                 today={todayIndex}
@@ -973,9 +1022,9 @@ export const Spend = ({
                 start={dayLabel(series.days[0]?.day ?? now)}
                 end={dayLabel(series.days[series.days.length - 1]?.day ?? now)}
               />
-              {mode === 'bars' && runtimes.length > 1 && (
+              {mode === 'bars' && legendRuntimes.length > 1 && (
                 <ChartKeys>
-                  {runtimes.map((entry) => (
+                  {legendRuntimes.map((entry) => (
                     <ChartKey key={entry.key} tint={entry.tint} label={entry.label} />
                   ))}
                 </ChartKeys>
@@ -985,14 +1034,20 @@ export const Spend = ({
             <EmptyState
               tight
               className={styles.chartEmpty}
-              title={scan?.running ? 'Reading transcripts' : 'No priced usage in this window yet'}
+              title={
+                scan?.running
+                  ? 'Reading transcripts'
+                  : metric === 'cost'
+                    ? 'No priced usage in this window yet'
+                    : `${words.empty} in this window`
+              }
               description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
             />
           )}
         </ChartCard>
 
         <ChartFoot>
-          <Text role="meta" className={styles.costWord}>{coverageSentence(ledger)}</Text>
+          <Text role="meta" className={styles.costWord}>{coverageSentence(ledger, metric)}</Text>
           <span className={styles.fill} />
           <Button size="sm" variant="ghost" disabled={scan?.running} onClick={onScan}>
             {scan?.running ? `Scanning ${scan.filesDone}/${scan.filesTotal}` : 'Rescan'}
@@ -1003,8 +1058,28 @@ export const Spend = ({
   )
 }
 
-const coverageSentence = (ledger: LedgerReport | null): string => {
+/**
+ * The chart foot's own sentence — worded for whichever metric is on screen,
+ * because "Metered and list-price · 44 of 30,096 calls carry no public
+ * price" is a claim about cost, and sitting it under a turns or tokens chart
+ * qualifies a number the chart is not drawing. "Days scanned" is the one
+ * clause true of every metric, so it is the only one every branch keeps.
+ */
+const coverageSentence = (ledger: LedgerReport | null, metric: ChartMetric): string => {
   if (!ledger) return 'Nothing has been scanned yet.'
+  const covered = coverageLabel(ledger)
+  if (metric === 'tokens') {
+    const parts: string[] = []
+    if (ledger.totalTokens !== null) parts.push(`${formatTokens(ledger.totalTokens)} tokens`)
+    if (covered) parts.push(covered)
+    return parts.join(' · ')
+  }
+  if (metric === 'turns') {
+    const coverage = agentCoverage(ledger.coverage, ledgerRuntimeIds(ledger))
+    const parts: string[] = [`turns known for ${coverage.known} of ${coverage.total} agents`]
+    if (covered) parts.push(covered)
+    return parts.join(' · ')
+  }
   const parts: string[] = [provenanceLabel(ledger)]
   if (ledger.totalTokens !== null) parts.push(`${formatTokens(ledger.totalTokens)} tokens`)
   const { priced, unpriced } = ledger.coverage
@@ -1013,7 +1088,6 @@ const coverageSentence = (ledger: LedgerReport | null): string => {
       `${unpriced.toLocaleString()} of ${(priced + unpriced).toLocaleString()} calls carry no public price`,
     )
   }
-  const covered = coverageLabel(ledger)
   if (covered) parts.push(covered)
   return parts.join(' · ')
 }
