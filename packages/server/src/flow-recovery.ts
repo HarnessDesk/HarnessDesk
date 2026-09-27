@@ -166,6 +166,14 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
           object(target) && text(target['cwd']) && (target['at'] === null || text(target['at'])))) bad('has a check plan it cannot describe')
     }
   }
+  if (raw['seatPlans'] !== undefined) {
+    if (!object(raw['seatPlans'])) bad('has unreadable seat plans')
+    for (const [round, plan] of Object.entries(raw['seatPlans'] as Record<string, unknown>)) {
+      if (!/^[1-9][0-9]*$/.test(round) || !object(plan) || !(plan['base'] === null || text(plan['base'])) || !Array.isArray(plan['handed']) ||
+        !(plan['handed'] as unknown[]).every((one) => object(one) && integer(one['card']) && text(one['at']) &&
+          (one['branch'] === null || text(one['branch'])) && text(one['cwd']))) bad('has a seat plan it cannot describe')
+    }
+  }
   if (raw['reviewPackets'] !== undefined) {
     if (!object(raw['reviewPackets'])) bad('has unreadable review packets')
     for (const [round, pin] of Object.entries(raw['reviewPackets'] as Record<string, unknown>)) {

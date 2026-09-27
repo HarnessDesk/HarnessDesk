@@ -348,7 +348,18 @@ const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; rea
     <>
       <Row
         mark={winner ? <RuntimeMark runtime={markFor(winner, snapshot.runtimes)} size={16} /> : <BriefIcon size={16} />}
-        title={`${name} — ${seat.role}${seat.isolate ? ', isolated' : ''}`}
+        title={
+          <>
+            {`${name} — ${seat.role}${seat.isolate ? ', isolated' : ''}`}
+            {/* A worktree the file never asked for (#1053): a state, so a chip on the label's own line; the sentence is its hover. */}
+            {seat.atPredecessor && !seat.isolate && (
+              <>
+                {' '}
+                <Chip tone="neutral" size="sm" title="Opens in a worktree of its own, at the commit it is handed">Own worktree</Chip>
+              </>
+            )}
+          </>
+        }
         desc={reason ?? undefined}
         control={seat.plan.ceiling ? <CeilingChip ceiling={seat.plan.ceiling} /> : <Text role="meta">Unavailable</Text>}
       />
