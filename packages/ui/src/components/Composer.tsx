@@ -990,7 +990,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                   onClick={() => setPreview(index)}
                 >
                   <AttachmentMedia variant="image">
-                    <img className={styles.thumb} src={image.path} alt={image.name} draggable={false} />
+                    <AttachmentMedia variant="picture" fill src={image.path} alt={image.name} draggable={false} />
                   </AttachmentMedia>
                 </Button>
                 <Button

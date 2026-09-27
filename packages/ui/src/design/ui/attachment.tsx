@@ -108,47 +108,38 @@ const Attachment = ({
   </div>
 )
 
+type AttachmentMediaProps =
+  | (React.ComponentProps<'span'> & { variant?: 'icon' | 'image' })
+  | (React.ComponentProps<'img'> & { variant: 'picture'; fill?: boolean })
+
 /**
- * The thumbnail or the file glyph. `image` lets an `<img>` fill it.
+ * The thumbnail or the file glyph. `image` is a framed tile an `<img>` fills.
  *
- * `thumbnail` is the third shape: no card chrome around it, because it is the
- * picture itself standing as its own trigger (a transcript's lone image, the
- * lightbox it opens) rather than a file riding inside an `Attachment` card.
- * It renders the `<img>` directly — an `AttachmentMedia` with nothing to wrap
- * would just be a span in the way — and contributes only the one thing such
- * a picture needs from the system: `--hd-image-max-height`, so the ceiling
- * that keeps one photo from becoming a wall of it is named once, not copied
- * wherever a bare thumbnail is drawn.
+ * `picture` is the thumbnail itself: the `<img>`, with every image prop
+ * reaching it and no frame of its own — whatever holds it (a transcript's
+ * tile, an `image` tile in a draft) is the frame. Two shapes, one per layout.
+ * A lone picture keeps its proportions, contained under
+ * `--hd-image-max-height`, the ceiling that keeps one photo from becoming a
+ * wall of it; a picture in a tile (`fill`) covers the tile.
  */
-const AttachmentMedia = ({
-  className,
-  variant = 'icon',
-  children,
-  src,
-  alt,
-  loading,
-  draggable,
-  ...props
-}: React.ComponentProps<'span'> & {
-  variant?: 'icon' | 'image' | 'thumbnail'
-  src?: string
-  alt?: string
-  loading?: 'lazy' | 'eager'
-  draggable?: boolean
-}) => {
-  if (variant === 'thumbnail') {
+const AttachmentMedia = (allProps: AttachmentMediaProps) => {
+  if (allProps.variant === 'picture') {
+    const { className, variant, fill = false, ...props } = allProps
     return (
       <img
         data-slot="attachment-media"
-        data-variant="thumbnail"
-        className={cn('h-auto max-h-(--hd-image-max-height)', className)}
-        src={src}
-        alt={alt}
-        loading={loading}
-        draggable={draggable}
+        data-variant={variant}
+        data-fill={fill ? '' : undefined}
+        className={cn(
+          'block',
+          fill ? 'size-full object-cover' : 'h-auto w-auto max-w-full max-h-(--hd-image-max-height) object-contain',
+          className,
+        )}
+        {...props}
       />
     )
   }
+  const { className, variant = 'icon', children, ...props } = allProps
   return (
     <span
       data-slot="attachment-media"

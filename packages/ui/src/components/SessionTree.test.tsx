@@ -1422,6 +1422,11 @@ it('renames an inactive session without opening it or changing active session (#
   )
   expect(renameOption).toBeDefined()
 
+  // The row as it stands, two lines tall (a comfortable row's second line):
+  // the rename box must hold that height, or every row below moves up.
+  const rowB = menuB!.closest('[class*="rowWrap"]')!.querySelector<HTMLButtonElement>('button[data-density]')!
+  rowB.getBoundingClientRect = () => ({ height: 55 }) as DOMRect
+
   act(() => {
     renameOption!.click()
   })
@@ -1430,11 +1435,9 @@ it('renames an inactive session without opening it or changing active session (#
   const input = container.querySelector<HTMLInputElement>('input')
   expect(input).toBeDefined()
   expect(input?.value).toBe('Inactive Conversation')
-  // It stands in for the row: the row's own box, at the row's own density.
-  const row = [...container.querySelectorAll<HTMLButtonElement>('button[data-density]')][0]
+  // It stands in for the row: the row's own box, at the height the row had.
   expect(input?.dataset.size).toBe('row')
-  expect(input?.dataset.density).toBe(snapshot.listPrefs.density)
-  expect(input?.dataset.density).toBe(row?.dataset.density)
+  expect(input?.style.minHeight).toBe('55px')
 
   // Change input and press Enter
   act(() => {

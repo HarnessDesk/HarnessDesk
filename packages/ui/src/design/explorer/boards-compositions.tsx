@@ -1661,18 +1661,35 @@ const AdoptedBoard = () => {
           ))}
         </AttachmentGroup>
 
-        {/* `thumbnail`: no card chrome, the picture as its own trigger — the
-            transcript's lone image and the lightbox it opens. `--hd-image-max-height`
-            is the only thing this variant contributes. */}
+        {/* AttachmentMedia `picture`: the img itself, no frame of its own, as
+            the transcript and a draft draw an attached image. A lone picture
+            taller than the cap stops at --hd-image-max-height; in a tile, it
+            covers the tile. */}
         <div className={styles.caseLabel} style={{ marginTop: 'var(--hd-space-3)' }}>
-          attachment media &mdash; thumbnail variant, capped by --hd-image-max-height
+          attachment media &mdash; picture, a lone one contained under --hd-image-max-height
         </div>
         <AttachmentMedia
-          variant="thumbnail"
-          data-catalog-variant="thumbnail"
-          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='300'%3E%3Crect width='800' height='300' fill='%23888'/%3E%3C/svg%3E"
-          alt="Sample photo, wider than it is tall"
+          variant="picture"
+          data-catalog-variant="picture"
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='900'%3E%3Crect width='600' height='900' fill='%23888'/%3E%3C/svg%3E"
+          alt="Sample photo, taller than the cap"
         />
+        <div className={styles.caseLabel} style={{ marginTop: 'var(--hd-space-3)' }}>
+          attachment media &mdash; picture, fill: covering its tile, one of several
+        </div>
+        <div className="flex h-24 gap-(--hd-space-2)">
+          {['%23888', '%23aaa'].map((fill) => (
+            <div key={fill} className="w-32 overflow-hidden rounded-(--hd-radius-md)">
+              <AttachmentMedia
+                variant="picture"
+                fill
+                data-catalog-variant="picture-fill"
+                src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect width='400' height='300' fill='${fill}'/%3E%3C/svg%3E`}
+                alt="Sample photo in a grid"
+              />
+            </div>
+          ))}
+        </div>
 
         <div className={styles.caseLabel} style={{ marginTop: 'var(--hd-space-3)' }}>
           data-table &mdash; press a heading, tick a row

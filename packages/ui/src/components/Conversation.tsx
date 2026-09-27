@@ -765,10 +765,14 @@ export const Conversation = ({
             scroller and must not scroll with what it pictures. */}
         {session && <ConversationMap turns={session.turns} scroll={scroll} />}
         {loading && items.length === 0 ? (
-          <ConversationEmptyState row>
-            <Spinner size="sm" tone="brand" />
-            <Text role="prose" ink="muted">Loading transcript…</Text>
-          </ConversationEmptyState>
+          // In the same column as every other empty state here, clear of the
+          // composer, so the word does not jump when loading ends in one.
+          <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
+            <ConversationEmptyState row>
+              <Spinner size="sm" tone="brand" />
+              <Text role="prose" ink="muted">Loading transcript…</Text>
+            </ConversationEmptyState>
+          </PaneColumn>
         ) : session && items.length > 0 ? (
           <PaneColumn
             inset="reading"
