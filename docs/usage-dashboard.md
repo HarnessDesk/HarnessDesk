@@ -112,7 +112,7 @@ it; `check-layering.mjs` only forbids it above.
 | --- | --- | --- | --- |
 | 1 | Runtime adapter queries | Codex, live, already wired | free |
 | 2 | A declared local file the agent already writes | Claude Code: `~/.claude.json → cachedUsageUtilization` — session, weekly, model-scoped lanes, plan, identity, `severity` | free, and watched on disk |
-| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`, plus `api/auth/me` and the legacy `api/usage` on a request-based plan only), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance) | one request, cached (two more for a request-based Cursor plan) |
+| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`, plus `api/auth/me` and the legacy `api/usage` on a request-based plan only), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance), DeepSeek Harness (`DEEPSEEK_API_KEY`, in the row's own environment or `${DSH_HOME:-~/.dsh}/.credentials.yaml` → `api.deepseek.com/user/balance`), OpenRouter (`OPENROUTER_API_KEY` in any agent's own environment → `openrouter.ai/api/v1/key` and `/credits`) | one request, cached (two more for a request-based Cursor plan; two for OpenRouter's pair of endpoints) |
 | 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models), Amp (`amp usage` → the credit balance) | one process start and one request, at most once a minute (Amp: every five) |
 | 4 | The local ledger — the agent's own records | tokens and cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl`, Gemini CLI's `~/.gemini/tmp/*/chats/*.jsonl`, Qwen Code's `~/.qwen/projects/*/chats/*.jsonl` (list price); OpenCode's `opencode.db` and Cline's `sessions.db` (the cost the agent recorded) | one incremental scan |
 
@@ -254,6 +254,56 @@ ones. A prepaid balance counts as usage reported in the line above the cards,
 so an overdrawn Cline reads "Cline is out of credits." rather than "No agent
 here reports plan usage."; its card says the balance waits for a top-up, not
 a reset; and the Accounts rail shows the balance where a percentage would go.
+
+**DeepSeek and OpenRouter, added 2026-09-26.** Two more sources that were
+"doesn't report usage" until now, and the two shapes above (Balance, Metered
+key) rather than a new one:
+
+- **DeepSeek Harness** authenticates with a provider key, never a browser
+  sign-in (`agent-registry.ts`'s `dsh` entry), so it is bound by runtime —
+  the same way `agy_acp_server` is bound to Antigravity's CLI, above — never
+  by a base URL check. `GET api.deepseek.com/user/balance`
+  (https://api-docs.deepseek.com/api/get-user-balance) answers `{
+  is_available, balance_infos: [{ currency, total_balance, … }] }`; a
+  prepaid balance, so it is `credits`, never a lane, `billing.kinds:
+  ['balance']`. An account can have more than one currency funded at once
+  (CNY and USD both topped up) — those are never summed into one figure,
+  since they are not fungible; the meter reports the one currency this
+  screen can show (USD when it is funded, otherwise the first the response
+  lists) rather than inventing a combined number. `is_available: false`
+  reads as out, the same as a balance at zero. The key itself is read from
+  wherever DSH's own process would read it — the desk's own stored copy
+  first, then `DEEPSEEK_API_KEY` in the row's environment, then DSH's own
+  store (`${DSH_HOME:-~/.dsh}/.credentials.yaml`, the file its "Models" page
+  writes, or a `.env` beside it) — the same two files and the same order
+  `whereSecretLives`/`readsKey` in `@harnessdesk/adapter-acp` already check
+  for *presence*; this is the one place the *value* is read, and only to put
+  it in a request header — never logged, stored beyond that read, or shown
+  past its last four characters.
+- **OpenRouter** is not an agent at all, so it is never bound by runtime: any
+  agent this desk starts with `OPENROUTER_API_KEY` in its own environment
+  gets this meter, filling the gap only where nothing stronger already
+  answered (Cline's own balance stays Cline's, whatever key its model calls
+  also carry). `GET openrouter.ai/api/v1/key`
+  (https://openrouter.ai/docs/api-reference/limits) gives the key's own
+  `limit`, `limit_reset` and `usage`; a key with a limit is a metered
+  allowance — `unit: 'usd'`, `used`, `limit`, `layer: 'plan'`,
+  `billing.kinds: ['metered']`, reset per `limit_reset`'s own period
+  ("daily" | "weekly" | "monthly"), carried as `resetText` since it names a
+  period, never a date. A key with no limit gets no lane at all: nothing
+  invents a ceiling that key does not have. `GET
+  openrouter.ai/api/v1/credits` (https://openrouter.ai/docs/api-reference/credits)
+  gives `total_credits` and `total_usage`; the account-wide balance is
+  `total_credits - total_usage`, `billing.kinds` gains `'balance'`. The
+  account label this meter reports is its own key's last four characters,
+  never OpenRouter's own `label` field, which can itself be shaped like the
+  key it names.
+
+Both meters treat a 401 from their vendor as the key or sign-in being wrong,
+not a crash: `MeterAuthError` carries that through as `UsageError.needsSignIn`
+— worth a card that says "sign in / check key" even with no earlier reading
+to fall back on, unlike a plain outage, which stays silent until something
+has answered once.
 
 **Read-only, always.** HarnessDesk never writes to another application's
 credential file, config or cache. It reads to answer one question and keeps
