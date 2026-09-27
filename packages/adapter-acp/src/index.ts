@@ -1,8 +1,11 @@
 export {
   AcpRuntime,
   isDirectory,
+  readKeyValue,
+  secretSourcePath,
   type AcpAgentConfig,
   type AcpLaunchDecision,
+  type AcpSecretSource,
   type AcpSecretSpec,
   type AcpUsageRecord,
 } from './runtime.js'
