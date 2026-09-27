@@ -154,9 +154,10 @@ export class TriggerRefusal extends Error {
 /** Why a trigger's run holds instead of dispatching: its dispatch is held until its firing is recorded. */
 /**
  * How long a release waits on a still-busy Seat's own turn-ended signal
- * before it stops being silent about it: past this, the run stalls (if it
- * can) and its `pendingReleaseNote` says which card and which Seat, rather
- * than the wait continuing to say nothing (#1027). The wait itself is not
+ * before it stops being silent about it: past this, a still-running run
+ * stalls with a sentence naming the card and the Seat, and a run already
+ * stopped or settled carries that same sentence in its own `reason` instead
+ * (#1027). The wait itself is not
  * bounded by this — a Seat's turn ending later still releases it — only the
  * point where a person is told stops being that far off.
  */
@@ -373,7 +374,6 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   ...(run.intake ? { intake: run.intake } : {}),
   ...(run.requireHeld ? { requireHeld: true as const } : {}),
   ...(run.target ? { target: run.target } : {}),
-  ...(run.pendingReleaseNote ? { pendingReleaseNote: run.pendingReleaseNote } : {}),
 })
 
 /** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
@@ -647,6 +647,14 @@ export class FlowExecutions {
   #runs = new Map<string, StoredFlowExecution>()
   /** Seats whose release is waiting on their own turn-ended signal (#1027); keyed by Seat id. */
   readonly #pendingReleases = new Map<string, PendingRelease>()
+  /**
+   * A stopped or settled run's own `reason`, from just before the first
+   * pending-release note ever overwrote it — keyed by run id, so it can be
+   * put back once nothing on that run is pending any more. Absent for a run
+   * whose `reason` a pending release has never touched (review #1050 finding
+   * 3: the note is carried in `reason` itself, never a field of its own).
+   */
+  readonly #reasonsBeforeNote = new Map<string, string | null>()
   /** Set once, at the top of `dispose()`, before anything below it can yield — every release path checks it, and once set nothing here schedules another timer or writes another document. */
   #disposed = false
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
@@ -1639,10 +1647,11 @@ export class FlowExecutions {
    */
   async #release(goal: string, ids: readonly string[], interrupt: boolean, runId: string): Promise<void> {
     if (this.#disposed) return
+    const cards = this.#cardsOf(runId)
     for (const id of ids) {
       if (this.#disposed) return
       const record = this.#port.seatOf(id)
-      const claim = record ? this.#claimOf(goal, record) : null
+      const claim = record ? this.#claimOf(goal, record, cards) : null
       if (interrupt && record) {
         await this.#port.interrupt?.(record).catch((error: unknown) => {
           this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
@@ -1652,22 +1661,30 @@ export class FlowExecutions {
     }
   }
 
+  /** Every card any round of this run has ever owned — the only cards a claim of its own Seats is ever allowed to name. */
+  #cardsOf(runId: string): readonly number[] {
+    return [...new Set((this.#runs.get(runId)?.rounds ?? []).flatMap((round) => round.cards))]
+  }
+
   /**
    * The card and the claim a Seat held when a release was asked for it —
    * captured once, at hand-off, so a retry can tell "still the same work"
    * from "given something new while it waited" (#1027 ownership check). Null
-   * when the Seat named no card at all; nothing to protect there.
+   * when the Seat named no card at all, or when it now names a card that was
+   * never one of this run's own — a person's own hand-assignment, made to a
+   * Seat this run still happens to see as open, is never mistaken for a
+   * claim of this run's to give up (review #1050 finding 2).
    */
-  #claimOf(goal: string, record: SeatRecord): PendingSeatClaim | null {
+  #claimOf(goal: string, record: SeatRecord, cards: readonly number[]): PendingSeatClaim | null {
     const intent = this.#team
       .stateFor(goal)
-      .intents.find((one) => one.claim?.runtime === record.session.runtime && one.claim?.sessionId === record.session.sessionId)
+      .intents.find((one) => one.claim?.runtime === record.session.runtime && one.claim?.sessionId === record.session.sessionId && cards.includes(one.id))
     return intent ? { card: intent.id, runtime: record.session.runtime, sessionId: record.session.sessionId } : null
   }
 
   /** Whether a Seat's claim, read now, is still exactly the one captured at hand-off. */
-  #claimStillHeld(goal: string, record: SeatRecord, claim: PendingSeatClaim): boolean {
-    const now = this.#claimOf(goal, record)
+  #claimStillHeld(goal: string, record: SeatRecord, claim: PendingSeatClaim, cards: readonly number[]): boolean {
+    const now = this.#claimOf(goal, record, cards)
     return now !== null && now.card === claim.card && now.runtime === claim.runtime && now.sessionId === claim.sessionId
   }
 
@@ -1689,7 +1706,7 @@ export class FlowExecutions {
       await this.#settlePending(id)
       return
     }
-    if (claim && !this.#claimStillHeld(goal, record, claim)) {
+    if (claim && !this.#claimStillHeld(goal, record, claim, this.#cardsOf(runId))) {
       this.#port.log('a flow Seat’s release was dropped: it holds different work now', { goal, seat: id })
       await this.#settlePending(id)
       return
@@ -1759,11 +1776,13 @@ export class FlowExecutions {
 
   /**
    * Past `RELEASE_STALL_MS` with no turn-ended signal: the wait itself does
-   * not stop, but silence does. The run's `pendingReleaseNote` is set to a
-   * sentence naming the card and the Seat, and — only while the run can
-   * still take one — it stalls with the same sentence, so a person reads it
-   * wherever they are looking (#1027). Fired from its own timer, so — like
-   * `retryRelease` — it holds no queue of its own and takes the run's here.
+   * not stop, but silence does. A sentence naming the card and the Seat is
+   * written wherever a person reads this run — a still-running run stalls
+   * with it, and a run already stopped or settled carries it in its own
+   * `reason` instead (`#notePending`, review #1050 finding 3), so nothing
+   * about the #1027 wait ever goes unsaid because the run happened to be
+   * done already. Fired from its own timer, so — like `retryRelease` — it
+   * holds no queue of its own and takes the run's here.
    */
   async #onReleaseOverdue(id: string): Promise<void> {
     if (this.#disposed) return
@@ -1782,27 +1801,39 @@ export class FlowExecutions {
   }
 
   /**
-   * Writes (or clears) a run's `pendingReleaseNote`. Never queues its own
-   * write — like `#stall`, it is only ever called from somewhere already
-   * holding the run's queue, so a second `within` here would wait on itself.
+   * A stopped or settled run's `reason` is the status line the UI already
+   * renders, so a release still waiting on that run says so there rather
+   * than on a field nothing reads (review #1050 finding 3): the run's own
+   * reason, from just before the first note, is kept in
+   * `#reasonsBeforeNote` and put back by `#clearPendingNote` once nothing on
+   * it is pending any more. A still-running or already-stalled run is left
+   * alone here — the first stalls on its own reason once the wait goes
+   * overdue (`#onReleaseOverdue`), and the second already has one a person
+   * is meant to act on. Never queues its own write — like `#stall`, it is
+   * only ever called from somewhere already holding the run's queue, so a
+   * second `within` here would wait on itself.
    */
   async #notePending(runId: string, seatId: string, claim: PendingSeatClaim | null, sentence: string | null): Promise<void> {
     const run = this.#runs.get(runId)
-    if (!run) return
+    if (!run || (run.state !== 'stopped' && run.state !== 'settled')) return
     const record = this.#port.seatOf(seatId)
     const seatName = record ? (this.#port.presentationOf?.(record.session.runtime) ?? record.session.runtime) : 'a Seat'
     const cardText = claim ? `card #${claim.card}` : 'a card'
     const note = sentence ?? `Waiting for ${seatName}’s turn to end, to release ${cardText}.`
-    if (run.pendingReleaseNote === note) return
-    await this.#put({ ...run, pendingReleaseNote: note })
+    if (run.reason === note) return
+    if (!this.#reasonsBeforeNote.has(runId)) this.#reasonsBeforeNote.set(runId, run.reason)
+    await this.#put({ ...run, reason: note })
   }
 
-  /** Drops a run's `pendingReleaseNote` once nothing on it is pending any more. Same rule as `#notePending`: no queue of its own. */
+  /** Puts a run's own `reason` back once nothing on it is pending any more. Same rule as `#notePending`: no queue of its own. */
   async #clearPendingNote(runId: string): Promise<void> {
     if ([...this.#pendingReleases.values()].some((one) => one.run === runId)) return
+    const original = this.#reasonsBeforeNote.get(runId)
+    this.#reasonsBeforeNote.delete(runId)
+    if (original === undefined) return
     const run = this.#runs.get(runId)
-    if (!run || run.pendingReleaseNote == null) return
-    await this.#put({ ...run, pendingReleaseNote: null })
+    if (!run || run.reason === original) return
+    await this.#put({ ...run, reason: original })
   }
 
   // ---------------------------------------------------------------- start
@@ -3056,13 +3087,25 @@ export class FlowExecutions {
      * before this one ever asked again. Swept the same way `#finish` first
      * found these Seats, and released through the very same path — never a
      * second, different way of letting one go, and never guessed at: only a
-     * Seat still open and still holding a claim is touched.
+     * Seat still open and still holding a claim of this run's own is touched.
+     *
+     * Only `stopped` and `settled` runs are swept this way — never `stalled`.
+     * A question-stalled run keeps its Seat open and claimed on purpose, so
+     * the answer that is still coming can resume the same work; sweeping it
+     * would release the card out from under an answer already on its way. A
+     * run stalled because an old Seat's release ran past the bound is the
+     * same story with a different cause: the run itself is not done, and the
+     * Seats its current round still holds must not be swept along with it
+     * (review #1050 finding 1). `#claimOf`, scoped to this run's own cards,
+     * also keeps the sweep off a Seat a person has since handed a different
+     * card by hand (finding 2).
      */
     for (const run of [...this.#runs.values()]) {
-      if (run.state === 'running' || run.goal === '') continue
+      if ((run.state !== 'stopped' && run.state !== 'settled') || run.goal === '') continue
+      const cards = this.#cardsOf(run.id)
       const open = [...new Set(run.rounds.flatMap((round) => round.seats))].filter((seat) => {
         const record = this.#port.seatOf(seat)
-        return record !== null && record.closed === null && this.#claimOf(run.goal, record) !== null
+        return record !== null && record.closed === null && this.#claimOf(run.goal, record, cards) !== null
       })
       if (open.length === 0) continue
       await this.#queue.within(run.id, () => this.#release(run.goal, open, false, run.id)).catch((error: unknown) => {
