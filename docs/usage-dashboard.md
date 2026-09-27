@@ -1024,6 +1024,103 @@ busiest day and weekday — lives in
 [`lib/heat.ts`](../packages/ui/src/lib/heat.ts) and is tested without a
 browser.
 
+## The Overview strip
+
+One bordered object above "What is left", four cells on hairlines: **Paid**,
+**Value**, **Turns** and **Tokens**, all four for the same window the Spend
+chart below draws — the Overview's own 7/30/90-day range, the one range
+control this screen already has. Value, Turns and Tokens are also buttons:
+clicking one switches that chart between cost, turns and tokens per day
+(`stackDailyMetric`, `lib/ledger.ts`), so reading the figure and choosing what
+the chart plots are the same click. Paid is not a chart measure — there is no
+"paid per day" series the ledger keeps — so its cell is a plain figure, and
+its caption is the one that opens Settings instead.
+
+**Paid** is cash that actually left, not a list-price estimate: for every
+account in the strip's scope, its `billing.fee` prorated across the days of
+the window — split by calendar day, so a window crossing a month boundary
+(or a leap-year February) charges each day its own month's fair share rather
+than the window's average of two different month lengths — plus
+`billing.overage.spent` when the account's own billing cycle started at or
+after the window opened, so the whole of what that cumulative,
+no-daily-breakdown figure counts happened inside the window. The cycle start
+comes from the report itself (`cycleStartFromLanes`, a lane's own `resetsAt`
+minus its `windowMinutes`), never assumed from `fee.period` — a monthly fee
+is not generally billed from the calendar 1st, and overage is usually
+metered monthly even under a yearly fee. When the cycle start falls before
+the window, or the report does not say, the overage is never dropped: it is
+named *beside* the figure instead ("+ $50 overage this cycle"), because
+Paid cannot honestly fold in a figure covering money spent partly outside
+what is on screen. Paid has no delta of its own: there is no billing history
+to compare a past cycle against yet, so any change would only be measuring
+today's fee applied to the past. The arithmetic is
+[`lib/paid.ts`](../packages/ui/src/lib/paid.ts).
+
+An account with no fee set is never folded into the sum as $0 — it is left
+out, and counted instead: the caption reads "fee not set for N", linking to
+that account's own Plan card (Settings › Agents › the account, the same page
+`billing.fee` is set on). When *no* account in scope has a fee, the figure
+itself reads "—" and the caption becomes "Set plan prices", both pointing at
+Settings rather than reading as an answer. Paid never sums two currencies:
+the figure leads with the ledger's own currency when a known account shares
+it, else whichever currency's sum is largest, and the caption names each
+other currency's own total ("+ €20") rather than silently converting,
+silently dropping, or merely flagging that more exists.
+
+**Value** is the ledger's own total cost for the window — the same figure
+the Spend chart's own headline shows, labelled by provenance exactly as that
+chart's hint is (`provenanceLabel`, "List-price equivalent" and its
+neighbours), because Value is a list-price estimate first and only sometimes
+a bill. Unpriced is never $0: with no public price to draw on at all, the
+figure reads "unpriced", the same word the Spend headline already uses. Its
+caption compares Value against Paid — `{ratio}× paid` (Value ÷ Paid) — only
+when the two answer the same question: every account in scope has a fee set,
+in one currency, matching the ledger's own currency
+(`paidScopeMatchesLedger`). Dividing anyway when scope does not match would
+inflate the ratio with fee-less accounts' Value or silently convert across
+currencies, so outside that match the caption falls back to `{amount} a
+day`, the window's own average, the same as when Paid is not known at all.
+The ratio's own tone is neutral at 1× or above and the warning tone below
+it — never the success tone: this figure is never good news the way "nothing
+is wrong" is, only, below 1×, a fact worth noticing (`docs/decisions.md`).
+Its delta is neutral: a rising cost is a fact about the work done, not by
+itself good or bad news the way a rising bill is.
+
+**Turns** is `LedgerReport.totals.turns` for the window — unknown, never
+zero, whenever the window mixes a turn-known runtime with one that is not
+(`docs/usage-dashboard.md`, "Turns", above). Its caption prices a turn
+against Paid when both sides are real *and* scope-matched, the same test
+Value's ratio uses (`{amount} paid a turn`), and falls back to "known for N
+of M agents" when coverage is partial and Paid cannot answer either — "N of
+M" here counts the runtimes the ledger actually has rows for
+(`ledgerRuntimeIds`), not every account in scope, since an account with
+nothing recorded this window is neither known nor unknown. Its delta is
+neutral, and suppressed outright whenever either the current or the previous
+period mixes a turn-unknown runtime — a rise measured against a partial
+figure on either side overstates or understates it.
+
+**Tokens** is `LedgerReport.totalTokens`, with a cache-hit chip riding the
+figure's own line: `cacheRead / (input + cacheRead)`, the share of the
+*input* side that came from cache — never `cacheRead / tokens`, which would
+dilute it with output that was never a cache candidate — and never drawn at
+all with nothing on the input side to divide by. Its caption reads "known
+for N of M agents" under its *own* coverage, `tokenCoverage` — deliberately
+not the Turns cell's `turnsKnownFor`: the two ask different questions of
+different sources (a turn boundary is not a token count), and do not
+generally travel together, so a runtime can be turn-unknown yet still fully
+tokens-known. `tokenCoverage` reads the ledger's own rows directly: a
+runtime counts as tokens-known only when *none* of its rows in the window
+carries a null token count. Otherwise the caption splits the total in words,
+now naming cache as its own share so the split still adds to the figure:
+`{n}% input · {n}% output · {n}% cache` (plain input/output when there is no
+cache at all). Its delta is neutral.
+
+The arithmetic behind Value, Turns and Tokens — the percentage change against
+the previous period, the cache-hit rate, the coverage and split captions —
+lives in
+[`lib/overview-strip.ts`](../packages/ui/src/lib/overview-strip.ts) and is
+tested without a browser, the same as everything else on this page.
+
 ## Will it last
 
 One band, and only when the rail is on one agent. The first screen is triage and
