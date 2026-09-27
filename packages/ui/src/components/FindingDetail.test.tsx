@@ -203,6 +203,53 @@ it('a finding of another run, or a Goal no longer open, keeps the decision greye
   expect(document.body.textContent).toContain('This Goal is wrapped.')
 })
 
+it('regression guard: a reason typed survives PersonVerdict remounting if `decide` is ever absent and back (#1089, #1090)', async () => {
+  // #1090's review found that the real store never actually drops an
+  // already-loaded `decide` (`flowExecutions`/`findingRuns` are only ever
+  // added to, and a live push keeps a Goal's cached run views in place while
+  // it refetches) — see `GoalFindings.real-store.test.tsx` for the real path,
+  // which passes even on main. This test is not a reproduction of #1089's
+  // reported bug; it pins the defensive fix (the reason lifted to
+  // `FindingDetail`, which does not remount here) against `PersonVerdict`
+  // ever being asked to remount for a cause this suite does not know about.
+  const { store } = rig(page())
+  const decideFindingRun = vi.fn(async () => runView())
+  Object.assign(store, { decideFindingRun })
+  await renderDeciding(store, runView())
+  expect(document.body.textContent).toContain('Decide it yourself')
+
+  typeReason('checked the fix myself')
+  expect((document.querySelector('textarea[aria-label="Why"]') as HTMLTextAreaElement).value).toBe('checked the fix myself')
+
+  // The run view blinks out of the snapshot for one render, then comes back —
+  // same run, a fresh object, the shape `#findingsRefresh` produces.
+  await renderDeciding(store, undefined)
+  expect(document.body.textContent).not.toContain('Decide it yourself')
+  await renderDeciding(store, runView())
+  expect(document.body.textContent).toContain('Decide it yourself')
+
+  const why = document.querySelector('textarea[aria-label="Why"]') as HTMLTextAreaElement
+  expect(why.value).toBe('checked the fix myself')
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+  await act(async () => { clickNamed('Withdraw it').click() })
+  expect(document.body.textContent).not.toContain('Say why.')
+  expect(decideFindingRun).toHaveBeenCalledWith({
+    goal: 'g1', run: 'run-1', round: 4, stamp: STAMP,
+    action: { kind: 'adjudicate', finding: 'finding-1', state: 'withdrawn' }, reason: 'checked the fix myself',
+  })
+})
+
+it('an empty reason is refused plainly, whether or not a decision has ever been attempted', async () => {
+  const { store } = rig(page())
+  const decideFindingRun = vi.fn(async () => runView())
+  Object.assign(store, { decideFindingRun })
+  await renderDeciding(store, runView())
+  await act(async () => { clickNamed('Withdraw it').click() })
+  expect(document.body.textContent).toContain('Say why.')
+  expect(decideFindingRun).not.toHaveBeenCalled()
+})
+
 it('a resolved finding offers no decision at all', async () => {
   const done = page({ finding: { ...page().finding, lifecycle: { state: 'withdrawn', confirmed: true, repairs: [] } } })
   const { store } = rig(done)

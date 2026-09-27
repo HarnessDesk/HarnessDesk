@@ -562,6 +562,17 @@ export class PluginHostProcess {
             })
             return
           }
+          case 'team/runCheck': {
+            const { name, commit } = params as { name?: unknown; commit?: unknown }
+            reply({
+              response: request.request,
+              result: await plane.runCheck(Number(params['intent']), {
+                ...(typeof name === 'string' ? { name } : {}),
+                ...(typeof commit === 'string' ? { commit } : {}),
+              }, scope),
+            })
+            return
+          }
           case 'team/complete': {
             const { note, handoff, outcome, split } = params as {
               note?: string

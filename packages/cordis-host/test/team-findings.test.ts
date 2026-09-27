@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { FindingView } from '@harnessdesk/protocol'
+import type { FindingSeatRow, FindingView } from '@harnessdesk/protocol'
 
 import { ExtensionKernel, setTeamEngine, type TeamEngine } from '../src/index.js'
 
@@ -25,12 +25,12 @@ test('tool bridge attributes and bounds each command', async (t) => {
   const engine: TeamEngine = {
     notify: async () => "",
     board: refused, addIntent: refused, claim: refused, claimNext: refused, awaitWork: refused, awaitMember: refused,
-    conflicts: refused, complete: refused, commitWork: refused, release: refused, handoff: refused, status: refused, send: refused,
+    conflicts: refused, complete: refused, commitWork: refused, runCheck: refused, release: refused, handoff: refused, status: refused, send: refused,
     reviewCandidates: refused, recordReview: refused,
     raiseFinding: async (input, scope) => { calls.push({ verb: 'raise', input, scope }); return found },
     repairFinding: async (input, scope) => { calls.push({ verb: 'repair', input, scope }); return found },
     decideFinding: async (input, scope) => { calls.push({ verb: 'decide', input, scope }); return found },
-    listFindings: async (input, scope) => { calls.push({ verb: 'list', input, scope }); return [found] },
+    listFindings: async (input, scope) => { calls.push({ verb: 'list', input, scope }); return [{ ...found, raisedByYou: false, decidableNow: false } satisfies FindingSeatRow] },
   }
   setTeamEngine(engine)
   t.after(() => setTeamEngine(null))

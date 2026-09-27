@@ -5,7 +5,65 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.3.0 — 2026-09-27
+
+HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
+
+- **A reviewer that already raised a finding is now told plainly how to close
+  it on a later round.** A blocking finding could be fixed, confirmed fixed in
+  two reviewers' own prose, and still sit Open forever: only the Agent that
+  raised a finding may decide it, and only from a later, fresh Seat of its
+  own — never told anywhere before now, so a reviewer's "this is closed" in
+  its report never reached the ledger. `list_findings` now marks which
+  findings on a Goal are the calling Agent's own and which of those it may
+  decide right now, and every finding-raising Agent's brief (API, code,
+  performance, security and test reviewer) says outright: decide each one you
+  raised with `decide_finding`, against a candidate from `review_candidates`,
+  before finishing the card — prose alone never closes it. A later review's
+  own packet now names the raising Agent beside each finding still in
+  question, since more than one Agent can hold the same role across a Goal's
+  rounds. (Refs #1089, #1090)
+
+- **"Decide it yourself" in Findings hardened against ever losing a typed
+  reason, and against ever sending one to the wrong finding.** The person's
+  own draft reason now lives with the finding's own dialog rather than the
+  panel inside it, and is cleared the moment that dialog is asked to show a
+  different finding — belt-and-suspenders for a decision a person only gets
+  to make once a finding has already been through a full round of review.
+  (#1089, #1090)
+
+- **"Authorise another round" in Findings now takes a count, so a converging
+  loop no longer needs a click per round.** The action used to let exactly one
+  round past a stop, so a run against a round budget of 20 could need about
+  fifteen presses in a row to keep going, each one reopening the same dialog.
+  The dialog now has a small number field next to the button, 1 to 20, that
+  relabels it ("Authorise 3 more rounds") and widens the round ceiling by that
+  many at once; the run still stops at the new limit, and the stop still names
+  the way forward. Leaving the field at its default authorises one round,
+  exactly as before, and the authorization survives a restart the same way a
+  single round's did. (#1083)
+
+- **A reviewer whose sandbox will not let a server start no longer fails the
+  change for it.** Codex's sandbox refuses a child process a listening socket,
+  so every test that started a real server failed inside a Codex-seated review
+  or acceptance turn while passing on the desk's own check — and one
+  acceptance card answered not-met for that alone. A Seat that only reads now
+  has a `run_check` tool: the desk runs one of the flow's declared checks, by
+  name, on the committed change the card was handed, in a fresh checkout it
+  cuts for that one run and removes after, with the check's own timeout and
+  output cap, and answers passed or failed with the last of its output; a
+  failure there says the checkout is clean, without ignored files such as
+  installed dependencies, so it may come from that rather than the change. The
+  commit is the one the card was handed or, failing that, the one recorded
+  when it was claimed, never wherever the checkout is now. A check checkout a
+  crash left behind is removed the next time the app starts. It never runs a
+  command the agent writes or anybody's uncommitted edits; a Seat that can
+  write is refused and pointed to the flow's own check card; it allows three
+  runs a turn and ten a card, and none while the run is paused. Its result
+  shows on the card as advisory evidence, which no rule's check guard counts,
+  for or against. The sandbox is not widened. The shipped reviewers and the
+  Requirements analyst use the tool for anything that needs a running server,
+  and say that a refusal from their own sandbox is not a failing verdict.
 
 - **A Seat that may edit can commit its card's work even where its sandbox
   keeps `.git` read-only.** Codex's workspace sandbox refuses writes to a
@@ -796,12 +854,12 @@ move is real work and is not news to a person weighing an upgrade.
   subject** — each competitor's own isolated work is checked on its own,
   rather than one command picking a single subject to stand in for all of
   them. Naming a checkout explicitly keeps the old single-command behaviour.
-- Fix the whole app quitting on the first line it logged after the terminal
-  or script that started it had gone away — usually a refused Wrap, Seat or
-  check run. The refusal is now shown, and the host log says its console went
-  away.
-- Add source-qualified, read-only Insight transport for historical usage,
-  receipt cost summaries, project usage, and local Agent-seat ordering review.
+- **The app stays open when the terminal that launched it closes** — refused
+  Wraps, Seats and checks are still shown, and the host log records that its
+  console went away.
+- **Insight can review usage across projects and receipts** — historical
+  usage, receipt cost summaries and Agent-seat ordering are available through
+  source-qualified, read-only views.
 
 ## 0.2.4 — 2026-09-18
 

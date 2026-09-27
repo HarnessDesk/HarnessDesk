@@ -67,7 +67,7 @@ Full positioning: [VISION.md](VISION.md).
 - **Plugins.** Twelve built in — git, files, search, task list, team,
   checkpoints, guardrails, the browser, the iOS Simulator, Android, the web
   fetcher and the test runner. A plugin's tools reach *every* agent:
-  HarnessDesk offers each one an MCP server carrying its 72 built-in plugin
+  HarnessDesk offers each one an MCP server carrying its 73 built-in plugin
   tools, so a capability written once is available wherever you are working.
 
 ## What it looks like
@@ -82,7 +82,7 @@ others took.
   <a href="docs/images/app/board-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/board-dark.png" />
-      <img src="docs/images/app/board-light.png" width="900" alt="Four agents from four vendors in one room, coordinating over a shared board: each has said something different about the same piece of work, and five jobs sit in the board's Ready column." />
+      <img src="docs/images/app/board-light.png" width="900" alt="Four agents from four vendors in one room, coordinating over a shared board: the To do column holds five unclaimed cards, the Working column holds four cards in progress, one per agent — Claude, Gemini, Copilot, and Antigravity — each showing what it is working on." />
     </picture>
   </a>
 </p>
@@ -127,7 +127,7 @@ changing them.
   <a href="docs/images/app/git-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/git-dark.png" />
-      <img src="docs/images/app/git-light.png" width="900" alt="The repository pane beside a conversation: a branch graph with two feature branches and a merge back into main, drawn over the real git history of the open folder." />
+      <img src="docs/images/app/git-light.png" width="900" alt="The repository pane beside a new session: a branch graph with two feature branches and a merge back into main, drawn over the real git history of the open folder." />
     </picture>
   </a>
 </p>

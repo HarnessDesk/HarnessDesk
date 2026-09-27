@@ -827,6 +827,43 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
   expect(labels).toContain('Answer approve')
 })
 
+it('a person role that declares no outcomes still lets the person finish its card (UC1 referee)', async () => {
+  const cardWithRole = intent({ id: 1, state: 'open', role: 'referee' })
+  const { store } = rig([cardWithRole])
+  const runningRun = {
+    id: 'flow-run-1',
+    room: ROOM,
+    state: 'running' as const,
+    startedAt: 1,
+    vars: {},
+    flow: {
+      name: 'Requirement to shipped',
+      roles: [{ id: 'referee', name: 'Referee', kind: 'person', count: 1, outcomes: [] }],
+      rules: [],
+      inputs: [],
+    },
+    seats: [],
+    rounds: [{ n: 1, role: 'referee', intents: [1], openedAt: 1 }],
+    record: [],
+  }
+  const runs = new Map([[ROOM, [runningRun]]])
+  const cachedSnapshot = {
+    ...store.getSnapshot(),
+    flowRuns: runs,
+  }
+  const storeWithRun = {
+    ...store,
+    getSnapshot: () => cachedSnapshot,
+  }
+  await render(storeWithRun as unknown as AppStore)
+  const items = await menuItems(1)
+  const labels = items.map((one) => one.textContent?.trim())
+  // A role with no declared outcomes has nothing to "Answer", but the person
+  // must still have a way to finish the card — the referee step in UC1's own
+  // flow (`referee: { kind: person }`, no `outcomes:`) is exactly this shape.
+  expect(labels).toContain('Mark done')
+})
+
 /**
  * A run on a Goal that stopped for its person — its Seat asked a question
  * nobody answered in time — holds its card until they act. The Goal's header
@@ -1278,7 +1315,7 @@ it('repair context leads a review card: its ids and from/to come before other de
   const { store, snapshot } = rig([reviewCard])
   const runView: FindingRunView = {
     run: 'run-9', goal: ROOM, round: 2, finished: 1, total: 3, embargoed: false, open: 1, blocking: 1,
-    reason: null, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+    reason: null, ceilingStop: false, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
     pendingExceptions: [],
     repair: [{ series: `reviewer@/repo`, from, to, claimed: ['finding-0001'], unresolved: ['finding-0003'] }],
     boundPr: null, unbound: null, undecidable: null,
@@ -1300,7 +1337,7 @@ it('a card with no repair lead pinned for its round shows its own detail as befo
   const { store, snapshot } = rig([plainCard])
   const runView: FindingRunView = {
     run: 'run-9', goal: ROOM, round: 1, finished: 0, total: 3, embargoed: false, open: 1, blocking: 1,
-    reason: null, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+    reason: null, ceilingStop: false, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
     pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null,
   }
   Object.assign(snapshot, { findingRuns: new Map([['run-9', runView]]) })

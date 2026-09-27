@@ -148,12 +148,13 @@ test('a round-ceiling stall, clean of any finding, is answered through finding/d
   const stopped = f.rig.executions.stored(f.run)!.findings!.stopped
   assert.deepEqual(
     stopped,
-    { round: 2, reason: 'Round 2 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.' },
+    { round: 2, reason: 'Round 2 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.', ceiling: true },
     'the round budget stops the run, not a finding it raised, and names the exact way past it',
   )
   assert.equal(f.cards('fixer').filter((one) => one.state === 'claimed').length, 0, 'the repair round the reviewer asked for did not open past the budget')
   const view = await f.plane.runView(f.run)
   assert.equal(view.reason, stopped!.reason, 'the run view carries the same ceiling reason, and the same way forward, a person reads')
+  assert.equal(view.ceilingStop, true, 'a round-budget stop reads as the round ceiling, the one a count can answer')
   await f.plane.decideRun({ goal: f.goal, run: f.run, round: stopped!.round, stamp: view.stamp, action: { kind: 'another-round' }, reason: 'let it reach acceptance' })
   await f.rig.flows.flush()
   const after = f.rig.executions.stored(f.run)!
@@ -161,4 +162,84 @@ test('a round-ceiling stall, clean of any finding, is answered through finding/d
   assert.equal(after.findings!.extraRound?.after, stopped!.round, 'and the one round it authorized is recorded')
   assert.equal(after.state, 'running', 'the run resumes rather than staying stalled at its budget')
   assert.equal(f.cards('fixer').filter((one) => one.state === 'claimed').length, 1, 'the repair round the reviewer asked for opened past the exhausted budget')
+})
+
+/*
+ * Issue #1083: "Authorise another round" let exactly one round through, so a
+ * converging loop against a real budget needed a click per round. A count
+ * widens the ceiling by that many rounds at once, survives a restart before
+ * any of them are spent, and omitting it still means exactly one, as before.
+ */
+test('authorising several rounds lets exactly that many close before the ceiling stops it again, and omitting the count still means one', async (t) => {
+  const f = await findingsRig(t)
+  const file = join(f.rig.dir, 'flows-v2', `${encodeURIComponent(f.run)}.json`)
+  const stored = JSON.parse(await readFile(file, 'utf8'))
+  stored.findings = { ...stored.findings, budget: { ...stored.findings.budget, rounds: 2 } }
+  await writeFile(file, JSON.stringify(stored))
+  await f.restart()
+  await f.finishFixer()
+  await f.finishReviews('request-changes')
+  const stopped = f.rig.executions.stored(f.run)!.findings!.stopped
+  assert.equal(stopped!.round, 2, 'the two-round budget stops the run at round 2, as in the single-round case')
+
+  await f.rig.flows.authorizeExtraRound(f.run, stopped!.round, 'let the loop converge', 3)
+  await f.rig.flows.flush()
+  const authorized = f.rig.executions.stored(f.run)!.findings!
+  assert.equal(authorized.stopped, null, 'no stop while any of the three authorized rounds are still to run')
+  assert.equal(authorized.extraRound?.count, 3, 'the count is kept with the authorization')
+
+  // A restart before any of the three authorized rounds are spent keeps the whole authorization, not just the first round.
+  await f.restart()
+  assert.equal(f.rig.executions.stored(f.run)!.findings!.extraRound?.count, 3, 'the count survives a restart')
+
+  // Round 3 (fixer, the repair the round-2 reviewer asked for): one of three spent, no stop yet.
+  await f.finishFixer()
+  assert.equal(f.rig.executions.stored(f.run)!.findings!.stopped, null, 'one of three authorized rounds spent')
+  // Round 4 (reviewer): two of three spent, no stop yet.
+  await f.finishReviews('request-changes')
+  assert.equal(f.rig.executions.stored(f.run)!.findings!.stopped, null, 'two of three authorized rounds spent')
+  // Round 5 (fixer): the third and last authorized round closes, and the widened ceiling (2 + 3) stops it again.
+  await f.finishFixer()
+  const secondStop = f.rig.executions.stored(f.run)!.findings!.stopped
+  assert.ok(secondStop, 'the ceiling stops the run again once all three authorized rounds are spent')
+  assert.equal(secondStop!.round, 5)
+  assert.match(secondStop!.reason, /reached its limit of 5 rounds/)
+  assert.match(secondStop!.reason, /Authorise another round/)
+
+  // Omitting the count authorizes exactly one round, exactly as it always has.
+  await f.rig.flows.authorizeExtraRound(f.run, secondStop!.round, 'one more try')
+  await f.rig.flows.flush()
+  assert.equal(f.rig.executions.stored(f.run)!.findings!.extraRound?.count, 1, 'omitting the count still means one')
+  // Round 6 (reviewer): the one authorized round closes, and the ceiling (5 + 1) stops it immediately after.
+  await f.finishReviews('request-changes')
+  const thirdStop = f.rig.executions.stored(f.run)!.findings!.stopped
+  assert.ok(thirdStop, 'exactly one more round runs before the ceiling stops it again')
+  assert.equal(thirdStop!.round, 6)
+})
+
+test('a repeat press of an authorization saved before the round count existed still replays, never refuses', async (t) => {
+  const f = await findingsRig(t)
+  const file = join(f.rig.dir, 'flows-v2', `${encodeURIComponent(f.run)}.json`)
+  const stored = JSON.parse(await readFile(file, 'utf8'))
+  stored.findings = { ...stored.findings, budget: { ...stored.findings.budget, rounds: 1 } }
+  await writeFile(file, JSON.stringify(stored))
+  await f.restart()
+  await f.finishFixer()
+  const stopped = f.rig.executions.stored(f.run)!.findings!.stopped
+  assert.ok(stopped, 'the one-round budget stops the run at its seed round')
+  await f.rig.flows.authorizeExtraRound(f.run, stopped!.round, 'one more try')
+  await f.rig.flows.flush()
+
+  // As a run authorized before this field existed would read back: the stored record has after and reason, no count.
+  const midway = JSON.parse(await readFile(file, 'utf8'))
+  delete midway.findings.extraRound.count
+  await writeFile(file, JSON.stringify(midway))
+  await f.restart()
+  assert.equal('count' in f.rig.executions.stored(f.run)!.findings!.extraRound!, false)
+
+  // A duplicate press of the exact same authorization replays it rather than refusing for "not stopped any more".
+  await f.rig.flows.authorizeExtraRound(f.run, stopped!.round, 'one more try', 1)
+  await f.rig.flows.flush()
+  // The reviewer role seats both built-in reviewers at once; still exactly the one round opened, never a second.
+  assert.equal(f.cards('reviewer').filter((one) => one.state === 'claimed').length, 2, 'still exactly the one round opened, never a second')
 })
