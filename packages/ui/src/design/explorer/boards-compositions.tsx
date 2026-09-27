@@ -1678,12 +1678,12 @@ const AdoptedBoard = () => {
           attachment media &mdash; picture, fill: covering its tile, one of several
         </div>
         <div className="flex h-24 gap-(--hd-space-2)">
-          {['%23888', '%23aaa'].map((fill) => (
+          {['%23888', '%23aaa'].map((fill, index) => (
             <div key={fill} className="w-32 overflow-hidden rounded-(--hd-radius-md)">
               <AttachmentMedia
                 variant="picture"
                 fill
-                data-catalog-variant="picture-fill"
+                {...(index === 0 ? { 'data-catalog-variant': 'picture-fill' } : {})}
                 src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect width='400' height='300' fill='${fill}'/%3E%3C/svg%3E`}
                 alt="Sample photo in a grid"
               />

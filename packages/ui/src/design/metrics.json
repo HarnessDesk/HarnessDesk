@@ -1,4 +1,20 @@
 {
+  "adopted/attachment-media/variant/picture": {
+    "h": 280,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "adopted/attachment-media/variant/picture-fill": {
+    "h": 96,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "adopted/attachment/size/default": {
     "h": 50,
     "text": 13,
