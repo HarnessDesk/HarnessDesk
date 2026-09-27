@@ -322,14 +322,45 @@ for (const [look, theme] of [
     expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
     expect(measurement.figures.find(figure => figure.reading === '10%')?.color).toBe(measurement.warning)
     // Overview lists only the accounts that need attention (#1057); the
-    // healthy account's reading is judged where every account is, on Plans.
+    // healthy account's reading is judged where every account is, on Plans —
+    // now a table, one row per account (claude/plans-table), whose own
+    // percent column carries the same rule the card's headline figure did:
+    // a plain reading takes no judgement colour, only low and spent are
+    // claims (`usageReadingTone`).
     await dashboard.locator('nav button[class*="winNavItem"]', { hasText: 'Plans' }).click()
-    await expect(dashboard.getByRole('heading', { name: 'What is left', exact: true })).toBeVisible()
-    const planFigures = await dashboard.locator('[data-role="figure"]').evaluateAll(nodes =>
-      nodes.map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color })))
-    for (const reading of ['78%']) {
-      expect(planFigures.find(figure => figure.reading === reading)?.color, reading).toBe(measurement.foreground)
-    }
+    const plansTable = dashboard.getByRole('table')
+    await expect(plansTable).toBeVisible()
+    // The percent column is the table's own reading: a header now names it
+    // ("%"), so the cell is found by role and column rather than a
+    // test-only marker (claude/plans-table review, N1) — one cell per row,
+    // scoped under the row that carries this account's own name.
+    const percentCellFor = (account: string) =>
+      plansTable.getByRole('row', { name: new RegExp(account) }).getByRole('cell').nth(4)
+    // `data-tone` is set synchronously with the render — no CSS transition to
+    // settle before it can be read, unlike the computed colour it selects
+    // (see `inkOf`'s own long comment on why a colour read cannot be trusted
+    // right after a change here). It is the same attribute `usageReadingTone`
+    // draws the colour from, so asserting it is asserting the ink without the
+    // timing hazard.
+    const readingAndTone = (locator: Locator) =>
+      locator.evaluate(node => ({
+        reading: node.textContent,
+        tone: node.querySelector('[data-slot="text"]')?.getAttribute('data-tone') ?? null,
+      }))
+
+    const healthy = await readingAndTone(percentCellFor('normal@example.com'))
+    expect(healthy.reading, 'healthy').toBe('78%')
+    expect(healthy.tone, 'healthy').toBeNull()
+    // The table's own low and spent percent cells carry the same judgement
+    // the Overview headline figures do above — the tone the table now draws
+    // is guarded where it is actually drawn, not only upstream (claude/plans-
+    // table review, N2).
+    const low = await readingAndTone(percentCellFor('warning@example.com'))
+    expect(low.reading, 'low').toBe('10%')
+    expect(low.tone, 'low').toBe('warning')
+    const out = await readingAndTone(percentCellFor('bad@example.com'))
+    expect(out.reading, 'out').toBe('0%')
+    expect(out.tone, 'out').toBe('danger')
   })
 
   test(`${look} selected view row text meets AA in ${theme}`, async ({ page }, testInfo) => {
@@ -419,3 +450,5 @@ test('no band head covers what it heads, first band or not', async ({ page }) =>
   })
   expect(overlaps).toEqual([])
 })
+
+

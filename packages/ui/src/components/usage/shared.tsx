@@ -2,6 +2,7 @@ import { type ReactNode, useMemo } from 'react'
 
 import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
+import { cn } from '@/lib/utils'
 import { burnWord } from '../../lib/burn'
 import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
@@ -23,6 +24,7 @@ import {
 } from '../../lib/ledger'
 import { paletteTone, usageReadingTone, type Tone } from '../../lib/limits'
 import {
+  balanceOf,
   byUrgency,
   coverageLabel,
   describeReport,
@@ -33,7 +35,9 @@ import {
   planLabel,
   provenanceLabel,
   pricedNote,
+  reportNeedsAttention,
   spendHint,
+  type Balance,
   type LaneView,
   type ReportView,
 } from '../../lib/usage'
@@ -224,36 +228,11 @@ export const ScopeControl = ({
 
 /* --- who needs looking at first ------------------------------------------- */
 
-/**
- * Whether an account's headline is worth Overview's attention: spent or low,
- * in `lib/limits`' own words for it — the same tone `toneFor` gives the
- * card's figure. A report with no plan lane at all (pay-as-you-go, a prepaid
- * balance) earns a place here only once its balance itself is spent; a quiet
- * balance sitting well above zero is not something to triage.
- *
- * Read on the report's own lanes, never a borrowed or unverified sign-in's —
- * `lib/usage.ts`'s note on `drawnReport` says alerts and the strip must never
- * decide on another sign-in's figures, and this is exactly that: the rail's
- * "N low" count. Every account-wide lane counts, not only the headline: a
- * healthy Session hiding a low Weekly used to read as nothing wrong. A
- * model-scoped lane (`lane.scope`) counts only when it is the headline
- * itself — a spent model is not a spent account.
- */
-export const reportNeedsAttention = (
-  report: UsageReport,
-  now: number,
-  preference?: AccountPrefs,
-): boolean => {
-  if (report.error) return true
-  const view = describeReport(report, { now, maxLanes: Number.POSITIVE_INFINITY, preference })
-  if (view.blocked || view.gated) return true
-  if (view.pace && !view.pace.willLastToReset) return true
-  const accountWide = [view.hero, ...view.lanes.filter((lane) => lane.scope === null)]
-  if (accountWide.some((lane) => lane !== null && lane.tone !== 'good')) return true
-  if (view.hero) return false
-  const balance = balanceOf(report.credits)
-  return balance !== null && balance.remaining <= 0
-}
+// `reportNeedsAttention` lives in `lib/usage.ts` now — the one rule the
+// Plans table's own status chip reads too (review of #1069, B2) — and is
+// re-exported below so this file's own callers, and `shared.attention.test.tsx`,
+// keep reading `./shared` for it.
+export { reportNeedsAttention }
 
 /** Every tracked agent that has never answered `runtime/account`, or answered "nobody" — see `readinessOf`. */
 export interface SilentAgent {
@@ -307,6 +286,8 @@ export const Card = ({
   now,
   onRefresh,
   onStopTracking,
+  shapeChip,
+  moneyRow,
 }: {
   report: UsageReport
   info: RuntimeInfo | null
@@ -314,6 +295,15 @@ export const Card = ({
   now: number
   onRefresh: () => void
   onStopTracking: () => void
+  /**
+   * The Plans table's own shape chip ("Windows"), drawn beside the plan chip
+   * in the header — the frame every shape shares (`docs/usage-dashboard.md`,
+   * "The screen › Plans"). Omitted on Overview's grid, which has no filter to
+   * name a shape for.
+   */
+  shapeChip?: ReactNode
+  /** The frame's Paid · Value · Value÷Paid row, when `moneyRowOf` has one. */
+  moneyRow?: ReactNode
 }) => {
   // Another sign-in's figures are drawn, under its name; the chip is still the
   // agent's own, read from the report itself, so a spent `agy` account can
@@ -367,7 +357,14 @@ export const Card = ({
       variant={hero || balance || money ? 'default' : 'muted'}
       className={styles.card}
     >
-      <CardHeader className={styles.cardHead}>
+      {/* `CardHeader`'s own `grid`/`grid-rows-[auto_auto]` (design/ui/card.tsx)
+          beats `.cardHead { display: flex }` in the cascade once the frame
+          beside it (`PlanFrame.tsx`) widened the header enough to make the
+          collision visible — the mark centred alone and the chips stretched
+          wide. Utilities here, not the CSS module, are what tell
+          tailwind-merge to drop `CardHeader`'s grid classes (review of
+          #1069, N9). */}
+      <CardHeader className={cn(styles.cardHead, 'flex items-center gap-(--hd-space-1-5)')}>
         {info && (
           <Text role="muted" className={styles.cardMark}>
             <RuntimeMark runtime={info} size={15} />
@@ -376,8 +373,11 @@ export const Card = ({
         <Text role="subject" truncate className={styles.cardName}>{drawn.account ?? agent}</Text>
         {drawn.account && <Text role="meta" truncate className={styles.cardAgent}>{agent}</Text>}
         <span className={styles.fill} />
+        {shapeChip}
         <Chip state={state} {...(plan ? { label: plan } : {})} />
       </CardHeader>
+
+      {moneyRow}
 
       <CardContent className={styles.cardBody}>
         <div className={styles.hero}>
@@ -696,42 +696,10 @@ const windowLength = (ms: number): string => {
   return `${days}-day`
 }
 
-/** A prepaid balance a card can actually print: every figure in it nameable. */
-interface Balance {
-  readonly remaining: number
-  /** Null where the source knows what is left but not what is gone. */
-  readonly used: number | null
-  readonly unit: string
-}
-
-/**
- * The balance a card may print, or none at all.
- *
- * `UsageCredits.remaining` is typed `number | null` and `NaN` is a number to
- * both `typeof` and that type, so the card read it, cast it, and printed "NaN
- * credits" in the place a figure goes. `describeLimits` has refused a
- * non-finite balance since round 1 of #207 and Codex's `balanceOf` since #207
- * itself — which left the guard on the producer's side of a type that cannot
- * express the difference, protecting Settings and not the Dashboard (#225).
- * Any later meter that computes a remaining by arithmetic reopens it, and one
- * already does: `claude-file.ts` subtracts two fields of a file another
- * application writes.
- *
- * So the reading is done here, where the figure is printed. A balance nobody
- * can name is no balance: the card mutes rather than captioning a word as
- * money. `used` is read on its own, because a source may know what is left
- * without knowing what is gone. A zero balance is still a balance (#85) —
- * only what is not finite is none.
- *
- * Exported for `Usage.balance.test.tsx`, the way `stateOf` and `noteGlyph` are.
- */
-export const balanceOf = (credits: UsageReport['credits']): Balance | null => {
-  if (!credits) return null
-  const remaining = credits.remaining
-  if (typeof remaining !== 'number' || !Number.isFinite(remaining)) return null
-  const used = typeof credits.used === 'number' && Number.isFinite(credits.used) ? credits.used : null
-  return { remaining, used, unit: credits.unit }
-}
+// `balanceOf` and its `Balance` type live in `lib/usage.ts` now, the one
+// reading every surface shares (review of #1069, B2) — re-exported below so
+// `Usage.tsx`'s own re-export, and `Usage.balance.test.tsx`, keep working.
+export { balanceOf, type Balance }
 
 /** A balance in whatever unit the vendor keeps it in. */
 const amount = (value: number, unit: string): string =>

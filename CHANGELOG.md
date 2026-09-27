@@ -90,6 +90,19 @@ move is real work and is not news to a person weighing an upgrade.
   fee set, a per-turn price, how many agents a figure is known for — never a
   repeat of the number beside it.
 
+- **Plans is a table now, sorted by what is left, filtered by shape.** The
+  card grid read fine at a handful of accounts and badly past that: nothing
+  about it could be sorted, filtered, or scanned at a glance for the one
+  about to run out. A row of shape chips (Windows, Allowances, Balances,
+  Keys, Free, Not reporting), each with its own count, sits above one table —
+  mark, account, a status chip, a "left" bar, the percent, the figure in the
+  vendor's own unit, an approximate turn count, and the reset — and a row
+  expands in place, on click or on Enter, into that account's own shape body:
+  the existing card for a windows plan, and five new ones for an allowance, a
+  prepaid balance, a metered key with its own budget, a free/local agent, and
+  an agent that reports nothing at all, each with its source, its age, and
+  the one thing to do about it.
+
 - **The Dashboard's rail lists views, and the account you're looking at is a
   choice in the header.** The rail used to hold one row per account, which
   duplicated the card list a click away, mixed a plan's percentage with a
