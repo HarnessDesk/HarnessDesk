@@ -124,6 +124,7 @@ export const OverviewView = ({
           now={now}
           byId={byId}
           tintOf={agentTints}
+          compact
         />
       </div>
     </div>

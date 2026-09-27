@@ -317,7 +317,13 @@
   gap: var(--hd-space-3);
 }
 
-.rank[data-pivot='runtime'] {
+.rank[data-compact] {
+  /* Overview's bento column has no room for six columns; mark, name and
+     share are the three that still answer "where did it go" at a glance. */
+  grid-template-columns: 15px minmax(0, 1fr) 44px;
+}
+
+.rank[data-pivot='runtime']:not([data-compact]) {
   /* The by-agent pivot alone earns the chip column — see `Usage.tsx`, which
      always emits the cell for this pivot (so a row with no previous total
      still reserves its width) and never renders it for the other two. */

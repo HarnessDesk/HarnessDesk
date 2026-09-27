@@ -1009,6 +1009,7 @@ export const Ranked = ({
   now,
   byId,
   tintOf,
+  compact,
 }: {
   ledger: LedgerReport | null
   wideLedger: LedgerReport | null
@@ -1017,6 +1018,10 @@ export const Ranked = ({
   now: number
   byId: ReadonlyMap<RuntimeId, RuntimeInfo>
   tintOf: TintOf
+  /** The bento's one-third column: mark, name and share only — a full row of
+      six columns has no room to shrink into, and a name column squeezed to
+      nothing is worse than three the reader can actually read. */
+  compact?: boolean
 }) => {
   const previous = useMemo(
     () => (pivot === 'runtime' ? previousByRuntime(stackDaily(wideLedger, now), range) : null),
@@ -1060,7 +1065,12 @@ export const Ranked = ({
               ? null
               : rankedChange(row.cost, previous?.complete ? (previous.totals.get(row.key as RuntimeId) ?? null) : null)
           return (
-            <CardContent key={row.key} className={styles.rank} data-pivot={pivot}>
+            <CardContent
+              key={row.key}
+              className={styles.rank}
+              data-pivot={pivot}
+              {...(compact ? { 'data-compact': '' } : {})}
+            >
               <Text role="meta" className={styles.rankMark}>
                 {row.key === OTHER_KEY ? (
                   <SeriesDot tint={tintAt(index, row)} />
@@ -1076,7 +1086,7 @@ export const Ranked = ({
               <Text role="subject" truncate title={label}>
                 {label}
               </Text>
-              {pivot === 'runtime' && (
+              {!compact && pivot === 'runtime' && (
                 <span className={styles.rankChange}>
                   {change !== null && <Delta value={Math.round(change)} better="down" />}
                 </span>
@@ -1084,12 +1094,16 @@ export const Ranked = ({
               <Text role="muted" align="end" numeric>
                 {share === null ? '' : share < 1 ? '<1%' : `${Math.round(share)}%`}
               </Text>
-              <Text role="muted" align="end" numeric>
-                {row.tokens === null ? '—' : formatTokens(row.tokens)}
-              </Text>
-              <Text role="value" align="end" numeric>
-                {row.cost === null ? 'unpriced' : (formatMoney(row.cost, ledger.currency) ?? '—')}
-              </Text>
+              {!compact && (
+                <>
+                  <Text role="muted" align="end" numeric>
+                    {row.tokens === null ? '—' : formatTokens(row.tokens)}
+                  </Text>
+                  <Text role="value" align="end" numeric>
+                    {row.cost === null ? 'unpriced' : (formatMoney(row.cost, ledger.currency) ?? '—')}
+                  </Text>
+                </>
+              )}
             </CardContent>
           )
         })}
