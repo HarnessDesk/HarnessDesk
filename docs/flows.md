@@ -573,9 +573,9 @@ opens exactly one role, so no two roles run at once.
 One lane the file does not spell out is taken on purpose: a card handed one
 earlier step's commit that was written in another checkout opens in a
 worktree of its own cut from that commit (see *A card's checkout holds the
-work it is handed* below). The dry run marks each such Seat, "in a worktree
-of its own at the commit it is handed", so the start screen still says what
-runs. A reading Seat's lane of this kind lets its ports and browser profile go
+work it is handed* below). The dry run marks each such Seat with an "Own
+worktree" chip on its line, the full sentence on hover, so the start screen
+still says what runs. A reading Seat's lane of this kind lets its ports and browser profile go
 as soon as that Seat closes; its folder stays, since the card's recorded stop
 is read against it. A committing card seated this way — not isolated, after an
 isolated writer — commits on that lane's own `harnessdesk/lane-…` branch, a

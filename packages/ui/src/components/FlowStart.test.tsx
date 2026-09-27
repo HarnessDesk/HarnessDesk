@@ -140,7 +140,9 @@ it('a seat the run opens at the commit it is handed says so, in plain words', as
   await select('fix')
   await act(async () => {})
 
-  expect(container.textContent).toContain('Reviewer — tester, in a worktree of its own at the commit it is handed')
+  expect(container.textContent).toContain('Reviewer — tester')
+  const chip = [...container.querySelectorAll('[title="Opens in a worktree of its own, at the commit it is handed"]')]
+  expect(chip.map((one) => one.textContent)).toEqual(['Own worktree'])
 })
 
 it('a review flow discloses its effective budget and the blind-round messaging restriction; a plain flow shows neither', async () => {
