@@ -1,17 +1,24 @@
 import { watch, type FSWatcher } from 'node:fs'
 
-import type {
-  AgentRuntime,
-  RateLimits,
-  RuntimeId,
-  SpendSummary,
-  UnverifiedUsage,
-  UsageBilling,
-  UsageLane,
-  UsageReport,
+import {
+  bindingLane,
+  type AgentRuntime,
+  type RateLimits,
+  type RuntimeId,
+  type SpendSummary,
+  type UnverifiedUsage,
+  type UsageBilling,
+  type UsageLane,
+  type UsageReport,
 } from '@harnessdesk/protocol'
 
 import type { MeterReading, UsageMeter } from './meter.js'
+
+const DAY_MS = 86_400_000
+/** "The current billing cycle when the report knows one, else the last 14 days" — "Turns", `docs/usage-dashboard.md`. */
+const FALLBACK_TURNS_WINDOW_DAYS = 14
+/** `UsageReport.turns.unitsPerTurn` needs this many turns in the window before it says a rate; fewer reports the count with a null rate. */
+const MIN_TURNS_FOR_RATE = 10
 
 /**
  * Every metered account's standing, kept warm.
@@ -27,9 +34,18 @@ import type { MeterReading, UsageMeter } from './meter.js'
  * floor under those, not the mechanism.
  */
 
-/** What the ledger has to answer for the money half of a report. */
+/** What the ledger has to answer for the money half of a report, and, where it knows one, the turns half. */
 export interface SpendSource {
-  spendFor(runtime: RuntimeId): SpendSummary | null
+  spendFor(runtime: RuntimeId, days?: number): SpendSummary | null
+  /**
+   * How many turns this runtime ran since `sinceMs`, or `null` when the
+   * ledger was never told this runtime has a real turn count at all
+   * (`LedgerOptions.turnRuntimes`) — read as unknown, never as zero.
+   * Optional so a `SpendSource` built before turns existed is still valid.
+   */
+  turnsFor?(runtime: RuntimeId, sinceMs: number): { readonly count: number; readonly since: number } | null
+  /** Ledger requests (priced or not) logged since `sinceMs`, the same window `turnsFor` counted — for a per-turn rate on a requests-based allowance. */
+  requestsFor?(runtime: RuntimeId, sinceMs: number): number
 }
 
 export interface UsageServiceOptions {
@@ -302,6 +318,8 @@ export class UsageService {
     // The ledger's own label only when the ledger is genuinely all we have.
     if (lanes.length === 0 && !answered && spend) source = LEDGER_SOURCE
 
+    const turns = this.#turnsFor(id, billing, lanes)
+
     const report: UsageReport = {
       runtime: id,
       account,
@@ -316,6 +334,7 @@ export class UsageService {
       error,
       ...(unverified ? { unverified } : {}),
       ...(billing ? { billing } : {}),
+      ...(turns ? { turns } : {}),
     }
     this.#cache.set(id, report)
     if (!this.#disposed) this.#options.onReport(report)
@@ -337,6 +356,55 @@ export class UsageService {
       this.#options.log?.('a usage meter failed', { runtime: id, meter: meter.id, error: failure })
       return { failure }
     }
+  }
+
+  /**
+   * `UsageReport.turns`, filled from the ledger's own count — "Turns",
+   * `docs/usage-dashboard.md` — for every runtime the ledger was told has one
+   * (`SpendSource.turnsFor`), whatever shape `lanes` is otherwise. `null`
+   * when the ledger knows nothing (never counted for this runtime) or counts
+   * zero turns in the window.
+   *
+   * `unitsPerTurn` prices one turn in the lane's own unit, and needs at least
+   * `MIN_TURNS_FOR_RATE` turns in the window before it says a rate at all:
+   * - An allowance lane in requests (Cursor): ledger requests, over the same
+   *   window `turnsFor` counted, divided by turns.
+   * - A balance or a metered key: Value — vendor-reported cost where the
+   *   ledger has it, list price otherwise, `SpendSummary.windowCost` over the
+   *   same window — divided by turns, in the report's own currency.
+   * - A plain percent window (Codex, Claude Code's plan lanes): `null`. That
+   *   needs a history of lane snapshots this host does not keep yet.
+   */
+  #turnsFor(
+    runtime: RuntimeId,
+    billing: UsageBilling | undefined,
+    lanes: readonly UsageLane[],
+  ): UsageReport['turns'] {
+    const known = this.#options.spend?.turnsFor?.(runtime, this.#turnsWindowStart(lanes))
+    if (!known || known.count <= 0) return null
+    let unitsPerTurn: number | null = null
+    if (known.count >= MIN_TURNS_FOR_RATE) {
+      if (billing?.kinds.includes('allowance') && this.#options.spend?.requestsFor) {
+        const requests = this.#options.spend.requestsFor(runtime, known.since)
+        unitsPerTurn = requests > 0 ? requests / known.count : null
+      } else if (billing?.kinds.includes('balance') || billing?.kinds.includes('metered')) {
+        const days = Math.max(1, Math.ceil((this.#now() - known.since) / DAY_MS))
+        const value = this.#options.spend?.spendFor(runtime, days)?.windowCost ?? null
+        unitsPerTurn = value !== null ? value / known.count : null
+      }
+      // A plain percent window has no per-turn figure yet — see the comment above.
+    }
+    return { count: known.count, unitsPerTurn, since: known.since }
+  }
+
+  /** The current billing cycle when a lane's own reset says one, else the last `FALLBACK_TURNS_WINDOW_DAYS`. */
+  #turnsWindowStart(lanes: readonly UsageLane[]): number {
+    const lane = bindingLane(lanes)
+    if (lane?.resetsAt != null && lane.windowMinutes != null) {
+      const start = lane.resetsAt - lane.windowMinutes * 60_000
+      if (start < this.#now()) return start
+    }
+    return this.#now() - FALLBACK_TURNS_WINDOW_DAYS * DAY_MS
   }
 
   async #accountLabel(runtime: AgentRuntime): Promise<string | null> {
