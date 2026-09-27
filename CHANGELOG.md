@@ -45,6 +45,16 @@ move is real work and is not news to a person weighing an upgrade.
   its ports and browser profile go as soon as that step's conversation
   closes. (#1053)
 
+- **DeepSeek Harness and OpenRouter no longer read "doesn't report usage" on
+  the Dashboard.** DeepSeek's prepaid balance (`api.deepseek.com/user/balance`)
+  shows as a credit balance, the same shape Cline's and Amp's already do.
+  OpenRouter's key limit and account credit balance
+  (`openrouter.ai/api/v1/key` and `/credits`) show for any agent that has an
+  `OPENROUTER_API_KEY` of its own, whichever CLI that row runs. Both read the
+  key from wherever the agent itself already keeps it — never a new field to
+  fill in — and a 401 now reads as "sign in / check key" instead of either
+  crashing or going silent. (docs/usage-dashboard.md)
+
 - **An effort mismatch found only once a conversation opened is worded
   truthfully, and one runtime's levels are no longer copied onto another
   model's own.** Two small fixes to seating an Agent's effort. First, an ACP

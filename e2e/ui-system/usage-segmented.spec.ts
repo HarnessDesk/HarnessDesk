@@ -29,53 +29,43 @@ test('the conversation header keeps the plan track and separates its reading fro
 
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [1440, 980]) {
-    test(`dashboard account rows keep their padding and contents at ${width}px in ${theme}`, async ({ page }, testInfo) => {
+    test(`dashboard view rows keep their padding and contents at ${width}px in ${theme}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 })
       await page.goto('/preview.html')
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
-      const accounts = dashboard.locator('nav button[class*="acct_"]')
-      await expect(accounts.first()).toBeVisible()
-      expect(await accounts.count()).toBeGreaterThan(3)
-      await accounts.first().scrollIntoViewIfNeeded()
-      const measurements = await accounts.evaluateAll(nodes => nodes.map(node => {
+      // The rail lists the Dashboard's views (#1057); it used to list accounts.
+      const views = dashboard.locator('nav button[class*="winNavItem"]')
+      await expect(views.first()).toBeVisible()
+      expect(await views.count()).toBe(5)
+      const measurements = await views.evaluateAll(nodes => nodes.map(node => {
         const box = node.getBoundingClientRect()
-        const css = getComputedStyle(node)
-        const name = node.querySelector('[class*="acctName"]')!.getBoundingClientRect()
-        const meter = node.querySelector('[class*="acctTrack"]')?.getBoundingClientRect()
         return {
           label: node.textContent,
           height: box.height,
-          paddingTop: parseFloat(css.paddingTop),
-          paddingBottom: parseFloat(css.paddingBottom),
-          fontSize: css.fontSize,
-          meter: meter ? { width: meter.width, rowWidth: box.width, gap: meter.top - name.bottom } : null,
           contents: [...node.children].map(child => {
             const rect = child.getBoundingClientRect()
             return { top: rect.top - box.top, bottom: box.bottom - rect.bottom }
           }),
         }
       }))
-      await testInfo.attach('account-layout', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
-      await dashboard.locator('nav').screenshot({ path: testInfo.outputPath('accounts.png') })
+      await testInfo.attach('view-layout', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
+      await dashboard.locator('nav').screenshot({ path: testInfo.outputPath('views.png') })
+      // The rail row is the shared navigation row (Settings uses it too): a
+      // fixed height with its contents centred, not padding. What has to hold
+      // is that nothing touches the row's edges.
       for (const row of measurements) {
-        expect.soft(row.paddingTop, row.label ?? '').toBeGreaterThanOrEqual(4)
-        expect.soft(row.paddingBottom, row.label ?? '').toBeGreaterThanOrEqual(4)
         expect.soft(row.height, row.label ?? '').toBeGreaterThanOrEqual(26)
-        if (row.meter) {
-          expect.soft(row.meter.width).toBeGreaterThan(row.meter.rowWidth / 2)
-          expect.soft(row.meter.gap).toBeGreaterThanOrEqual(3)
-        }
         for (const content of row.contents) {
           expect.soft(content.top).toBeGreaterThanOrEqual(4)
           expect.soft(content.bottom).toBeGreaterThanOrEqual(4)
         }
       }
-      await accounts.nth(1).click()
-      await expect(accounts.nth(1)).toHaveAttribute('data-selected', '')
-      await expect.poll(() => accounts.nth(1).evaluate(node => getComputedStyle(node).backgroundColor))
+      await views.nth(1).click()
+      await expect(views.nth(1)).toHaveAttribute('data-selected', '')
+      await expect.poll(() => views.nth(1).evaluate(node => getComputedStyle(node).backgroundColor))
         .not.toBe('rgba(0, 0, 0, 0)')
-      await expect(accounts.first()).not.toHaveAttribute('data-selected')
+      await expect(views.first()).not.toHaveAttribute('data-selected')
     })
 
     test(`permission segments contain unequal labels at ${width}px in ${theme}`, async ({ page }, testInfo) => {
@@ -116,7 +106,7 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 /** What the ink has to reach against what it is drawn on: a glyph's 3, text's 4.5. */
-const floorOf = (part: string) => part.includes('acctMark') ? 3 : 4.5
+const floorOf = (part: string) => part.includes('winNavIcon') ? 3 : 4.5
 
 /**
  * Override fixture data at its module boundary; Usage still renders the real
@@ -217,7 +207,7 @@ async function inkOf(account: Locator, within = 10_000) {
       })
       return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
     }
-    return [...node.querySelectorAll('[class*="acctMark"], [class*="acctName"], [class*="acctFigure"], [class*="acctSub"]')].map(child => {
+    return [...node.children].map(child => {
       context.clearRect(0, 0, 1, 1)
       for (const ancestor of stack) paint(getComputedStyle(ancestor).backgroundColor)
       const background = luminance(context.getImageData(0, 0, 1, 1).data)
@@ -311,44 +301,52 @@ for (const [look, theme] of [
     expect(sticky.offset).toBeLessThanOrEqual(sticky.strip + 4)
     expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
     expect(measurement.figures.find(figure => figure.reading === '10%')?.color).toBe(measurement.warning)
+    // Overview lists only the accounts that need attention (#1057); the
+    // healthy account's reading is judged where every account is, on Plans.
+    await dashboard.locator('nav button[class*="winNavItem"]', { hasText: 'Plans' }).click()
+    await expect(dashboard.getByRole('heading', { name: 'What is left', exact: true })).toBeVisible()
+    const planFigures = await dashboard.locator('[data-role="figure"]').evaluateAll(nodes =>
+      nodes.map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color })))
     for (const reading of ['78%']) {
-      expect(measurement.figures.find(figure => figure.reading === reading)?.color, reading).toBe(measurement.foreground)
+      expect(planFigures.find(figure => figure.reading === reading)?.color, reading).toBe(measurement.foreground)
     }
   })
 
-  test(`${look} selected account text meets AA in ${theme}`, async ({ page }, testInfo) => {
+  test(`${look} selected view row text meets AA in ${theme}`, async ({ page }, testInfo) => {
     await stageAccounts(page)
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
     const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
-    for (const state of ['normal', 'warning', 'bad', 'no-meter']) {
-      const account = dashboard.locator(`nav button[title$="${state}@example.com"]`)
-      await account.click()
-      await expect(account).toHaveAttribute('data-selected', '')
-      const measurements = await inkOf(account)
-      await testInfo.attach(`selected-${state}`, { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
-      await account.screenshot({ path: testInfo.outputPath(`selected-${state}.png`) })
+    // Plans carries the "N low" count in the warning tone, which has to read on
+    // the selected fill as well as the label does.
+    for (const view of ['Overview', 'Plans', 'Spend', 'Activity', 'Projects']) {
+      const row = dashboard.locator('nav button[class*="winNavItem"]', { hasText: view })
+      await row.click()
+      await expect(row).toHaveAttribute('data-selected', '')
+      const measurements = await inkOf(row)
+      await testInfo.attach(`selected-${view}`, { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
+      await row.screenshot({ path: testInfo.outputPath(`selected-${view}.png`) })
       for (const measurement of measurements) {
-        expect.soft(measurement.ratio, `${state}: ${measurement.text || 'mark'}`).toBeGreaterThanOrEqual(floorOf(measurement.part))
+        expect.soft(measurement.ratio, `${view}: ${measurement.text || 'icon'}`).toBeGreaterThanOrEqual(floorOf(measurement.part))
       }
     }
   })
 }
 
-test('selected account ink waits for a child transition that the row does not carry', async ({ page }) => {
+test('selected view row ink waits for a child transition that the row does not carry', async ({ page }) => {
   await stageAccounts(page)
   await page.goto('/preview.html')
   await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption('light')
   await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption('desk')
-  const parts = '[class*="acctMark"], [class*="acctFigure"], [class*="acctSub"]'
+  const parts = '[class*="winNavIcon"], [class*="winNavLabel"]'
   // The reduced-motion rule starts no transition for an element that declares
   // none, and a declared delay still starts one. That holds the children where
   // CI found them: each child's colour change is a transition of its own, made
   // with the selection and held at the unselected ink, while the row has none
   // of its own. It is long enough that no stall can end it.
   await page.addStyleTag({ content: `${parts} { transition-delay: 30s !important }` })
-  const account = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('nav button[title$="no-meter@example.com"]')
+  const account = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('nav button[class*="winNavItem"]', { hasText: 'Spend' })
   const inks = () => account.locator(parts).evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color))
   // Nothing moves once this returns, so what follows is the ink the row rests on.
   await inkOf(account)
