@@ -36,7 +36,8 @@ export interface LanePort {
   list(): readonly Lane[]
   save(lane: Lane): Promise<void>
   available(ports: Lane['ports'], deadline: number): Promise<boolean>
-  create(id: string, goal: string): Promise<{ cwd: string; branch: string }>
+  /** `base`, when given, is the commit the lane's branch is cut from: a card handed one predecessor's finished work (#1053). */
+  create(id: string, goal: string, base?: string): Promise<{ cwd: string; branch: string }>
   locate?(lane: Lane): Promise<{ cwd: string; branch: string } | null>
   active(lane: Lane): boolean
   busy(lane: Lane): boolean
@@ -49,7 +50,7 @@ export class LaneAllocator {
   listLanes(): readonly Lane[] { return this.list() }
   forSeat(seat: string): Lane | null { return this.list().find((lane) => lane.seat === seat) ?? null }
 
-  allocate(goal: string, id: string, prefs: LanePreferences): Promise<Lane> {
+  allocate(goal: string, id: string, prefs: LanePreferences, base?: string): Promise<Lane> {
     return this.#serial.run(async () => {
       lanePreferences(prefs)
       if (!/^[A-Za-z0-9-]{1,100}$/.test(id)) throw new Error('The host did not name a lane.')
@@ -69,7 +70,7 @@ export class LaneAllocator {
         await this.port.save(reservation)
         let result = reservation
         try {
-          const checkout = await this.port.create(id, goal)
+          const checkout = await this.port.create(id, goal, base)
           result = { ...reservation, ...checkout, state: 'active' }
           await this.port.save(result)
           return structuredClone(result)

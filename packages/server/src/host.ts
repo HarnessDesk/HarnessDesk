@@ -788,10 +788,12 @@ export class Host {
       list: () => this.#laneStore.list(),
       save: (lane) => this.#laneStore.save(lane),
       available: availablePorts,
-      create: async (id, goal) => {
+      create: async (id, goal, base) => {
         const document = this.#goalStore.read(goal)
-        // A Goal pinned to a commit cuts every lane from that commit, never from whatever the project has checked out.
-        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}`, ...(document.goal.at ? { base: document.goal.at } : {}) })
+        /* A Goal pinned to a commit cuts every lane from that commit, never from whatever the project has checked out;
+           a card handed one predecessor's finished work cuts its lane from that work's commit instead (#1053). */
+        const from = base ?? document.goal.at
+        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}`, ...(from ? { base: from } : {}) })
         if (!checkout.branch) throw new Error('The lane checkout has no branch. Its reservation was kept.')
         return { cwd: checkout.path, branch: checkout.branch }
       },

@@ -726,6 +726,24 @@ when its round opens; a retry runs there or, if that checkout's head has
 moved since, stalls and says so. A writer whose checkout has uncommitted
 changes stops the round before any command runs.
 
+**A card's checkout holds the work it is handed.** An agent card is handed
+its predecessors' work through the same walk: the nearest cards back along
+its dependencies that may change files. When that work was written somewhere
+other than where the card would sit — an isolated predecessor, or an isolated
+card after a shared one — the desk decides where the card opens before any
+Seat does, and journals it beside the round. One commit handed means a lane of
+the card's own, cut from that commit on a branch of its own, whatever the
+role's `isolate` says: UC1's tester runs the tests on the dev's commit, never
+on the commit the run began at. Several different commits (a debate round
+reading both analysts' positions, a judge comparing competitors) keep the
+checkout the role gives the card, and its order names each one — card,
+commit, branch and the folder it was written in — which any checkout of the
+project reaches by id. A card that shares its one predecessor's own tree
+already has it and is left as it was. Work that cannot be reached — its Seat
+cannot be read, its checkout is gone or has no commit, or it was left
+uncommitted — stops the round before its card opens, naming the card and the
+predecessor. The person's own checkout is never moved.
+
 **Evidence guards** read what the desk already observed, never a message or
 an agent's own claim. A guard judges *subjects*: the revisions of the
 nearest cards back along the finished round's dependencies whose grant lets
