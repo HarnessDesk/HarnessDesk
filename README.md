@@ -127,7 +127,7 @@ changing them.
   <a href="docs/images/app/git-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/git-dark.png" />
-      <img src="docs/images/app/git-light.png" width="900" alt="The repository pane beside a conversation: a branch graph with two feature branches and a merge back into main, drawn over the real git history of the open folder." />
+      <img src="docs/images/app/git-light.png" width="900" alt="The repository pane beside a new session: a branch graph with two feature branches and a merge back into main, drawn over the real git history of the open folder." />
     </picture>
   </a>
 </p>

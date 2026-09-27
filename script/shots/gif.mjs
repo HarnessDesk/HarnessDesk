@@ -33,8 +33,8 @@ import { promisify } from 'node:util'
 import { closeDesk, deskInUse, dismissNotices, launchDesk, seat, sleep, STORE } from '../lib/desk.mjs'
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable, refuseUnvouchedAccounts } from './audit.mjs'
-import { REPOS } from './cast.mjs'
-import { HOME, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
+import { REPOS, rigRuntimeId } from './cast.mjs'
+import { HOME, NATIVE_CODEX, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 const run = promisify(execFile)
@@ -122,8 +122,19 @@ try {
   await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
   await sleep(1200)
 
-  const key = await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
+  // The same seat `shoot.mjs`'s conversation scene takes: with the native
+  // Codex adapter on (the default since #927) its fixture plays every turn in
+  // /w, so the camera's scripted turn is played over ACP by the rig's agent.
+  const key = await seat(cdp, { work: REPO, runtime: NATIVE_CODEX ? rigRuntimeId('claude-code') : 'codex', picks: {} })
   await sleep(1200)
+  // Opening the workspace and seating raise notices after the first sweep,
+  // and the library's first-run "Skills and servers to share" offer is a
+  // standing card rather than a notice. The stills clear both before a frame
+  // (`shoot.mjs`'s `shoot`), with the same persisted "Not now", and so does
+  // the recording.
+  await dismissNotices(cdp)
+  await cdp.eval(`${STORE}.dismissStanding({ key: 'import:offer', kind: 'import:offer', lifetime: 'once' }); true`)
+  await sleep(300)
 
   /* Hide this machine's home before a single frame is taken, not after: a GIF
      cannot be audited frame by frame the way a still can, so the substitution
@@ -164,7 +175,7 @@ try {
    * early refusal is why the full audit runs here and only the account half
    * runs during the recording.
    */
-  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), subject: 'recording' })
+  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), nativeCodex: NATIVE_CODEX, subject: 'recording' })
 
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 88, maxWidth: WIDTH, maxHeight: HEIGHT, everyNthFrame: 1 })
   const startedAt = Date.now()
@@ -184,7 +195,7 @@ try {
   /* And once more before a single frame reaches the disk. Account state can
      change mid-take, and the frames are written below — so this is the last
      moment at which refusing still costs nothing but the take. */
-  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), subject: 'recording' })
+  await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), nativeCodex: NATIVE_CODEX, subject: 'recording' })
 
   say(`frames ${collected.length}`)
   if (collected.length === 0) throw new Error('the screencast delivered no frames')

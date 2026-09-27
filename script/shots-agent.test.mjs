@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -18,10 +18,10 @@ const AGENT = join(root, 'script/shots/agent.mjs')
  * what it was meant to, so this asks the agent itself: a listing, and what it
  * answered.
  */
-const desk = (t) => {
+const desk = (t, turns = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'shots-agent-'))
   const store = join(dir, 'agent.json')
-  const rows = ['a', 'b', 'c'].map((id) => [id, { sessionId: id, cwd: '/w', title: id, updatedAt: '2026-01-01T00:00:00Z', turns: [] }])
+  const rows = ['a', 'b', 'c'].map((id) => [id, { sessionId: id, cwd: '/w', title: id, updatedAt: '2026-01-01T00:00:00Z', turns: turns[id] ?? [] }])
   writeFileSync(store, JSON.stringify(Object.fromEntries(rows)))
   const child = spawn(process.execPath, [AGENT], { env: { ...process.env, SHOT_STORE: store }, stdio: ['pipe', 'pipe', 'inherit'] })
   const waiting = new Map()
@@ -45,6 +45,7 @@ const desk = (t) => {
       }),
     /** A switch is a file beside the store, named for it: `agent.json` has `agent.page`. */
     switchFile: (suffix) => join(dir, `agent.${suffix}`),
+    store,
   }
 }
 const ids = (answer) => answer.result.sessions.map((row) => row.sessionId)
@@ -81,4 +82,23 @@ test('a list-fails file beside the store fails the listing as a locked index doe
 
   rmSync(switchFile('list-fails'))
   assert.deepEqual(ids(await ask('session/list')), ['a', 'b', 'c'])
+})
+
+const titleOf = async (ask, id) => (await ask('session/list')).result.sessions.find((row) => row.sessionId === id)?.title ?? null
+
+test('a new conversation is named from its first prompt, as an agent names one, never a placeholder', async (t) => {
+  const { ask } = desk(t)
+  const opened = await ask('session/new', { cwd: '/w' })
+  const id = opened.result.sessionId
+  assert.equal(await titleOf(ask, id), null, 'nothing asked yet, so no name')
+  await ask('session/prompt', { sessionId: id, prompt: [{ type: 'text', text: 'Retry the checkout call on a 502\nand say why' }] })
+  assert.equal(await titleOf(ask, id), 'Retry the checkout call on a 502')
+})
+
+test('a seeded conversation reopened and prompted keeps its name and the turns it replays', async (t) => {
+  const { ask, store } = desk(t, { a: [['What broke?', 'The 502 path.']] })
+  await ask('session/load', { sessionId: 'a', cwd: '/w' })
+  await ask('session/prompt', { sessionId: 'a', prompt: [{ type: 'text', text: 'Something new' }] })
+  assert.equal(await titleOf(ask, 'a'), 'a')
+  assert.deepEqual(JSON.parse(readFileSync(store, 'utf8')).a.turns, [['What broke?', 'The 502 path.']])
 })
