@@ -156,8 +156,9 @@ export class TriggerRefusal extends Error {
  * How long a release waits on a still-busy Seat's own turn-ended signal
  * before it stops being silent about it: past this, a still-running run
  * stalls with a sentence naming the card and the Seat, and a run already
- * stopped or settled carries that same sentence in its own `reason` instead
- * (#1027). The wait itself is not
+ * stopped or settled grows that same sentence on its own `reason`, appended
+ * fresh at every read rather than written into the stored one (#1027,
+ * `FlowExecutions.#projectExecution`). The wait itself is not
  * bounded by this — a Seat's turn ending later still releases it — only the
  * point where a person is told stops being that far off.
  */
@@ -647,14 +648,6 @@ export class FlowExecutions {
   #runs = new Map<string, StoredFlowExecution>()
   /** Seats whose release is waiting on their own turn-ended signal (#1027); keyed by Seat id. */
   readonly #pendingReleases = new Map<string, PendingRelease>()
-  /**
-   * A stopped or settled run's own `reason`, from just before the first
-   * pending-release note ever overwrote it — keyed by run id, so it can be
-   * put back once nothing on that run is pending any more. Absent for a run
-   * whose `reason` a pending release has never touched (review #1050 finding
-   * 3: the note is carried in `reason` itself, never a field of its own).
-   */
-  readonly #reasonsBeforeNote = new Map<string, string | null>()
   /** Set once, at the top of `dispose()`, before anything below it can yield — every release path checks it, and once set nothing here schedules another timer or writes another document. */
   #disposed = false
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
@@ -832,7 +825,7 @@ export class FlowExecutions {
   async authorizeExtraRound(id: string, round: number, reason: string): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
       await this.#authorizeExtraRound(id, round, reason)
-      return projectExecution(this.#get(id))
+      return this.#projectExecution(this.#get(id))
     })
   }
 
@@ -865,7 +858,7 @@ export class FlowExecutions {
   async recordExceptionDecision(id: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
       await this.#recordExceptionDecision(id, findings, admit)
-      return projectExecution(this.#get(id))
+      return this.#projectExecution(this.#get(id))
     })
   }
 
@@ -896,7 +889,7 @@ export class FlowExecutions {
   async recordDecisionStamp(id: string, stamp: string, key: string): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
       await this.#recordDecisionStamp(id, stamp, key)
-      return projectExecution(this.#get(id))
+      return this.#projectExecution(this.#get(id))
     })
   }
 
@@ -917,7 +910,7 @@ export class FlowExecutions {
   async recordOverride(id: string, override: FindingOverride): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
       await this.#recordOverride(id, override)
-      return projectExecution(this.#get(id))
+      return this.#projectExecution(this.#get(id))
     })
   }
 
@@ -1239,7 +1232,7 @@ export class FlowExecutions {
     return [...this.#runs.values()]
       .filter((run) => goal === undefined || run.goal === goal)
       .sort((a, b) => a.startedAt - b.startedAt)
-      .map(projectExecution)
+      .map((run) => this.#projectExecution(run))
   }
 
   stored(id: string): StoredFlowExecution | null {
@@ -1744,16 +1737,23 @@ export class FlowExecutions {
     if (this.#disposed || this.#pendingReleases.has(id)) return
     const timer = setTimeout(() => void this.#onReleaseOverdue(id), this.#releaseStallMs)
     this.#pendingReleases.set(id, { goal, run: runId, claim, timer, startedAt: this.#now() })
-    await this.#notePending(runId, id, claim, null)
+    this.#port.changed(goal, this.runs(goal))
   }
 
-  /** Clears a Seat's pending release, wherever it ended: released, dropped, or logged as a plain failure. */
+  /**
+   * Clears a Seat's pending release, wherever it ended: released, dropped,
+   * or logged as a plain failure. Nothing is written here — the note a
+   * pending release added was never stored (`#projectExecution`), so
+   * removing the entry is the whole of "clearing" it; anyone reading this
+   * run next simply stops seeing it appended. Still told, in case anything
+   * is watching this run's read and would otherwise not see it change.
+   */
   async #settlePending(id: string): Promise<void> {
     const pending = this.#pendingReleases.get(id)
     if (!pending) return
     clearTimeout(pending.timer)
     this.#pendingReleases.delete(id)
-    await this.#clearPendingNote(pending.run)
+    this.#port.changed(pending.goal, this.runs(pending.goal))
   }
 
   /**
@@ -1762,7 +1762,7 @@ export class FlowExecutions {
    * (`Flows.retryRelease`), never a poll of this class's own. A session this
    * class holds nothing pending for is a no-op straight through. Never
    * called from inside a run's own queue — always the run's own, since
-   * `#attemptRelease` may write the run it retries on (`#notePending`).
+   * `#attemptRelease` may write the run it retries on.
    */
   retryRelease(runtime: string, sessionId: string): void {
     if (this.#disposed) return
@@ -1775,65 +1775,73 @@ export class FlowExecutions {
   }
 
   /**
+   * The sentence a pending release adds to a run's read, naming the card and
+   * the Seat: the plain waiting line before `RELEASE_STALL_MS`, or the
+   * overdue one after it, `overdue` telling which. Shared by
+   * `#onReleaseOverdue` (which uses it once, to stall a still-running run)
+   * and `#projectExecution` (which asks for it fresh on every read of a
+   * stopped or settled one, `overdue` recomputed each time from
+   * `pending.startedAt` — never written down anywhere, so a restart losing
+   * every in-memory pending entry never leaves a stale sentence behind:
+   * review #1050 finding 3, round 2).
+   */
+  #sentenceFor(seatId: string, pending: PendingRelease, overdue: boolean): string {
+    const record = this.#port.seatOf(seatId)
+    const seatName = record ? (this.#port.presentationOf?.(record.session.runtime) ?? record.session.runtime) : 'a Seat'
+    if (!overdue) {
+      const cardText = pending.claim ? `card #${pending.claim.card}` : 'a card'
+      return `Waiting for ${seatName}’s turn to end before releasing ${cardText}.`
+    }
+    const cardText = pending.claim ? `Card #${pending.claim.card}` : 'A card'
+    const doneWith = pending.claim ? `card #${pending.claim.card}` : 'the card'
+    return `${cardText} is still claimed by ${seatName}, whose turn has not ended, so it could not be released. Stop that Seat’s turn, or release ${doneWith} by hand.`
+  }
+
+  /**
    * Past `RELEASE_STALL_MS` with no turn-ended signal: the wait itself does
-   * not stop, but silence does. A sentence naming the card and the Seat is
-   * written wherever a person reads this run — a still-running run stalls
-   * with it, and a run already stopped or settled carries it in its own
-   * `reason` instead (`#notePending`, review #1050 finding 3), so nothing
-   * about the #1027 wait ever goes unsaid because the run happened to be
-   * done already. Fired from its own timer, so — like `retryRelease` — it
-   * holds no queue of its own and takes the run's here.
+   * not stop, but a still-running run stalls with the overdue sentence, so a
+   * person reads it wherever they are looking (#1027). A run already stopped
+   * or settled needs no write here at all — its own read already grows the
+   * same sentence the moment `#sentenceFor` is next asked for it, purely
+   * from `pending.startedAt` — but is still told its read now differs, since
+   * nothing else would say so. Fired from its own timer, so — like
+   * `retryRelease` — it holds no queue of its own and takes the run's here.
    */
   async #onReleaseOverdue(id: string): Promise<void> {
     if (this.#disposed) return
     const pending = this.#pendingReleases.get(id)
     if (!pending) return
-    const record = this.#port.seatOf(id)
-    const seatName = record ? (this.#port.presentationOf?.(record.session.runtime) ?? record.session.runtime) : 'a Seat'
-    const cardText = pending.claim ? `Card #${pending.claim.card}` : 'A card'
-    const doneWith = pending.claim ? `card #${pending.claim.card}` : 'the card'
-    const sentence = `${cardText} is still claimed by ${seatName}, whose turn has not ended, so it could not be released. Stop that Seat’s turn, or release ${doneWith} by hand.`
     await this.#queue.within(pending.run, async () => {
-      await this.#notePending(pending.run, id, pending.claim, sentence)
       const run = this.#runs.get(pending.run)
-      if (run && run.state === 'running') await this.#stall(pending.run, sentence)
+      if (!run) return
+      if (run.state === 'running') await this.#stall(pending.run, this.#sentenceFor(id, pending, true))
+      else this.#port.changed(run.goal, this.runs(run.goal))
     })
   }
 
   /**
-   * A stopped or settled run's `reason` is the status line the UI already
-   * renders, so a release still waiting on that run says so there rather
-   * than on a field nothing reads (review #1050 finding 3): the run's own
-   * reason, from just before the first note, is kept in
-   * `#reasonsBeforeNote` and put back by `#clearPendingNote` once nothing on
-   * it is pending any more. A still-running or already-stalled run is left
-   * alone here — the first stalls on its own reason once the wait goes
-   * overdue (`#onReleaseOverdue`), and the second already has one a person
-   * is meant to act on. Never queues its own write — like `#stall`, it is
-   * only ever called from somewhere already holding the run's queue, so a
-   * second `within` here would wait on itself.
+   * A stopped or settled run's own `reason` is never overwritten: a pending
+   * release's note is appended to it only here, at the wire projection, from
+   * whatever is still in `#pendingReleases` right now — nothing about it is
+   * ever stored, so a restart that drops every pending entry (because the
+   * process holding them is gone) never leaves a note behind with no way
+   * back to the real reason it replaced (review #1050 finding 3, round 2: a
+   * restart that then swept and released the Seat before anything ever read
+   * this run again used to find nothing to clear, and the sentence stuck for
+   * good). A still-running or already-stalled run is projected exactly as
+   * stored — the first grows its own reason directly once a wait goes
+   * overdue (`#onReleaseOverdue`), and a question- or overdue-stalled run
+   * holds no pending release at all (finding 1: neither is ever swept).
    */
-  async #notePending(runId: string, seatId: string, claim: PendingSeatClaim | null, sentence: string | null): Promise<void> {
-    const run = this.#runs.get(runId)
-    if (!run || (run.state !== 'stopped' && run.state !== 'settled')) return
-    const record = this.#port.seatOf(seatId)
-    const seatName = record ? (this.#port.presentationOf?.(record.session.runtime) ?? record.session.runtime) : 'a Seat'
-    const cardText = claim ? `card #${claim.card}` : 'a card'
-    const note = sentence ?? `Waiting for ${seatName}’s turn to end, to release ${cardText}.`
-    if (run.reason === note) return
-    if (!this.#reasonsBeforeNote.has(runId)) this.#reasonsBeforeNote.set(runId, run.reason)
-    await this.#put({ ...run, reason: note })
-  }
-
-  /** Puts a run's own `reason` back once nothing on it is pending any more. Same rule as `#notePending`: no queue of its own. */
-  async #clearPendingNote(runId: string): Promise<void> {
-    if ([...this.#pendingReleases.values()].some((one) => one.run === runId)) return
-    const original = this.#reasonsBeforeNote.get(runId)
-    this.#reasonsBeforeNote.delete(runId)
-    if (original === undefined) return
-    const run = this.#runs.get(runId)
-    if (!run || run.reason === original) return
-    await this.#put({ ...run, reason: original })
+  #projectExecution(run: StoredFlowExecution): FlowExecution {
+    const base = projectExecution(run)
+    if (base.state !== 'stopped' && base.state !== 'settled') return base
+    const note = [...this.#pendingReleases.entries()]
+      .filter(([, pending]) => pending.run === run.id)
+      .map(([seatId, pending]) => this.#sentenceFor(seatId, pending, this.#now() - pending.startedAt >= this.#releaseStallMs))
+      .join(' ')
+    if (!note) return base
+    return { ...base, reason: base.reason ? `${base.reason} ${note}` : note }
   }
 
   // ---------------------------------------------------------------- start
@@ -1892,7 +1900,7 @@ export class FlowExecutions {
     }
     run = await this.#put(this.#operation({ ...this.#get(id), goal: goal.id }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
     await this.#queue.within(id, () => this.#afterStart(id))
-    return projectExecution(this.#get(id))
+    return this.#projectExecution(this.#get(id))
   }
 
   /** Board policy, then the seed round. Shared by a fresh start and a restart that finds the start half done. */
@@ -1955,7 +1963,7 @@ export class FlowExecutions {
           throw new TriggerRefusal('Another run already holds this trigger’s reserved id. Nothing was adopted.')
         }
         if (existing.state === 'running' && existing.rounds.length === 0) await this.#afterStart(request.id)
-        return projectExecution(this.#get(request.id))
+        return this.#projectExecution(this.#get(request.id))
       }
       const origin = triggered.originOf(request.goal)
       if (origin?.kind !== 'trigger' || origin.trigger !== request.definition.id || origin.event !== request.key) {
@@ -1993,7 +2001,7 @@ export class FlowExecutions {
         },
       }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
       if (!reason) await this.#afterStart(request.id)
-      return projectExecution(this.#get(request.id))
+      return this.#projectExecution(this.#get(request.id))
     })
   }
 
@@ -2095,7 +2103,7 @@ export class FlowExecutions {
   async #gateOf(id: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: boolean }> {
     const run = this.#get(id)
     const gate = this.#triggered?.gate
-    return gate ? gate(projectExecution(run)) : { ok: true }
+    return gate ? gate(this.#projectExecution(run)) : { ok: true }
   }
 
   /** Holds a trigger's run for a gate that lifts on its own: running, nothing recorded as a stop, released by `resumeTriggered`. */
@@ -2745,7 +2753,7 @@ export class FlowExecutions {
       run = await this.#put({ ...run, state: 'running', reason: null, operations: run.operations.filter((one) => one.key !== key) })
       const opened = await this.#runCheckRound(id, round, role.check)
       if (opened) await this.#advance(id)
-      return projectExecution(this.#get(id))
+      return this.#projectExecution(this.#get(id))
     })
   }
 
@@ -2885,7 +2893,7 @@ export class FlowExecutions {
   stop(id: string, why = 'the person stopped this flow'): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
       await this.#finish(id, 'stopped', why)
-      return projectExecution(this.#get(id))
+      return this.#projectExecution(this.#get(id))
     })
   }
 

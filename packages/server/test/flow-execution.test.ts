@@ -822,6 +822,11 @@ test('dispose cancels a pending release’s bound timer and writes nothing after
   await rig.flows.resumeTriggered(run.id)
   await rig.flows.flush()
   rig.busySeats.add('seat-1')
+  // Mocked only from here: the 30ms bound below is a virtual timer from this
+  // point on, ticked by hand rather than raced against the real clock — a
+  // slow, loaded machine can no longer let the real bound fire before
+  // `dispose()` gets to it (review #1050 finding 2, round 2).
+  t.mock.timers.enable({ apis: ['setTimeout'] })
   await rig.flows.stopRun(run.id, STOP_WHY)
   await rig.flows.flush()
   assert.ok(!rig.events.includes('release:seat-1'))
@@ -829,13 +834,16 @@ test('dispose cancels a pending release’s bound timer and writes nothing after
   assert.match(noteBefore ?? '', /Waiting for/, 'deferred, with the plain waiting line already up, in the run’s own reason')
   const savesBefore = rig.files.saves
   rig.flows.dispose()
-  // Long enough that the bound above would have fired at least once, were it not cancelled.
-  await new Promise((resolve) => setTimeout(resolve, 150))
+  // dispose() clears every pending release outright: its note is gone from the very next read, not merely frozen where it stood.
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.reason, STOP_WHY, 'nothing is pending any more, so the run’s own reason reads plain again')
+  // Well past the (still virtual) bound — nothing here waits on, or races, the real wall clock.
+  t.mock.timers.tick(10_000)
+  await Promise.resolve()
   assert.equal(rig.files.saves, savesBefore, 'no write happened after dispose — the overdue timer never fired')
   assert.equal(
     rig.flows.executionsFor(run.goal)[0]!.reason,
-    noteBefore,
-    'unchanged since dispose: no overdue sentence ever replaced the plain waiting line',
+    STOP_WHY,
+    'still plain past the bound: the cleared timer never turned it into the overdue sentence',
   )
   // Nor does the signal do anything once disposed, even once the turn genuinely ends.
   rig.busySeats.delete('seat-1')
@@ -852,13 +860,19 @@ test('a restart finds a Seat a stopped run left claimed, still open, and release
   await rig.flows.resumeTriggered(run.id)
   await rig.flows.flush()
   rig.busySeats.add('seat-1')
-  await rig.flows.stopRun(run.id, 'Timed out: this Goal reached its time budget.')
+  await rig.flows.stopRun(run.id, STOP_WHY)
   await rig.flows.flush()
   assert.ok(!rig.events.includes('release:seat-1'), 'deferred: the desk goes down before this Seat’s turn ends')
+  assert.match(rig.flows.executionsFor(run.goal)[0]!.reason ?? '', /Waiting for/, 'the pending release already shows on the old process’s own read')
   // By the time the desk comes back, the turn has actually ended — nothing here was ever told so directly, though.
   rig.busySeats.delete('seat-1')
   await rig.restart()
   assert.ok(rig.events.includes('release:seat-1'), 'swept and released on the very next start-up, without waiting for another signal')
+  assert.equal(
+    rig.flows.executionsFor(run.goal)[0]!.reason,
+    STOP_WHY,
+    'the projected reason is the original one — the waiting line the old process’s read carried was never stored, so the new process never inherits it, and the sweep’s own release leaves nothing pending to clear it anyway',
+  )
 })
 
 test('a restart never sweeps a question-stalled run: its Seat keeps holding its card, for the answer still coming (#1027 finding 1)', async (t) => {
