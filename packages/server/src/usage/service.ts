@@ -1,17 +1,24 @@
 import { watch, type FSWatcher } from 'node:fs'
 
-import type {
-  AgentRuntime,
-  RateLimits,
-  RuntimeId,
-  SpendSummary,
-  UnverifiedUsage,
-  UsageBilling,
-  UsageLane,
-  UsageReport,
+import {
+  bindingLane,
+  type AgentRuntime,
+  type RateLimits,
+  type RuntimeId,
+  type SpendSummary,
+  type UnverifiedUsage,
+  type UsageBilling,
+  type UsageLane,
+  type UsageReport,
 } from '@harnessdesk/protocol'
 
 import type { MeterReading, UsageMeter } from './meter.js'
+
+const DAY_MS = 86_400_000
+/** "The current billing cycle when the report knows one, else the last 14 days" — "Turns", `docs/usage-dashboard.md`. */
+const FALLBACK_TURNS_WINDOW_DAYS = 14
+/** `UsageReport.turns.unitsPerTurn` needs this many turns in the window before it says a rate; fewer reports the count with a null rate. */
+const MIN_TURNS_FOR_RATE = 10
 
 /**
  * Every metered account's standing, kept warm.
@@ -27,9 +34,20 @@ import type { MeterReading, UsageMeter } from './meter.js'
  * floor under those, not the mechanism.
  */
 
-/** What the ledger has to answer for the money half of a report. */
+/** What the ledger has to answer for the money half of a report, and, where it knows one, the turns half. */
 export interface SpendSource {
-  spendFor(runtime: RuntimeId): SpendSummary | null
+  spendFor(runtime: RuntimeId, days?: number): SpendSummary | null
+  /**
+   * How many turns this runtime ran since `sinceMs`, or `null` when the
+   * ledger was never told this runtime has a real turn count at all
+   * (`LedgerOptions.turnRuntimes`) — read as unknown, never as zero.
+   * Optional so a `SpendSource` built before turns existed is still valid.
+   */
+  turnsFor?(runtime: RuntimeId, sinceMs: number): { readonly count: number; readonly since: number; readonly source: 'agent' | 'desk' } | null
+  /** Ledger requests (priced or not) logged since `sinceMs`, the same window `turnsFor` counted — for a per-turn rate on a requests-based allowance. */
+  requestsFor?(runtime: RuntimeId, sinceMs: number): number
+  /** What the ledger's rows for this runtime are worth since `sinceMs`, the same window `turnsFor` counted — for a per-turn rate on a balance or a metered key. */
+  valueFor?(runtime: RuntimeId, sinceMs: number): number
 }
 
 export interface UsageServiceOptions {
@@ -41,6 +59,14 @@ export interface UsageServiceOptions {
   readonly onReport: (report: UsageReport) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
   readonly now?: () => number
+  /**
+   * Runs over every report before it is cached, returned or pushed —
+   * `reports()`, `refresh()`, `cached()` and `onReport` all see whatever this
+   * returns, and never the report without it. This is the one seam a stored
+   * plan fee/budget folds in through (`host.ts`'s `planOverlay`), so a report
+   * can never leave this service unmerged on one path and merged on another.
+   */
+  readonly overlay?: (report: UsageReport) => Promise<UsageReport>
 }
 
 const DEFAULT_STALE_AFTER_MS = 5 * 60_000
@@ -137,6 +163,19 @@ export class UsageService {
   }
 
   /**
+   * The one place a report is cached and pushed — every exit out of `#build`
+   * and `settleSpend` funnels through here, so the overlay (a stored plan
+   * fee/budget, when the host supplies one) is applied exactly once and
+   * never skipped on one path while another remembers it.
+   */
+  async #finish(id: RuntimeId, report: UsageReport): Promise<UsageReport> {
+    const overlaid = this.#options.overlay ? await this.#options.overlay(report) : report
+    this.#cache.set(id, overlaid)
+    if (!this.#disposed) this.#options.onReport(overlaid)
+    return overlaid
+  }
+
+  /**
    * Restates the money after the ledger has learned something new.
    *
    * A finished scan changes the spend half of every report and nothing else,
@@ -156,8 +195,7 @@ export class UsageService {
       }
       if (spend === null && cached.spend === null) continue
       const restated: UsageReport = { ...cached, spend }
-      this.#cache.set(id, restated)
-      if (!this.#disposed) this.#options.onReport(restated)
+      await this.#finish(id, restated)
     }
   }
 
@@ -273,18 +311,14 @@ export class UsageService {
         error,
         unverified: { ...previous.unverified, error: { message: unverifiedFailure } },
       }
-      this.#cache.set(id, kept)
-      if (!this.#disposed) this.#options.onReport(kept)
-      return kept
+      return this.#finish(id, kept)
     }
 
     // One provider being down does not blank a card. The last good reading
     // stands with its own age, and the failure is shown beside it.
     if (lanes.length === 0 && !unverified && error && previous && (previous.lanes.length > 0 || previous.unverified)) {
       const kept: UsageReport = { ...previous, spend, error }
-      this.#cache.set(id, kept)
-      if (!this.#disposed) this.#options.onReport(kept)
-      return kept
+      return this.#finish(id, kept)
     }
 
     if (lanes.length === 0 && !credits && !spend && !error && !unverified) {
@@ -302,6 +336,8 @@ export class UsageService {
     // The ledger's own label only when the ledger is genuinely all we have.
     if (lanes.length === 0 && !answered && spend) source = LEDGER_SOURCE
 
+    const turns = this.#turnsFor(id, billing, lanes)
+
     const report: UsageReport = {
       runtime: id,
       account,
@@ -316,10 +352,9 @@ export class UsageService {
       error,
       ...(unverified ? { unverified } : {}),
       ...(billing ? { billing } : {}),
+      ...(turns ? { turns } : {}),
     }
-    this.#cache.set(id, report)
-    if (!this.#disposed) this.#options.onReport(report)
-    return report
+    return this.#finish(id, report)
   }
 
   /**
@@ -337,6 +372,66 @@ export class UsageService {
       this.#options.log?.('a usage meter failed', { runtime: id, meter: meter.id, error: failure })
       return { failure }
     }
+  }
+
+  /**
+   * `UsageReport.turns`, filled from the ledger's own count — "Turns",
+   * `docs/usage-dashboard.md` — for every runtime the ledger was told has one
+   * (`SpendSource.turnsFor`), whatever shape `lanes` is otherwise. `null`
+   * when the ledger knows nothing (never counted for this runtime) or counts
+   * zero turns in the window.
+   *
+   * `unitsPerTurn` prices one turn in the lane's own unit, and needs at least
+   * `MIN_TURNS_FOR_RATE` turns in the window before it says a rate at all:
+   * - An allowance lane in requests (Cursor): ledger requests, over the same
+   *   window `turnsFor` counted, divided by turns.
+   * - A balance or a metered key: Value — vendor-reported cost where the
+   *   ledger has it, list price otherwise, `SpendSummary.windowCost` over the
+   *   same window — divided by turns, in the report's own currency.
+   * - A plain percent window (Codex, Claude Code's plan lanes): `null`. That
+   *   needs a history of lane snapshots this host does not keep yet.
+   */
+  #turnsFor(
+    runtime: RuntimeId,
+    billing: UsageBilling | undefined,
+    lanes: readonly UsageLane[],
+  ): UsageReport['turns'] {
+    const known = this.#options.spend?.turnsFor?.(runtime, this.#turnsWindowStart(lanes))
+    if (!known || known.count <= 0) return null
+    let unitsPerTurn: number | null = null
+    // A desk-sourced runtime's turns (Cursor, and any unrecognised ACP agent)
+    // cover only what ran through this desk, while every other figure a
+    // meter has for it — Cursor's own request quota, its balance — is
+    // account-wide: a person's other machine, or Cursor used outside this
+    // desk at all, adds requests and Value that these turns never saw.
+    // Dividing one by the other is not a smaller-sample estimate, it is a
+    // number with no relationship to the one being reported, so a
+    // desk-sourced rate is always null here rather than exact-or-approximate
+    // — the owner's decision, "Turns", `docs/usage-dashboard.md`. Codex,
+    // Claude Code, Gemini CLI and Qwen Code are exempt: their own transcript
+    // is the turn boundary, and it covers standalone use exactly as well as
+    // desk use, so both sides of the rate already agree on what they cover.
+    if (known.count >= MIN_TURNS_FOR_RATE && known.source === 'agent') {
+      if (billing?.kinds.includes('allowance') && this.#options.spend?.requestsFor) {
+        const requests = this.#options.spend.requestsFor(runtime, known.since)
+        unitsPerTurn = requests > 0 ? requests / known.count : null
+      } else if (billing?.kinds.includes('balance') || billing?.kinds.includes('metered')) {
+        const value = this.#options.spend?.valueFor?.(runtime, known.since) ?? null
+        unitsPerTurn = value !== null ? value / known.count : null
+      }
+      // A plain percent window has no per-turn figure yet — see the comment above.
+    }
+    return { count: known.count, unitsPerTurn, since: known.since }
+  }
+
+  /** The current billing cycle when a lane's own reset says one, else the last `FALLBACK_TURNS_WINDOW_DAYS`. */
+  #turnsWindowStart(lanes: readonly UsageLane[]): number {
+    const lane = bindingLane(lanes)
+    if (lane?.resetsAt != null && lane.windowMinutes != null) {
+      const start = lane.resetsAt - lane.windowMinutes * 60_000
+      if (start < this.#now()) return start
+    }
+    return this.#now() - FALLBACK_TURNS_WINDOW_DAYS * DAY_MS
   }
 
   async #accountLabel(runtime: AgentRuntime): Promise<string | null> {

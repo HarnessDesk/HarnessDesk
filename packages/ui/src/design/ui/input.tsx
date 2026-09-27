@@ -34,6 +34,11 @@ const inputVariants = cva(
         default: 'h-(--hd-field-h)',
         compact: 'h-6 px-1.5 data-[icon=leading]:pl-6',
         bare: 'h-7 px-0',
+        // An input standing in for a navigation row (an inline rename): the
+        // row's own box — its floor, its block padding and its type step. A
+        // row taller than one line (a second line, a chip) is held by its
+        // caller, which knows the height the row had.
+        row: 'h-auto min-h-(--hd-nav-h) px-1.5 py-1 text-(length:--hd-text-sm) leading-(--hd-line-sm)',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

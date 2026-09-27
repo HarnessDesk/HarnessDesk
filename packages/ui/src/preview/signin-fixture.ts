@@ -39,7 +39,14 @@ const RUNTIMES: readonly RuntimeInfo[] = [
 const oauth = (label: string, planType?: string) => ({ kind: 'oauth', label, email: label, ...(planType ? { planType } : {}) })
 
 const ACCOUNTS: Record<string, AccountStatus> = {
-  codex: { accounts: [oauth('shane@harnessdesk.app', 'Pro')], signInMethods: [] },
+  // `UsageService` keeps exactly one report per runtime, so a runtime never
+  // really carries two accounts with reports of their own — the second,
+  // key-flavoured Codex account this fixture used to add distorted the
+  // Runtimes preview's own grouping on a premise the real host can't
+  // produce. The Plan card's "budget on a key account" row is demonstrated
+  // on the catalogue board instead, with props rather than a second account
+  // wedged into this shared fixture.
+  codex: { accounts: [oauth('shane@harnessdesk.app', 'plus')], signInMethods: [] },
   claude: { accounts: [oauth('shane@harnessdesk.app', 'Max 20x')], signInMethods: [] },
   cursor: { accounts: [oauth('dev@example.com')], signInMethods: [] },
   deepseek: {
@@ -104,11 +111,23 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
   healthByRuntime: {},
   credentialProtection: 'macOS Keychain',
   // One lane spent on the first account, so the rail shows the limit tone.
+  // `plan` on the codex and claude reports is what Settings › Agents' Plan
+  // card reads to pick a matching suggestion (see `harness.tsx`'s
+  // `#plans`/`#planSuggestions`) — the codex report's "plus" matches its own
+  // account's `planType` above, and the claude report's "Max 20x" has none
+  // (this account already set its own $200 in `harness.tsx`'s `#plans`).
   usage: [{
     runtime: runtimeId('codex'),
     account: 'shane@harnessdesk.app',
+    plan: 'plus',
     lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10_080, resetsAt: Date.now() + 86_400_000 }],
     reached: { lane: 'weekly' },
+  }, {
+    runtime: runtimeId('claude'),
+    account: 'shane@harnessdesk.app',
+    plan: 'Max 20x',
+    lanes: [],
+    reached: null,
   }],
   logins: scene === 'code'
     ? {
@@ -136,10 +155,22 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
 /**
  * The same roster for Settings › Runtimes, with one agent that did not start
  * as well — so the page's "Needs attention" group holds every kind of
- * attention at once: signed out, at a limit, and unavailable.
+ * attention at once: signed out, at a limit, and unavailable — and two that
+ * have not answered yet.
  */
 export const runtimesSeed = (): Partial<AppSnapshot> => ({
   ...signInSeed('refused'),
+  // Two that have not answered yet (#1038): a second Codex account, whose
+  // row on Codex's own page names its credential home, and a whole agent,
+  // which the list puts under a heading of its own.
+  runtimes: [
+    ...RUNTIMES,
+    agent('codex#2', 'Codex', 'Coding agent that reads, edits and runs code', {
+      slot: { agent: runtimeId('codex'), home: '/home/dev/.harnessdesk/accounts/codex-a1b2c3', removable: true, canAdd: true },
+    }),
+    agent('amp', 'Amp', 'Frontier coding agent'),
+  ],
+  home: '/home/dev',
   healthByRuntime: {
     [runtimeId('opencode')]: {
       state: 'unavailable',

@@ -192,3 +192,4 @@ export { AgentCard, CardBand, CardCrest, CardCrestBody, CardShell, type AgentCar
 export * from './patterns/DockPanel'
 export { Checklist, ChecklistItem, type ChecklistState } from './patterns/Checklist'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'
+export { PlanCard, type PlanCardProps } from './patterns/PlanCard'

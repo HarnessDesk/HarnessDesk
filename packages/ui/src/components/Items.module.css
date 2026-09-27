@@ -97,18 +97,6 @@
   max-width: 100%;
 }
 
-.imageThumb {
-  display: block;
-  width: 100%;
-  object-fit: cover;
-}
-
-.images:has(.imageTile:only-child) .imageThumb {
-  width: auto;
-  max-width: 100%;
-  object-fit: contain;
-}
-
 /* --- assistant ---------------------------------------------------------- */
 
 /* Where the running mark stands while an answer is still being written: on

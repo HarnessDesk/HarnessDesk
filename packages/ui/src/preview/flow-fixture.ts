@@ -39,7 +39,8 @@ const asked: SeatPlan = {
 
 export const FLOW_SEATS: readonly FlowPreviewSeat[] = [
   { role: 'fixer', index: 0, agent: 'implementer', isolate: true, reviews: false, plan: held },
-  { role: 'reviewer', index: 0, agent: 'code-reviewer', isolate: false, reviews: true, plan: asked },
+  // Handed the isolated fixer's one commit through the check, so it opens in a worktree of its own at it (#1053).
+  { role: 'reviewer', index: 0, agent: 'code-reviewer', isolate: false, atPredecessor: true, reviews: true, plan: asked },
 ]
 
 const FIX_SOURCE = [

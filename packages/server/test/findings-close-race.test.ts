@@ -126,3 +126,39 @@ test('an authorized extra round clears the stop it answers, and the run goes on'
   await f.rig.flows.flush()
   assert.equal(f.cards('fixer').filter((one) => one.state === 'claimed').length, 1)
 })
+
+/*
+ * Issue #1051: a run that stopped purely because it used up its round
+ * budget — no pending exception, no design problem, nothing left open — is
+ * exactly as decidable as one a finding stopped. This goes through
+ * `decideRun`, the method `finding/decide` actually calls, rather than the
+ * engine directly, so it proves the whole path a person's "Authorise
+ * another round" button reaches.
+ */
+test('a round-ceiling stall, clean of any finding, is answered through finding/decide and the run goes on', async (t) => {
+  const f = await findingsRig(t)
+  const file = join(f.rig.dir, 'flows-v2', `${encodeURIComponent(f.run)}.json`)
+  const stored = JSON.parse(await readFile(file, 'utf8'))
+  // A budget of two rounds: the fixer's seed round, then one review round — the ceiling a debate that never quite finishes would hit.
+  stored.findings = { ...stored.findings, budget: { ...stored.findings.budget, rounds: 2 } }
+  await writeFile(file, JSON.stringify(stored))
+  await f.restart()
+  await f.finishFixer()
+  await f.finishReviews('request-changes')
+  const stopped = f.rig.executions.stored(f.run)!.findings!.stopped
+  assert.deepEqual(
+    stopped,
+    { round: 2, reason: 'Round 2 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.' },
+    'the round budget stops the run, not a finding it raised, and names the exact way past it',
+  )
+  assert.equal(f.cards('fixer').filter((one) => one.state === 'claimed').length, 0, 'the repair round the reviewer asked for did not open past the budget')
+  const view = await f.plane.runView(f.run)
+  assert.equal(view.reason, stopped!.reason, 'the run view carries the same ceiling reason, and the same way forward, a person reads')
+  await f.plane.decideRun({ goal: f.goal, run: f.run, round: stopped!.round, stamp: view.stamp, action: { kind: 'another-round' }, reason: 'let it reach acceptance' })
+  await f.rig.flows.flush()
+  const after = f.rig.executions.stored(f.run)!
+  assert.equal(after.findings!.stopped, null, 'the ceiling stop is cleared once a person answers it')
+  assert.equal(after.findings!.extraRound?.after, stopped!.round, 'and the one round it authorized is recorded')
+  assert.equal(after.state, 'running', 'the run resumes rather than staying stalled at its budget')
+  assert.equal(f.cards('fixer').filter((one) => one.state === 'claimed').length, 1, 'the repair round the reviewer asked for opened past the exhausted budget')
+})

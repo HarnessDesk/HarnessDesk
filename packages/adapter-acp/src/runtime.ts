@@ -570,16 +570,22 @@ const levelsOfModel = (
   return levels ? levels.map(levelOf) : null
 }
 
+/**
+ * The reasoning levels declared on this model's own choice in a `model`
+ * select control — the fallback for an agent that names its models only
+ * through `configOptions`, never `session/new`'s `models`. Matched by id: a
+ * choice's `_meta` speaks for that choice alone, never for a sibling that
+ * said nothing (#1023 — a session with levels on `large` and none on `small`
+ * must not hand `small` a copy of `large`'s).
+ */
 const levelsOfModelOption = (
   option: AcpConfigOption,
+  modelId: string,
 ): readonly { readonly id: string; readonly label: string }[] | null => {
   if (option.id !== 'model' || option.type !== 'select' || !Array.isArray(option.options)) return null
-  const levels = option.options
-    .map((choice) => (choice._meta?.['harnessdesk'] as { effortLevels?: unknown } | undefined)?.effortLevels)
-    .find((value): value is readonly { id: string; label?: string | null }[] => Array.isArray(value))
-  return levels
-    ? levels.map(levelOf)
-    : null
+  const choice = option.options.find((candidate) => candidate.value === modelId)
+  const levels = (choice?._meta?.['harnessdesk'] as { effortLevels?: unknown } | undefined)?.effortLevels
+  return Array.isArray(levels) ? levels.map(levelOf) : null
 }
 
 /**
@@ -1541,7 +1547,7 @@ export class AcpRuntime implements AgentRuntime {
     const isDefault = (modelId: string): boolean =>
       this.#catalogDefault === null ? modelId === currentModelId : modelId === this.#catalogDefault
     const catalog = models.map((model): ModelInfo => {
-      const own = levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption))
+      const own = levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption), model.modelId)
       return {
         id: model.modelId,
         displayName: model.name,
@@ -3670,7 +3676,8 @@ class AcpSession implements AgentSession {
                 update.content,
               ),
         ],
-        startedAt: Date.now(),
+        // Always inside the `this.#replaying` guard above -- see MutableTurn's own comment.
+        startedAt: null,
       }
       return
     }
@@ -4210,7 +4217,11 @@ class AcpSession implements AgentSession {
         : {}),
       startedAt: turn.startedAt,
       completedAt: Date.now(),
-      durationMs: Date.now() - turn.startedAt,
+      // Never actually null here -- `#finishTurn` only ever closes a live
+      // turn (`send`'s own `Date.now()`), replay never reaches it -- but the
+      // type is shared with a replayed turn's, so the arithmetic still has
+      // to allow for it.
+      durationMs: turn.startedAt === null ? null : Date.now() - turn.startedAt,
     }
     this.#currentTurn = null
     this.#turns.push(finished)
@@ -4246,5 +4257,13 @@ const OPEN_TURN = -1
 interface MutableTurn {
   readonly id: TurnId
   items: AgentItem[]
-  readonly startedAt: number
+  /**
+   * `null` only for a turn opened while replaying stored history
+   * (`#replaying`): the desk already knows when it really started, and
+   * stamping `Date.now()` here would re-date it to the moment of replay
+   * every time the session is reopened -- and double-count it, since desk
+   * turn counting buckets by day (#1047 review). A live turn (`send`) is
+   * always a real timestamp.
+   */
+  readonly startedAt: number | null
 }

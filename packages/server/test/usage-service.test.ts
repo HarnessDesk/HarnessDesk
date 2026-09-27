@@ -215,3 +215,30 @@ test("another sign-in's figures are drawn beside the report and never read as th
   assert.equal(after?.error, null)
   usage.dispose()
 })
+
+/**
+ * BLOCKING 1: a stored plan fee has to reach `usage/updated` — the push
+ * `onReport` sends on every report, not only the two request paths — or a
+ * fresh push wipes it off the card the moment it lands. `UsageService`'s
+ * `overlay` option is the one seam every exit (`reports()`, `refresh()`,
+ * the "kept" branches, `settleSpend()`) funnels through, so this proves the
+ * merge happens without going anywhere near `host.ts`'s real `PlanStore`.
+ */
+test('a stored plan folds into every report the overlay sees, including the onReport push behind usage/updated', async () => {
+  const pushed: UsageReport[] = []
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, meter]]),
+    onReport: (report) => pushed.push(report),
+    overlay: async (report) => ({
+      ...report,
+      billing: { kinds: report.billing?.kinds ?? [], fee: { amount: 20, currency: 'USD', period: 'month', source: 'user' } },
+    }),
+  })
+
+  const [first] = await usage.reports()
+  assert.deepEqual(first?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' })
+  assert.deepEqual(pushed.at(-1)?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' }, 'the push carries the stored fee too')
+  assert.deepEqual(usage.cached(METERED)?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' }, 'and so does the cache reports()/refresh() read from next time')
+  usage.dispose()
+})

@@ -157,6 +157,14 @@ export interface SpendCoverage {
    * which drew every day before its own boot the same way — still validates.
    */
   readonly earliestDay?: number | null
+  /**
+   * Which runtimes among the ones this window covers have a real turn count
+   * behind them — see `LedgerRow.turns`. A runtime not listed here had no
+   * readable turn boundary (`docs/usage-dashboard.md`, "Turns"), and a caller
+   * says so ("turns known for N of M agents") rather than reading a missing
+   * runtime as zero turns. Optional so an old report still validates.
+   */
+  readonly turnsKnownFor?: readonly RuntimeId[]
 }
 
 export interface SpendSummary {
@@ -244,12 +252,22 @@ export interface UsageReport {
   /** See `UsageBilling`, above `UsageCredits`. */
   readonly billing?: UsageBilling
   /**
-   * How many turns this account has run and at what rate, when a source
-   * counts turns rather than tokens or a percentage (Cursor's request-based
-   * plans). `unitsPerTurn` is null when the source does not say what a turn
-   * costs against its own unit. `since` bounds what the count covers — never
-   * a plan's whole lifetime unless the source says so. Distinct from `spend`
-   * and `credits`, which price the same work in money; this counts the turns
+   * How many turns this account has run and at what rate — filled from the
+   * ledger's own turn count (`LedgerRow.turns`, "Turns" in
+   * `docs/usage-dashboard.md`) whenever the runtime is one
+   * `SpendCoverage.turnsKnownFor` names, whatever shape the plan's `lanes`
+   * are otherwise. Absent, never zero, when the ledger has no readable turn
+   * boundary for this runtime.
+   *
+   * `unitsPerTurn` prices one turn in the lane's own unit: ledger requests
+   * per turn for a requests-based allowance (Cursor), Value per turn (list
+   * price or the agent's own vendor cost) for a balance or a metered key, and
+   * `null` for a plain percent window, which has no history of lane
+   * snapshots to divide by turns yet. It is also `null` under ten turns in
+   * the window — too few to call a rate. `since` bounds what the count
+   * covers: the current billing cycle when the report knows one, else the
+   * last 14 days — never a plan's whole lifetime. Distinct from `spend` and
+   * `credits`, which price the same work in money; this counts the turns
    * themselves.
    */
   readonly turns?: { readonly count: number; readonly unitsPerTurn: number | null; readonly since: number } | null
@@ -308,6 +326,14 @@ export interface LedgerRow {
    *
    * `requests` is the call count the group's `tokens` and `cost` were summed
    * over — the same count `SpendCoverage.priced` / `unpriced` partition.
+   *
+   * `turns` is a different count again — see "Turns",
+   * `docs/usage-dashboard.md` — one person-or-agent prompt answered by the
+   * agent, never an API request. It is `undefined` unless *every* runtime
+   * this row groups is one `SpendCoverage.turnsKnownFor` names: a row that
+   * mixes a turn-known runtime with one that is not would otherwise read as
+   * a real count that is actually only a partial one, which is the same lie
+   * a missing runtime reading as zero would be.
    */
   readonly input?: number
   readonly output?: number
@@ -315,6 +341,7 @@ export interface LedgerRow {
   readonly cacheWrite?: number
   readonly reasoning?: number
   readonly requests?: number
+  readonly turns?: number
 }
 
 /** One agent's contribution to one day, for the stacked chart. */
@@ -333,6 +360,8 @@ export interface LedgerDay {
   readonly cacheWrite?: number
   readonly reasoning?: number
   readonly requests?: number
+  /** `undefined` unless `runtime` is one `SpendCoverage.turnsKnownFor` names — see `LedgerRow.turns`. */
+  readonly turns?: number
 }
 
 export interface LedgerReport {
@@ -359,6 +388,8 @@ export interface LedgerReport {
     readonly cacheWrite: number
     readonly reasoning: number
     readonly requests: number
+    /** `undefined` unless every runtime this window covers is turn-known — see `LedgerRow.turns`. */
+    readonly turns?: number
   }
 }
 
@@ -509,4 +540,114 @@ export const isBlocked = (report: UsageReport): boolean => {
   const lane = bindingLane(report.lanes)
   const remaining = lane ? remainingOf(lane) : null
   return remaining !== null && remaining <= 0
+}
+
+// -------------------------------------------------------------- plan prices
+
+/**
+ * What a person set for one account's plan, kept in `~/.harnessdesk/plans.json`.
+ *
+ * `fee` makes `UsageBilling.fee` real for a plan the vendor never prices
+ * itself — no rate is bundled here either: the amount is always what a person
+ * clicked to confirm, `source` is always `'user'` (a vendor-reported fee, if a
+ * reader ever has one, wins and keeps its own `'vendor'` source; this file
+ * never produces one). `budget` is a person's own spending cap, unrelated to
+ * any vendor limit, and is offered only for a key or metered account.
+ * `setAt` is when the person confirmed it, for the row's own history.
+ */
+export interface PlanFeeEntry {
+  readonly amount: number
+  readonly currency: string
+  readonly period: 'month' | 'year'
+  readonly source: 'user'
+  readonly setAt: number
+}
+
+export interface PlanBudgetEntry {
+  readonly amount: number
+  readonly currency: string
+  readonly period: 'month'
+  readonly setAt: number
+}
+
+/** One account's stored plan choices. Either field, or both, may be present. */
+export interface PlanEntry {
+  readonly fee?: PlanFeeEntry | null
+  readonly budget?: PlanBudgetEntry | null
+}
+
+/**
+ * A public price the person can confirm in one click — never applied on its
+ * own. `planMatch` compares against the report's own `plan` string
+ * case-insensitively; `sourceUrl` and `checkedAt` are what makes it an
+ * accountable suggestion rather than a bundled rate (`docs/usage-dashboard.md`,
+ * "No rates are bundled").
+ */
+export interface PlanSuggestion {
+  readonly runtime: RuntimeId
+  readonly planMatch: string
+  readonly amount: number
+  readonly currency: string
+  readonly period: 'month' | 'year'
+  readonly sourceUrl: string
+  /** ISO date the price was last verified against the vendor's page. */
+  readonly checkedAt: string
+}
+
+/** One stored account's row, named by the same key `usage/plan/set` takes. */
+export interface PlanAccountEntry {
+  readonly runtime: RuntimeId
+  readonly account: string
+  readonly entry: PlanEntry
+}
+
+/**
+ * `plan` is the account's own plan string, when the card already knows one —
+ * the caller's own report for this exact account, never a sibling
+ * account's, so the suggestion this returns can never be for the wrong
+ * account's plan.
+ */
+export interface PlanReadParams {
+  readonly runtime: RuntimeId
+  readonly account: string
+  readonly plan?: string | null
+}
+
+/**
+ * One account's own stored plan, looked up on the host by the same
+ * `accountKeyFor` function `usage/plan/set` writes with — never a runtime's
+ * single cached report, which only ever remembers one account per runtime.
+ * `refusal` is `plans.json`'s own read failure, where and why, so a corrupt
+ * file is shown rather than silently hiding the whole Plan card (BLOCKING 2).
+ */
+export interface PlanRead {
+  readonly entry: PlanEntry | null
+  readonly suggestion: PlanSuggestion | null
+  readonly refusal: string | null
+}
+
+/**
+ * The one suggestion, among a list, whose runtime and plan string match —
+ * case-insensitively, since a vendor's own casing ("Pro" vs a report's own
+ * wording) is not what changes what the plan means. Shared by the host (which
+ * has the list) and the renderer (which has the report), so the two can never
+ * decide "does this suggestion apply" two different ways.
+ */
+export const matchPlanSuggestion = (
+  suggestions: readonly PlanSuggestion[],
+  runtime: RuntimeId,
+  plan: string | null,
+): PlanSuggestion | null => {
+  if (!plan) return null
+  const trimmed = plan.trim().toLowerCase()
+  if (trimmed === '') return null
+  return suggestions.find((row) => row.runtime === runtime && row.planMatch.trim().toLowerCase() === trimmed) ?? null
+}
+
+/** `undefined` leaves the field as stored; `null` clears it. */
+export interface PlanSetInput {
+  readonly runtime: RuntimeId
+  readonly account: string
+  readonly fee?: { readonly amount: number; readonly currency: string; readonly period: 'month' | 'year' } | null
+  readonly budget?: { readonly amount: number; readonly currency: string } | null
 }

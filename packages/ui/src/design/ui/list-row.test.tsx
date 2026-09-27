@@ -81,4 +81,15 @@ it('hangs a detail under a row\'s own title, on the third inset step', () => {
   expect(spaced).toContain('ps-(--hd-space-6)')
   expect(spaced).toContain('gap-(--hd-space-2)')
   expect(spaced).not.toMatch(/(?:^|\s)pe-/)
+
+  // Text has no edge of its own, so a body that holds it takes the wider
+  // step and a gap between its parts; a plate keeps the tight step.
+  const text = renderToStaticMarkup(<ListRowDetail inset="title" holds="text">output</ListRowDetail>)
+  expect(text).toMatch(/(?:\s|")grid(?:\s|")/)
+  expect(text).toContain('gap-(--hd-space-2)')
+  expect(text).toContain('pt-(--hd-space-2)')
+  expect(text).toContain('pb-(--hd-space-3)')
+  expect(text).toContain('ps-(--hd-space-6)')
+  expect(title).toContain('pt-(--hd-space-0-5)')
+  expect(title).toContain('pb-(--hd-space-1-5)')
 })

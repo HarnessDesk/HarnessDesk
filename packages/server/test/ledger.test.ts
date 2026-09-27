@@ -592,7 +592,7 @@ test('a Codex cursor from before the tail carried the context reads it once from
   assert.equal(read(legacy.rows[0]).model, 'gpt-5.6')
   assert.equal(read(legacy.rows[0]).project, read(first.rows[0]).project)
   // And from then on the cursor carries it.
-  assert.deepEqual(JSON.parse(legacy.tail[0] ?? ''), { model: 'gpt-5.6', project: read(first.rows[0]).project })
+  assert.deepEqual(JSON.parse(legacy.tail[0] ?? ''), { model: 'gpt-5.6', project: read(first.rows[0]).project, followsCompaction: false })
 })
 
 test('the newest dated form with no price gives way to the newest one that has one', async () => {

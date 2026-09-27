@@ -530,7 +530,7 @@ export const createDefaultHost = (
 export const localUsageFor = (
   agent: AcpAgentConfig,
   known?: Pick<KnownAgent, 'cli'> | undefined,
-): { meter?: UsageMeter; corpus?: CorpusKind; root?: string; remote?: RemoteEventsSource } | null => {
+): { meter?: UsageMeter; corpus?: CorpusKind; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean } | null => {
   const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0] ?? ownCli(agent)
   // Where the agent keeps its records is decided by its own environment — a
   // row can move an agent's home to hold a second account — so paths are
@@ -547,19 +547,23 @@ export const localUsageFor = (
       return { meter: new ClaudeFileMeter(), corpus: 'claude' }
     case 'cursor-agent':
       // Cursor keeps no local transcript (rule 3): its tokens, requests and
-      // Value come from its own account-wide usage events, not a corpus.
-      return { meter: new CursorMeter(), remote: new CursorEventsSource(agent.id) }
+      // Value come from its own account-wide usage events, not a corpus. Its
+      // events carry no turn boundary at all — a request is not a turn — so
+      // turns are the desk's own transcript instead (`deskTurns`).
+      return { meter: new CursorMeter(), remote: new CursorEventsSource(agent.id), deskTurns: true }
     case 'gemini':
       // A Code Assist sign-in has a quota to read; an API key has none, and
       // what its calls cost is in the chat logs either way.
       return { meter: new GeminiMeter({ env, home }), ...records('gemini') }
     case 'copilot':
-      return { meter: new CopilotMeter() }
+      // No corpus reads Copilot's own history; its turns are the desk's own transcript.
+      return { meter: new CopilotMeter(), deskTurns: true }
     // The ACP server reports no quota, but the `agy` CLI beside it does. It is
     // the CLI's own sign-in, so its figures are shown and never gate the
-    // agent — see `usage/agy.ts`.
+    // agent — see `usage/agy.ts`. Its own turns are unreadable the same way;
+    // the desk's transcript stands in.
     case 'agy_acp_server':
-      return { meter: new AgyMeter() }
+      return { meter: new AgyMeter(), deskTurns: true }
     case 'cline': {
       // `--data-dir` moves Cline's folder; there is no environment variable
       // for it, so a row that runs `cline --data-dir <dir> --acp` is read
@@ -591,9 +595,12 @@ export const localUsageFor = (
     // answers for the account both of them are signed in as.
     case 'amp':
     case 'amp-acp':
-      return { meter: new AmpMeter({ env }) }
+      return { meter: new AmpMeter({ env }), deskTurns: true }
     default:
-      return null
+      // No meter, no corpus — this agent has nothing else here at all. Its
+      // turns are still worth knowing, and the desk's own transcript is the
+      // one source that never needed to know which CLI this was.
+      return { deskTurns: true }
   }
 }
 

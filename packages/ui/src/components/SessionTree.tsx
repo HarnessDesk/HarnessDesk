@@ -203,6 +203,15 @@ const SessionRow = ({
     if (active) rowRef.current?.scrollIntoView?.({ block: 'nearest' })
   }, [active])
 
+  /* The row's own height when renaming starts, which the box then holds: a
+     comfortable row's second line, or a chip on a compact one, makes the row
+     taller than any fixed box, and the rows below would move up under it. */
+  const [renameHeight, setRenameHeight] = useState<number | undefined>(undefined)
+  const startRename = useCallback(() => {
+    setDraft(summary.title ?? '')
+    setRenameHeight(rowRef.current?.getBoundingClientRect().height || undefined)
+    setRenaming(true)
+  }, [summary.title])
   const commitRename = useCallback(() => {
     const title = draft.trim()
     setRenaming(false)
@@ -213,14 +222,12 @@ const SessionRow = ({
   return (
     <div className={styles.rowWrap} {...(menu.at ? { 'data-menu-open': '' } : {})} onContextMenu={menu.open}>
       {renaming ? (
-        // A one-row rename box only this tree draws; no shared inline-rename
-        // part exists yet, and one for a single caller would be premature.
-        // Its side padding is the rail's own inset, composed rather than
-        // the literal 8px it used to spell out; only the 4px top-and-bottom
-        // is this box's alone.
-        <PaneColumn inset="rail" style={{ paddingBlock: '4px' }}>
+        // The rename box stands in for the row itself: the rail's own inset, an
+        // input with the row's own box, and the height the row had.
+        <PaneColumn inset="rail">
           <Input
-            variant="quiet" controlSize="compact" className={styles.renameInput}
+            variant="quiet" controlSize="row" className={styles.renameInput}
+            style={renameHeight ? { minHeight: renameHeight } : undefined}
             value={draft}
             autoFocus
             onChange={(event) => setDraft(event.target.value)}
@@ -283,10 +290,7 @@ const SessionRow = ({
                     ]),
                 {
                   label: 'Rename',
-                  onSelect: () => {
-                    setDraft(summary.title ?? '')
-                    setRenaming(true)
-                  },
+                  onSelect: startRename,
                 },
               ]}
             >
@@ -421,10 +425,7 @@ const SessionRow = ({
         <MenuItem
           icon={<PencilIcon size={13} />}
           label="Rename"
-          onSelect={() => {
-            setDraft(summary.title ?? '')
-            setRenaming(true)
-          }}
+          onSelect={startRename}
         />
         <MenuItem
           icon={<ForkIcon size={13} />}

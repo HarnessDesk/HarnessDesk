@@ -286,6 +286,12 @@ export interface FlowPreviewSeat {
   readonly agent: string | null
   readonly plan: SeatPlan
   readonly isolate: boolean
+  /**
+   * Whether a run may open this Seat in a worktree of its own, cut from the
+   * one earlier step's commit it is handed, though its role does not say
+   * `isolate` (#1053): the same rule the run seats by, read from the file.
+   */
+  readonly atPredecessor?: true
   /** Whether this Seat is there to review, as the server decides it (`reviewsIn`): its round is a review series's round. */
   readonly reviews: boolean
 }
