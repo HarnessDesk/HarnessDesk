@@ -218,16 +218,45 @@ const TOTAL_COST = LEDGER_ROWS.reduce((sum, row) => sum + (row.cost ?? 0), 0)
 const TOTAL_TOKENS = LEDGER_ROWS.reduce((sum, row) => sum + (row.tokens ?? 0), 0)
 const TOTAL_TURNS = LEDGER_ROWS.reduce((sum, row) => sum + (row.turns ?? 0), 0)
 
-/** Seven days of stacked daily cost, split across the three priced agents. */
-const DAILY = [6, 5, 4, 3, 2, 1, 0].flatMap((back, i) =>
-  ['claude-code', 'codex', 'cursor'].map((runtime, r) => ({
-    day: Date.now() - back * 24 * 60 * MINUTE,
-    runtime,
-    cost: Number(((3.2 - r * 0.9) * (0.5 + i * 0.12)).toFixed(2)),
-    tokens: Math.round((132_000 - r * 38_000) * (0.5 + i * 0.12)),
-    turns: Math.round((27 - r * 8) * (0.5 + i * 0.12)),
-  })),
-)
+/**
+ * Thirty days of each agent's spend, keyed on local midnight as the Dashboard
+ * buckets it (`stackDaily` matches `day` exactly). Each agent's days add up to
+ * its row, so the chart's headline agrees with the strip's Value: a rig that
+ * stamped `Date.now() - n days` matched no bucket and drew $0 beside $159.
+ */
+const midnight = (back) => {
+  const at = new Date()
+  at.setHours(0, 0, 0, 0)
+  at.setDate(at.getDate() - back)
+  return at.getTime()
+}
+const DAYS = 30
+/** A working month's shape: weekdays heavier, a climb towards today. */
+const WEIGHTS = Array.from({ length: DAYS }, (_, i) => {
+  const weekday = new Date(midnight(DAYS - 1 - i)).getDay()
+  const weekend = weekday === 0 || weekday === 6
+  return (weekend ? 0.35 : 1) * (0.6 + (i / DAYS) * 0.8)
+})
+const WEIGHT_SUM = WEIGHTS.reduce((sum, w) => sum + w, 0)
+/** Splits `total` over the weights, rounded, with the remainder on today so the sum is exact. */
+const spread = (total, round) => {
+  const parts = WEIGHTS.map(w => round((total * w) / WEIGHT_SUM))
+  parts[DAYS - 1] = round(total - parts.slice(0, -1).reduce((sum, v) => sum + v, 0))
+  return parts
+}
+const cents = (v) => Math.round(v * 100) / 100
+const DAILY = LEDGER_ROWS.flatMap((row) => {
+  const cost = spread(row.cost ?? 0, cents)
+  const tokens = spread(row.tokens ?? 0, Math.round)
+  const turns = spread(row.turns ?? 0, Math.round)
+  return WEIGHTS.map((_, i) => ({
+    day: midnight(DAYS - 1 - i),
+    runtime: row.runtime,
+    cost: cost[i],
+    tokens: tokens[i],
+    turns: turns[i],
+  }))
+})
 
 export const LEDGER = {
   days: 30,
