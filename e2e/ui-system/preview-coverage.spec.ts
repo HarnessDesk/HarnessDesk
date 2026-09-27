@@ -44,11 +44,18 @@ import { expect, test, type Page } from '@playwright/test'
  */
 const EXEMPT: Readonly<Record<string, string>> = {
   'panels/Workbench.tsx#Workbench': "The window's own chassis — sidebar, docks, resize and drag wiring — not a screen; already exercised by the real app and packages/desktop.",
+  'components/Notices.tsx#Notices': 'The toast and inbox coordinator returns no DOM of its own; its visible outlets are covered separately by NoticeStripOutlet and SidebarNotices.',
 }
 
 /** Icon components are a flat façade over lucide (rule 11): drawing every one somewhere is not what this gate is for. */
 const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
-const isVisualComponentName = (name: string): boolean => !isIconName(name) && /^[A-Z]/.test(name)
+const isVisualComponentExport = (name: string, value: unknown): boolean => {
+  if (isIconName(name) || !/^[A-Z][a-z]/.test(name)) return false
+  if (typeof value === 'function') return true
+  // `memo` and `forwardRef` exports are React component objects. Other
+  // uppercase exports (SLOTS, PIVOTS, RANGES) are fixture/data constants.
+  return typeof value === 'object' && value !== null && '$$typeof' in value
+}
 
 /**
  * Runs inside the page. Imports `coverage-registry.ts` fresh (this page's own
@@ -63,18 +70,19 @@ const isVisualComponentName = (name: string): boolean => !isIconName(name) && /^
 const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]; covered: readonly string[] }> =>
   page.evaluate(async () => {
     const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
-    const isVisualComponentName = (name: string): boolean => !isIconName(name) && /^[A-Z]/.test(name)
+    const isVisualComponentExport = (name: string, value: unknown): boolean => {
+      if (isIconName(name) || !/^[A-Z][a-z]/.test(name)) return false
+      if (typeof value === 'function') return true
+      return typeof value === 'object' && value !== null && '$$typeof' in value
+    }
     const mod = (await import('/src/preview/coverage-registry.ts')) as {
       coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
     }
     const refToComponents = new Map<unknown, string[]>()
     const allComponents: string[] = []
     for (const entry of mod.coverageRegistry) {
-      const names = Object.keys(entry.exports).filter(isVisualComponentName)
-      if (names.length === 0) continue
-      for (const name of names) {
-        const value = entry.exports[name]
-        if (value === null || (typeof value !== 'function' && typeof value !== 'object')) continue
+      for (const [name, value] of Object.entries(entry.exports)) {
+        if (!isVisualComponentExport(name, value)) continue
         const component = `${entry.file}#${name}`
         allComponents.push(component)
         const list = refToComponents.get(value)
@@ -84,11 +92,19 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
     }
 
     const covered = new Set<string>()
+    const isVisible = (element: Element): boolean => {
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node)
+        if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || Number(style.opacity) === 0) return false
+      }
+      return element.getClientRects().length > 0
+    }
     const credit = (candidate: unknown): void => {
       const components = refToComponents.get(candidate)
       if (components) for (const component of components) covered.add(component)
     }
     for (const el of document.querySelectorAll('*')) {
+      if (!isVisible(el)) continue
       const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'))
       if (!key) continue
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,6 +112,7 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
       while (fiber) {
         const type = fiber.type
         credit(type)
+        credit(fiber.elementType)
         if (type && typeof type === 'object') {
           credit(type.render) // forwardRef
           credit(type.type) // memo
@@ -125,16 +142,18 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
 const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly string[]> =>
   page.evaluate(async (delay) => {
     const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
-    const isVisualComponentName = (name: string): boolean => !isIconName(name) && /^[A-Z]/.test(name)
+    const isVisualComponentExport = (name: string, value: unknown): boolean => {
+      if (isIconName(name) || !/^[A-Z][a-z]/.test(name)) return false
+      if (typeof value === 'function') return true
+      return typeof value === 'object' && value !== null && '$$typeof' in value
+    }
     const mod = (await import('/src/preview/coverage-registry.ts')) as {
       coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
     }
     const refToComponents = new Map<unknown, string[]>()
     for (const entry of mod.coverageRegistry) {
-      for (const name of Object.keys(entry.exports)) {
-        if (!isVisualComponentName(name)) continue
-        const value = entry.exports[name]
-        if (value === null || (typeof value !== 'function' && typeof value !== 'object')) continue
+      for (const [name, value] of Object.entries(entry.exports)) {
+        if (!isVisualComponentExport(name, value)) continue
         const component = `${entry.file}#${name}`
         const list = refToComponents.get(value)
         if (list) list.push(component)
@@ -142,19 +161,28 @@ const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly
       }
     }
     const covered = new Set<string>()
+    const isVisible = (element: Element): boolean => {
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node)
+        if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || Number(style.opacity) === 0) return false
+      }
+      return element.getClientRects().length > 0
+    }
     const collect = (): void => {
       for (const el of document.querySelectorAll('*')) {
+        if (!isVisible(el)) continue
         const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'))
         if (!key) continue
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let fiber: any = (el as unknown as Record<string, unknown>)[key]
         while (fiber) {
-          const type = fiber.type
+        const type = fiber.type
           const credit = (candidate: unknown): void => {
             const components = refToComponents.get(candidate)
             if (components) for (const component of components) covered.add(component)
           }
           credit(type)
+          credit(fiber.elementType)
           if (type && typeof type === 'object') {
             credit(type.render)
             credit(type.type)
@@ -187,8 +215,18 @@ const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly
   }, settleMs)
 
 test.describe('preview coverage', () => {
+  test('a hidden or transparent preview wrapper earns no component coverage', async ({ page }) => {
+    for (const [property, value] of [['display', 'none'], ['opacity', '0']] as const) {
+      await page.goto('/preview.html')
+      // Dialog portals sit beside #root. Hiding the document element makes
+      // this a regression for both ordinary descendants and portal content.
+      await page.locator('html').evaluate((node, style) => { ;(node as HTMLElement).style[style.property] = style.value }, { property, value })
+      expect(await collectCoverage(page), `${property}: ${value}`).toMatchObject({ covered: [] })
+    }
+  })
+
   test('every exported components/ and panels/ component renders in preview.html or design.html', async ({ page }) => {
-    test.setTimeout(90_000)
+    test.setTimeout(180_000)
     const covered = new Set<string>()
     let allComponents: readonly string[] = []
 
@@ -204,7 +242,14 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     }
 
-    for (const file of await sweepSelectsForCoverage(page, 60)) covered.add(file)
+    // Normal and composer frames expose different dials. Sweep both, rather
+    // than the final `?empty` page alone: a composer-only sheet must earn its
+    // own coverage. The empty page adds an inline frame but no unique dial.
+    for (const query of ['', '?composer']) {
+      await page.goto(`/preview.html${query}`)
+      await page.waitForTimeout(1200)
+      for (const component of await sweepSelectsForCoverage(page, 60)) covered.add(component)
+    }
 
     // -- design.html: every board the nav rail lists.
     await page.goto('/design.html')

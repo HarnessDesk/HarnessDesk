@@ -778,5 +778,32 @@ export const previewSession = {
         { value: 'ultra', label: 'Ultra', description: 'Maximum reasoning with automatic task delegation' },
       ],
     },
+    {
+      id: 'approval',
+      type: 'select',
+      label: 'Approval',
+      category: '_permissions',
+      currentValue: 'on-request',
+      choices: [
+        { value: 'untrusted', label: 'Untrusted commands' },
+        { value: 'on-request', label: 'When it asks' },
+        { value: 'never', label: 'Never', risk: 'high' },
+      ],
+    },
+    {
+      id: 'mode',
+      type: 'select',
+      label: 'Mode',
+      category: 'mode',
+      currentValue: 'plan',
+      choices: [{ value: 'plan', label: 'Plan' }, { value: 'act', label: 'Act' }],
+    },
+    {
+      id: 'verbose',
+      type: 'boolean',
+      label: 'Verbose output',
+      category: 'other',
+      currentValue: false,
+    },
   ],
 } as unknown as Session

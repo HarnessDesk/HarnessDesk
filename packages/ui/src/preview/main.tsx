@@ -60,6 +60,7 @@ import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { MessageQueue } from '../components/MessageQueue'
 import { GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
+import { CoverageFrames } from './frames-coverage'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import '../styles/app.css'
@@ -940,6 +941,7 @@ const Preview = () => {
       <GoalFrames />
       <TranscriptFrames />
       <PanelFrames />
+      <CoverageFrames />
     </div>
   )
 }

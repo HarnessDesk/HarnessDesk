@@ -1886,7 +1886,13 @@ class PreviewStore {
       if (method === 'git/status') return gitStatus()
       if (method === 'git/worktrees') return gitWorktrees()
       if (method === 'git/commit') return gitCommit((params as { sha?: string } | undefined)?.sha ?? '')
-      if (method === 'audit/query') return []
+      if (method === 'audit/query') {
+        return [{
+          kind: 'library/write', at: now - 3_600_000, op: 'skill/update', name: 'code-review',
+          path: '/home/u/.codex/skills/code-review/SKILL.md', status: 'done', runtime: runtimeId('codex'),
+          backupPath: '/home/u/.harnessdesk/backups/code-review/SKILL.md',
+        }]
+      }
       if (method === 'library/plan') return { plannedAt: now, ops: [] }
       return null
     },
