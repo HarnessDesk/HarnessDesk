@@ -933,9 +933,9 @@ hard way somewhere and is cheaper to design out than to fix:
   down, and a reader had to convert one into the other to see which window was
   the one that bit.
 - **The headline is a promotion, not a second number.** Under the bar sits a
-  table of every window the source reported — name, its own small meter, what
-  is left, when it comes back — and the big figure is whichever row of that
-  table has least. Which is why the promoted row is still in the table.
+  visible lane list — name, its own small meter, what is left, when it comes
+  back — and the big figure promotes the binding lane selected by the rule
+  below. The promoted lane is included in the visible rows.
 - Which window the headline belongs to, and both forms of its reset, are one
   line under the bar: `Weekly · resets Wed 6:00 PM · in 2d 9h`. Table rows
   carry only the short form; a reset already in the past prints nothing rather
