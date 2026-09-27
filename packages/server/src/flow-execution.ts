@@ -711,6 +711,8 @@ export class FlowExecutions {
   #disposed = false
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
   readonly #checks = new Map<string, Set<AbortController>>()
+  /** Each declared check running now, by `realpath\0name`, until it ends: one run of it per checkout (`#holdCheck`). */
+  readonly #checksHeld = new Map<string, Promise<void>>()
   /** Goals a broken run file names: no new round opens on them until it is restored. */
   #blocked = new Map<string, string>()
   /** Set when a run file names no readable Goal: nothing new starts anywhere. */
@@ -1599,6 +1601,103 @@ export class FlowExecutions {
       }
     }
     return false
+  }
+
+  /**
+   * `run_check` for a card a v2 run bound (#1082): the host runs one of the
+   * run's own declared checks — a `check` role, picked by its name, never a
+   * command the caller writes — in the card's Seat checkout at its current
+   * commit, through the same runner, timeout, output cap and evidence append
+   * a check card uses. A Seat's own sandbox may refuse a child process a
+   * listening socket; the host's does not, so a reviewer never has to be
+   * given the network to learn whether the change starts. Any grant may ask:
+   * running a declared check is what the check card itself does, and the
+   * person consented to those commands when the run started. Null for a card
+   * no v2 run bound, which is not this tool's.
+   */
+  async runCheckFor(goal: string, card: number, name: string | null): Promise<string | null> {
+    const run = this.#runOfCard(goal, card)
+    if (!run || run.document.format !== 'agents') return null
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    const role = run.document.flow.roles.find((one) => one.id === round?.role)
+    if (!round || role?.kind !== 'agent') return null
+    if (run.state !== 'running' && run.state !== 'stalled') return `Refused: this card’s flow run is ${run.state}, so no check runs for it now.`
+    const declared = policyOf(run).roles.flatMap((one) => (one.kind === 'check' && one.check ? [{ name: one.id, check: one.check }] : []))
+    if (declared.length === 0) return 'Refused: this card’s flow declares no check, so there is nothing to run.'
+    const names = declared.map((one) => one.name).join(', ')
+    const chosen = name === null
+      ? (declared.length === 1 ? declared[0] : undefined)
+      : declared.find((one) => one.name === name)
+    if (!chosen) {
+      return name === null
+        ? `Refused: this card’s flow declares several checks, so name one of: ${names}.`
+        : `Refused: this card’s flow declares no check named “${name}”; it declares: ${names}.`
+    }
+    const { seat } = this.#seatForCard(run, card)
+    if (!seat) return `Refused: card #${card} has no Seat, so it has no checkout to check.`
+    const check = chosen.check
+    let cwd = seat.checkout.cwd
+    if (check.cwd) {
+      if (isAbsolute(check.cwd)) return `Refused: ${CHECK_CWD_OUTSIDE}`
+      try {
+        cwd = await (await ConfinedTree.open(cwd)).resolveDir(insideRelative(check.cwd))
+      } catch {
+        return `Refused: ${CHECK_CWD_OUTSIDE}`
+      }
+    }
+    const head = await this.#port.headOf(cwd, null)
+    if (head.at === null) return `Refused: card #${card}'s checkout has no commit yet, and a check is bound to one.`
+    const release = await this.#holdCheck(cwd, chosen.name, false)
+    if (!release) {
+      return `Refused: ${chosen.name} is already running in this checkout; wait for it, then read its result on the card or run it again.`
+    }
+    const controller = new AbortController()
+    const running = this.#checks.get(goal) ?? new Set<AbortController>()
+    this.#checks.set(goal, running.add(controller))
+    let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
+    try {
+      const context = this.#checkContext(run, round.n, [{ card, round: round.n, checkout: { cwd, branch: seat.checkout.branch }, at: head.at }])
+      outcome = await this.#port.runCheck(check.run, { cwd, timeoutSec: check.timeout, flowContext: context, signal: controller.signal }, { goal, card, name: chosen.name, round: round.n })
+    } finally {
+      running.delete(controller)
+      if (running.size === 0) this.#checks.delete(goal)
+      release()
+    }
+    const { exit, timedOut, tail } = outcome.result
+    const said = check.exits[String(exit)] ?? check.otherwise
+    const verdict = timedOut
+      ? `${chosen.name} ran over its ${check.timeout} s limit and was stopped`
+      : controller.signal.aborted
+        ? `${chosen.name} was stopped part-way because this run was paused or stopped`
+        : exit === null
+          ? `${chosen.name} did not run to an exit`
+          : `${chosen.name} ${exit === 0 ? 'passed' : 'failed'} (exit ${exit})`
+    const recorded = outcome.problem ?? (outcome.evidence ? 'It is recorded as this card’s check evidence.' : 'Nothing was recorded.')
+    return [
+      `${verdict}, which the flow reads as “${said}”. It ran \`${check.run}\` in ${cwd} at ${head.at.slice(0, 12)}. ${recorded}`,
+      ...(tail ? ['What it printed last:', tail] : []),
+    ].join('\n\n')
+  }
+
+  /**
+   * Holds one declared check in one checkout — by real path, so a folder
+   * named through a link is still one folder — for as long as it runs: two
+   * runs of the same command in the same tree would race each other's files
+   * and ports. `wait` queues behind a run already there (a check card); without
+   * it a run already there answers null (`run_check`, which refuses).
+   */
+  async #holdCheck(cwd: string, name: string, wait: boolean): Promise<(() => void) | null> {
+    const key = `${await realPathOf(cwd)}\0${name}`
+    for (let busy = this.#checksHeld.get(key); busy; busy = this.#checksHeld.get(key)) {
+      if (!wait) return null
+      await busy
+    }
+    let release!: () => void
+    this.#checksHeld.set(key, new Promise<void>((resolve) => { release = resolve }))
+    return () => {
+      this.#checksHeld.delete(key)
+      release()
+    }
   }
 
   /**
@@ -2960,16 +3059,28 @@ export class FlowExecutions {
         return false
       }
     }
-    run = await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'started', card, seat: null }))
+    // A Seat's `run_check` of this same check in this same checkout finishes first (#1082).
+    const release = (await this.#holdCheck(target.cwd, round.role, true))!
+    // A pause or a stop that landed while it waited reaches this check too.
+    const now = this.#get(id)
+    if (now.state !== 'running' || now.intake?.dispatchHeld) {
+      release()
+      return false
+    }
     const controller = new AbortController()
-    const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
-    this.#checks.set(run.goal, running.add(controller))
     let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
     try {
-      outcome = await this.#port.runCheck(check.run, { cwd: target.cwd, timeoutSec: check.timeout, flowContext, signal: controller.signal }, { goal: run.goal, card, name: round.role, round: round.n })
+      run = await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'started', card, seat: null }))
+      const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
+      this.#checks.set(run.goal, running.add(controller))
+      try {
+        outcome = await this.#port.runCheck(check.run, { cwd: target.cwd, timeoutSec: check.timeout, flowContext, signal: controller.signal }, { goal: run.goal, card, name: round.role, round: round.n })
+      } finally {
+        running.delete(controller)
+        if (running.size === 0) this.#checks.delete(run.goal)
+      }
     } finally {
-      running.delete(controller)
-      if (running.size === 0) this.#checks.delete(run.goal)
+      release()
     }
     if (controller.signal.aborted) {
       /* Stopped part-way by a pause or a stop: whatever it did is its own, and

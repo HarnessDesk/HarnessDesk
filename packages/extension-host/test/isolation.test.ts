@@ -339,7 +339,7 @@ test('a team call rides its own invocation or is refused: the child cannot imper
     awaitWork: async () => 'x',
     awaitMember: async () => 'x',
     conflicts: async () => 'x',
-    complete: async () => 'x', commitWork: async () => 'x',
+    complete: async () => 'x', commitWork: async () => 'x', runCheck: async () => 'x',
     release: async () => 'x',
     handoff: async () => 'x',
     status: async (callScope) => {
@@ -389,7 +389,7 @@ test('a child member wait remains invocation-bound and cancellation aborts the h
   const engine: TeamEngine = {
     notify: async () => "",
     board: async () => 'x', addIntent: async () => 'x', claim: async () => 'x', claimNext: async () => 'x',
-    awaitWork: async () => 'x', conflicts: async () => 'x', complete: async () => 'x', commitWork: async () => 'x', release: async () => 'x',
+    awaitWork: async () => 'x', conflicts: async () => 'x', complete: async () => 'x', commitWork: async () => 'x', runCheck: async () => 'x', release: async () => 'x',
     handoff: async () => 'x', status: async () => 'x', send: async () => 'x',
     reviewCandidates: async () => [], recordReview: async () => ({}) as never,
     // Phase 7's finding verbs: present on every engine, unused here.
@@ -454,7 +454,7 @@ test('a plugin without the grant cannot ride a granted sibling’s armed scope',
     awaitWork: async () => 'x',
     awaitMember: async () => 'x',
     conflicts: async () => 'x',
-    complete: async () => 'x', commitWork: async () => 'x',
+    complete: async () => 'x', commitWork: async () => 'x', runCheck: async () => 'x',
     release: async () => 'x',
     handoff: async () => 'x',
     status: async (callScope) => {
@@ -588,7 +588,7 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
     awaitWork: async () => 'x',
     awaitMember: async () => 'x',
     conflicts: async () => 'x',
-    complete: async () => 'x', commitWork: async () => 'x',
+    complete: async () => 'x', commitWork: async () => 'x', runCheck: async () => 'x',
     release: async () => 'x',
     handoff: async () => 'x',
     status: async () => 'status ok',

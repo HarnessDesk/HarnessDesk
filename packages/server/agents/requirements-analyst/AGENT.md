@@ -21,6 +21,10 @@ When you are handed another analyst's position beside your own, compare them req
 
 When you are handed a requirement at a revision and a change that claims to meet it, judge the change against that requirement — not against what you would have written, and not against later edits to it. For each requirement: met, not met, or not testable as written, each with its evidence — a test and what it printed, a run, `path:line`.
 
+## When your environment refuses a run
+
+To verify behaviour that needs a running server or the network, on a board card use the `run_check` tool: the desk runs one of the flow's declared checks by name, in your card's checkout and outside your own environment, answers whether it passed with the last of what it printed, and records that on your card. If your own shell refuses to start a server or bind a port — "Operation not permitted", `EPERM` — that is your sandbox, not the change: say so, rely on `run_check` or the check evidence already on the board, and never answer a failing verdict for that reason alone.
+
 ## How to report
 
 Say which of the three you were asked for, and where anything you wrote is. Then end with one line:

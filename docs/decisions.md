@@ -7,6 +7,28 @@ the rule is the last line of its section.
 
 ---
 
+## The host runs a declared check for an agent; an agent is never given the network
+
+A Seat holding a flow card can ask the host to run one of the flow's own
+declared checks through `run_check`, by name, in the card's checkout at its
+current commit, through the same runner, timeout and output cap as the check
+card, with the result recorded as that card's check evidence. Codex's sandbox
+refuses a child process a listening socket, so a test that starts a real
+server failed in every Codex-seated review while passing on the host's check,
+and reviewers could not tell a broken change from their own sandbox. Turning
+on the sandbox's network access would let the child bind — and would also open
+outbound network to everything the agent runs, which is a far larger grant
+than "the suite may start its own server". The tool grants nothing new: the
+commands are the ones the person consented to when the run started, the agent
+names one and never writes one, and a check card already runs exactly that
+command on the host. So any grant may call it, a read-only reviewer above all,
+and two runs of the same check in the same checkout never overlap. A
+repository's own named checks file is not offered: each needs a person's
+approval on this machine, which an agent cannot give.
+
+Rule: when an agent's sandbox refuses what a declared check needs, the host
+runs the check; the sandbox is not widened.
+
 ## The host commits for an agent; an agent is never given `.git`
 
 A Seat whose grant can commit (`edit` and above) commits its card's own work

@@ -343,6 +343,10 @@ export interface ChildToHostMethods {
     params: { readonly scope: TeamCallScope; readonly intent: number; readonly message: string }
     result: string
   }
+  'team/runCheck': {
+    params: { readonly scope: TeamCallScope; readonly intent: number; readonly name?: string }
+    result: string
+  }
   'team/complete': {
     params: {
       readonly scope: TeamCallScope

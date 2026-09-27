@@ -562,6 +562,14 @@ export class PluginHostProcess {
             })
             return
           }
+          case 'team/runCheck': {
+            const name = params['name']
+            reply({
+              response: request.request,
+              result: await plane.runCheck(Number(params['intent']), typeof name === 'string' ? name : undefined, scope),
+            })
+            return
+          }
           case 'team/complete': {
             const { note, handoff, outcome, split } = params as {
               note?: string

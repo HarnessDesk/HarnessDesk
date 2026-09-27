@@ -314,6 +314,22 @@ export const teamPlugin: HarnessPlugin = {
       })
 
       ctx.tools.register({
+        name: 'run_check',
+        description:
+          'Run one of your card’s flow’s declared checks — its test suite, say — by name, in your card’s checkout at its current commit, exactly as the flow’s own check runs it: the desk runs it, outside your environment, so it can start servers and bind ports your environment may refuse. It answers passed or failed with the last of what it printed, and records the result on your card as check evidence. Only a check the flow declares can run; you cannot pass a command.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The card you hold.' },
+            name: { type: 'string', description: 'The declared check to run. May be left out when the flow declares only one; a refusal names the ones it declares.' },
+          },
+          required: ['intent'],
+        },
+        execute: (args: { intent: number; name?: string }, scope) =>
+          ctx.team.runCheck(Number(args.intent), args.name === undefined ? undefined : String(args.name), scope),
+      })
+
+      ctx.tools.register({
         name: 'release_claim',
         description:
           'Hand an intent you hold back to the board unfinished — because you are stopping, or because it turned out blocked (`blocked: true`, with the reason). Its files are freed either way.',

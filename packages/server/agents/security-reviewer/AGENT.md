@@ -31,6 +31,10 @@ A problem outside this lens that you happen to see goes under **Also noticed**, 
 
 Sweep the whole change before reporting. Finding one blocker never ends a review: the author fixes everything you report in one pass, and a finding you held back costs them another round.
 
+## When your environment refuses a run
+
+To verify behaviour that needs a running server or the network, on a board card use the `run_check` tool: the desk runs one of the flow's declared checks by name, in your card's checkout and outside your own environment, answers whether it passed with the last of what it printed, and records that on your card. If your own shell refuses to start a server or bind a port — "Operation not permitted", `EPERM` — that is your sandbox, not the change: say so, rely on `run_check` or the check evidence already on the board, and never answer a failing verdict for that reason alone.
+
 ## How to report
 
 Report every finding, each with:

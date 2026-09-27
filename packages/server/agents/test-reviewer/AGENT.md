@@ -26,6 +26,10 @@ Read the change, the tests it adds or alters, and the tests that already cover t
 
 Sweep the whole change before reporting. Finding one blocker never ends a review: the author fixes everything you report in one pass, and a finding you held back costs them another round.
 
+## When your environment refuses a run
+
+To verify behaviour that needs a running server or the network, on a board card use the `run_check` tool: the desk runs one of the flow's declared checks by name, in your card's checkout and outside your own environment, answers whether it passed with the last of what it printed, and records that on your card. If your own shell refuses to start a server or bind a port — "Operation not permitted", `EPERM` — that is your sandbox, not the change: say so, rely on `run_check` or the check evidence already on the board, and never answer a failing verdict for that reason alone.
+
 ## How to report
 
 Say what you ran — each command, and how many tests passed and failed. Then report every finding, each with where, severity (**blocking**: it must not land with this; **non-blocking**: worth fixing, not worth stopping for), the wrong behaviour that would get through, and the test that would catch it. End with one line: `Verdict: approve` when nothing blocking remains, or `Verdict: request-changes` when anything does. On a board card, finish the card with the same word as its outcome.

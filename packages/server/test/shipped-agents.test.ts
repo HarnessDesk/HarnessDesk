@@ -91,6 +91,22 @@ test('each parses with nothing wrong, names runtimes and not models, and says ho
   }
 })
 
+/**
+ * Issue #1082: a Seat's own sandbox may refuse a child process a listening
+ * socket, and a reviewer took that for a broken change. Every Agent that
+ * verifies someone else's work is told to run a declared check through the
+ * desk instead, and that a refusal from its own sandbox is never a verdict.
+ */
+test('every reviewing and accepting Agent runs server checks through run_check, and never fails a change for its own sandbox', async () => {
+  const agents = new Agents({ user: tempDir('hd-shipped-user-'), builtin: builtinAgentRoot() })
+  for (const id of ['api-reviewer', 'code-reviewer', 'performance-reviewer', 'requirements-analyst', 'security-reviewer', 'test-reviewer']) {
+    const brief = (await agents.read(id))?.definition?.brief ?? ''
+    assert.ok(brief.includes('`run_check`'), `${id}'s brief names run_check`)
+    assert.ok(brief.includes('`EPERM`'), `${id}'s brief names the refusal it may see`)
+    assert.ok(brief.includes('never answer a failing verdict for that reason alone'), `${id}'s brief keeps its sandbox out of its verdict`)
+  }
+})
+
 /** A desk with the three runtimes the shipped Agents name, each a fake registered under its real id. */
 const desk = async (t: TestContext, ids: readonly string[] = ['claude-code', 'codex', 'cursor']) => {
   const harness = await start()
