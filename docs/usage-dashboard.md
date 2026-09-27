@@ -673,28 +673,57 @@ the account menu, the menu-bar item and the window's own title all use. *Usage*
 stays the word for the figures themselves: an agent's usage section in
 Settings, the usage-source preference. The screen is wider than that, which is
 why it is not called it. Reached from the sidebar, from ⌘K (⌘U), and from any
-of the smaller surfaces below. Three bands in one scrolling column, and a rail
-down the left that lists the **accounts** — clicking one scopes every band to
-it.
+of the smaller surfaces below, landing on **Overview**. The window is the same
+shell as Settings — a rail of rows down the left, each a real page — and the
+rail lists **views**, not accounts:
+
+1. **Overview** — the whole story on one screen: an accounts summary limited
+   to what needs looking at first, a bento of what it cost beside where it
+   went, and when it ran.
+2. **Plans** — every account's own card, whether it will last, the accounts
+   not being tracked, and the agents that report nothing.
+3. **Spend** — what it cost and where it went, full width, over 7, 30 or 90
+   days.
+4. **Activity** — when it ran, full width.
+5. **Projects** — project usage, by Goal or by Agent.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/dashboard-dark.png" />
-    <img src="images/app/dashboard-light.png" alt="The dashboard: an accounts rail down the left with a meter per account, and a grid of account cards showing what is left of each plan, when each window resets, which lane is spent, and what the work cost." />
+    <img src="images/app/dashboard-light.png" alt="The dashboard: a rail of views down the left, an account scope in the header beside the view title, and Overview's accounts summary, spend-and-split bento, and activity heatmap below it." />
   </picture>
 </p>
 
-**Why the rail lists accounts.** It listed the three band names for a while,
-which produced three rows that looked like tabs and only scrolled a page that
-mostly does not scroll — and the thing you actually come here to do, look at
-one account, was a segmented control wedged into the first band's header. The
-rail is now the scope: one row per account, each carrying its own figure and a
-3px meter, so the rail answers "is anything low" before you have read a card,
-and clicking a row narrows the whole page — cards, money and history alike.
-The band names take over the "where am I" job by sticking to the top of the
-page as you pass them. The accounts you have switched off sit under **Not
-tracked** at the bottom of the same rail, each offering to be tracked again;
-that is where the strip of chips under the cards went.
+**Why the rail lists views, not accounts.** It listed one row per account for
+a while, and that rail was carrying four jobs a plain list does none of well.
+It **duplicated a list already a click away** — every account it named also
+had its own card on the page, so the rail and the body said the same thing
+twice. **Half its rows said nothing**: an account that had switched off
+tracking, or had never answered who was signed in, sat in the rail wearing a
+dash where a figure goes, next to rows that had a real percentage to show.
+**Its one figure mixed units** — a plan's remaining share, a prepaid balance in
+whatever currency the vendor kept it in, an em dash for "not metered" — three
+different kinds of fact reading as one column, which is what a rail's "is
+anything low" promise actually needs to be one thing to keep. And the rail's
+meter was a **ragged second line**: present under a metered account, absent
+under a balance or a dash, so the rail's own rows did not line up with each
+other. Worst of all, the rail was **a filter dressed as navigation** — clicking
+a row did not go anywhere, it narrowed the one page underneath it, which is
+what a header control does, not what a rail does.
+
+A rail of views has none of these problems: five rows, five real pages, an
+icon and — on Plans alone, because it alone earns one — a count. **Scope moved
+to the header** instead: an "All accounts ▾" control beside every view's own
+title, built on the same `Popover` + `Menu` a card's own "…" already draws —
+not a new select, which would be a second thing to learn — and lists one row
+per runtime (scope is by runtime, not by account) alongside "All accounts".
+Picking one scopes whichever view is open exactly as clicking that account in
+the old rail did, and — unlike the old rail — the choice now survives a switch
+between views, because it is one piece of state the window remembers rather
+than five copies of "which page is this."
+The accounts you have switched off sit at the bottom of **Plans**, each
+offering to be tracked again; that is where the rail's own "Not tracked" group
+went.
 
 **Why cards and not a table.** A table sorts well and reads badly: the binding
 number, its reset, its pace and its bar are one thought, and splitting them

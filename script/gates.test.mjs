@@ -2934,7 +2934,16 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
       // path, and on its own it satisfied this check, so a separate run whose
       // glob matched nothing passed here — and `node --test` exits 0 on a
       // glob that matches nothing (#1052's review, round 2).
-      const runs = text.split(`! -path '${carveOut}'`).join('').split(`! -path "${carveOut}"`).join('')
+      // Comments are taken out too: one quoting the path is not a run of it
+      // (#1052's review, round 3).
+      const runs = text
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|#)/.test(line))
+        .join('\n')
+        .split(`! -path '${carveOut}'`)
+        .join('')
+        .split(`! -path "${carveOut}"`)
+        .join('')
       assert.ok(
         runs.includes(carveOut),
         `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
@@ -2964,15 +2973,16 @@ test('each carved-out run is given files, and only files (#1003)', (t) => {
   const entries = fs.readdirSync(dir, { withFileTypes: true })
   for (const name of CARVED_OUT) {
     const [prefix, suffix] = name.split('*')
-    const matched = entries.filter((one) => one.name.startsWith(prefix) && one.name.endsWith(suffix))
-    assert.ok(matched.some((one) => one.isFile()), `${name} matches at least one built test file, so its run is not empty`)
-    // `find -path` lets `*` cross a `/`, and node's glob does not: a
-    // directory under this prefix would be excluded from the main run and
-    // never picked up by the separate one.
+    const files = entries.filter((one) => one.isFile() && one.name.startsWith(prefix) && one.name.endsWith(suffix))
+    assert.ok(files.length > 0, `${name} matches at least one built test file, so its run is not empty`)
+    // `find -path` lets `*` cross a `/`, and node's glob does not: a test
+    // under a directory that starts with this prefix, whatever it ends in,
+    // would be excluded from the main run and never picked up by the
+    // separate one (#1052's review, round 3 — `intake-sub/probe.test.js`).
     assert.deepEqual(
-      matched.filter((one) => one.isDirectory()).map((one) => one.name),
+      entries.filter((one) => one.isDirectory() && one.name.startsWith(prefix)).map((one) => one.name),
       [],
-      `nothing named ${name} under ${top}/server/${dist}/${tests} is a directory`,
+      `no directory under ${top}/server/${dist}/${tests} starts with ${prefix}`,
     )
   }
 })

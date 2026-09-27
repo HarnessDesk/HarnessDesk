@@ -1,0 +1,294 @@
+/* The Dashboard keeps only placement; its visible roles belong to design/. */
+
+.fill {
+  flex: 1;
+}
+
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+
+.bandHead {
+  --usage-strip: max(26px, var(--hd-titlebar-height));
+  position: sticky;
+  /* The page pads its top by max(24px, the title bar); a stuck head stops
+     right under the strip instead, so it rises by the difference. */
+  top: calc(var(--usage-strip) - max(var(--hd-space-6), var(--hd-titlebar-height))); /* desk: -strip → strip − the page's top padding, the head stops under the title strip */
+  z-index: 1;
+  margin: 0; /* desk: -strip → 0, no padding to pull back any more */
+}
+
+/* The first band's head is a sibling of its band in `.body`'s 32px column,
+   not inside it, so it takes that step back and sits a label's step (its own
+   8px padding) over the cards it names. The other heads are inside their
+   bands already, on the band's own 12px gap, and must not: pulled up 32px
+   there, a sticky head covered the top of what it heads. */
+.firstBandHead {
+  margin-bottom: calc(-1 * var(--hd-space-8)); /* desk: 0 → -32, the first head sits on its own cards */
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--hd-space-3);
+}
+
+.callout {
+  align-items: center;
+}
+
+.overviewFoot {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-3);
+}
+
+/* Overview's "What it cost" beside "Where it went": two-thirds for the chart
+   that carries the figures, one-third for the table beside it. Narrower than
+   a bento column's usual measure fits the ranked rows just as well — they
+   are already a compact list, not a chart that needs room to plot in. */
+.bento {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--hd-space-6);
+  align-items: start;
+}
+
+.bentoMain,
+.bentoSide {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+
+@media (max-width: 900px) {
+  .bento {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  min-width: 0;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+}
+
+.cardMark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+}
+
+.cardName,
+.cardAgent {
+  min-width: 0;
+}
+
+.cardAgent {
+  flex-shrink: 6;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+
+.hero {
+  margin-top: var(--hd-space-1); /* desk: 16px → 4px, Card now owns the outer 16px rhythm */
+}
+
+.heroFigure {
+  display: flex;
+  align-items: baseline;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.heroFigure [data-slot='pace-badge'] {
+  align-self: center;
+}
+
+.heroMeter {
+  margin-top: var(--hd-space-2-5);
+}
+
+.resetLine {
+  margin-top: var(--hd-space-2);
+}
+
+.lanes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(56px, 88px) 38px 46px;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
+.laneName,
+.laneProgress {
+  min-width: 0;
+}
+
+.cardWord {
+  display: flex;
+  gap: var(--hd-space-2);
+  margin-top: var(--hd-space-1);
+}
+
+.cardWordIcon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  margin-top: var(--hd-space-0-5);
+}
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+  margin-top: auto;
+}
+
+.cardSource {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cardAge {
+  flex: none;
+}
+
+.costHead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-4);
+}
+
+.costControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
+.periods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-3) var(--hd-space-8);
+}
+
+.period {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--hd-space-1);
+}
+
+.costPlot,
+.chartEmpty {
+  width: 100%;
+}
+
+.costWord {
+  min-width: 0;
+}
+
+.burnRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--hd-space-3);
+}
+
+.burnName,
+.burnPlot {
+  min-width: 0;
+}
+
+.burnBody {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--hd-space-4);
+  margin-top: var(--hd-space-3);
+}
+
+.burnStats {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--hd-space-1-5);
+  width: 132px;
+}
+
+.burnStats .heroFigure {
+  margin-top: var(--hd-space-1-5);
+}
+
+.burnPlot {
+  flex: 1;
+}
+
+.statLine {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--hd-space-2);
+}
+
+.distribution {
+  margin-bottom: var(--hd-space-4);
+}
+
+.ranked {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.rank {
+  display: grid;
+  /* The donut's own name column and the plain-table's second name column
+     collapse into one now that every pivot draws the same row shape. The
+     by-agent change chip gets its own 72px track below, keyed on the pivot,
+     rather than reserved here — a model or a project pivot never has a chip
+     to show, and a track that is always empty is a dead gap, not a column. */
+  grid-template-columns: 15px minmax(0, 1fr) 44px 88px 92px; /* desk: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px → 15px minmax(0, 1fr) 44px 88px 92px, the ranked table's own columns collapsing to one shape for every pivot */
+  align-items: center;
+  gap: var(--hd-space-3);
+}
+
+.rank[data-compact] {
+  /* Overview's bento column has no room for six columns; mark, name and
+     share are the three that still answer "where did it go" at a glance. */
+  grid-template-columns: 15px minmax(0, 1fr) 44px;
+}
+
+.rank[data-pivot='runtime']:not([data-compact]) {
+  /* The by-agent pivot alone earns the chip column — see `Usage.tsx`, which
+     always emits the cell for this pivot (so a row with no previous total
+     still reserves its width) and never renders it for the other two. */
+  grid-template-columns: 15px minmax(0, 1fr) 72px 44px 88px 92px; /* desk: 15px minmax(0, 210px) minmax(0, 1fr) 44px 88px 92px → 15px minmax(0, 1fr) 72px 44px 88px 92px, the by-agent pivot's own chip column */
+}
+
+.rankChange {
+  min-width: 0;
+}
+
+.rankMark {
+  display: inline-grid;
+  place-items: center;
+}
+

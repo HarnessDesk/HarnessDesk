@@ -56,7 +56,7 @@ import styles from './UsageActivity.module.css'
  * disagree (review #990, item 4).
  */
 
-type View = 'year' | 'agent'
+export type HeatView = 'year' | 'agent'
 
 const VIEWS = [
   { value: 'year', label: 'Year' },
@@ -75,6 +75,11 @@ export const UsageActivity = ({
   scope,
   now,
   scanFinishedAt,
+  report: suppliedReport,
+  view: viewProp,
+  onViewChange: onViewChangeProp,
+  metric: metricProp,
+  onMetricChange: onMetricChangeProp,
 }: {
   byId: ReadonlyMap<RuntimeId, RuntimeInfo>
   scope: RuntimeId | null
@@ -87,23 +92,44 @@ export const UsageActivity = ({
    * screen moved on (review #990, item 7).
    */
   scanFinishedAt?: number | null
+  /**
+   * Supplied once by `Usage.tsx`, which owns this query beside its other two
+   * ledger effects so Overview and Activity read one fetch instead of a
+   * fresh 365-day query on every switch between them (review of #1057, item
+   * 4). `undefined` — never passed — falls back to this band's own fetch,
+   * which is what keeps a bare mount (a test, the catalogue) working.
+   */
+  report?: LedgerReport | null
+  view?: HeatView
+  onViewChange?: (view: HeatView) => void
+  metric?: HeatMetric
+  onMetricChange?: (metric: HeatMetric) => void
 }) => {
   const store = useStore()
-  const [view, setView] = useState<View>('year')
-  const [metric, setMetric] = useState<HeatMetric>('tokens')
-  const [ledger, setLedger] = useState<LedgerReport | null>(null)
+  const [ownView, setOwnView] = useState<HeatView>('year')
+  const [ownMetric, setOwnMetric] = useState<HeatMetric>('tokens')
+  const [ownLedger, setOwnLedger] = useState<LedgerReport | null>(null)
+
+  const view = viewProp ?? ownView
+  const setView = onViewChangeProp ?? setOwnView
+  const metric = metricProp ?? ownMetric
+  const setMetric = onMetricChangeProp ?? setOwnMetric
+  const owned = suppliedReport === undefined
 
   useEffect(() => {
+    if (!owned) return
     let cancelled = false
     void store
       .ledger({ days: 365, groupBy: 'runtime', ...(scope ? { runtime: scope } : {}) })
       .then((report) => {
-        if (!cancelled) setLedger(report)
+        if (!cancelled) setOwnLedger(report)
       })
     return () => {
       cancelled = true
     }
-  }, [store, scope, scanFinishedAt])
+  }, [store, scope, scanFinishedAt, owned])
+
+  const ledger = owned ? ownLedger : suppliedReport ?? null
 
   const currency = ledger?.currency ?? 'USD'
   const format = (value: number): string => (metric === 'tokens' ? formatTokens(value) : (formatMoney(value, currency) ?? '—'))
@@ -193,7 +219,7 @@ export const UsageActivity = ({
         description={busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined}
         action={
           <>
-            <Segmented label="Show by" options={VIEWS} value={view} onChange={(next) => setView(next as View)} />
+            <Segmented label="Show by" options={VIEWS} value={view} onChange={(next) => setView(next as HeatView)} />
             <Segmented label="Measure" options={METRICS} value={metric} onChange={(next) => setMetric(next as HeatMetric)} />
           </>
         }

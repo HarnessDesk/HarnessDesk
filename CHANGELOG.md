@@ -7,6 +7,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The Dashboard's rail lists views, and the account you're looking at is a
+  choice in the header.** The rail used to hold one row per account, which
+  duplicated the card list a click away, mixed a plan's percentage with a
+  prepaid balance and a bare dash in one column, and answered "look at one
+  account" — a filter — with what read as navigation. It now holds five real
+  pages — Overview, Plans, Spend, Activity, Projects — each a click from ⌘U,
+  the sidebar's Dashboard row, ⌘K or the menu bar item (all landing on
+  Overview); an account's own "Usage" opens Plans, scoped to it, the way
+  clicking that account in the old rail used to. Picking an account from the
+  new "All accounts ▾" header control scopes whichever view is open, and the
+  choice survives a switch between them.
+
 - **A run stopped at its round budget now says how to let it continue.** The
   control already existed — the Findings tab's "Decide this run" opens
   "Authorise another round" for exactly this stop — but nothing on the stall
@@ -180,9 +192,9 @@ move is real work and is not news to a person weighing an upgrade.
   whole-desk survey (the empty pane's "now what?") says so instead of a
   tagline or a bare "Ready." An agent's own page says it has not answered
   yet rather than "Not signed in", says a session would not start only once
-  every one of its accounts has answered, and asks before removing an
-  account that has not; an extra account that could not start says
-  "Unavailable" there, as the list does (#1038). A read that fails no
+  every one of its accounts that can answer has answered, and asks before
+  removing an account that has not; an extra account that could not start
+  says "Unavailable" there, as the list does (#1038). A read that fails no
   longer forgets the last answer, and is asked again on its own, soon at
   first and then less often, so an agent never sits at "Not answered yet"
   with nothing asking (#1021). (#986)

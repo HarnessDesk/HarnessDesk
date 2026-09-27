@@ -126,7 +126,7 @@ const mount = async (which: 'Settings' | 'Dashboard'): Promise<() => boolean> =>
               onSignIn={() => {}}
             />
           ) : (
-            <Usage onClose={() => setOpen(false)} onSignIn={() => {}} runtime={null} />
+            <Usage onClose={() => setOpen(false)} onSignIn={() => {}} scope={null} />
           ))}
         <Popover label="Range" title="Range">
           {(close) => (
