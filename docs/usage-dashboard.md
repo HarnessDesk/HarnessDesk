@@ -49,14 +49,19 @@ and a refill time — plus, sometimes, a prepaid **credit** balance and a
 weekly scoped to one model family, a code-review allowance, a routines
 allowance.
 
-**The binding lane is the one with the least left.** That is the number that
-decides whether you can work, and it is the headline. A plan whose weekly is
-exhausted cannot run a turn even though its session lane reads 0% used, so an
-exhausted *longer* lane also gates the shorter one: the card promotes the
-exhausted weekly as the headline with its later reset, while the session lane
-keeps its own remaining share marked as held behind the spent window. Ties keep
-the source's own order; a lane with no measurable percentage can only be the
-headline when nothing else can.
+**The binding lane is the account-wide window that leads the next decision.**
+When no account-wide window is spent, automatic selection uses the shortest
+reported window: it gives the near-term limit the headline, even when a longer
+window has less left. A valid account pin to a measured, live window takes
+precedence over that automatic choice. Any spent account-wide window is a hard
+block and leads over a live shorter window or a pin; when several are spent,
+the longest is shown because it is the hold that cannot be stepped around.
+Ties keep the source's order, and a window with no measurable percentage is
+considered only when no measurable candidate exists. The full lane list
+remains on the card, so a lower longer-term balance stays visible even when
+the shorter window is the headline. A spent model-scoped lane still cannot
+speak for the account — see
+[The headline is the account, not a model](#the-headline-is-the-account-not-a-model).
 
 ```ts
 /** One rolling allowance, as some source reported it. */
@@ -989,6 +994,15 @@ still gets said, in one line under the bar — *Fable is spent — other models
 still work* — and only an account-wide limit turns the card red, raises the
 banner, or counts as an exhausted agent in the line at the top.
 
+Among live account-wide windows, automatic selection leads with the shortest
+window, not the smallest remaining percentage. The choice from #715 gives the
+near-term window first position; the lane list below the headline still shows
+the longer window and its own remaining share. For example, Session at 29% left
+leads when Weekly has 12% left, while Weekly remains visible as the tighter
+amber lane. A valid account-level pin can choose another live window. A spent
+account-wide window overrides both because it blocks work regardless of the
+shorter window or the pin.
+
 **With no account-wide lane, the scopes are alternatives.** Antigravity
 reports a weekly limit for its Gemini models and another for its Claude and
 GPT ones, and nothing for the account; Gemini CLI reports one per model. Same
@@ -1389,16 +1403,19 @@ drop the chips without dropping a fact.
 
 **The bar is the binding lane.** Not an average of an agent's limits — an
 average reads "fine" on the morning the weekly runs out. The lane with the
-least left is the lane that stops the work, so that is the lane on the strip,
-and it is chosen by the same `bindingLane` the screen uses. The strip and the
-screen cannot disagree, because they are the same arithmetic.
+shortest live account-wide window leads the strip, unless the account has
+pinned another live window; any spent account-wide window takes precedence.
+The same `bindingLane` chooses it for the strip and the screen, so they cannot
+disagree.
 
 **Two accounts, one agent.** Lanes inside an account are conjunctive — every
-window must have room — so the binding lane is the one with least left.
-Accounts are the opposite: signed in to two, either one will run the turn, so
-the account that decides is the one with **most** left, and an agent is out only
-when every one of its accounts is. It is the rule already kept for a
-model-scoped lane: a limit you can step around is not a limit on the agent.
+account-wide window must have room — so a spent one blocks the account; while
+the windows still have room, the binding lane uses the same primary-window
+rule above. Accounts are the opposite: signed in to two, either one will run
+the turn, so the account that decides is the one with **most** left, and an
+agent is out only when every one of its accounts is. It is the rule already
+kept for a model-scoped lane: a limit you can step around is not a limit on
+the agent.
 `workingAccount` is that rule, and the menu bar takes it too — before it, both
 surfaces used whichever report had arrived first, so which account they were
 describing depended on a race.

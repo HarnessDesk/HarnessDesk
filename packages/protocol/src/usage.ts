@@ -432,7 +432,9 @@ export const remainingOf = (lane: UsageLane): number | null =>
   isLaneKnown(lane) ? 100 - clamp(lane.usedPercent, 0, 100) : null
 
 /**
- * The binding lane: the least left wins, and ties keep the source's own order.
+ * The binding lane: spent account-wide limits lead; otherwise an account pin
+ * wins, then the shortest measurable account-wide window. Ties keep the
+ * source's own order.
  *
  * A lane whose usage the source never reported can only be the headline when
  * nothing measurable exists, because "unknown" is not evidence of trouble.
