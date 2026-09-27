@@ -66,6 +66,7 @@ import {
   leftOnFailure,
   passedFor,
   planSeats,
+  sentenceOf,
   standingOf,
   type CeilingNeed,
   type PassedOver,
@@ -1011,6 +1012,14 @@ const noEffortWhy = (words: SeatWords, seat: FlowSeat): string =>
  * has no place — and only found once the read-back differs from what was
  * asked: when effort is the *only* difference, it is exactly as much the
  * seat's own instruction to fix as a runtime that says no outright.
+ *
+ * The two are worded differently, though, because they are different facts: a
+ * refusal at open means the runtime named nothing to run instead, so "does
+ * not offer" is true. A read-back difference means it opened and is running
+ * *something* — its own spelling of the level asked, or a concrete level
+ * answering a `default` ask, which the pre-open check deliberately lets
+ * through — so the sentence stays the difference one (`openedOtherwise`),
+ * only marked `fatal` the same way (#1023).
  */
 const openAsAsked = async (
   ctx: HostContext,
@@ -1041,9 +1050,23 @@ const openAsAsked = async (
   // any other openedOtherwise difference. When effort is the *only* one, it
   // is held to the same rule as a runtime that refuses it outright
   // (`refusedEffort` above): an asked-for effort is the seat's own
-  // instruction to fix, never a reason to quietly try a different runtime.
+  // instruction to fix, never a reason to quietly try a different runtime —
+  // so this stops the seating (`fatal`) exactly as that branch does.
+  //
+  // The sentence still has to be the true one, though: read back, `running`
+  // may be a level the runtime actually took, in its own spelling, or a
+  // concrete level answering a `default` ask — never "nothing", the case
+  // `noEffortWhy` (and a real `refusedEffort`) means. Saying "does not offer"
+  // here would be false whenever the runtime named what it ran instead, so
+  // this keeps the difference sentence (`openedOtherwise`) and only marks it
+  // fatal (#1023).
   if (found.length === 1 && found[0]!.field === 'effort' && seat.effort) {
-    return { seat, why: noEffortWhy(words, seat), reason: { kind: 'noEffort', effort: seat.effort }, fatal: true as const, left }
+    const reason = { kind: 'openedOtherwise' as const, differences: found }
+    // A full stop of our own, exactly as `noEffortWhy` carries one: a caller
+    // that stops the seating here appends more prose after `why` (`seatAgent`'s
+    // "N more candidates were not tried…"), which needs two sentences, not a
+    // run-on one, and `sentenceOf`'s own `openedOtherwise` phrase carries none.
+    return { seat, why: `${sentenceOf(seat.runtime, reason)}.`, reason, fatal: true as const, left }
   }
   return { ...passedFor(seat, { kind: 'openedOtherwise', differences: found }), left }
 }
