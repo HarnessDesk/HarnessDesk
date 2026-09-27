@@ -749,7 +749,7 @@ export class FindingsPlane {
     const decidableNow = raisedByYou && !isResolved(view) && bound.reviews && !otherRun &&
       String(caller.seat.id) !== view.origin.seat &&
       !(view.origin.run === bound.run && bound.round <= view.origin.round)
-    return { ...view, raisedByYou, decidableNow, ...(raisedByYou && otherRun ? { personDecides: true } : {}) }
+    return { ...view, raisedByYou, decidableNow, ...(raisedByYou && otherRun && !isResolved(view) ? { personDecides: true } : {}) }
   }
 
   /**
