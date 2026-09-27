@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -92,9 +93,15 @@ test('Antigravity is metered by the agy CLI beside its ACP server', () => {
     id: 'antigravity-acp',
     command: '/home/dev/.harnessdesk/acp-agents/antigravity-acp/1.1.1/agy_acp_server.par',
   })
-  // Unrecognised without the knowledge table, this row has no meter and no
-  // corpus of its own — but the desk's own transcript still counts its turns.
-  assert.deepEqual(localUsageFor(antigravity), { deskTurns: true })
+  // Unrecognised without the knowledge table, this row has no corpus of its
+  // own — but the desk's own transcript still counts its turns, and it still
+  // gains OpenRouter's dormant meter (bound to every row with none stronger;
+  // see the OpenRouter tests below), which asks for nothing and answers null
+  // since this row carries no OpenRouter key of its own.
+  const unrecognised = localUsageFor(antigravity)
+  assert.equal(unrecognised?.deskTurns, true)
+  assert.equal(unrecognised?.corpus, undefined)
+  assert.equal(unrecognised?.meter?.id, 'openrouter-key')
   assert.equal(localUsageFor(antigravity, knowledge('antigravity-acp'))?.meter?.id, 'antigravity-account')
   // No transcripts of its own for the ledger: its turns are counted from its store.
   assert.equal(localUsageFor(antigravity, knowledge('antigravity-acp'))?.corpus, undefined)
@@ -102,17 +109,23 @@ test('Antigravity is metered by the agy CLI beside its ACP server', () => {
 })
 
 test('an agent whose spend is on disk gets its records, and one with neither gets nothing', () => {
-  // OpenCode offers an API key no balance, but prices every session itself.
+  // OpenCode offers an API key no balance, but prices every session itself —
+  // its own records stand, and OpenRouter's dormant meter fills the gap
+  // where nothing else answered (silent without a key of its own).
   const opencode = localUsageFor(row({ id: 'opencode', command: 'opencode' }), knowledge('opencode'))
-  assert.equal(opencode?.meter, undefined)
+  assert.equal(opencode?.meter?.id, 'openrouter-key')
   assert.equal(opencode?.corpus, 'opencode')
   // Cline has both: a balance on its account and its sessions' cost on disk.
   const cline = localUsageFor(row({ id: 'cline', command: 'npx', args: ['-y', 'cline@3.0.61', '--acp'] }), knowledge('cline'))
   assert.equal(cline?.meter?.id, 'cline-account')
   assert.equal(cline?.corpus, 'cline')
-  // A hand-written row for something the desk has never heard of: no meter,
-  // no corpus, but its turns still come from the desk's own transcript.
-  assert.deepEqual(localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' })), { deskTurns: true })
+  // A hand-written row for something the desk has never heard of: no corpus,
+  // but its turns still come from the desk's own transcript, and it still
+  // gains OpenRouter's dormant meter.
+  const mine = localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' }))
+  assert.equal(mine?.deskTurns, true)
+  assert.equal(mine?.corpus, undefined)
+  assert.equal(mine?.meter?.id, 'openrouter-key')
 })
 
 test('a moved Gemini home moves the sign-in and the spend together, so one card is one account', () => {
@@ -225,25 +238,63 @@ test('a row isolated with a bare HOME moves every fallback that would otherwise 
   assert.equal(opencode?.root, `${isolated}/.local/share/opencode/opencode.db`)
 })
 
-test('DeepSeek Harness is bound to its balance by runtime, and the desk’s own stored key beats the row’s own environment', async () => {
-  const dsh = row({ id: 'dsh', command: 'dsh', args: ['--profile', 'acp'], env: { DEEPSEEK_API_KEY: 'sk-row-key' } })
+const DSH_SECRETS = [
+  {
+    env: 'DEEPSEEK_API_KEY',
+    label: 'DeepSeek API key',
+    alsoAt: [
+      { path: '${DSH_HOME:-~/.dsh}/.credentials.yaml', format: 'yaml' as const, label: "DeepSeek's own store (.credentials.yaml in its home)" },
+      { path: '${DSH_HOME:-~/.dsh}/.env', format: 'dotenv' as const, label: '.env in its home' },
+    ],
+  },
+]
+
+test('DeepSeek Harness is bound to its balance by runtime, and the desk’s own stored key is asked fresh on every read, ahead of the row’s own environment', async () => {
+  const dsh = row({
+    id: 'dsh',
+    command: 'dsh',
+    args: ['--profile', 'acp'],
+    env: { DEEPSEEK_API_KEY: 'sk-row-key' },
+    secrets: DSH_SECRETS,
+  })
   const bound = localUsageFor(dsh, knowledge('dsh'))
   assert.equal(bound?.meter?.id, 'deepseek-balance')
   assert.equal(bound?.deskTurns, true, 'no corpus of its own yet; its turns are the desk’s own transcript')
+  // The registry's own alsoAt list reaches the meter through the wiring —
+  // never a path hard-coded in the meter itself.
+  assert.deepEqual(bound?.meter?.watchPaths(), [
+    join(homedir(), '.dsh', '.credentials.yaml'),
+    join(homedir(), '.dsh', '.env'),
+  ])
 
   // The broker's own stored copy is asked with the same name the desk would
   // use to launch the agent — `agent:<id>:<env>` — ahead of the row's plain
-  // environment.
-  const seen: [string, string][] = []
-  const withBroker = localUsageFor(dsh, knowledge('dsh'), (agentId, envName) => {
-    seen.push([agentId, envName])
-    return 'sk-broker-key'
-  })
-  assert.ok(withBroker?.meter)
-  assert.deepEqual(seen, [['dsh', 'DEEPSEEK_API_KEY']])
+  // environment. Never at bind time: only when a read actually asks — the
+  // meter's own `fetch` is whatever the global was at construction, so the
+  // fake is installed first.
+  const originalFetch = globalThis.fetch
+  let authSeen: string | null = null
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    authSeen = (init?.headers as Record<string, string> | undefined)?.['Authorization'] ?? null
+    return new Response(JSON.stringify({ is_available: true, balance_infos: [{ currency: 'USD', total_balance: '1' }] }), { status: 200 })
+  }) as typeof globalThis.fetch
+  try {
+    const seen: [string, string][] = []
+    const withBroker = localUsageFor(dsh, knowledge('dsh'), (agentId, envName) => {
+      seen.push([agentId, envName])
+      return 'sk-broker-key'
+    })
+    assert.ok(withBroker?.meter)
+    assert.deepEqual(seen, [], 'constructing the binding never itself asks the broker')
+    await withBroker?.meter?.read()
+    assert.deepEqual(seen, [['dsh', 'DEEPSEEK_API_KEY']])
+    assert.equal(authSeen, 'Bearer sk-broker-key')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
-test('OpenRouter is bound to any row this desk starts with an OPENROUTER_API_KEY, only where nothing stronger already answered', () => {
+test('OpenRouter is bound to every row with no stronger meter of its own, whether or not it has a key yet', () => {
   // A row with no other meter at all — the "mine" row from above, now
   // carrying an OpenRouter key — gains one.
   const mine = row({ id: 'mine', command: '/usr/local/bin/mine', env: { OPENROUTER_API_KEY: 'sk-or-v1-row-key' } })
@@ -251,8 +302,13 @@ test('OpenRouter is bound to any row this desk starts with an OPENROUTER_API_KEY
   assert.equal(bound?.meter?.id, 'openrouter-key')
   assert.equal(bound?.deskTurns, true)
 
-  // Without the key, unchanged: no meter, no corpus, just the desk's own turns.
-  assert.deepEqual(localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' })), { deskTurns: true })
+  // Without a key of its own, the same meter is still bound — dormant, so a
+  // key stored in the broker later is honoured on the very next read rather
+  // than needing this binding to be rebuilt.
+  const keyless = localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' }))
+  assert.equal(keyless?.deskTurns, true)
+  assert.equal(keyless?.corpus, undefined)
+  assert.equal(keyless?.meter?.id, 'openrouter-key')
 
   // A row that already has its own account balance keeps it: Cline's own
   // wallet is a different account's money than whatever key its own model
@@ -274,4 +330,32 @@ test('OpenRouter is bound to any row this desk starts with an OPENROUTER_API_KEY
     envName === 'OPENROUTER_API_KEY' ? 'sk-or-v1-broker' : undefined,
   )
   assert.equal(viaBroker?.meter?.id, 'openrouter-key')
+})
+
+test('HarnessDesk’s own shell environment is never consulted for OpenRouter — a row with no key of its own sends nothing, however the desk itself was started', async () => {
+  const originalEnv = process.env['OPENROUTER_API_KEY']
+  process.env['OPENROUTER_API_KEY'] = 'sk-or-v1-desk-shell-key' // hd-secrets-ok: a shape-only fixture value, never a real credential
+  try {
+    const bound = localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' }))
+    // Still bound — the meter is dormant rather than absent (see the test
+    // above) — but its key function never reads the desk's own environment.
+    assert.equal(bound?.meter?.id, 'openrouter-key')
+
+    const originalFetch = globalThis.fetch
+    let requested = false
+    globalThis.fetch = (async () => {
+      requested = true
+      return new Response('{}', { status: 200 })
+    }) as typeof globalThis.fetch
+    try {
+      const reading = await bound?.meter?.read()
+      assert.equal(reading, null, 'no key of its own — silence')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    assert.equal(requested, false, 'the desk’s own shell key is never sent for a row that never asked for it')
+  } finally {
+    if (originalEnv === undefined) delete process.env['OPENROUTER_API_KEY']
+    else process.env['OPENROUTER_API_KEY'] = originalEnv
+  }
 })

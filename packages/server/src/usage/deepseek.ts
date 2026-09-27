@@ -1,8 +1,5 @@
-import { readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-
 import type { UsageSource } from '@harnessdesk/protocol'
+import { readKeyValue, secretSourcePath, type AcpSecretSource } from '@harnessdesk/adapter-acp'
 
 import { MeterAuthError, type MeterReading, type UsageMeter } from './meter.js'
 
@@ -14,14 +11,22 @@ import { MeterAuthError, type MeterReading, type UsageMeter } from './meter.js'
  * browser sign-in (`agent-registry.ts`'s `dsh` entry): `DEEPSEEK_API_KEY`,
  * in the environment it starts with, else its own store —
  * `${DSH_HOME:-~/.dsh}/.credentials.yaml`, the file its "Models" page
- * writes, or a `.env` beside it. Those are the same two files, in the same
- * order, `whereSecretLives`/`readsKey` in `@harnessdesk/adapter-acp` already
- * check for *presence* of a key; this reads the *value*, which that checker
- * deliberately never does — it exists only to answer "is a key already
- * there", never to hand the value anywhere. This meter is the one place that
- * value is read, and only to put it in an `Authorization` header; it is
- * never logged, stored beyond the read that used it, or echoed into a report
- * (the report carries a balance, never the key).
+ * writes, or a `.env` beside it. Those file sources are the registry's own
+ * `alsoAt` list for the `dsh` template (`agent-registry.ts`), handed in
+ * rather than hard-coded here, and read through `readKeyValue` from
+ * `@harnessdesk/adapter-acp` — the same reader `whereSecretLives`/`readsKey`
+ * use to answer *presence*, so "key found" and "key read" can never point at
+ * two different files. This meter is the one place the value itself is
+ * read, and only to put it in an `Authorization` header; it is never
+ * logged, stored beyond the read that used it, or echoed into a report (the
+ * report carries a balance, never the key).
+ *
+ * The desk's own stored copy of the key — the broker's, when the person put
+ * one there — is asked fresh on every read through `key`, never resolved
+ * once and kept: the same way a spawn resolves a stored secret at the
+ * moment it builds a process's environment (`adapter-acp/runtime.ts`), so a
+ * key stored after this meter was built, or cleared from the broker, is
+ * honoured on the very next read rather than needing a restart.
  *
  * `GET https://api.deepseek.com/user/balance`
  * (https://api-docs.deepseek.com/api/get-user-balance), `Authorization:
@@ -41,9 +46,9 @@ import { MeterAuthError, type MeterReading, type UsageMeter } from './meter.js'
 const API = 'https://api.deepseek.com/user/balance'
 const TIMEOUT_MS = 8_000
 const STALE_AFTER_MS = 5 * 60_000
-const CREDENTIALS_FILE = '.credentials.yaml'
-const DOTENV_FILE = '.env'
 const SECRET_ENV = 'DEEPSEEK_API_KEY'
+/** RFC 7230 `token` characters — what a header value can carry at all. */
+const PRINTABLE_ASCII = /^[\x21-\x7e]+$/
 
 interface DeepSeekBalanceInfo {
   readonly currency?: string
@@ -79,12 +84,18 @@ export const deepSeekBalance = (body: DeepSeekBalanceBody): DeepSeekBalance | nu
 export interface DeepSeekMeterOptions {
   readonly env?: NodeJS.ProcessEnv
   /**
-   * The value the desk already resolved for this row — its own stored
-   * credential, when the person put one there — ahead of the row's own
-   * environment and its own files below. Never re-derived here: this meter
-   * only ever receives it, the same way an agent's own process would.
+   * The desk's own stored copy of this row's secret, asked fresh on every
+   * `read()` rather than resolved once at construction — the broker's
+   * `resolveSecret`, wired the same way the spawn path calls it. `undefined`
+   * when the broker holds nothing for this row, never a cached "no".
    */
-  readonly resolvedKey?: string | null
+  readonly key?: () => string | undefined
+  /**
+   * The other places DSH keeps this key, in its own precedence order — the
+   * registry's own `alsoAt` list for the `dsh` template (`agent-registry.ts`),
+   * handed in by the wiring rather than hard-coded here.
+   */
+  readonly alsoAt?: readonly AcpSecretSource[]
   readonly fetch?: typeof globalThis.fetch
   readonly now?: () => number
 }
@@ -93,39 +104,40 @@ export class DeepSeekMeter implements UsageMeter {
   readonly id = 'deepseek-balance'
   readonly source: UsageSource = { kind: 'api', label: "from DeepSeek's own API" }
   readonly #env: NodeJS.ProcessEnv
-  readonly #resolvedKey: string | null
+  readonly #keyFn: (() => string | undefined) | undefined
+  readonly #alsoAt: readonly AcpSecretSource[]
   readonly #fetch: typeof globalThis.fetch
   readonly #now: () => number
-  readonly #credentialsPath: string
-  readonly #dotenvPath: string
 
   constructor(options: DeepSeekMeterOptions = {}) {
     this.#env = options.env ?? process.env
-    this.#resolvedKey = options.resolvedKey?.trim() || null
+    this.#keyFn = options.key
+    this.#alsoAt = options.alsoAt ?? []
     this.#fetch = options.fetch ?? globalThis.fetch
     this.#now = options.now ?? Date.now
-    const home = dshHome(this.#env)
-    this.#credentialsPath = join(home, CREDENTIALS_FILE)
-    this.#dotenvPath = join(home, DOTENV_FILE)
   }
 
   /** DSH rewrites its store when its own Models page changes the key. */
   watchPaths(): readonly string[] {
-    return [this.#credentialsPath, this.#dotenvPath]
+    return this.#alsoAt.map((source) => secretSourcePath(source, this.#env))
   }
 
   async read(): Promise<MeterReading | null> {
-    const key = await this.#key()
+    const key = this.#key()
     if (!key) return null
+    if (!PRINTABLE_ASCII.test(key)) {
+      throw new Error('DeepSeek balance could not be read: the stored key is not a usable value.')
+    }
 
     let response: Response
     try {
       response = await this.#fetch(API, {
         headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
         signal: AbortSignal.timeout(TIMEOUT_MS),
+        redirect: 'error',
       })
     } catch (cause) {
-      throw new Error(`DeepSeek balance could not be read: ${cause instanceof Error ? cause.message : String(cause)}`)
+      throw new Error(`DeepSeek balance could not be read: network error (${cause instanceof Error ? cause.name : 'unknown'})`)
     }
     if (response.status === 401 || response.status === 403) {
       throw new MeterAuthError('DeepSeek balance: sign in, or check the API key')
@@ -155,43 +167,15 @@ export class DeepSeekMeter implements UsageMeter {
   }
 
   /** The desk's own stored copy, then the row's environment, then DSH's own store — its own precedence order. */
-  async #key(): Promise<string | null> {
-    if (this.#resolvedKey) return this.#resolvedKey
+  #key(): string | null {
+    const resolved = this.#keyFn?.()?.trim()
+    if (resolved) return resolved
     const fromEnv = this.#env[SECRET_ENV]?.trim()
     if (fromEnv) return fromEnv
-    const fromYaml = await readValueFrom(this.#credentialsPath, 'yaml', SECRET_ENV)
-    if (fromYaml) return fromYaml
-    return readValueFrom(this.#dotenvPath, 'dotenv', SECRET_ENV)
-  }
-}
-
-/** `${DSH_HOME:-~/.dsh}` — `~` being the row's own `HOME` when it has one, not the desk's. */
-const dshHome = (env: NodeJS.ProcessEnv): string => {
-  const explicit = env['DSH_HOME']?.trim()
-  if (explicit) return explicit
-  return join(env['HOME']?.trim() || homedir(), '.dsh')
-}
-
-/**
- * A key's value out of one of DSH's own files — the one thing
- * `readsKey` in `@harnessdesk/adapter-acp` deliberately does not do. Same
- * two shapes that checker matches: a YAML block mapping or DSH's own
- * one-line flow mapping (`{ DEEPSEEK_API_KEY: sk-… }`), and a plain
- * `KEY=value` `.env` line.
- */
-const readValueFrom = async (path: string, format: 'yaml' | 'dotenv', key: string): Promise<string | null> => {
-  let text: string
-  try {
-    text = await readFile(path, 'utf8')
-  } catch {
+    for (const source of this.#alsoAt) {
+      const value = readKeyValue(source, SECRET_ENV, this.#env)
+      if (value) return value
+    }
     return null
   }
-  const pattern =
-    format === 'yaml'
-      ? new RegExp(`(?:^|[{,])\\s*${key}\\s*:\\s*([^,}\\n]*)`, 'm')
-      : new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=\\s*(.*)$`, 'm')
-  const found = pattern.exec(text)
-  if (!found) return null
-  const value = found[1]!.trim().replace(/^['"]|['"]$/g, '').trim()
-  return value.length > 0 && !value.startsWith('#') ? value : null
 }

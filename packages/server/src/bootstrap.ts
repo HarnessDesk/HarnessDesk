@@ -535,14 +535,18 @@ export const createDefaultHost = (
  * table still decides wherever it has something to say.
  */
 /**
- * The env var every OpenRouter integration reads its key from. Its presence
- * in the row's own environment — never its name, never its runtime id — is
- * what decides a row gets the OpenRouter meter: any agent this desk starts
- * with the variable set is, by that fact, an agent whose money is
- * OpenRouter's to answer for (docs/usage-dashboard.md, "Where the numbers
- * come from"). It never overrides a meter a row already has for a stronger
- * reason (Cline's own balance is Cline's, whatever key it also holds); it
- * only fills the gap where nothing above matched at all.
+ * The env var every OpenRouter integration reads its key from. What decides
+ * a row gets the OpenRouter meter is that row's *own* configuration — the
+ * desk's broker, then the row's own declared environment — never
+ * HarnessDesk's own shell: a key exported where the desk itself launched
+ * from is not this row's, and treating it as one would attribute one
+ * account's spend to every agent that carries no key of its own
+ * (docs/usage-dashboard.md, "Where the numbers come from"). Bound to every
+ * row that has no stronger meter of its own (Cline's own balance is
+ * Cline's, whatever key it also holds), whether or not it has a key yet:
+ * the key itself is asked fresh on every read, so a key stored in the
+ * broker after this bound — or cleared from it — is honoured on the next
+ * read without a rebind, and a row with none makes no request at all.
  */
 const OPENROUTER_SECRET_ENV = 'OPENROUTER_API_KEY'
 
@@ -632,7 +636,11 @@ export const localUsageFor = (
     // `agy_acp_server` above is bound to Antigravity's CLI outright.
     case 'dsh':
       return {
-        meter: new DeepSeekMeter({ env, resolvedKey: resolveSecret?.(agent.id, 'DEEPSEEK_API_KEY') ?? null }),
+        meter: new DeepSeekMeter({
+          env,
+          key: () => resolveSecret?.(agent.id, 'DEEPSEEK_API_KEY'),
+          alsoAt: agent.secrets?.find((secret) => secret.env === 'DEEPSEEK_API_KEY')?.alsoAt ?? [],
+        }),
         deskTurns: true,
       }
     default:
@@ -649,8 +657,12 @@ export const localUsageFor = (
   // the same row also carries an OpenRouter key for its model calls, because
   // that balance is a different account's money than the key's.
   if (!base.meter) {
-    const openRouterKey = (resolveSecret?.(agent.id, OPENROUTER_SECRET_ENV) ?? env[OPENROUTER_SECRET_ENV])?.trim()
-    if (openRouterKey) return { ...base, meter: new OpenRouterMeter({ env: { ...env, [OPENROUTER_SECRET_ENV]: openRouterKey } }) }
+    return {
+      ...base,
+      meter: new OpenRouterMeter({
+        key: () => (resolveSecret?.(agent.id, OPENROUTER_SECRET_ENV) ?? agent.env?.[OPENROUTER_SECRET_ENV])?.trim(),
+      }),
+    }
   }
   return base
 }
