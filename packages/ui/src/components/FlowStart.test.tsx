@@ -123,6 +123,28 @@ it('every candidate and effective ceiling remains visible', async () => {
   expect(chips).toEqual(expect.arrayContaining(['Edit · held', 'Read · asked']))
 })
 
+// #1053: a reading step handed an isolated step's one commit gets a worktree of its own, and the dry run says so.
+it('a seat the run opens at the commit it is handed says so, in plain words', async () => {
+  const seat: FlowPreviewSeat = {
+    role: 'tester', index: 0, agent: 'reviewer', isolate: false, atPredecessor: true, reviews: true,
+    plan: { id: 'reviewer', from: 'machine', winner: 0, blocked: null, ceiling: { level: 'read', hold: 'asked' }, candidates: [candidate({ state: 'taken', reason: null, fix: null, label: 'Codex' })] } as SeatPlan,
+  }
+  const theStore = store({
+    entries: [ENTRY('fix')],
+    agents: [AGENT('reviewer', 'Reviewer')],
+    source: () => 'version: 2\n',
+    preview: () => ({ ...emptyPreview(), seats: [seat] }),
+  })
+  render(theStore, () => {})
+  await act(async () => {})
+  await select('fix')
+  await act(async () => {})
+
+  expect(container.textContent).toContain('Reviewer — tester')
+  const chip = [...container.querySelectorAll('[title="Opens in a worktree of its own, at the commit it is handed"]')]
+  expect(chip.map((one) => one.textContent)).toEqual(['Own worktree'])
+})
+
 it('a review flow discloses its effective budget and the blind-round messaging restriction; a plain flow shows neither', async () => {
   const reviewSeat: FlowPreviewSeat = {
     role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true,

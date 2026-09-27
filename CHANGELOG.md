@@ -7,6 +7,21 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A step after an isolated one now works on that step's actual commit.** A
+  flow step that depends on an isolated step's finished work — a tester after
+  a developer working in its own worktree, say — used to open in the project's
+  own checkout, still at the commit the run started from. It ran the tests
+  there and reported problems with code it never had, round after round. Such
+  a step now opens in a worktree of its own, cut from that commit, and the
+  project's own checkout is never moved. A step handed several different
+  commits (a debate round reading both positions, a judge comparing attempts)
+  is told each one's commit, branch and folder. If that work cannot be
+  reached — its worktree is gone, or it was never committed — the run stops
+  before the step opens and says which step and why. The dry run marks each
+  step that will get a worktree this way, and a reading step's worktree lets
+  its ports and browser profile go as soon as that step's conversation
+  closes. (#1053)
+
 - **An effort mismatch found only once a conversation opened is worded
   truthfully, and one runtime's levels are no longer copied onto another
   model's own.** Two small fixes to seating an Agent's effort. First, an ACP
