@@ -48,7 +48,9 @@ export interface Revision {
    * omits those by default — counted from the same read `dirty` comes from.
    * Null when that read itself failed (git could not answer): unknown,
    * never zero, so a caller that needs a real count never treats a failed
-   * read as a clean checkout.
+   * read as a clean checkout. Real even past `DIRTY_PATHS_CAP`, where
+   * `dirtyPaths` itself is dropped — the count is one number, never the
+   * tens-of-thousands-of-lines problem the list itself can become.
    */
   readonly dirtyFiles: number | null
   /**
@@ -56,11 +58,28 @@ export interface Revision {
    * `dirtyFiles` already come from — never a second probe. What lets a
    * caller tell a checkout's own pre-existing dirt apart from what a card's
    * own work added since a snapshot of this same list was taken at claim
-   * (`pathsAddedSince`, `IntentClaim.dirtyPaths`). Null exactly when
-   * `dirtyFiles` is.
+   * (`pathsAddedSince`, `IntentClaim.dirtyPaths`). Null when the read itself
+   * failed (`dirtyFiles` is null too then), and also past
+   * `DIRTY_PATHS_CAP` — a checkout that never learned to ignore something
+   * like `node_modules` can turn this into tens of thousands of strings, so
+   * the list is dropped rather than carried in full; `dirtyFiles` still
+   * names the real count. Either way, a caller that finds this null has
+   * nothing to diff against and must never refuse on its account.
    */
   readonly dirtyPaths: readonly string[] | null
 }
+
+/**
+ * Past this many dirty paths, `revisionAt` drops the list to `null` rather
+ * than building and carrying it in full. A repository with no `.gitignore`
+ * entry for `node_modules`, or one with a large generated-output folder, can
+ * turn one `git status` into tens of thousands of lines; every claim keeps
+ * its own copy of this list for the life of the card (`IntentClaim.
+ * dirtyPaths`), so an uncapped snapshot is a standing cost on every claim in
+ * that checkout, not a one-time read. A `null` snapshot is read the same way
+ * a failed read already is: never refused against (#1049).
+ */
+export const DIRTY_PATHS_CAP = 500
 
 /**
  * One `git status --porcelain=v1` line's path — the part after its two
@@ -130,8 +149,15 @@ export const headOf = async (cwd: string): Promise<Sha | null> => {
 export const revisionAt = async (cwd: string, head: Sha): Promise<Revision> => {
   const branch = (await gitOr(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim() || null
   const status = await gitOr(cwd, ['status', '--porcelain=v1', '--untracked-files=normal'])
-  const dirtyPaths = status === null ? null : status.split('\n').filter((line) => line.trim() !== '').map(pathOfStatusLine)
-  return { head, branch, dirty: dirtyPaths === null || dirtyPaths.length > 0, dirtyFiles: dirtyPaths?.length ?? null, dirtyPaths }
+  const paths = status === null ? null : status.split('\n').filter((line) => line.trim() !== '').map(pathOfStatusLine)
+  return {
+    head,
+    branch,
+    dirty: paths === null || paths.length > 0,
+    dirtyFiles: paths?.length ?? null,
+    // Past the cap, the count above stays real; only the list itself is dropped (DIRTY_PATHS_CAP).
+    dirtyPaths: paths === null || paths.length > DIRTY_PATHS_CAP ? null : paths,
+  }
 }
 
 /** Null outside a repository, or in one with no commit yet: there is no revision to bind a fact to. */

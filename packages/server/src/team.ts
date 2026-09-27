@@ -829,6 +829,25 @@ export const DEFAULT_TEAM_SETTINGS: TeamSettings = {
   messageChars: MESSAGE_CHAR_LIMIT,
 }
 
+/**
+ * A card list as a renderer may see it: every claim's `dirtyPaths` gone.
+ *
+ * `IntentClaim.dirtyPaths` exists only so `FlowExecutions.refuseDirty` can
+ * diff a checkout's dirt now against a shared checkout's dirt at claim time —
+ * a shared checkout's own file names (a `.env`, anything else `git status`
+ * would name), never anything a person opening a board has a use for. This
+ * is the one seam between what a claim stores (kept, so it survives a
+ * restart) and what leaves the host: `Team`'s own projection (`#stateOf`)
+ * and `GoalPlane.view`'s board both run their card list through this before
+ * either becomes a wire result.
+ */
+export const cardsForWire = (intents: readonly Intent[]): readonly Intent[] =>
+  intents.map((intent) => {
+    if (!intent.claim || intent.claim.dirtyPaths === undefined) return intent
+    const { dirtyPaths: _dirtyPaths, ...claim } = intent.claim
+    return { ...intent, claim }
+  })
+
 export class Team {
   readonly #dir: string
   readonly #port: TeamPort
@@ -1204,6 +1223,19 @@ export class Team {
           messaging: true,
           problem: this.#problem,
         }
+  }
+
+  /**
+   * A claimed card's own dirty-paths snapshot, straight off the stored
+   * claim — never through `stateFor`, which strips it (`cardsForWire`)
+   * before a board becomes a wire result. The one caller is
+   * `FlowExecutions.refuseDirty`, which needs the raw snapshot to diff a
+   * checkout's dirt now against dirt at claim time. `undefined` for a claim
+   * written before this existed, exactly as `stateFor` would have answered
+   * for the same card before this method existed.
+   */
+  dirtyPathsOf(room: string, card: number): readonly string[] | null | undefined {
+    return this.#boards.get(room)?.intents.find((intent) => intent.id === card)?.claim?.dirtyPaths
   }
 
   /** Historical display data copied into a Goal document; never a membership source. */
@@ -3379,7 +3411,7 @@ export class Team {
       members: [...board.members],
       root: board.root,
       ...(board.cwd && board.cwd !== board.root ? { cwd: board.cwd } : {}),
-      intents: [...board.intents],
+      intents: cardsForWire(board.intents),
       channel: [...board.channel],
       messaging: board.messaging,
       nicknames: { ...board.nicknames },

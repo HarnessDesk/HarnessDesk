@@ -1395,18 +1395,25 @@ export class FlowExecutions {
    * (`pathsAddedSince`): only a path dirty now that was not dirty then
    * counts, and a path already dirty at claim is never counted even if this
    * card's own work touched it again — the two reads cannot tell that apart.
+   * The same blind spot hides a new file inside a folder that was already
+   * untracked at claim: `git status` names the folder (`dir/`), not what is
+   * later added inside it, so nothing about that file is ever new. Past 500
+   * paths the snapshot itself is `null` rather than carried in full
+   * (`revisionAt`'s own cap, for a checkout that never learned to ignore
+   * something like `node_modules`) — read below as no snapshot at all.
    *
    * Checked only where a grant could ever have produced the work in the
    * first place, and only where there is a snapshot to compare against:
    * `null` for a card no v2 run bound, for one whose Seat cannot commit at
    * all (a read-only role could not have left anything uncommitted, so
    * reading it as dirty would only ever be a dead end), and for a claim with
-   * no recorded snapshot — written before this existed, or a read that
-   * failed at claim time — since a finish with nothing to compare against is
-   * never refused for dirt it cannot attribute. Reads the checkout the same
-   * way a subject's own freshness does (`#heads`, `headOf`) — never a fresh
-   * git probe of its own — and a read that fails, or answers no list, never
-   * blocks a finish it cannot confirm is wrong: `null`, logged (#1049).
+   * no recorded snapshot — written before this existed, past the 500-path
+   * cap, or a read that failed at claim time — since a finish with nothing
+   * to compare against is never refused for dirt it cannot attribute. Reads
+   * the checkout the same way a subject's own freshness does (`#heads`,
+   * `headOf`) — never a fresh git probe of its own — and a read that fails,
+   * or answers no list, never blocks a finish it cannot confirm is wrong:
+   * `null`, logged (#1049).
    */
   async refuseDirty(goal: string, card: number): Promise<string | null> {
     const run = this.#runOfCard(goal, card)
@@ -1417,7 +1424,7 @@ export class FlowExecutions {
     const index = round!.cards.indexOf(card)
     const binding = bindingsFor(run, role.id)[index]
     if (!binding || !mayCommit(binding.agent, binding.grant)) return null
-    const before = this.#team.stateFor(goal).intents.find((one) => one.id === card)?.claim?.dirtyPaths
+    const before = this.#team.dirtyPathsOf(goal, card)
     if (!before) return null
     const { seat } = this.#seatForCard(run, card)
     if (!seat) return null

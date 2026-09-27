@@ -21,13 +21,17 @@ move is real work and is not news to a person weighing an upgrade.
   untracked file, or another card's leftover work on the same shared
   checkout, is never held against a card that never touched it. A card whose
   role cannot commit at all is never checked, a claim with no snapshot (from
-  before this shipped, or a failed read) is never refused for dirt it cannot
-  attribute, and a person's own hand finish is untouched, since they may have
-  decided the leftovers do not matter. A prose-only round — one whose role
-  produces no diff at all — is untouched too: that is legitimate, not the
-  defect. Read what the desk observed on the card, and its diff is drawn
-  stale when new dirt was left behind, even after a person finishes it by
-  hand. (#1049)
+  before this shipped, a failed read, or a checkout with more than 500 dirty
+  paths, which is dropped rather than carried in full) is never refused for
+  dirt it cannot attribute, and a person's own hand finish is untouched,
+  since they may have decided the leftovers do not matter. A prose-only round
+  — one whose role produces no diff at all — is untouched too: that is
+  legitimate, not the defect. Read what the desk observed on the card, and
+  its diff is drawn stale when new dirt was left behind, even after a person
+  finishes it by hand. The snapshot itself is host-only — stored with the
+  claim so it survives a restart, but never a value any board or `goal/read`
+  result shows, so a shared checkout's own file names never reach a
+  renderer. (#1049)
 
 - **A step after an isolated one now works on that step's actual commit.** A
   flow step that depends on an isolated step's finished work — a tester after

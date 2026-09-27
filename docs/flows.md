@@ -822,18 +822,30 @@ way `head` and `upstream` already are). Finishing compares the checkout now
 against that snapshot and refuses only for a path dirty now that was not
 dirty then, naming how many. A path already dirty at claim is never counted
 even if the card's own work touched it again — the two reads cannot tell that
-apart, and that is a stated limit, not a hidden one. A claim with no snapshot
-— written before this existed, or one whose read failed at claim time — is
-never refused for dirt it cannot attribute: it fails open. The live read at
-finish is the same one the desk's own evidence observer already takes of a
-checkout (`headOf`, never a second probe beyond the one already needed for
-the snapshot), bounded and fail-open there too: a read that cannot answer
-never blocks the finish, only logs. A person finishing a card by hand through
-the board is not refused this way at all — they may have decided the
-leftovers do not matter — but the board still shows it: a diff fact recorded
-while the checkout held a path dirty since the claim draws stale, the same
-way a check that ran on uncommitted changes always has; pre-existing dirt
-from before the claim never draws it stale on its own.
+apart, and that is a stated limit, not a hidden one. The same blind spot hides
+a new file inside a folder that was already untracked at claim: `git status`
+names the folder (`dir/`), not what is later added inside it, so nothing
+about that file is ever new either. A claim with no snapshot — written before
+this existed, one whose read failed at claim time, or one past 500 dirty
+paths (a checkout that never learned to ignore something like
+`node_modules` turns a snapshot into tens of thousands of strings, so the
+list is dropped to `null` rather than carried in full) — is never refused for
+dirt it cannot attribute: it fails open. The live read at finish is the same
+one the desk's own evidence observer already takes of a checkout (`headOf`,
+never a second probe beyond the one already needed for the snapshot),
+bounded and fail-open there too: a read that cannot answer never blocks the
+finish, only logs. A person finishing a card by hand through the board is not
+refused this way at all — they may have decided the leftovers do not matter
+— but the board still shows it: a diff fact recorded while the checkout held
+a path dirty since the claim draws stale, the same way a check that ran on
+uncommitted changes always has; pre-existing dirt from before the claim never
+draws it stale on its own.
+
+The snapshot itself is host-only: it is stored with the claim so it survives
+a restart, but a shared checkout's own file names — a `.env`, anything else
+`git status` would name — are never a value a board or a `goal/read` result
+shows. Every renderer-facing card list has it stripped before it leaves the
+host.
 
 **The catalogue** a project's Flows section and `/race` both read is layered
 — a project's own `.harnessdesk/flows`, then this Mac's, then the ones that

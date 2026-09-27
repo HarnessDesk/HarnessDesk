@@ -12,7 +12,7 @@ import {
 import type { SeatOpening } from '../evidence/records.js'
 import { memoryPath } from '../memory/git.js'
 import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
-import { STOP_HEAD_TIMEOUT_MS } from '../team.js'
+import { cardsForWire, STOP_HEAD_TIMEOUT_MS } from '../team.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
@@ -241,7 +241,9 @@ export class GoalPlane {
   async view(id: string): Promise<GoalView> {
     const document = this.store.read(id)
     const members = goalMembers(document, this.port.seats.all())
-    const board = { ...this.port.board(id), ...memberProjection(document, this.port.seats.all()) }
+    const raw = { ...this.port.board(id), ...memberProjection(document, this.port.seats.all()) }
+    // Host-only past this line: a claim's `dirtyPaths` never rides in a `GoalView`.
+    const board = { ...raw, intents: cardsForWire(raw.intents) }
     let evidence: BoardEvidence | null = null
     let problem = this.#recoveryProblems.get(id) ?? this.store.problem
     try {

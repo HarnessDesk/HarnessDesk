@@ -88,6 +88,31 @@ test('a claim with no dirty-paths snapshot is never refused, however dirty its c
   assert.equal(rig.board(run.goal).intents.find((one) => one.id === 1)?.state, 'done')
 })
 
+test('a checkout with more than 500 dirty paths at claim gets a null snapshot, and the finish is never refused', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  /*
+   * `revisionAt`'s own cap (DIRTY_PATHS_CAP, see evidence-revision.test.ts)
+   * is what turns a real `git status` into `null` past 500 paths, for a
+   * checkout with no `.gitignore` entry for something like `node_modules`.
+   * Stand in for that already-capped read here, the same way this file's
+   * "no snapshot" test stands in for a claim written before dirtyPaths
+   * existed: a `null` snapshot, not `undefined`.
+   */
+  const state = rig.team.stateFor(run.goal)
+  rig.team.installProjection({
+    ...state,
+    intents: state.intents.map((one) =>
+      one.id === 1 && one.claim ? { ...one, claim: { ...one.claim, dirtyPaths: null } } : one,
+    ),
+  })
+  rig.heads.set('/repo', { at: 'sha-1', dirty: true, dirtyPaths: ['agent-work.txt'] })
+  const answer = await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  assert.match(String(answer), /^Completed #1/, 'a capped (null) snapshot fails open, exactly like a missing one')
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === 1)?.state, 'done')
+})
+
 test('a clean card with no diff — a prose answer — finishes', async (t) => {
   const rig = await goalRig(t)
   const run = await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
@@ -154,5 +179,20 @@ test("a claim's dirty-paths snapshot survives a restart", async (t) => {
 
   const reborn = new Team(dir, port)
   await reborn.load()
-  assert.deepEqual(reborn.stateFor(room).intents[0]?.claim?.dirtyPaths, ['dirty-a.txt', 'dirty-b.txt'])
+  assert.deepEqual(reborn.dirtyPathsOf(room, 1), ['dirty-a.txt', 'dirty-b.txt'], 'stored with the claim, so it survives the restart')
+  const rebornClaim = reborn.stateFor(room).intents[0]?.claim
+  assert.ok(rebornClaim, 'the restored card is still claimed')
+  assert.equal('dirtyPaths' in rebornClaim!, false, 'never on the board a renderer reads — team/state strips it')
+})
+
+test("a claimed card's dirty-paths snapshot never reaches a board snapshot", async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'sha-0', dirty: true, dirtyPaths: ['.env'] })
+  const run = await rig.start(WRITER_EDIT, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const claim = rig.board(run.goal).intents.find((one) => one.id === 1)?.claim
+  assert.ok(claim, 'the card is claimed')
+  assert.equal('dirtyPaths' in claim!, false, "team/state's board never carries it")
+  // The snapshot is still there for the finish check to compare against.
+  assert.deepEqual(rig.team.dirtyPathsOf(run.goal, 1), ['.env'])
 })

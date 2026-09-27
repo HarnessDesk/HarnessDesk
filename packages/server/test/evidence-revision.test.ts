@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
+import { DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -33,6 +33,16 @@ test('a revision is the commit, the branch, and whether the tree holds changes n
   const empty = tempDir('hd-evidence-empty-')
   await run('git', ['-C', empty, 'init', '-q'])
   assert.equal(await revisionOf(empty), null)
+})
+
+test('past the dirty-paths cap the list is dropped to null, but the real count and dirty flag still tell the truth', async () => {
+  const { dir } = await makeRepo()
+  const over = DIRTY_PATHS_CAP + 1
+  await Promise.all(Array.from({ length: over }, (_, i) => writeFile(join(dir, `f${i}.txt`), 'x\n')))
+  const revision = await revisionOf(dir)
+  assert.equal(revision?.dirty, true)
+  assert.equal(revision?.dirtyFiles, over, 'the count is real even past the cap')
+  assert.equal(revision?.dirtyPaths, null, 'the list itself is dropped past the cap, never carried in full')
 })
 
 test('a fact is fresh at its branch tip, behind by the commits since, and moved when rewritten', async () => {

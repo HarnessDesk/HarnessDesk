@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { test } from 'node:test'
 
-import type { BoardEvidence, FlowExecution, GoalCitation, SeatRecord } from '@harnessdesk/protocol'
+import type { BoardEvidence, FlowExecution, GoalCitation, RuntimeId, SeatRecord } from '@harnessdesk/protocol'
 
 import { GoalPlane, type GoalMemorySupport, type GoalPlanePort } from '../src/goals/plane.js'
 import { UNOBSERVED_LOADING_REFUSAL } from '../src/goals/assignments.js'
@@ -122,6 +122,26 @@ test('an evidence read failure is visible and never makes settled work ready', a
   const view = await proof.plane.view('g1')
   assert.equal(view.problem, 'evidence unavailable')
   assert.notEqual(view.activity, 'ready-to-wrap')
+})
+
+test("goal/read never carries a claimed card's dirty-paths snapshot", async () => {
+  const proof = await rig()
+  const document = proof.store.read('g1')
+  await proof.store.save({
+    ...document,
+    board: {
+      nextIntent: 2, messaging: true, channel: [],
+      intents: [intent(1, {
+        state: 'claimed',
+        claim: { runtime: 'fake' as RuntimeId, sessionId: 's1', at: 1, dirtyPaths: ['.env', 'notes.md'] },
+      })],
+    },
+    goal: { ...document.goal, revision: document.goal.revision + 1 },
+  }, document.goal.revision)
+  const view = await proof.plane.view('g1')
+  const claim = view.board.intents.find((one) => one.id === 1)?.claim
+  assert.ok(claim, 'the card is claimed')
+  assert.equal('dirtyPaths' in claim!, false, 'a shared checkout\'s own file names never reach a renderer')
 })
 
 test('creation persists an empty Goal without seating; dependency waits still allow a sentence edit', async () => {
