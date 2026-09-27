@@ -11,7 +11,7 @@ import { readForeignDatabase } from '../src/ledger/foreign-db.js'
 import { Ledger } from '../src/ledger/index.js'
 import { InsightBudgetExceededError, InsightSourceChangedError } from '../src/ledger/insight.js'
 import { Pricing } from '../src/ledger/pricing.js'
-import { corpusRoot, listTargets, projectRootOf, scanGeminiChat, scanQwenTranscript } from '../src/ledger/scan.js'
+import { corpusRoot, listTargets, projectRootOf, scanClineDatabase, scanGeminiChat, scanQwenTranscript } from '../src/ledger/scan.js'
 import { LedgerStore } from '../src/ledger/store.js'
 
 /**
@@ -238,6 +238,72 @@ test('Cline’s sessions count their own usage, never their subagents’ twice',
   assert.equal(spend.windowTokens, 1650)
   assert.equal(spend.provenance, 'vendorMetered')
   ledger.close()
+})
+
+/**
+ * Cline's own SDK normalizes `inputTokens` to the FULL prompt for every
+ * provider format it supports — cache reads folded in for all of them, cache
+ * writes folded in for the two formats that report a cache-write count at all
+ * (Anthropic's `cache_creation_input_tokens`, and OpenAI's own
+ * `prompt_tokens_details.cache_write_tokens`) — confirmed against the
+ * `@ai-sdk/anthropic`, `@ai-sdk/openai` and `@ai-sdk/openai-compatible`
+ * adapters Cline's SDK vendors (`convert-anthropic-usage.ts`,
+ * `convert-openai-chat-usage.ts`, `convert-openai-compatible-chat-usage.ts`),
+ * and by Cline's own doc comment on `getCurrentContextSize`
+ * (`sdk/packages/core/src/services/usage.ts`). Nothing in `sessions.db` says
+ * which format produced a session, so `scanClineDatabase` nets out both
+ * fields unconditionally rather than guessing.
+ */
+const clineSessionsDb = (path: string): InstanceType<typeof DatabaseSync> => {
+  const database = new DatabaseSync(path)
+  database.exec('CREATE TABLE sessions (model TEXT, cwd TEXT, workspace_root TEXT, started_at TEXT, updated_at TEXT, metadata_json TEXT)')
+  return database
+}
+
+test('a Cline session behind an OpenAI-compatible model (only a cache read is reported) has it netted out of input', async () => {
+  const dir = scratch()
+  const path = join(dir, 'sessions.db')
+  const database = clineSessionsDb(path)
+  // OpenAI-compatible (and Cline's own default gateway, which is built on the
+  // same `@ai-sdk/openai-compatible` transport): `inputTokens` is the raw
+  // `prompt_tokens`, which OpenAI's own convention already counts a cache hit
+  // inside of; no cache-write count is reported at all for this format.
+  database.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)').run(
+    'gpt-5.6-terra', '/work/oac', '/work/oac', at, at,
+    JSON.stringify({ usage: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 300, totalCost: 0.1 } }),
+  )
+  database.close()
+
+  const result = await scanClineDatabase({ runtime: 'cline', kind: 'cline', path, size: 0, mtime: 0 })
+  assert.equal(result.rows.length, 1)
+  const row = result.rows[0]
+  assert.equal(row?.input, 700, 'the 300 cache-read tokens come back out of the reported 1000')
+  assert.equal(row?.cacheRead, 300)
+  assert.equal(row?.cacheWrite, 0, 'this format never reports one')
+  assert.equal(row?.output, 50)
+})
+
+test('a Cline session behind an Anthropic-format model (a cache write is reported too) has both netted out of input', async () => {
+  const dir = scratch()
+  const path = join(dir, 'sessions.db')
+  const database = clineSessionsDb(path)
+  // Anthropic's own convention: `input_tokens`, `cache_creation_input_tokens`
+  // and `cache_read_input_tokens` are three disjoint counters, but Cline's SDK
+  // reconstructs `inputTokens` as their sum before it ever reaches
+  // `sessions.db` — so a cache *write* is folded in here too, not just a read.
+  database.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)').run(
+    'claude-opus-5', '/work/anthropic', '/work/anthropic', at, at,
+    JSON.stringify({ usage: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 200, cacheWriteTokens: 150, totalCost: 0.2 } }),
+  )
+  database.close()
+
+  const result = await scanClineDatabase({ runtime: 'cline', kind: 'cline', path, size: 0, mtime: 0 })
+  assert.equal(result.rows.length, 1)
+  const row = result.rows[0]
+  assert.equal(row?.input, 650, 'both the 200 cache-read and the 150 cache-write tokens come back out')
+  assert.equal(row?.cacheRead, 200)
+  assert.equal(row?.cacheWrite, 150)
+  assert.equal(row?.output, 50)
 })
 
 test('list-priced and agent-priced rows together are said to be mixed', async () => {

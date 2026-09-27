@@ -377,9 +377,15 @@ export class EvidencePlane {
   }
 
   /**
-   * A card was finished. While its holder is still on it, the desk looks at
-   * the branch it was finished on, and tells every window when that recorded
-   * something. Never awaited by the board.
+   * A card was finished. While its holder's checkout is still known, the
+   * desk looks at the branch once more, right away, so the diff it left shows
+   * without waiting for a board to next be opened. Where the checkout stood
+   * at this same moment is recorded separately, durably, on the card itself
+   * (`Team#captureStop` — every way a claim clears, not only a finish) and is
+   * what bounds every later look once the card is no longer held
+   * (`Intent.until`, `#lookAround`); this look does not depend on it landing
+   * first. Tells every window when this look recorded something. Never
+   * awaited by the board.
    */
   settled(room: string, intent: Intent): void {
     if (intent.state !== 'done' || !intent.claim) return
@@ -425,7 +431,9 @@ export class EvidencePlane {
    * On a board read, the cards due another look — each at most once every few
    * minutes — are looked at in the background, one at a time: a claimed card in
    * its holder's checkout, a settled one where its latest fact was observed.
-   * A card with neither is not looked at, since there is nowhere to look.
+   * A card with neither is not looked at, since there is nowhere to look. A
+   * settled card's diff is bounded to where it stopped (`until`, below); a
+   * claimed one is measured all the way to its checkout's HEAD.
    */
   #lookAround(room: string, board: TeamState, project: string, records: readonly EvidenceRecord[]): void {
     const looks: Look[] = []
@@ -447,8 +455,46 @@ export class EvidencePlane {
       const began = seat ?? (last?.seat ?? null)
       const since = cardStart(holder ? intent.claim?.head : null, lastDiff?.fact.kind === 'diff' ? lastDiff.fact.from : null,
         began ? this.seats.byId(began)?.checkout.head : null)
+      /*
+       * A card no longer held has stopped, and a stopped card's diff is
+       * bounded to where its own checkout stood at that moment — `until` —
+       * never to HEAD as the checkout stands now: HEAD keeps moving as a
+       * later card commits on a checkout this one shared, and a finished
+       * card's own diff must not (issue #1035). That bound is `Intent.until`:
+       * recorded durably, host-side, the moment the card's claim actually
+       * cleared, by the one choke point every way a claim clears goes through
+       * (`Team#captureStop`, or the Goal wrap's own equivalent) — never
+       * derived here from a fact this desk happened to observe, since a fact
+       * observed late, or never, is not where the card stopped.
+       *
+       * A stopped card with no recorded `until` — one that stopped before
+       * this existed, or whose stop could not be read at the time — is never
+       * diffed unbounded to make up for that: it keeps whatever its last
+       * diff already showed, or none at all if it never had one. Recomputing
+       * it against today's HEAD, once, the first time it was ever looked at
+       * without a bound, was #1035 made permanent — a card diffed unbounded
+       * exactly once and then, having a diff fact at last, bounded to that
+       * one wrong reading forever after. So this only ever diffs a stopped
+       * card when `until` is actually known.
+       *
+       * A card still held (`holder` set) gets no bound, and is measured to
+       * HEAD, because its own work is still landing there. Uncommitted work
+       * a card leaves behind at the moment it stops is not part of any diff
+       * fact, exactly as it never was: `diffOf` reads committed history
+       * only. If a later card, sharing this checkout, commits it, the commit
+       * lands after `until` and inside that later card's own
+       * `since..until` — it is credited there, to whichever window the desk
+       * can actually bound.
+       */
+      const until = holder ? null : (intent.until ?? null)
+      const skipDiff = !holder && until === null
       const upstream = intent.claim?.upstream
-      looks.push({ room, card: intent.id, project, cwd, seat, since, ...(upstream !== undefined ? { upstream } : {}) })
+      looks.push({
+        room, card: intent.id, project, cwd, seat, since,
+        ...(until !== null ? { until } : {}),
+        ...(skipDiff ? { skipDiff: true } : {}),
+        ...(upstream !== undefined ? { upstream } : {}),
+      })
     }
     if (looks.length === 0) return
     void (async () => {

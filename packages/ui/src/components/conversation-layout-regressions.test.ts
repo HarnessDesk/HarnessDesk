@@ -51,7 +51,11 @@ it('keeps the light work register compact and its grouped body visibly nested', 
   expect(itemsCss).not.toMatch(/\.groupBody\s*\{\s*\}/)
 })
 
-it('caps a single attached image in both its tile and thumbnail', () => {
-  expect(itemsTsx).toContain("singleImage ? 'h-auto max-h-[280px]' : 'h-full'")
-  expect(itemsTsx).not.toContain("className={`${styles.imageTile} ${singleImage ? 'h-auto max-h-[280px]' : ''}`}")
+it('draws every attached image through one picture part: a lone one capped, several filling their tiles', () => {
+  // The lone-image cap is `--hd-image-max-height`, owned by
+  // `AttachmentMedia`'s `picture`; the screen names the layout, not a size.
+  expect(itemsTsx).not.toContain('max-h-[280px]')
+  expect(itemsTsx).toContain('variant="picture"')
+  expect(itemsTsx).toContain('fill={!singleImage}')
+  expect(itemsTsx).not.toContain('imageThumb')
 })

@@ -15,6 +15,7 @@ import {
   type FindingReadInput,
   type FindingView,
   type Intent,
+  type IntentClaim,
   type Plan,
   type RaiseFindingInput,
   type RepairFindingInput,
@@ -322,6 +323,13 @@ export interface TeamPort {
    * outside a repository. Absent, claims record neither.
    */
   startOf?(cwd: string): Promise<{ readonly head: string | null; readonly upstream: string | null } | null>
+  /**
+   * The folder a session works in now, read straight off the registry rather
+   * than through any board: where a card's claim just ended looks for its
+   * checkout by the claim's own runtime and session, not by who is asking.
+   * Null when that session is not live, or the host keeps none.
+   */
+  cwdOf?(runtime: RuntimeId, sessionId: string): string | null
   /** Rechecked after a live handle is prepared and immediately before delivery. */
   canDispatch?(goal: string): { ok: true } | { ok: false; reason: string }
   /** Refuses every board mutation once a durable Goal starts wrapping. */
@@ -543,6 +551,14 @@ const senderOfActor = (actor: TeamActor): TeamSender | null =>
  * model thinking for twenty minutes — comfortably fits inside it.
  */
 const LEASE_MS = 45 * 60 * 1000
+
+/**
+ * How long the host waits for a stopped card's checkout to answer with its
+ * HEAD before giving up and recording nothing. A few git calls, not a whole
+ * turn: bounded well under a round's own patience, so a checkout a stop
+ * cannot reach never hangs the round that is waiting on it (issue #1035).
+ */
+export const STOP_HEAD_TIMEOUT_MS = 10_000
 
 const keyOf = (runtime: string, sessionId: string): SessionKey => sessionKey(runtime, sessionId)
 
@@ -820,6 +836,8 @@ export class Team {
    */
   readonly #owed = new Map<string, { asker: TeamActor; roots: readonly string[] }>()
   readonly #boards = new Map<string, Board>()
+  /** Stop captures started but not yet landed, by room: `awaitStops` drains these before a round continues. */
+  readonly #stopping = new Map<string, Set<Promise<void>>>()
   /** Per-conversation inbound control; sparse — absent means accept. */
   #inbound = new Map<string, TeamInbound>()
   readonly #pending = new Map<string, PendingDelivery[]>()
@@ -1385,7 +1403,7 @@ export class Team {
    * always win: a claim is taken away by `release` whether or not the agent
    * holding it would agree.
    */
-  intentAction(
+  async intentAction(
     room: string,
     id: number,
     action: 'reopen' | 'abandon' | 'done' | 'release' | 'block',
@@ -1401,7 +1419,7 @@ export class Team {
     outcome?: string,
     /** The person's own context package, for the round that depends on this. */
     context?: string,
-  ): void {
+  ): Promise<void> {
     const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
     if (!intent) throw new Error(`There is no intent #${id} on this board.`)
@@ -1433,15 +1451,18 @@ export class Team {
       this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'abandoned', intent, null)
       undo.mark()
+      const saved = this.#commit(board, true, undo)
+      // Never past a save that failed — `#afterSaved`'s own rule, kept here because what follows must also await the stop capture before it runs.
+      if (saved && (await saved)) return
+      // Where its checkout stood the moment it stopped is recorded by `#patchIntent`, above; its flow must not continue past that.
+      await this.awaitStops(board.id)
       // Its flow hears of it once it is saved, and not at all when it is not.
-      this.#afterSaved(this.#commit(board, true, undo), () => {
-        this.#flows?.completed(board.id, {
-          ...intent,
-          state: 'abandoned',
-          claim: null,
-          blockedReason: null,
-          blockedBy: null,
-        })
+      this.#flows?.completed(board.id, {
+        ...intent,
+        state: 'abandoned',
+        claim: null,
+        blockedReason: null,
+        blockedBy: null,
       })
       return
     } else if (action === 'done') {
@@ -1462,16 +1483,19 @@ export class Team {
       this.#signal(board, by, 'completed', intent, said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
       undo.mark()
+      const saved = this.#commit(board, true, undo)
+      // Never past a save that failed — `#afterSaved`'s own rule, kept here because what follows must also await the stop capture before it runs.
+      if (saved && (await saved)) return
+      // Where its checkout stood the moment it stopped is recorded by `#patchIntent`, above; its flow must not continue past that.
+      await this.awaitStops(board.id)
       // Its flow hears of it once it is saved, and not at all when it is not.
-      this.#afterSaved(this.#commit(board, true, undo), () => {
-        this.#flows?.completed(board.id, {
-          ...intent,
-          state: 'done',
-          outcome: said,
-          ...(context?.trim() ? { handoff: context.trim() } : {}),
-        })
-        this.#port.settled?.(board.id, { ...intent, state: 'done', outcome: said })
+      this.#flows?.completed(board.id, {
+        ...intent,
+        state: 'done',
+        outcome: said,
+        ...(context?.trim() ? { handoff: context.trim() } : {}),
       })
+      this.#port.settled?.(board.id, { ...intent, state: 'done', outcome: said })
       return
     } else {
       this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null })
@@ -2389,6 +2413,8 @@ export class Team {
     this.#patchIntent(board, intentId, {
       state: 'claimed',
       files: owned,
+      // A live claim measures to HEAD, not to wherever it last stopped.
+      until: null,
       claim: {
         runtime: caller.runtime,
         sessionId: caller.sessionId,
@@ -2583,7 +2609,10 @@ export class Team {
     /* After the board is written, never before: a rule that opens the next
        round adds cards through this same engine, and a run advanced against a
        board that had not yet recorded the completion would read its own round
-       as unfinished. */
+       as unfinished. Also after this card's own stop is recorded (`#patchIntent`,
+       above) — the round must not open the next card on a diff that has not
+       yet learned where this one stopped. */
+    await this.awaitStops(board.id)
     this.#flows?.completed(board.id, { ...intent, state: 'done', outcome })
     this.#port.settled?.(board.id, { ...intent, state: 'done', outcome })
     const unblocked =
@@ -2628,11 +2657,12 @@ export class Team {
         blockedBy: 'hand',
       })
       this.#signal(board, this.#actorOf(board, caller), 'blocked', intent, reason)
+      this.#commit(board)
     } else {
       this.#patchIntent(board, intentId, { state: 'open', claim: null, blockedBy: null })
       this.#signal(board, this.#actorOf(board, caller), 'released', intent, reason)
+      this.#commit(board)
     }
-    this.#commit(board)
     this.#port.audit({
       runtime: caller.runtime,
       sessionId: caller.sessionId,
@@ -4234,9 +4264,85 @@ export class Team {
 
   #patchIntent(board: Board, id: number, patch: Partial<Intent>): void {
     this.#assertMutable(board)
+    const before = board.intents.find((entry) => entry.id === id)
     board.intents = board.intents.map((intent) =>
       intent.id === id ? { ...intent, ...patch, updatedAt: Date.now() } : intent,
     )
+    if (before?.claim && 'claim' in patch && patch.claim === null) void this.#captureStop(board.id, id, before.claim)
+  }
+
+  /**
+   * The one place a card's claim going from held to nothing, on a board this
+   * engine holds directly, is ever asked to record where its checkout stood
+   * — whatever verb cleared it through `#patchIntent`, above: block, release,
+   * abandon, done, or a stale claim taken over. A Goal Seat's own release
+   * clears a claim through `goalPlaneWrite` instead, which already holds the
+   * Goal's own queue to make its write and cannot call back into this
+   * without deadlocking it (review round 2 on #1042); that path reads and
+   * records its own stop before it ever reaches here (`Host#releaseGoalCard`).
+   * A Goal wrap writes its document directly, without this engine either, and
+   * reads its cards' stops the same way before it saves (`Host#finishGoalWrap`).
+   *
+   * Reads the checkout's HEAD once, bounded by `STOP_HEAD_TIMEOUT_MS` so a
+   * checkout that cannot answer never hangs the round waiting on this card. A
+   * failed or timed-out read, or a session no longer live, records nothing —
+   * never a guess — and the card is left exactly as whatever last observed it
+   * showed (`EvidencePlane#lookAround`). Written back through this same
+   * engine's own board, so it lands beside the card in the one store that
+   * already persists it — a Goal's document, through the Team projection, or
+   * a legacy room's own file — and only while the card is still exactly as
+   * released as it was the moment this capture began: reclaimed since, its
+   * new claim is live and must not be bounded by a stale read.
+   *
+   * Tracked per room so `awaitStops` can wait for it before a round
+   * continues past the moment this card stopped.
+   */
+  #captureStop(room: string, id: number, claim: IntentClaim): Promise<void> {
+    const cwd = this.#port.cwdOf?.(claim.runtime, claim.sessionId) ?? null
+    if (!cwd || !this.#port.startOf) return Promise.resolve()
+    const work = (async () => {
+      const timedOut = Symbol('stop-capture-timeout')
+      let timer: ReturnType<typeof setTimeout>
+      const timeout = new Promise<typeof timedOut>((resolve) => {
+        timer = setTimeout(() => resolve(timedOut), STOP_HEAD_TIMEOUT_MS)
+      })
+      const read = await Promise.race([this.#port.startOf!(cwd).catch(() => null), timeout])
+      clearTimeout(timer!)
+      if (read === timedOut || !read?.head) return
+      const board = this.#boards.get(room)
+      const now = board?.intents.find((entry) => entry.id === id)
+      // Reclaimed since this began: a live claim measures to HEAD, not to this stale read.
+      if (!board || !now || now.claim !== null) return
+      this.#patchIntent(board, id, { until: read.head })
+      await this.#commit(board)
+    })()
+    let pending = this.#stopping.get(room)
+    if (!pending) {
+      pending = new Set()
+      this.#stopping.set(room, pending)
+    }
+    pending.add(work)
+    void work.finally(() => {
+      pending!.delete(work)
+      if (pending!.size === 0) this.#stopping.delete(room)
+    }).catch(() => undefined)
+    return work.catch((error: unknown) => {
+      this.#port.log?.('a card’s stop could not be recorded', {
+        room,
+        card: id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
+
+  /**
+   * Waits for every stop capture this room's cards have started but not yet
+   * landed. Called before a round continues past a card stopping — before
+   * `flows.completed`, so the round never opens its next card on a diff that
+   * has not yet learned where the one before it stopped.
+   */
+  async awaitStops(room: string): Promise<void> {
+    await Promise.all([...(this.#stopping.get(room) ?? [])])
   }
 
   /**
@@ -4845,6 +4951,16 @@ export class Team {
     }
     if (carried) this.#settleSave(carried, null)
     this.#problem = null
+    /* Whatever claim this write just cleared to nothing — a Goal Seat's own
+       release, chief among them — records where its checkout stood the same
+       way `#patchIntent` does (issue #1035), but not from here: the caller
+       above already holds the Goal's own queue to make this write (`save`
+       runs inside it), and `#captureStop` ends in a save of its own. Calling
+       it from here would queue that save behind this very write on the same
+       queue, and this write is what the queue is waiting to finish first —
+       a deadlock the moment a checkout ever actually answered (review round
+       2 on #1042). The caller records `until` itself, in the same patch this
+       write already carries, before it ever reaches this queue. */
     const now = this.#boards.get(goal) ?? board
     this.#port.changed(this.#stateOf(now))
     this.#wake(now)

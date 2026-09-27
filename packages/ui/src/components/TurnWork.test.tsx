@@ -61,7 +61,9 @@ it('keeps a failed turn and its failed step closed until each is opened', () => 
   expect(fold?.getAttribute('aria-expanded')).toBe('false')
   expect(fold?.textContent).toContain('· 1 failed')
   // A turn in trouble says so in the fold's label and its chevron, while closed.
-  expect(container.querySelector<HTMLElement>('[data-slot="turn-work-header-label"]')?.dataset['state']).toBe('trouble')
+  // The label composes the system's own `Text`, so its slot reads `text`
+  // like every other one; `data-state` is the header label's own mark.
+  expect(container.querySelector<HTMLElement>('[data-testid="turn-work"] [data-state]')?.dataset['state']).toBe('trouble')
   const chevron = container.querySelector('[data-slot="disclosure-chevron"]')
   expect(chevron?.getAttribute('data-tone')).toBe('warning')
   expect(chevron?.getAttribute('class')).toContain('text-(--hd-warning-ink)')
@@ -135,7 +137,9 @@ it('says a running turn is running in its ink, its live line, and its fold', () 
   const done: Turn = { ...running, id: turnId('turn-4'), status: 'completed', durationMs: 3000, items: [{ ...command, status: 'completed' } as unknown as AgentItem] }
   const snapshot = emptySnapshot()
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
-  const label = () => container.querySelector<HTMLElement>('[data-slot="turn-work-header-label"]')
+  // The label composes the system's own `Text`, so its slot reads `text` like
+  // every other one; `data-state` is the header label's own mark.
+  const label = () => container.querySelector<HTMLElement>('[data-testid="turn-work"] [data-state]')
 
   act(() => {
     root.render(
@@ -160,7 +164,9 @@ it('says a running turn is running in its ink, its live line, and its fold', () 
     )
   })
   expect(label()?.dataset['state']).toBe('done')
-  expect(label()?.className).not.toContain('text-(')
+  // Done keeps the row's own ink, composed rather than left to inherit —
+  // the same colour (`--hd-foreground` is the app's own default ink).
+  expect(label()?.className).toContain('text-(--hd-foreground)')
   expect(container.querySelector('[data-slot="turn-work-live"]')).toBeNull()
 })
 

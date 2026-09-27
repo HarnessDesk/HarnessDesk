@@ -244,15 +244,29 @@ const madeHere = async (cwd: string): Promise<ReadonlySet<string> | null> => {
  * every commit made in it while the card was held counts. With no usable
  * `since`, what the branch changes against the base branch it came from —
  * nothing, on the base branch itself.
+ *
+ * Measured up to `until` when it is given, never to HEAD as the checkout
+ * stands now: `until` is where a card's own checkout stood the moment it
+ * stopped being held (finished, released or abandoned), recorded once, at
+ * that moment. A card still held passes no `until`, and is measured all the
+ * way to HEAD, because its own work is still landing. A card that has
+ * stopped is measured to `until` on every later look, whatever else has
+ * since been committed on a checkout the next card goes on to share — so its
+ * diff never picks up work it never touched. When `until` is given and
+ * `since..until` cannot be computed at all (history rewritten, an object
+ * gone), the answer is null, never a diff against the base branch instead:
+ * a bound that was asked for and could not be kept is not answered with a
+ * different question in the same shape.
  */
 export const diffOf = async (
   cwd: string,
   since: Sha | null = null,
-  options: { readonly upstream?: Sha | null } = {},
+  options: { readonly upstream?: Sha | null; readonly until?: Sha | null } = {},
 ): Promise<{ readonly files: number; readonly added: number; readonly removed: number; readonly from: Sha; readonly to: Sha } | null> => {
   const revision = await revisionOf(cwd)
   if (!revision) return null
-  const began = since !== null && isSha(since) && (since === revision.head || (await gitOr(cwd, ['merge-base', '--is-ancestor', since, revision.head])) !== null)
+  const end = options.until ?? revision.head
+  const began = since !== null && isSha(since) && (since === end || (await gitOr(cwd, ['merge-base', '--is-ancestor', since, end])) !== null)
     ? since : null
   if (began !== null) {
     const here = await madeHere(cwd)
@@ -261,7 +275,7 @@ export const diffOf = async (
       : options.upstream !== undefined ? (options.upstream !== null && isSha(options.upstream) ? options.upstream : null)
         : await upstreamOf(cwd)
     const log = await gitOr(cwd, [
-      'log', '--first-parent', '--no-merges', '--numstat', '--format=%x00%H', `${began}..${revision.head}`,
+      'log', '--first-parent', '--no-merges', '--numstat', '--format=%x00%H', `${began}..${end}`,
       ...(setAside ? ['--not', setAside] : []), '--',
     ])
     if (log === null) return null
@@ -279,8 +293,15 @@ export const diffOf = async (
         removed += found[2] === '-' ? 0 : Number(found[2])
       }
     }
-    return { files: files.size, added, removed, from: began, to: revision.head }
+    return { files: files.size, added, removed, from: began, to: end }
   }
+  /* `until` was given, so a bound was asked for — this card has stopped,
+     never diffed against a live HEAD again. When the range to it cannot be
+     computed (history rewritten out from under it, an object gone), there is
+     no bound left to keep: falling back to a diff against the base branch
+     would be answering a different question with the same shape, silently.
+     No fact is better than a fact that looks like the one asked for. */
+  if (options.until !== undefined && options.until !== null) return null
   const base = await baseOf(cwd)
   if (!base) return null
   const from = (await gitOr(cwd, ['merge-base', base, revision.head]))?.trim() ?? ''

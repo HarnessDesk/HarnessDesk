@@ -139,6 +139,21 @@ export interface Intent {
    */
   readonly outcome?: string | null
   readonly claim?: IntentClaim | null
+  /**
+   * The commit its checkout stood at the moment its claim last went from held
+   * to nothing — finished, released, abandoned, blocked, taken over, or
+   * wrapped away, whichever it was — so a diff observed once it is no longer
+   * held is bounded to `claim.head` (or wherever `since` falls back to,
+   * `evidence/plane.ts`) through here, never to HEAD as the checkout stands
+   * whenever a board next happens to open (issue #1035). Recorded once, by
+   * the host, the moment the claim is cleared — never by the agent, and never
+   * guessed: a checkout that could not be read at that moment, or a claim
+   * cleared before this field existed, leaves this absent, and its card is
+   * never diffed unbounded to make up for that (`EvidencePlane#lookAround`).
+   * Cleared back to absent the moment the card is claimed again, since a live
+   * claim measures to HEAD, not to where it last stopped.
+   */
+  readonly until?: string | null
   /** Why it is blocked, when someone said so rather than a dependency. */
   readonly blockedReason?: string | null
   /**

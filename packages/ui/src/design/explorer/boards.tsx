@@ -147,7 +147,7 @@ const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'fl
 const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'table-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
-const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare'] as const
+const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare', 'row'] as const
 const INPUT_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
 const NATIVE_SELECT_CATALOG_VARIANTS = ['default', 'filled'] as const
 const NATIVE_SELECT_CATALOG_SIZES = ['default', 'compact'] as const
@@ -1371,7 +1371,11 @@ const MessageBoard = () => (
     >
       {PANECOLUMN_CATALOG_INSET.map((inset) => (
         <Case key={inset} label={`pane column: ${inset}`}>
-          <PaneColumnDemo inset={inset} data-catalog-inset={inset} rows={inset === 'rail' ? railRows : messageRows} />
+          <PaneColumnDemo
+            inset={inset}
+            data-catalog-inset={inset}
+            rows={inset === 'rail' ? railRows : messageRows}
+          />
         </Case>
       ))}
       <Case label="pane column: reading, clearing a composer">

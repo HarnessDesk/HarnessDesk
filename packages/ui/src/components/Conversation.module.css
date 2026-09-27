@@ -230,13 +230,6 @@
   flex-direction: column;
 }
 
-.loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
 /* Ambient state between the transcript and the composer. Zero height when
    nothing is running and no goal is set, so it costs nothing at rest.
 
