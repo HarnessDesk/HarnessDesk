@@ -291,3 +291,21 @@ test('a segmented control lifts its chosen answer off the track and never fades 
   await expect.poll(async () => brightness(await unchosen.evaluate(node => getComputedStyle(node).color)))
     .toBeLessThanOrEqual(resting)
 })
+
+/**
+ * The catalogue's "segmented" case draws a raw `ToggleGroup` (no `value`,
+ * only `defaultValue="one"`) for every variant and size, unlike `Segmented`
+ * above which always supplies a controlled `value`. A regression that turns
+ * a missing `value` into `[]` again makes Base UI treat the group as
+ * controlled-and-empty, so `defaultValue` never seeds a selection and every
+ * one of these renders with nothing pressed (`toggle-group.tsx`'s header
+ * comment names the fix). One item pressed, never zero or two.
+ */
+test('a raw toggle group seeds exactly one pressed item from defaultValue', async ({ page }) => {
+  await page.goto('/design.html?view=control')
+  const group = page.locator('[role="radiogroup"][data-catalog-variant="default"]')
+  await expect(group).toBeVisible()
+  await expect(group.getByRole('radio', { checked: true })).toHaveCount(1)
+  await expect(group.getByRole('radio', { name: 'One', exact: true })).toHaveAttribute('data-pressed', '')
+  await expect(group.getByRole('radio', { name: 'Two', exact: true })).not.toHaveAttribute('data-pressed')
+})
