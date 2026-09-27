@@ -96,9 +96,9 @@ test('audit source cache reads each present or missing stylesheet once and prese
   assert.throws(() => read('denied'), /denied/)
 })
 
-test('existing stylesheet co-ownership is capped at seven families and sixteen modules', () => {
-  assert.equal(Object.keys(STYLESHEET_OWNERS).length, 7)
-  assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 16)
+test('existing stylesheet co-ownership is capped at six families and eleven modules', () => {
+  assert.equal(Object.keys(STYLESHEET_OWNERS).length, 6)
+  assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 11)
 })
 
 test('single-screen pattern accounting recognizes non-Git screen families', () => {

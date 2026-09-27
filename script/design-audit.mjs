@@ -3132,11 +3132,9 @@ export const patternSourceAppearanceOf = (file, source, ast, countedDefs = new S
   ...inlineStyleAppearanceIn(file, source, ast, root).map((detail) => `${screenAppearanceName(file)}: ${detail}`),
 ]
 
-/** Existing screen families only, capped at sixteen additional owners across
- * seven families (raised from eleven across six for the Dashboard's split
- * into views, #1050 — the same shape `ToolPanes.module.css` already stood
- * for). An annotation documents membership; it cannot grant a new exception.
- * See AGENTS.md rule 11. Shared generic UI still belongs in design/. */
+/** Existing screen families only, capped at eleven additional owners. An
+ * annotation documents membership; it cannot grant a new exception. See
+ * AGENTS.md rule 11. Shared generic UI still belongs in design/. */
 export const STYLESHEET_OWNERS = Object.freeze({
   'components/Conversation.module.css': ['components/TurnTail.tsx'],
   'components/Items.module.css': ['components/MessageActions.tsx', 'components/StepGroup.tsx'],
@@ -3144,17 +3142,6 @@ export const STYLESHEET_OWNERS = Object.freeze({
   'components/Settings.module.css': ['components/Extensions.tsx'],
   'components/Sidebar.module.css': ['components/SessionTree.tsx'],
   'components/ToolPanes.module.css': ['components/BrowserPane.tsx', 'components/FilePane.tsx', 'components/PreviewPane.tsx', 'components/TerminalPane.tsx', 'components/ToolPaneHeader.tsx'],
-  // The Dashboard split into five views and a shared file of band components
-  // (#1050) — the same shape `ToolPanes.module.css` already stands for: one
-  // screen, several files, one stylesheet. `ActivityView.tsx` needs none of
-  // it and stays out.
-  'components/Usage.module.css': [
-    'components/usage/OverviewView.tsx',
-    'components/usage/PlansView.tsx',
-    'components/usage/SpendView.tsx',
-    'components/usage/ProjectsView.tsx',
-    'components/usage/shared.tsx',
-  ],
 })
 
 /** The space steps the system offers, as plain numbers. */
