@@ -1340,7 +1340,7 @@ export class Host {
         },
         seriesOfGoal: (goal) => this.#flows.seriesOfGoal(goal),
         overridesOfGoal: (goal) => this.#flows.overridesOfGoal(goal),
-        authorizeExtraRound: (run, round, reason) => this.#flows.authorizeExtraRound(run, round, reason),
+        authorizeExtraRound: (run, round, reason, count) => this.#flows.authorizeExtraRound(run, round, reason, count),
         recordExceptionDecision: (run, findings, admit) => this.#flows.recordExceptionDecision(run, findings, admit),
         recordOverride: (run, override) => this.#flows.recordOverride(run, override),
         stopRun: (run, reason) => this.#flows.stopRun(run, reason),

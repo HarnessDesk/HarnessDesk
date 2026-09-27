@@ -152,8 +152,8 @@ export interface FindingFlows {
   seriesOfGoal?(goal: string): readonly FindingSeries[]
   /** Every person override this Goal has recorded, across every run: what a wrap freezes into its receipt. */
   overridesOfGoal?(goal: string): readonly FindingOverride[]
-  /** A person's "Another round": one further transition past a recorded stop. */
-  authorizeExtraRound?(run: string, round: number, reason: string): Promise<FlowExecution>
+  /** A person's "Another round": `count` further transitions (default 1) past a recorded stop. */
+  authorizeExtraRound?(run: string, round: number, reason: string, count?: number): Promise<FlowExecution>
   /** A person admitting or declining a pending regression or security exception. */
   recordExceptionDecision?(run: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution>
   /** A person's recorded merge-anyway disagreement. */
@@ -1222,7 +1222,7 @@ export class FindingsPlane {
       const series = this.#port.flows.seriesOfGoal?.(input.goal) ?? snapshot.findings.series
       switch (input.action.kind) {
         case 'another-round':
-          await ops.authorizeExtraRound(input.round, reason)
+          await ops.authorizeExtraRound(input.round, reason, input.action.rounds ?? 1)
           break
         case 'admit-exceptions':
         case 'decline-exceptions': {
@@ -1443,7 +1443,7 @@ export function closeRound(input: {
   const closed = state.closedRounds.length + 1
   const decision = decideLoop({
     closed,
-    limit: Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + 1 : 0),
+    limit: Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + (state.extraRound.count ?? 1) : 0),
     idle: state.idleRounds,
     idleLimit: state.budget.withoutProgress,
     newProgress: progress.newProgress,

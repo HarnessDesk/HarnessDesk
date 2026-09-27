@@ -2,14 +2,14 @@ import { useState } from 'react'
 
 import type { FindingDecisionAction, FindingRunView } from '@harnessdesk/protocol'
 
-import { Banner, Button, Dialog, Note, Switch, Text, Textarea } from '../design'
+import { Banner, Button, Dialog, Input, Note, Switch, Text, Textarea } from '../design'
 import { useStore } from '../state/context'
 
 /**
- * The person's bounded controls on a stopped or stoppable run: one more
- * round, an override to merge anyway, or dropping it. Every action needs a
- * reason and the exact stamp this view was read at; a stale read (the run
- * moved on while this was open) is refused rather than silently retried.
+ * The person's bounded controls on a stopped or stoppable run: one or more
+ * further rounds, an override to merge anyway, or dropping it. Every action
+ * needs a reason and the exact stamp this view was read at; a stale read (the
+ * run moved on while this was open) is refused rather than silently retried.
  */
 
 export interface FindingDecisionProps {
@@ -18,11 +18,16 @@ export interface FindingDecisionProps {
   readonly onClose: () => void
 }
 
-const ACTIONS: readonly { readonly kind: 'another-round' | 'merge-anyway' | 'drop'; readonly label: string; readonly tone: 'default' | 'destructive' }[] = [
-  { kind: 'another-round', label: 'Authorise another round', tone: 'default' },
+const OTHER_ACTIONS: readonly { readonly kind: 'merge-anyway' | 'drop'; readonly label: string; readonly tone: 'default' | 'destructive' }[] = [
   { kind: 'merge-anyway', label: 'Merge anyway', tone: 'destructive' },
   { kind: 'drop', label: 'Drop', tone: 'destructive' },
 ]
+
+const MIN_ROUNDS = 1
+const MAX_ROUNDS = 20
+
+// The count is the label's own word, not a fact beside it (rule 9): one round reads as it always has.
+const anotherRoundLabel = (rounds: number): string => (rounds > 1 ? `Authorise ${rounds} more rounds` : 'Authorise another round')
 
 export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) => {
   const store = useStore()
@@ -30,6 +35,7 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
   const [pending, setPending] = useState<FindingDecisionAction['kind'] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [rounds, setRounds] = useState(MIN_ROUNDS)
 
   // Merge anyway needs a pull request the desk bound, whatever posting is set to; the reason is the desk's own.
   const mergeRefusal = view.boundPr ? null : (view.unbound ?? 'Publish a pull request before merging here.')
@@ -55,7 +61,9 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
     }
   }
 
-  const act = (kind: 'another-round' | 'merge-anyway' | 'drop'): Promise<void> => decide(kind, { kind })
+  const act = (kind: 'merge-anyway' | 'drop'): Promise<void> => decide(kind, { kind })
+  // Omitting `rounds` when it is the smallest step keeps the wire payload exactly what it always sent.
+  const authoriseRounds = (): Promise<void> => decide('another-round', rounds > 1 ? { kind: 'another-round', rounds } : { kind: 'another-round' })
 
   const actOnExceptions = (admit: boolean): Promise<void> => {
     const findings = [...selected]
@@ -128,7 +136,32 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
           </div>
         </div>
         <div className="flex flex-col gap-2">
-          {ACTIONS.map((action) => (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="default"
+              disabled={pending !== null || closed !== null}
+              title={closed ?? undefined}
+              onClick={() => void authoriseRounds()}
+            >
+              {pending === 'another-round' ? 'Working…' : anotherRoundLabel(rounds)}
+            </Button>
+            <Input
+              type="number"
+              controlSize="compact"
+              className="w-16"
+              aria-label="Number of rounds to authorise"
+              min={MIN_ROUNDS}
+              max={MAX_ROUNDS}
+              value={rounds}
+              disabled={pending !== null || closed !== null}
+              onChange={(event) => {
+                const parsed = Math.trunc(Number(event.target.value))
+                setRounds(Number.isFinite(parsed) ? Math.min(MAX_ROUNDS, Math.max(MIN_ROUNDS, parsed)) : MIN_ROUNDS)
+              }}
+            />
+          </div>
+          {OTHER_ACTIONS.map((action) => (
             <Button
               key={action.kind}
               type="button"

@@ -53,6 +53,35 @@ it('a blank reason refuses before any request, and a filled one dispatches exact
   })
 })
 
+it('the round count relabels the action and is sent only once it moves off the smallest step', async () => {
+  const decideFindingRun = vi.fn(async () => view())
+  const store = rig(decideFindingRun as never)
+  const onClose = vi.fn()
+  render(store, { goal: 'g1', view: view(), onClose })
+
+  const textarea = document.querySelector('textarea')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'a converging loop, let it run')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+
+  const input = document.querySelector('input[type="number"]') as HTMLInputElement
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '3')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const relabelled = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Authorise 3 more rounds')
+  expect(relabelled).toBeTruthy()
+  expect([...document.querySelectorAll('button')].some((one) => one.textContent === 'Authorise another round')).toBe(false)
+
+  await act(async () => { relabelled!.click() })
+  expect(decideFindingRun).toHaveBeenCalledTimes(1)
+  expect(decideFindingRun).toHaveBeenCalledWith({
+    goal: 'g1', run: 'run-1', round: 2, stamp: 'stamp-1',
+    action: { kind: 'another-round', rounds: 3 }, reason: 'a converging loop, let it run',
+  })
+})
+
 it('a refused decision keeps the dialog open and shows the reason, never a silent failure', async () => {
   const decideFindingRun = vi.fn(async () => { throw new Error('This run changed since you read it. Read it again before deciding.') })
   const store = rig(decideFindingRun as never)
