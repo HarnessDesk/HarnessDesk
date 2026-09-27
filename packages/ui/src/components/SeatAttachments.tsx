@@ -69,7 +69,10 @@ export const SeatAttachments = ({
         key={`${declaration.kind}:${declaration.name}`}
         title={declaration.name}
         {...(reason ? { desc: reason } : {})}
-        control={<Chip tone={loaded ? 'success' : 'warning'}>{loaded ? 'Loaded' : 'Not loaded'}</Chip>}
+        // Loaded is the resting, working state a declared attachment is
+        // meant to be in — health takes no tone, so it reads untoned; Not
+        // loaded is the one that stands out.
+        control={<Chip tone={loaded ? 'neutral' : 'warning'}>{loaded ? 'Loaded' : 'Not loaded'}</Chip>}
       />
     )
   }

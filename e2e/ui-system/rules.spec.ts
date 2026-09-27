@@ -13,10 +13,11 @@ import { expect, test, type Page } from '@playwright/test'
  * checker is not vacuous by breaking the rule with `page.addStyleTag` and
  * checking the same function reports it.
  *
- * A rule that already fails on the real app is written and left red, with
- * the violation named in a comment — not weakened or skipped. `docs/design.md`
- * ("## The rules") documents the measured values and the decisions made
- * where the tracking issue's numbers disagreed with what the app renders.
+ * A rule the real app violates is never weakened or skipped to pass it: the
+ * violation is named, and either the app is fixed or the rule is scoped to
+ * the deliberate difference (an interface's own choice, an owner question
+ * still open). `docs/design.md` ("## The rules") documents the measured
+ * values and which of those two happened, per rule.
  *
  * Selectors and driving techniques are reused from the specs already
  * exercising these surfaces — `row-height.spec.ts`'s token-probe and dial
@@ -93,7 +94,10 @@ const PROBE_HELPERS = `
  * `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are not
  * names — nothing in the docs table lists them, `Text`'s own comment calls
  * them "dashboard readouts", and `figure`/`metric` are deliberately semibold
- * — so the checker only looks at the six name roles.
+ * — so the checker only looks at the six name roles. A name drawn outside
+ * `Text`/`PageHead` altogether (`EmptyState`'s h3, a `Notices` title,
+ * `AgentCard`'s own name) is out of this rule's reach and tracked separately
+ * (#1072), not silently passed.
  *
  * Measured on `/preview.html`'s full set of mounted screens, across every
  * theme and interface (the pairs are named in tokens, not in the interface
@@ -116,6 +120,7 @@ type NameFinding = { role: string; text: string; size: number; weight: number; r
 const namesViolations = (page: Page) =>
   page.evaluate((pairs) => {
     const out: NameFinding[] = []
+    let measured = 0
     const nodes = [
       ...document.querySelectorAll('[data-slot="text"][data-role]'),
       ...document.querySelectorAll('[data-slot="page-title"]'),
@@ -127,6 +132,7 @@ const namesViolations = (page: Page) =>
       const wanted = (pairs as Record<string, { size: number; weight: number }>)[role]
       if (!wanted) continue
       if (!(el as HTMLElement).offsetParent && getComputedStyle(el).position !== 'fixed') continue
+      measured += 1
       const cs = getComputedStyle(el)
       const size = Math.round(parseFloat(cs.fontSize))
       const weight = Number(cs.fontWeight)
@@ -135,7 +141,7 @@ const namesViolations = (page: Page) =>
       else if (weight === 600 && role !== 'wordmark' && role !== 'page') out.push({ role, text, size, weight, reason: 'semibold outside the wordmark and the page title' })
       else if (size !== wanted.size || weight !== wanted.weight) out.push({ role, text, size, weight, reason: `role ${role} wants ${wanted.size}/${wanted.weight}` })
     }
-    return out
+    return { out, measured }
   }, NAME_PAIRS)
 
 test.describe('rule: names', () => {
@@ -145,11 +151,12 @@ test.describe('rule: names', () => {
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
         await setPreviewDials(page, theme, look)
-        for (const finding of await namesViolations(page)) findings.push({ ...finding, reason: `${theme}/${look}: ${finding.reason}` })
+        const { out, measured } = await namesViolations(page)
+        // A check that measures nothing must fail, not pass by default.
+        expect(measured, `${theme}/${look}: no name-role element was found`).toBeGreaterThan(0)
+        for (const finding of out) findings.push({ ...finding, reason: `${theme}/${look}: ${finding.reason}` })
       }
     }
-    // Known, real violations (see the rule's header comment) — left failing on
-    // purpose rather than weakened, per the programme's own instruction.
     expect(findings).toEqual([])
   })
 
@@ -158,8 +165,8 @@ test.describe('rule: names', () => {
     const before = await namesViolations(page)
     await page.addStyleTag({ content: '[data-slot="text"][data-role="row"] { font-size: 16px !important; }' })
     const after = await namesViolations(page)
-    expect(after.length).toBeGreaterThan(before.length)
-    expect(after.some((f) => f.reason.includes('16px'))).toBe(true)
+    expect(after.out.length).toBeGreaterThan(before.out.length)
+    expect(after.out.some((f) => f.reason.includes('16px'))).toBe(true)
   })
 })
 
@@ -233,53 +240,80 @@ test.describe('rule: group labels', () => {
 /* ========================================================================
  * Rule: destination rows
  *
- * A navigation row is `--hd-nav-h` tall wherever it appears: the sidebar's
- * session row (`components/SessionTree.tsx`, `[class*="rowWrap_"]` —
- * selector reused from `sidebar-roles.spec.ts`), the settings/usage rail row
- * (`AppWindow.tsx`'s `WindowNavItem`, `.winNavItem` — both windows share this
- * file), and a dropdown menu item (`design/ui/dropdown-menu.tsx`, all three
- * use the identical Tailwind recipe: `min-h-(--hd-nav-h)`, `py-1`,
- * `text-(length:--hd-text-sm)`, `leading-(--hd-line-sm)`).
+ * A navigation row is `--hd-nav-h` tall wherever it appears: every one of
+ * the sidebar's session rows (`components/SessionTree.tsx`, all of
+ * `[class*="rowWrap_"] button` — selector reused from
+ * `sidebar-roles.spec.ts`), every settings/usage rail row (`AppWindow.tsx`'s
+ * `WindowNavItem`, all of `.winNavItem` — both windows share this file), and
+ * a dropdown menu item (`design/ui/dropdown-menu.tsx`). The rail row and the
+ * menu item both carry the Tailwind `size="navigation"` recipe
+ * (`min-h-(--hd-nav-h)`, `py-1`, `text-(length:--hd-text-sm)`,
+ * `leading-(--hd-line-sm)`) with nothing else added; the sidebar's session
+ * row carries that same recipe too, but its `Button` also carries
+ * `Sidebar.module.css`'s own `.rowWrap`/`.row` rules (flex alignment, width,
+ * gap — no height or padding of their own). So the three are not one
+ * recipe repeated three times, but they render at one height because
+ * nothing the sidebar's own sheet adds touches height.
  *
- * Measured rather than assumed: at Desk, every one of the three renders
- * 30px tall while `--hd-nav-h` itself resolves to 29px — the row's line
- * height plus its padding exceeds the token's floor by a pixel, exactly as
- * #838 anticipated. At Studio, `--hd-nav-h` is a literal 34px and every row
- * measures exactly that — no split. So the honest assertion, chosen from
- * measurement: **every destination row is at least `--hd-nav-h` tall, and
- * the three destination-row kinds agree with each other in a given
- * theme/interface** (they do, at both 30/29 in Desk and 34/34 in Studio).
- * `row-height.spec.ts` already proves `--hd-row-h` and `--hd-nav-h` resolve
- * to the same token across every palette and interface; this spec measures
- * the rows themselves rather than the token alias.
+ * Measured rather than assumed, on every instance rather than one sample
+ * per kind: at Studio, `--hd-nav-h` is a literal 34px and every row of
+ * every kind measures exactly that — no split. At Desk the picture is not
+ * as clean as sampling one row of each kind used to suggest: every sidebar
+ * session row and the menu item render 30px, one pixel over the calc'd
+ * floor (29px) exactly as #838 anticipated — but of the settings/usage
+ * rail's own rows, only its identity row (`AppWindow.tsx`'s
+ * `WindowNavIdentity`, "You, at the top of the rail", carrying a face) is
+ * also 30px; the twenty-five-odd ordinary `WindowNavItem` rows sit exactly
+ * on the 29px floor with none of that pixel to spare. So at Desk the rail's
+ * own rows do not even agree with each other, and disagree with the
+ * sidebar and the menu item too — a real, live finding, left failing
+ * rather than narrowed to hide it. The assertion this checker makes is the
+ * honest one regardless of outcome: **every destination row, of every kind
+ * and every instance on the mounted screens, is at least `--hd-nav-h`
+ * tall, every row of one kind agrees with its own siblings, and the kinds
+ * agree with each other** — checked per theme/interface, on every row,
+ * not assumed once from a sample and reused. `row-height.spec.ts` already
+ * proves `--hd-row-h` and `--hd-nav-h` resolve to the same token across
+ * every palette and interface; this spec measures the rows themselves.
  */
 type RowFinding = { where: string; height: number; navH: number; reason: string }
 
-const destinationRowViolations = (page: Page) =>
-  page.evaluate((helpers) => {
+const destinationRowViolations = (page: Page, menuHeight?: number) =>
+  page.evaluate(([helpers, menuH]) => {
     // eslint-disable-next-line no-new-func
-    return new Function(`${helpers}
+    return new Function('menuH', `${helpers}
       const out = []
+      let measured = 0
       const navH = probeHeight('--hd-nav-h')
-      const rows = {
-        'sidebar session row': document.querySelector('[class*="rowWrap_"] button'),
-        'settings/usage rail row': document.querySelector('[class*="winNavItem"]'),
+      const measure = (selector) => [...document.querySelectorAll(selector)]
+        .filter(visible)
+        .map((el) => Math.round(el.getBoundingClientRect().height))
+      const groups = {
+        'sidebar session row': measure('[class*="rowWrap_"] button'),
+        'settings/usage rail row': measure('[class*="winNavItem"]'),
       }
-      const heights = {}
-      for (const [where, el] of Object.entries(rows)) {
-        if (!el || !visible(el)) continue
-        const height = Math.round(el.getBoundingClientRect().height)
-        heights[where] = height
-        if (height < navH) out.push({ where, height, navH, reason: 'shorter than --hd-nav-h' })
-      }
-      const distinct = new Set(Object.values(heights))
-      if (distinct.size > 1) {
-        for (const [where, height] of Object.entries(heights)) {
-          out.push({ where, height, navH, reason: 'destination rows disagree: ' + JSON.stringify(heights) })
+      if (menuH != null) groups['menu item'] = [menuH]
+      const representative = {}
+      for (const [where, list] of Object.entries(groups)) {
+        measured += list.length
+        for (const height of list) {
+          if (height < navH) out.push({ where, height, navH, reason: 'shorter than --hd-nav-h' })
+        }
+        const distinctOwn = new Set(list)
+        if (distinctOwn.size > 1) {
+          out.push({ where, height: list[0], navH, reason: where + "'s own rows disagree: " + JSON.stringify(list) })
+        } else if (distinctOwn.size === 1) {
+          representative[where] = list[0]
         }
       }
-      return out`)()
-  }, PROBE_HELPERS) as Promise<RowFinding[]>
+      const acrossKinds = new Set(Object.values(representative))
+      if (acrossKinds.size > 1) {
+        for (const [where, height] of Object.entries(representative)) {
+          out.push({ where, height, navH, reason: 'destination-row kinds disagree: ' + JSON.stringify(representative) })
+        }
+      }
+      return { out, measured }`)(menuH)
+  }, [PROBE_HELPERS, menuHeight] as const) as Promise<{ out: RowFinding[]; measured: number }>
 
 /** Opens the sidebar footer's account menu (reused from `visual-contracts.spec.ts`). */
 const openAccountMenu = async (page: Page) => {
@@ -290,20 +324,22 @@ const openAccountMenu = async (page: Page) => {
 }
 
 test.describe('rule: destination rows', () => {
-  test('rule: destination rows — the sidebar row, the settings/usage rail row and a menu item all stand at least --hd-nav-h and agree with each other', async ({ page }) => {
+  test('rule: destination rows — every sidebar row, every rail row and a menu item all stand at least --hd-nav-h and agree with each other', async ({ page }) => {
     await gotoPreview(page)
     const findings: (RowFinding & { where: string })[] = []
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
         await setPreviewDials(page, theme, look)
-        for (const finding of await destinationRowViolations(page)) findings.push({ ...finding, where: `${theme}/${look}: ${finding.where}` })
         // The menu item, measured the same way `visual-contracts.spec.ts`
-        // opens this same popover: a real DropdownMenuItem, not a fixture.
+        // opens this same popover: a real DropdownMenuItem, not a fixture —
+        // folded into the same agreement set the sidebar and rail rows are.
         await openAccountMenu(page)
         const menuHeight = await page.locator('[role="menuitem"]').first().evaluate((el) => Math.round(el.getBoundingClientRect().height))
-        const navH = await page.evaluate((helpers) => new Function(`${helpers}; return probeHeight('--hd-nav-h')`)(), PROBE_HELPERS) as number
-        if (menuHeight < navH) findings.push({ where: `${theme}/${look}: menu item`, height: menuHeight, navH, reason: 'shorter than --hd-nav-h' })
         await page.keyboard.press('Escape')
+        const { out, measured } = await destinationRowViolations(page, menuHeight)
+        // A check that measures nothing must fail, not pass by default.
+        expect(measured, `${theme}/${look}: no destination row was found`).toBeGreaterThan(0)
+        for (const finding of out) findings.push({ ...finding, where: `${theme}/${look}: ${finding.where}` })
       }
     }
     expect(findings).toEqual([])
@@ -315,21 +351,27 @@ test.describe('rule: destination rows', () => {
     const before = await destinationRowViolations(page)
     await page.addStyleTag({ content: '[class*="winNavItem"] { min-height: 10px !important; height: 10px !important; padding-top: 0 !important; padding-bottom: 0 !important; }' })
     const after = await destinationRowViolations(page)
-    expect(after.length).toBeGreaterThan(before.length)
+    expect(after.out.length).toBeGreaterThan(before.out.length)
   })
 })
 
 /* ========================================================================
  * Rule: fields
  *
- * Measured rather than assumed: at Desk, every default-size text field
+ * Measured rather than assumed: every default-size text field
  * (`design/ui/input.tsx`'s `Input`, and `Search`'s inner input,
  * `data-size="default"`) is 30px tall at 14px — exactly #838's number —
- * outside `[data-hd-density='comfortable']` (the settings and usage
- * windows), where Studio raises the rung to 36px via
- * `--hd-control-h-lg` (`foundation/tokens.css`, documented there as an
- * intentional density scope, not a second field system) — that scope is
- * excluded by name rather than asserted against.
+ * **including** inside `[data-hd-density='comfortable']` (the settings and
+ * usage windows) when the interface is Desk: `foundation/tokens.css`'s
+ * universal `[data-hd-density='comfortable']` block only restates
+ * `--hd-control-h` (the square controls), never `--hd-btn-h`/`--hd-field-h`
+ * — the file's own comment records a past regression where restating those
+ * two there dropped every labelled control in the settings and usage
+ * windows to 26px, and the fix was to move that restatement into the
+ * Studio-only scope beneath it. Only inside
+ * `body[data-hd-interface='studio'] [data-hd-density='comfortable']` does
+ * `--hd-field-h` become `--hd-control-h-lg`, 36px — a second, intentional
+ * density rung, checked as its own number rather than excluded.
  *
  * `Search`'s `compact` size (the sidebar's own filter,
  * `components/Sidebar.tsx`) is a second, deliberate rung of the *same*
@@ -339,9 +381,11 @@ test.describe('rule: destination rows', () => {
  */
 type FieldFinding = { where: string; height?: number; size?: string; reason: string }
 
-const fieldViolations = (page: Page) =>
-  page.evaluate(() => {
+const fieldViolations = (page: Page, look: 'desk' | 'studio') =>
+  page.evaluate((interfaceName) => {
     const out: { where: string; height?: number; size?: string; reason: string }[] = []
+    let measuredDefault = 0
+    let measuredComfortable = 0
     const comfortable = (el: Element) => el.closest('[data-hd-density="comfortable"]') != null
     const visible = (el: Element) => {
       const r = el.getBoundingClientRect()
@@ -352,12 +396,18 @@ const fieldViolations = (page: Page) =>
     const fields = document.querySelectorAll('[data-slot="input"][data-size="default"], [data-slot="search"][data-size="default"] input')
     const fontSizes = new Set<string>()
     for (const field of fields) {
-      if (comfortable(field) || !visible(field)) continue
+      if (!visible(field)) continue
+      measuredDefault += 1
+      const inComfortable = comfortable(field)
+      if (inComfortable) measuredComfortable += 1
+      // Only Studio's comfortable scope raises the rung; Desk's own
+      // comfortable windows stay on the ordinary 30px field.
+      const wantHeight = interfaceName === 'studio' && inComfortable ? 36 : 30
       const cs = getComputedStyle(field)
       fontSizes.add(cs.fontSize)
       const height = Math.round(field.getBoundingClientRect().height)
-      if (height !== 30 || cs.fontSize !== '14px') {
-        out.push({ where: field.getAttribute('data-slot') ?? field.tagName, height, size: cs.fontSize, reason: 'default field is not 30px/14px' })
+      if (height !== wantHeight || cs.fontSize !== '14px') {
+        out.push({ where: field.getAttribute('data-slot') ?? field.tagName, height, size: cs.fontSize, reason: `default field is not ${wantHeight}px/14px` })
       }
     }
     const compactSearches = document.querySelectorAll('[data-slot="search"][data-size="compact"] input')
@@ -375,17 +425,23 @@ const fieldViolations = (page: Page) =>
       if (!/search|filter/.test(placeholder)) continue
       if (!input.closest('[data-slot="search"]')) out.push({ where: placeholder, reason: 'a filter field outside the shared Search pattern' })
     }
-    return out
-  })
+    return { out, measuredDefault, measuredComfortable }
+  }, look)
 
 test.describe('rule: fields', () => {
-  test('rule: fields — default fields are 30px/14px outside the comfortable density scope, and every filter uses one Search pattern', async ({ page }) => {
+  test('rule: fields — default fields are 30px/14px (36px in Studio\'s comfortable scope), and every filter uses one Search pattern', async ({ page }) => {
     await gotoPreview(page)
     const findings: (FieldFinding & { where: string })[] = []
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
         await setPreviewDials(page, theme, look)
-        for (const finding of await fieldViolations(page)) findings.push({ ...finding, where: `${theme}/${look}: ${finding.where}` })
+        const { out, measuredDefault, measuredComfortable } = await fieldViolations(page, look)
+        // A check that measures nothing must fail, not pass by default —
+        // and the comfortable scope (settings/usage) is where the two
+        // interfaces actually disagree, so it has to be exercised too.
+        expect(measuredDefault, `${theme}/${look}: no default field was found`).toBeGreaterThan(0)
+        expect(measuredComfortable, `${theme}/${look}: no field inside the comfortable density scope was found`).toBeGreaterThan(0)
+        for (const finding of out) findings.push({ ...finding, where: `${theme}/${look}: ${finding.where}` })
       }
     }
     expect(findings).toEqual([])
@@ -393,10 +449,10 @@ test.describe('rule: fields', () => {
 
   test('rule: fields — the checker catches a default field pushed off 30px/14px', async ({ page }) => {
     await gotoPreview(page)
-    const before = await fieldViolations(page)
+    const before = await fieldViolations(page, 'desk')
     await page.addStyleTag({ content: '[data-slot="input"][data-size="default"] { height: 40px !important; font-size: 16px !important; }' })
-    const after = await fieldViolations(page)
-    expect(after.length).toBeGreaterThan(before.length)
+    const after = await fieldViolations(page, 'desk')
+    expect(after.out.length).toBeGreaterThan(before.out.length)
   })
 })
 
@@ -410,8 +466,41 @@ test.describe('rule: fields', () => {
  * This does not repeat that assertion; it wraps the identical comparison in
  * a checker function so the rule can be proven mutation-sensitive, which the
  * existing spec (no `addStyleTag`) does not do.
+ *
+ * The catalogue rig proves the contract in the abstract; a second check
+ * below proves it on two real destinations `/preview.html` already selects
+ * by default — the sidebar's active session row (`data-active`) and the
+ * settings rail's current page (`data-selected`, "General") — against an
+ * unselected sibling of the same kind, in every theme and interface.
  */
 type SelectionFinding = { pair: string; reason: string }
+
+const realSelectionViolations = (page: Page) =>
+  page.evaluate(() => {
+    const out: { pair: string; reason: string }[] = []
+    let measured = 0
+    const compare = (pair: string, selectedSelector: string, restingSelector: string) => {
+      const selected = document.querySelector(selectedSelector) as HTMLElement | null
+      const resting = document.querySelector(restingSelector) as HTMLElement | null
+      if (!selected || !resting) return
+      measured += 1
+      const s = getComputedStyle(selected)
+      const r = getComputedStyle(resting)
+      if (s.backgroundColor === r.backgroundColor) out.push({ pair, reason: 'the selected row has no fill its neighbour lacks' })
+      if (s.fontWeight !== r.fontWeight) out.push({ pair, reason: `weight changed: ${r.fontWeight} → ${s.fontWeight}` })
+    }
+    compare(
+      'sidebar session row',
+      '[class*="rowWrap_"] button[data-active]',
+      '[class*="rowWrap_"] button:not([data-active])',
+    )
+    compare(
+      'settings/usage rail row',
+      '[class*="winNavItem"][data-selected]',
+      '[class*="winNavItem"]:not([data-selected])',
+    )
+    return { out, measured }
+  })
 
 const SELECTION_PAIRS: [string, 'button' | 'radio', string, 'button' | 'radio'][] = [
   ['Resting page', 'button', 'Chosen page', 'button'],
@@ -452,6 +541,21 @@ test.describe('rule: selection', () => {
     const after = await selectionViolations(page)
     expect(after.length).toBeGreaterThan(before.length)
   })
+
+  test('rule: selection — a real selected sidebar row and settings rail row keep the contract, in every theme and interface', async ({ page }) => {
+    await gotoPreview(page)
+    const findings: (SelectionFinding & { where: string })[] = []
+    for (const theme of ['light', 'dark'] as const) {
+      for (const look of ['desk', 'studio'] as const) {
+        await setPreviewDials(page, theme, look)
+        const { out, measured } = await realSelectionViolations(page)
+        // A check that measures nothing must fail, not pass by default.
+        expect(measured, `${theme}/${look}: no selected/resting pair was found`).toBe(2)
+        for (const finding of out) findings.push({ ...finding, where: `${theme}/${look}` })
+      }
+    }
+    expect(findings).toEqual([])
+  })
 })
 
 /* ========================================================================
@@ -460,13 +564,15 @@ test.describe('rule: selection', () => {
  * `tokens.contrast.test.ts` proves the token pair clears AA on
  * `--hd-background`, `--hd-card`, `--hd-sidebar` and `--hd-popover` — this
  * asserts the *rendered* result for the label tiers, including the "plate"
- * ground (`Card variant="plate"`, `--hd-card-fill`) the token test does not
- * cover. A small fixture mounts a real `Text role="meta"` (the tertiary
- * tier) on each real ground: `document.body` for the page, `Card` for the
- * card, `Card variant="plate"` for the plate, and — since a popover has to
- * be open and a sidebar plate has no bare ground of its own — the raw
- * `--hd-popover`/`--hd-sidebar` tokens applied directly, which read the same
- * live custom property every real popover and the real sidebar read.
+ * ground (`--hd-card-fill`, the fill `Card variant="plate"` paints itself
+ * with) the token test does not cover. A small fixture mounts a real `Text
+ * role="meta"` (the tertiary tier) on each real ground: the real `Card`
+ * component for the card ground (so the text sits inside an actual card
+ * rather than under one), and — since a popover has to be open and neither
+ * a plate nor the sidebar has a bare ground of its own to mount into — the
+ * raw `--hd-card-fill`/`--hd-popover`/`--hd-sidebar` tokens applied
+ * directly on a plain div, which read the same live custom property every
+ * real plate, popover and sidebar read.
  */
 const mountInkGrounds = async (page: Page) => {
   await page.route('**/src/preview/main.tsx*', async (route) => {
@@ -526,12 +632,21 @@ const tertiaryInkViolations = (page: Page) =>
       return (hi + 0.05) / (lo + 0.05)
     }
     const out: InkFinding[] = []
+    const grounds: string[] = []
     for (const el of document.querySelectorAll('[aria-label="Ink grounds fixture"] [data-ground]')) {
       const ground = el.getAttribute('data-ground') ?? ''
       const text = el.querySelector('[data-slot="text"]') ?? el.querySelector('span')
       if (!text) continue
+      grounds.push(ground)
       const ink = parse(getComputedStyle(text).color)
-      let bgEl: Element | null = el
+      // Start the walk at the text's own parent, not at the ground `div`:
+      // the card ground wraps its `Text` in a real `Card`, whose painted
+      // background is a *descendant* of the ground div, never an ancestor
+      // of it. Starting at the ground div and walking up skips the card
+      // entirely and lands on the page behind it — the bug this comment
+      // used to hide (the card ground read 3.92:1 against `--hd-background`
+      // and reported it as the card's own contrast).
+      let bgEl: Element | null = text.parentElement
       let bg = null
       while (bgEl && (!bg || bg.a === 0)) {
         bg = parse(getComputedStyle(bgEl).backgroundColor)
@@ -541,7 +656,7 @@ const tertiaryInkViolations = (page: Page) =>
       const ratio = contrast(ink, bg)
       if (ratio < AA) out.push({ ground, ratio: Math.round(ratio * 100) / 100 })
     }
-    return out
+    return { out, grounds }
   })
 
 test.describe('rule: tertiary ink', () => {
@@ -551,7 +666,13 @@ test.describe('rule: tertiary ink', () => {
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
         await setPreviewDials(page, theme, look)
-        for (const finding of await tertiaryInkViolations(page)) findings.push({ ...finding, where: `${theme}/${look}` })
+        const { out, grounds } = await tertiaryInkViolations(page)
+        // A check that measures nothing must fail, not pass by default —
+        // and a check that silently skips a ground is the same failure
+        // wearing a green checkmark, so all five have to show up by name.
+        expect(new Set(grounds), `${theme}/${look}: not all five grounds were measured`)
+          .toEqual(new Set(['page', 'card', 'plate', 'popover', 'sidebar']))
+        for (const finding of out) findings.push({ ...finding, where: `${theme}/${look}` })
       }
     }
     expect(findings).toEqual([])
@@ -560,10 +681,19 @@ test.describe('rule: tertiary ink', () => {
   test('rule: tertiary ink — the checker catches a tertiary label matching its own ground', async ({ page }) => {
     await mountInkGrounds(page)
     const before = await tertiaryInkViolations(page)
-    await page.addStyleTag({ content: '[data-ground="card"] [data-slot="text"] { color: var(--hd-card) !important; }' })
+    // `--hd-card` and `--hd-background` render as the same white in light
+    // Desk, so matching the text to `--hd-card` used to pass this test
+    // whichever ground the walk actually read — proving nothing about the
+    // card specifically. Giving the card ground its own, arbitrary fill and
+    // matching the text to *that* only passes once the walk reads the
+    // card's own background rather than falling through to the page's.
+    await page.addStyleTag({ content: `
+      [data-ground="card"] [data-slot="card"] { background-color: rgb(10, 40, 90) !important; }
+      [data-ground="card"] [data-slot="text"] { color: rgb(12, 42, 92) !important; }
+    ` })
     const after = await tertiaryInkViolations(page)
-    expect(after.length).toBeGreaterThan(before.length)
-    expect(after.some((f) => f.ground === 'card')).toBe(true)
+    expect(after.out.length).toBeGreaterThan(before.out.length)
+    expect(after.out.some((f) => f.ground === 'card')).toBe(true)
   })
 })
 
@@ -624,29 +754,50 @@ const mountRingFixture = async (page: Page) => {
 
 type RingFinding = { control: string; reason: string }
 
-/** Focuses the control by keyboard (see the `Shift` trick above) and checks its ring. */
+/**
+ * Focuses the control by keyboard (see the `Shift` trick above) and checks
+ * its ring against its own *resting* state, not against the literal string
+ * `'none'` — a Studio field already carries a resting `box-shadow`
+ * (`--hd-input-shadow`, the "transparent field with a hairline on a white
+ * page is a rectangle drawn on paper" token from "Dialog forms" above), so
+ * `boxShadow !== 'none'` was true whether or not focus had drawn anything:
+ * a vacuous pass on the one interface that most needed the check. The ring
+ * has to *add* something the resting state does not have.
+ *
+ * The wrapper-repeat check is the same idea one level up: an ancestor is
+ * read at rest and again while the control is focused, and *any* new
+ * outline or box-shadow that appears on it — not only an identical copy of
+ * the control's own — is a repeat, because a real regression is as likely
+ * to add its own ring's shape as to copy the control's.
+ */
 const focusAndCheckRing = (page: Page, testId: string, kind: 'outline' | 'shadow') =>
   page.evaluate(([id, ringKind]) => {
     const out: { control: string; reason: string }[] = []
     const el = document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null
     if (!el) { out.push({ control: id, reason: 'control not found' }); return out }
+    const ancestors: HTMLElement[] = []
+    for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) ancestors.push(node)
+    const read = (node: Element) => ({ outline: getComputedStyle(node).outlineStyle, shadow: getComputedStyle(node).boxShadow })
+
+    el.blur()
+    const restingOwn = read(el)
+    const restingAncestors = ancestors.map(read)
+
     el.focus()
     if (el !== document.activeElement || !el.matches(':focus-visible')) {
       out.push({ control: id, reason: 'did not match :focus-visible' })
       return out
     }
-    const own = getComputedStyle(el)
-    const ringDrawn = ringKind === 'outline' ? own.outlineStyle !== 'none' : own.boxShadow !== 'none'
-    if (!ringDrawn) out.push({ control: id, reason: 'no ring drawn on focus' })
-    let node = el.parentElement
-    while (node && node !== document.body) {
-      const cs = getComputedStyle(node)
-      if (cs.outlineStyle !== 'none') out.push({ control: id, reason: `an ancestor (${node.className}) also draws an outline` })
-      if (ringKind === 'shadow' && cs.boxShadow !== 'none' && cs.boxShadow === own.boxShadow) {
-        out.push({ control: id, reason: `an ancestor (${node.className}) repeats the field's own box-shadow` })
-      }
-      node = node.parentElement
-    }
+    const focusedOwn = read(el)
+    const ringAdded = ringKind === 'outline' ? focusedOwn.outline !== restingOwn.outline : focusedOwn.shadow !== restingOwn.shadow
+    if (!ringAdded) out.push({ control: id, reason: 'focusing added no ring (resting and focused states match)' })
+
+    ancestors.forEach((ancestor, index) => {
+      const now = read(ancestor)
+      const before = restingAncestors[index]
+      if (now.outline !== before.outline) out.push({ control: id, reason: `an ancestor (${ancestor.className}) started drawing an outline on focus` })
+      if (now.shadow !== before.shadow) out.push({ control: id, reason: `an ancestor (${ancestor.className}) started drawing a box-shadow on focus` })
+    })
     return out
   }, [testId, kind] as const) as Promise<RingFinding[]>
 
@@ -690,7 +841,7 @@ test.describe('rule: focus ring', () => {
     await page.addStyleTag({ content: '.ring-fixture-wrapper:focus-within { outline: 2px solid red; }' })
     const after = await ringViolations(page)
     expect(after.length).toBeGreaterThan(before.length)
-    expect(after.some((f) => f.reason.includes('also draws an outline'))).toBe(true)
+    expect(after.some((f) => f.reason.includes('started drawing an outline on focus'))).toBe(true)
   })
 })
 
@@ -760,49 +911,105 @@ test.describe('rule: monospace', () => {
  * A reading that says nothing is wrong is not painted the success colour —
  * `design/patterns/Settings.tsx`'s own `Chip` doc says as much ("A default
  * or normal state is `neutral` or has no chip at all… Colour on every row is
- * noise that hides the one row that needs someone"). Operationalised as:
- * a leaf element whose text is the app's own word for that state, "Healthy"
- * (`lib/provenance.ts`'s `captureWords`, `state === 'healthy'`), must not
- * compute the resolved `--hd-success-ink` colour.
+ * noise that hides the one row that needs someone"). Operationalised as: a
+ * leaf element whose *whole* text is one of the app's own words for a
+ * resting, nothing-to-report state — "Healthy", "Armed", "On", "Loaded" —
+ * must not compute the resolved `--hd-success-ink` colour, and must not sit
+ * on an ancestor filled with `--hd-success-dim` or `--hd-success` (a tone
+ * can paint a chip's fill or a dot instead of the text itself). The word
+ * list is deliberately short and exact-matched (not "contains"): a verdict
+ * or a recorded fact — "Open", "Merged", "Passed", a `+120` diff count — is
+ * not this rule's target and stays green; `docs/design.md` says which
+ * candidates were considered and left out, and why.
  *
- * Reachable on `/preview.html`'s "Project — capture" frame, which reads a
- * healthy capture: `lib/provenance.ts`'s `captureWords` gave it the success
- * tone until this rule found it, and now gives it none.
+ * Three real violators, found by widening past "Healthy" alone, all fixed
+ * the same way (the resting half of the pair goes untoned, the non-resting
+ * half keeps its own tone):
+ *
+ * - `lib/provenance.ts`'s `captureWords`: a healthy capture read "Healthy"
+ *   in the success tone.
+ * - `components/ProjectTriggers.tsx`'s `STATE_WORDS.armed`: an armed
+ *   trigger read "Armed" in the success tone, the one state in that table
+ *   that was toned at all — `off` is neutral.
+ * - `components/SkillSheet.tsx`'s runtime-reach row: a skill a runtime
+ *   reaches read "On" in the success tone; "Off" already had none.
+ * - `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in
+ *   the success tone; "Not loaded" keeps its warning, which is a verdict.
+ *
+ * A budget meter (`AgentCard`'s `meter`, `AgentCards.tsx`'s context/plan
+ * readings) is explicitly out of scope — an open owner question, #1061 —
+ * and not part of this checker's word list.
  */
+const HEALTH_RESTING_WORDS = ['Healthy', 'Armed', 'On', 'Loaded']
+
 type HealthFinding = { text: string; tag: string }
 
 const healthToneViolations = (page: Page, root = 'body') =>
-  page.evaluate(([helpers, rootSelector]) => {
+  page.evaluate(([helpers, rootSelector, words]) => {
     // eslint-disable-next-line no-new-func
-    return new Function('rootSelector', `${helpers}
+    return new Function('rootSelector', 'words', `${helpers}
       const out = []
+      let measured = 0
       const successInk = probeColor('color: var(--hd-success-ink)')
+      const successDim = probeColor('background-color: var(--hd-success-dim)')
+      const successSolid = probeColor('background-color: var(--hd-success)')
+      // The nearest painted background, walking up from the reading itself
+      // — a chip's fill (or a status dot's) is its own box, not the leaf
+      // text node's, the same reason the tertiary-ink walk above starts
+      // from the text and climbs rather than starting from a box and
+      // assuming its own background is the one that matters.
+      const opaqueBg = (el) => {
+        let node = el
+        while (node) {
+          const bg = getComputedStyle(node).backgroundColor
+          if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg
+          node = node.parentElement
+        }
+        return null
+      }
       const scope = document.querySelector(rootSelector) ?? document.body
       for (const el of scope.querySelectorAll('*')) {
         if (el.children.length > 0) continue
         const text = (el.textContent || '').trim()
-        if (!/\\bHealthy\\b/.test(text)) continue
+        if (!words.includes(text)) continue
         if (!visible(el)) continue
-        if (getComputedStyle(el).color === successInk) out.push({ text: text.slice(0, 40), tag: el.tagName })
+        measured += 1
+        const cs = getComputedStyle(el)
+        const bg = opaqueBg(el)
+        const toned = cs.color === successInk || bg === successDim || bg === successSolid
+        if (toned) out.push({ text: text.slice(0, 40), tag: el.tagName })
       }
-      return out`)(rootSelector)
-  }, [PROBE_HELPERS, root] as const) as Promise<HealthFinding[]>
+      return { out, measured }`)(rootSelector, words)
+  }, [PROBE_HELPERS, root, HEALTH_RESTING_WORDS] as const) as Promise<{ out: HealthFinding[]; measured: number }>
 
 test.describe('rule: health takes no tone', () => {
-  test('rule: health takes no tone — a "Healthy" reading is not rendered in the success ink', async ({ page }) => {
+  test('rule: health takes no tone — a resting-state reading is not rendered in the success colour, in every theme and interface', async ({ page }) => {
     await gotoPreview(page)
     // The capture frame loads its health asynchronously; give it a beat.
+    // (The armed trigger in `ProjectTriggers`'s own preview fixture is
+    // synchronous, but capture's `state: 'healthy'` is the one that has to
+    // be waited for.)
     await expect.poll(async () => page.locator('text=Healthy').count()).toBeGreaterThan(0)
-    const findings = await healthToneViolations(page)
+    const findings: (HealthFinding & { where: string })[] = []
+    for (const theme of ['light', 'dark'] as const) {
+      for (const look of ['desk', 'studio'] as const) {
+        await setPreviewDials(page, theme, look)
+        const { out, measured } = await healthToneViolations(page)
+        // A check that measures nothing must fail, not pass by default.
+        expect(measured, `${theme}/${look}: no resting-state reading was found`).toBeGreaterThan(0)
+        for (const finding of out) findings.push({ ...finding, where: `${theme}/${look}` })
+      }
+    }
     expect(findings).toEqual([])
   })
 
-  test('rule: health takes no tone — the checker catches a healthy reading painted in the success ink', async ({ page }) => {
-    // A controlled fixture, since the real violation already trips the
+  test('rule: health takes no tone — the checker catches a resting-state reading painted in the success ink', async ({ page }) => {
+    // A controlled fixture, since the real violations already trip the
     // checker above and would make this test prove nothing about the
-    // checker's sensitivity on its own: a plain, correctly-neutral "Healthy"
+    // checker's own sensitivity: a plain, correctly-neutral "Healthy"
     // reading, then mutated to the success colour with page.addStyleTag —
-    // the same regression the real Chip already has, reproduced on demand.
+    // the same shape of regression the real Chips had, reproduced on demand
+    // so the check stays proven even after every known site is fixed.
     await page.route('**/src/preview/main.tsx*', async (route) => {
       const response = await route.fetch()
       const source = await response.text()
@@ -824,15 +1031,15 @@ test.describe('rule: health takes no tone', () => {
     })
     await page.goto('/preview.html')
     await expect(page.getByRole('region', { name: 'Health tone fixture' })).toBeVisible()
-    // Scoped to the fixture alone: the real page also carries the live
-    // violation this rule already reports above, so an unscoped read would
-    // never be empty and would prove nothing about this fixture specifically.
+    // Scoped to the fixture alone: the real page also carries other
+    // resting-state readings this rule already reads above, so an unscoped
+    // read would prove nothing about this fixture's own mutation.
     const scope = '[aria-label="Health tone fixture"]'
     const before = await healthToneViolations(page, scope)
-    expect(before).toEqual([])
+    expect(before.out).toEqual([])
     await page.addStyleTag({ content: `${scope} [data-slot="chip"] { color: var(--hd-success-ink) !important; }` })
     const after = await healthToneViolations(page, scope)
-    expect(after.length).toBeGreaterThan(before.length)
-    expect(after.some((f) => f.text.includes('Healthy'))).toBe(true)
+    expect(after.out.length).toBeGreaterThan(before.out.length)
+    expect(after.out.some((f) => f.text.includes('Healthy'))).toBe(true)
   })
 })

@@ -778,6 +778,11 @@ name out of rule: the pull-request card's title (`components/Publication.tsx`)
 wore `weight="semibold"`, the weight `weight` exists for lifting a search
 match inside a line. It now takes its row role's own 13/500.
 
+The check covers a name drawn through `Text`/`PageHead` only. A name drawn
+some other way — `EmptyState`'s own heading, a `Notices` title, `AgentCard`'s
+name — is out of this rule's reach for now and tracked separately (#1072),
+not silently passed by this one.
+
 ### Group labels
 
 `GroupLabel`'s computed `text-transform` is never `uppercase`, in every
@@ -794,36 +799,60 @@ capitals and for a heavier weight.
 ### Destination rows
 
 A navigation row stands the same height everywhere it appears: the sidebar's
-session row, the settings/usage rail row (`AppWindow.tsx`'s `WindowNavItem`),
-and a dropdown menu item all share one Tailwind recipe (`min-h-(--hd-nav-h)`,
-the reading size at `--hd-line-sm`, one step of padding).
+session row (`components/SessionTree.tsx`), the settings/usage rail row
+(`AppWindow.tsx`'s `WindowNavItem`), and a dropdown menu item
+(`design/ui/dropdown-menu.tsx`). The rail row and the menu item carry the
+Tailwind `size="navigation"` recipe (`min-h-(--hd-nav-h)`, `py-1`, the
+reading size at `--hd-line-sm`) with nothing else added; the sidebar's
+session row carries the same recipe plus `Sidebar.module.css`'s own
+`.rowWrap`/`.row` rules (flex alignment, width, gap — no height or padding
+of their own). It is one height, not one recipe repeated three times.
 
-Measured rather than assumed: at Desk every one of the three renders 30px
-tall while `--hd-nav-h` itself resolves to 29px (the row's line height plus
-its padding exceeds the token's own floor by a pixel); at Studio, where
-`--hd-nav-h` is a literal 34px, all three land on exactly that. So the rule
-holds as **at least `--hd-nav-h`, and equal across the destination rows of
-one surface** — chosen from measurement, not assumed from the token's name.
-`row-height.spec.ts` already proves `--hd-row-h` and `--hd-nav-h` resolve to
-the same token across every palette and interface; `rules.spec.ts` ("rule:
-destination rows") measures the rows themselves, not the token alias.
+Measured rather than assumed, on every instance of every kind, not one
+sample per kind: at Studio, `--hd-nav-h` is a literal 34px and every row of
+every kind lands on exactly that. At Desk the honest picture is not as
+clean as one sample suggested: every sidebar session row and the menu item
+render 30px, a pixel over the calc'd floor (29px), as the row's line height
+plus its padding are bound to; but of the settings/usage rail's own rows,
+only its identity row (`WindowNavIdentity`, "You, at the top of the rail",
+the one row with a face) is also 30px — the rest of its ordinary
+`WindowNavItem` rows sit exactly on the 29px floor. **At Desk the rail's
+own rows do not agree with each other, and disagree with the sidebar and
+the menu item.** Left failing rather than narrowed to hide it: the rule
+holds as **every destination row of every kind is at least `--hd-nav-h`
+tall, every row of one kind agrees with its own siblings, and the kinds
+agree with each other**, checked per theme and interface and per instance
+— which is true at Studio and false at Desk today. `row-height.spec.ts`
+already proves `--hd-row-h` and `--hd-nav-h` resolve to the same token
+across every palette and interface; `rules.spec.ts` ("rule: destination
+rows") measures the rows themselves, every one of them, not the token
+alias.
 
 ### Fields
 
 A default-size text field (`Input`, and `Search`'s inner input) is 30px tall
-at 14px — matching the programme's own number — outside
-`[data-hd-density="comfortable"]` (the settings and usage windows), where
-Studio raises the rung to 36px via `--hd-control-h-lg` ("Controls and
-buttons" above documents this scope by name; it is a second, intentional
-density rung, not a second field system). `Search`'s `compact` size (the
-sidebar's own filter) is a third, deliberate rung of the same pattern — 24px
-tall, at the same 14px — not a second Search: every filter field in the app
-renders through the one `Search` component.
+at 14px — matching the programme's own number — **including** inside
+`[data-hd-density="comfortable"]` (the settings and usage windows) under
+Desk: the universal `[data-hd-density="comfortable"]` block only restates
+`--hd-control-h` ("Controls and buttons" above), never `--hd-btn-h` or
+`--hd-field-h`. `design/foundation/tokens.css`'s own comment records the regression
+that happens when it does — every labelled control in the settings and
+usage windows quietly dropped to 26px, because a derived token like
+`--hd-field-h: var(--hd-btn-h)` freezes to a number where it is declared,
+so restating `--hd-btn-h` in the wrong scope silently moved every consumer
+that had already frozen a copy of it. Only inside
+`body[data-hd-interface="studio"] [data-hd-density="comfortable"]` does
+`--hd-field-h` become `--hd-control-h-lg`, 36px — a second, intentional
+density rung, not a second field system, checked as its own number rather
+than excluded. `Search`'s `compact` size (the sidebar's own filter) is a
+third, deliberate rung of the same pattern — 24px tall, at the same 14px —
+not a second Search: every filter field in the app renders through the one
+`Search` component.
 
-Enforced by `rules.spec.ts` ("rule: fields"), which asserts the 30px/14px
-pair outside the comfortable scope, that the compact and default rungs agree
-on font size, and that every input whose placeholder reads as a filter sits
-under `[data-slot="search"]`.
+Enforced by `rules.spec.ts` ("rule: fields"), which asserts 30px/14px
+everywhere except Studio's comfortable scope, 36px/14px inside it, that the
+compact and default rungs agree on font size, and that every input whose
+placeholder reads as a filter sits under `[data-slot="search"]`.
 
 ### Selection
 
@@ -836,7 +865,11 @@ pairwise, on the `view=propagation` catalogue rig. `rules.spec.ts` ("rule:
 selection") does not repeat that comparison; it wraps the identical read in
 a checker function and mutates the page (`page.addStyleTag`, removing a
 chosen row's fill) to prove the check is not vacuous, which the existing
-spec does not do.
+spec does not do. A second check reads two real destinations `/preview.html`
+selects by default — the sidebar's active session row and the settings
+rail's current page — against an unselected sibling of the same kind, in
+every theme and interface: the catalogue rig proves the contract in the
+abstract, this proves it on the app.
 
 ### Tertiary ink
 
@@ -845,10 +878,18 @@ popover and sidebar grounds — the same bar "Ink levels" above sets, and the
 same three-tier separation that section measures at the token level.
 `tokens.contrast.test.ts` covers the tokens on `--hd-background`, `--hd-card`,
 `--hd-sidebar` and `--hd-popover`; `rules.spec.ts` ("rule: tertiary ink")
-mounts a real `Text role="meta"` on each real ground, including the "plate"
-ground `tokens.contrast.test.ts` does not cover (`Card variant="plate"`,
-`--hd-card-fill`), and measures what the browser actually composites. Holds
-today, measured in every theme and interface.
+mounts a real `Text role="meta"` on each real ground — the real `Card`
+component for the card ground, and, since a plate has no bare ground of its
+own to mount into any more than a popover or the sidebar do, the raw
+`--hd-card-fill` token applied directly for the plate — and measures what
+the browser actually composites, including the plate ground
+`tokens.contrast.test.ts` does not cover. Holds today, measured in every
+theme and interface, and the checker now asserts all five grounds were
+actually read: an earlier version of the walk started at the ground
+container and climbed *up* looking for a background, which finds the page's
+own ground behind the card rather than the card's, since the card's painted
+background is a child of that container, not an ancestor of it — a bug that
+had the card ground silently reporting the page's contrast as its own.
 
 ### Focus ring
 
@@ -870,6 +911,17 @@ border with no gap to spend, because a box-shadow ring has no offset
 property. The rule's "2px clearance" is the button's number; the field's
 ring is one ring with a different, and equally real, shape.
 
+A field's *resting* `box-shadow` (`--hd-input-shadow`) is not nothing under
+Studio ("Dialog forms" above: "a transparent field with a hairline on a
+white page is a rectangle drawn on paper"), so the check reads the field
+before and after focusing it and asks whether focus *added* something,
+rather than asking whether `box-shadow` is merely not `'none'` — the second
+question is true at rest on that interface, and would have passed a field
+whose focus drew no ring at all. The same before/after read is how a
+wrapper's repeat is caught: not a copy of the control's own ring, but any
+outline or box-shadow that appears on an ancestor once the control is
+focused that was not there at rest.
+
 ### Monospace
 
 Only a code-role element computes the monospace family — see "The code face"
@@ -889,17 +941,35 @@ A reading that says nothing is wrong is not painted the success colour —
 `neutral` or has no chip at all… Colour on every row is noise that hides the
 one row that needs someone"); this rule extends it to `Progress` and `Text`
 readings generally. `rules.spec.ts` ("rule: health takes no tone") looks for
-the app's own word for that state, "Healthy", rendered in the resolved
-`--hd-success-ink`.
+the app's own words for a resting, nothing-to-report state — "Healthy",
+"Armed", "On", "Loaded" — rendered in the resolved `--hd-success-ink`, or
+sitting on a fill of `--hd-success-dim`/`--hd-success`. A verdict or a
+recorded fact — "Open", "Merged", "Passed", a `+120` diff count — is not
+this rule's target and was left out of the word list on purpose: those name
+what happened, not a normal condition that persists until something changes.
 
-The spec found one: a healthy capture (`lib/provenance.ts`'s `captureWords`)
-read "Healthy" in the success tone. It now reads untoned, so a degraded
-capture is the one that stands out.
+Widening past "Healthy" alone found three more, all fixed the same way —
+the resting half of a pair goes untoned, the half that means something is
+wrong keeps its own:
 
-A budget meter (`AgentCardMeter`: context or plan left) is not a health
-reading in this sense. Its fill is a verdict on how much is left, and green
-there is documented as "plenty left". Whether a budget with plenty left
-should also be untoned is an open question for the owner (#1061).
+- `lib/provenance.ts`'s `captureWords`: a healthy capture read "Healthy" in
+  the success tone.
+- `components/ProjectTriggers.tsx`'s `STATE_WORDS.armed`: an armed trigger
+  read "Armed" in the success tone — the one state in that table that was
+  toned at all; `off` was already neutral.
+- `components/SkillSheet.tsx`'s runtime-reach row: a skill a runtime reaches
+  read "On" in the success tone; "Off" already had none.
+- `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in the
+  success tone; "Not loaded" keeps its warning, which is a verdict rather
+  than a resting state.
+
+A budget meter (`AgentCard`'s `meter`, the context or plan reading
+`components/AgentCards.tsx` builds) is deliberately not in this rule's word
+list and not fixed here. Its fill is a verdict on how much is left, not a
+named resting state, and green there is documented as "plenty left" — a
+different claim from "nothing is wrong". Whether a budget with plenty left
+should also be untoned is an open question for the owner (#1061); narrowing
+this rule to leave it out is that decision waiting, not an oversight.
 
 ## Adding to the app
 
