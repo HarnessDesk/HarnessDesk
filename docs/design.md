@@ -748,6 +748,157 @@ inside a `Section` is an h3. A detail head's
 owner is either text — a place, a path — that gives way at its end, or a mark
 such as a status chip that stays whole while the name wraps.
 
+## The rules
+
+The UI consistency programme (#831) decided nine rules. Each used to be
+enforced only by reading, by a unit test of one component, or by an audit
+category that counts a declaration in source — none of which fails when a
+component edit changes what the browser actually renders. `e2e/ui-system/
+rules.spec.ts` asks the running catalogue and `/preview.html`'s real screens
+these nine questions directly, in every theme and interface, and mutates the
+page under test to prove each check is not vacuous. Where the rendered app
+disagrees with the rule as written, the spec is left red and the violation is
+named below rather than hidden — the sections that follow say which.
+
+### Names
+
+Every element wearing a name role — `Text role=…` (`design/patterns/
+Settings.tsx`) or `PageHead`'s own title — computes one of the pairs the
+"Named text roles" table above states: wordmark and page at 20/600, subject
+at 14/500, row at 13/500, navigation and muted at 13/400. Nothing is 16px,
+and nothing outside the wordmark and the page title is semibold — both
+already said above, under "Named text roles" and "Weight". The dashboard
+readouts `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are
+not names and sit outside the rule; `figure`/`metric` are deliberately
+semibold.
+
+Enforced by `rules.spec.ts` ("rule: names"), reading `data-role` and
+`data-slot="page-title"` across every mounted screen. **Live violation:**
+`components/Publication.tsx` sets its pull-request title as `<Text role="row"
+weight="semibold">` — a name at 13px wearing the weight `weight` was written
+for lifting a search match inside a line, not for a title.
+
+### Group labels
+
+`GroupLabel`'s computed `text-transform` is never `uppercase` and its weight
+is regular, in every group-label role — see "One title, one group label"
+above, where the design audit's `uppercaseLabel` already refuses the
+capitals in source. This asserts the rendered result, including the weight.
+
+Enforced by `rules.spec.ts` ("rule: group labels"). **Live violation:**
+Studio's `--hd-label-weight` computes 500 (medium), not regular —
+`group-label.tsx`'s own comment calls this a deliberate, Studio-only
+variation, which is in tension with the rule as #838 states it (no
+interface carve-out). Left failing rather than narrowed; the token or the
+rule needs a decision.
+
+### Destination rows
+
+A navigation row stands the same height everywhere it appears: the sidebar's
+session row, the settings/usage rail row (`AppWindow.tsx`'s `WindowNavItem`),
+and a dropdown menu item all share one Tailwind recipe (`min-h-(--hd-nav-h)`,
+the reading size at `--hd-line-sm`, one step of padding).
+
+Measured rather than assumed: at Desk every one of the three renders 30px
+tall while `--hd-nav-h` itself resolves to 29px (the row's line height plus
+its padding exceeds the token's own floor by a pixel); at Studio, where
+`--hd-nav-h` is a literal 34px, all three land on exactly that. So the rule
+holds as **at least `--hd-nav-h`, and equal across the destination rows of
+one surface** — chosen from measurement, not assumed from the token's name.
+`row-height.spec.ts` already proves `--hd-row-h` and `--hd-nav-h` resolve to
+the same token across every palette and interface; `rules.spec.ts` ("rule:
+destination rows") measures the rows themselves, not the token alias.
+
+### Fields
+
+A default-size text field (`Input`, and `Search`'s inner input) is 30px tall
+at 14px — matching the programme's own number — outside
+`[data-hd-density="comfortable"]` (the settings and usage windows), where
+Studio raises the rung to 36px via `--hd-control-h-lg` ("Controls and
+buttons" above documents this scope by name; it is a second, intentional
+density rung, not a second field system). `Search`'s `compact` size (the
+sidebar's own filter) is a third, deliberate rung of the same pattern — 24px
+tall, at the same 14px — not a second Search: every filter field in the app
+renders through the one `Search` component.
+
+Enforced by `rules.spec.ts` ("rule: fields"), which asserts the 30px/14px
+pair outside the comfortable scope, that the compact and default rungs agree
+on font size, and that every input whose placeholder reads as a filter sits
+under `[data-slot="search"]`.
+
+### Selection
+
+A chosen row keeps its resting neighbour's weight and gains a fill the
+neighbour lacks — never the other way round; see "Weight" above ("Selection
+is marked by a filled pill and a check, never by making one row heavier than
+its neighbours"). `visual-contracts.spec.ts`'s "every chosen row, destination
+and option is filled, and none changes weight" test already proves this,
+pairwise, on the `view=propagation` catalogue rig. `rules.spec.ts` ("rule:
+selection") does not repeat that comparison; it wraps the identical read in
+a checker function and mutates the page (`page.addStyleTag`, removing a
+chosen row's fill) to prove the check is not vacuous, which the existing
+spec does not do.
+
+### Tertiary ink
+
+The tertiary label tier clears 4.5:1, rendered, on the page, card, plate,
+popover and sidebar grounds — the same bar "Ink levels" above sets, and the
+same three-tier separation that section measures at the token level.
+`tokens.contrast.test.ts` covers the tokens on `--hd-background`, `--hd-card`,
+`--hd-sidebar` and `--hd-popover`; `rules.spec.ts` ("rule: tertiary ink")
+mounts a real `Text role="meta"` on each real ground, including the "plate"
+ground `tokens.contrast.test.ts` does not cover (`Card variant="plate"`,
+`--hd-card-fill`), and measures what the browser actually composites. Holds
+today, measured in every theme and interface.
+
+### Focus ring
+
+A focused button and a focused field each draw exactly one ring, and no
+wrapper repeats it — the other half of the claim "Dialog forms" above
+already makes about a popup surface drawing none of its own; the control
+inside is where the one ring belongs. `surface-focus.spec.ts` proves the
+surface half; `rules.spec.ts` ("rule: focus ring") proves the control half,
+on a fixture nested two wrapper divs deep, and mutates a wrapper's own
+`:focus-within` rule to prove a repeated ring is caught.
+
+Measured rather than assumed: a button's ring is the document-level native
+`outline` (`styles/app.css`) — 2px solid, 2px clear at Desk, matching the
+programme's number, and 3px solid with no clearance at Studio (an
+owner-decided interface difference, `--hd-ring-width`/`--hd-ring-offset`). A
+field instead rings by `box-shadow` (`--hd-focus-ring`, `0 0 0
+var(--hd-ring-width) …`) — the same width, but flush against the field's own
+border with no gap to spend, because a box-shadow ring has no offset
+property. The rule's "2px clearance" is the button's number; the field's
+ring is one ring with a different, and equally real, shape.
+
+### Monospace
+
+Only a code-role element computes the monospace family — see "The code face"
+above. `rules.spec.ts` ("rule: monospace") scopes the rendered check to
+`[data-slot="text"][data-role]`, the closed set every name and label in the
+app passes through, rather than the whole DOM: a DOM-wide scan would have to
+know every legitimate monospace surface (a terminal's screen buffer, a
+diff's line numbers) to avoid false positives, where the named-role set is
+exhaustive by construction. A positive control on the code catalogue
+(`view=code`) confirms real code elements do compute the family, so the
+probe is proven meaningful. Holds today.
+
+### Health takes no tone
+
+A reading that says nothing is wrong is not painted the success colour —
+`Chip`'s own doc comment already says this ("A default or normal state is
+`neutral` or has no chip at all… Colour on every row is noise that hides the
+one row that needs someone"); this rule extends it to `Progress` and `Text`
+readings generally. `rules.spec.ts` ("rule: health takes no tone") looks for
+the app's own word for that state, "Healthy", rendered in the resolved
+`--hd-success-ink`.
+
+**Live violation:** `components/ProjectProvenance.tsx` renders `<Chip
+tone="success" label="Healthy" />` — `lib/provenance.ts`'s `captureWords`
+hands back `tone: 'success'` whenever capture health is `'healthy'`.
+`components/AgentCards.tsx`'s context-window meter does the same thing for a
+healthy reading. Left failing rather than hidden.
+
 ## Adding to the app
 
 When adding a control, row or surface to HarnessDesk:
