@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import {
+  matchPlanSuggestion,
   runtimeId,
   sessionKey,
   type AgentAttachmentsView,
@@ -24,6 +25,10 @@ import {
   type ProjectChecks,
   type ModelInfo,
   type OptionValue,
+  type PlanBudgetEntry,
+  type PlanFeeEntry,
+  type PlanRead,
+  type PlanSuggestion,
   type RuntimeInfo,
   type SeatRecord,
   type SeatCeiling,
@@ -1036,6 +1041,7 @@ class PreviewStore {
       ...seed,
     } as AppSnapshot
     this.#watchWindowWidth()
+    this.#applyPlans()
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -1516,6 +1522,61 @@ class PreviewStore {
   loadUsage = async (): Promise<void> => {}
   refreshUsage = async (): Promise<void> => {}
   scanUsage = async (): Promise<void> => {}
+
+  /**
+   * A small stand-in for `~/.harnessdesk/plans.json`: real enough for the
+   * screen's demo to set, clear and re-render a fee/budget in this preview,
+   * never a claim about how the host stores it (`plan-store.ts` does that).
+   */
+  #planKey = (runtime: string, account: string): string => `${runtime}:${account}`
+  #plans = new Map<string, { fee?: PlanFeeEntry; budget?: PlanBudgetEntry }>([
+    // Max 20x has no vendor page that gives it its own number (see
+    // `plan-prices.ts`), so this is the "set, with nothing to suggest" case —
+    // someone typed $200 themselves. The "budget on a key account" case is
+    // demonstrated on the catalogue's plan-card board with props instead of a
+    // second account wedged into this shared fixture (BLOCKING 3's fix: a
+    // runtime only ever carries one account's report, so a second account
+    // here would show nothing real).
+    [this.#planKey('claude', 'shane@harnessdesk.app'), { fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() } }],
+  ])
+  readonly #planSuggestions: PlanSuggestion[] = [
+    { runtime: runtimeId('claude'), planMatch: 'Pro', amount: 20, currency: 'USD', period: 'month', sourceUrl: 'https://claude.com/pricing', checkedAt: '2026-09-26' },
+    { runtime: runtimeId('codex'), planMatch: 'plus', amount: 20, currency: 'USD', period: 'month', sourceUrl: 'https://chatgpt.com/pricing', checkedAt: '2026-09-26' },
+    { runtime: runtimeId('cursor'), planMatch: 'Pro', amount: 20, currency: 'USD', period: 'month', sourceUrl: 'https://cursor.com/docs/account/pricing', checkedAt: '2026-09-26' },
+  ]
+
+  #applyPlans(): void {
+    const usage = this.#snapshot.usage.map((report) => {
+      if (report.account === null) return report
+      const stored = this.#plans.get(this.#planKey(report.runtime, report.account))
+      if (!stored) return report
+      const billing = report.billing
+      return {
+        ...report,
+        billing: { kinds: billing?.kinds ?? [], ...billing, ...(stored.fee ? { fee: stored.fee } : {}), ...(stored.budget ? { budget: stored.budget } : {}) },
+      }
+    })
+    this.patch({ usage })
+  }
+
+  readPlan = async ({ runtime, account, plan }: { runtime: string; account: string; plan?: string | null }): Promise<PlanRead> => ({
+    entry: this.#plans.get(this.#planKey(runtime, account)) ?? null,
+    suggestion: matchPlanSuggestion(this.#planSuggestions, runtimeId(runtime), plan ?? null),
+    refusal: null,
+  })
+
+  setPlan = async (input: { runtime: string; account: string; fee?: { amount: number; currency: string; period: 'month' | 'year' } | null; budget?: { amount: number; currency: string } | null }): Promise<{ fee?: PlanFeeEntry; budget?: PlanBudgetEntry }> => {
+    const key = this.#planKey(input.runtime, input.account)
+    const next = { ...(this.#plans.get(key) ?? {}) }
+    if (input.fee === null) delete next.fee
+    else if (input.fee) next.fee = { ...input.fee, source: 'user', setAt: Date.now() }
+    if (input.budget === null) delete next.budget
+    else if (input.budget) next.budget = { ...input.budget, period: 'month', setAt: Date.now() }
+    if (next.fee || next.budget) this.#plans.set(key, next)
+    else this.#plans.delete(key)
+    this.#applyPlans()
+    return next
+  }
   setUsageTracked = (): void => {}
   loadHooks = async () => []
   acpRegistry = async () => ({ agents: [], fetchedAt: null })

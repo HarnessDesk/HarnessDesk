@@ -106,8 +106,8 @@ export const cursorPercentUsed = (summary: UsageSummary): number | null => {
   )
 }
 
-/** "pro" is how the API spells it; "Pro" is how a person does. */
-const planName = (membership: string | undefined): string | null => {
+/** "pro" is how the API spells it; "Pro" is how a person does. Exported so `plan-prices.ts`'s suggestion rows can be pinned to exactly what this produces, never a guess at the API's own casing. */
+export const planName = (membership: string | undefined): string | null => {
   if (!membership) return null
   const trimmed = membership.trim()
   if (trimmed === '') return null

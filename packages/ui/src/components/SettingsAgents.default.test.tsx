@@ -106,6 +106,7 @@ const mount = async (over: Partial<AppSnapshot>): Promise<void> => {
     healthFor: vi.fn(async () => (snapshot.healthByRuntime as Record<string, unknown>)[CLAUDE] ?? null),
     optionsFor: vi.fn(async () => []),
     limitsFor: vi.fn(async () => null),
+    readPlan: vi.fn(async () => ({ entry: null, suggestion: null, refusal: null })),
     newSessionDefaultsFor: vi.fn(async () => []),
     setNewSessionDefault: vi.fn(async () => []),
   } as unknown as AppStore

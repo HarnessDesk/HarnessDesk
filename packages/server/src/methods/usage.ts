@@ -1,10 +1,22 @@
+/**
+ * A stored plan fee/budget is folded into every report by `UsageService`'s
+ * own overlay (`planOverlay`, wired up in `host.ts`) — once, on the one path
+ * every report leaves through, `reports()`, `refresh()` and the `onReport`
+ * push behind `usage/updated` alike. Nothing merges here any more
+ * (BLOCKING 1): a handler that re-merged per request is exactly how a
+ * pushed report used to lose the stored plan the moment it bypassed this file.
+ */
 import type { MethodsUnder } from './context.js'
 
 /** Plan usage across every metered runtime, and the token ledger behind it. */
 export const usageMethods = {
-  'usage/reports': (ctx) => ctx.usage().reports(),
+  'usage/reports': async (ctx) => ctx.usage().reports(),
 
-  'usage/refresh': (ctx, params) => ctx.usage().refresh(params.runtime),
+  'usage/refresh': async (ctx, params) => ctx.usage().refresh(params.runtime),
+
+  'usage/plan/read': (ctx, params) => ctx.plans.read(params),
+
+  'usage/plan/set': (ctx, params) => ctx.plans.set(params),
 
   'usage/ledger': async (ctx, params) => {
     const ledger = ctx.ledger()

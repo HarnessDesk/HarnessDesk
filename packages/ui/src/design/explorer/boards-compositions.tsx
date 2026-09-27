@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { runtimeId, type LedgerDay, type LedgerReport } from '@harnessdesk/protocol'
+import { runtimeId, type LedgerDay, type LedgerReport, type PlanSuggestion } from '@harnessdesk/protocol'
 
 import {
   AgentIcon,
@@ -179,6 +179,7 @@ import { DialogBoard, type Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
 import { Specimen } from './specimen'
 import styles from './explorer.module.css'
+import { PlanCard } from '../patterns/PlanCard'
 
 /**
  * The composition layer, board by board.
@@ -1809,6 +1810,95 @@ const AdoptedBoard = () => {
   )
 }
 
+/**
+ * `PlanCard` (`design/patterns/PlanCard.tsx`) directly, no store and no
+ * screen: it is pure props, so the board is exactly what a person editing
+ * this file would expect — no `SettingsAgents` import, no preview harness,
+ * no fake `AppStore`. Five states, the ones the pattern actually has: a
+ * suggestion a click away, a plan with nothing to suggest, a price already
+ * set, a key account's own budget, and `plans.json`'s own read failure shown
+ * as a `Note`.
+ */
+const PLAN_CLAUDE_SUGGESTION: PlanSuggestion = {
+  runtime: runtimeId('claude'),
+  planMatch: 'Pro',
+  amount: 20,
+  currency: 'USD',
+  period: 'month',
+  sourceUrl: 'https://claude.com/pricing',
+  checkedAt: '2026-09-26',
+}
+
+const inertPlanCallbacks = {
+  onSetFee: async () => {},
+  onClearFee: async () => {},
+  onSetBudget: async () => {},
+  onClearBudget: async () => {},
+}
+
+const PlanCardBoard = () => (
+  <>
+    <Specimen
+      measure="page"
+      caption="The Plan card: a suggested price, a plan nothing suggests, a price you set, a key account's own budget, and plans.json's own refusal"
+    >
+      <div className={styles.stack} data-catalog-states="not-set-suggested not-set-plain set budget refusal">
+        <div data-catalog-case="not-set-suggested">
+          <div className={styles.caseLabel}>Not set — a suggestion is offered</div>
+          <PlanCard
+            entry={null}
+            suggestion={PLAN_CLAUDE_SUGGESTION}
+            refusal={null}
+            showBudget={false}
+            {...inertPlanCallbacks}
+          />
+        </div>
+        <div data-catalog-case="not-set-plain">
+          <div className={styles.caseLabel}>Not set — no suggestion for this plan</div>
+          <PlanCard entry={null} suggestion={null} refusal={null} showBudget={false} {...inertPlanCallbacks} />
+        </div>
+        <div data-catalog-case="set">
+          <div className={styles.caseLabel}>Set — &ldquo;you set this&rdquo;</div>
+          <PlanCard
+            entry={{ fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() } }}
+            suggestion={null}
+            refusal={null}
+            showBudget={false}
+            {...inertPlanCallbacks}
+          />
+        </div>
+        <div data-catalog-case="budget">
+          <div className={styles.caseLabel}>A key account&rsquo;s monthly budget</div>
+          <PlanCard
+            entry={{ budget: { amount: 50, currency: 'USD', period: 'month', setAt: Date.now() } }}
+            suggestion={null}
+            refusal={null}
+            showBudget
+            {...inertPlanCallbacks}
+          />
+        </div>
+        <div data-catalog-case="refusal">
+          <div className={styles.caseLabel}>plans.json could not be read</div>
+          <PlanCard
+            entry={null}
+            suggestion={null}
+            refusal="~/.harnessdesk/plans.json was not read: it is not JSON"
+            showBudget={false}
+            {...inertPlanCallbacks}
+          />
+        </div>
+      </div>
+    </Specimen>
+    <Rule>
+      Five states, one card: a suggestion is a click away when the vendor&rsquo;s own page gave an
+      unambiguous number; otherwise the row asks for one. A stored fee reads &ldquo;you set
+      this&rdquo; and a vendor-reported fee never would. A key or metered account gets a second row
+      for its own spending cap, unrelated to any plan limit &mdash; never bundled, never guessed.
+      A <code>plans.json</code> that fails to read shows its own refusal rather than going blank.
+    </Rule>
+  </>
+)
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'stat',
@@ -1822,6 +1912,13 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Delta',
     about: 'A change, with its sign said in colour as well as in punctuation.',
     render: DeltaBoard,
+  },
+  {
+    id: 'plan-card',
+    title: 'Plan card',
+    about:
+      'A plan\'s price and a key or metered account\'s monthly budget, in every state the card can be in.',
+    render: PlanCardBoard,
   },
   {
     id: 'section',

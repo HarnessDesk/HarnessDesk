@@ -415,6 +415,7 @@ const mountList = async (
     newSessionDefaultsFor: async () => ({}),
     optionsFor: async () => [],
     listModels: async () => [],
+    readPlan: async () => ({ entry: null, suggestion: null, refusal: null }),
     ...(over.store ?? {}),
   } as unknown as AppStore
   await act(async () => {
