@@ -33,7 +33,9 @@ import { clineDataDirOverride } from './installs/identity.js'
 import { CopilotMeter } from './usage/copilot.js'
 import { CursorMeter } from './usage/cursor.js'
 import { CursorEventsSource } from './usage/cursor-events.js'
+import { DeepSeekMeter } from './usage/deepseek.js'
 import { GeminiMeter } from './usage/gemini.js'
+import { OpenRouterMeter } from './usage/openrouter.js'
 import type { UsageMeter } from './usage/meter.js'
 import { Logger } from './log.js'
 import { StateStore, defaultStateDir } from './state.js'
@@ -423,12 +425,15 @@ export const createDefaultHost = (
   const agents = new AgentDirectory({
     store: agentRegistry,
     build: buildAcpRuntime,
-    usageFor: (agent) => localUsageFor(agent, installs.knowledgeFor(agent)),
+    usageFor: (agent) =>
+      localUsageFor(agent, installs.knowledgeFor(agent), (agentId, envName) =>
+        host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
+      ),
     registry: acpRegistry,
     installs,
   })
 
-  const host = new Host({
+  const host: Host = new Host({
     logger,
     accounts,
     agents,
@@ -493,7 +498,9 @@ export const createDefaultHost = (
 
   void host.credentials.warm()
   for (const agent of agentRegistry.configs()) {
-    const local = localUsageFor(agent, installs.knowledgeFor(agent))
+    const local = localUsageFor(agent, installs.knowledgeFor(agent), (agentId, envName) =>
+      host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
+    )
     if (local) host.bindUsage(runtimeId(agent.id), local)
     host.register(buildAcpRuntime(agent))
   }
@@ -527,9 +534,29 @@ export const createDefaultHost = (
  * through `npx` — is named by the program it runs (`ownCli`), last, so the
  * table still decides wherever it has something to say.
  */
+/**
+ * The env var every OpenRouter integration reads its key from. Its presence
+ * in the row's own environment — never its name, never its runtime id — is
+ * what decides a row gets the OpenRouter meter: any agent this desk starts
+ * with the variable set is, by that fact, an agent whose money is
+ * OpenRouter's to answer for (docs/usage-dashboard.md, "Where the numbers
+ * come from"). It never overrides a meter a row already has for a stronger
+ * reason (Cline's own balance is Cline's, whatever key it also holds); it
+ * only fills the gap where nothing above matched at all.
+ */
+const OPENROUTER_SECRET_ENV = 'OPENROUTER_API_KEY'
+
 export const localUsageFor = (
   agent: AcpAgentConfig,
   known?: Pick<KnownAgent, 'cli'> | undefined,
+  /**
+   * The desk's own stored copy of a row's secret, when it has one — the
+   * broker `resolveSecret` on the runtime hands the process at launch,
+   * asked here the same way so a meter reads exactly what the agent itself
+   * would start with, never a value this function invents or asks the
+   * person for.
+   */
+  resolveSecret?: (agentId: string, envName: string) => string | undefined,
 ): { meter?: UsageMeter; corpus?: CorpusKind; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean } | null => {
   const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0] ?? ownCli(agent)
   // Where the agent keeps its records is decided by its own environment — a
@@ -542,6 +569,7 @@ export const localUsageFor = (
   // reading the row's files by hand has to match (review round 5).
   const home = env['HOME']?.trim() || homedir()
   const records = (corpus: CorpusKind) => ({ corpus, root: corpusRoot(corpus, env, home) })
+  const base = ((): { meter?: UsageMeter; corpus?: CorpusKind; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean } => {
   switch (named ? commandName(named) : null) {
     case 'claude':
       return { meter: new ClaudeFileMeter(), corpus: 'claude' }
@@ -596,12 +624,35 @@ export const localUsageFor = (
     case 'amp':
     case 'amp-acp':
       return { meter: new AmpMeter({ env }), deskTurns: true }
+    // DeepSeek Harness authenticates with a provider key, never a browser
+    // sign-in (`agent-registry.ts`'s `dsh` entry); its prepaid balance is
+    // DeepSeek's own API, kept a separate meter from any local records
+    // because none exist here yet for it. Bound by runtime, not by a base
+    // URL check — DSH is DeepSeek's harness by definition, the same way
+    // `agy_acp_server` above is bound to Antigravity's CLI outright.
+    case 'dsh':
+      return {
+        meter: new DeepSeekMeter({ env, resolvedKey: resolveSecret?.(agent.id, 'DEEPSEEK_API_KEY') ?? null }),
+        deskTurns: true,
+      }
     default:
       // No meter, no corpus — this agent has nothing else here at all. Its
       // turns are still worth knowing, and the desk's own transcript is the
       // one source that never needed to know which CLI this was.
       return { deskTurns: true }
   }
+  })()
+  // OpenRouter is never a CLI of its own — any agent above can be pointed at
+  // it — so this is decided after the switch, and only fills in where
+  // nothing above already found a stronger, agent-specific source: a row
+  // whose own meter is Cline's or Amp's balance keeps that meter even when
+  // the same row also carries an OpenRouter key for its model calls, because
+  // that balance is a different account's money than the key's.
+  if (!base.meter) {
+    const openRouterKey = (resolveSecret?.(agent.id, OPENROUTER_SECRET_ENV) ?? env[OPENROUTER_SECRET_ENV])?.trim()
+    if (openRouterKey) return { ...base, meter: new OpenRouterMeter({ env: { ...env, [OPENROUTER_SECRET_ENV]: openRouterKey } }) }
+  }
+  return base
 }
 
 /**

@@ -12,7 +12,7 @@ import {
   type UsageReport,
 } from '@harnessdesk/protocol'
 
-import type { MeterReading, UsageMeter } from './meter.js'
+import { MeterAuthError, type MeterReading, type UsageMeter } from './meter.js'
 
 const DAY_MS = 86_400_000
 /** "The current billing cycle when the report knows one, else the last 14 days" — "Turns", `docs/usage-dashboard.md`. */
@@ -264,11 +264,20 @@ export class UsageService {
       const read = await this.#readMeter(id, candidate)
       // A meter that fails keeps the reading it had, below — but only one it
       // had. With nothing before it, a failure is still silence rather than a
-      // card of its own, as it always was. The failure belongs to whoever the
-      // figures belong to: the agent's own, or the other sign-in's.
+      // card of its own, as it always was — unless the source said the key
+      // or sign-in itself is wrong (`MeterAuthError`, `needsSignIn`): that is
+      // never nothing to say, so it still becomes a card even with no prior
+      // reading to keep. The failure belongs to whoever the figures belong
+      // to: the agent's own, or the other sign-in's.
       if ('failure' in read) {
-        if (previous && previous.lanes.length > 0) error = { message: read.failure }
-        else if (previous?.unverified) unverifiedFailure = read.failure
+        const needsSignIn = read.needsSignIn === true
+        if (previous && previous.lanes.length > 0) {
+          error = { message: read.failure, ...(needsSignIn ? { needsSignIn: true } : {}) }
+        } else if (previous?.unverified) {
+          unverifiedFailure = read.failure
+        } else if (needsSignIn) {
+          error = { message: read.failure, needsSignIn: true }
+        }
         return
       }
       const reading = read.reading
@@ -359,18 +368,20 @@ export class UsageService {
 
   /**
    * A meter that throws is logged, and its failure handed back so a reading
-   * the card already has can stand beside it. It is never a card of its own.
+   * the card already has can stand beside it. It is never a card of its own
+   * — unless the meter threw `MeterAuthError`, which means the source itself
+   * said the key or sign-in is wrong, carried through as `needsSignIn`.
    */
   async #readMeter(
     id: RuntimeId,
     meter: UsageMeter,
-  ): Promise<{ readonly reading: MeterReading | null } | { readonly failure: string }> {
+  ): Promise<{ readonly reading: MeterReading | null } | { readonly failure: string; readonly needsSignIn?: boolean }> {
     try {
       return { reading: await meter.read() }
     } catch (cause) {
       const failure = cause instanceof Error ? cause.message : String(cause)
       this.#options.log?.('a usage meter failed', { runtime: id, meter: meter.id, error: failure })
-      return { failure }
+      return { failure, ...(cause instanceof MeterAuthError ? { needsSignIn: true } : {}) }
     }
   }
 

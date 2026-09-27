@@ -224,3 +224,54 @@ test('a row isolated with a bare HOME moves every fallback that would otherwise 
   const opencode = localUsageFor(row({ id: 'opencode', command: 'opencode', env: { HOME: isolated } }), knowledge('opencode'))
   assert.equal(opencode?.root, `${isolated}/.local/share/opencode/opencode.db`)
 })
+
+test('DeepSeek Harness is bound to its balance by runtime, and the desk’s own stored key beats the row’s own environment', async () => {
+  const dsh = row({ id: 'dsh', command: 'dsh', args: ['--profile', 'acp'], env: { DEEPSEEK_API_KEY: 'sk-row-key' } })
+  const bound = localUsageFor(dsh, knowledge('dsh'))
+  assert.equal(bound?.meter?.id, 'deepseek-balance')
+  assert.equal(bound?.deskTurns, true, 'no corpus of its own yet; its turns are the desk’s own transcript')
+
+  // The broker's own stored copy is asked with the same name the desk would
+  // use to launch the agent — `agent:<id>:<env>` — ahead of the row's plain
+  // environment.
+  const seen: [string, string][] = []
+  const withBroker = localUsageFor(dsh, knowledge('dsh'), (agentId, envName) => {
+    seen.push([agentId, envName])
+    return 'sk-broker-key'
+  })
+  assert.ok(withBroker?.meter)
+  assert.deepEqual(seen, [['dsh', 'DEEPSEEK_API_KEY']])
+})
+
+test('OpenRouter is bound to any row this desk starts with an OPENROUTER_API_KEY, only where nothing stronger already answered', () => {
+  // A row with no other meter at all — the "mine" row from above, now
+  // carrying an OpenRouter key — gains one.
+  const mine = row({ id: 'mine', command: '/usr/local/bin/mine', env: { OPENROUTER_API_KEY: 'sk-or-v1-row-key' } })
+  const bound = localUsageFor(mine)
+  assert.equal(bound?.meter?.id, 'openrouter-key')
+  assert.equal(bound?.deskTurns, true)
+
+  // Without the key, unchanged: no meter, no corpus, just the desk's own turns.
+  assert.deepEqual(localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' })), { deskTurns: true })
+
+  // A row that already has its own account balance keeps it: Cline's own
+  // wallet is a different account's money than whatever key its own model
+  // calls might use.
+  const cline = localUsageFor(
+    row({ id: 'cline', command: 'npx', args: ['-y', 'cline@3.0.61', '--acp'], env: { OPENROUTER_API_KEY: 'sk-or-v1-ignored' } }),
+    knowledge('cline'),
+  )
+  assert.equal(cline?.meter?.id, 'cline-account')
+
+  // OpenCode has no meter of its own today (only a corpus): the OpenRouter
+  // key fills exactly that gap without disturbing its records.
+  const opencode = localUsageFor(row({ id: 'opencode', command: 'opencode', env: { OPENROUTER_API_KEY: 'sk-or-v1-oc' } }), knowledge('opencode'))
+  assert.equal(opencode?.meter?.id, 'openrouter-key')
+  assert.equal(opencode?.corpus, 'opencode', 'its own records are untouched')
+
+  // The desk's own stored copy of the key is asked too, the same way as DSH's.
+  const viaBroker = localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' }), undefined, (_agentId, envName) =>
+    envName === 'OPENROUTER_API_KEY' ? 'sk-or-v1-broker' : undefined,
+  )
+  assert.equal(viaBroker?.meter?.id, 'openrouter-key')
+})
