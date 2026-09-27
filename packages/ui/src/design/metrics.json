@@ -1,4 +1,20 @@
 {
+  "adopted/attachment-media/variant/picture": {
+    "h": 280,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "adopted/attachment-media/variant/picture-fill": {
+    "h": 96,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "adopted/attachment/size/default": {
     "h": 50,
     "text": 13,
@@ -503,6 +519,14 @@
     "pad": "0 10 0 10",
     "radius": 8
   },
+  "control/input/size/row": {
+    "h": 30,
+    "text": 13,
+    "weight": "400",
+    "line": 20,
+    "pad": "4 6 4 6",
+    "radius": 8
+  },
   "control/input/variant/chrome": {
     "h": 30,
     "text": 14,
@@ -630,6 +654,22 @@
     "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
+  },
+  "empty/conversation-empty-state/variant/column": {
+    "h": 190,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "40 40 40 40",
+    "radius": 0
+  },
+  "empty/conversation-empty-state/variant/row": {
+    "h": 126,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "40 40 40 40",
+    "radius": 0
   },
   "list/avatar/size/default": {
     "h": 24,

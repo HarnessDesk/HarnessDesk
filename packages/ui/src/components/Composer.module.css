@@ -11,13 +11,6 @@
   gap: var(--hd-space-2-5);
 }
 
-.thumb {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
 .tileRemove {
   position: absolute;
   top: -6px;

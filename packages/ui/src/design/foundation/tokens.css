@@ -457,6 +457,12 @@ body {
      difference to its body, which scrolls; its question and its answers stay. */
   --hd-dialog-max-height: calc(100dvh - 2 * var(--hd-space-6));
 
+  /* The tallest a single image thumbnail grows before it scrolls the eye
+     down the transcript instead of the words around it — a share's own
+     photo, not a wall of one. Several images in a row keep the grid's own
+     tile height instead; this is only the lone-image case's ceiling. */
+  --hd-image-max-height: 280px;
+
   /* Native-looking scrollbar geometry and paint. The global adapter consumes
      only these public names; the private platform palette ends here. */
   --hd-scrollbar-width: 8px;
