@@ -171,7 +171,7 @@ export class ProvenancePlane {
   }
 
   async #load(state: Project): Promise<void> {
-    const read = await state.journal.read()
+    const read = await state.journal.read({ copy: 'shallow' })
     if (read.broken) throw new Error('provenance-journal-damaged')
     for (const entry of read.entries.slice(state.entries.length)) {
       if (entry.kind === 'link' && object(entry.value)) {

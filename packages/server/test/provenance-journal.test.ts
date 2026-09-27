@@ -33,6 +33,22 @@ test('serialized observations and chunked checkpoints replay in durable prefix o
   assert.ok((await fs.readFile(file, 'utf8')).split('\n').every((line) => Buffer.byteLength(line) < 65536))
 })
 
+test('a shallow journal read snapshots the entry list without cloning its records', async () => {
+  const file = join(tempDir('journal-'), 'provenance.ndjson')
+  const journal = new ProvenanceJournal(file)
+  await journal.append('gap', gap('first'))
+
+  const first = await journal.read({ copy: 'shallow' })
+  const second = await journal.read({ copy: 'shallow' })
+  assert.notStrictEqual(first.entries, second.entries)
+  assert.strictEqual(first.entries[0], second.entries[0])
+
+  await journal.append('gap', gap('second'))
+  const later = await journal.read({ copy: 'shallow' })
+  assert.equal(first.entries.length, 1, 'an existing list snapshot does not grow')
+  assert.equal(later.entries.length, 2)
+})
+
 test('a torn tail refuses appends and leaves every original byte in place', async () => {
   const file = join(tempDir('journal-'), 'provenance.ndjson')
   await new ProvenanceJournal(file).append('gap', gap())
