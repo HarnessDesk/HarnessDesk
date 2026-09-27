@@ -474,6 +474,17 @@ export const scanCodexRollout = async (
   const context = contextFrom(tail) ?? (offset > 0 ? await contextBefore(target.path, offset) : unknownContext())
   const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
     const record = raw as CodexRecord
+    // A manual or automatic `/compact` writes `turn_context` again right
+    // after `compacted`, inside the very same turn -- compaction is not a
+    // new prompt, so that one `turn_context` must not add a second turn for
+    // the exchange the compaction interrupted. The flag survives past the
+    // record that set it and is cleared by the very next `turn_context`,
+    // whether or not this pass ever sees `compacted` itself (a scan that
+    // resumes mid-file gets the flag from `contextBefore`, in its own tail).
+    if (record.type === 'compacted') {
+      context.followsCompaction = true
+      return
+    }
     const payload = record.payload
     if (!payload) return
     // `turn_context` is written once per turn, ahead of the exchange it
@@ -484,8 +495,12 @@ export const scanCodexRollout = async (
     const isTurnStart = record.type === 'turn_context'
     if (noteContext(record, context)) {
       if (isTurnStart) {
-        const turnAt = parseTime(record.timestamp)
-        if (turnAt !== null) addTurn(into, target.path, target.runtime, turnAt, context.model, context.project)
+        const afterCompaction = context.followsCompaction
+        context.followsCompaction = false
+        if (!afterCompaction) {
+          const turnAt = parseTime(record.timestamp)
+          if (turnAt !== null) addTurn(into, target.path, target.runtime, turnAt, context.model, context.project)
+        }
       }
       return
     }
@@ -518,9 +533,11 @@ interface CodexContext {
   model: string
   project: string
   sessionId?: string
+  /** Whether the last significant record seen was a `compacted` one not yet followed by its own `turn_context`. */
+  followsCompaction: boolean
 }
 
-const unknownContext = (): CodexContext => ({ model: 'unknown', project: '' })
+const unknownContext = (): CodexContext => ({ model: 'unknown', project: '', followsCompaction: false })
 
 /** Notes what a `session_meta` or `turn_context` record says of the model and project; false for any other record. */
 const noteContext = (record: CodexRecord, context: CodexContext): boolean => {
@@ -537,10 +554,11 @@ const contextFrom = (tail: readonly string[]): CodexContext | null => {
   try {
     const parsed: unknown = JSON.parse(tail[0] ?? '')
     if (parsed !== null && typeof parsed === 'object') {
-      const { model, project, sessionId } = parsed as Record<string, unknown>
+      const { model, project, sessionId, followsCompaction } = parsed as Record<string, unknown>
       const context: CodexContext = {
         model: typeof model === 'string' && model !== '' ? model : 'unknown',
         project: typeof project === 'string' ? project : '',
+        followsCompaction: followsCompaction === true,
       }
       if (typeof sessionId === 'string' && sessionId !== '') context.sessionId = sessionId
       return context
@@ -553,19 +571,28 @@ const contextFrom = (tail: readonly string[]): CodexContext | null => {
 
 /**
  * What a rollout had said of its model and project before `offset`, for a
- * cursor that carried neither. Only the lines that can say so are parsed.
+ * cursor that carried neither. Only the lines that can say so are parsed --
+ * `compacted` among them, so a scan resuming right after one still knows the
+ * `turn_context` it is about to read is the compaction's own, not a new turn.
  */
 const contextBefore = async (path: string, offset: number): Promise<CodexContext> => {
   const context = unknownContext()
   const stream = nodeFs.createReadStream(path, { start: 0, end: offset - 1 })
   try {
     for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
-      if (!line.includes('"session_meta"') && !line.includes('"turn_context"')) continue
+      if (!line.includes('"session_meta"') && !line.includes('"turn_context"') && !line.includes('"compacted"')) continue
+      let record: CodexRecord
       try {
-        noteContext(JSON.parse(line) as CodexRecord, context)
+        record = JSON.parse(line) as CodexRecord
       } catch {
         // A line that is not JSON says nothing.
+        continue
       }
+      if (record.type === 'compacted') {
+        context.followsCompaction = true
+        continue
+      }
+      if (noteContext(record, context) && record.type === 'turn_context') context.followsCompaction = false
     }
   } catch {
     // Unreadable now: nothing is known, as before.
@@ -577,6 +604,7 @@ const contextBefore = async (path: string, offset: number): Promise<CodexContext
 
 interface ClaudeContentPart {
   readonly type?: string
+  readonly text?: string
 }
 
 interface ClaudeRecord {
@@ -584,6 +612,12 @@ interface ClaudeRecord {
   readonly timestamp?: string
   readonly cwd?: string
   readonly requestId?: string
+  /** A subagent's own line -- `Task`'s transcript, in `subagents/*.jsonl` and inline alike -- never the person's turn. */
+  readonly isSidechain?: boolean
+  /** Hook context, a caveat, or a slash command's own expansion -- plumbing the model reads, never a prompt someone typed. */
+  readonly isMeta?: boolean
+  /** "This session is being continued from a previous conversation..." -- a summary the session wrote to itself. */
+  readonly isCompactSummary?: boolean
   readonly message?: {
     readonly id?: string
     readonly model?: string
@@ -598,19 +632,57 @@ interface ClaudeRecord {
 }
 
 /**
- * Claude Code's own turn boundary: a `type: 'user'` line whose content is not
- * entirely tool results fed back to the model. A tool call's result is
- * written as a `user`-role message too — the same shape a real reply from
- * the person takes — so a line where every content part is `tool_result`
- * (or, for the plain-string shape, nothing at all) is the model's own
- * machinery talking to itself, never a person's or an agent's prompt.
+ * The text a `type: 'user'` record actually carries, concatenating every
+ * `text` content part the array shape can hold. Used only to test for the
+ * plumbing markers below -- never persisted, never counted as a token.
  */
+const claudeUserText = (content: string | readonly ClaudeContentPart[] | undefined): string => {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) return content.map((part) => (part?.type === 'text' ? (part.text ?? '') : '')).join('')
+  return ''
+}
+
+/**
+ * Claude Code's own turn boundary: a `type: 'user'` line whose content is not
+ * entirely tool results fed back to the model, and not one of the several
+ * other shapes Claude Code itself writes to a `user`-role line that a person
+ * or another agent never typed:
+ *
+ * - `isSidechain: true` -- a subagent's own transcript line (`Task`'s own
+ *   exchange, whether inline or under `subagents/*.jsonl`); every line a
+ *   subagent transcript writes carries this, so no separate file-level
+ *   filter is needed to keep a subagent's turns out of the person's count --
+ *   its tokens still count, since nothing here skips the file, only this
+ *   predicate.
+ * - `isMeta: true` -- hook context, a caveat, or a slash command's expanded
+ *   body, none of which anyone asked for on their own.
+ * - `isCompactSummary: true` -- the session's own note to itself that it was
+ *   continued from a compaction, not a prompt.
+ * - text starting with `[Request interrupted` -- Claude Code's own marker for
+ *   a turn nobody finished, replayed as a notice, never counted as one.
+ * - text containing `<local-command-stdout>`, `<local-command-stderr>`,
+ *   `<local-command-caveat>` or `<task-notification>` -- a local command's own
+ *   echo or a background task's report, answered by the model but asked by
+ *   nobody.
+ *
+ * This mirrors the replay sieve's own boundary -- `classifyReplayed` in
+ * `packages/claude-acp/src/bridge.ts` -- which already treats every one of
+ * these as a notice or drops it outright; the two are kept in step by
+ * hand, since the server does not import `claude-acp`.
+ */
+const CLAUDE_PLUMBING_MARKERS = ['<local-command-stdout>', '<local-command-stderr>', '<local-command-caveat>', '<task-notification>']
+
 const isClaudeUserTurn = (record: ClaudeRecord): boolean => {
   if (record.type !== 'user') return false
+  if (record.isSidechain === true || record.isMeta === true || record.isCompactSummary === true) return false
   const content = record.message?.content
-  if (typeof content === 'string') return content.trim() !== ''
-  if (Array.isArray(content)) return content.some((part) => part?.type !== 'tool_result')
-  return false
+  const hasRealContent =
+    typeof content === 'string' ? content.trim() !== '' : Array.isArray(content) ? content.some((part) => part?.type !== 'tool_result') : false
+  if (!hasRealContent) return false
+  const text = claudeUserText(content).trim()
+  if (text.startsWith('[Request interrupted')) return false
+  if (CLAUDE_PLUMBING_MARKERS.some((marker) => text.includes(marker))) return false
+  return true
 }
 
 export const scanClaudeTranscript = async (
@@ -665,6 +737,15 @@ export const scanClaudeTranscript = async (
       input: usage.input_tokens, output: usage.output_tokens, cacheRead: usage.cache_read_input_tokens, cacheWrite: usage.cache_creation_input_tokens,
     }, 'call')
   }, insight?.byteLimit)
+  // Consecutive turn candidates with no model call between them are one
+  // turn, not several: a slash command's own line and its real prompt both
+  // survive `isClaudeUserTurn`, and a local command's line does too when it
+  // carries no plumbing marker of its own. Only the candidate immediately
+  // before the next model call (or the last one in this pass, unresolved
+  // until the next) is counted -- the one actually closest to being
+  // answered -- so a run of several collapses to the single turn that run
+  // represents, and a local command's line simply merges into the real
+  // prompt that follows it.
   let nextModel = 'unknown'
   for (let index = pending.length - 1; index >= 0; index -= 1) {
     const entry = pending[index]!
@@ -672,6 +753,8 @@ export const scanClaudeTranscript = async (
       nextModel = entry.model
       continue
     }
+    const after = pending[index + 1]
+    if (after !== undefined && after.kind !== 'model') continue
     addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project)
   }
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL), bytesRead }
@@ -797,6 +880,8 @@ interface GeminiMessage {
   readonly type?: string
   readonly timestamp?: string
   readonly model?: string
+  /** Only read to tell a real prompt from a tool result fed back as a `type: 'user'` record -- see `isGeminiFunctionResponseOnly`. */
+  readonly content?: readonly unknown[]
   readonly tokens?: {
     readonly input?: number
     readonly output?: number
@@ -805,6 +890,16 @@ interface GeminiMessage {
     readonly tool?: number
   }
 }
+
+/**
+ * A Gemini CLI `type: 'user'` record whose `content` is entirely
+ * `functionResponse` parts is a tool result handed back to the model, the
+ * same thing `tool_result` is for Claude's transcript -- never a person's or
+ * an agent's own prompt, even though Gemini CLI files it under the same
+ * type a real prompt uses.
+ */
+const isGeminiFunctionResponseOnly = (content: readonly unknown[] | undefined): boolean =>
+  Array.isArray(content) && content.length > 0 && content.every((part) => isRecord(part) && 'functionResponse' in part)
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object'
 
@@ -929,6 +1024,7 @@ export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOp
     const candidate = message as GeminiMessage
     if (candidate.type === 'user') {
       if (typeof candidate.id !== 'string' || candidate.id === '' || turns.has(candidate.id)) return
+      if (isGeminiFunctionResponseOnly(candidate.content)) return
       const at = parseTime(candidate.timestamp)
       if (at === null) return
       turns.set(candidate.id, at)
