@@ -25,6 +25,8 @@ import { execFileSync } from 'node:child_process'
  *   node script/shots/shoot.mjs --survey          # what is on screen
  *   node script/shots/shoot.mjs --scene board     # one scene, both themes
  *   node script/shots/shoot.mjs --all             # every scene, both themes
+ *   HD_SHOTS_CONTEXT=1 node script/shots/shoot.mjs --all
+ *                                                 # every context-panel ring
  *   node script/shots/shoot.mjs --scene session-hover --reduced-motion
  *                                                 # as a reader who asked for less motion sees it
  */
@@ -39,6 +41,7 @@ import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
 import { HOME, NATIVE_CODEX, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { runScene } from './scene.mjs'
+import { selectScenes } from './selection.mjs'
 import { startStaticServer } from './static-server.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
@@ -2444,7 +2447,16 @@ rules:
      three scenes, and silently shooting only one of them is the kind of miss
      you find after the app has been shut down. */
   const named = argv.flatMap((one, i) => (one === '--scene' && argv[i + 1] && !argv[i + 1].startsWith('--') ? [argv[i + 1]] : []))
-  const wanted = has('all') ? Object.keys(SCENES) : named
+  // Context seats are deliberately a ring-only rig. `--all` with that rig
+  // captures the four ring cards, leaving the ordinary 12-seat take to the
+  // normal seed; otherwise one combined run would silently republish every
+  // non-ring scene with extra newest conversations in its sidebar.
+  const wanted = selectScenes({
+    all: has('all'),
+    context: process.env['HD_SHOTS_CONTEXT'] === '1',
+    names: Object.keys(SCENES),
+    requested: named,
+  })
 
   if (has('survey')) {
     const survey = await cdp.json(`(() => {

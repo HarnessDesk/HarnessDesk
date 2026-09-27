@@ -57,20 +57,26 @@ test('the context panel keeps a reading and its note inline, then wraps the note
   // component test cannot make either assertion.
   const wrapped = await reading.evaluate((node) => {
     const reading = node as HTMLElement
-    reading.style.width = '64px'
+    reading.style.width = '76px'
     const value = reading.querySelector<HTMLElement>('[data-role="value"]')!
     const note = reading.querySelector<HTMLElement>('[data-role="meta"]')!
     const row = reading.getBoundingClientRect()
     const valueBox = value.getBoundingClientRect()
     const noteBox = note.getBoundingClientRect()
+    const range = document.createRange()
+    range.selectNodeContents(note)
     return {
       below: noteBox.top >= valueBox.bottom - 1,
       rightInset: row.right - noteBox.right,
       noteWidth: noteBox.width,
       scrollWidth: note.scrollWidth,
+      // A range includes overlapping boxes for the note span and its text.
+      // Count distinct rendered line tops rather than DOM boxes.
+      visualLines: new Set([...range.getClientRects()].map((rect) => Math.round(rect.top * 100))).size,
     }
   })
   expect(wrapped.below).toBe(true)
   expect(wrapped.rightInset).toBeLessThanOrEqual(1)
   expect(Math.abs(wrapped.scrollWidth - wrapped.noteWidth)).toBeLessThanOrEqual(1)
+  expect(wrapped.visualLines).toBe(1)
 })

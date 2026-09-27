@@ -15,8 +15,25 @@ import { GoalStore } from '../packages/server/dist/src/goals/store.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
 import { USAGE, LEDGER } from './shots/usage.mjs'
+import { selectScenes } from './shots/selection.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+test('the context rig can never republish ordinary scenes with its extra seats', () => {
+  const scenes = ['desk', 'conversation', 'ring-codex', 'ring-cursor', 'ring-dsh']
+  assert.deepEqual(
+    selectScenes({ all: true, context: false, names: scenes, requested: [] }),
+    scenes,
+  )
+  assert.deepEqual(
+    selectScenes({ all: true, context: true, names: scenes, requested: [] }),
+    ['ring-codex', 'ring-cursor', 'ring-dsh'],
+  )
+  assert.deepEqual(
+    selectScenes({ all: false, context: true, names: scenes, requested: ['ring-cursor'] }),
+    ['ring-cursor'],
+  )
+})
 
 test('native appearance relaunch keeps the packaged executable selected for the sweep', () => {
   const native = readFileSync(join(root, 'e2e/ui-system/native-smoke.mjs'), 'utf8')

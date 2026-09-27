@@ -86,7 +86,7 @@ export const REPOS = [
  * cache_creation_input_tokens: 3000, cache_read_input_tokens: 20000,
  * output_tokens: 40`, a 200K window, spend 0.0123), `cursor-acp`'s
  * `fake-cursor-agent.mjs` (`inputTokens: 1200, outputTokens: 80,
- * cacheReadTokens: 900, cacheWriteTokens: 100`, no window ever sent), and
+ * cacheReadTokens: 900`, no window ever sent), and
  * DeepSeek Harness's own `docs/context-usage.md` table row (`used: 4400`,
  * `size: 32000`, a composition from `@deepseek-ai/dsh-token-meter` of a
  * 700-token system prompt and 4.3K of 15 tool schemas) — so the panel's own
@@ -113,13 +113,13 @@ export const CONTEXT_CAST = [
   },
   {
     id: 'context-cursor',
-    name: 'Cursor',
+    name: 'Cursor Agent',
     brand: 'cursor',
     tagline: "Cursor's CLI agent.",
     models: 'composer-2:Composer 2',
     conversation: ['Retry the checkout call on a 502', 'Added 502 to the retryable set and capped the backoff.'],
     usage: {
-      last: { totalTokens: 1280, inputTokens: 1200, outputTokens: 80, cachedReadTokens: 900, cachedWriteTokens: 100 },
+      last: { totalTokens: 1280, inputTokens: 1200, outputTokens: 80, cachedReadTokens: 900 },
       // No `used`/`size`: Cursor never sends a window, so the ring stays dashed.
       cost: null,
     },

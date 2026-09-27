@@ -211,14 +211,14 @@ panel says so in a sentence and still shows the rows it does have. Nothing is
 guessed to fill the gap. (cursor-agent 2026.08.31 added cache read and write
 splits to turn usage, allowing the cache chip to populate when reported).
 
-![The Cursor context panel: a dashed ring, "Context window unknown", the sentence "Cursor does not report its context window size", last turn 1.2K in at 90% cached and 80 out, 1.3K this session](images/ring-cursor.png)
+![The Cursor Agent context panel: a dashed ring, "Context window unknown", the sentence "Cursor Agent does not report its context window size", last turn 1.2K in at 75% cached and 80 out, 1.3K this session](images/ring-cursor.png)
 
 **DeepSeek Harness** — the composition, on its own bar. The shares are of the
 segments (14 + 86 = 100), the footnote names who priced them and says plainly
 that the 5K measured will not match the 4.4K fill above, and there is no
 free-space row.
 
-![The DeepSeek Harness context panel: 14% full, 4.4K of 32K tokens, a "What is in context" bar with System prompt 700 at 14% and Tool schemas (15) 4.3K at 86%, footnoted as an approximate composition](images/ring-dsh.png)
+![The DeepSeek Harness context panel: 14% full, 4.4K of 32K tokens, a "What is in context" bar with System prompt 700 at 14% and Tool schemas (15) 4.3K at 86%, footnoted as a composition estimated by @deepseek-ai/dsh-token-meter](images/ring-dsh.png)
 
 Read down the columns and the design justifies itself. Four agents give four
 different answers to "how full is it", and not one of them is a number the
