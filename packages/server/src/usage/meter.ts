@@ -35,6 +35,15 @@ export interface MeterReading {
   readonly billing?: UsageBilling
 }
 
+/**
+ * Thrown by a meter's `read()` when the source itself said the sign-in or
+ * key is wrong — a 401, a revoked token — never for a plain network hiccup
+ * or an unreadable body. `UsageService` files this beside the report as
+ * `UsageError.needsSignIn`, so a card offers "sign in / check key" rather
+ * than a retry that will only fail the same way again.
+ */
+export class MeterAuthError extends Error {}
+
 export interface UsageMeter {
   /** Stable id, referenced from the agent registry. */
   readonly id: string

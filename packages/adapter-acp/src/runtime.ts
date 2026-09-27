@@ -631,23 +631,45 @@ export const whereSecretLives = (
   return null
 }
 
-/** True when the file names this key with a non-empty value. Reads no value out. */
-const readsKey = (source: AcpSecretSource, key: string, agentEnv?: Readonly<Record<string, string>>): boolean => {
-  // `${NAME:-fallback}` at the start of a path is the agent's own home
-  // variable — DSH keeps its store under $DSH_HOME when that is set — read
-  // from the agent's configured environment, then from the one it inherits.
+/**
+ * Where a declared secret source resolves to on disk — the one place `~` and
+ * `${NAME:-fallback}` are expanded, so a path this reads and a path this
+ * reports finding are never two different files.
+ *
+ * `${NAME:-fallback}` at the start of a path is the agent's own home
+ * variable — DSH keeps its store under `$DSH_HOME` when that is set — read
+ * from the agent's configured environment, then from the one it inherits.
+ * `~` is always the machine's own home directory, never a row's own `HOME`
+ * override: this mirrors what the agent's own process would resolve `~` to,
+ * since it is the agent's own file this reads, not a sandboxed copy of it.
+ */
+export const secretSourcePath = (source: AcpSecretSource, agentEnv?: Readonly<Record<string, string | undefined>>): string => {
   const expanded = source.path.replace(/^\$\{([A-Z_][A-Z0-9_]*):-([^}]*)\}/, (_whole, name: string, fallback: string) => {
     const set = agentEnv?.[name] ?? process.env[name]
     return set !== undefined && set !== '' ? set : fallback
   })
-  const path = expanded.startsWith('~')
-    ? join(homedir(), expanded.slice(1))
-    : expanded
+  return expanded.startsWith('~') ? join(homedir(), expanded.slice(1)) : expanded
+}
+
+/**
+ * A key's value out of one of an agent's declared file sources, or `null`
+ * when the file is absent or does not name the key. The one reader for this
+ * shape — `readsKey` below (presence only) and every meter that needs the
+ * value itself (DeepSeek Harness's balance meter, `usage/deepseek.ts`) call
+ * this rather than keeping a second copy that can disagree with it on what
+ * a path or a value even is.
+ */
+export const readKeyValue = (
+  source: AcpSecretSource,
+  key: string,
+  agentEnv?: Readonly<Record<string, string | undefined>>,
+): string | null => {
+  const path = secretSourcePath(source, agentEnv)
   let text: string
   try {
     text = readFileSync(path, 'utf8')
   } catch {
-    return false
+    return null
   }
   // YAML is matched in both styles the store is written in: a block mapping
   // per line, and the one-line flow mapping DSH's own writer produces
@@ -657,10 +679,14 @@ const readsKey = (source: AcpSecretSource, key: string, agentEnv?: Readonly<Reco
     source.format === 'yaml'
       ? new RegExp(`(?:^|[{,])\\s*${key}\\s*:\\s*([^,}\\n]*)`, 'm').exec(text)
       : new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=\\s*(.*)$`, 'm').exec(text)
-  if (!found) return false
+  if (!found) return null
   const value = found[1]!.trim().replace(/^['"]|['"]$/g, '').trim()
-  return value.length > 0 && !value.startsWith('#')
+  return value.length > 0 && !value.startsWith('#') ? value : null
 }
+
+/** True when the file names this key with a non-empty value. Reads no value out. */
+const readsKey = (source: AcpSecretSource, key: string, agentEnv?: Readonly<Record<string, string | undefined>>): boolean =>
+  readKeyValue(source, key, agentEnv) !== null
 
 /**
  * A select's choices as one flat list.
