@@ -36,11 +36,11 @@ import { expect, test, type Page } from '@playwright/test'
  * reported once. Keys are `${file}#${exportName}`, so an exemption cannot
  * silently excuse a sibling export from the same file.
  *
- * The one exemption is structural rather than a missing frame: the panel
- * system's own chassis, `Workbench`, composes correctly only inside the full
- * window shell that `preview.html` deliberately never mounts a second copy
- * of (see this file's own header comment and `main.tsx`'s "real screens...
- * never the app shell").
+ * The two exemptions are structural rather than missing frames. `Workbench`
+ * is the panel system's own chassis and composes correctly only inside the
+ * full window shell that `preview.html` deliberately never mounts a second
+ * copy of. `Notices` is a coordinator with no DOM of its own; its two visible
+ * outlets each have their own export and preview coverage.
  */
 const EXEMPT: Readonly<Record<string, string>> = {
   'panels/Workbench.tsx#Workbench': "The window's own chassis — sidebar, docks, resize and drag wiring — not a screen; already exercised by the real app and packages/desktop.",
@@ -103,13 +103,19 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
       const components = refToComponents.get(candidate)
       if (components) for (const component of components) covered.add(component)
     }
+    // One visible leaf can share its complete fiber ancestry with thousands
+    // of other DOM elements. Visit each ancestry once for this page state:
+    // coverage remains reference-based, while a large preview stops doing
+    // the same work once per leaf.
+    const seenFibers = new Set<unknown>()
     for (const el of document.querySelectorAll('*')) {
       if (!isVisible(el)) continue
       const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'))
       if (!key) continue
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let fiber: any = (el as unknown as Record<string, unknown>)[key]
-      while (fiber) {
+      while (fiber && !seenFibers.has(fiber)) {
+        seenFibers.add(fiber)
         const type = fiber.type
         credit(type)
         credit(fiber.elementType)
@@ -139,8 +145,8 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
  * actionability-then-verify loop never resolves against a `<select>` that
  * just became unreachable that way.
  */
-const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly string[]> =>
-  page.evaluate(async (delay) => {
+const sweepSelectsForCoverage = (page: Page): Promise<readonly string[]> =>
+  page.evaluate(async () => {
     const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
     const isVisualComponentExport = (name: string, value: unknown): boolean => {
       if (isIconName(name) || !/^[A-Z][a-z]/.test(name)) return false
@@ -169,14 +175,18 @@ const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly
       return element.getClientRects().length > 0
     }
     const collect = (): void => {
+      // Keep this set local to a collection: each dial value is a distinct
+      // page state and can reveal a different mounted subtree.
+      const seenFibers = new Set<unknown>()
       for (const el of document.querySelectorAll('*')) {
         if (!isVisible(el)) continue
         const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'))
         if (!key) continue
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let fiber: any = (el as unknown as Record<string, unknown>)[key]
-        while (fiber) {
-        const type = fiber.type
+        while (fiber && !seenFibers.has(fiber)) {
+          seenFibers.add(fiber)
+          const type = fiber.type
           const credit = (candidate: unknown): void => {
             const components = refToComponents.get(candidate)
             if (components) for (const component of components) covered.add(component)
@@ -191,7 +201,10 @@ const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly
         }
       }
     }
-    const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+    // React receives the `change` synchronously, then may place an effect's
+    // state-gated subtree in the next render. Two animation frames make that
+    // rendered state observable without a timing guess per option.
+    const settle = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     const setValue = (select: HTMLSelectElement, value: string): void => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
       setter.call(select, value)
@@ -203,16 +216,16 @@ const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly
       const neutral = values[0]
       for (const value of values) {
         setValue(select, value)
-        await wait(delay)
+        await settle()
         collect()
         if (value !== neutral && neutral !== undefined) {
           setValue(select, neutral)
-          await wait(20)
+          await settle()
         }
       }
     }
     return [...covered]
-  }, settleMs)
+  })
 
 test.describe('preview coverage', () => {
   test('a hidden or transparent preview wrapper earns no component coverage', async ({ page }) => {
@@ -242,13 +255,22 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     }
 
+    // Fail closed if an import-glob/configuration change silently empties the
+    // inventory. These representatives prove we are still checking a root
+    // component, a nested component, and a recursively discovered panel.
+    expect(allComponents).toEqual(expect.arrayContaining([
+      'components/Settings.tsx#Settings',
+      'components/usage/ActivityView.tsx#ActivityView',
+      'panels/Workbench.tsx#Workbench',
+    ]))
+
     // Normal and composer frames expose different dials. Sweep both, rather
     // than the final `?empty` page alone: a composer-only sheet must earn its
     // own coverage. The empty page adds an inline frame but no unique dial.
     for (const query of ['', '?composer']) {
       await page.goto(`/preview.html${query}`)
       await page.waitForTimeout(1200)
-      for (const component of await sweepSelectsForCoverage(page, 60)) covered.add(component)
+      for (const component of await sweepSelectsForCoverage(page)) covered.add(component)
     }
 
     // -- design.html: every board the nav rail lists.
@@ -258,12 +280,20 @@ test.describe('preview coverage', () => {
       const result = await collectCoverage(page)
       for (const file of result.covered) covered.add(file)
     }
-    const boardLabels = [...new Set(await page.locator('aside button, nav button').allTextContents())]
+    const boardNav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) })
+    const boardControls = boardNav.locator(':scope > button')
+    const boardLabels = [...new Set(await boardControls.allTextContents())]
       .map((label) => label.trim())
       .filter(Boolean)
     for (const label of boardLabels) {
-      await page.getByRole('button', { name: label, exact: true }).first().click().catch(() => {})
-      await page.waitForTimeout(150)
+      const board = boardNav.getByRole('button', { name: label, exact: true })
+      await expect(board).toHaveCount(1)
+      await board.click()
+      // The design navigator has exactly one active board. Confirm the click
+      // selected this board before attributing its mounted exports to it.
+      const selected = boardNav.locator(':scope > button[data-selected="true"]')
+      await expect(selected).toHaveCount(1)
+      await expect(selected).toHaveText(label)
       const result = await collectCoverage(page)
       for (const file of result.covered) covered.add(file)
     }
