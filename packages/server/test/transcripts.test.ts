@@ -81,6 +81,40 @@ test('a thinner read is filled in from the turns the host recorded', async () =>
   })
 })
 
+test('a reopened session keeps its stored startedAt and completedAt, never a replay\'s own re-stamp', async () => {
+  await withStore(async (store) => {
+    const full = session([
+      turn('t1', [item('u', 'userMessage'), item('a', 'assistantMessage')], { startedAt: 1_000, completedAt: 1_100 }),
+    ])
+    store.record(full, { now: true })
+    await store.flush()
+
+    // A reopen replays the turn with fewer items and its own fresh
+    // timestamps -- exactly the shape an ACP replay's own reconstruction
+    // takes (`adapter-acp/src/runtime.ts`): thinner, and re-dated to the
+    // moment of the replay rather than the moment the turn actually ran.
+    const reopened = session([turn('t1', [item('u', 'userMessage')], { startedAt: 999_999_999, completedAt: null })])
+    const enriched = await store.enrich(reopened)
+    assert.equal(enriched.turns[0]?.startedAt, 1_000, "the host's own stored time wins, never the replay's")
+    assert.equal(enriched.turns[0]?.completedAt, 1_100)
+  })
+})
+
+test('reopening a session twice, on two different days, never changes which day its turn counts on', async () => {
+  await withStore(async (store) => {
+    const full = session([
+      turn('t1', [item('u', 'userMessage'), item('a', 'assistantMessage')], { startedAt: 1_000, completedAt: 1_100 }),
+    ])
+    store.record(full, { now: true })
+    await store.flush()
+
+    const firstReopen = await store.enrich(session([turn('t1', [item('u', 'userMessage')], { startedAt: 50_000_000, completedAt: null })]))
+    const secondReopen = await store.enrich(session([turn('t1', [item('u', 'userMessage')], { startedAt: 90_000_000, completedAt: null })]))
+    assert.equal(firstReopen.turns[0]?.startedAt, 1_000)
+    assert.equal(secondReopen.turns[0]?.startedAt, 1_000, 'the same real start time both times, whatever day it is reopened on')
+  })
+})
+
 /**
  * `enrich` is read through the instant a turn ends, while its write is only
  * *scheduled* — `record`'s own settle timer, or the zero-delay one a
