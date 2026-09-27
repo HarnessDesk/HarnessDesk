@@ -13,6 +13,7 @@ import {
   type DecideFindingInput,
   type EvidenceRecord,
   type FindingReadInput,
+  type FindingSeatRow,
   type FindingView,
   type Intent,
   type IntentClaim,
@@ -458,7 +459,7 @@ export interface TeamFindings {
   raise(input: unknown, scope: TeamCallScope): Promise<FindingView>
   repair(input: unknown, scope: TeamCallScope): Promise<FindingView>
   decide(input: unknown, scope: TeamCallScope): Promise<FindingView>
-  readForSeat(input: unknown, scope: TeamCallScope): Promise<readonly FindingView[]>
+  readForSeat(input: unknown, scope: TeamCallScope): Promise<readonly FindingSeatRow[]>
 }
 
 /**
@@ -2559,7 +2560,7 @@ export class Team {
     return this.#findingsPlane().decide(input, scope)
   }
 
-  async listFindings(input: FindingReadInput, scope: TeamCallScope): Promise<readonly FindingView[]> {
+  async listFindings(input: FindingReadInput, scope: TeamCallScope): Promise<readonly FindingSeatRow[]> {
     this.#caller(scope)
     return this.#findingsPlane().readForSeat(input, scope)
   }

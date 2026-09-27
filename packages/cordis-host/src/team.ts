@@ -1,7 +1,7 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 
 import type {
-  DecideFindingInput, EvidenceRecord, FindingReadInput, FindingView, RaiseFindingInput, RepairFindingInput,
+  DecideFindingInput, EvidenceRecord, FindingReadInput, FindingSeatRow, FindingView, RaiseFindingInput, RepairFindingInput,
   PersonNoticeInput, ReviewCandidate, ReviewInput, ScopeQuery,
 } from '@harnessdesk/protocol'
 
@@ -88,7 +88,7 @@ export interface TeamEngine {
   raiseFinding(input: RaiseFindingInput, scope: TeamScope): Promise<FindingView>
   repairFinding(input: RepairFindingInput, scope: TeamScope): Promise<FindingView>
   decideFinding(input: DecideFindingInput, scope: TeamScope): Promise<FindingView>
-  listFindings(input: FindingReadInput, scope: TeamScope): Promise<readonly FindingView[]>
+  listFindings(input: FindingReadInput, scope: TeamScope): Promise<readonly FindingSeatRow[]>
   /**
    * A message from the calling conversation's Agent to the person. Prose
    * back for the calling model: where it landed, or why it did not.
@@ -295,7 +295,7 @@ export class TeamService extends Service {
     return engine().decideFinding(input, asTeamScope(scope, plugin))
   }
 
-  async listFindings(input: FindingReadInput, scope?: ScopeQuery): Promise<readonly FindingView[]> {
+  async listFindings(input: FindingReadInput, scope?: ScopeQuery): Promise<readonly FindingSeatRow[]> {
     const plugin = this.gate()
     return engine().listFindings(input, asTeamScope(scope, plugin))
   }

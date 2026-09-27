@@ -77,18 +77,23 @@ export const FindingDetail = ({
   const [more, setMore] = useState(false)
   const [generation, setGeneration] = useState(0)
   /**
-   * A person's still-unsent reason, held here rather than inside
-   * `PersonVerdict` (#1089): `decide` is the run view a live push refreshes
-   * every time a finding on this Goal changes, and that view — or the run it
-   * names — can drop out of the snapshot for one render before the next
-   * push restores it (a round's own bookkeeping arriving in a later
-   * message than the round itself). `{decide && <PersonVerdict/>}` then
-   * unmounts and remounts `PersonVerdict`, which used to carry the reason as
-   * its own state — wiping a person's half-written "why" out from under
-   * them, sometimes read as the dialog itself closing. This component does
-   * not blink away on the same push, so the draft lives here instead.
+   * A person's still-unsent reason for "Decide it yourself" (#1089), held
+   * here rather than inside `PersonVerdict`. `PersonVerdict` is only rendered
+   * while `decide` is truthy (`{decide && <PersonVerdict/>}` below); nothing
+   * observed in the real store ever makes an already-loaded `decide` blink
+   * false and back — `flowExecutions` and `findingRuns` are only ever added
+   * to, and a live push keeps a Goal's cached run views in place while it
+   * refetches (#1090's review). Keeping the draft here anyway is defensive:
+   * `FindingDetail` itself does not remount for as long as this exact
+   * finding's dialog stays open (see `key={finding}` below), so a reason
+   * cannot be lost to a `PersonVerdict` remount from any cause this file does
+   * not yet know about, and it can never survive onto a different finding.
    */
   const [why, setWhy] = useState('')
+  // Cleared the moment this instance is asked to show a different finding,
+  // even if its caller never unmounts it first — a reason typed for one
+  // finding must never reach another's `finding/decide`.
+  useEffect(() => { setWhy('') }, [goal, finding])
 
   useEffect(() => {
     let live = true
@@ -118,7 +123,9 @@ export const FindingDetail = ({
   const title = read.kind === 'ready' ? (read.page.finding.title.trim() || read.page.finding.id) : 'Finding'
 
   return (
-    <Dialog title={title} onClose={onClose} size="lg" tall>
+    // Keyed by `finding`: a defensive floor under the lifted `why` state above — a
+    // draft can never survive a swap to a different finding's dialog, whatever else changes.
+    <Dialog key={finding} title={title} onClose={onClose} size="lg" tall>
       {read.kind === 'loading' && <Text role="muted">Reading this finding…</Text>}
       {read.kind === 'error' && <Banner tone="danger" title="This finding could not be read">{read.message}</Banner>}
       {read.kind === 'ready' && (() => {

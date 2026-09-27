@@ -139,6 +139,20 @@ export interface FindingView {
   readonly activeBlocking?: boolean
 }
 
+/**
+ * A finding as `list_findings` hands it to the Agent that asked: the same
+ * view, plus whether the calling Seat's Agent raised it and whether this
+ * Seat may decide it right now, from the card it holds. Only ever present on
+ * that one read — never on `finding/list`, `finding/read` or a frozen
+ * receipt, which a person reads and where "yours" means nothing.
+ * `decidableNow` mirrors the findings plane's own `decide` checks exactly
+ * (#1090), so a Seat is never told a finding is decidable and then refused.
+ */
+export interface FindingSeatRow extends FindingView {
+  readonly raisedByYou: boolean
+  readonly decidableNow: boolean
+}
+
 /** A person's override of unresolved findings: recorded, never a verdict. */
 export interface FindingOverride {
   readonly by: 'person'

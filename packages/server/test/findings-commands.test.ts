@@ -117,6 +117,53 @@ test('historical Agent attribution survives fresh review Seat', async (t) => {
   assert.deepEqual(records.map((record) => (record.fact.kind === 'finding' ? record.fact.at : null)), [SHA1, SHA2, SHA2])
 })
 
+/**
+ * #1090: `list_findings` (`readForSeat`) marks which findings the calling
+ * Seat's Agent raised, and which of those it may decide right now — the only
+ * way a brief's "decide the findings you raised" is followable rather than
+ * guessed at. `decidableNow` must agree with `decide`'s own refusals exactly,
+ * or a Seat is told a finding is decidable and then refused for it.
+ */
+test('a listing marks a Seat’s own findings, and only a later fresh Seat of the same Agent as able to decide them now', async (t) => {
+  const f = await findingsRig(t)
+  await f.finishFixer()
+  const [review] = f.cards('reviewer')
+  const raised = await f.plane.raise(raiseInput(review!.id, (await f.candidate(review!.id, 'seat-2')).id), f.scope('seat-2'))
+  // The raiser's own card, same round: raised by its Agent, but not decidable from the raising Seat itself.
+  const own = await f.plane.readForSeat({ intent: review!.id }, f.scope('seat-2'))
+  const ownRow = own.find((one) => one.id === raised.id)!
+  assert.equal(ownRow.raisedByYou, true)
+  assert.equal(ownRow.decidableNow, false)
+
+  await f.finishReviews('request-changes')
+  const [, repairCard] = f.cards('fixer')
+  f.rig.heads.set('/repo', { at: SHA2, dirty: false })
+  await f.plane.repair({ intent: repairCard!.id, finding: raised.id, request: 'repair-1', expected: 1, note: 'Bounded it.' }, f.scope('seat-4'))
+  await f.finishFixer()
+  const [, , again, againOther] = f.cards('reviewer')
+  // seat-5 is the code reviewer again (the raiser's own Agent, fresh Seat); seat-6 is another Agent entirely.
+  assert.equal(f.rig.seats.get('seat-5')?.agent?.id, 'code-reviewer')
+  assert.equal(f.rig.seats.get('seat-6')?.agent?.id, 'security-reviewer')
+
+  const mine = await f.plane.readForSeat({ intent: again!.id }, f.scope('seat-5'))
+  const mineRow = mine.find((one) => one.id === raised.id)!
+  assert.equal(mineRow.raisedByYou, true, 'the same Agent, even from a fresh Seat, reads this as its own')
+  assert.equal(mineRow.decidableNow, true, 'a later review card of a fresh Seat of the raiser may decide it now')
+
+  const theirs = await f.plane.readForSeat({ intent: againOther!.id }, f.scope('seat-6'))
+  const theirsRow = theirs.find((one) => one.id === raised.id)!
+  assert.equal(theirsRow.raisedByYou, false, 'a different Agent never reads another’s finding as its own')
+  assert.equal(theirsRow.decidableNow, false)
+
+  // decidableNow never promises what decide then refuses, and never refuses what decide then allows.
+  await assert.rejects(
+    f.plane.decide({ intent: againOther!.id, candidate: (await f.candidate(againOther!.id, 'seat-6')).id, finding: raised.id, request: 'decide-x', expected: 2, state: 'repaired', note: 'Looks fixed.' }, f.scope('seat-6')),
+    /Only the Agent that raised this finding/,
+  )
+  const confirmed = await f.plane.decide({ intent: again!.id, candidate: (await f.candidate(again!.id, 'seat-5')).id, finding: raised.id, request: 'decide-1', expected: 2, state: 'repaired', note: 'Confirmed at the new head.' }, f.scope('seat-5'))
+  assert.equal(confirmed.lifecycle.confirmed, true)
+})
+
 test('concurrent repairs compare sequences', async (t) => {
   const f = await findingsRig(t)
   await f.finishFixer()

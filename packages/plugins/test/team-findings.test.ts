@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { ExtensionKernel, setTeamEngine, type TeamEngine } from '@harnessdesk/cordis-host'
-import type { FindingView, ToolResult } from '@harnessdesk/protocol'
+import type { FindingSeatRow, FindingView, ToolResult } from '@harnessdesk/protocol'
 
 import { teamPlugin } from '../src/index.js'
 
@@ -24,6 +24,8 @@ const view = (over: Partial<FindingView> = {}): FindingView => ({
   ...over,
 })
 
+const seatRow = (over: Partial<FindingSeatRow> = {}): FindingSeatRow => ({ ...view(over), raisedByYou: false, decidableNow: false, ...over })
+
 test('tool bridge attributes and bounds each command', async (t) => {
   const calls: { verb: string; input: unknown; scope: unknown }[] = []
   const refused = async (): Promise<never> => { throw new Error('not used here') }
@@ -42,7 +44,7 @@ test('tool bridge attributes and bounds each command', async (t) => {
       if ((input as { state: string }).state === 'open') throw new Error('Only the Agent that raised this finding may decide it, from a later review.')
       return view({ lifecycle: { state: 'repaired', confirmed: true, repairs: ['b'.repeat(40)] }, sequence: 3 })
     },
-    listFindings: async (input, scope) => { calls.push({ verb: 'list', input, scope }); return [view(), view({ id: 'finding-2', blocking: false, title: 'A nit' })] },
+    listFindings: async (input, scope) => { calls.push({ verb: 'list', input, scope }); return [seatRow(), seatRow({ id: 'finding-2', blocking: false, title: 'A nit' })] },
   }
   setTeamEngine(engine)
   t.after(() => setTeamEngine(null))

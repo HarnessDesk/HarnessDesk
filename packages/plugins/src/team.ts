@@ -1,5 +1,5 @@
 import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
-import type { FindingAnchor, FindingCategory, FindingView } from '@harnessdesk/protocol'
+import type { FindingAnchor, FindingCategory, FindingSeatRow, FindingView } from '@harnessdesk/protocol'
 
 /**
  * Working together: the shared board and messages between conversations.
@@ -500,6 +500,18 @@ export const teamPlugin: HarnessPlugin = {
         `${view.id} — ${view.title || 'details not recorded'} · ${view.lifecycle.state}${view.lifecycle.state === 'repaired' && !view.lifecycle.confirmed ? ' (claimed, not yet confirmed)' : view.lifecycle.confirmed ? ' (confirmed)' : ''}` +
         `${view.blocking ? ' · blocking' : ''} · sequence ${view.sequence}${view.problem ? ` · cannot be trusted: ${view.problem}` : ''}`
 
+      /**
+       * `list_findings`'s own line: `findingLine` plus which findings are
+       * this Seat's Agent's own, and which of those it may decide right now
+       * from the card it holds — `list_findings` is the one place a Seat can
+       * tell "decide the findings you raised" apart from "someone raised
+       * this" (#1090). `decidableNow` is never true where `raisedByYou` is
+       * not: the plane computes both from the same authorization `decide`
+       * itself enforces.
+       */
+      const seatFindingLine = (view: FindingSeatRow): string =>
+        `${findingLine(view)}${view.raisedByYou ? (view.decidableNow ? ' · yours — decide it now' : ' · yours, not yet (a later review card of a fresh Seat of yours)') : ''}`
+
       ctx.tools.register({
         name: 'raise_finding',
         description:
@@ -589,7 +601,7 @@ export const teamPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'list_findings',
         description:
-          'The findings on your Goal, for the card you hold: each id, its title, where it stands, whether it blocks, and its sequence (pass that as `expected` when you repair or decide it). `filter` is all, open or blocking. More than 200 is refused rather than cut short.',
+          'The findings on your Goal, for the card you hold: each id, its title, where it stands, whether it blocks, its sequence (pass that as `expected` when you repair or decide it), and — yours alone — whether you raised it and may decide it right now. `filter` is all, open or blocking. More than 200 is refused rather than cut short.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -603,7 +615,7 @@ export const teamPlugin: HarnessPlugin = {
             intent: Number(args['intent']),
             ...(args['filter'] !== undefined ? { filter: String(args['filter']) as 'all' | 'open' | 'blocking' } : {}),
           }, scope)
-          return views.length === 0 ? 'There are no findings of that kind on this Goal.' : views.map(findingLine).join('\n')
+          return views.length === 0 ? 'There are no findings of that kind on this Goal.' : views.map(seatFindingLine).join('\n')
         },
       })
 

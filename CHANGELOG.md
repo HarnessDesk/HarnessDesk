@@ -7,15 +7,28 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **"Decide it yourself" in Findings no longer discards a typed reason.**
-  While a round was still going on, a live update could briefly drop the run
-  a finding's decision was read against out of the snapshot and bring it back
-  a moment later; the panel unmounted and remounted with it, and a person's
-  half-written "why" for Withdraw, Accept the repair or Reject the repair was
-  lost — read back as "Say why" even though they had just typed one, and once
-  as the whole section blinking away mid-edit. The reason now lives with the
-  finding's own dialog, which does not remount on that update, so it survives
-  and reaches the server. (#1089)
+- **A reviewer that already raised a finding is now told plainly how to close
+  it on a later round.** A blocking finding could be fixed, confirmed fixed in
+  two reviewers' own prose, and still sit Open forever: only the Agent that
+  raised a finding may decide it, and only from a later, fresh Seat of its
+  own — never told anywhere before now, so a reviewer's "this is closed" in
+  its report never reached the ledger. `list_findings` now marks which
+  findings on a Goal are the calling Agent's own and which of those it may
+  decide right now, and every finding-raising Agent's brief (API, code,
+  performance, security and test reviewer) says outright: decide each one you
+  raised with `decide_finding`, against a candidate from `review_candidates`,
+  before finishing the card — prose alone never closes it. A later review's
+  own packet now names the raising Agent beside each finding still in
+  question, since more than one Agent can hold the same role across a Goal's
+  rounds. (Refs #1089, #1090)
+
+- **"Decide it yourself" in Findings hardened against ever losing a typed
+  reason, and against ever sending one to the wrong finding.** The person's
+  own draft reason now lives with the finding's own dialog rather than the
+  panel inside it, and is cleared the moment that dialog is asked to show a
+  different finding — belt-and-suspenders for a decision a person only gets
+  to make once a finding has already been through a full round of review.
+  (#1089, #1090)
 
 - **"Authorise another round" in Findings now takes a count, so a converging
   loop no longer needs a click per round.** The action used to let exactly one

@@ -447,7 +447,14 @@ const liveRig = (findings: FindingsListState | undefined, overrides: Partial<App
   return { store, push }
 }
 
-it('a reason typed into "Decide it yourself" survives its run view dropping out of a live push and back, and reaches the server (#1089)', async () => {
+it('regression guard: a reason typed survives even a hypothetical flowExecutions gap through the real computation path (#1089, #1090)', async () => {
+  // #1090's review established that the real store never actually removes a
+  // `flowExecutions` entry — this pushes one out anyway, a state the real
+  // store cannot produce, to prove the defensive fix degrades safely
+  // through `GoalFindings`' own `goalRunOf`/`originRun` computation rather
+  // than only through a hand-flipped prop (`FindingDetail.test.tsx`'s
+  // guard). `GoalFindings.real-store.test.tsx` is the test that establishes
+  // what the real live-push path actually does.
   const state: FindingsListState = {
     filter: 'all', rows: [row('finding-open-1')], next: null, totals: { all: 1, open: 1, blocking: 1 }, problem: null,
     loading: false, loadingMore: false, error: null, stale: false,
