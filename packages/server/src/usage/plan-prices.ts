@@ -16,6 +16,19 @@ import { matchPlanSuggestion, type PlanSuggestion, type RuntimeId } from '@harne
  * `chatgpt.com/pricing` — one card, no per-seat number — so it is left out
  * too.
  *
+ * A row also has to show its exact `planMatch` against the reader that would
+ * produce it — never a guess at the vendor's own field spelling
+ * (`matchPlanSuggestion` is exact once lower-cased, so a wrong guess would
+ * silently never fire, or worse, fire for the wrong plan). Two runtimes are
+ * left out entirely on that ground:
+ * - GitHub Copilot: the only `copilot_plan` value this repo has ever
+ *   observed is `'business'` (`copilot.ts`'s own `planName`, capitalized to
+ *   `'Business'`) — nothing here shows what a Pro or Pro+ seat's field
+ *   value actually is, so those two rows are left out rather than guessed.
+ * - Gemini: `gemini.ts` reads `assist.currentTier?.name` straight from
+ *   Google's `loadCodeAssist` response with no fixture or observed value at
+ *   all, so there is nothing to pin "Google AI Pro" against.
+ *
  * Kept as a TypeScript module rather than the plain data file the design
  * first reached for (`plan-prices.json`) because `tsc -b`'s output only ever
  * holds what it compiled — a JSON asset beside a compiled `.ts` file is not
@@ -52,8 +65,13 @@ export const PLAN_SUGGESTIONS: readonly PlanSuggestion[] = [
     checkedAt: '2026-09-26',
   },
   {
+    // cursor.ts's `planName` title-cases only the first character, so
+    // Cursor's own `pro_plus` membership value reads back exactly as
+    // `planName` produces it — proved directly against the exported
+    // function in `cursor-plan-name.test.ts` — never as the vendor page's
+    // own two-word "Pro Plus".
     runtime: 'cursor' as RuntimeId,
-    planMatch: 'Pro+',
+    planMatch: 'Pro_plus',
     amount: 60,
     currency: 'USD',
     period: 'month',
@@ -67,33 +85,6 @@ export const PLAN_SUGGESTIONS: readonly PlanSuggestion[] = [
     currency: 'USD',
     period: 'month',
     sourceUrl: 'https://cursor.com/docs/account/pricing',
-    checkedAt: '2026-09-26',
-  },
-  {
-    runtime: 'github-copilot-cli' as RuntimeId,
-    planMatch: 'Pro',
-    amount: 10,
-    currency: 'USD',
-    period: 'month',
-    sourceUrl: 'https://github.com/features/copilot/plans',
-    checkedAt: '2026-09-26',
-  },
-  {
-    runtime: 'github-copilot-cli' as RuntimeId,
-    planMatch: 'Pro+',
-    amount: 39,
-    currency: 'USD',
-    period: 'month',
-    sourceUrl: 'https://github.com/features/copilot/plans',
-    checkedAt: '2026-09-26',
-  },
-  {
-    runtime: 'gemini' as RuntimeId,
-    planMatch: 'Google AI Pro',
-    amount: 19.99,
-    currency: 'USD',
-    period: 'month',
-    sourceUrl: 'https://one.google.com/about/plans',
     checkedAt: '2026-09-26',
   },
 ]

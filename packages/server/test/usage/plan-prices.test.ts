@@ -41,3 +41,34 @@ test('a suggestion is inert data — computing it never writes anything a stored
   // that only happens through `PlanStore.set()`, exercised in plan-store.test.ts.
   assert.equal((found as unknown as { source?: unknown }).source, undefined)
 })
+
+/**
+ * One test per kept row, each pinned to the exact string its own reader
+ * produces (`cursor-plan-name.test.ts`, `usage-meter.test.ts`,
+ * `preview/signin-fixture.ts`'s Codex report) — never a guess at a vendor
+ * page's own spelling, which is how a suggestion could silently never fire
+ * or fire for the wrong plan.
+ */
+test('every kept row matches the exact string its reader produces', () => {
+  assert.equal(suggestionFor(runtimeId('claude-code'), 'Pro')?.amount, 20, "claude-file.ts's planFor('default_claude_pro')")
+  assert.equal(suggestionFor(runtimeId('codex'), 'plus')?.amount, 20, "adapter-codex's own account.planType")
+  assert.equal(suggestionFor(runtimeId('cursor'), 'Pro')?.amount, 20, "cursor.ts's planName('pro')")
+  assert.equal(suggestionFor(runtimeId('cursor'), 'Pro_plus')?.amount, 60, "cursor.ts's planName('pro_plus')")
+  assert.equal(suggestionFor(runtimeId('cursor'), 'Ultra')?.amount, 200, "cursor.ts's planName('ultra')")
+})
+
+test('a suggestion never matches the wrong plan — a vendor page\'s own spelling does not fire', () => {
+  assert.equal(suggestionFor(runtimeId('cursor'), 'Pro Plus'), null, 'the vendor page\'s two-word spelling is not what the reader produces')
+  assert.equal(suggestionFor(runtimeId('cursor'), 'Pro+'), null)
+})
+
+/**
+ * Copilot and Gemini are dropped entirely (NIT): the only `copilot_plan`
+ * this repo has ever observed is `'business'`, and Gemini's tier name has
+ * no observed value at all, so neither vendor's Pro/Pro+/Google AI Pro row
+ * could ever be shown to match its own reader's real output.
+ */
+test('Copilot and Gemini carry no rows — nothing here shows what their readers actually produce for a paid tier', () => {
+  assert.equal(PLAN_SUGGESTIONS.some((row) => row.runtime === runtimeId('github-copilot-cli')), false)
+  assert.equal(PLAN_SUGGESTIONS.some((row) => row.runtime === runtimeId('gemini')), false)
+})
