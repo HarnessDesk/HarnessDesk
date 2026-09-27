@@ -7,6 +7,16 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **"Decide it yourself" in Findings no longer discards a typed reason.**
+  While a round was still going on, a live update could briefly drop the run
+  a finding's decision was read against out of the snapshot and bring it back
+  a moment later; the panel unmounted and remounted with it, and a person's
+  half-written "why" for Withdraw, Accept the repair or Reject the repair was
+  lost — read back as "Say why" even though they had just typed one, and once
+  as the whole section blinking away mid-edit. The reason now lives with the
+  finding's own dialog, which does not remount on that update, so it survives
+  and reaches the server. (#1089)
+
 - **"Authorise another round" in Findings now takes a count, so a converging
   loop no longer needs a click per round.** The action used to let exactly one
   round past a stop, so a run against a round budget of 20 could need about

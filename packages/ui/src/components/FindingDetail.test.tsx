@@ -203,6 +203,51 @@ it('a finding of another run, or a Goal no longer open, keeps the decision greye
   expect(document.body.textContent).toContain('This Goal is wrapped.')
 })
 
+it('a reason typed survives `decide` dropping out of the snapshot for one render and coming back, and reaches the server (#1089)', async () => {
+  // `decide` is the run view a live `finding/changed` push refreshes; while a
+  // round is going on, the run it names can be briefly missing from a
+  // snapshot patch before the next one restores it. `FindingDetail` renders
+  // `PersonVerdict` only while `decide` is truthy, so this is exactly the
+  // "the component remounts when the store pushes an update" case: without a
+  // fix, `PersonVerdict`'s own `why` state is lost on that remount.
+  const { store } = rig(page())
+  const decideFindingRun = vi.fn(async () => runView())
+  Object.assign(store, { decideFindingRun })
+  await renderDeciding(store, runView())
+  expect(document.body.textContent).toContain('Decide it yourself')
+
+  typeReason('checked the fix myself')
+  expect((document.querySelector('textarea[aria-label="Why"]') as HTMLTextAreaElement).value).toBe('checked the fix myself')
+
+  // The run view blinks out of the snapshot for one render, then comes back —
+  // same run, a fresh object, the shape `#findingsRefresh` produces.
+  await renderDeciding(store, undefined)
+  expect(document.body.textContent).not.toContain('Decide it yourself')
+  await renderDeciding(store, runView())
+  expect(document.body.textContent).toContain('Decide it yourself')
+
+  const why = document.querySelector('textarea[aria-label="Why"]') as HTMLTextAreaElement
+  expect(why.value).toBe('checked the fix myself')
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+  await act(async () => { clickNamed('Withdraw it').click() })
+  expect(document.body.textContent).not.toContain('Say why.')
+  expect(decideFindingRun).toHaveBeenCalledWith({
+    goal: 'g1', run: 'run-1', round: 4, stamp: STAMP,
+    action: { kind: 'adjudicate', finding: 'finding-1', state: 'withdrawn' }, reason: 'checked the fix myself',
+  })
+})
+
+it('an empty reason is refused plainly, whether or not a decision has ever been attempted', async () => {
+  const { store } = rig(page())
+  const decideFindingRun = vi.fn(async () => runView())
+  Object.assign(store, { decideFindingRun })
+  await renderDeciding(store, runView())
+  await act(async () => { clickNamed('Withdraw it').click() })
+  expect(document.body.textContent).toContain('Say why.')
+  expect(decideFindingRun).not.toHaveBeenCalled()
+})
+
 it('a resolved finding offers no decision at all', async () => {
   const done = page({ finding: { ...page().finding, lifecycle: { state: 'withdrawn', confirmed: true, repairs: [] } } })
   const { store } = rig(done)

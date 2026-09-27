@@ -413,6 +413,97 @@ it('a Goal with one run offers no run to switch to', async () => {
   expect(container.querySelector('select[aria-label="Run"]')).toBeNull()
 })
 
+/**
+ * A live rig whose snapshot can be replaced and pushed to subscribers, the
+ * way the real store notifies `useSyncExternalStore` when the host sends a
+ * later update — unlike `rig`'s frozen snapshot, which never changes once
+ * rendered.
+ */
+const liveRig = (findings: FindingsListState | undefined, overrides: Partial<AppSnapshot> = {}): {
+  store: AppStore
+  push: (patch: Partial<AppSnapshot>) => void
+} => {
+  let snapshot = {
+    ...emptySnapshot(),
+    goals: new Map([['g1', goalView(true)]]),
+    findings: findings ? new Map([['g1', findings]]) : new Map(),
+    ...overrides,
+  } as AppSnapshot
+  const listeners = new Set<() => void>()
+  const store = {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot: () => snapshot,
+    loadFindings: vi.fn().mockResolvedValue(undefined),
+    loadFindingRun: vi.fn().mockResolvedValue(undefined),
+    readFinding: vi.fn().mockResolvedValue({ finding: row('finding-open-1'), records: [], seat: null, next: null, problem: null }),
+    decideFindingRun: vi.fn().mockResolvedValue(runView('run-1', '')),
+    setFindingPublication: vi.fn().mockResolvedValue(goalView(false)),
+    readFindingPublications: vi.fn().mockResolvedValue({ goal: 'g1', run: 'run-1', items: [], backfill: null, backfillRefusal: null }),
+  } as unknown as AppStore
+  const push = (patch: Partial<AppSnapshot>): void => {
+    snapshot = { ...snapshot, ...patch }
+    for (const listener of listeners) listener()
+  }
+  return { store, push }
+}
+
+it('a reason typed into "Decide it yourself" survives its run view dropping out of a live push and back, and reaches the server (#1089)', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [row('finding-open-1')], next: null, totals: { all: 1, open: 1, blocking: 1 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const flowExecutions = new Map([['run-1', { id: 'run-1', goal: 'g1', findings: {} } as never]])
+  const findingRuns = new Map([['run-1', runView('run-1', '')]])
+  const { store, push } = liveRig(state, { flowExecutions, findingRuns })
+  await render(store)
+
+  const opener = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-open-1'))!
+  act(() => opener.click())
+  await act(async () => {})
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+  expect(dialog.textContent).toContain('Decide it yourself')
+
+  const why = dialog.querySelector<HTMLTextAreaElement>('textarea[aria-label="Why"]')!
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  act(() => {
+    setter.call(why, 'checked the fix myself')
+    why.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(why.value).toBe('checked the fix myself')
+
+  // A live push drops this run out of `flowExecutions` for one render — the
+  // shape a round's own bookkeeping arriving a message behind the round
+  // itself produces — so `goalRunOf` finds nothing live, `decide` (the run
+  // view `FindingDetail` renders "Decide it yourself" against) goes
+  // undefined, and `PersonVerdict` unmounts while the person is still
+  // editing. The very next push restores it.
+  act(() => { push({ flowExecutions: new Map() }) })
+  // The dialog itself never closes — only its "Decide it yourself" section blinks away.
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Decide it yourself')
+  act(() => {
+    push({
+      flowExecutions: new Map([['run-1', { id: 'run-1', goal: 'g1', findings: {} } as never]]),
+      findingRuns: new Map([['run-1', runView('run-1', '')]]),
+      findings: new Map([['g1', { ...state, rows: [row('finding-open-1')] }]]),
+    })
+  })
+
+  const stillOpen = document.querySelector<HTMLElement>('[role="dialog"]')
+  expect(stillOpen).not.toBeNull()
+  const whyAfter = stillOpen!.querySelector<HTMLTextAreaElement>('textarea[aria-label="Why"]')!
+  expect(whyAfter.value).toBe('checked the fix myself')
+
+  const withdraw = [...stillOpen!.querySelectorAll('button')].find((one) => one.textContent === 'Withdraw it')!
+  act(() => withdraw.click())
+  await act(async () => {})
+  expect(stillOpen!.textContent).not.toContain('Say why.')
+  expect(store.decideFindingRun).toHaveBeenCalledWith(expect.objectContaining({
+    goal: 'g1', run: 'run-1', action: { kind: 'adjudicate', finding: 'finding-open-1', state: 'withdrawn' },
+    reason: 'checked the fix myself',
+  }))
+})
+
 it('a dropped run’s open finding says where it came from, and is decided against its own run (#890)', async () => {
   const old = row('finding-old', { origin: { goal: 'g1', run: 'run-old', round: 1, card: 2, seat: 'seat-writer', at: A } })
   const state: FindingsListState = {

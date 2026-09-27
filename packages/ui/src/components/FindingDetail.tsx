@@ -76,6 +76,19 @@ export const FindingDetail = ({
   const [read, setRead] = useState<Read>({ kind: 'loading' })
   const [more, setMore] = useState(false)
   const [generation, setGeneration] = useState(0)
+  /**
+   * A person's still-unsent reason, held here rather than inside
+   * `PersonVerdict` (#1089): `decide` is the run view a live push refreshes
+   * every time a finding on this Goal changes, and that view — or the run it
+   * names — can drop out of the snapshot for one render before the next
+   * push restores it (a round's own bookkeeping arriving in a later
+   * message than the round itself). `{decide && <PersonVerdict/>}` then
+   * unmounts and remounts `PersonVerdict`, which used to carry the reason as
+   * its own state — wiping a person's half-written "why" out from under
+   * them, sometimes read as the dialog itself closing. This component does
+   * not blink away on the same push, so the draft lives here instead.
+   */
+  const [why, setWhy] = useState('')
 
   useEffect(() => {
     let live = true
@@ -165,7 +178,11 @@ export const FindingDetail = ({
               {seat ? <SeatRecordView seat={seat} /> : <Text role="muted">This Seat is unavailable.</Text>}
             </Fieldset>
             {decide && (
-              <PersonVerdict goal={goal} view={view} run={decide} afterRun={verdictAfterRun} onDecided={() => setGeneration((one) => one + 1)} />
+              <PersonVerdict
+                goal={goal} view={view} run={decide} afterRun={verdictAfterRun}
+                why={why} setWhy={setWhy}
+                onDecided={() => { setWhy(''); setGeneration((one) => one + 1) }}
+              />
             )}
           </>
         )
@@ -181,15 +198,17 @@ export const FindingDetail = ({
  * only once one has been claimed. Bound to the run view the person read, so
  * a run that moved on refuses it rather than applying it to something else.
  */
-const PersonVerdict = ({ goal, view, run, afterRun, onDecided }: {
+const PersonVerdict = ({ goal, view, run, afterRun, why, setWhy, onDecided }: {
   readonly goal: string
   readonly view: FindingView
   readonly run: FindingRunView
   readonly afterRun: boolean
+  /** The reason as typed so far, and how to change it — owned by `FindingDetail` (#1089), which does not remount when this component briefly does. */
+  readonly why: string
+  readonly setWhy: (value: string) => void
   readonly onDecided: () => void
 }) => {
   const store = useStore()
-  const [why, setWhy] = useState('')
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   if (view.lifecycle.confirmed || view.restored || view.problem !== null) return null
@@ -209,7 +228,7 @@ const PersonVerdict = ({ goal, view, run, afterRun, onDecided }: {
         goal, run: run.run, round: run.round, stamp: run.stamp,
         action: { kind: 'adjudicate', finding: view.id, state }, reason,
       })
-      setWhy('')
+      // `why` is cleared by `onDecided`, one level up, where it lives.
       onDecided()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
