@@ -30,15 +30,17 @@ import { asRecord, asText } from '../flow.js'
  * every other file the host owns.
  */
 
-const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-/** Never the raw email on disk — a stable, one-way stand-in for it. */
+/**
+ * Never the raw account on disk — a stable, one-way stand-in for it. Every
+ * non-empty account is hashed, not only an email-shaped one: a login handle
+ * or a `Name <addr>` label is exactly the identity this file's own comment
+ * promises a `cat` never hands out, and leaving a non-email label in the
+ * clear defeated that promise for anything that isn't an email address.
+ */
 export const accountKeyFor = (account: string): string => {
   const trimmed = account.trim()
-  if (EMAIL_LIKE.test(trimmed)) {
-    return `sha256:${createHash('sha256').update(trimmed.toLowerCase()).digest('hex')}`
-  }
-  return trimmed
+  if (!trimmed) return trimmed
+  return `sha256:${createHash('sha256').update(trimmed.toLowerCase()).digest('hex')}`
 }
 
 const rowKey = (runtime: string, account: string): string => `${runtime}:${accountKeyFor(account)}`
@@ -71,17 +73,29 @@ const budgetEntry = (input: { readonly amount: number; readonly currency: string
   return { amount: input.amount, currency: validateCurrency(input.currency), period: 'month', setAt: now }
 }
 
-/** One stored row as it reads back, or why it does not. */
+/**
+ * One stored row as it reads back, or why it does not — the same checks
+ * `feeEntry`/`budgetEntry` hold a write to, so a hand-edited `"currency":
+ * "US"` is refused here rather than reaching `Intl.NumberFormat` at render
+ * time, where it throws a `RangeError` and takes the Settings page down.
+ */
 const parseRow = (value: unknown): PlanEntry | null => {
   const record = asRecord(value)
   if (!record) return null
   const entry: { fee?: PlanFeeEntry | null; budget?: PlanBudgetEntry | null } = {}
   if ('fee' in record && record['fee'] !== undefined && record['fee'] !== null) {
     const fee = asRecord(record['fee'])
-    if (!fee || typeof fee['amount'] !== 'number' || typeof fee['currency'] !== 'string' || (fee['period'] !== 'month' && fee['period'] !== 'year')) return null
+    if (
+      !fee ||
+      !isFiniteAmount(fee['amount']) ||
+      !CURRENCY.test(asText(fee['currency']) ?? '') ||
+      (fee['period'] !== 'month' && fee['period'] !== 'year')
+    ) {
+      return null
+    }
     entry.fee = {
       amount: fee['amount'],
-      currency: fee['currency'],
+      currency: fee['currency'] as string,
       period: fee['period'],
       source: 'user',
       setAt: typeof fee['setAt'] === 'number' ? fee['setAt'] : 0,
@@ -89,10 +103,10 @@ const parseRow = (value: unknown): PlanEntry | null => {
   }
   if ('budget' in record && record['budget'] !== undefined && record['budget'] !== null) {
     const budget = asRecord(record['budget'])
-    if (!budget || typeof budget['amount'] !== 'number' || typeof budget['currency'] !== 'string') return null
+    if (!budget || !isFiniteAmount(budget['amount']) || !CURRENCY.test(asText(budget['currency']) ?? '')) return null
     entry.budget = {
       amount: budget['amount'],
-      currency: budget['currency'],
+      currency: budget['currency'] as string,
       period: 'month',
       setAt: typeof budget['setAt'] === 'number' ? budget['setAt'] : 0,
     }
@@ -167,6 +181,13 @@ export class PlanStore {
       const now = this.#now()
       const raw = await this.#readRaw()
       const key = rowKey(input.runtime, input.account)
+      // A row that is there but does not parse is somebody's, hand-edited or
+      // corrupted — `{}` on top of it would silently drop whatever it held,
+      // which is exactly the thing this file's whole-file refusal already
+      // protects against for the rest of the document.
+      if (raw[key] !== undefined && parseRow(raw[key]) === null) {
+        throw new Error(`${this.path}'s entry for this account is not a plan row it can write over: ${JSON.stringify(raw[key])}`)
+      }
       const existing = parseRow(raw[key]) ?? {}
       const next: { fee?: PlanFeeEntry | null; budget?: PlanBudgetEntry | null } = { ...existing }
 
