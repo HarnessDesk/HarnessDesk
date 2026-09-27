@@ -510,6 +510,18 @@ export const previewSession = {
   itemsLoaded: true,
   turns: previewTurns,
   git: { branch: 'feat/worktrees', dirty: true },
+  /* `GoalBar`, over the transcript: a plain standing objective, not tied to
+     any Goal fixture elsewhere on this page — the bar reads a session's own
+     field, never the Team state's. */
+  goal: { objective: 'Fix the worktree list dropping deleted-upstream branches', status: 'active', tokensUsed: 42_000, tokenBudget: 120_000, timeUsedSeconds: 900 },
+  /* `ContextUsage`'s own ring, in the composer: a context window most of the
+     way full, so the ring reads as something other than empty. */
+  usage: {
+    total: { totalTokens: 84_000, inputTokens: 80_000, cachedInputTokens: 60_000 },
+    last: { totalTokens: 9_000, inputTokens: 8_500, cachedInputTokens: 6_000 },
+    contextUsed: 96_000,
+    contextWindow: 128_000,
+  },
   /* A model list and a reasoning select, the way Codex declares them, so the
      composer draws its model control — and the reasoning flyout beside it,
      the one level of a menu that a pointer has to travel to reach. */

@@ -59,6 +59,7 @@ import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } fr
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { MessageQueue } from '../components/MessageQueue'
 import { GoalFrames } from './frames-goals'
+import { PanelFrames } from './frames-panels'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import '../styles/app.css'
@@ -81,6 +82,20 @@ const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
 previewMutable.patch({ captureHealth: new Map([[PROVENANCE_ROOT, captureHealth()]]) })
+/* One Agent notice, addressed to the preview conversation, so `ComposerNotices` — mounted inside it — has something real to draw rather than its own "nothing asking" empty return. */
+previewMutable.patch({
+  agentNotices: [
+    {
+      id: 'notice-preview-1',
+      where: 'composer',
+      title: 'Found a second place this same check runs',
+      body: 'Worth folding into one — want me to open a follow-up?',
+      task: 'Fold the duplicate check into one',
+      from: { runtime: 'codex', sessionId: 's1', name: 'Alpha' },
+      at: Date.now(),
+    },
+  ],
+})
 if (SHOW_DENSE) {
   const key = sessionKey(runtimeId('codex'), 's1' as never)
   const session = store.getSnapshot().sessions.get(key)
@@ -860,6 +875,7 @@ const Preview = () => {
       <SettingsFrames />
       <GoalFrames />
       <TranscriptFrames />
+      <PanelFrames />
     </div>
   )
 }

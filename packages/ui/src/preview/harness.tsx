@@ -1657,10 +1657,58 @@ class PreviewStore {
 
   readFinding = async (_goal: string, finding: string): Promise<FindingDetailPage> => findingDetail(finding)
 
+  /**
+   * `GoalReceiptCost` and `InsightCost` both wait on this before they draw a
+   * row: with the floor's bare `undefined` (which `InsightCost` reads as "no
+   * report yet" and returns `null` for) neither ever paints anything, which
+   * is why they were never found by a fiber walk that starts from the DOM.
+   * One breakdown, one row, is enough to draw the real thing.
+   */
+  readGoalInsight = async (goal: string): Promise<import('@harnessdesk/protocol').InsightReport> => {
+    const metric = (value: number): import('@harnessdesk/protocol').InsightMetric => ({
+      value, quality: 'exact', unit: 'usd', basis: 'vendorMetered', sourceIds: ['src-preview'], coverage: 'complete', missing: [],
+    })
+    const amounts = (usd: number): import('@harnessdesk/protocol').InsightAmounts => ({
+      usd: metric(usd),
+      tokens: { ...metric(usd), unit: 'tokens', value: usd * 10_000 },
+      activeMs: { ...metric(usd), unit: 'milliseconds', value: usd * 60_000 },
+      turns: { ...metric(usd), unit: 'count', value: 3 },
+    })
+    return {
+      id: 'insight-preview',
+      generatedAt: now,
+      query: { root: PREVIEW_ROOT, from: now - 86_400_000, to: now },
+      goals: [],
+      seats: [],
+      goal,
+      receipt: null,
+      totals: amounts(4.82),
+      elapsedMs: metric(180_000),
+      breakdowns: [
+        {
+          dimension: 'seat',
+          rows: [{ key: 'seat-preview-reviewer', label: 'Alpha · careful', amounts: amounts(4.82), seat: 'seat-preview-reviewer', goal, session: null, message: null, note: null, elapsedMs: metric(180_000) }],
+          unattributed: amounts(0),
+          reason: null,
+        },
+      ],
+      sources: [{ id: 'src-preview', kind: 'evidence', label: 'This desk’s own record', observedAt: now, checkedAt: now, stale: false, problem: null }],
+      recordedSpend: [],
+      provenance: { state: 'available', note: 'Recorded on this desk.' },
+      gaps: [],
+    }
+  }
+
   carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
 
-  readFindingPublications = async (goal: string, run: string): Promise<FindingPublicationsView> =>
-    ({ goal, run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
+  /** One paused posting, so `FindingPublications` has a row to draw rather than its own "nothing to post" empty return. */
+  readFindingPublications = async (goal: string, run: string): Promise<FindingPublicationsView> => ({
+    goal,
+    run,
+    items: [{ key: 'post-1', round: 2, finding: 'finding-security-1', pr: 42, state: 'prepared', reason: 'A security finding is paused before it posts.' }],
+    backfill: null,
+    backfillRefusal: 'The preview desk posts nothing.',
+  })
 
   publishFinding = async (input: { goal: string; run: string }): Promise<FindingPublicationsView> =>
     ({ goal: input.goal, run: input.run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
