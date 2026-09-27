@@ -36,26 +36,36 @@ import { expect, test, type Page } from '@playwright/test'
  * reported once. Keys are `${file}#${exportName}`, so an exemption cannot
  * silently excuse a sibling export from the same file.
  *
- * The two exemptions are structural rather than missing frames. `Workbench`
- * is the panel system's own chassis and composes correctly only inside the
- * full window shell that `preview.html` deliberately never mounts a second
- * copy of. `Notices` is a coordinator with no DOM of its own; its two visible
- * outlets each have their own export and preview coverage.
+ * `Notices` is a coordinator with no DOM of its own; its two visible outlets
+ * each have their own export and preview coverage.
  */
 const EXEMPT: Readonly<Record<string, string>> = {
-  'panels/Workbench.tsx#Workbench': "The window's own chassis — sidebar, docks, resize and drag wiring — not a screen; already exercised by the real app and packages/desktop.",
   'components/Notices.tsx#Notices': 'The toast and inbox coordinator returns no DOM of its own; its visible outlets are covered separately by NoticeStripOutlet and SidebarNotices.',
 }
 
 /** Icon components are a flat façade over lucide (rule 11): drawing every one somewhere is not what this gate is for. */
 const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
 const isVisualComponentExport = (name: string, value: unknown): boolean => {
-  if (isIconName(name) || !/^[A-Z][a-z]/.test(name)) return false
+  if (isIconName(name) || !/^[A-Z]/.test(name)) return false
   if (typeof value === 'function') return true
   // `memo` and `forwardRef` exports are React component objects. Other
   // uppercase exports (SLOTS, PIVOTS, RANGES) are fixture/data constants.
   return typeof value === 'object' && value !== null && '$$typeof' in value
 }
+
+/**
+ * A product surface is code-split under Explorer's Suspense boundary. The nav
+ * selection updates before its lazy tree mounts, so the title alone is not a
+ * safe signal that coverage can inspect the selected board.
+ */
+const waitForLazyBoardToSettle = (page: Page, title: string): Promise<unknown> =>
+  page.waitForFunction((expectedTitle) => {
+    const heading = [...document.querySelectorAll('main h1')]
+      .some((node) => node.textContent?.trim() === expectedTitle)
+    const mounting = [...document.querySelectorAll('p')]
+      .some((node) => node.textContent?.trim() === 'Mounting the screen…')
+    return heading && !mounting
+  }, title)
 
 /**
  * Runs inside the page. Imports `coverage-registry.ts` fresh (this page's own
@@ -71,7 +81,7 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
   page.evaluate(async () => {
     const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
     const isVisualComponentExport = (name: string, value: unknown): boolean => {
-      if (isIconName(name) || !/^[A-Z][a-z]/.test(name)) return false
+      if (isIconName(name) || !/^[A-Z]/.test(name)) return false
       if (typeof value === 'function') return true
       return typeof value === 'object' && value !== null && '$$typeof' in value
     }
@@ -149,7 +159,7 @@ const sweepSelectsForCoverage = (page: Page): Promise<readonly string[]> =>
   page.evaluate(async () => {
     const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
     const isVisualComponentExport = (name: string, value: unknown): boolean => {
-      if (isIconName(name) || !/^[A-Z][a-z]/.test(name)) return false
+      if (isIconName(name) || !/^[A-Z]/.test(name)) return false
       if (typeof value === 'function') return true
       return typeof value === 'object' && value !== null && '$$typeof' in value
     }
@@ -228,6 +238,40 @@ const sweepSelectsForCoverage = (page: Page): Promise<readonly string[]> =>
   })
 
 test.describe('preview coverage', () => {
+  test('the inventory keeps an acronym-led React component', () => {
+    const URLPane = (): null => null
+    expect(isVisualComponentExport('URLPane', URLPane)).toBe(true)
+  })
+
+  test('two frames settle a dial whose visible content follows an effect', async ({ page }) => {
+    await page.goto('/preview.html')
+    const revealed = await page.evaluate(async () => {
+      const settle = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      const select = document.createElement('select')
+      const off = new Option('off', 'off')
+      const on = new Option('on', 'on')
+      const reveal = document.createElement('span')
+      reveal.hidden = true
+      select.add(off, undefined)
+      select.add(on, undefined)
+      select.addEventListener('change', () => {
+        // A chosen state commits first; its effect reveals the dependent
+        // content on the next frame, as a React effect can do.
+        queueMicrotask(() => requestAnimationFrame(() => { reveal.hidden = false }))
+      })
+      document.body.append(select, reveal)
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
+      setter.call(select, 'on')
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      await settle()
+      const result = !reveal.hidden
+      select.remove()
+      reveal.remove()
+      return result
+    })
+    expect(revealed).toBe(true)
+  })
+
   test('a hidden or transparent preview wrapper earns no component coverage', async ({ page }) => {
     for (const [property, value] of [['display', 'none'], ['opacity', '0']] as const) {
       await page.goto('/preview.html')
@@ -294,8 +338,15 @@ test.describe('preview coverage', () => {
       const selected = boardNav.locator(':scope > button[data-selected="true"]')
       await expect(selected).toHaveCount(1)
       await expect(selected).toHaveText(label)
+      const isProductSurface = await board.evaluate((button) => {
+        let heading = button.previousElementSibling
+        while (heading?.tagName === 'BUTTON') heading = heading.previousElementSibling
+        return heading?.textContent?.trim() === 'Product Surfaces'
+      })
+      if (isProductSurface) await waitForLazyBoardToSettle(page, label)
       const result = await collectCoverage(page)
       for (const file of result.covered) covered.add(file)
+      if (label === 'Panels') expect(result.covered).toContain('panels/Workbench.tsx#Workbench')
     }
 
     const uncovered = allComponents.filter((component) => !covered.has(component) && !(component in EXEMPT))
