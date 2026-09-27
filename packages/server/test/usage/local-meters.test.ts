@@ -92,10 +92,13 @@ test('Antigravity is metered by the agy CLI beside its ACP server', () => {
     id: 'antigravity-acp',
     command: '/home/dev/.harnessdesk/acp-agents/antigravity-acp/1.1.1/agy_acp_server.par',
   })
-  assert.equal(localUsageFor(antigravity), null)
+  // Unrecognised without the knowledge table, this row has no meter and no
+  // corpus of its own — but the desk's own transcript still counts its turns.
+  assert.deepEqual(localUsageFor(antigravity), { deskTurns: true })
   assert.equal(localUsageFor(antigravity, knowledge('antigravity-acp'))?.meter?.id, 'antigravity-account')
   // No transcripts of its own for the ledger: its turns are counted from its store.
   assert.equal(localUsageFor(antigravity, knowledge('antigravity-acp'))?.corpus, undefined)
+  assert.equal(localUsageFor(antigravity, knowledge('antigravity-acp'))?.deskTurns, true)
 })
 
 test('an agent whose spend is on disk gets its records, and one with neither gets nothing', () => {
@@ -107,8 +110,9 @@ test('an agent whose spend is on disk gets its records, and one with neither get
   const cline = localUsageFor(row({ id: 'cline', command: 'npx', args: ['-y', 'cline@3.0.61', '--acp'] }), knowledge('cline'))
   assert.equal(cline?.meter?.id, 'cline-account')
   assert.equal(cline?.corpus, 'cline')
-  // A hand-written row for something the desk has never heard of.
-  assert.equal(localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' })), null)
+  // A hand-written row for something the desk has never heard of: no meter,
+  // no corpus, but its turns still come from the desk's own transcript.
+  assert.deepEqual(localUsageFor(row({ id: 'mine', command: '/usr/local/bin/mine' })), { deskTurns: true })
 })
 
 test('a moved Gemini home moves the sign-in and the spend together, so one card is one account', () => {
