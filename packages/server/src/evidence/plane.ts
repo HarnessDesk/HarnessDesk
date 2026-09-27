@@ -590,7 +590,7 @@ export class EvidencePlane {
   async runFlowCheck(
     command: string,
     where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
-    card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number },
+    card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number; readonly advisory?: true },
   ): Promise<{ readonly result: CommandRun; readonly evidence: string | null; readonly problem: string | null }> {
     const revision = await revisionOf(where.cwd)
     const result = await runCommand(command, {
@@ -604,7 +604,12 @@ export class EvidencePlane {
     const project = await projectOf(board.cwd ?? board.root)
     const record: EvidenceRecord = {
       id: mintId(),
-      fact: { kind: 'check', name: card.name, run: command, exit: result.exit, timedOut: result.timedOut, at: revision.head, dirty: revision.dirty, tail: result.tail },
+      fact: {
+        kind: 'check', name: card.name, run: command, exit: result.exit, timedOut: result.timedOut, at: revision.head,
+        // A Seat's `run_check`: shown on its card, never a rule's evidence (#1082).
+        ...(card.advisory ? { counted: false, advisory: true as const } : {}),
+        dirty: revision.dirty, tail: result.tail,
+      },
       card: { board: card.goal, id: card.card },
       checkout: { cwd: where.cwd, branch: revision.branch },
       seat: null,

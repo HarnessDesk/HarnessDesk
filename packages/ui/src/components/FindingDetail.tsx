@@ -76,6 +76,24 @@ export const FindingDetail = ({
   const [read, setRead] = useState<Read>({ kind: 'loading' })
   const [more, setMore] = useState(false)
   const [generation, setGeneration] = useState(0)
+  /**
+   * A person's still-unsent reason for "Decide it yourself" (#1089), held
+   * here rather than inside `PersonVerdict`. `PersonVerdict` is only rendered
+   * while `decide` is truthy (`{decide && <PersonVerdict/>}` below); nothing
+   * observed in the real store ever makes an already-loaded `decide` blink
+   * false and back — `flowExecutions` and `findingRuns` are only ever added
+   * to, and a live push keeps a Goal's cached run views in place while it
+   * refetches (#1090's review). Keeping the draft here anyway is defensive:
+   * `FindingDetail` itself does not remount for as long as this exact
+   * finding's dialog stays open (see `key={finding}` below), so a reason
+   * cannot be lost to a `PersonVerdict` remount from any cause this file does
+   * not yet know about, and it can never survive onto a different finding.
+   */
+  const [why, setWhy] = useState('')
+  // Cleared the moment this instance is asked to show a different finding,
+  // even if its caller never unmounts it first — a reason typed for one
+  // finding must never reach another's `finding/decide`.
+  useEffect(() => { setWhy('') }, [goal, finding])
 
   useEffect(() => {
     let live = true
@@ -105,7 +123,9 @@ export const FindingDetail = ({
   const title = read.kind === 'ready' ? (read.page.finding.title.trim() || read.page.finding.id) : 'Finding'
 
   return (
-    <Dialog title={title} onClose={onClose} size="lg" tall>
+    // Keyed by `finding`: a defensive floor under the lifted `why` state above — a
+    // draft can never survive a swap to a different finding's dialog, whatever else changes.
+    <Dialog key={finding} title={title} onClose={onClose} size="lg" tall>
       {read.kind === 'loading' && <Text role="muted">Reading this finding…</Text>}
       {read.kind === 'error' && <Banner tone="danger" title="This finding could not be read">{read.message}</Banner>}
       {read.kind === 'ready' && (() => {
@@ -165,7 +185,11 @@ export const FindingDetail = ({
               {seat ? <SeatRecordView seat={seat} /> : <Text role="muted">This Seat is unavailable.</Text>}
             </Fieldset>
             {decide && (
-              <PersonVerdict goal={goal} view={view} run={decide} afterRun={verdictAfterRun} onDecided={() => setGeneration((one) => one + 1)} />
+              <PersonVerdict
+                goal={goal} view={view} run={decide} afterRun={verdictAfterRun}
+                why={why} setWhy={setWhy}
+                onDecided={() => { setWhy(''); setGeneration((one) => one + 1) }}
+              />
             )}
           </>
         )
@@ -181,15 +205,17 @@ export const FindingDetail = ({
  * only once one has been claimed. Bound to the run view the person read, so
  * a run that moved on refuses it rather than applying it to something else.
  */
-const PersonVerdict = ({ goal, view, run, afterRun, onDecided }: {
+const PersonVerdict = ({ goal, view, run, afterRun, why, setWhy, onDecided }: {
   readonly goal: string
   readonly view: FindingView
   readonly run: FindingRunView
   readonly afterRun: boolean
+  /** The reason as typed so far, and how to change it — owned by `FindingDetail` (#1089), which does not remount when this component briefly does. */
+  readonly why: string
+  readonly setWhy: (value: string) => void
   readonly onDecided: () => void
 }) => {
   const store = useStore()
-  const [why, setWhy] = useState('')
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   if (view.lifecycle.confirmed || view.restored || view.problem !== null) return null
@@ -209,7 +235,7 @@ const PersonVerdict = ({ goal, view, run, afterRun, onDecided }: {
         goal, run: run.run, round: run.round, stamp: run.stamp,
         action: { kind: 'adjudicate', finding: view.id, state }, reason,
       })
-      setWhy('')
+      // `why` is cleared by `onDecided`, one level up, where it lives.
       onDecided()
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))

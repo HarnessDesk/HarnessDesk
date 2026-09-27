@@ -858,8 +858,12 @@ const IntentCard = ({
        round opened, the loop is waiting, and what they answer is what the next
        rule branches on. So the menu offers the words the role declared rather
        than "Mark done", which would finish the card and leave the run with
-       nothing to read. */
-    ...(role?.kind === 'person' && intent.state !== 'done' && intent.state !== 'abandoned'
+       nothing to read. A person role that declares no outcomes at all — UC1's
+       own referee (`kind: person`, no `outcomes:`) is exactly this shape —
+       has nothing to "Answer", but the person still needs a way to finish the
+       card, so this falls back to "Mark done" rather than leaving the menu
+       with no finishing verb at all. */
+    ...(role?.kind === 'person' && role.outcomes.length > 0 && intent.state !== 'done' && intent.state !== 'abandoned'
       ? role.outcomes.map((word) => ({
           verb: 'done' as const,
           label: `Answer ${word}`,

@@ -91,6 +91,52 @@ test('each parses with nothing wrong, names runtimes and not models, and says ho
   }
 })
 
+/**
+ * Issue #1082: a Seat's own sandbox may refuse a child process a listening
+ * socket, and a reviewer took that for a broken change. Every Agent that
+ * verifies someone else's work is told to run a declared check through the
+ * desk instead, and that a refusal from its own sandbox is never a verdict.
+ */
+test('every reviewing and accepting Agent runs server checks through run_check, and never fails a change for its own sandbox', async () => {
+  const agents = new Agents({ user: tempDir('hd-shipped-user-'), builtin: builtinAgentRoot() })
+  for (const id of ['api-reviewer', 'code-reviewer', 'performance-reviewer', 'requirements-analyst', 'security-reviewer', 'test-reviewer']) {
+    const brief = (await agents.read(id))?.definition?.brief ?? ''
+    assert.ok(brief.includes('`run_check`'), `${id}'s brief names run_check`)
+    assert.ok(brief.includes('`EPERM`'), `${id}'s brief names the refusal it may see`)
+    assert.ok(brief.includes('never answer a failing verdict for that reason alone'), `${id}'s brief keeps its sandbox out of its verdict`)
+    assert.ok(brief.includes('nothing the repository ignores'), `${id}'s brief says run_check's checkout lacks ignored files`)
+    assert.ok(brief.includes('on the committed change your card was handed'), `${id}'s brief says run_check checks the committed change, not its edits`)
+  }
+})
+
+/**
+ * Issue #1089/#1090: a finding raised in one round and confirmed fixed in a
+ * later reviewer's prose still sat Open, because no brief told the raising
+ * Agent to decide it with a tool once it held a later card — only to
+ * "report" it, which the ledger never reads. Every Agent that raises
+ * findings against a review candidate is told plainly: `list_findings`
+ * marks its own, a fresh later Seat of itself (never the raising Seat, never
+ * another Agent) decides them, a candidate from `review_candidates` is
+ * required, and the three lifecycle words `decide_finding` accepts.
+ */
+test('every finding-raising Agent is told to decide its own earlier findings by tool, from a later fresh Seat, with a candidate', async () => {
+  const agents = new Agents({ user: tempDir('hd-shipped-user-'), builtin: builtinAgentRoot() })
+  for (const id of ['api-reviewer', 'code-reviewer', 'performance-reviewer', 'security-reviewer', 'test-reviewer']) {
+    const brief = (await agents.read(id))?.definition?.brief ?? ''
+    assert.ok(brief.includes('`list_findings` marks which findings'), `${id}'s brief says list_findings marks its own findings`)
+    assert.ok(brief.includes('a later, fresh Seat of the Agent that raised it'), `${id}'s brief says who decides a finding`)
+    assert.ok(brief.includes('never the Seat that raised it'), `${id}'s brief excludes the raising Seat itself`)
+    assert.ok(brief.includes('never a different Agent'), `${id}'s brief excludes a different Agent`)
+    assert.ok(brief.includes('`decide_finding`'), `${id}'s brief names decide_finding`)
+    assert.ok(brief.includes('a candidate `review_candidates` gives you'), `${id}'s brief says deciding needs a candidate`)
+    assert.ok(brief.includes('`repaired`, `open`, or `withdrawn`'), `${id}'s brief names the three lifecycle words`)
+    assert.ok(
+      brief.includes('Saying it is fixed in your prose is not enough'),
+      `${id}'s brief says prose alone never closes a finding`,
+    )
+  }
+})
+
 /** A desk with the three runtimes the shipped Agents name, each a fake registered under its real id. */
 const desk = async (t: TestContext, ids: readonly string[] = ['claude-code', 'codex', 'cursor']) => {
   const harness = await start()

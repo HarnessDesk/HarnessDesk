@@ -14,7 +14,7 @@ afterEach(() => { act(() => root.unmount()); container.remove() })
 
 const view = (over: Partial<FindingRunView> = {}): FindingRunView => ({
   run: 'run-1', goal: 'g1', round: 2, finished: 1, total: 3, embargoed: false, open: 1, blocking: 1,
-  reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted',
+  reason: 'Round 2 ended with 1 open finding.', ceilingStop: true, stamp: 'stamp-1', publication: 'posted',
   reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
   boundPr: { repo: 'acme/widgets', pr: 7 }, unbound: null, undecidable: null,
   ...over,
@@ -50,6 +50,60 @@ it('a blank reason refuses before any request, and a filled one dispatches exact
   expect(decideFindingRun).toHaveBeenCalledWith({
     goal: 'g1', run: 'run-1', round: 2, stamp: 'stamp-1',
     action: { kind: 'another-round' }, reason: 'the ceiling was reached, one more try',
+  })
+})
+
+it('the round count relabels the action and is sent only once it moves off the smallest step', async () => {
+  const decideFindingRun = vi.fn(async () => view())
+  const store = rig(decideFindingRun as never)
+  const onClose = vi.fn()
+  render(store, { goal: 'g1', view: view(), onClose })
+
+  const textarea = document.querySelector('textarea')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'a converging loop, let it run')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+
+  const input = document.querySelector('input[type="number"]') as HTMLInputElement
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '3')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const relabelled = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Authorise 3 more rounds from here')
+  expect(relabelled).toBeTruthy()
+  expect([...document.querySelectorAll('button')].some((one) => one.textContent === 'Authorise another round')).toBe(false)
+
+  await act(async () => { relabelled!.click() })
+  expect(decideFindingRun).toHaveBeenCalledTimes(1)
+  expect(decideFindingRun).toHaveBeenCalledWith({
+    goal: 'g1', run: 'run-1', round: 2, stamp: 'stamp-1',
+    action: { kind: 'another-round', rounds: 3 }, reason: 'a converging loop, let it run',
+  })
+})
+
+it('a stop that is not the round ceiling shows no count field, and never sends rounds', async () => {
+  const decideFindingRun = vi.fn(async () => view())
+  const store = rig(decideFindingRun as never)
+  const onClose = vi.fn()
+  render(store, {
+    goal: 'g1',
+    view: view({ ceilingStop: false, reason: 'Review the new regression or security finding before continuing.' }),
+    onClose,
+  })
+
+  expect(document.querySelector('input[type="number"]')).toBeNull()
+  const another = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Authorise another round')!
+
+  const textarea = document.querySelector('textarea')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'look at it next round')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => { another.click() })
+  expect(decideFindingRun).toHaveBeenCalledWith({
+    goal: 'g1', run: 'run-1', round: 2, stamp: 'stamp-1',
+    action: { kind: 'another-round' }, reason: 'look at it next round',
   })
 })
 

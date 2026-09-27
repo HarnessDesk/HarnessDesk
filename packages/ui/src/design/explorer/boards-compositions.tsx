@@ -3,6 +3,7 @@ import { useState } from 'react'
 import {
   NO_CAPABILITIES,
   runtimeId,
+  type FindingRunView,
   type LedgerDay,
   type LedgerReport,
   type LedgerRow,
@@ -12,6 +13,7 @@ import {
   type UsageBilling,
   type UsageReport,
 } from '@harnessdesk/protocol'
+import { FindingDecision } from '../../components/FindingDecision'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
@@ -158,6 +160,8 @@ import { ConversationEmptyState } from '../patterns/ConversationEmptyState'
 import { entriesFromSilent, NotReportingList } from '../../components/usage/NotReporting'
 import { PlansTable, ShapeFilters } from '../../components/usage/PlansTable'
 import type { SilentAgent } from '../../components/usage/shared'
+import { StoreProvider } from '../../state/context'
+import { emptySnapshot, type AppStore } from '../../state/store'
 import { planRows, shapeCountsOf, type PlanRow } from '../../lib/plans-table'
 import {
   Counts,
@@ -2391,6 +2395,47 @@ const PlansCase = ({ label, children }: { label: string; children: React.ReactNo
   </div>
 )
 
+/* No fake `AppStore`: this dialog's own actions are never taken from the board, only opened and read. */
+const findingDecisionSnapshot = emptySnapshot()
+const findingDecisionStore = { subscribe: () => () => {}, getSnapshot: () => findingDecisionSnapshot } as unknown as AppStore
+const FINDING_DECISION_CEILING_VIEW: FindingRunView = {
+  run: 'run-catalogue', goal: 'goal-catalogue', round: 4, finished: 3, total: 4, embargoed: false, open: 0, blocking: 0,
+  reason: 'Round 4 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.',
+  ceilingStop: true, stamp: 'catalogue-stamp-ceiling', publication: 'posted',
+  reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
+  boundPr: { repo: 'acme/widgets', pr: 42 }, unbound: null, undecidable: null,
+}
+/* A pending security finding — never the round ceiling, so a count past one round buys nothing here (#1083). */
+const FINDING_DECISION_EXCEPTION_VIEW: FindingRunView = {
+  ...FINDING_DECISION_CEILING_VIEW,
+  round: 3, reason: 'Review the new regression or security finding before continuing.',
+  ceilingStop: false, stamp: 'catalogue-stamp-exception', pendingExceptions: ['finding-0007'],
+}
+
+const FindingDecisionBoard = () => {
+  const [open, setOpen] = useState<'ceiling' | 'exception' | null>(null)
+  return (
+    <div className={styles.matrix}>
+      <Case label="stopped at its round ceiling — the number beside the button chooses how many rounds it authorizes">
+        <Button variant="secondary" onClick={() => setOpen('ceiling')}>Decide this run</Button>
+        {open === 'ceiling' && (
+          <StoreProvider store={findingDecisionStore}>
+            <FindingDecision goal={FINDING_DECISION_CEILING_VIEW.goal} view={FINDING_DECISION_CEILING_VIEW} onClose={() => setOpen(null)} />
+          </StoreProvider>
+        )}
+      </Case>
+      <Case label="stopped on a pending exception — not the ceiling, so the count field never shows">
+        <Button variant="secondary" onClick={() => setOpen('exception')}>Decide this run</Button>
+        {open === 'exception' && (
+          <StoreProvider store={findingDecisionStore}>
+            <FindingDecision goal={FINDING_DECISION_EXCEPTION_VIEW.goal} view={FINDING_DECISION_EXCEPTION_VIEW} onClose={() => setOpen(null)} />
+          </StoreProvider>
+        )}
+      </Case>
+    </div>
+  )
+}
+
 const PlansTableBoard = () => {
   const allRows: readonly PlanRow[] = planRows(Object.values(PLANS_CASES), PLANS_NOW)
   const rowFor = (key: PlansCaseKey): PlanRow => allRows.find((row) => row.report.account === PLANS_CASES[key].account)!
@@ -2624,5 +2669,11 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Plans table',
     about: 'Every account, least left first, and the shape body each row opens into, in every state.',
     render: PlansTableBoard,
+  },
+  {
+    id: 'finding-decision',
+    title: 'FindingDecision · Decide this run',
+    about: 'The real dialog, in both states (#1083): a round-ceiling stop shows a 1-to-20 count next to "Authorise another round" that relabels the button and is the count the wire sends; every other stop keeps the plain single button, with no count field at all.',
+    render: FindingDecisionBoard,
   },
 ]

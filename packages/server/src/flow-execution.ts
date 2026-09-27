@@ -297,6 +297,12 @@ export interface FlowExecutionPort {
    * `message`, git run hardened — see `card-commit.ts`. Answers the commit,
    * or one sentence saying why nothing was committed.
    */
+  /**
+   * A fresh checkout of `cwd`'s repository at commit `at`, detached, cut with
+   * hardened git (no hook runs), for one `run_check` (#1082). `remove` takes
+   * it away, forced, whatever the check left in it.
+   */
+  checkoutAt?(cwd: string, at: string): Promise<{ readonly cwd: string; remove(): Promise<void> }>
   commitWork?(cwd: string, before: readonly string[], message: string): Promise<
     { readonly commit: string; readonly paths: readonly string[] } | { readonly refused: string }
   >
@@ -310,13 +316,14 @@ export interface FlowExecutionPort {
   runCheck(
     command: string,
     where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
-    card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number },
+    /** `advisory`: a Seat's `run_check` — recorded so no rule counts it (#1082). */
+    card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number; readonly advisory?: true },
   ): Promise<{ readonly result: { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }; readonly evidence: string | null; readonly problem: string | null }>
 }
 
 /** A person decision's actions on one run, each run inside the run's queue a `withDecision` step already holds. */
 export interface RunDecisionOps {
-  authorizeExtraRound(round: number, reason: string): Promise<void>
+  authorizeExtraRound(round: number, reason: string, count?: number): Promise<void>
   recordExceptionDecision(findings: readonly FindingId[], admit: boolean): Promise<void>
   recordOverride(override: FindingOverride): Promise<void>
   recordDecisionStamp(stamp: string, key: string): Promise<void>
@@ -510,6 +517,12 @@ export interface FlowClosure {
 
 export const INDEPENDENT = 'This step needs an independent provider. Choose a seat from another provider.'
 export const BRIEF_CHANGED = 'The Agent brief changed. Start a new run to use it.'
+/** How many `run_check` runs one card may ask for in one turn, and in all (#1082). */
+export const RUN_CHECK_PER_TURN = 3
+export const RUN_CHECK_PER_CARD = 10
+/** What a failing `run_check` always adds: its checkout is clean, so what the repository ignores is not in it. */
+export const RUN_CHECK_CLEAN = 'This ran in a clean checkout of the commit, without ignored files such as installed dependencies, so a failure here may come from that rather than the change.'
+
 export const CHECK_CWD_OUTSIDE = 'This check points outside the project. Choose a folder inside the project and review it again.'
 export const CHECK_UNPLANNED = 'This check’s checkouts were not recorded when its round opened, so it was not run. Start a new run.'
 const LANE_REFUSED = 'This step needs its own checkout, ports and browser profile, and they could not all be prepared, so its Seat was released.'
@@ -711,6 +724,10 @@ export class FlowExecutions {
   #disposed = false
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
   readonly #checks = new Map<string, Set<AbortController>>()
+  /** `run_check` asks by `goal#card`: the turn they were last counted on, how many in it, how many in all (#1082). */
+  readonly #checkAsks = new Map<string, { readonly turn: number; readonly inTurn: number; readonly total: number }>()
+  /** Cards with a `run_check` running now, by `goal#card`: one at a time on a card. */
+  readonly #checkAsking = new Set<string>()
   /** Goals a broken run file names: no new round opens on them until it is restored. */
   #blocked = new Map<string, string>()
   /** Set when a run file names no readable Goal: nothing new starts anywhere. */
@@ -885,34 +902,41 @@ export class FlowExecutions {
   }
 
   /**
-   * A person's "Another round": authorizes exactly one further round past a
-   * stop this run's findings recorded, then resumes dispatch. `after` is the
-   * round the stop named — the same one `#advance`'s stall check compares —
-   * so the very next transition it would otherwise block is let through once.
-   * Idempotent while that transition has not happened yet: a duplicate press,
-   * or a crash before the round actually opens, replays the same one round
-   * rather than spending a second.
+   * A person's "Another round": authorizes `count` further rounds (1 to 20,
+   * default 1) past a stop this run's findings recorded, then resumes
+   * dispatch. `after` is the round the stop named — the same one
+   * `#advance`'s stall check compares — so the very next transition it would
+   * otherwise block is let through; `count` then widens the round ceiling
+   * (`after + count`) so the run does not stop again until that many further
+   * rounds have closed. Idempotent while the first of those transitions has
+   * not happened yet: a duplicate press with the same count, or a crash
+   * before the round actually opens, replays the same authorization rather
+   * than spending a second.
    */
-  async authorizeExtraRound(id: string, round: number, reason: string): Promise<FlowExecution> {
+  async authorizeExtraRound(id: string, round: number, reason: string, count = 1): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
-      await this.#authorizeExtraRound(id, round, reason)
+      await this.#authorizeExtraRound(id, round, reason, count)
       return this.#projectExecution(this.#get(id))
     })
   }
 
-  async #authorizeExtraRound(id: string, round: number, reason: string): Promise<void> {
+  async #authorizeExtraRound(id: string, round: number, reason: string, count = 1): Promise<void> {
     let run = this.#get(id)
     if (!run.findings) throw new Error('This run keeps no findings bookkeeping to authorize a round on.')
     if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
     const already = run.findings.extraRound
     // The same authorization again — a retry, or a crash before its round opened — replays it; it spends nothing more.
-    const replay = run.findings.stopped === null && already?.after === round && already.reason === reason
+    // `already.count` is absent on a run authorized before this field existed, which meant one.
+    const replay = run.findings.stopped === null && already?.after === round && already.reason === reason && (already.count ?? 1) === count
     if (!replay && (!run.findings.stopped || run.findings.stopped.round !== round)) {
       throw new Error('This run is not stopped at that round any more. Read its status again.')
     }
     if (!replay) {
-      // The stop is answered: cleared, so nothing says the run is waiting for a person while its authorized round runs.
-      run = await this.#put({ ...run, findings: { ...run.findings, stopped: null, extraRound: { after: round, reason } } })
+      if (count > 1 && !run.findings.stopped!.ceiling) {
+        throw new Error('Only a round-ceiling stop can be answered with more than one round at a time.')
+      }
+      // The stop is answered: cleared, so nothing says the run is waiting for a person while its authorized rounds run.
+      run = await this.#put({ ...run, findings: { ...run.findings, stopped: null, extraRound: { after: round, reason, count } } })
     }
     run = await this.#put({ ...run, state: 'running', reason: null })
     await this.#advance(id)
@@ -1005,7 +1029,7 @@ export class FlowExecutions {
   withDecision<T>(id: string, step: (ops: RunDecisionOps) => Promise<T>): Promise<T> {
     if (!this.#runs.has(id)) return Promise.reject(new Error(`There is no flow run ${id}.`))
     return this.#queue.within(id, () => step({
-      authorizeExtraRound: (round, reason) => this.#authorizeExtraRound(id, round, reason),
+      authorizeExtraRound: (round, reason, count) => this.#authorizeExtraRound(id, round, reason, count),
       recordExceptionDecision: (findings, admit) => this.#recordExceptionDecision(id, findings, admit),
       recordOverride: (override) => this.#recordOverride(id, override),
       recordDecisionStamp: (stamp, key) => this.#recordDecisionStamp(id, stamp, key),
@@ -1034,7 +1058,7 @@ export class FlowExecutions {
     const state = run.findings!
     if (state.closedRounds.includes(round)) return
     const closed = state.closedRounds.length + 1
-    const limit = Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + 1 : 0)
+    const limit = Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + (state.extraRound.count ?? 1) : 0)
     const decision = decideLoop({
       closed, limit, idle: state.idleRounds, idleLimit: state.budget.withoutProgress, newProgress: true,
       unresolvedRepairs: [], unresolved: 0, reviewComplete: false, freshGuards: false, pendingException: false,
@@ -1042,7 +1066,7 @@ export class FlowExecutions {
     })
     await this.#put(this.#operation({
       ...run,
-      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason! } : null },
+      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason!, ceiling: decision.ceiling } : null },
     }, `close:${round}`, { kind: 'round', state: 'finished', card: null, seat: null }))
   }
 
@@ -1599,6 +1623,143 @@ export class FlowExecutions {
       }
     }
     return false
+  }
+
+  /**
+   * `run_check` for a card a v2 run bound (#1082): the host runs one of the
+   * run's own declared checks — a `check` role, picked by its name, never a
+   * command the caller writes — on the commit the card was handed, in a
+   * fresh detached checkout the host cuts for this one run and removes
+   * after, through the same runner, timeout and output cap a check card uses.
+   * A Seat's own sandbox may refuse a child process a listening socket; the
+   * host's does not, so a reviewer never has to be given the network to learn
+   * whether the change starts.
+   *
+   * What keeps it from being a way out of that sandbox:
+   * - Only a Seat that cannot write may ask (`!mayCommit`). A Seat that can
+   *   write could otherwise put a test in its tree, have the host run it
+   *   unsandboxed and read what it printed, again and again.
+   * - It never runs in anybody's working tree: the checkout is cut from a
+   *   commit — the one the card's seating was handed, or its own checkout's
+   *   committed `HEAD` — so uncommitted edits are never what runs.
+   * - Its fact is advisory (`advisory`, `counted: false`): it informs the
+   *   review, and never satisfies or overturns a rule's check guard.
+   * - A few runs a turn and a few more a card, one at a time, and none while
+   *   the run is not live or its dispatch is held.
+   *
+   * Null for a card no v2 run bound, which is not this tool's.
+   */
+  async runCheckFor(goal: string, card: number, name: string | null, commit: string | null): Promise<string | null> {
+    const run = this.#runOfCard(goal, card)
+    if (!run || run.document.format !== 'agents') return null
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    const role = run.document.flow.roles.find((one) => one.id === round?.role)
+    if (!round || role?.kind !== 'agent') return null
+    if (run.state !== 'running' || run.intake?.dispatchHeld) {
+      return 'Refused: this card’s flow run is paused or not running, so no check runs for it now.'
+    }
+    const index = round.cards.indexOf(card)
+    const binding = bindingsFor(run, role.id)[index]
+    if (!binding || mayCommit(binding.agent, binding.grant)) {
+      return 'Refused: run_check is for Seats that only read; a Seat that can write has its work checked by the flow’s own check card.'
+    }
+    const declared = policyOf(run).roles.flatMap((one) => (one.kind === 'check' && one.check ? [{ name: one.id, check: one.check }] : []))
+    if (declared.length === 0) return 'Refused: this card’s flow declares no check, so there is nothing to run.'
+    const names = declared.map((one) => one.name).join(', ')
+    const chosen = name === null
+      ? (declared.length === 1 ? declared[0] : undefined)
+      : declared.find((one) => one.name === name)
+    if (!chosen) {
+      return name === null
+        ? `Refused: this card’s flow declares several checks, so name one of: ${names}.`
+        : `Refused: this card’s flow declares no check named “${name}”; it declares: ${names}.`
+    }
+    const { seat } = this.#seatForCard(run, card)
+    if (!seat) return `Refused: card #${card} has no Seat, so it was handed no commit to check.`
+    /* The commit under review: what the card's seating was handed, else the
+       commit its checkout was at when the card was claimed — never HEAD now,
+       which a writer sharing the checkout could move and then ask for. */
+    const seating = run.seatPlans?.[String(round.n)]
+    const claimed = this.#team.stateFor(goal).intents.find((one) => one.id === card)?.claim?.head ?? null
+    const handed = seating?.base
+      ? [seating.base]
+      : seating && seating.handed.length > 0
+        ? [...new Set(seating.handed.map((one) => one.at))]
+        : claimed ? [claimed] : []
+    if (handed.length === 0) return `Refused: no commit was recorded when card #${card} was claimed, so there is nothing to check.`
+    const at = commit === null ? (handed.length === 1 ? handed[0]! : null) : handed.find((one) => one === commit || (commit.length >= 7 && one.startsWith(commit))) ?? null
+    if (at === null) {
+      return commit === null
+        ? `Refused: card #${card} was handed several commits, so name the one to check with commit: ${handed.join(', ')}.`
+        : `Refused: card #${card} was not handed ${commit}; it was handed ${handed.join(', ')}.`
+    }
+    const ask = `${goal}#${card}`
+    if (this.#checkAsking.has(ask)) return `Refused: a run_check for card #${card} is already running; wait for its answer.`
+    const turn = run.operations.filter((one) => one.key === `turn:${round.n}:${index}` || one.key.startsWith(`turn:${round.n}:${index}:`)).length
+    const asked = this.#checkAsks.get(ask) ?? { turn, inTurn: 0, total: 0 }
+    const inTurn = asked.turn === turn ? asked.inTurn : 0
+    if (asked.total >= RUN_CHECK_PER_CARD) {
+      return `Refused: card #${card} has used all ${RUN_CHECK_PER_CARD} of its run_check runs; rely on what they printed and on the check evidence on the board.`
+    }
+    if (inTurn >= RUN_CHECK_PER_TURN) {
+      return `Refused: card #${card} has used its ${RUN_CHECK_PER_TURN} run_check runs for this turn; rely on what they printed.`
+    }
+    if (!this.#port.checkoutAt) return 'Refused: this desk cannot cut a checkout to run a check in.'
+    this.#checkAsks.set(ask, { turn, inTurn: inTurn + 1, total: asked.total + 1 })
+    this.#checkAsking.add(ask)
+    const controller = new AbortController()
+    const running = this.#checks.get(goal) ?? new Set<AbortController>()
+    this.#checks.set(goal, running.add(controller))
+    const check = chosen.check
+    let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
+    try {
+      const checkout = await this.#port.checkoutAt(seat.checkout.cwd, at)
+      try {
+        let where = checkout.cwd
+        if (check.cwd) {
+          if (isAbsolute(check.cwd)) return `Refused: ${CHECK_CWD_OUTSIDE}`
+          try {
+            where = await (await ConfinedTree.open(checkout.cwd)).resolveDir(insideRelative(check.cwd))
+          } catch {
+            return `Refused: ${CHECK_CWD_OUTSIDE}`
+          }
+        }
+        const context = this.#checkContext(run, round.n, [{ card, round: round.n, checkout: { cwd: where, branch: null }, at }])
+        outcome = await this.#port.runCheck(
+          check.run,
+          { cwd: where, timeoutSec: check.timeout, flowContext: context, signal: controller.signal },
+          { goal, card, name: chosen.name, round: round.n, advisory: true },
+        )
+      } finally {
+        await checkout.remove().catch((error: unknown) => {
+          this.#port.log("a run_check's checkout could not be removed", { goal, card, error: error instanceof Error ? error.message : String(error) })
+        })
+      }
+    } catch (error) {
+      return `Refused: the desk could not cut a checkout at ${at.slice(0, 12)} to run ${chosen.name} in: ${error instanceof Error ? error.message : String(error)}`
+    } finally {
+      running.delete(controller)
+      if (running.size === 0) this.#checks.delete(goal)
+      this.#checkAsking.delete(ask)
+    }
+    const { exit, timedOut, tail } = outcome.result
+    const said = check.exits[String(exit)] ?? check.otherwise
+    const verdict = timedOut
+      ? `${chosen.name} ran over its ${check.timeout} s limit and was stopped`
+      : controller.signal.aborted
+        ? `${chosen.name} was stopped part-way because this run was paused or stopped`
+        : exit === null
+          ? `${chosen.name} did not run to an exit`
+          : `${chosen.name} ${exit === 0 ? 'passed' : 'failed'} (exit ${exit})`
+    const failed = timedOut || exit !== 0
+    const recorded = outcome.problem ?? (outcome.evidence
+      ? 'It is recorded on this card as advisory check evidence, which no rule counts.'
+      : 'Nothing was recorded.')
+    return [
+      `${verdict}, which the flow's check would read as “${said}”. It ran \`${check.run}\` on commit ${at} — the committed change, not anyone's uncommitted edits — in a checkout of its own, now removed. ${recorded}`,
+      ...(failed ? [RUN_CHECK_CLEAN] : []),
+      ...(tail ? ['What it printed last:', tail] : []),
+    ].join('\n\n')
   }
 
   /**

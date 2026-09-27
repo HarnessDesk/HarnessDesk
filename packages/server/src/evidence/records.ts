@@ -193,6 +193,7 @@ export const factOf = (value: unknown): Evidence | null => {
           isSha(value['at']) &&
           (value['digest'] === undefined || isSha(value['digest'])) &&
           (value['counted'] === undefined || typeof value['counted'] === 'boolean') &&
+          (value['advisory'] === undefined || (value['advisory'] === true && value['counted'] === false)) &&
           typeof value['dirty'] === 'boolean' &&
           typeof value['tail'] === 'string' &&
           value['tail'].length <= TAIL_LIMIT
