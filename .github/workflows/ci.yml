@@ -59,7 +59,7 @@ jobs:
       # value); a per-test default on newer Node, where the same run passes.
       # A per-test option can only ever narrow the file-cumulative ceiling
       # here, never widen it. The four flow-host-evidence end-to-end files
-      # and the intake end-to-end files legitimately need more than this, so
+      # and the server's intake test files legitimately need more than this, so
       # they run in their own steps below instead of sharing this one;
       # everything else fits inside it.
       #
@@ -85,10 +85,11 @@ jobs:
       - name: Flow-host-evidence tests
         run: node --test --test-timeout=600000 "packages/server/dist/test/flow-host-evidence-*.test.js"
 
-      # The intake end-to-end files give each case a 120s ceiling of its own
-      # (`E2E` in each file), which sat exactly at the 120s the run above caps
-      # a whole file at: on Node 22 a slow file was cut by the runner before
-      # any case's own ceiling, or its message, could fire (#1003). The worst,
+      # The server's intake end-to-end files (7 of its 21 intake test files)
+      # give each case a 120s ceiling of its own (`E2E` in each file), which sat
+      # exactly at the 120s the run above caps a whole file at: on Node 22 a
+      # slow file was cut by the runner before any case's own ceiling, or its
+      # message, could fire (#1003). The worst,
       # intake-comments.test.ts and intake-host.test.ts, took 14s and 12s
       # measured at a load average of 9 — but with a second full gate running
       # beside it, intake-host's cases took 38-97s each. Sized like the step

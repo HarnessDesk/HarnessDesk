@@ -77,7 +77,7 @@ step('node tests', () =>
     // `{ timeout: 10000 }`, still failed as a whole file at the flag's
     // value). A per-test option can only ever narrow that file-cumulative
     // ceiling, never widen it. The four flow-host-evidence end-to-end files
-    // and the intake end-to-end files legitimately need more than this, so
+    // and the server's intake test files legitimately need more than this, so
     // they run in their own invocations below instead of sharing this one;
     // everything else fits inside it.
     //
@@ -119,10 +119,11 @@ step('flow-host-evidence tests', () =>
 step('intake tests', () =>
   run('node', [
     '--test',
-    // The intake end-to-end files give each case a 120s ceiling of its own
-    // (`E2E` in each file), which sat exactly at the 120s the run above caps
-    // a whole file at: on Node 22 a slow file was cut by the runner before
-    // any case's own ceiling, or its message, could fire (#1003). The worst,
+    // The server's intake end-to-end files (7 of its 21 intake test files)
+    // give each case a 120s ceiling of its own (`E2E` in each file), which
+    // sat exactly at the 120s the run above caps a whole file at: on Node 22
+    // a slow file was cut by the runner before any case's own ceiling, or its
+    // message, could fire (#1003). The worst,
     // intake-comments.test.ts and intake-host.test.ts, took 14s and 12s
     // measured at a load average of 9 — but with a second full gate running
     // beside it, intake-host's cases took 38-97s each. Sized like the step

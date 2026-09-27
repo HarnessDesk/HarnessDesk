@@ -2840,6 +2840,9 @@ test('a method name held in a variable is not a caller either', () => {
   )
 })
 
+/** The server's test files that run in invocations of their own, at a wider cap (#1000, #1003). */
+const CARVED_OUT = ['flow-host-evidence-*.test.js', 'intake-*.test.js']
+
 test('the test glob is written one way everywhere it is run (#256)', () => {
   // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
   const repo = repoRoot
@@ -2860,18 +2863,20 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
   // the other still fails here rather than silently narrowing what runs.
   const { top, dist, tests } = distSegments(TEST_GLOB)
   const shape = `${top}/*/${dist}/${tests}`
-  // The one package these files live under, literally — not `*` — so
-  // this is specific to the carved-out sub-glob and cannot be satisfied by
-  // the exclusion clause alone, which names the same files without that
-  // prefix (`! -name 'flow-host-evidence-*.test.js'`, no directory in it).
-  // The intake end-to-end files were split out the same way (#1003).
-  for (const name of ['flow-host-evidence-*.test.js', 'intake-*.test.js']) {
+  // The one package these files live under, literally — not `*`. The
+  // server's intake test files were split out the same way (#1003).
+  for (const name of CARVED_OUT) {
     const carveOut = `${top}/server/${dist}/${tests}/${name}`
     for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
       const text = fs.readFileSync(path.join(repo, file), 'utf8')
       assert.ok(text.includes(shape), `${file} reads dist by the same directory shape prune-dist.mjs writes (${shape})`)
+      // Read with the exclusion taken out: the exclusion now spells the same
+      // path, and on its own it satisfied this check, so a separate run whose
+      // glob matched nothing passed here — and `node --test` exits 0 on a
+      // glob that matches nothing (#1052's review, round 2).
+      const runs = text.split(`! -path '${carveOut}'`).join('').split(`! -path "${carveOut}"`).join('')
       assert.ok(
-        text.includes(carveOut),
+        runs.includes(carveOut),
         `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
       )
       // By the same path glob, not by name: a bare `-name` exclusion also
@@ -2884,6 +2889,31 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
       )
       assert.ok(!text.includes(`! -name '${name}'`) && !text.includes(`! -name "${name}"`), `${file} does not exclude ${name} by bare name`)
     }
+  }
+})
+
+test('each carved-out run is given files, and only files (#1003)', (t) => {
+  // What the carve-outs match on disk. Only once something is built: a
+  // fresh checkout has no dist to read, and this gate runs after the build.
+  const { top, dist, tests } = distSegments(TEST_GLOB)
+  const dir = path.join(repoRoot, top, 'server', dist, tests)
+  if (!fs.existsSync(dir)) {
+    t.skip('packages/server has not been built')
+    return
+  }
+  const entries = fs.readdirSync(dir, { withFileTypes: true })
+  for (const name of CARVED_OUT) {
+    const [prefix, suffix] = name.split('*')
+    const matched = entries.filter((one) => one.name.startsWith(prefix) && one.name.endsWith(suffix))
+    assert.ok(matched.some((one) => one.isFile()), `${name} matches at least one built test file, so its run is not empty`)
+    // `find -path` lets `*` cross a `/`, and node's glob does not: a
+    // directory under this prefix would be excluded from the main run and
+    // never picked up by the separate one.
+    assert.deepEqual(
+      matched.filter((one) => one.isDirectory()).map((one) => one.name),
+      [],
+      `nothing named ${name} under ${top}/server/${dist}/${tests} is a directory`,
+    )
   }
 })
 
