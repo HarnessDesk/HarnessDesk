@@ -1450,6 +1450,19 @@ typically the strip holding the bars and the composer together. A screen
 wires the two refs to its own markup; the observing and the `setProperty`
 call are this hook's alone.
 
+### `PlanCard`
+
+`packages/ui/src/design/patterns/PlanCard.tsx`
+
+A plan's fee and a key or metered account's budget: what a person set,
+once, from a suggested public price confirmed in one click — never applied
+on its own (rule: `docs/usage-dashboard.md`'s pricing paragraph).
+
+Pure presentation: every fact it draws — `entry`, `suggestion`, `refusal` —
+is handed in, and every write is a callback. `SettingsAgents.tsx` is the
+only thing that knows how to ask the host for them; this component would
+look identical mounted from a fixture on the catalogue board.
+
 ### `useDismissOverlays`
 
 `packages/ui/src/design/patterns/Popover.tsx`

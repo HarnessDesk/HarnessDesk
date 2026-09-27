@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { runtimeId, type LedgerDay, type LedgerReport, type PlanSuggestion, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, type LedgerDay, type LedgerReport, type PlanSuggestion } from '@harnessdesk/protocol'
 
 import {
   AgentIcon,
@@ -178,9 +178,7 @@ import { DialogBoard, type Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
 import { Specimen } from './specimen'
 import styles from './explorer.module.css'
-import { PlanSection } from '../../components/SettingsAgents'
-import { Mount } from '../../preview/harness'
-import { emptySnapshot, type AppStore } from '../../state/store'
+import { PlanCard } from '../patterns/PlanCard'
 
 /**
  * The composition layer, board by board.
@@ -1762,25 +1760,15 @@ const AdoptedBoard = () => {
   )
 }
 
-const planCardSnapshot = emptySnapshot()
-
 /**
- * A minimal store for the Plan card alone: `readPlans` answers with exactly
- * the suggestions each example wants to demonstrate, `setPlan`/`loadUsage`
- * are inert since nothing on this board is meant to be clicked through, and
- * `getSnapshot` is the same empty snapshot every other catalogue board reads
- * off of. Real `~/.harnessdesk/plans.json` behaviour is `plan-store.ts`'s;
- * this only has to look right.
+ * `PlanCard` (`design/patterns/PlanCard.tsx`) directly, no store and no
+ * screen: it is pure props, so the board is exactly what a person editing
+ * this file would expect — no `SettingsAgents` import, no preview harness,
+ * no fake `AppStore`. Five states, the ones the pattern actually has: a
+ * suggestion a click away, a plan with nothing to suggest, a price already
+ * set, a key account's own budget, and `plans.json`'s own read failure shown
+ * as a `Note`.
  */
-const planCardStore = (suggestions: readonly PlanSuggestion[]): AppStore =>
-  ({
-    subscribe: () => () => {},
-    getSnapshot: () => planCardSnapshot,
-    readPlans: async () => ({ entries: [], suggestions }),
-    setPlan: async () => ({}),
-    loadUsage: async () => {},
-  }) as unknown as AppStore
-
 const PLAN_CLAUDE_SUGGESTION: PlanSuggestion = {
   runtime: runtimeId('claude'),
   planMatch: 'Pro',
@@ -1791,99 +1779,72 @@ const PLAN_CLAUDE_SUGGESTION: PlanSuggestion = {
   checkedAt: '2026-09-26',
 }
 
-/**
- * The real `PlanSection` from Settings › Agents, mounted four times over —
- * the four states `docs/usage-dashboard.md`'s pricing paragraph describes:
- * a suggestion a click away, a plan with no suggestion to offer, a price the
- * person already set, and the monthly budget row a key or metered account
- * gets beside (or instead of) a price. No new control was written for this
- * board; it is the same `Row`/`Rows`/`Button`/`Dialog` composition the
- * screen ships, fed four different reports.
- */
+const inertPlanCallbacks = {
+  onSetFee: async () => {},
+  onClearFee: async () => {},
+  onSetBudget: async () => {},
+  onClearBudget: async () => {},
+}
+
 const PlanCardBoard = () => (
   <>
     <Specimen
       measure="page"
-      caption="The Plan card: a suggested price, a plan nothing suggests, a price you set, and a key account's own budget"
+      caption="The Plan card: a suggested price, a plan nothing suggests, a price you set, a key account's own budget, and plans.json's own refusal"
     >
-      <div className={styles.stack} data-catalog-states="not-set-suggested not-set-plain set budget">
+      <div className={styles.stack} data-catalog-states="not-set-suggested not-set-plain set budget refusal">
         <div data-catalog-case="not-set-suggested">
           <div className={styles.caseLabel}>Not set — a suggestion is offered</div>
-          <Mount with={planCardStore([PLAN_CLAUDE_SUGGESTION])}>
-            <PlanSection
-              runtime={runtimeId('claude')}
-              account="shane@harnessdesk.app"
-              isKey={false}
-              report={{
-                runtime: runtimeId('claude'),
-                account: 'shane@harnessdesk.app',
-                plan: 'Pro',
-                billing: { kinds: [] },
-              } as unknown as UsageReport}
-            />
-          </Mount>
+          <PlanCard
+            entry={null}
+            suggestion={PLAN_CLAUDE_SUGGESTION}
+            refusal={null}
+            showBudget={false}
+            {...inertPlanCallbacks}
+          />
         </div>
         <div data-catalog-case="not-set-plain">
           <div className={styles.caseLabel}>Not set — no suggestion for this plan</div>
-          <Mount with={planCardStore([])}>
-            <PlanSection
-              runtime={runtimeId('claude')}
-              account="shane@harnessdesk.app"
-              isKey={false}
-              report={{
-                runtime: runtimeId('claude'),
-                account: 'shane@harnessdesk.app',
-                plan: 'Max 20x',
-                billing: { kinds: [] },
-              } as unknown as UsageReport}
-            />
-          </Mount>
+          <PlanCard entry={null} suggestion={null} refusal={null} showBudget={false} {...inertPlanCallbacks} />
         </div>
         <div data-catalog-case="set">
           <div className={styles.caseLabel}>Set — &ldquo;you set this&rdquo;</div>
-          <Mount with={planCardStore([])}>
-            <PlanSection
-              runtime={runtimeId('claude')}
-              account="shane@harnessdesk.app"
-              isKey={false}
-              report={{
-                runtime: runtimeId('claude'),
-                account: 'shane@harnessdesk.app',
-                plan: 'Max 20x',
-                billing: {
-                  kinds: [],
-                  fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() },
-                },
-              } as unknown as UsageReport}
-            />
-          </Mount>
+          <PlanCard
+            entry={{ fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() } }}
+            suggestion={null}
+            refusal={null}
+            showBudget={false}
+            {...inertPlanCallbacks}
+          />
         </div>
         <div data-catalog-case="budget">
           <div className={styles.caseLabel}>A key account&rsquo;s monthly budget</div>
-          <Mount with={planCardStore([])}>
-            <PlanSection
-              runtime={runtimeId('codex')}
-              account="API key"
-              isKey
-              report={{
-                runtime: runtimeId('codex'),
-                account: 'API key',
-                plan: null,
-                billing: {
-                  kinds: ['metered'],
-                  budget: { amount: 50, currency: 'USD', period: 'month', setAt: Date.now() },
-                },
-              } as unknown as UsageReport}
-            />
-          </Mount>
+          <PlanCard
+            entry={{ budget: { amount: 50, currency: 'USD', period: 'month', setAt: Date.now() } }}
+            suggestion={null}
+            refusal={null}
+            showBudget
+            {...inertPlanCallbacks}
+          />
+        </div>
+        <div data-catalog-case="refusal">
+          <div className={styles.caseLabel}>plans.json could not be read</div>
+          <PlanCard
+            entry={null}
+            suggestion={null}
+            refusal="~/.harnessdesk/plans.json was not read: it is not JSON"
+            showBudget={false}
+            {...inertPlanCallbacks}
+          />
         </div>
       </div>
     </Specimen>
     <Rule>
-      Four states, one card: a suggestion is a click away when the vendor&rsquo;s own page gave an
+      Five states, one card: a suggestion is a click away when the vendor&rsquo;s own page gave an
       unambiguous number; otherwise the row asks for one. A stored fee reads &ldquo;you set
       this&rdquo; and a vendor-reported fee never would. A key or metered account gets a second row
       for its own spending cap, unrelated to any plan limit &mdash; never bundled, never guessed.
+      A <code>plans.json</code> that fails to read shows its own refusal rather than going blank.
     </Rule>
   </>
 )
