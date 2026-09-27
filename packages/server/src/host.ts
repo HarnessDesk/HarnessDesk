@@ -107,7 +107,14 @@ import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
-import { Ledger, defaultCorpora, type CorpusSpec, type RemoteEventsSource } from './ledger/index.js'
+import {
+  Ledger,
+  defaultCorpora,
+  DeskTranscriptTurnsSource,
+  TURN_CAPABLE_KINDS,
+  type CorpusSpec,
+  type RemoteEventsSource,
+} from './ledger/index.js'
 import type { UsageMeter } from './usage/meter.js'
 import { UsageService } from './usage/service.js'
 import { CredentialBroker, plainCipher, type CredentialCipher } from './credentials.js'
@@ -739,6 +746,8 @@ export class Host {
   readonly #meters = new Map<RuntimeId, UsageMeter>()
   readonly #corpora: CorpusSpec[] = []
   readonly #remoteSources: RemoteEventsSource[] = []
+  /** Runtimes with a real turn count behind them — see `ledger/desk-turns.ts`. */
+  readonly #turnRuntimes = new Set<RuntimeId>()
   #usage: UsageService | null = null
   #ledger: Ledger | null = null
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
@@ -1903,12 +1912,25 @@ export class Host {
    * for what it has left, a transcript corpus for what it cost. Both are
    * optional, and an agent with neither simply has less to show.
    *
+   * `deskTurns` asks for the one fallback left when neither the corpus nor
+   * anything else here can count a turn: the desk's own transcript
+   * (`ledger/desk-turns.ts`). It is the caller's decision, made once here —
+   * never both a turn-capable corpus and `deskTurns` for the same runtime, so
+   * nothing downstream can double count a session both sides already know
+   * about (see that file's own comment for why this is the whole rule).
+   *
    * Called by the wiring, which is the only place that knows which agent is
    * which; nothing above the host ever names one.
    */
   bindUsage(
     runtime: RuntimeId,
-    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string; remote?: RemoteEventsSource },
+    binding: {
+      meter?: UsageMeter
+      corpus?: CorpusSpec['kind']
+      root?: string
+      remote?: RemoteEventsSource
+      deskTurns?: boolean
+    },
   ): void {
     if (binding.meter) this.#meters.set(runtime, binding.meter)
     if (binding.corpus) {
@@ -1916,10 +1938,15 @@ export class Host {
         ? [{ runtime, kind: binding.corpus, root: binding.root }]
         : defaultCorpora([{ id: runtime, kind: binding.corpus }])
       if (spec) this.#corpora.push(spec)
+      if (TURN_CAPABLE_KINDS.has(binding.corpus)) this.#turnRuntimes.add(runtime)
     }
     // Cursor's own transcript-free corpus: rows a network call fetches
     // rather than a file this machine already has. See `usage/cursor-events.ts`.
     if (binding.remote) this.#remoteSources.push(binding.remote)
+    if (binding.deskTurns && !binding.corpus) {
+      this.#remoteSources.push(new DeskTranscriptTurnsSource(runtime, this.#transcripts))
+      this.#turnRuntimes.add(runtime)
+    }
   }
 
   get #ledgerService(): Ledger {
@@ -1927,6 +1954,7 @@ export class Host {
       stateDir: this.#state.directory,
       corpora: this.#corpora,
       remoteSources: this.#remoteSources,
+      turnRuntimes: [...this.#turnRuntimes],
       log: (message, details) => this.#logger.warn(message, details),
       onProgress: (progress) => {
         this.#push({ method: 'usage/scanProgress', params: { progress } })
@@ -1957,7 +1985,11 @@ export class Host {
     this.#usage ??= new UsageService({
       runtimes: () => this.#meteredRuntimes(),
       meters: this.#meters,
-      spend: { spendFor: (runtime) => this.#ledgerService.spendFor(runtime) },
+      spend: {
+        spendFor: (runtime, days) => this.#ledgerService.spendFor(runtime, days),
+        turnsFor: (runtime, sinceMs) => this.#ledgerService.turnsFor(runtime, sinceMs),
+        requestsFor: (runtime, sinceMs) => this.#ledgerService.requestsFor(runtime, sinceMs),
+      },
       onReport: (report) => this.#push({ method: 'usage/updated', params: { report } }),
       log: (message, details) => this.#logger.warn(message, details),
     })
