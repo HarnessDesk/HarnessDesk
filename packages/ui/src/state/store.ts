@@ -245,6 +245,13 @@ import { Transport, transportUrl } from '../lib/transport'
 /** How many decisions Agents may have waiting on composers at once; the oldest give way. */
 const AGENT_NOTICE_LIMIT = 6
 
+/** What one account read came back with: a refusal is `failed`, never an empty answer. */
+type AccountAnswer = { readonly failed: boolean; readonly status: AccountStatus | null }
+
+/** A failed account read is asked again this soon, then twice as long each time, up to the last. */
+const ACCOUNT_RETRY_FIRST_MS = 2_000
+const ACCOUNT_RETRY_LAST_MS = 60_000
+
 const summaryOfSession = (session: Session): SessionSummary => ({
   id: session.id,
   runtime: session.runtime,
@@ -889,13 +896,17 @@ export class AppStore {
   async refreshRuntime(options: { readonly history?: boolean } = {}): Promise<void> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
-    const [health, account, limits, models, runtimeOptions] = await Promise.all([
+    const [health, [accountRead, accountAnswer], limits, models, runtimeOptions] = await Promise.all([
       this.transport.request('runtime/health', { runtime }).catch(() => null),
-      this.transport.request('runtime/account', { runtime }).catch(() => null),
+      this.#readAccount(runtime),
       this.transport.request('runtime/limits', { runtime }).catch(() => null),
       this.transport.request('runtime/models', { runtime }).catch(() => [] as ModelInfo[]),
       this.transport.request('runtime/options', { runtime }).catch(() => [] as ConfigOption[]),
     ])
+    const account = accountAnswer.status
+    // The per-agent map is keyed by agent, so this read counts wherever the
+    // user has moved to — as one more numbered read, never over a newer one.
+    this.#applyAccounts([[runtime, accountRead, accountAnswer]])
     // The user may have switched runtime while these were in flight; stale
     // results for the previous one must not stomp the current surface.
     if (this.#snapshot.activeRuntime !== runtime) return
@@ -909,7 +920,6 @@ export class AppStore {
       models,
       runtimeOptions,
       ...(health ? { healthByRuntime: { ...this.#snapshot.healthByRuntime, [runtime]: health } } : {}),
-      ...(account ? { accountsByRuntime: { ...this.#snapshot.accountsByRuntime, [runtime]: account } } : {}),
     })
     if (health?.state === 'ready') {
       if (options.history !== false) void this.loadHistory({ reset: true })
@@ -1314,33 +1324,113 @@ export class AppStore {
   /**
    * Who every runtime is signed in as, for the Agents settings section.
    *
-   * Numbered, because this replaces the whole map and three of these fire
-   * within a few hundred milliseconds of adding an account — on
-   * `runtime/added`, on that account's health going ready, and after the add
-   * resolves. Each is a `Promise.all` over *every* runtime, so the one that
-   * **resolves** last wins rather than the one that started last: one slow
-   * sibling is enough for the earliest pass — taken before the new account
-   * could answer — to land after the others and delete its status again,
-   * dropping the sign-in page back into the state this whole change exists to
-   * remove, with nothing left to re-ask. A late answer is now discarded
-   * instead.
+   * Numbered per agent, because reads overlap: three whole passes fire within
+   * a few hundred milliseconds of adding an account — on `runtime/added`, on
+   * that account's health going ready, and after the add resolves — and a
+   * retry or `refreshRuntime` can ask one agent meanwhile. The answer that
+   * **resolves** last must not be the one that counts: one slow sibling was
+   * enough for the earliest pass, taken before the new account could answer,
+   * to land after the others and delete its status again. So each read takes
+   * the agent's next number when it is asked, and only the agent's newest
+   * read may land; an older one is discarded.
    */
-  #accountsGeneration = 0
+  #accountReads = new Map<RuntimeId, number>()
+
+  /**
+   * The agents whose newest account read failed, and the one re-ask for them.
+   *
+   * A read that failed used to drop the agent's status and leave it there:
+   * nothing asked again until some other event happened to, so an agent
+   * whose read failed once sat at "Not answered yet" with nothing on any
+   * surface to press (#1021). A failure now keeps the last answer that
+   * arrived, if one did, and the agent is asked again on its own — soon at
+   * first, then less often — until it answers.
+   *
+   * Kept as the store's own state rather than carried by whichever pass
+   * failed, so no later read can lose one: whatever lands, the agents still
+   * failing are exactly these, and the timer asks exactly these. Only they
+   * are asked — re-reading the whole roster for one agent that never
+   * answers would be a status call to every agent, every minute, for as long
+   * as the window is open — and never one that is unavailable: its health
+   * coming back up is what re-reads it.
+   */
+  #accountFailed = new Set<RuntimeId>()
+  #accountRetry: ReturnType<typeof setTimeout> | null = null
+  #accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
 
   async loadAccounts(): Promise<void> {
-    const generation = ++this.#accountsGeneration
-    const entries = await Promise.all(
-      this.#snapshot.runtimes.map(async (runtime) => {
-        const status = await this.transport
-          .request('runtime/account', { runtime: runtime.id })
-          .catch(() => null)
-        return [runtime.id, status] as const
-      }),
+    await this.#askAccounts(this.#snapshot.runtimes.map((runtime) => runtime.id))
+  }
+
+  async #askAccounts(ids: readonly RuntimeId[]): Promise<void> {
+    const entries = await Promise.all(ids.map(async (id) => [id, ...(await this.#readAccount(id))] as const))
+    this.#applyAccounts(entries)
+  }
+
+  /** One agent's read, numbered as it is asked. A failure is the request refusing, never an answer. */
+  async #readAccount(id: RuntimeId): Promise<readonly [number, AccountAnswer]> {
+    const read = (this.#accountReads.get(id) ?? 0) + 1
+    this.#accountReads.set(id, read)
+    const answer = await this.transport.request('runtime/account', { runtime: id }).then(
+      (status): AccountAnswer => ({ failed: false, status }),
+      (): AccountAnswer => ({ failed: true, status: null }),
     )
-    if (generation !== this.#accountsGeneration) return
+    return [read, answer]
+  }
+
+  #applyAccounts(entries: readonly (readonly [RuntimeId, number, AccountAnswer])[]): void {
+    const roster = new Set(this.#snapshot.runtimes.map((runtime) => runtime.id))
     const accountsByRuntime: Partial<Record<RuntimeId, AccountStatus>> = {}
-    for (const [id, status] of entries) if (status) accountsByRuntime[id] = status
+    // An agent that went away goes with it, whichever read lands after.
+    for (const [id, status] of Object.entries(this.#snapshot.accountsByRuntime) as [RuntimeId, AccountStatus][]) {
+      if (roster.has(id)) accountsByRuntime[id] = status
+    }
+    for (const [id, read, answer] of entries) {
+      if (!roster.has(id) || this.#accountReads.get(id) !== read) continue
+      if (answer.failed) {
+        // A failed read says nothing new about who is signed in, so the
+        // last answer stands rather than being thrown away for no answer.
+        this.#accountFailed.add(id)
+        continue
+      }
+      this.#accountFailed.delete(id)
+      if (answer.status) accountsByRuntime[id] = answer.status
+      else delete accountsByRuntime[id]
+    }
     this.#patch({ accountsByRuntime })
+    this.#scheduleAccountRetry()
+  }
+
+  /** The agents still worth asking again: failed, still here, and not known to be down. */
+  #accountsToRetry(): RuntimeId[] {
+    const roster = new Set(this.#snapshot.runtimes.map((runtime) => runtime.id))
+    for (const id of this.#accountFailed) {
+      if (!roster.has(id) || this.#snapshot.healthByRuntime[id]?.state === 'unavailable') this.#accountFailed.delete(id)
+    }
+    return [...this.#accountFailed]
+  }
+
+  #scheduleAccountRetry(): void {
+    if (this.#accountsToRetry().length === 0) {
+      if (this.#accountRetry) clearTimeout(this.#accountRetry)
+      this.#accountRetry = null
+      this.#accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
+      return
+    }
+    // One re-ask at a time, kept once set: another failure landing meanwhile
+    // is already covered by it, and must not push it later.
+    if (this.#accountRetry) return
+    const delay = this.#accountRetryDelay
+    this.#accountRetryDelay = Math.min(delay * 2, ACCOUNT_RETRY_LAST_MS)
+    this.#accountRetry = setTimeout(() => {
+      this.#accountRetry = null
+      const ids = this.#accountsToRetry()
+      if (ids.length === 0) {
+        this.#accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
+        return
+      }
+      void this.#askAccounts(ids)
+    }, delay)
   }
 
   /**
@@ -4689,7 +4779,7 @@ export class AppStore {
    * that started last — an older `agent/list` landing after a newer one would
    * draw the previous project's roster back over the current one. Bumped at
    * the call, checked once the read returns, on the same pattern as
-   * `#accountsGeneration`.
+   * `#accountReads`.
    */
   #agentsGeneration = 0
   /** Same guard, for the dry run: `agentPlans` carries no project of its own. */

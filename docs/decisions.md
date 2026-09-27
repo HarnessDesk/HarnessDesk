@@ -892,6 +892,67 @@ refused, because one writer beside readers has the tree to itself.
 behind the file's back; and a round belongs to the review series only when its
 Seats are there to judge.
 
+## A card's checkout holds the work it is handed, and a new lane is how
+
+*Issue #1053.* Walking UC1, the tester after an isolated `dev` was seated in
+the Goal's own checkout, still at the commit the run began at. Its order named
+the dev's newer commit, it ran the tests where it sat, and it answered
+`request-changes` about code it never had, round after round. Isolated debate
+analysts had the same gap: "the other analyst's position is unavailable in
+this checkout". Checks never had it, because #1041 runs each check card in its
+predecessor's own lane at a head journaled when the round opens; and a judge
+reached its competitors only through `review_candidates`, which names a
+revision but not where it is.
+
+Three ways to give a card that work were open. Seat it in the predecessor's
+own lane: a lane belongs to one Seat, its ports and browser profile with it,
+and a reader sitting in a writer's tree would have its own diff measured
+against the writer's commits (#1042) and its claim compared against the
+writer's paths (#1026); and a second card of the round could not share it
+without meeting #1024's refusal. Bring the commit into the card's checkout:
+for a card that is not isolated that is the person's own checkout, which the
+desk never moves without asking. Or cut a fresh lane from the predecessor's
+commit: the lane allocator already cuts a pinned run's lanes from one commit,
+so this is the same seam with a different base, and each card still has a
+tree of its own. We took the third.
+
+Several predecessors at different commits have no one commit to cut from. A
+merge could conflict, and a merge base holds neither side. Every lane is a
+worktree of the one repository, so every commit is already reachable by id
+from any checkout of it; what the card lacked was being told. So the card
+keeps the checkout its role gives it, and its order names each predecessor's
+card, commit, branch and folder. The plan — base, or the list — is decided
+once, before any Seat opens, and journaled beside the round, so a retry seats
+and briefs exactly as the first attempt did.
+
+Work that cannot be reached does not seat the card on stale code: a
+predecessor whose Seat cannot be read, whose checkout is gone or has no
+commit, or whose work is uncommitted stops the round before its card opens,
+naming the card and the predecessor. A card sharing its one predecessor's own
+tree — neither isolated — already holds that work, dirty or not, and is left
+exactly as it was.
+
+This adds lanes a flow file does not spell out, which #1024 declined to do for
+committing siblings. The difference is what the lane is for: #1024's would
+have hidden a refused shape, while this one is the only way to give a card the
+work its own order names, and it never shares or moves anyone else's tree. It
+is not hidden either: the dry run computes the same rule from the file alone
+(`rolesAtPredecessor`, beside the `handedCheckout` the run seats by) and marks
+each such Seat, so the start screen says what runs. For that, a run cuts a
+lane only for exactly one predecessor card; several are always named, even
+when they happen to share a commit, so the file decides and the run agrees.
+
+A reading Seat still gets the whole lane — ports and a browser profile — since
+the browser tools are read-level and its own shell may run the project's tests
+on `PORT`. What it does not do is hold them: a lane opened only for a reader
+is marked `reading`, and is let go the moment its Seat closes, or left
+retained for a person when a port is still in use. A UC4-shaped loop therefore
+holds one reader's ports at a time, not one per round.
+
+**The rule:** one commit handed is a lane cut from it; several are named in
+the order; work that cannot be reached stops the round, never a Seat on stale
+code.
+
 ## An agreed split is recorded by the agent that agreed it, and each card owns its own part
 
 *Issue #1015.* A pair build (the design's UC5) has two developers agree a

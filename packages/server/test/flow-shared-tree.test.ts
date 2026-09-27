@@ -149,7 +149,11 @@ test('a plain round is never stopped by the review series, and a stall there nam
   assert.equal(close(false, 3).stopped, null, 'an unreadable evidence line is no reason to stop a round that counts no findings')
   const stalled = close(false, 1).stopped
   assert.ok(stalled, 'the run budget still stops a plain round')
-  assert.equal(stalled.reason, 'This run reached its limit of 1 round.', 'the budget, in plain words — never a count of findings it did not read')
+  assert.equal(
+    stalled.reason,
+    'This run reached its limit of 1 round. To let it continue, open Findings and choose Authorise another round.',
+    'the budget, in plain words — never a count of findings it did not read — with the way past it named',
+  )
   assert.doesNotMatch(stalled.reason, /could not be read|findings/)
   assert.equal(close(false, 1).stopped?.round, 1)
 })
@@ -246,6 +250,9 @@ test('with no findings plane attached, a plain round at the budget still says th
   for (const card of [1, 2]) await rig.team.complete(card, { outcome: 'disagree' }, holderOf(rig, run.goal, card))
   await rig.flows.flush()
   const stopped = rig.flows.findingRun(run.id)?.findings?.stopped
-  assert.deepEqual(stopped, { round: 1, reason: 'This run reached its limit of 1 round.' })
+  assert.deepEqual(stopped, {
+    round: 1,
+    reason: 'This run reached its limit of 1 round. To let it continue, open Findings and choose Authorise another round.',
+  })
   assert.equal(rig.board(run.goal).intents.filter((one) => one.role === 'analyst').length, 2, 'no debate round opened past the budget')
 })

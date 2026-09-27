@@ -60,6 +60,8 @@ export interface GoalOperationPort {
   releaseClaim(goal: string, seat: SeatId, until: string | null): Promise<void>
   refuseMail(goal: string, seat: SeatId): Promise<void>
   retainLane(seat: SeatId): Promise<void>
+  /** Lets go of a lane opened only for this reading Seat (#1053) once it has closed; any other lane is left as it is. */
+  releaseReadingLane?(seat: SeatId): Promise<void>
   wake(goal: string): void
   finish(goal: string, operation: string): Promise<void>
   finishWrap(operation: Extract<GoalOperation, { kind: 'wrap' }>): Promise<void>
@@ -85,6 +87,7 @@ export async function recoverOperation(operation: GoalOperation, port: GoalOpera
       await port.closeId(operation.seat, operation.reason)
       await port.releaseClaim(operation.goal, operation.seat, operation.until)
       await port.refuseMail(operation.goal, operation.seat)
+      await port.releaseReadingLane?.(operation.seat)
       await port.finish(operation.goal, operation.id)
       port.wake(operation.goal)
       return
@@ -94,6 +97,7 @@ export async function recoverOperation(operation: GoalOperation, port: GoalOpera
         await port.releaseClaim(operation.goal, seat, operation.stops?.[seat] ?? null)
         await port.refuseMail(operation.goal, seat)
         await port.retainLane(seat)
+        await port.releaseReadingLane?.(seat)
       }
       await port.finishWrap(operation)
       return

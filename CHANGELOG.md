@@ -7,6 +7,32 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A run stopped at its round budget now says how to let it continue.** The
+  control already existed — the Findings tab's "Decide this run" opens
+  "Authorise another round" for exactly this stop — but nothing on the stall
+  itself pointed there, so a person reading "This run reached its limit of N
+  rounds." or "Round N ended with M open findings." had no way to find it.
+  Both messages now end with "To let it continue, open Findings and choose
+  Authorise another round.", in the button's own words, and only for the
+  stops that action actually answers — never a design problem or a pending
+  regression or security claim, which need a person's judgment first, not
+  another round. (#1051)
+
+- **A step after an isolated one now works on that step's actual commit.** A
+  flow step that depends on an isolated step's finished work — a tester after
+  a developer working in its own worktree, say — used to open in the project's
+  own checkout, still at the commit the run started from. It ran the tests
+  there and reported problems with code it never had, round after round. Such
+  a step now opens in a worktree of its own, cut from that commit, and the
+  project's own checkout is never moved. A step handed several different
+  commits (a debate round reading both positions, a judge comparing attempts)
+  is told each one's commit, branch and folder. If that work cannot be
+  reached — its worktree is gone, or it was never committed — the run stops
+  before the step opens and says which step and why. The dry run marks each
+  step that will get a worktree this way, and a reading step's worktree lets
+  its ports and browser profile go as soon as that step's conversation
+  closes. (#1053)
+
 - **An effort mismatch found only once a conversation opened is worded
   truthfully, and one runtime's levels are no longer copied onto another
   model's own.** Two small fixes to seating an Agent's effort. First, an ACP
@@ -144,18 +170,22 @@ move is real work and is not news to a person weighing an upgrade.
   menu bar and the header strip claimed a sign-in was needed for however
   long that took, even though the footer and the seat menu already stayed
   neutral about the same agent. Readiness now has a state for not knowing
-  yet, and every surface draws it the same quiet way: the menu bar's row
-  says "Not answered yet" rather than offering a sign-in it cannot back up,
-  the header strip stops naming it in its "needs sign-in" count, the
-  Dashboard's "has nothing to report" card no longer appears for it,
-  Settings › Runtimes lists it under a "Not answered yet" heading of its own
-  — neither "Needs attention" nor a "Ready" it has not earned — its own
-  page says it has not answered yet rather than "Not signed in", no longer
-  says a session would not start while one of its accounts is still
-  answering, and asks before removing an account that has not answered, the
-  Runtimes row in the Settings window's own nav no longer lights for it, and
-  the whole-desk survey (the empty pane's "now what?") says so instead of a
-  tagline or a bare "Ready." (#986)
+  yet, and every surface draws it the same quiet way. The menu bar's row
+  says "Not answered yet" rather than offering a sign-in it cannot back up;
+  the header strip stops naming it in its "needs sign-in" count; the
+  Dashboard's "has nothing to report" card no longer appears for it;
+  Settings › Runtimes lists it under a "Not answered yet" heading of its own,
+  neither "Needs attention" nor a "Ready" it has not earned; the Runtimes
+  row in the Settings window's own nav no longer lights for it; and the
+  whole-desk survey (the empty pane's "now what?") says so instead of a
+  tagline or a bare "Ready." An agent's own page says it has not answered
+  yet rather than "Not signed in", says a session would not start only once
+  every one of its accounts has answered, and asks before removing an
+  account that has not; an extra account that could not start says
+  "Unavailable" there, as the list does (#1038). A read that fails no
+  longer forgets the last answer, and is asked again on its own, soon at
+  first and then less often, so an agent never sits at "Not answered yet"
+  with nothing asking (#1021). (#986)
 
 - **A role `independentOf` a DeepSeek or Cursor competitor could never seat.**
   The desk could only read the vendor behind Claude Code, Gemini CLI and

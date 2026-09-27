@@ -3676,7 +3676,8 @@ class AcpSession implements AgentSession {
                 update.content,
               ),
         ],
-        startedAt: Date.now(),
+        // Always inside the `this.#replaying` guard above -- see MutableTurn's own comment.
+        startedAt: null,
       }
       return
     }
@@ -4216,7 +4217,11 @@ class AcpSession implements AgentSession {
         : {}),
       startedAt: turn.startedAt,
       completedAt: Date.now(),
-      durationMs: Date.now() - turn.startedAt,
+      // Never actually null here -- `#finishTurn` only ever closes a live
+      // turn (`send`'s own `Date.now()`), replay never reaches it -- but the
+      // type is shared with a replayed turn's, so the arithmetic still has
+      // to allow for it.
+      durationMs: turn.startedAt === null ? null : Date.now() - turn.startedAt,
     }
     this.#currentTurn = null
     this.#turns.push(finished)
@@ -4252,5 +4257,13 @@ const OPEN_TURN = -1
 interface MutableTurn {
   readonly id: TurnId
   items: AgentItem[]
-  readonly startedAt: number
+  /**
+   * `null` only for a turn opened while replaying stored history
+   * (`#replaying`): the desk already knows when it really started, and
+   * stamping `Date.now()` here would re-date it to the moment of replay
+   * every time the session is reopened -- and double-count it, since desk
+   * turn counting buckets by day (#1047 review). A live turn (`send`) is
+   * always a real timestamp.
+   */
+  readonly startedAt: number | null
 }
