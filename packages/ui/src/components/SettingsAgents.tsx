@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
   Account,
@@ -7,10 +7,12 @@ import type {
   ConfigOption,
   InstallInfo,
   OptionValue,
+  PlanRead,
   RateLimits,
   RuntimeHealth,
   RuntimeId,
   RuntimeInfo,
+  UsageReport,
   UsageWindow,
 } from '@harnessdesk/protocol'
 
@@ -69,6 +71,7 @@ import {
   NativeSelect,
   Textarea,
   PageHead,
+  PlanCard,
   Progress,
   Row,
   RowButton,
@@ -277,6 +280,78 @@ export const UsageMeter = ({ window }: { window: UsageWindow }) => {
           </Text>
         </>
       }
+    />
+  )
+}
+
+/**
+ * The store wiring around `PlanCard` (`design/patterns/PlanCard.tsx`): asks
+ * the host for this account's own stored entry and matching suggestion
+ * (`usage/plan/read`, keyed on `{ runtime, account }` — never a runtime's
+ * single cached report, which only ever remembers one account, BLOCKING 3),
+ * writes through `store.setPlan`, and re-asks after every write since
+ * `usage/plan/read` has no push of its own. `report` is only this account's
+ * own plan string, when this exact account produced a report — used to pick
+ * the matching suggestion server-side, never to read `billing` (BLOCKING 3).
+ */
+export const PlanSection = ({
+  runtime,
+  account,
+  report,
+  isKey,
+}: {
+  runtime: RuntimeId
+  account: string
+  report: UsageReport | undefined
+  isKey: boolean
+}) => {
+  const store = useStore()
+  const [state, setState] = useState<PlanRead | null>(null)
+
+  const load = useCallback(async (): Promise<void> => {
+    const read = await store.readPlan({ runtime, account, plan: report?.plan ?? null })
+    setState(read)
+  }, [store, runtime, account, report?.plan])
+
+  useEffect(() => {
+    let cancelled = false
+    void load().catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+    // `cancelled` guards nothing here (there is nothing async to race after
+    // unmount besides the `setState` above, which React already tolerates),
+    // kept for parity with every other effect in this file that fetches.
+    void cancelled
+  }, [load])
+
+  if (!account) return null
+
+  const budget = state?.entry?.budget ?? null
+  const showBudget = isKey || (report?.billing?.kinds.includes('metered') ?? false) || budget !== null
+
+  return (
+    <PlanCard
+      entry={state?.entry ?? null}
+      suggestion={state?.suggestion ?? null}
+      refusal={state?.refusal ?? null}
+      showBudget={showBudget}
+      onSetFee={async (amount, currency, period) => {
+        await store.setPlan({ runtime, account, fee: { amount, currency, period } })
+        await load()
+      }}
+      onClearFee={async () => {
+        await store.setPlan({ runtime, account, fee: null })
+        await load()
+      }}
+      onSetBudget={async (amount, currency) => {
+        await store.setPlan({ runtime, account, budget: { amount, currency } })
+        await load()
+      }}
+      onClearBudget={async () => {
+        await store.setPlan({ runtime, account, budget: null })
+        await load()
+      }}
     />
   )
 }
@@ -1280,9 +1355,11 @@ const AccountDetail = ({
   const [name, setName] = useState(prefs?.nickname ?? '')
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [limits, setLimits] = useState<RateLimits | null>(null)
-  const report = snapshot.usage.find(
-    (entry) => entry.runtime === info.id && (usageAccount(entry) === account.label.trim() || usageAccount(entry) === ''),
-  )
+  // Strictly this account's own report — never a sibling account's, and
+  // never the account-less fallback that used to hand every account on a
+  // runtime the same single report (BLOCKING 3). The Plan card below never
+  // reads `report.billing` at all; it reads its own stored entry.
+  const report = snapshot.usage.find((entry) => entry.runtime === info.id && usageAccount(entry) === account.label.trim())
   const state: Readiness = report && isBlocked(report) ? 'limit' : 'ready'
   const accountWide = report?.lanes.some((lane) => lane.placeholder !== true && !lane.scope) ?? false
   const usageOptions = [
@@ -1434,6 +1511,8 @@ const AccountDetail = ({
       </Section>
 
       <UsageSection limits={limits} name={info.presentation.name} />
+
+      <PlanSection runtime={info.id} account={account.label.trim()} report={report} isKey={isKey} />
 
       {confirmingSignOut && (
         <ConfirmDialog

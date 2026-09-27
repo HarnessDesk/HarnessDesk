@@ -223,6 +223,19 @@ export interface HostContext {
   /** Built the first time something asks, so boot pays for neither. */
   usage(): UsageService
   ledger(): Ledger
+  /**
+   * What a person has set for one account's plan fee and key budget:
+   * `~/.harnessdesk/plans.json`, folded into every `UsageReport` by the
+   * `UsageService` overlay this context wires up (`planOverlay`) — never by
+   * a handler here, so the merge rule (a vendor fee always wins) lives in
+   * one place, `usage/plan-merge.ts`. `read` answers one account's own
+   * stored entry and matching suggestion, keyed the same way `set` writes.
+   */
+  readonly plans: {
+    read(params: import('@harnessdesk/protocol').PlanReadParams): Promise<import('@harnessdesk/protocol').PlanRead>
+    set(input: import('@harnessdesk/protocol').PlanSetInput): Promise<import('@harnessdesk/protocol').PlanEntry>
+    entryFor(runtime: RuntimeId, account: string): Promise<import('@harnessdesk/protocol').PlanEntry | null>
+  }
   libraryUsage(): LibraryUsageReader
   /** Read-only Insight reports plus the explicitly reviewed local seating action. */
   readonly insight: Pick<InsightPlane, 'goal' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
